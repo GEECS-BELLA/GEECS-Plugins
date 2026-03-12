@@ -17,13 +17,13 @@ import logging
 
 from typing import Optional, Dict, Union, TYPE_CHECKING, Tuple
 from pathlib import Path
+
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
 import numpy as np
 import scipy.ndimage as ndimage
 import matplotlib.pyplot as plt
-
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
@@ -32,14 +32,15 @@ from image_analysis.algorithms.beam_slopes import compute_beam_slopes
 
 logger = logging.getLogger(__name__)
 
+
 def apply_gaussian_mask(
-        image: np.ndarray,
-        center_x: Optional[int] = None,
-        center_y: Optional[int] = None,
-        sigma_x: float = 100,
-        sigma_y: float = 20,
-        binarize: bool = False,
-        threshold_factor: float = 0.01,
+    image: np.ndarray,
+    center_x: Optional[int] = None,
+    center_y: Optional[int] = None,
+    sigma_x: float = 100,
+    sigma_y: float = 20,
+    binarize: bool = False,
+    threshold_factor: float = 0.01,
 ) -> Union[np.ndarray, tuple[np.ndarray, np.ndarray]]:
     """Apply a separable 2D Gaussian mask and optionally binarize.
 
@@ -76,8 +77,8 @@ def apply_gaussian_mask(
     y, x = np.mgrid[0:rows, 0:cols]
     gaussian_mask = np.exp(
         -(
-                ((x - center_x) ** 2) / (2 * sigma_x ** 2)
-                + ((y - center_y) ** 2) / (2 * sigma_y ** 2)
+            ((x - center_x) ** 2) / (2 * sigma_x**2)
+            + ((y - center_y) ** 2) / (2 * sigma_y**2)
         )
     )
     masked_image = image * gaussian_mask
@@ -88,6 +89,7 @@ def apply_gaussian_mask(
         threshold = threshold_factor * np.nanmax(masked_image)
         binary_mask = (masked_image > threshold).astype(np.float32)
         return binary_mask * image
+
 
 class DownrampPhaseAnalyzer(StandardAnalyzer):
     """
@@ -161,8 +163,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
         processed_image = processed_image - np.nanmedian(processed_image)
 
-        gauss_masked_array = apply_gaussian_mask(
-            image=processed_image, binarize=True)
+        gauss_masked_array = apply_gaussian_mask(image=processed_image, binarize=True)
         processed_image = gauss_masked_array
 
         slopes_result = compute_beam_slopes(processed_image)
@@ -171,7 +172,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         scalar_results_dict = self.compile_shock_analysis(processed_image)
 
         phase_converted = processed_image
-        phase_scale_16bit_scale = (2 ** 16 - 1) / (2 * np.pi)
+        phase_scale_16bit_scale = (2**16 - 1) / (2 * np.pi)
         phase_converted = phase_scale_16bit_scale * phase_converted
         phase_converted = phase_converted.astype(np.uint16)
 
@@ -197,7 +198,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         return result
 
     def compile_shock_analysis(
-            self, phase_array: NDArray, window_size: int = 20
+        self, phase_array: NDArray, window_size: int = 20
     ) -> dict:
         """Compute shock metrics, assemble composite figure, and return results.
 
@@ -225,7 +226,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             'Plasma downramp peak to plateau (phase)', and figure metadata from rotation.
         """
         slopes = compute_beam_slopes(phase_array, prefix=self.camera_name)
-        laser_angle = np.arctan(slopes[f'{self.camera_name}_image_com_slope_x'])
+        laser_angle = np.arctan(slopes[f"{self.camera_name}_image_com_slope_x"])
         laser_angle_deg = np.degrees(laser_angle)
         rotated_data = ndimage.rotate(
             phase_array, angle=laser_angle_deg, reshape=True, order=1
@@ -286,8 +287,8 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         plt.tight_layout()
         if self.file_path is not None:
             combined_save_path = (
-                    self.file_path.parent
-                    / f"{self.file_path.stem}_combined_shock_analysis.pdf"
+                self.file_path.parent
+                / f"{self.file_path.stem}_combined_shock_analysis.pdf"
             )
             combined_fig.savefig(combined_save_path)
             plt.close(combined_fig)
@@ -300,8 +301,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
     def get_shock_angle(self, image: np.ndarray, window_size: int = 20) -> float:
         """
-        Estimate the shock angle in an image by finding the local slope per row
-        and fitting a line to these positions.
+        Estimate the shock angle by finding the local slope per row and fitting a line to these positions.
 
         Parameters
         ----------
@@ -341,7 +341,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
         # Fit a line to get shock angle using only valid rows
         if len(rows_valid) >= 2:
-            coeffs = np.polyfit(rows_valid, positions_valid, 1,w=weights)
+            coeffs = np.polyfit(rows_valid, positions_valid, 1, w=weights)
             slope_line = coeffs[0]
             angle_rad = np.arctan(slope_line)
         else:
@@ -365,18 +365,18 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             )
 
         plt.legend()
-        self.shock_angle_fig = plt.gcf()
+        self.shock_angle_fig = fig
 
         return angle_rad
 
     def find_max_local_slope(
-            self, profile: np.ndarray,
-            window_size: int = 20
+        self, profile: np.ndarray, window_size: int = 20
     ) -> Tuple[float, int, np.ndarray, np.ndarray]:
         """
         Find the maximum local slope and its position in a 1D array using sliding window.
 
-        Returns:
+        Returns
+        -------
             max_slope : float
                 Maximum slope found (phase units per pixel)
             best_center : int
@@ -386,7 +386,6 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             best_fit_y : np.ndarray
                 Linear fit values for the best window (for optional plotting)
         """
-
         if np.nansum(profile) <= 0:
             # Invalid profile: total counts are zero or negative
             return np.nan, None, None, None
@@ -423,7 +422,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         return max_slope, best_center, best_fit_x, best_fit_y
 
     def get_shock_gradient_and_position(
-            self, image: np.ndarray, window_size: int = 20
+        self, image: np.ndarray, window_size: int = 20
     ) -> tuple[float, int]:
         """Find the maximum local slope and its position from a vertical sum profile.
 
@@ -444,7 +443,9 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         fig = plt.figure(figsize=(6, 4))
 
         profile = np.sum(image, axis=0)
-        max_slope, best_center, best_x, best_y = self.find_max_local_slope(profile, window_size)
+        max_slope, best_center, best_x, best_y = self.find_max_local_slope(
+            profile, window_size
+        )
 
         # Plot
         plt.plot(np.arange(len(profile)), profile, label="Summed phase", color="blue")
@@ -454,12 +455,12 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         plt.ylabel("Vertical sum of phase")
         plt.title("Shock gradient and position estimator")
         plt.legend()
-        self.shock_grad_fig = plt.gcf()
+        self.shock_grad_fig = fig
 
         return max_slope, best_center
 
     def calculate_delta_plateau(
-            self, image: np.ndarray, best_center: int, window_size: int = 20
+        self, image: np.ndarray, best_center: int, window_size: int = 20
     ) -> tuple[float, float]:
         """Compute plateau average and peak-to-plateau delta from a vertical sum profile.
 
@@ -520,4 +521,3 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             delta,
         )
         return plateau_value, delta
-
