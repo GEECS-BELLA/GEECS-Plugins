@@ -123,7 +123,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             name_suffix=name_suffix,
             metric_suffix=metric_suffix,
         )
-        
+
         self.run_analyze_image_asynchronously = False
 
         logger.info(
