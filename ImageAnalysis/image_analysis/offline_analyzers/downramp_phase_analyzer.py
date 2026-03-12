@@ -170,7 +170,6 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         processed_image = gauss_masked_array
 
         slopes_result = compute_beam_slopes(processed_image)
-        print(slopes_result)
 
         scalar_results_dict = self.compile_shock_analysis(processed_image)
 
