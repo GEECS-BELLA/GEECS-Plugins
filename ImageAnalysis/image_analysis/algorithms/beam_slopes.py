@@ -117,7 +117,8 @@ def compute_slope(
     x, y, w = positions[mask], values[mask], weights[mask]
 
     # Weighted linear fit
-    coeffs = np.polyfit(x, y, 1, w=np.sqrt(w))  # [slope, intercept]
+    coeffs = np.polyfit(x, y, 1, w=w)  # [slope, intercept]
+
 
     return float(coeffs[0])
 
