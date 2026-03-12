@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 import scipy.ndimage as ndimage
-import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
 # Import the StandardAnalyzer parent class
@@ -169,8 +169,6 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         gauss_masked_array = apply_gaussian_mask(image=processed_image, binarize=True)
         processed_image = gauss_masked_array
 
-        slopes_result = compute_beam_slopes(processed_image)
-
         scalar_results_dict = self.compile_shock_analysis(processed_image)
 
         phase_converted = processed_image
@@ -241,35 +239,36 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
         rotated_phase = rotated_data
 
-        # Create a single figure with 3 subplots for all diagnostics
-        combined_fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        # Create figure using OO API (thread-safe, no pyplot global state)
+        combined_fig = Figure(figsize=(15, 5))
+        axs = combined_fig.subplots(1, 3)
 
-        try:
-            shock_angle = self.get_shock_angle(rotated_phase, ax=axs[0])
-            max_slope, best_center = self.get_shock_gradient_and_position(
-                rotated_phase, ax=axs[1], window_size=window_size
+        shock_angle = self.get_shock_angle(rotated_phase, ax=axs[0])
+        max_slope, best_center = self.get_shock_gradient_and_position(
+            rotated_phase, ax=axs[1], window_size=window_size
+        )
+        plateau_value, delta = self.calculate_delta_plateau(
+            rotated_phase, best_center, ax=axs[2], window_size=window_size
+        )
+
+        axs[0].set_title("Shock Angle Determination")
+        axs[1].set_title("Shock Gradient & Position")
+        axs[2].set_title("Plateau estimation")
+
+        combined_fig.tight_layout()
+
+        if self.file_path is not None:
+            combined_save_path = (
+                self.file_path.parent
+                / f"{self.file_path.stem}_combined_shock_analysis.pdf"
             )
-            plateau_value, delta = self.calculate_delta_plateau(
-                rotated_phase, best_center, ax=axs[2], window_size=window_size
+            combined_fig.savefig(combined_save_path)
+            logger.info(
+                "Combined shock analysis figure saved to %s", combined_save_path
             )
 
-            axs[0].set_title("Shock Angle Determination")
-            axs[1].set_title("Shock Gradient & Position")
-            axs[2].set_title("Plateau estimation")
-
-            combined_fig.tight_layout()
-
-            if self.file_path is not None:
-                combined_save_path = (
-                    self.file_path.parent
-                    / f"{self.file_path.stem}_combined_shock_analysis.pdf"
-                )
-                combined_fig.savefig(combined_save_path)
-                logger.info(
-                    "Combined shock analysis figure saved to %s", combined_save_path
-                )
-        finally:
-            plt.close(combined_fig)
+        # No plt.close() needed — Figure created via OO API is not tracked
+        # by pyplot and will be garbage collected when this scope exits.
 
         results = {
             "Plasma downramp shock_angle": shock_angle,
