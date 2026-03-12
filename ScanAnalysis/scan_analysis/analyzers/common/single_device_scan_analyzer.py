@@ -27,7 +27,7 @@ import pickle
 from abc import ABC
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal
+from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal, Iterable
 
 # --- Third-Party Libraries ---
 import pandas as pd
@@ -404,6 +404,52 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.dynamic_computation.auto_save_path = Path(resolved)
             logger.info(f"Resolved background auto_save_path: {resolved}")
 
+    @staticmethod
+    def _normalize_aux_value(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    def _aux_row_for_shot(self, shot_num: int) -> dict:
+        if self.auxiliary_data is None:
+            return {}
+        if "Shotnumber" not in self.auxiliary_data.columns:
+            return {}
+
+        row = self.auxiliary_data.loc[self.auxiliary_data["Shotnumber"] == shot_num]
+        if row.empty:
+            return {}
+
+        row_dict = row.iloc[0].to_dict()
+        return {k: self._normalize_aux_value(v) for k, v in row_dict.items()}
+
+    def _aux_mean_for_shots(self, shot_nums: Iterable[int]) -> dict:
+        if self.auxiliary_data is None:
+            return {}
+        if "Shotnumber" not in self.auxiliary_data.columns:
+            return {}
+
+        shot_list = list(shot_nums)
+        if not shot_list:
+            return {}
+
+        rows = self.auxiliary_data[self.auxiliary_data["Shotnumber"].isin(shot_list)]
+        if rows.empty:
+            return {}
+
+        numeric = rows.select_dtypes(include=[np.number])
+        if numeric.empty:
+            return {}
+
+        drop_cols = [col for col in ("Shotnumber", "Bin #") if col in numeric.columns]
+        if drop_cols:
+            numeric = numeric.drop(columns=drop_cols)
+        if numeric.empty:
+            return {}
+
+        means = numeric.mean(numeric_only=True).to_dict()
+        return {k: self._normalize_aux_value(v) for k, v in means.items()}
+
     def _prepare_per_shot_units(self) -> dict:
         """
         Prepare per-shot analysis units (current behavior).
@@ -419,7 +465,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         return {
             shot_num: {
                 "image": data,
-                "auxiliary": {"file_path": path, **self.stateful_results},
+                "auxiliary": {
+                    **self._aux_row_for_shot(shot_num),
+                    "file_path": path,
+                    **self.stateful_results,
+                },
                 "sfile_keys": [shot_num],
             }
             for shot_num, (data, path) in self.raw_data.items()
@@ -444,7 +494,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return {
                 0: {
                     "image": self.average_data(all_images),
-                    "auxiliary": self.stateful_results,
+                    "auxiliary": {
+                        **self._aux_mean_for_shots(all_shots),
+                        **self.stateful_results,
+                    },
                     "sfile_keys": all_shots,
                 }
             }
@@ -464,7 +517,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if images:
                 units[int(bin_num)] = {
                     "image": self.average_data(images),
-                    "auxiliary": self.stateful_results,
+                    "auxiliary": {
+                        **self._aux_mean_for_shots(bin_shots),
+                        **self.stateful_results,
+                    },
                     "sfile_keys": bin_shots.tolist(),
                 }
 
