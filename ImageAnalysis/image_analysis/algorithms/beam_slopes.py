@@ -119,7 +119,6 @@ def compute_slope(
     # Weighted linear fit
     coeffs = np.polyfit(x, y, 1, w=w)  # [slope, intercept]
 
-
     return float(coeffs[0])
 
 
