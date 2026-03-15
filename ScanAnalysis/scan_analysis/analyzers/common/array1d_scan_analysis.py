@@ -307,10 +307,15 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
                 contexts.sort(key=lambda c: c.parameter_value)
 
-            # Use waterfall mode for summary
-            waterfall_config = Line1DRendererConfig(
-                **{**self.renderer_kwargs, "mode": "waterfall"}
-            )
+            # Use waterfall mode for summary; auto-enable even y-spacing when
+            # using a sort key unless the user explicitly set it
+            waterfall_kwargs = {**self.renderer_kwargs, "mode": "waterfall"}
+            if (
+                sort_column is not None
+                and "waterfall_even_y_spacing" not in self.renderer_kwargs
+            ):
+                waterfall_kwargs["waterfall_even_y_spacing"] = True
+            waterfall_config = Line1DRendererConfig(**waterfall_kwargs)
             # Save to parent directory and let render_summary create the file
             self.renderer.render_summary(
                 contexts, waterfall_config, self.path_dict["save"]

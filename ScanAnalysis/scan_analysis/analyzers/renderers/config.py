@@ -135,6 +135,15 @@ class Line1DRendererConfig(BaseRendererConfig):
         ),
     )
 
+    waterfall_even_y_spacing: bool = Field(
+        default=False,
+        description=(
+            "If True, rows are drawn at equal visual height regardless of the "
+            "physical spacing between sort-key values. Tick labels still show "
+            "the actual values. Auto-enabled when waterfall_sort_key is used."
+        ),
+    )
+
 
 class Image2DRendererConfig(BaseRendererConfig):
     """Configuration for Image2DRenderer.
