@@ -258,20 +258,34 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             # Save average using renderer
             self.renderer.render_single(avg_context, config, self.path_dict["save"])
 
-            # Create waterfall plot from all results (chronological order)
+            # Create waterfall plot from all results
+            # Resolve optional sort key from renderer_kwargs
+            sort_key = self.renderer_kwargs.get("waterfall_sort_key")
+            sort_column = self.find_column_for_key(sort_key) if sort_key else None
+
             contexts = []
             for shot_num, result in sorted(self.results.items()):
                 if result.line_data is not None:
-                    # Create context with parameter_value for waterfall y-axis
                     ctx = RenderContext.from_analyzer_result(
                         shot_number=shot_num,
                         result=result,
                         device_name=self.device_name,
                     )
-                    # Add scan parameter info for waterfall
-                    ctx.parameter_value = float(shot_num)
-                    ctx.scan_parameter = "Shot Number"
+                    if sort_column is not None:
+                        row = self.auxiliary_data.loc[
+                            self.auxiliary_data["Shotnumber"] == shot_num, sort_column
+                        ]
+                        ctx.parameter_value = (
+                            float(row.iloc[0]) if not row.empty else float(shot_num)
+                        )
+                        ctx.scan_parameter = sort_column
+                    else:
+                        ctx.parameter_value = float(shot_num)
+                        ctx.scan_parameter = "Shot Number"
                     contexts.append(ctx)
+
+            if sort_column is not None:
+                contexts.sort(key=lambda c: c.parameter_value)
 
             # Use waterfall mode for summary
             waterfall_config = Line1DRendererConfig(

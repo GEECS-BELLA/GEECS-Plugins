@@ -108,6 +108,16 @@ class Line1DRendererConfig(BaseRendererConfig):
         description="Matplotlib colormap name (default: plasma for 1D)",
     )
 
+    waterfall_sort_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column name (or substring) from the auxiliary s-file to use as the "
+            "waterfall y-axis for noscan data instead of shot number. "
+            "Colon/space variants are tried automatically (e.g. 'Device:Var' matches "
+            "'Device Var Alias: ...')."
+        ),
+    )
+
 
 class Image2DRendererConfig(BaseRendererConfig):
     """Configuration for Image2DRenderer.
