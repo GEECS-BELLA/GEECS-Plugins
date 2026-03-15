@@ -118,6 +118,23 @@ class Line1DRendererConfig(BaseRendererConfig):
         ),
     )
 
+    waterfall_sort_sigma: Optional[float] = Field(
+        default=3.0,
+        description=(
+            "When waterfall_sort_key is set, exclude shots whose sort-key value "
+            "falls outside mean ± sigma * std. Set to None to disable. "
+            "Ignored if waterfall_sort_bounds is provided."
+        ),
+    )
+
+    waterfall_sort_bounds: Optional[Tuple[float, float]] = Field(
+        default=None,
+        description=(
+            "Explicit (lo, hi) bounds for the waterfall sort key. Shots outside "
+            "this range are excluded. Overrides waterfall_sort_sigma when set."
+        ),
+    )
+
 
 class Image2DRendererConfig(BaseRendererConfig):
     """Configuration for Image2DRenderer.

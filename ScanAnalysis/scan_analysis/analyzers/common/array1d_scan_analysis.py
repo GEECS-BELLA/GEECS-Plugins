@@ -285,6 +285,26 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                     contexts.append(ctx)
 
             if sort_column is not None:
+                sort_bounds = self.renderer_kwargs.get("waterfall_sort_bounds")
+                sort_sigma = self.renderer_kwargs.get("waterfall_sort_sigma", 3.0)
+                n_before = len(contexts)
+
+                if sort_bounds is not None:
+                    lo, hi = sort_bounds
+                    contexts = [c for c in contexts if lo <= c.parameter_value <= hi]
+                elif sort_sigma is not None:
+                    values = np.array([c.parameter_value for c in contexts])
+                    mean, std = values.mean(), values.std()
+                    lo, hi = mean - sort_sigma * std, mean + sort_sigma * std
+                    contexts = [c for c in contexts if lo <= c.parameter_value <= hi]
+
+                n_dropped = n_before - len(contexts)
+                if n_dropped:
+                    logger.warning(
+                        f"Waterfall sort filtering dropped {n_dropped} shot(s) "
+                        f"outside bounds (kept {len(contexts)})."
+                    )
+
                 contexts.sort(key=lambda c: c.parameter_value)
 
             # Use waterfall mode for summary
