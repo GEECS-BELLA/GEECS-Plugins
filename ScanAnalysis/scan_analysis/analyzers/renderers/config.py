@@ -108,6 +108,42 @@ class Line1DRendererConfig(BaseRendererConfig):
         description="Matplotlib colormap name (default: plasma for 1D)",
     )
 
+    waterfall_sort_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column name (or substring) from the auxiliary s-file to use as the "
+            "waterfall y-axis for noscan data instead of shot number. "
+            "Colon/space variants are tried automatically (e.g. 'Device:Var' matches "
+            "'Device Var Alias: ...')."
+        ),
+    )
+
+    waterfall_sort_sigma: Optional[float] = Field(
+        default=3.0,
+        description=(
+            "When waterfall_sort_key is set, exclude shots whose sort-key value "
+            "falls outside mean ± sigma * std. Set to None to disable. "
+            "Ignored if waterfall_sort_bounds is provided."
+        ),
+    )
+
+    waterfall_sort_bounds: Optional[Tuple[float, float]] = Field(
+        default=None,
+        description=(
+            "Explicit (lo, hi) bounds for the waterfall sort key. Shots outside "
+            "this range are excluded. Overrides waterfall_sort_sigma when set."
+        ),
+    )
+
+    waterfall_even_y_spacing: bool = Field(
+        default=False,
+        description=(
+            "If True, rows are drawn at equal visual height regardless of the "
+            "physical spacing between sort-key values. Tick labels still show "
+            "the actual values. Auto-enabled when waterfall_sort_key is used."
+        ),
+    )
+
 
 class Image2DRendererConfig(BaseRendererConfig):
     """Configuration for Image2DRenderer.

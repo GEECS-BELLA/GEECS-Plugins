@@ -506,6 +506,39 @@ class ScanAnalyzer:
         else:
             return None, None
 
+    def find_column_for_key(self, key: str) -> Optional[str]:
+        """Locate an auxiliary-data column that matches a user-supplied key string.
+
+        Tries the key as-is, with colons replaced by spaces, and with spaces
+        replaced by colons, performing a substring match against the portion of
+        each column name that precedes any ``' Alias:'`` suffix.
+
+        Parameters
+        ----------
+        key : str
+            User-supplied string, e.g. ``'Device:Variable'`` or ``'Device Variable'``.
+
+        Returns
+        -------
+        str or None
+            The first matching column name (full, including any alias suffix),
+            or ``None`` if no match is found.
+        """
+        if self.auxiliary_data is None:
+            logger.warning(
+                "find_column_for_key called but auxiliary_data is not loaded."
+            )
+            return None
+
+        candidates = {key, key.replace(":", " "), key.replace(" ", ":")}
+        for column in self.auxiliary_data.columns:
+            col_base = column.split(" Alias:")[0]
+            if any(c in col_base for c in candidates):
+                return column
+
+        logger.warning(f"Could not find auxiliary_data column matching key: '{key}'")
+        return None
+
 
 # %% executable
 def testing_routine():
