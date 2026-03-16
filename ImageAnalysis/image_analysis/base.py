@@ -59,20 +59,28 @@ class ImageAnalyzer:
         pass
 
     def analyze_image(
-        self, image: Union[Array1D, Array2D], auxiliary_data: Optional[dict] = None
+        self,
+        image: Union[Array1D, Array2D, list[Array1D], list[Array2D]],
+        auxiliary_data: Optional[dict] = None,
     ) -> ImageAnalyzerResult:
-        """Calculate metrics from an image.
+        """Calculate metrics from an image or list of images.
 
         This function should be implemented by each device's ImageAnalyzer subclass,
         to run on an image from that device (obviously).
 
         Should take full-size (i.e. uncropped) image.
 
+        For multi-device analyzers (e.g. multi-camera diagnostics), a list of
+        arrays may be passed — one per device. The analyzer is responsible for
+        combining them as needed and returning a single result.
+
         Parameters
         ----------
-        image : 2d array (e.g. MxN) or standard y vs x data (eg. Nx2)
-        auxiliary_data : dict
-            Additional data used by the image image_analyzer for this image, such as
+        image : Union[Array1D, Array2D, list[Array1D], list[Array2D]]
+            A single 2D array (e.g. MxN), a single 1D dataset (e.g. Nx2),
+            or a list of such arrays for multi-device analysis.
+        auxiliary_data : dict, optional
+            Additional data used by the image analyzer for this image, such as
             image range.
 
         Returns
@@ -84,16 +92,23 @@ class ImageAnalyzer:
         raise NotImplementedError()
 
     def analyze_image_file(
-        self, image_filepath: Path, auxiliary_data: Optional[dict] = None
+        self,
+        image_filepath: Union[Path, list[Path]],
+        auxiliary_data: Optional[dict] = None,
     ) -> ImageAnalyzerResult:
         """
-        Method to enable the use of a file path rather than Array2D.
+        Method to enable the use of a file path (or list of paths) rather than arrays.
+
+        For multi-device analyzers, a list of file paths can be passed — one
+        per device. The paths are loaded via :meth:`load_image` and the
+        resulting array(s) are passed to :meth:`analyze_image`.
 
         Parameters
         ----------
-         image_filepath : Path
-         auxiliary_data : dict
-            Additional data used by the image image_analyzer for this image, such as
+        image_filepath : Union[Path, list[Path]]
+            A single file path or a list of file paths for multi-device analysis.
+        auxiliary_data : dict, optional
+            Additional data used by the image analyzer for this image, such as
             image range.
 
         Returns
@@ -106,23 +121,34 @@ class ImageAnalyzer:
 
         return self.analyze_image(image, auxiliary_data)
 
-    def load_image(self, file_path: Path) -> Union[Array1D, Array2D]:
+    def load_image(
+        self, file_path: Union[Path, list[Path]]
+    ) -> Union[Array1D, Array2D, list[Union[Array1D, Array2D]]]:
         """
-        Load an image from a path.
+        Load an image from a path, or multiple images from a list of paths.
 
-        By default, the read_imaq_png function is used.
-        For file types not directly supported by this method, e.g. .himg files from a
-        Haso device type, this method be implemented in that device's ImageAnalyzer
-        subclass.
+        When given a single path, loads and returns a single array using
+        :func:`read_imaq_image` (or subclass override).
+
+        When given a list of paths, recursively calls ``self.load_image`` on
+        each path and returns a list of arrays. This means subclasses that
+        override ``load_image`` for custom file formats (e.g. ``.himg``)
+        automatically get list support for free.
 
         Parameters
         ----------
-         file_path : Path
+        file_path : Union[Path, list[Path]]
+            A single file path or a list of file paths for multi-device loading.
 
         Returns
         -------
-         image : Union[Array1D,Array2D]
+        Union[Array1D, Array2D, list[Union[Array1D, Array2D]]]
+            A single array for a single path, or a list of arrays for a list
+            of paths.
         """
+        if isinstance(file_path, list):
+            return [self.load_image(p) for p in file_path]
+
         image = read_imaq_image(file_path)
 
         return image
