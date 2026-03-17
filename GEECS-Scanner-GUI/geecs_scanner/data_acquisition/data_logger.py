@@ -103,6 +103,9 @@ class FileMoveTask:
     )
     retry_count: int = 0  # Number of times this task has been re-queued
     max_retries: int = 2  # Maximum number of re-queue attempts before orphaning
+    files_found_so_far: int = (
+        0  # Cumulative count of files matched and moved across all retries
+    )
 
 
 class FileMover:
@@ -305,6 +308,7 @@ class FileMover:
                 file_ts = extract_timestamp_from_file(file, device_type)
                 if abs(file_ts - expected_timestamp) < 0.0011:
                     found_files_count += 1
+                    task.files_found_so_far += 1
 
                     # Extract the unique random part from the primary file.
                     # Expects filename format: "{device_name}_{random}.png"
@@ -328,7 +332,7 @@ class FileMover:
                         task.suffix = "-interpDiv"
                         self._process_variant_file(task)
 
-                    if found_files_count == expected_file_count:
+                    if task.files_found_so_far >= expected_file_count:
                         task_success = True
                         break
 
@@ -623,7 +627,7 @@ class FileMover:
         to find matching files during initial processing) and re-adds them to the queue
         for another attempt at moving files.
         """
-        for task in self.orphan_tasks:
+        for task in list(self.orphan_tasks):
             self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:
