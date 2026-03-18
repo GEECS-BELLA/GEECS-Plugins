@@ -6,7 +6,7 @@ including background computation, masking, filtering, and geometric transforms.
 All models use Pydantic for validation and automatic YAML/JSON serialization.
 """
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from typing import Any, Optional, Tuple, List, Union, Dict
 from pathlib import Path
 from enum import Enum
@@ -330,6 +330,89 @@ class CircularMaskConfig(BaseModel):
         return v
 
 
+class VignetteMethod(str, Enum):
+    """Supported vignette correction methods."""
+
+    RADIAL_POLYNOMIAL = "radial_polynomial"
+    MAP_FILE = "map_file"
+
+
+class VignetteConfig(BaseModel):
+    """
+    Configuration for vignette correction.
+
+    Supports a MATLAB-compatible radial polynomial model using full-sensor
+    coordinates and saved-image offsets, plus optional map-file correction.
+
+    Attributes
+    ----------
+    enabled : bool
+        Whether vignette correction is enabled.
+    method : VignetteMethod
+        Vignette correction method.
+    full_width : Optional[int]
+        Full sensor width in pixels (required for radial_polynomial).
+    full_height : Optional[int]
+        Full sensor height in pixels (required for radial_polynomial).
+    x_offset : int
+        Saved image x-offset in full-sensor pixels.
+    y_offset : int
+        Saved image y-offset in full-sensor pixels.
+    vgnt4 : float
+        4th-order radial vignette coefficient.
+    vgnt2 : float
+        2nd-order radial vignette coefficient.
+    vgnt0 : float
+        0th-order radial vignette coefficient.
+    min_model_value : float
+        Minimum allowed attenuation model value to avoid divide-by-zero.
+    map_file_path : Optional[Union[str, Path]]
+        Path to precomputed vignette correction map (.npy) for map_file method.
+    """
+
+    enabled: bool = Field(False, description="Whether vignette correction is enabled")
+    method: VignetteMethod = Field(
+        VignetteMethod.RADIAL_POLYNOMIAL, description="Vignette correction method"
+    )
+
+    full_width: Optional[int] = Field(
+        None, gt=0, description="Full sensor width in pixels"
+    )
+    full_height: Optional[int] = Field(
+        None, gt=0, description="Full sensor height in pixels"
+    )
+    x_offset: int = Field(0, ge=0, description="Saved image x-offset in full sensor")
+    y_offset: int = Field(0, ge=0, description="Saved image y-offset in full sensor")
+
+    vgnt4: float = Field(0.0, description="4th-order vignette coefficient")
+    vgnt2: float = Field(0.0, description="2nd-order vignette coefficient")
+    vgnt0: float = Field(1.0, description="0th-order vignette coefficient")
+    min_model_value: float = Field(
+        1e-9, gt=0.0, description="Minimum attenuation model value"
+    )
+
+    map_file_path: Optional[Union[str, Path]] = Field(
+        None, description="Path to .npy vignette map when method is map_file"
+    )
+
+    @model_validator(mode="after")
+    def validate_method_requirements(self):
+        """Validate required fields for the selected vignette method when enabled."""
+        if not self.enabled:
+            return self
+
+        if self.method == VignetteMethod.MAP_FILE and self.map_file_path is None:
+            raise ValueError("map_file_path required when method is 'map_file'")
+
+        if self.method == VignetteMethod.RADIAL_POLYNOMIAL:
+            if self.full_width is None or self.full_height is None:
+                raise ValueError(
+                    "full_width/full_height required when method is 'radial_polynomial'"
+                )
+
+        return self
+
+
 class ThresholdMethod(str, Enum):
     """Supported thresholding methods."""
 
@@ -448,6 +531,7 @@ class ProcessingStepType(str, Enum):
     """Available processing step types for the pipeline."""
 
     BACKGROUND = "background"
+    VIGNETTE = "vignette"
     CROSSHAIR_MASKING = "crosshair_masking"
     ROI = "roi"
     CIRCULAR_MASK = "circular_mask"
@@ -476,6 +560,7 @@ class PipelineConfig(BaseModel):
     steps: List[ProcessingStepType] = Field(
         default_factory=lambda: [
             ProcessingStepType.BACKGROUND,
+            ProcessingStepType.VIGNETTE,
             ProcessingStepType.CROSSHAIR_MASKING,
             ProcessingStepType.ROI,
             ProcessingStepType.CIRCULAR_MASK,
@@ -512,6 +597,8 @@ class CameraConfig(BaseModel):
         Crosshair masking configuration.
     circular_mask : Optional[CircularMaskConfig]
         Circular masking configuration.
+    vignette : Optional[VignetteConfig]
+        Vignette correction configuration.
     thresholding : Optional[ThresholdingConfig]
         Image thresholding configuration.
     filtering : Optional[FilteringConfig]
@@ -541,6 +628,9 @@ class CameraConfig(BaseModel):
     )
     circular_mask: Optional[CircularMaskConfig] = Field(
         None, description="Circular masking settings"
+    )
+    vignette: Optional[VignetteConfig] = Field(
+        None, description="Vignette correction settings"
     )
     thresholding: Optional[ThresholdingConfig] = Field(
         None, description="Image thresholding settings"
@@ -592,6 +682,7 @@ class CameraConfig(BaseModel):
             "background": self.background,
             "crosshair_masking": self.crosshair_masking,
             "circular_mask": self.circular_mask,
+            "vignette": self.vignette,
             "thresholding": self.thresholding,
             "filtering": self.filtering,
             "normalization": self.normalization,

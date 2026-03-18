@@ -1,0 +1,25 @@
+function [wf,timI] = fALSWvFrmV01(fNam,tim)
+%% Get waveform and time index for ALS experiments
+% [wf,timI] = fALSWvFrmV01(fNam,tim)
+% fNam: file name
+% tim: time for ROI
+% wf: waveform
+% timI: Index for time for waveform
+%
+% ALS Wave Form read ver.1
+% Written by Kei Nakamura
+% Created on Monday, June 29th 2009.
+% Modified on
+
+%% main body
+wf = textread(fNam);                           % download waveform
+% find index for times
+[delete,timI(1)] = min(abs(wf(:,1)-tim(1)));    % time Index
+[delete,timI(2)] = min(abs(wf(:,1)-tim(2)));
+[delete,timI(3)] = min(abs(wf(:,1)-tim(3)));
+[delete,timI(4)] = min(abs(wf(:,1)-tim(4)));
+[delete,timI(5)] = min(abs(wf(:,1)-tim(5)));    % time Index
+[delete,timI(6)] = min(abs(wf(:,1)-tim(6)));
+[delete,timI(7)] = min(abs(wf(:,1)-tim(7)));
+[delete,timI(8)] = min(abs(wf(:,1)-tim(8)));
+                                    % s/n ratio

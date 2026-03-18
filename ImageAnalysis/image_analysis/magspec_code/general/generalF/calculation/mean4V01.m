@@ -1,0 +1,1 @@
+%%%%%%%%%% Function mean4V01.m %%%%%%%%%%% Mean of 4 matrix, ver.1%% Kei Nakamura% Created on Friday, January 12th 2007.% Modified on%% function mean4 = mean4V01(a, b, c, d);% gives mean value of 4 matrices a, b, c, and d.function mean4 = mean4V01(a, b, c, d)mean4 = [mean(mean(a)) mean(mean(b)) mean(mean(c)) mean(mean(d))];
