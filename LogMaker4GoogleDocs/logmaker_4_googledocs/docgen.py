@@ -39,8 +39,6 @@ Authors
 Tobias Ostermayr, updated 2020-08-06
 """
 
-from __future__ import print_function
-
 __version__ = "0.2"
 __author__ = "Tobias Ostermayr"
 
@@ -60,6 +58,7 @@ from googleapiclient.http import MediaFileUpload
 from datetime import datetime
 import configparser
 import decimal
+import logging
 
 # OAuth scopes required for Docs, Drive, and Sheets
 SCOPES = [
@@ -68,6 +67,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
+logger = logging.getLogger(__name__)
+
+# Module-level caches — persist for the lifetime of the process.
+# _service_cache: avoids re-building the OAuth service on every API call.
+# _folder_id_cache: avoids a Drive list query for the per-day folder on every upload.
+_service_cache: dict = {}  # key: "apiservice/apiversion" → Resource
+_folder_id_cache: dict = {}  # key: (parent_folder_id, folder_name) → folder_id
+
 # Load `config.ini` colocated with this module. Must contain DEFAULT.script (Apps Script ID).
 scriptconfig = configparser.ConfigParser()
 script_dir = Path(__file__).parent
@@ -75,18 +82,20 @@ config_path = script_dir / "config.ini"
 scriptconfig.read(config_path)
 
 if not scriptconfig.sections():
-    print(
-        f"Warning: could not load config file from {config_path}; Apps Script calls will be unavailable."
+    logger.warning(
+        "Could not load config file from %s; Apps Script calls will be unavailable.",
+        config_path,
     )
 else:
-    print(f"Successfully loaded config file: {config_path}")
+    logger.debug("Loaded config file: %s", config_path)
 
 try:
     SCRIPT_ID = scriptconfig["DEFAULT"]["script"]
 except KeyError:
     SCRIPT_ID = None
-    print(
-        f"Warning: 'script' key missing in {config_path}; Apps Script calls will be unavailable."
+    logger.warning(
+        "'script' key missing in %s; Apps Script calls will be unavailable.",
+        config_path,
     )
 
 # Date/time convenience strings used in file naming
@@ -158,7 +167,7 @@ def latestFileInDirectory(path, pattern):
     """
     list_of_files = glob.glob(path + "/*" + pattern + "*")
     latest_file = max(list_of_files, key=os.path.getctime)
-    print(latest_file)
+    logger.debug("Latest file in %s matching '%s': %s", path, pattern, latest_file)
     return latest_file
 
 
@@ -277,9 +286,9 @@ def cropAndScaleImage(
     img = Image.open(imagepath)
     width = int(img.size[0] - margin_right)
     height = int(img.size[1] - margin_bottom)
-    print("image size:", img.size[0], img.size[1])
-    print(
-        "margin left, margin top, right, bottom = ",
+    logger.debug("Crop image size: %s x %s", img.size[0], img.size[1])
+    logger.debug(
+        "Crop margins — left=%s top=%s right=%s bottom=%s",
         int(margin_left),
         int(margin_top),
         width,
@@ -325,12 +334,12 @@ def scale_image(image_path, target_width_in_inches=4.75, dpi=100):
             base, ext = os.path.splitext(image_path)
             scaled_image_path = f"{base}_scaled{ext}"
             scaled_img.save(scaled_image_path)
-            print(f"Scaled image saved to: {scaled_image_path}")
+            logger.debug("Scaled image saved to: %s", scaled_image_path)
             return scaled_image_path
     except FileNotFoundError:
-        print(f"Error: File not found at {image_path}. Please provide a valid path.")
+        logger.error("Image file not found: %s", image_path)
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error("Error scaling image %s: %s", image_path, e)
 
 
 # ==================FUNCTIONS USING GOOGLE API========================
@@ -362,7 +371,11 @@ def establishService(apiservice, apiversion):
     - OAuth tokens are cached in `token.pickle`.
     - Required scopes are defined in `SCOPES`.
     """
-    print("**Establish Server Connection with Google Cloud**")
+    cache_key = f"{apiservice}/{apiversion}"
+    if cache_key in _service_cache:
+        return _service_cache[cache_key]
+
+    logger.debug("Establishing Google API service: %s %s", apiservice, apiversion)
 
     creds = None
     base_path = Path(__file__).parent
@@ -391,10 +404,13 @@ def establishService(apiservice, apiversion):
 
     try:
         service = build(apiservice, apiversion, credentials=creds)
-        print("...Service created successfully")
+        logger.debug("Google API service created: %s %s", apiservice, apiversion)
+        _service_cache[cache_key] = service
         return service
     except Exception as e:
-        print(f"...Error in opening the service: {e}")
+        logger.error(
+            "Error creating Google API service %s %s: %s", apiservice, apiversion, e
+        )
         raise
 
 
@@ -429,15 +445,13 @@ def createExperimentLog(
     This calls the Apps Script function `createExperimentLog` and records the
     resulting document ID in `argconfig` under `DEFAULT/LogID`.
     """
-    print("**Create or find Log...**")
+    logger.info("Creating or finding experiment log: %s", logfilename)
     API_SERVICE_NAME = "script"
     API_VERSION = "v1"
     if servicevar is None:
-        print("...establish service in createExperimentLog standalone")
         service = establishService(API_SERVICE_NAME, API_VERSION)
     else:
         service = servicevar
-        print("...existing service used")
 
     request = {
         "function": "createExperimentLog",
@@ -448,22 +462,20 @@ def createExperimentLog(
     try:
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
-            print("...Something went wrong in createExperimentLog")
             error = response["error"]["details"][0]
-            print("Script error message: {0}".format(error["errorMessage"]))
+            logger.error("createExperimentLog script error: %s", error["errorMessage"])
         else:
-            print("...returned documend ID: ", response["response"]["result"])
             documentID = response["response"]["result"]
+            logger.info("Experiment log document ID: %s", documentID)
             config = configparser.ConfigParser()
             config.read(argconfig)
             config["DEFAULT"]["LogID"] = documentID
             with open(argconfig, "w") as configfile:
                 config.write(configfile)
     except errors.HttpError as e:
-        print("...HTTP error occurred in create Experiment:")
-        print(e.content)
+        logger.error("HTTP error in createExperimentLog: %s", e.content)
     except Exception:
-        print("...non HTTP error in opening the service")
+        logger.exception("Unexpected error in createExperimentLog")
     return documentID
 
 
@@ -512,28 +524,28 @@ def appendToLog(templateID, documentID, search, servicevar):
     try:
         tmp = checkFileContains(documentID, search, service)
     except Exception:
-        print("...Failed to check file for search pattern")
+        logger.warning("Failed to check document for search pattern '%s'", search)
         return 1
 
     if not tmp:
         try:
-            print("**Append template to document...**")
+            logger.info("Appending template to document %s", documentID)
             response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
             if "error" in response:
                 error = response["error"]["details"][0]
-                print("Script error msg: {0}".format(error["errorMessage"]))
+                logger.error("appendToLog script error: %s", error["errorMessage"])
             else:
-                print("...", response["response"]["result"])
+                logger.info("appendToLog result: %s", response["response"]["result"])
                 return 0
         except errors.HttpError as e:
-            print("...HTTP error occurred in Append To Log", e)
+            logger.error("HTTP error in appendToLog: %s", e)
         except Exception as e:
-            print("Error in Append To Log ", e)
+            logger.error("Error in appendToLog: %s", e)
     elif tmp:
-        print("...this Scan is already present in the Log", documentID)
+        logger.info("Scan already present in log %s; skipping append.", documentID)
         return 0
     else:
-        print("...retry")
+        logger.warning("appendToLog: unexpected state, retry needed.")
         return 1
 
 
@@ -580,15 +592,15 @@ def findAndReplace(documentID, placeholdersandvalues, servicevar):
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
             error = response["error"]["details"][0]
-            print("...Script error message: {0}".format(error["errorMessage"]))
+            logger.error("findAndReplace script error: %s", error["errorMessage"])
             return 1
         else:
             return 0
 
     except Exception:
-        print("Error in findAndReplace")
+        logger.exception("Unexpected error in findAndReplace")
     except errors.HttpError as e:
-        print("...HTTP Error in findAndReplace", e.content)
+        logger.error("HTTP error in findAndReplace: %s", e.content)
 
 
 def findAndReplaceImage(documentID, imageID, pattern, servicevar):
@@ -634,12 +646,12 @@ def findAndReplaceImage(documentID, imageID, pattern, servicevar):
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
             error = response["error"]["details"][0]
-            print("Script error message: {0}".format(error["errorMessage"]))
+            logger.error("findAndReplaceImage script error: %s", error["errorMessage"])
         else:
             return 0
 
     except errors.HttpError as e:
-        print(e.content)
+        logger.error("HTTP error in findAndReplaceImage: %s", e.content)
 
 
 def uploadImage(localimagepath, destinationID):
@@ -697,14 +709,14 @@ def uploadImage(localimagepath, destinationID):
         )
         if "error" in file:
             error = file["error"]["details"][0]
-            print(f"Script error message: {error['errorMessage']}")
+            logger.error("Drive upload error: %s", error["errorMessage"])
             return None
         else:
             imageID = file["id"]
             return imageID
 
     except errors.HttpError as e:
-        print(e.content)
+        logger.error("HTTP error uploading image: %s", e.content)
         return None
 
 
@@ -744,12 +756,12 @@ def checkFileContains(fileID, search, servicevar):
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
             error = response["error"]["details"][0]
-            print("Script error message: {0}".format(error["errorMessage"]))
+            logger.error("checkFileContains script error: %s", error["errorMessage"])
         else:
             return response["response"]["result"]
 
     except errors.HttpError as e:
-        print(e.content)
+        logger.error("HTTP error in checkFileContains: %s", e.content)
 
 
 def lastRowOfSpreadsheet(fileID, sheetString, firstcol, lastcol, servicevar):
@@ -798,12 +810,12 @@ def lastRowOfSpreadsheet(fileID, sheetString, firstcol, lastcol, servicevar):
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
             error = response["error"]["details"][0]
-            print("Script error message: {0}".format(error["errorMessage"]))
+            logger.error("lastRowOfSpreadsheet script error: %s", error["errorMessage"])
         else:
             return response["response"]["result"]
 
     except errors.HttpError as e:
-        print(e.content)
+        logger.error("HTTP error in lastRowOfSpreadsheet: %s", e.content)
 
 
 def insertImageToTableCell(documentID, scanNumber, row, column, imageID, servicevar):
@@ -853,12 +865,14 @@ def insertImageToTableCell(documentID, scanNumber, row, column, imageID, service
         response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
         if "error" in response:
             error = response["error"]["details"][0]
-            print(f"Script error message: {error['errorMessage']}")
+            logger.error(
+                "insertImageToTableCell script error: %s", error["errorMessage"]
+            )
         else:
             return response["response"]["result"]
 
     except errors.HttpError as e:
-        print(e.content)
+        logger.error("HTTP error in insertImageToTableCell: %s", e.content)
 
 
 def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
@@ -880,6 +894,10 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
     -----
     If multiple folders with the same name exist, the first result is returned.
     """
+    cache_key = (parent_folder_id, folder_name)
+    if cache_key in _folder_id_cache:
+        return _folder_id_cache[cache_key]
+
     driveservice = establishService("drive", "v3")
     query = (
         f"'{parent_folder_id}' in parents"
@@ -900,8 +918,10 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
     )
     files = results.get("files", [])
     if files:
-        print(f"Found existing folder '{folder_name}': {files[0]['id']}")
-        return files[0]["id"]
+        folder_id = files[0]["id"]
+        logger.info("Found existing Drive folder '%s': %s", folder_name, folder_id)
+        _folder_id_cache[cache_key] = folder_id
+        return folder_id
 
     folder_metadata = {
         "name": folder_name,
@@ -913,8 +933,10 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
         .create(body=folder_metadata, fields="id", supportsAllDrives=True)
         .execute()
     )
-    print(f"Created folder '{folder_name}': {folder['id']}")
-    return folder["id"]
+    folder_id = folder["id"]
+    logger.info("Created Drive folder '%s': %s", folder_name, folder_id)
+    _folder_id_cache[cache_key] = folder_id
+    return folder_id
 
 
 # Fallback staging folder used when no per-experiment image folder is configured.
@@ -967,9 +989,9 @@ def insertImageToExperimentLog(
         config_path = Path(__file__).parent / config_file
         experiment_config.read(config_path)
         if not experiment_config.sections():
-            print(f"Failed to load config file from: {config_path}")
+            logger.warning("Failed to load experiment config from: %s", config_path)
         else:
-            print(f"Successfully loaded config file: {config_path}")
+            logger.debug("Loaded experiment config: %s", config_path)
 
         if documentID is None:
             documentID = experiment_config["DEFAULT"]["logid"]
@@ -985,14 +1007,15 @@ def insertImageToExperimentLog(
         try:
             image_folder_id = get_or_create_folder(parent_folder_id, date_str)
         except Exception as e:
-            print(
-                f"Could not create per-day image folder under {parent_folder_id}: {e}. "
-                f"Falling back to staging folder."
+            logger.warning(
+                "Could not create per-day image folder under %s: %s. Falling back to staging folder.",
+                parent_folder_id,
+                e,
             )
 
     image_id = uploadImage(image_path, image_folder_id)
     if image_id is None:
-        print("Image upload to Drive failed; skipping table insertion.")
+        logger.error("Image upload to Drive failed; skipping table insertion.")
         return False
     result = insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)
     return result is not None
