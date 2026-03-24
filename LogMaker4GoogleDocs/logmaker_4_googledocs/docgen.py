@@ -946,8 +946,9 @@ def insertImageToExperimentLog(
 
     Returns
     -------
-    None
-        On success, the image is uploaded and placed; no value is returned.
+    bool
+        ``True`` if the image was uploaded and the Apps Script insertion
+        returned a result; ``False`` on any failure.
 
     Notes
     -----
@@ -990,4 +991,8 @@ def insertImageToExperimentLog(
             )
 
     image_id = uploadImage(image_path, image_folder_id)
-    insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)
+    if image_id is None:
+        print("Image upload to Drive failed; skipping table insertion.")
+        return False
+    result = insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)
+    return result is not None

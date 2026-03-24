@@ -185,6 +185,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             Paths to generated artifacts to display, or None on failure.
         """
         try:
+            self.renderer.display_contents = []
             self._establish_additional_paths()
 
             if self.flag_save_data and not self.path_dict["save"].exists():

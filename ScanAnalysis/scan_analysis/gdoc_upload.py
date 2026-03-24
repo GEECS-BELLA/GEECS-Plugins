@@ -117,7 +117,7 @@ def upload_summary_to_gdoc(
     row, col = row_col
 
     try:
-        DOCGEN.insertImageToExperimentLog(
+        success = DOCGEN.insertImageToExperimentLog(
             scanNumber=scan_tag.number,
             row=row,
             column=col,
@@ -125,15 +125,22 @@ def upload_summary_to_gdoc(
             documentID=document_id,
             experiment=scan_tag.experiment,
         )
-        logger.info(
-            "Uploaded '%s' to scan log slot %d (row=%d, col=%d) for scan %s.",
-            image_path,
-            gdoc_slot,
-            row,
-            col,
-            scan_tag,
-        )
-        return True
+        if success:
+            logger.info(
+                "Uploaded '%s' to scan log slot %d (row=%d, col=%d) for scan %s.",
+                image_path,
+                gdoc_slot,
+                row,
+                col,
+                scan_tag,
+            )
+        else:
+            logger.warning(
+                "Upload call completed but Apps Script reported failure for scan %s slot %d.",
+                scan_tag,
+                gdoc_slot,
+            )
+        return bool(success)
     except Exception as exc:
         logger.error(
             "Failed to upload display file to gdoc for scan %s slot %d: %s",
