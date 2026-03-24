@@ -75,6 +75,7 @@ class LiveTaskRunner:
         *,
         config_dir: Optional[Path] = None,
         image_config_dir: Optional[Path] = None,
+        document_id: Optional[str] = None,
     ):
         """Initialize runner with analyzer group, date, and optional config roots.
 
@@ -92,9 +93,16 @@ class LiveTaskRunner:
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
             Base dir for image analysis configs (if None, uses image_analysis_config.base_dir).
+        document_id : str, optional
+            Google Doc ID to use for gdoc uploads. If None (the default), the ID is
+            read from the experiment INI on each upload, which is the correct
+            behaviour for live running (the INI is updated each day). Pass an
+            explicit ID when targeting a specific historical document, e.g. during
+            back-testing, so you don't have to edit the INI file.
         """
         self.analyzer_group = analyzer_group
         self.date_tag = date_tag
+        self.document_id = document_id
         if config_dir:
             scan_analysis_config.set_base_dir(config_dir)
         if image_config_dir:
@@ -191,7 +199,10 @@ class LiveTaskRunner:
         )
         if work:
             run_worklist(
-                work[:max_items], base_directory=base_directory, dry_run=dry_run
+                work[:max_items],
+                base_directory=base_directory,
+                dry_run=dry_run,
+                document_id=self.document_id,
             )
 
     def _discover_scan_tags(

@@ -372,14 +372,37 @@ def establishService(apiservice, apiversion):
     - Required scopes are defined in `SCOPES`.
     """
     cache_key = f"{apiservice}/{apiversion}"
+    base_path = Path(__file__).parent
+    token_path = base_path / "token.pickle"
+
     if cache_key in _service_cache:
-        return _service_cache[cache_key]
+        creds, service = _service_cache[cache_key]
+        if creds.valid:
+            return service
+        # Access token expired — refresh in-place so the long-running process
+        # keeps working without re-authentication.
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                with token_path.open("wb") as token_file:
+                    pickle.dump(creds, token_file)
+                service = build(apiservice, apiversion, credentials=creds)
+                _service_cache[cache_key] = (creds, service)
+                logger.debug("Refreshed credentials for %s %s", apiservice, apiversion)
+                return service
+            except Exception as e:
+                logger.warning(
+                    "Failed to refresh credentials for %s %s: %s. Re-authenticating.",
+                    apiservice,
+                    apiversion,
+                    e,
+                )
+        # Could not refresh; clear cache and fall through to full auth.
+        del _service_cache[cache_key]
 
     logger.debug("Establishing Google API service: %s %s", apiservice, apiversion)
 
     creds = None
-    base_path = Path(__file__).parent
-    token_path = base_path / "token.pickle"
     credentials_path = base_path / "credentials.json"
 
     if token_path.exists():
@@ -405,7 +428,7 @@ def establishService(apiservice, apiversion):
     try:
         service = build(apiservice, apiversion, credentials=creds)
         logger.debug("Google API service created: %s %s", apiservice, apiversion)
-        _service_cache[cache_key] = service
+        _service_cache[cache_key] = (creds, service)
         return service
     except Exception as e:
         logger.error(

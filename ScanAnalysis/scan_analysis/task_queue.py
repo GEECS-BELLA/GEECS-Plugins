@@ -315,12 +315,27 @@ def run_worklist(
     *,
     base_directory: Optional[Path] = None,
     dry_run: bool = False,
+    document_id: Optional[str] = None,
 ) -> None:
     """
     Run analyzers on the given worklist (single-app; no locking).
 
     Updates status files to claimed/done/failed.
     If dry_run=True, skip analyzer execution but update status as done.
+
+    Parameters
+    ----------
+    worklist : list of (priority, ScanTag, analyzer)
+        Tasks to execute, already sorted by priority.
+    base_directory : Path, optional
+        Root for scan data; defaults to configured base path.
+    dry_run : bool
+        If True, skip analysis execution but still update status to done.
+    document_id : str, optional
+        Google Doc ID for gdoc uploads. If None, the ID is read from the
+        experiment INI (the default live-running behaviour). Pass an explicit
+        ID to target a specific document (e.g., a historical log during
+        back-testing).
     """
     for priority, tag, analyzer in worklist:
         scan_folder = ScanPaths.get_scan_folder_path(
@@ -393,6 +408,7 @@ def run_worklist(
                     scan_tag=tag,
                     display_files=display_files,
                     gdoc_slot=analyzer.gdoc_slot,
+                    document_id=document_id,
                 )
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
