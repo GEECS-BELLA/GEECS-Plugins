@@ -273,8 +273,33 @@ function appendLinkToScan(documentID, scanNumber, label, url) {
     Logger.log('Heading for Scan ' + scanNumber + ' not found.');
     return 'Heading for Scan ' + scanNumber + ' not found.';
   }
-  var insertIndex = _sectionEndIndex(body, headingIndex);
-  var newPara = body.insertParagraph(insertIndex, label);
+  var sectionEnd = _sectionEndIndex(body, headingIndex);
+
+  // Find the table cell containing "Additional diagnostics:" within this section.
+  var diagCell = null;
+  for (var i = headingIndex + 1; i < sectionEnd && !diagCell; i++) {
+    var child = body.getChild(i);
+    if (child.getType() !== DocumentApp.ElementType.TABLE) continue;
+    var table = child.asTable();
+    for (var r = 0; r < table.getNumRows() && !diagCell; r++) {
+      var tableRow = table.getRow(r);
+      for (var c = 0; c < tableRow.getNumCells() && !diagCell; c++) {
+        var cell = tableRow.getCell(c);
+        if (cell.getText().indexOf('Additional diagnostics') >= 0) {
+          diagCell = cell;
+        }
+      }
+    }
+  }
+
+  if (!diagCell) {
+    Logger.log('"Additional diagnostics" cell not found in Scan ' + scanNumber + ' section.');
+    return '"Additional diagnostics" cell not found.';
+  }
+
+  // Append a new hyperlink paragraph at the end of the cell.
+  // Each successive call adds a new line, maintaining chronological order.
+  var newPara = diagCell.insertParagraph(diagCell.getNumChildren(), label);
   newPara.editAsText().setLinkUrl(0, label.length - 1, url);
   Logger.log('Appended link for Scan ' + scanNumber + ': ' + label);
   return 'success';
