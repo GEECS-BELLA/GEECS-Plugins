@@ -32,6 +32,7 @@ Polynomial calibration example:
 """
 
 import csv
+import png
 import numpy as np
 import logging
 from typing import Optional, Tuple, Dict, List, Annotated, Union, Literal, Any
@@ -476,6 +477,16 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             },
         )
         result.render_data = {"energy_axis": energy_axis}
+
+        file_path = auxiliary_data.get("file_path") if auxiliary_data else None
+        if file_path is not None:
+            try:
+                self._save_calibrated_outputs(result, Path(file_path))
+            except Exception as e:
+                logger.warning(
+                    "Failed to save calibrated outputs for %s: %s", file_path, e
+                )
+
         return result
 
     @staticmethod
@@ -502,6 +513,65 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
             "total_charge_au": total,
             "max_intensity": float(np.max(image)),
         }
+
+    def _save_calibrated_outputs(
+        self, result: ImageAnalyzerResult, file_path: Path
+    ) -> None:
+        """Save calibrated image and spectrum derived from *result*.
+
+        Called automatically from :meth:`analyze_image` when ``file_path`` is
+        present in ``auxiliary_data``.  Two sibling directories are created
+        next to the camera's raw-data folder (``file_path.parent.parent``):
+
+        ``{camera_name}-interp/``
+            16-bit PNG where each pixel value equals the charge-calibrated
+            intensity divided by the energy bin width (units: fC / MeV).
+
+        ``{camera_name}-interpSpec/``
+            Two-column TSV: ``Energy [MeV]`` and ``Charge Density [pC/MeV]``
+            (vertical integral of the calibrated image, converted fC → pC,
+            divided by the energy bin width).
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            Result from :meth:`analyze_image`.
+        file_path : Path
+            Path to the source image file (as supplied via ``auxiliary_data``).
+        """
+        image = result.processed_image
+        energy_axis = np.asarray(result.render_data["energy_axis"], dtype=float)
+
+        output_dir = file_path.parent.parent
+        file_stem = file_path.stem
+
+        # --- interp: 16-bit PNG with units atto_C/MeV per pixel ---
+        interp_dir = output_dir / f"{self.camera_name}-interp"
+        interp_dir.mkdir(parents=True, exist_ok=True)
+        # scale image by 1000 to convert fC/MeV to aC/MeV, then clip and convert to uint16 for PNG
+        image_uint16 = np.clip(image * 1000, 0, 65535).astype(np.uint16)
+        with open(interp_dir / f"{file_stem}.png", "wb") as f:
+            png.Writer(
+                width=image_uint16.shape[1],
+                height=image_uint16.shape[0],
+                bitdepth=16,
+                greyscale=True,
+            ).write(f, image_uint16)
+        logger.info("Saved calibrated image to %s", interp_dir / f"{file_stem}.png")
+
+        # --- interpSpec: energy / charge-density TSV ---
+        spec_dir = output_dir / f"{self.camera_name}-interpSpec"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        spectrum_pC_per_MeV = np.sum(image, axis=0) / 1000.0
+        data = np.column_stack([energy_axis, spectrum_pC_per_MeV])
+        np.savetxt(
+            str(spec_dir / f"{file_stem}.tsv"),
+            data,
+            delimiter="\t",
+            header="Energy [MeV]\tCharge Density [pC/MeV]",
+            comments="",
+        )
+        logger.info("Saved spectrum to %s", spec_dir / f"{file_stem}.tsv")
 
     @staticmethod
     def render_image(
