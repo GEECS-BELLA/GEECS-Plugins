@@ -73,6 +73,7 @@ nav:
           - Basic Usage: image_analysis/examples/basic_offline_analysis.ipynb
           - Basic Usage 1D: image_analysis/examples/basic_usage_1D_analyzer.ipynb
           - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
+          - Haso Analysis: image_analysis/examples/HasoLift_analysis.ipynb
   - Scan Analysis:
       - Overview: scan_analysis/overview.md
       - API Reference:

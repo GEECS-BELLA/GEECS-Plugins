@@ -116,6 +116,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             f"{self.camera_name}_temporal_fwhm": result.temporal_fwhm,
             f"{self.camera_name}_spectral_fwhm": result.spectral_fwhm,
             f"{self.camera_name}_frog_error": result.frog_error,
+            f"{self.camera_name}_frog_iterations": result.num_iterations,
         }
 
         # Pad shorter array with NaN to match lengths
