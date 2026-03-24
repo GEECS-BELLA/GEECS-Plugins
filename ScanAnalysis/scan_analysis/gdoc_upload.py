@@ -140,3 +140,67 @@ def upload_summary_to_gdoc(
             exc_info=True,
         )
         return False
+
+
+def upload_links_to_gdoc(
+    scan_tag: ScanTag,
+    analyzer_id: str,
+    display_files: List[str],
+    document_id: Optional[str] = None,
+) -> bool:
+    """Upload all display files to Drive and append hyperlinks in the scan log.
+
+    Calls the ``upload_display_files_and_link`` helper in ``docgen``, which
+    uploads each file to the per-day Drive folder and appends a clickable link
+    inside the ``"Additional diagnostics:"`` cell of the scan entry.
+
+    Parameters
+    ----------
+    scan_tag : ScanTag
+        Identifies the scan (year/month/day/number/experiment).
+    analyzer_id : str
+        Analyzer identifier; used as a label prefix for each link.
+    display_files : list of str
+        Local paths to the files to upload and link.
+    document_id : str, optional
+        Google Doc ID. If ``None``, the ID is read from the experiment INI.
+
+    Returns
+    -------
+    bool
+        ``True`` if at least one file was successfully linked, ``False`` otherwise.
+    """
+    if not DOCGEN:
+        logger.debug(
+            "docgen not available; skipping hyperlink upload for scan %s.", scan_tag
+        )
+        return False
+
+    if not display_files:
+        logger.warning("No display files to link for scan %s.", scan_tag)
+        return False
+
+    try:
+        linked = DOCGEN.upload_display_files_and_link(
+            scan_number=scan_tag.number,
+            analyzer_id=analyzer_id,
+            display_files=display_files,
+            document_id=document_id,
+            experiment=scan_tag.experiment,
+        )
+        logger.info(
+            "Linked %d/%d files in scan log for scan %s.",
+            linked,
+            len(display_files),
+            scan_tag,
+        )
+        return linked > 0
+    except Exception as exc:
+        logger.error(
+            "Failed to upload links for scan %s analyzer %s: %s",
+            scan_tag,
+            analyzer_id,
+            exc,
+            exc_info=True,
+        )
+        return False

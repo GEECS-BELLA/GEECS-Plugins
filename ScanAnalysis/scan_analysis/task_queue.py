@@ -25,7 +25,7 @@ import yaml
 from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.config.analyzer_factory import create_analyzer
 from scan_analysis.config.config_loader import load_experiment_config
-from scan_analysis.gdoc_upload import upload_summary_to_gdoc
+from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
 
@@ -398,17 +398,22 @@ def run_worklist(
                 priority,
                 display_files,
             )
-            if (
-                not dry_run
-                and display_files
-                and getattr(analyzer, "gdoc_slot", None) is not None
-            ):
-                upload_summary_to_gdoc(
-                    scan_tag=tag,
-                    display_files=display_files,
-                    gdoc_slot=analyzer.gdoc_slot,
-                    document_id=document_id,
-                )
+            if not dry_run and display_files:
+                gdoc_slot = getattr(analyzer, "gdoc_slot", None)
+                if gdoc_slot is not None:
+                    upload_summary_to_gdoc(
+                        scan_tag=tag,
+                        display_files=display_files,
+                        gdoc_slot=gdoc_slot,
+                        document_id=document_id,
+                    )
+                else:
+                    upload_links_to_gdoc(
+                        scan_tag=tag,
+                        analyzer_id=analyzer_id,
+                        display_files=display_files,
+                        document_id=document_id,
+                    )
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
             update_status(

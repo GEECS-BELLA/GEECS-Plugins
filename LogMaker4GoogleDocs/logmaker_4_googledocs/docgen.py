@@ -968,6 +968,133 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
 _FALLBACK_IMAGE_FOLDER = "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2"
 
 
+def append_link_to_scan(documentID, scan_number, label, url, servicevar):
+    """Append a hyperlink paragraph inside the "Additional diagnostics:" cell for a scan.
+
+    Parameters
+    ----------
+    documentID : str
+        Google Doc ID containing the scan entry.
+    scan_number : int
+        Scan number used to locate the section heading.
+    label : str
+        Visible link text (e.g. ``"UC_GaiaMode: summary.png"``).
+    url : str
+        URL the hyperlink points to (e.g. a Drive view URL).
+    servicevar : googleapiclient.discovery.Resource or None
+        An existing ``'script'`` API service. If ``None``, a new one is created.
+
+    Returns
+    -------
+    str or None
+        ``'success'`` on success, an error description string, or ``None`` on HTTP error.
+    """
+    API_SERVICE_NAME = "script"
+    API_VERSION = "v1"
+
+    if servicevar is None:
+        service = establishService(API_SERVICE_NAME, API_VERSION)
+    else:
+        service = servicevar
+
+    request = {
+        "function": "appendLinkToScan",
+        "parameters": [documentID, scan_number, label, url],
+        "devMode": True,
+    }
+
+    try:
+        response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
+        if "error" in response:
+            error = response["error"]["details"][0]
+            logger.error("appendLinkToScan script error: %s", error["errorMessage"])
+            return error["errorMessage"]
+        else:
+            return response["response"]["result"]
+
+    except errors.HttpError as e:
+        logger.error("HTTP error in append_link_to_scan: %s", e.content)
+        return None
+
+
+def upload_display_files_and_link(
+    scan_number, analyzer_id, display_files, document_id=None, experiment="Undulator"
+):
+    """Upload display files to Drive and append hyperlinks to the scan log entry.
+
+    For each file in *display_files*, uploads it to the per-day Drive folder and
+    calls ``appendLinkToScan`` to add a clickable link inside the
+    ``"Additional diagnostics:"`` cell of the scan entry.
+
+    Parameters
+    ----------
+    scan_number : int
+        Scan number used to locate the section heading in the Google Doc.
+    analyzer_id : str
+        Analyzer identifier; used as a label prefix (e.g. ``"UC_GaiaMode"``).
+    display_files : list of str
+        Local paths to the files to upload.
+    document_id : str, optional
+        Google Doc ID. If ``None``, the ID is read from the experiment INI.
+    experiment : str, default ``'Undulator'``
+        Experiment key used to pick the INI file.
+
+    Returns
+    -------
+    int
+        Number of files successfully uploaded and linked.
+    """
+    experiment_mapping = {
+        "Undulator": "HTUparameters.ini",
+        "Thomson": "HTTparaeters.ini",
+    }
+    experiment_config = configparser.ConfigParser()
+    config_file = experiment_mapping.get(experiment)
+    if config_file:
+        config_path = Path(__file__).parent / config_file
+        experiment_config.read(config_path)
+        if document_id is None and experiment_config.has_option("DEFAULT", "logid"):
+            document_id = experiment_config["DEFAULT"]["logid"]
+
+    if document_id is None:
+        logger.error(
+            "No document ID available for experiment '%s'; skipping link upload.",
+            experiment,
+        )
+        return 0
+
+    image_folder_id = _FALLBACK_IMAGE_FOLDER
+    if experiment_config.has_option("DEFAULT", "imageparentfolderid"):
+        parent_folder_id = experiment_config["DEFAULT"]["imageparentfolderid"]
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        try:
+            image_folder_id = get_or_create_folder(parent_folder_id, date_str)
+        except Exception as e:
+            logger.warning(
+                "Could not create per-day image folder: %s. Falling back to staging folder.",
+                e,
+            )
+
+    script_service = establishService("script", "v1")
+    linked = 0
+    for file_path in display_files:
+        file_id = uploadImage(file_path, image_folder_id)
+        if file_id is None:
+            logger.warning("Upload failed for '%s'; skipping link.", file_path)
+            continue
+        url = f"https://drive.google.com/file/d/{file_id}/view"
+        label = f"{analyzer_id}: {Path(file_path).name}"
+        result = append_link_to_scan(
+            document_id, scan_number, label, url, script_service
+        )
+        if result == "success":
+            linked += 1
+            logger.info("Linked '%s' in scan log for scan %s.", label, scan_number)
+        else:
+            logger.warning("appendLinkToScan returned: %s", result)
+    return linked
+
+
 def insertImageToExperimentLog(
     scanNumber, row, column, image_path, documentID=None, experiment="Undulator"
 ):
