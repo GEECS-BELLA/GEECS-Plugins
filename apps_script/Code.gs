@@ -1,53 +1,93 @@
-/**
- * BELLA Center Experiment Log — Google Apps Script
- *
- * This script is deployed as a Google Apps Script project and called from
- * Python via the Apps Script API (see logmaker_4_googledocs/docgen.py).
- * The deployed script is identified by the SCRIPT_ID stored in
- * logmaker_4_googledocs/config.ini.
- *
- * To update the deployed script:
- *   1. Open https://script.google.com and select the project.
- *   2. Paste the updated contents of this file into the editor.
- *   3. Deploy a new version (Deploy → Manage deployments → New version).
- *   4. The SCRIPT_ID in config.ini does not change between versions.
- *
- * Heading format used throughout (Heading 3):
- *   YY-MM-DD (HH:MM:SS) Scan NNN[: optional note]
- *
- * Originally by Tobias Ostermayr (2020). Extended at BELLA Center, LBNL.
- */
-
-
-// ─── Log file management ────────────────────────────────────────────────────
+//HTT EXPERIMENT LOG GENERATOR
 
 /**
- * Create (or find) a daily experiment log document from a template.
- * Returns the Google Doc ID of the new or existing document.
+ * Extending Google Docs developer guide:
+ *     https://developers.google.com/apps-script/guides/docs
+ *
+ * Document service reference documentation:
+ *     https://developers.google.com/apps-script/reference/document/
+ *
+ *
+ * This project works with a local python interface calling the functions via Google Apps Scripts API.
+ * The purpose of this script is to make automated experiment logs for the HTT experiment at the Berkeley Lab Laser Accelerator Center.
+ *
+ * by Tobias Ostermayr, last updated August 6, 2020
  */
+
+//=================================MAIN FUNCTIONS======================================
+
+//--------------------------------LOG FILE CREATOR-------------------------------------
+//If no Logfile has been created that day, this function copies the template logfile into the Experiment Log folder and returns its ID.
+//If the Logfile does exist already, this function returns its ID
+// function createExperimentLog(templateID,templatefolderID,documentfolderID,filename) {
+//   var date = Utilities.formatDate(new Date(), 'America/Los_Angeles', "MM-dd-YY");
+//   var file = DriveApp.getFileById(templateID);
+//   var source_folder = DriveApp.getFolderById(templatefolderID);
+//   var dest_folder = DriveApp.getFolderById(documentfolderID);
+//   var documentIDtest = checkFile(documentfolderID, filename);
+//   //If the file exists in the drive return its ID. Else, create the file and return its ID.
+//   if(documentIDtest != "nothing here"){
+//   return documentIDtest
+//   }else{
+//   var file2 = file.makeCopy(filename);
+//   dest_folder.addFile(file2);
+//   source_folder.removeFile(file2);
+//   var documentID = file2.getId();
+//   return documentID
+//  }
+// }
+
+
+// Sams attempt at making this bit of code work on shared drives. Currently, this does seem to work.
+// the first function is for live testing in goolge scripts env, commented out for now
+// function test_createExperimentLog() {
+//   var docId = '1-GpzJW1seWBWhCOixXVb47SSYxEit2PEXWJceincEck';
+//   var folderId = '16UrOep7RaFTrVUdbsx0tEJTEfK1GUW_C';
+//   var templatefolderID = '1-9fFZlaFl66bEkOwmxkRjyAu4QSpXlrZ';
+//   var filename = 'HTU test'
+
+//   var result = createExperimentLog(docId, templatefolderID, folderId,  filename);
+//   Logger.log(result);
+// }
+
 function createExperimentLog(templateID, templatefolderID, documentfolderID, filename) {
+  var date = Utilities.formatDate(new Date(), 'America/Los_Angeles', "MM-dd-YY");
+
+  // Access the template file and folders directly using their IDs
   var file = DriveApp.getFileById(templateID);
   var dest_folder = DriveApp.getFolderById(documentfolderID);
+
   var documentIDtest = checkFile(documentfolderID, filename);
-  if (documentIDtest != 'nothing here') {
+
+  // If the file exists in the drive, return its ID. Else, create the file and return its ID.
+  if(documentIDtest != "nothing here") {
     return documentIDtest;
+  } else {
+    // Create a copy of the file directly in the destination folder
+    var copiedDocument = file.makeCopy(filename, dest_folder);
+
+    // If needed, remove the original template file (though it's not clear why you'd want to remove the template)
+    // DriveApp.getFolderById(templatefolderID).removeFile(file);
+
+    return copiedDocument.getId();
   }
-  var copiedDocument = file.makeCopy(filename, dest_folder);
-  return copiedDocument.getId();
 }
 
 
-// ─── Document editing ───────────────────────────────────────────────────────
 
-/**
- * Append all elements from a template document to a target document.
- * Used to add new scan-entry blocks to an existing log.
- */
-function appendTemplate(templateID, documentID) {
-  var templateBody = DocumentApp.openById(templateID).getBody();
-  var thisBody = DocumentApp.openById(documentID).getBody();
-  for (var i = 0; i < templateBody.getNumChildren(); i++) {
-    switch (templateBody.getChild(i).getType()) {
+//------------------------APPEND FROM TEMPLATE TO LOGFILE------------------------------
+//This function is used to append a template to an existing document.
+//I.e., to append a new scan table or the Epilog to an existing Experiment Log.
+
+function appendTemplate(templateID,documentID) {
+  var templateDoc = DocumentApp.openById(templateID); //Pass in id of doc to be used as a template.
+  var templateBody = templateDoc.getBody();
+
+  var thisDoc = DocumentApp.openById(documentID);
+  var thisBody = thisDoc.getBody();
+
+  for(var i=0; i<templateBody.getNumChildren();i++){ //run through the elements of the template Body.
+    switch (templateBody.getChild(i).getType()) { //Handle different elements to append.
       case DocumentApp.ElementType.PARAGRAPH:
         thisBody.appendParagraph(templateBody.getChild(i).copy());
         break;
@@ -62,86 +102,162 @@ function appendTemplate(templateID, documentID) {
         break;
     }
   }
-  return 'success';
+  return "success"
 }
 
-/**
- * Replace {{placeholder}} tokens in a document with provided values.
- */
-function findAndReplace(documentID, keys, values) {
-  var thisBody = DocumentApp.openById(documentID).getBody();
-  for (var i = 0; i < keys.length; i++) {
-    thisBody.replaceText('(?i)' + '{{' + keys[i] + '}}', values[i]);
+function findAndReplace(documentID,keys,values) {
+  var thisDoc = DocumentApp.openById(documentID);
+  var thisBody = thisDoc.getBody();
+  for(var i=0; i<keys.length;i++){
+    thisBody.replaceText("(?i)"+"{{"+keys[i]+"}}", values[i])
   }
-  return '(?i)' + '{{' + keys[1] + '}}';
+  return "(?i)"+"{{"+keys[1]+"}}"
 }
 
-/**
- * Replace a text placeholder inside a table with a Drive image.
- * Only searches inside tables.
- */
-function findAndReplaceImage(documentID, imageID, placeholder) {
-  var thisBody = DocumentApp.openById(documentID).getBody();
-  var tables = thisBody.getTables();
-  for (var k in tables) {
-    var table = tables[k];
-    for (var row = 0; row < table.getNumRows(); row++) {
-      var tablerow = table.getRow(row);
-      for (var cell = 0; cell < tablerow.getNumCells(); cell++) {
-        if (tablerow.getChild(cell).getText() == placeholder) {
-          var blob = DriveApp.getFileById(imageID).getBlob();
-          table.replaceText('(?i)' + placeholder, '');
-          table.getCell(row, cell).insertImage(0, blob);
+//this is only for images in tables
+function findAndReplaceImage(documentID,imageID,placeholder) {
+ var thisDoc = DocumentApp.openById(documentID);
+ var thisBody = thisDoc.getBody();
+ var tables = thisBody.getTables();
+
+ for (var k in tables)
+ {
+   var table = tables[k];
+   var tablerows=table.getNumRows();
+     for ( var row = 0; row < tablerows; ++row ) {
+     var tablerow = table.getRow(row);
+        for ( var cell=0; cell < tablerow.getNumCells(); ++cell) {
+         var celltext = tablerow.getChild(cell).getText();
+
+            if(celltext == placeholder) {
+               var originalimage = DriveApp.getFileById(imageID).getBlob();
+                table.replaceText("(?i)"+placeholder, "");
+                table.getCell(row, cell).insertImage(0,originalimage);
+            }
         }
+     }
+ }
+
+return 0
+
+}
+
+
+
+
+//=================================HELPER FUNCTIONS=======================================
+
+//CHECK FILE EXISTENCE IN A FOLDER
+//Checks if the LogFile has been created before (or more generally, if file 'filename' exists in folder with folderID).
+function checkFile(folderID, filename){
+ var files = DriveApp.getFolderById(folderID).searchFiles('title contains "' + filename + '"');
+  if(files.hasNext()==true){
+    var file = files.next();
+    var fileID = file.getId();
+    return fileID}
+  else{return "nothing here"}
+}
+
+//CHECKS STRING EXISTENCE WITHIN FILE
+function checkFileContains(fileID, search){
+  var searchresult = DocumentApp.openById(fileID).getBody().findText(search);
+  if(searchresult!=null){
+    return true}
+  else{return false}
+}
+
+
+//CHECKS STRING EXISTENCE WITHIN FILE
+function lastRowFromSpreadsheet(fileID, sheetString, firstCol,lastCol){
+  var sheet = SpreadsheetApp.openById(fileID).getSheetByName(sheetString);
+
+  var rng = sheet.getRange(firstCol+":"+lastCol).getValues();
+  var lrIndex;
+
+  for(var i = rng.length-1;i>=0;i--){
+    lrIndex=i;
+    if(!rng[i].every(function(c){ return c == ""; })){
+      break;
+    }
+
+  }
+
+  var lr = lrIndex+1;
+
+  var rowVals = sheet.getRange(firstCol+lr+":"+lastCol+lr).getDisplayValues();
+
+return rowVals;
+}
+
+
+function insertImageToTableCell(documentID, scanNumber, row, column, imageID) {
+  var doc = DocumentApp.openById(documentID); // Open the document
+  var body = doc.getBody(); // Get the document body
+  var totalChildren = body.getNumChildren(); // Total elements in the body
+
+  var headingRegex = new RegExp("^\\d{2}-\\d{2}-\\d{2} \\(\\d{2}:\\d{2}:\\d{2}\\) Scan " + scanNumber + "(:.*)?$"); // Regex for specific scan number
+  var foundHeading = false; // Flag to indicate if the specific heading is found
+  var tables = []; // Array to store tables under the found heading
+
+  // Locate the heading and associated tables
+  for (var i = 0; i < totalChildren; i++) {
+    var child = body.getChild(i); // Get the current child element
+
+    if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
+      var paragraph = child.asParagraph();
+      var text = paragraph.getText();
+
+      if (paragraph.getHeading() === DocumentApp.ParagraphHeading.HEADING3 && headingRegex.test(text)) {
+        foundHeading = true;
+
+        // Look for tables after the found heading
+        for (var j = i + 1; j < totalChildren; j++) {
+          var nextChild = body.getChild(j);
+          if (nextChild.getType() === DocumentApp.ElementType.TABLE) {
+            tables.push(nextChild.asTable());
+          } else if (nextChild.getType() === DocumentApp.ElementType.PARAGRAPH) {
+            if (nextChild.asParagraph().getHeading() === DocumentApp.ParagraphHeading.HEADING3) {
+              break;
+            }
+          }
+        }
+        break; // Exit the loop after finding the specific heading
       }
     }
   }
-  return 0;
+
+  // Insert the image into the specified table cell
+  if (foundHeading && tables.length > 1) { // Ensure there is a second table
+    var table = tables[1]; // Access the second table
+
+    if (row < table.getNumRows() && column < table.getRow(row).getNumCells()) {
+      var cell = table.getRow(row).getCell(column); // Access the specific cell
+      cell.clear(); // Clear existing content if any
+
+      // Get the image from Google Drive and insert it
+      var imageBlob = DriveApp.getFileById(imageID).getBlob();
+      cell.insertImage(0, imageBlob);
+      Logger.log("Image inserted into Scan " + scanNumber + ", Row " + row + ", Column " + column);
+    } else {
+      Logger.log("Invalid row or column index for the table.");
+    }
+  } else if (foundHeading) {
+    Logger.log("No second table found for Scan " + scanNumber);
+  } else {
+    Logger.log("Heading for Scan " + scanNumber + " not found.");
+  }
+
+  return 'success'
 }
 
-/**
- * Insert a Drive image into a specific cell of the 2×2 display table
- * (tables[1]) under the Heading 3 for the given scan number.
- *
- * @param {string} documentID  Google Doc ID.
- * @param {number} scanNumber  Scan number used to locate the section heading.
- * @param {number} row         Zero-based row index in the display table.
- * @param {number} column      Zero-based column index in the display table.
- * @param {string} imageID     Drive file ID of the image to insert.
- * @returns {string} 'success' or an error description.
- */
-function insertImageToTableCell(documentID, scanNumber, row, column, imageID) {
-  var body = DocumentApp.openById(documentID).getBody();
-  var headingIndex = _findScanHeadingIndex(body, scanNumber);
-  if (headingIndex < 0) {
-    Logger.log('Heading for Scan ' + scanNumber + ' not found.');
-    return 'Heading for Scan ' + scanNumber + ' not found.';
-  }
 
-  var tables = _tablesInSection(body, headingIndex);
-  if (tables.length < 2) {
-    Logger.log('No display table (tables[1]) found for Scan ' + scanNumber);
-    return 'No display table found for Scan ' + scanNumber;
-  }
-
-  var table = tables[1];
-  if (row >= table.getNumRows() || column >= table.getRow(row).getNumCells()) {
-    Logger.log('Invalid row/column for Scan ' + scanNumber);
-    return 'Invalid row or column index.';
-  }
-
-  var cell = table.getRow(row).getCell(column);
-  cell.clear();
-  cell.insertImage(0, DriveApp.getFileById(imageID).getBlob());
-  Logger.log('Image inserted: Scan ' + scanNumber + ' [' + row + ',' + column + ']');
-  return 'success';
-}
+//=================================NEW FUNCTIONS (2025)=======================================
 
 /**
  * Append a hyperlink paragraph at the end of the scan section for scanNumber.
  *
  * The paragraph is inserted just before the next Heading 3 (or at the end of
- * the document if this is the last scan entry).  Multiple calls are safe and
+ * the document if this is the last scan entry). Multiple calls are safe and
  * purely additive — each call appends one new paragraph.
  *
  * @param {string} documentID  Google Doc ID.
@@ -157,58 +273,15 @@ function appendLinkToScan(documentID, scanNumber, label, url) {
     Logger.log('Heading for Scan ' + scanNumber + ' not found.');
     return 'Heading for Scan ' + scanNumber + ' not found.';
   }
-
   var insertIndex = _sectionEndIndex(body, headingIndex);
-
   var newPara = body.insertParagraph(insertIndex, label);
   newPara.editAsText().setLinkUrl(0, label.length - 1, url);
   Logger.log('Appended link for Scan ' + scanNumber + ': ' + label);
   return 'success';
 }
 
+// Private helpers shared by insertImageToTableCell and appendLinkToScan.
 
-// ─── Spreadsheet helpers ────────────────────────────────────────────────────
-
-/**
- * Return the last non-empty row (as display values) from a sheet range.
- */
-function lastRowFromSpreadsheet(fileID, sheetString, firstCol, lastCol) {
-  var sheet = SpreadsheetApp.openById(fileID).getSheetByName(sheetString);
-  var rng = sheet.getRange(firstCol + ':' + lastCol).getValues();
-  var lrIndex = 0;
-  for (var i = rng.length - 1; i >= 0; i--) {
-    lrIndex = i;
-    if (!rng[i].every(function (c) { return c == ''; })) break;
-  }
-  return sheet.getRange(firstCol + (lrIndex + 1) + ':' + lastCol + (lrIndex + 1)).getDisplayValues();
-}
-
-
-// ─── Helper functions ───────────────────────────────────────────────────────
-
-/**
- * Check whether a file with the given name exists in a Drive folder.
- * Returns the file ID if found, or 'nothing here'.
- */
-function checkFile(folderID, filename) {
-  var files = DriveApp.getFolderById(folderID).searchFiles('title contains "' + filename + '"');
-  if (files.hasNext()) {
-    return files.next().getId();
-  }
-  return 'nothing here';
-}
-
-/**
- * Return true if the document body contains the search string, else false.
- */
-function checkFileContains(fileID, search) {
-  return DocumentApp.openById(fileID).getBody().findText(search) !== null;
-}
-
-/**
- * Find the body child index of the Heading 3 for the given scan number.
- * Returns -1 if not found.
- */
 function _findScanHeadingIndex(body, scanNumber) {
   var regex = new RegExp(
     '^\\d{2}-\\d{2}-\\d{2} \\(\\d{2}:\\d{2}:\\d{2}\\) Scan ' + scanNumber + '(:.*)?$'
@@ -225,29 +298,6 @@ function _findScanHeadingIndex(body, scanNumber) {
   return -1;
 }
 
-/**
- * Collect all Table elements between headingIndex (exclusive) and the next
- * Heading 3 (exclusive), in document order.
- */
-function _tablesInSection(body, headingIndex) {
-  var tables = [];
-  var n = body.getNumChildren();
-  for (var j = headingIndex + 1; j < n; j++) {
-    var child = body.getChild(j);
-    if (child.getType() === DocumentApp.ElementType.TABLE) {
-      tables.push(child.asTable());
-    } else if (child.getType() === DocumentApp.ElementType.PARAGRAPH) {
-      if (child.asParagraph().getHeading() === DocumentApp.ParagraphHeading.HEADING3) break;
-    }
-  }
-  return tables;
-}
-
-/**
- * Return the child index at which new content should be inserted to appear
- * at the END of the scan section starting at headingIndex — i.e. just before
- * the next Heading 3, or at the end of the document if none follows.
- */
 function _sectionEndIndex(body, headingIndex) {
   var n = body.getNumChildren();
   for (var j = headingIndex + 1; j < n; j++) {
