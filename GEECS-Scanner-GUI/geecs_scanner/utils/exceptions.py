@@ -1,3 +1,5 @@
+"""Custom exceptions and exception utilities for GEECS Scanner."""
+
 import sys
 import traceback
 
@@ -17,14 +19,28 @@ def exception_hook(exctype, value, tb):
 
 
 class ActionError(Exception):
-    """ Exception for action-related errors:  such as wrong action name or failed get command """
+    """Exception for action-related errors: such as wrong action name or failed get command."""
+
     def __init__(self, message):
         super().__init__(message)
         self.message = message
 
 
 class ConflictingScanElements(Exception):
-    """ Exception for when a scan is submitted but the scan elements have conflicting flags """
+    """Exception for when a scan is submitted but the scan elements have conflicting flags."""
+
     def __init__(self, message):
         super().__init__(message)
         self.message = message
+
+
+class ScanSetupError(Exception):
+    """Raised when pre-logging setup fails and the scan cannot proceed."""
+
+    pass
+
+
+class OrphanProcessingTimeout(Exception):
+    """Raised when orphaned file/task processing exceeds the allowed timeout."""
+
+    pass
