@@ -75,11 +75,19 @@ config_path = script_dir / "config.ini"
 scriptconfig.read(config_path)
 
 if not scriptconfig.sections():
-    print(f"Failed to load config file from: {config_path}")
+    print(
+        f"Warning: could not load config file from {config_path}; Apps Script calls will be unavailable."
+    )
 else:
     print(f"Successfully loaded config file: {config_path}")
 
-SCRIPT_ID = scriptconfig["DEFAULT"]["script"]
+try:
+    SCRIPT_ID = scriptconfig["DEFAULT"]["script"]
+except KeyError:
+    SCRIPT_ID = None
+    print(
+        f"Warning: 'script' key missing in {config_path}; Apps Script calls will be unavailable."
+    )
 
 # Date/time convenience strings used in file naming
 today = datetime.now()
