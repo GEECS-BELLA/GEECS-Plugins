@@ -184,12 +184,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         list[str | pathlib.Path] or None
             Paths to generated artifacts to display, or None on failure.
         """
-        self._establish_additional_paths()
-
-        if self.flag_save_data and not self.path_dict["save"].exists():
-            self.path_dict["save"].mkdir(parents=True)
-
         try:
+            self._establish_additional_paths()
+
+            if self.flag_save_data and not self.path_dict["save"].exists():
+                self.path_dict["save"].mkdir(parents=True)
+
             # Run the data analyzer on every shot
             self._process_all_shots()
 
