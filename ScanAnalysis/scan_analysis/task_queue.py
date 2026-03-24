@@ -401,7 +401,6 @@ def run_worklist(
             if (
                 not dry_run
                 and display_files
-                and getattr(analyzer, "upload_to_gdoc", False)
                 and getattr(analyzer, "gdoc_slot", None) is not None
             ):
                 upload_summary_to_gdoc(

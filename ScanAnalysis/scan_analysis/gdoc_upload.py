@@ -8,25 +8,15 @@ The ``logmaker_4_googledocs`` package is optional: if it is not installed
 
 Slot mapping
 ------------
-Each analyzer that opts in to gdoc upload is assigned a ``gdoc_slot`` (0–3)
-in its config.  Slots map to cells in the 2×2 display table that the scan-log
-template inserts for every scan entry:
+Analyzers with ``gdoc_slot`` set (0–3) have their last summary figure inserted
+into the corresponding cell of the 2×2 display table in the scan-log entry:
 
     slot 0 → row 1, col 0   |  slot 1 → row 1, col 1
     slot 2 → row 2, col 0   |  slot 3 → row 2, col 1
 
-Usage
------
-In ``task_queue.run_worklist``, after a successful analyzer run::
-
-    from scan_analysis.gdoc_upload import upload_summary_to_gdoc
-
-    if getattr(analyzer, "upload_to_gdoc", False) and display_files:
-        upload_summary_to_gdoc(
-            scan_tag=tag,
-            display_files=display_files,
-            gdoc_slot=analyzer.gdoc_slot,
-        )
+Analyzers without ``gdoc_slot`` will have their display files uploaded to the
+per-day Drive folder and appended as hyperlinks (implemented in the follow-on
+PR on branch ``gdoc-hyperlinks``).
 """
 
 from __future__ import annotations

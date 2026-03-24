@@ -247,8 +247,7 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
         analyzer.id = config.id
         analyzer.priority = config.priority
 
-        # Attach gdoc upload settings
-        analyzer.upload_to_gdoc = config.upload_to_gdoc
+        # Attach gdoc slot (None = hyperlink mode, 0-3 = table cell mode)
         analyzer.gdoc_slot = config.gdoc_slot
 
         return analyzer
@@ -292,8 +291,7 @@ def _create_array1d_analyzer(config: Array1DAnalyzerConfig) -> "ScanAnalyzer":
         analyzer.id = config.id
         analyzer.priority = config.priority
 
-        # Attach gdoc upload settings
-        analyzer.upload_to_gdoc = config.upload_to_gdoc
+        # Attach gdoc slot (None = hyperlink mode, 0-3 = table cell mode)
         analyzer.gdoc_slot = config.gdoc_slot
 
         return analyzer
