@@ -47,6 +47,15 @@ PRINT_TRACEBACK = True
 logger = logging.getLogger(__name__)
 
 
+class DataUnavailableWarning(Exception):
+    """Raised when a device's data directory is missing or empty for a scan.
+
+    This is an expected condition when an analyzer is configured for a device
+    that was not active during a particular scan.  It is caught separately from
+    unexpected errors so that a clean warning is logged without a traceback.
+    """
+
+
 # %% TypedDict Definitions
 class BinDataEntry(TypedDict):
     """Container for per-bin aggregates."""
@@ -146,17 +155,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             ),
         }
 
-        # Check if data directory exists and is not empty
-        if not self.path_dict["data"].exists() or not any(
-            self.path_dict["data"].iterdir()
-        ):
-            logger.warning(
-                f"Data directory '{self.path_dict['data']}' does not exist or is empty. Skipping"
+        # Raise a clean sentinel if the data directory is missing or empty so
+        # _run_analysis_core can skip gracefully without printing a full traceback.
+        data_dir = self.path_dict["data"]
+        if not data_dir.exists() or not any(data_dir.iterdir()):
+            raise DataUnavailableWarning(
+                f"Data directory '{data_dir}' does not exist or is empty for "
+                f"device '{self.device_name}'. Skipping analysis."
             )
-
-        if self.path_dict["data"] is None or self.auxiliary_data is None:
-            logger.info("Skipping analysis due to missing data or auxiliary file.")
-            return
 
     def _run_analysis_core(self):
         """
@@ -203,11 +209,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 self._pending_aux_updates = []
             return self.renderer.display_contents
 
+        except DataUnavailableWarning as e:
+            logger.warning(str(e))
+            return None
         except Exception as e:
             if PRINT_TRACEBACK:
                 print(traceback.format_exc())
             logger.warning(f"Warning: Data analysis failed due to: {e}")
-            return
+            return None
 
     def _process_all_shots(self):
         """Load data files, run batch analysis (optional), then mode-based analysis."""
