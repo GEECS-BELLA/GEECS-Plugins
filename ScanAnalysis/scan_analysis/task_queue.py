@@ -25,6 +25,7 @@ import yaml
 from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.config.analyzer_factory import create_analyzer
 from scan_analysis.config.config_loader import load_experiment_config
+from scan_analysis.gdoc_upload import upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,7 @@ class TaskStatus:
     claimed_by: Optional[str] = None
     claimed_at: Optional[str] = None
     last_heartbeat: Optional[str] = None
+    display_files: Optional[List[str]] = None
 
     def to_dict(self) -> Dict[str, object]:
         """Serialize this status to a dict for YAML storage."""
@@ -55,6 +57,7 @@ class TaskStatus:
             "claimed_by": self.claimed_by,
             "claimed_at": self.claimed_at,
             "last_heartbeat": self.last_heartbeat,
+            "display_files": self.display_files,
         }
 
     @staticmethod
@@ -69,6 +72,7 @@ class TaskStatus:
             claimed_by=data.get("claimed_by"),
             claimed_at=data.get("claimed_at"),
             last_heartbeat=data.get("last_heartbeat"),
+            display_files=data.get("display_files"),
         )
 
 
@@ -162,6 +166,7 @@ def update_status(
     claimed_by: Optional[str] = None,
     claimed_at: Optional[str] = None,
     last_heartbeat: Optional[str] = None,
+    display_files: Optional[List[str]] = None,
 ) -> None:
     """Update status file for a given analyzer in a scan folder."""
     status_dir = _status_dir(scan_folder)
@@ -184,9 +189,11 @@ def update_status(
     current.last_heartbeat = (
         last_heartbeat if last_heartbeat is not None else current.last_heartbeat
     )
+    current.display_files = (
+        display_files if display_files is not None else current.display_files
+    )
 
-    ts = current
-    path.write_text(yaml.safe_dump(ts.to_dict()))
+    path.write_text(yaml.safe_dump(current.to_dict()))
 
 
 def reset_status_for_scan(
@@ -353,8 +360,11 @@ def run_worklist(
         )
         hb_thread.start()
         try:
+            display_files: Optional[List[str]] = None
             if not dry_run:
-                analyzer.run_analysis(tag)
+                raw = analyzer.run_analysis(tag)
+                if raw:
+                    display_files = [str(p) for p in raw]
             update_status(
                 scan_folder,
                 analyzer_id,
@@ -364,13 +374,26 @@ def run_worklist(
                 claimed_by=None,
                 claimed_at=None,
                 last_heartbeat=None,
+                display_files=display_files,
             )
             logger.info(
-                "run_worklist: completed scan=%s analyzer=%s priority=%s",
+                "run_worklist: completed scan=%s analyzer=%s priority=%s display_files=%s",
                 tag,
                 analyzer_id,
                 priority,
+                display_files,
             )
+            if (
+                not dry_run
+                and display_files
+                and getattr(analyzer, "upload_to_gdoc", False)
+                and getattr(analyzer, "gdoc_slot", None) is not None
+            ):
+                upload_summary_to_gdoc(
+                    scan_tag=tag,
+                    display_files=display_files,
+                    gdoc_slot=analyzer.gdoc_slot,
+                )
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
             update_status(

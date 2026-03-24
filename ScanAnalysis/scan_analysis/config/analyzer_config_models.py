@@ -193,12 +193,31 @@ class Array2DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
+    upload_to_gdoc: bool = Field(
+        default=False,
+        description="If True, upload the summary figure to the scan log Google Doc.",
+    )
+    gdoc_slot: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description="Table cell index (0–3) in the 2×2 display table. Required when upload_to_gdoc=True.",
+    )
 
     @model_validator(mode="after")
     def default_id_to_device_name(self) -> "Array2DAnalyzerConfig":
         """Set ``id`` to ``device_name`` when the user omits it."""
         if self.id is None:
             self.id = self.device_name
+        return self
+
+    @model_validator(mode="after")
+    def validate_gdoc_slot(self) -> "Array2DAnalyzerConfig":
+        """Require gdoc_slot when upload_to_gdoc is True."""
+        if self.upload_to_gdoc and self.gdoc_slot is None:
+            raise ValueError(
+                f"Analyzer '{self.device_name}': gdoc_slot (0–3) must be set when upload_to_gdoc=True."
+            )
         return self
 
 
@@ -292,12 +311,31 @@ class Array1DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
+    upload_to_gdoc: bool = Field(
+        default=False,
+        description="If True, upload the summary figure to the scan log Google Doc.",
+    )
+    gdoc_slot: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description="Table cell index (0–3) in the 2×2 display table. Required when upload_to_gdoc=True.",
+    )
 
     @model_validator(mode="after")
     def default_id_to_device_name(self) -> "Array1DAnalyzerConfig":
         """Set ``id`` to ``device_name`` when the user omits it."""
         if self.id is None:
             self.id = self.device_name
+        return self
+
+    @model_validator(mode="after")
+    def validate_gdoc_slot(self) -> "Array1DAnalyzerConfig":
+        """Require gdoc_slot when upload_to_gdoc is True."""
+        if self.upload_to_gdoc and self.gdoc_slot is None:
+            raise ValueError(
+                f"Analyzer '{self.device_name}': gdoc_slot (0–3) must be set when upload_to_gdoc=True."
+            )
         return self
 
 

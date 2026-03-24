@@ -853,6 +853,68 @@ def insertImageToTableCell(documentID, scanNumber, row, column, imageID, service
         print(e.content)
 
 
+def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
+    """Find or create a subfolder by name inside a parent Drive folder.
+
+    Parameters
+    ----------
+    parent_folder_id : str
+        Google Drive ID of the parent folder.
+    folder_name : str
+        Name of the subfolder to find or create (e.g., '2025-06-12').
+
+    Returns
+    -------
+    str
+        Drive file ID of the found or created subfolder.
+
+    Notes
+    -----
+    If multiple folders with the same name exist, the first result is returned.
+    """
+    driveservice = establishService("drive", "v3")
+    query = (
+        f"'{parent_folder_id}' in parents"
+        f" and name = '{folder_name}'"
+        f" and mimeType = 'application/vnd.google-apps.folder'"
+        f" and trashed = false"
+    )
+    results = (
+        driveservice.files()
+        .list(
+            q=query,
+            spaces="drive",
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        )
+        .execute()
+    )
+    files = results.get("files", [])
+    if files:
+        print(f"Found existing folder '{folder_name}': {files[0]['id']}")
+        return files[0]["id"]
+
+    folder_metadata = {
+        "name": folder_name,
+        "mimeType": "application/vnd.google-apps.folder",
+        "parents": [parent_folder_id],
+    }
+    folder = (
+        driveservice.files()
+        .create(body=folder_metadata, fields="id", supportsAllDrives=True)
+        .execute()
+    )
+    print(f"Created folder '{folder_name}': {folder['id']}")
+    return folder["id"]
+
+
+# Fallback staging folder used when no per-experiment image folder is configured.
+# This folder may be periodically purged; configure ImageParentFolderID in the
+# experiment INI to use a persistent per-day subfolder instead.
+_FALLBACK_IMAGE_FOLDER = "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2"
+
+
 def insertImageToExperimentLog(
     scanNumber, row, column, image_path, documentID=None, experiment="Undulator"
 ):
@@ -885,18 +947,16 @@ def insertImageToExperimentLog(
       script is expected to purge this directory periodically.
     - INI mapping is minimal; extend `experiment_mapping` if you add experiments.
     """
-    # Upload the image to Drive (temporary location), then place it into the Doc.
+    # Load per-experiment INI to resolve document ID and image folder.
     experiment_mapping = {
         "Undulator": "HTUparameters.ini",
         "Thomson": "HTTparaeters.ini",
     }
+    experiment_config = configparser.ConfigParser()
     config_file = experiment_mapping.get(experiment, None)
     if config_file:
-        experiment_config = configparser.ConfigParser()
-        experiment_config_dir = Path(__file__).parent
-        config_path = experiment_config_dir / config_file
+        config_path = Path(__file__).parent / config_file
         experiment_config.read(config_path)
-
         if not experiment_config.sections():
             print(f"Failed to load config file from: {config_path}")
         else:
@@ -905,7 +965,21 @@ def insertImageToExperimentLog(
         if documentID is None:
             documentID = experiment_config["DEFAULT"]["logid"]
 
-    # Temporary staging folder in BELLA Ops HTU logs (periodically purged)
-    image_id = uploadImage(image_path, "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2")
+    # Resolve the target Drive folder for this upload.
+    # If ImageParentFolderID is set in the experiment INI, create (or find) a
+    # per-day subfolder there so images are stored permanently.
+    # Falls back to the legacy staging folder when not configured.
+    image_folder_id = _FALLBACK_IMAGE_FOLDER
+    if experiment_config.has_option("DEFAULT", "imageparentfolderid"):
+        parent_folder_id = experiment_config["DEFAULT"]["imageparentfolderid"]
+        date_str = datetime.now().strftime("%Y-%m-%d")
+        try:
+            image_folder_id = get_or_create_folder(parent_folder_id, date_str)
+        except Exception as e:
+            print(
+                f"Could not create per-day image folder under {parent_folder_id}: {e}. "
+                f"Falling back to staging folder."
+            )
 
+    image_id = uploadImage(image_path, image_folder_id)
     insertImageToTableCell(documentID, scanNumber, row, column, image_id, None)
