@@ -223,7 +223,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
             # Save average using renderer
             summary_figs = [
-                p for p in self.renderer.render_single(
+                p
+                for p in self.renderer.render_single(
                     avg_context, config, self.path_dict["save"]
                 )
                 if Path(p).suffix.lower() in {".png", ".gif"}
