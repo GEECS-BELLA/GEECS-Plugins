@@ -221,8 +221,10 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             config = self._get_renderer_config()
 
             # Save average using renderer
-            self.renderer.render_single(avg_context, config, self.path_dict["save"])
-
+            summary_figs = self.renderer.render_single(
+                avg_context, config, self.path_dict["save"]
+            )
+            self.renderer.display_contents = summary_figs
             # Create animation from all results
             contexts = [
                 RenderContext.from_analyzer_result(
