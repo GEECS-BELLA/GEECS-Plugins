@@ -274,8 +274,6 @@ class Image2DRenderer(BaseRenderer):
 
         logger.info(f"Saved image visualization to {save_path}")
 
-        self.display_contents.append(str(save_path))
-
         return save_path
 
     def _create_image_grid(
