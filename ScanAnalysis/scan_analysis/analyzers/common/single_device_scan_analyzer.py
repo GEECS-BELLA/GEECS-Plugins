@@ -805,6 +805,31 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         return binned_data
 
+    def cleanup(self) -> None:
+        """
+        Free memory held by loaded and analyzed data after analysis is complete.
+
+        Clears per-scan attributes that may hold large numpy arrays or result objects:
+
+        - ``raw_data`` — loaded shot images
+        - ``results`` — per-shot/bin ImageAnalyzerResult objects
+        - ``_data_file_map`` — shot-to-path mapping
+        - ``stateful_results`` — batch-analysis state dict
+        - ``_pending_aux_updates`` — queued s-file row updates
+
+        Also delegates to ``renderer.cleanup()`` if that method exists.
+        """
+        self.raw_data = {}
+        self.results = {}
+        self._data_file_map = {}
+        self.stateful_results = {}
+        self._pending_aux_updates = []
+
+        if hasattr(self.renderer, "cleanup"):
+            self.renderer.cleanup()
+
+        logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")
+
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:
         """Return the element-wise mean of a list of data arrays."""
