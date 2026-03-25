@@ -623,7 +623,9 @@ class FileMover:
         to find matching files during initial processing) and re-adds them to the queue
         for another attempt at moving files.
         """
-        for task in self.orphan_tasks:
+        orphan_snapshot = list(self.orphan_tasks)
+        self.orphan_tasks.clear()
+        for task in orphan_snapshot:
             self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:
