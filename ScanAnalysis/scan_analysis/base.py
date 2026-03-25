@@ -138,6 +138,17 @@ class ScanAnalyzer:
             return None
         return self._run_analysis_core()
 
+    def cleanup(self) -> None:
+        """Release per-scan memory after analysis completes.
+
+        Must be implemented by all subclasses. Called by the task runner
+        after each analyzer finishes so that loaded data and results do not
+        accumulate across scans. Failing to implement this will raise
+        NotImplementedError and halt the runner — intentionally, to prevent
+        unbounded memory growth.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement cleanup()")
+
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """Core analysis routine to be implemented by subclasses."""
         """
