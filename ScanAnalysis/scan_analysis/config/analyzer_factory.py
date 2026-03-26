@@ -247,6 +247,9 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
         analyzer.id = config.id
         analyzer.priority = config.priority
 
+        # Attach gdoc slot (None = hyperlink mode, 0-3 = table cell mode)
+        analyzer.gdoc_slot = config.gdoc_slot
+
         return analyzer
     except TypeError as e:
         raise TypeError(
@@ -287,6 +290,9 @@ def _create_array1d_analyzer(config: Array1DAnalyzerConfig) -> "ScanAnalyzer":
         # Attach id and priority for task-queue status tracking and sorting
         analyzer.id = config.id
         analyzer.priority = config.priority
+
+        # Attach gdoc slot (None = hyperlink mode, 0-3 = table cell mode)
+        analyzer.gdoc_slot = config.gdoc_slot
 
         return analyzer
     except TypeError as e:

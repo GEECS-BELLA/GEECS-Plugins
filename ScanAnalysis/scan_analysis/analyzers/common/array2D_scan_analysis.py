@@ -20,6 +20,7 @@ The analyzer handles:
 from __future__ import annotations
 
 # --- Standard Library ---
+from pathlib import Path
 import logging
 from typing import TYPE_CHECKING, Optional, Dict, Any, Literal
 
@@ -221,8 +222,14 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             config = self._get_renderer_config()
 
             # Save average using renderer
-            self.renderer.render_single(avg_context, config, self.path_dict["save"])
-
+            summary_figs = [
+                p
+                for p in self.renderer.render_single(
+                    avg_context, config, self.path_dict["save"]
+                )
+                if Path(p).suffix.lower() in {".png", ".gif"}
+            ]
+            self.renderer.display_contents = summary_figs
             # Create animation from all results
             contexts = [
                 RenderContext.from_analyzer_result(

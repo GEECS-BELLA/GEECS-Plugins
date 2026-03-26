@@ -193,6 +193,17 @@ class Array2DAnalyzerConfig(BaseModel):
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
     )
+    gdoc_slot: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description=(
+            "Table cell index (0–3) in the 2×2 display table embedded in each scan "
+            "entry. When set, the last summary figure is inserted into that cell. "
+            "When omitted and gdoc_enabled=True on the runner, all display files are "
+            "uploaded to Drive and appended as hyperlinks instead."
+        ),
+    )
 
     @model_validator(mode="after")
     def default_id_to_device_name(self) -> "Array2DAnalyzerConfig":
@@ -291,6 +302,17 @@ class Array1DAnalyzerConfig(BaseModel):
     )
     is_active: bool = Field(
         default=True, description="Whether this analyzer is enabled"
+    )
+    gdoc_slot: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description=(
+            "Table cell index (0–3) in the 2×2 display table embedded in each scan "
+            "entry. When set, the last summary figure is inserted into that cell. "
+            "When omitted and gdoc_enabled=True on the runner, all display files are "
+            "uploaded to Drive and appended as hyperlinks instead."
+        ),
     )
 
     @model_validator(mode="after")

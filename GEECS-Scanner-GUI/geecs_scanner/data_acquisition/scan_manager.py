@@ -101,6 +101,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
+from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 
 # Module-level logger (internal module, no NullHandler)
@@ -534,25 +535,39 @@ class ScanManager:
 
         log_df = pd.DataFrame()  # Initialize in case of early exit
 
+        # ------------------------------------------------------------------ #
+        # Phase 1: pre-logging setup                                          #
+        # Scan paths don't exist yet, so the scan log cannot be opened here.  #
+        # Any failure here means nothing has been started — abort cleanly.    #
+        # ------------------------------------------------------------------ #
+        logger.info(
+            "scan config getting sent to pre logging is this: %s", self.scan_config
+        )
         try:
-            # Pre-logging setup: Trigger devices off, initialize data paths, etc.
-            logger.info(
-                "scan config getting sent to pre logging is this: %s", self.scan_config
-            )
-
             self.pre_logging_setup()
+        except GeecsDeviceInstantiationError:
+            logger.exception(
+                "Pre-logging setup failed: one or more devices could not be instantiated. "
+                "Aborting scan."
+            )
+            return pd.DataFrame()
+        except Exception:
+            logger.exception("Pre-logging setup failed. Aborting scan.")
+            return pd.DataFrame()
 
-            # Figure out scan_dir and a human-friendly scan_id *after* paths exist
-            scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
+        # Figure out scan_dir and a human-friendly scan_id *after* paths exist
+        scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
+        scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
+        if not scan_id:
+            num = getattr(self.scan_data_manager, "scan_number_int", None)
+            scan_id = f"Scan{int(num):03d}" if num is not None else "Scan-UNKNOWN"
 
-            # Prefer parsed string like "Scan0123"; else format from integer
-            scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
-            if not scan_id:
-                num = getattr(self.scan_data_manager, "scan_number_int", None)
-                scan_id = f"Scan{int(num):03d}" if num is not None else "Scan-UNKNOWN"
-
-            # Open a per-scan log file at <scan_dir>/scan.log and tag context
-            with scan_log(scan_id=scan_id, scan_dir=scan_dir):
+        # ------------------------------------------------------------------ #
+        # Phase 2: full scan lifecycle captured inside the per-scan log       #
+        # stop_scan() is in the finally block so cleanup is always logged.    #
+        # ------------------------------------------------------------------ #
+        with scan_log(scan_id=scan_id, scan_dir=scan_dir):
+            try:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
                 # Estimate acquisition time if necessary
                 if self.scan_config:
@@ -580,23 +595,24 @@ class ScanManager:
 
                 logger.info("scan %s: completed normally", scan_id)
 
-        except DeviceSynchronizationError as sync_err:
-            logger.error(
-                "Scan aborted due to device synchronization failure: %s", sync_err
-            )
+            except DeviceSynchronizationError as sync_err:
+                logger.error(
+                    "Scan aborted due to device synchronization failure: %s", sync_err
+                )
 
-        except Exception:
-            logger.exception("Error during scan execution")
-
-        finally:
-            # ALWAYS cleanup, even on errors
-            logger.info("Executing scan cleanup...")
-            try:
-                log_df = self.stop_scan()
             except Exception:
-                logger.exception("Error during scan cleanup - attempting to continue")
+                logger.exception("Error during scan execution")
 
-            if "scan_id" in locals():
+            finally:
+                # ALWAYS run cleanup so that stop_scan() is captured in the log
+                logger.info("Executing scan cleanup...")
+                try:
+                    log_df = self.stop_scan()
+                except Exception:
+                    logger.exception(
+                        "Error during scan cleanup - attempting to continue"
+                    )
+
                 logger.info("scan %s: finished", scan_id)
 
         return log_df  # Return the DataFrame with the logged data
@@ -700,6 +716,34 @@ class ScanManager:
             # wait 100 ms between checks of device standby status
             time.sleep(0.1)
 
+    def _join_file_mover_queue(self, timeout: float = 30.0) -> None:
+        """
+        Wait for the FileMover task queue to drain, with a hard timeout.
+
+        Runs ``task_queue.join()`` in a daemon thread so the calling thread is
+        never blocked indefinitely.
+
+        Parameters
+        ----------
+        timeout : float
+            Maximum seconds to wait before raising OrphanProcessingTimeout.
+
+        Raises
+        ------
+        OrphanProcessingTimeout
+            If the queue has not drained within *timeout* seconds.
+        """
+        join_thread = threading.Thread(
+            target=self.data_logger.file_mover.task_queue.join, daemon=True
+        )
+        join_thread.start()
+        join_thread.join(timeout=timeout)
+        if join_thread.is_alive():
+            raise OrphanProcessingTimeout(
+                f"FileMover task queue did not drain within {timeout:.0f} s. "
+                "Some files may not have been moved."
+            )
+
     def stop_scan(self):
         """
         Stop the scan, save data, and restore initial device states.
@@ -747,7 +791,13 @@ class ScanManager:
             # Re-queue tasks that failed during live acquisition (file may
             # not have been on disk yet when the worker first checked).
             self.data_logger.file_mover._post_process_orphan_task()
-            self.data_logger.file_mover.task_queue.join()  # wait for orphan tasks to finish before filesystem sweep
+            try:
+                self._join_file_mover_queue(timeout=30.0)
+            except OrphanProcessingTimeout:
+                logger.error(
+                    "Orphan task queue did not drain within 30 s. "
+                    "Some files may not have been moved — check the scan directory manually."
+                )
 
             if self.save_local:
                 # Sweep the filesystem for any remaining unmatched files
@@ -756,8 +806,17 @@ class ScanManager:
                     log_df=log_df,
                     device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
                 )
+                try:
+                    self._join_file_mover_queue(timeout=30.0)
+                except OrphanProcessingTimeout:
+                    logger.error(
+                        "Filesystem sweep tasks did not drain within 30 s. "
+                        "Some files may not have been moved — check the scan directory manually."
+                    )
 
-            self.data_logger.file_mover.shutdown(wait=True)
+            self.data_logger.file_mover.shutdown(
+                wait=False
+            )  # queue already drained above
 
             # Step 8: create sfile in analysis folder
             self.scan_data_manager._make_sFile(log_df)
