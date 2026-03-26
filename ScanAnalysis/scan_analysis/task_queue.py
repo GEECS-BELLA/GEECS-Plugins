@@ -433,6 +433,7 @@ def run_worklist(
         finally:
             stop_event.set()
             hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            analyzer.cleanup()
 
 
 def load_analyzers_from_config(

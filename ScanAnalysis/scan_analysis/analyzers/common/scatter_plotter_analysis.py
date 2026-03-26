@@ -489,3 +489,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 logging.info(f"Shots: {shots_in_bin[0]} - {shots_in_bin[-1]}")
 
         return {"bin": bins, "average": average, "sigma": sigma, "median": median}
+
+    def cleanup(self) -> None:
+        """No large data held between scans; nothing to release."""
+        pass
