@@ -827,7 +827,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         - ``stateful_results`` — batch-analysis state dict
         - ``_pending_aux_updates`` — queued s-file row updates
 
-        Also delegates to ``renderer.cleanup()`` if that method exists.
+        Also delegates to ``renderer.cleanup()``.
         """
         self.raw_data = {}
         self.results = {}
@@ -835,8 +835,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.stateful_results = {}
         self._pending_aux_updates = []
 
-        if hasattr(self.renderer, "cleanup"):
-            self.renderer.cleanup()
+        self.renderer.cleanup()
 
         logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")
 
