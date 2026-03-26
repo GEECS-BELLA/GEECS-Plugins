@@ -273,6 +273,7 @@ class Image2DRenderer(BaseRenderer):
         plt.close(fig)
 
         logger.info(f"Saved image visualization to {save_path}")
+
         return save_path
 
     def _create_image_grid(
