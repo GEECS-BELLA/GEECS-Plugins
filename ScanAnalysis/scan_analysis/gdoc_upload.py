@@ -55,15 +55,12 @@ def _try_load_docgen():
 
 DOCGEN = _try_load_docgen()
 
-# Mirrors the mapping in docgen so we can read the INI without importing docgen directly.
-_EXPERIMENT_INI_MAP = {
-    "Undulator": "HTUparameters.ini",
-    "Thomson": "HTTparaeters.ini",
-}
-
 
 def resolve_document_id(experiment: str) -> Optional[str]:
-    """Read the current LogID from the experiment INI.
+    r"""Return the current Google Doc LogID for an experiment.
+
+    Delegates to ``docgen.get_document_id()``, which reads from the fixed
+    network INI path for the experiment (works on any lab computer with Z:\ access).
 
     Parameters
     ----------
@@ -73,27 +70,11 @@ def resolve_document_id(experiment: str) -> Optional[str]:
     Returns
     -------
     str or None
-        The Google Doc ID, or ``None`` if the INI is missing or has no ``LogID``.
+        The Google Doc ID, or ``None`` if unavailable.
     """
     if not DOCGEN:
         return None
-    import configparser
-    from pathlib import Path
-
-    config_file = _EXPERIMENT_INI_MAP.get(experiment)
-    if not config_file:
-        logger.warning("No INI mapping for experiment '%s'.", experiment)
-        return None
-    config_path = Path(DOCGEN.__file__).parent / config_file
-    cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    doc_id = cfg["DEFAULT"].get("logid")
-    if not doc_id:
-        logger.warning(
-            "LogID not found in %s — run createExperimentLog() first.", config_path
-        )
-        return None
-    return doc_id
+    return DOCGEN.get_document_id(experiment)
 
 
 def upload_summary_to_gdoc(

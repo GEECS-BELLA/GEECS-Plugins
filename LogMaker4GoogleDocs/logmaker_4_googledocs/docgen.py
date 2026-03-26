@@ -59,6 +59,7 @@ from datetime import datetime
 import configparser
 import decimal
 import logging
+from typing import Optional
 
 # OAuth scopes required for Docs, Drive, and Sheets
 SCOPES = [
@@ -966,6 +967,55 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
 # This folder may be periodically purged; configure ImageParentFolderID in the
 # experiment INI to use a persistent per-day subfolder instead.
 _FALLBACK_IMAGE_FOLDER = "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2"
+
+# Fixed network paths to per-experiment INI files.
+# These files are updated daily by createExperimentLog() and contain LogID
+# and ImageParentFolderID. All lab computers share the Z:\ drive at these paths.
+_EXPERIMENT_INI_PATHS: dict = {
+    "Undulator": Path(
+        r"Z:\software\control-all-loasis\HTU\Active Version"
+        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTUparameters.ini"
+    ),
+    "Thomson": Path(
+        r"Z:\software\control-all-loasis\HTW2020\Active Version"
+        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTTparaeters.ini"
+    ),
+}
+
+
+def get_document_id(experiment: str) -> Optional[str]:
+    r"""Return the current Google Doc LogID for an experiment.
+
+    Reads the LogID from the experiment's config INI at its fixed network path.
+    This works on any lab computer with Z:\ access regardless of where this
+    package is installed.
+
+    Parameters
+    ----------
+    experiment : str
+        Experiment name (e.g. ``'Undulator'``, ``'Thomson'``).
+
+    Returns
+    -------
+    str or None
+        The Google Doc ID, or ``None`` if the INI is missing or has no LogID.
+    """
+    ini_path = _EXPERIMENT_INI_PATHS.get(experiment)
+    if ini_path is None:
+        logger.warning("No INI path configured for experiment '%s'.", experiment)
+        return None
+    if not ini_path.exists():
+        logger.warning("INI not found for experiment '%s' at %s.", experiment, ini_path)
+        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(ini_path)
+    doc_id = cfg["DEFAULT"].get("logid")
+    if not doc_id:
+        logger.warning(
+            "LogID not set in %s — run createExperimentLog() first.", ini_path
+        )
+        return None
+    return doc_id
 
 
 def append_link_to_scan(documentID, scan_number, label, url, servicevar):
