@@ -56,6 +56,27 @@ def _try_load_docgen():
 DOCGEN = _try_load_docgen()
 
 
+def resolve_document_id(experiment: str) -> Optional[str]:
+    r"""Return the current Google Doc LogID for an experiment.
+
+    Delegates to ``docgen.get_document_id()``, which reads from the fixed
+    network INI path for the experiment (works on any lab computer with Z:\ access).
+
+    Parameters
+    ----------
+    experiment : str
+        Experiment name (e.g. ``'Undulator'``).
+
+    Returns
+    -------
+    str or None
+        The Google Doc ID, or ``None`` if unavailable.
+    """
+    if not DOCGEN:
+        return None
+    return DOCGEN.get_document_id(experiment)
+
+
 def upload_summary_to_gdoc(
     scan_tag: ScanTag,
     display_files: List[str],

@@ -16,6 +16,7 @@ from typing import Iterable, Optional
 
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
+from scan_analysis.gdoc_upload import resolve_document_id
 from scan_analysis.task_queue import (
     build_worklist,
     init_status_for_scan,
@@ -108,6 +109,22 @@ class LiveTaskRunner:
         self.analyzer_group = analyzer_group
         self.date_tag = date_tag
         self.gdoc_enabled = gdoc_enabled
+
+        if gdoc_enabled and document_id is None:
+            document_id = resolve_document_id(date_tag.experiment)
+            if document_id is None:
+                logger.warning(
+                    "gdoc_enabled=True but no LogID found for experiment '%s'; "
+                    "gdoc uploads will be skipped.",
+                    date_tag.experiment,
+                )
+                self.gdoc_enabled = False
+            else:
+                logger.info(
+                    "Resolved Google Doc ID for '%s': %s",
+                    date_tag.experiment,
+                    document_id,
+                )
         self.document_id = document_id
         if config_dir:
             scan_analysis_config.set_base_dir(config_dir)
