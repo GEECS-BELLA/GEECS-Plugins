@@ -433,10 +433,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         # check if magnetic field is being passed through analyze_image,
         # overriding the config value in the DNN calibration (if present)
         BField_key = "HTT-MagTeslameter-DTM141 Field"
-        aux_mag_field = (
-            auxiliary_data.get(BField_key, None) if auxiliary_data else None
-        )
-
+        aux_mag_field = auxiliary_data.get(BField_key, None) if auxiliary_data else None
 
         if isinstance(cal, DnnAxisCalibration) and aux_mag_field is not None:
             logger.info(
