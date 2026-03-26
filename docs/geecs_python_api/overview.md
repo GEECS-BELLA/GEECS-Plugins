@@ -1,27 +1,35 @@
-# GEECS Python API Overview
+# GEECS Python API
 
-The GEECS Python API provides a comprehensive interface for controlling and analyzing data from the GEECS (BELLA Center) laser facility. This package enables programmatic access to experimental controls, data analysis tools, and system monitoring capabilities.
+The GEECS Python API is the low-level Python interface to the GEECS control system — the software that manages hardware devices, coordinates timing, and records experiment data at BELLA Center.
 
-## Key Features
+Most users interact with this package **indirectly**, through the Scanner GUI or Scan Analysis packages. Direct use is most relevant when building new GUI components, writing custom device drivers, or scripting hardware control outside of the standard tools.
 
-- **Controls**: Interface for controlling experimental hardware and systems
-- **Analysis**: Tools for processing and analyzing experimental data
-- **Tools**: Utility functions and helper modules for common tasks
+---
 
-## Getting Started
+## What It Provides
 
-The GEECS Python API is designed to work seamlessly with the GEECS experimental environment, providing both real-time control capabilities and offline analysis tools.
+**Controls** — Connect to GEECS devices, set and read device variables, handle timing and synchronization. This is the foundation for all hardware communication in the plugin suite.
 
-## Package Structure
+**Analysis** — Utilities for loading and interpreting data that GEECS records — device variable logs, scan metadata, and shot-level data files.
 
-- `controls/` - Hardware control and system interfaces
-- `analysis/` - Data analysis and processing tools
-- `tools/` - Utility functions and helper modules
+**Tools** — Helper functions for common tasks: unit conversions, data formatting, configuration file parsing, and interfacing with the broader GEECS ecosystem.
 
-## Installation
+---
 
-Please refer to the installation guide for detailed setup instructions.
+## Relationship to Other Packages
 
-## Usage
+```
+GEECS Scanner GUI  ──┐
+                     ├──▶  GEECS Python API  ──▶  GEECS hardware / data files
+Scan Analysis      ──┘
+```
 
-The API is designed to be used both interactively in Jupyter notebooks and in automated scripts for experimental control and data processing.
+If you are starting out with data analysis or scan automation, see [Scan Analysis](../scan_analysis/overview.md) or [Image Analysis](../image_analysis/overview.md) instead — they build on this package and provide higher-level workflows.
+
+---
+
+## API Reference
+
+- [Analysis](api/analysis.md)
+- [Controls](api/controls.md)
+- [Tools](api/tools.md)
