@@ -200,8 +200,8 @@ class Array2DAnalyzerConfig(BaseModel):
         description=(
             "Table cell index (0–3) in the 2×2 display table embedded in each scan "
             "entry. When set, the last summary figure is inserted into that cell. "
-            "When omitted, all display files are uploaded to Drive and appended as "
-            "hyperlinks instead."
+            "When omitted and gdoc_enabled=True on the runner, all display files are "
+            "uploaded to Drive and appended as hyperlinks instead."
         ),
     )
 
@@ -310,8 +310,8 @@ class Array1DAnalyzerConfig(BaseModel):
         description=(
             "Table cell index (0–3) in the 2×2 display table embedded in each scan "
             "entry. When set, the last summary figure is inserted into that cell. "
-            "When omitted, all display files are uploaded to Drive and appended as "
-            "hyperlinks instead."
+            "When omitted and gdoc_enabled=True on the runner, all display files are "
+            "uploaded to Drive and appended as hyperlinks instead."
         ),
     )
 

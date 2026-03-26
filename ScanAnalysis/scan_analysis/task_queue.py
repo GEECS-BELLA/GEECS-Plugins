@@ -315,6 +315,7 @@ def run_worklist(
     *,
     base_directory: Optional[Path] = None,
     dry_run: bool = False,
+    gdoc_enabled: bool = False,
     document_id: Optional[str] = None,
 ) -> None:
     """
@@ -331,6 +332,9 @@ def run_worklist(
         Root for scan data; defaults to configured base path.
     dry_run : bool
         If True, skip analysis execution but still update status to done.
+    gdoc_enabled : bool
+        Master switch for all Google Doc uploads. When False (the default),
+        no uploads are attempted regardless of per-analyzer gdoc_slot settings.
     document_id : str, optional
         Google Doc ID for gdoc uploads. If None, the ID is read from the
         experiment INI (the default live-running behaviour). Pass an explicit
@@ -398,7 +402,7 @@ def run_worklist(
                 priority,
                 display_files,
             )
-            if not dry_run and display_files:
+            if not dry_run and display_files and gdoc_enabled:
                 gdoc_slot = getattr(analyzer, "gdoc_slot", None)
                 if gdoc_slot is not None:
                     upload_summary_to_gdoc(

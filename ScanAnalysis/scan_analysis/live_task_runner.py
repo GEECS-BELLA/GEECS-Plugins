@@ -75,6 +75,7 @@ class LiveTaskRunner:
         *,
         config_dir: Optional[Path] = None,
         image_config_dir: Optional[Path] = None,
+        gdoc_enabled: bool = False,
         document_id: Optional[str] = None,
     ):
         """Initialize runner with analyzer group, date, and optional config roots.
@@ -93,6 +94,10 @@ class LiveTaskRunner:
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
             Base dir for image analysis configs (if None, uses image_analysis_config.base_dir).
+        gdoc_enabled : bool
+            Master switch for all Google Doc uploads. Defaults to False — no uploads
+            occur unless explicitly enabled. Set to True when running live with a
+            configured experiment INI and active Google Doc log.
         document_id : str, optional
             Google Doc ID to use for gdoc uploads. If None (the default), the ID is
             read from the experiment INI on each upload, which is the correct
@@ -102,6 +107,7 @@ class LiveTaskRunner:
         """
         self.analyzer_group = analyzer_group
         self.date_tag = date_tag
+        self.gdoc_enabled = gdoc_enabled
         self.document_id = document_id
         if config_dir:
             scan_analysis_config.set_base_dir(config_dir)
@@ -202,6 +208,7 @@ class LiveTaskRunner:
                 work[:max_items],
                 base_directory=base_directory,
                 dry_run=dry_run,
+                gdoc_enabled=self.gdoc_enabled,
                 document_id=self.document_id,
             )
 
