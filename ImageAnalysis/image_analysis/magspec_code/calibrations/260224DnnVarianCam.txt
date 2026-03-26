@@ -1,6 +1,0 @@
-cam number	FOV [mm]	Left edge [mm]	ROI Y offset	ROI height	ROI X offset	ROI width	Y center pixel	Y Start	Y End	X Start	X End	rot [deg]	set	screen	name	sensitivity
-1	109.97	169.4	170	600	0	1384	305	1	600	1	1357	0	6	back	HTT-C23_1_MagSpec1	0.36974
-2	355.73	521.52	320	256	0	1384	139	45	230	370	1370	0	8	back	HTT-C23_2_MagSpec2	0.36974
-3	368.62	416.98	340	256	0	1384	134	45	225	140	750	0.2	13	back	HTT-C23_3_MagSpec3	0.244
-4	438.32	813.62	420	256	0	1384	96	21	170	26	1384	0.1	14	back	HTT-C23_4_MagSpec4	0.36974
-5	207.57	-96.7	0	542	0	724	157	31	490	221	500	0	10	front	HTT-VHEE_Lanex	1.21

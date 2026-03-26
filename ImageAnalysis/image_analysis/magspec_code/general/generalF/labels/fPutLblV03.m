@@ -1,1 +1,0 @@
-function fPutLblV03(slct,ttl,x,y) % Function Put Label, ver.3%% slct1: 1 for trajectory% ttl,x,y: put number for label%% Kei Nakamura% Created on Monday, April 23rd 2007.% Modified on Sunday, May 9th 2010.%%% mainlbl = fLblLstTrjV01(slct);  % get a list of label% put labelstitle(lbl{ttl});xlabel(lbl{x});ylabel(lbl{y});

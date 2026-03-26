@@ -1,1 +1,0 @@
-function binImg = fImg3x3Bin(img)%% image 3x3 binning%% binImg: binned image%% img: input image%% Written by Kei Nakamura% % 2014/11/18 ver.1: Created %% main bodyimg1 = img(1:3:end,:)+img(2:3:end,:)+img(2:3:end,:);binImg = img1(:,1:3:end)+img1(:,2:3:end)+img1(:,3:3:end);
