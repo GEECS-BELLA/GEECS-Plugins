@@ -178,11 +178,12 @@ class LiveWatchWindow(QMainWindow):
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
-        # Experiment (for Google Docs)
+        # Experiment (for Google Docs and Z Drive Navigation)
         self.combo_facility = QComboBox()
         self.combo_facility.addItems(["Undulator", "Thomson"])
         self.combo_facility.setToolTip(
             "Select the experiment for Google Docs integration.\n"
+            "This corresponds to the Data Storage Drive Location.\n"
             "This determines which experiment INI file is used for Document ID resolution."
         )
         self.combo_facility.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -194,7 +195,8 @@ class LiveWatchWindow(QMainWindow):
         self.combo_experiment.setEditable(True)
         self.combo_experiment.setToolTip(
             "Select the analyzer configuration group.\n"
-            "Configs are loaded from the scan analysis config directory."
+            "Configs are loaded from the scan analysis config directory.\n"
+            "The config group determines which diagnostics are included in the LiveWatch Analysis."
         )
         self.combo_experiment.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         analyzer_group_row.addWidget(self.combo_experiment)
@@ -215,7 +217,8 @@ class LiveWatchWindow(QMainWindow):
         today = date.today()
         self.date_edit.setDate(QDate(today.year, today.month, today.day))
         self.date_edit.setToolTip(
-            "Analysis date. Determines which day folder to watch for new scans."
+            "Select the date that will be analyzed.\n"
+            "Today's date should autopopulate, and previous dates can be selected if desired."
         )
         layout.addRow("Date:", self.date_edit)
 
@@ -224,15 +227,16 @@ class LiveWatchWindow(QMainWindow):
         self.spin_start_scan.setRange(0, 99999)
         self.spin_start_scan.setValue(0)
         self.spin_start_scan.setToolTip(
-            "Minimum scan number to process.\n"
-            "Scans below this number are skipped."
+            "Scan number to begin LiveWatch analysis at.\n"
+            "Defaults to 0 for analysis of all scans on selected date. \n"
+            "Changing this may be useful when using options such as 'Rerun Completed' or 'Rerun Failed' are activated."
         )
         layout.addRow("Start Scan #:", self.spin_start_scan)
 
         # GDoc upload
         self.check_gdoc = QCheckBox("Enable GDoc Upload")
         self.check_gdoc.setToolTip(
-            "Upload analysis results to the experiment Google Doc scan log.\n"
+            "Toggle whether or not analysis results are automatically uploaded to the scan log.\n"
             "Requires logmaker_4_googledocs to be installed and configured."
         )
         layout.addRow("", self.check_gdoc)
@@ -241,9 +245,9 @@ class LiveWatchWindow(QMainWindow):
         self.line_document_id = QLineEdit()
         self.line_document_id.setPlaceholderText("(auto-detected from experiment config)")
         self.line_document_id.setToolTip(
-            "Google Doc ID for the experiment scan log.\n"
+            "Google Doc ID for the experiment scan log, visible for debugging.\n"
             "Leave blank to auto-detect from the experiment INI file for today's scan.\n"
-            "Override with a specific ID to target a different document (previous day)."
+            "Enter document ID manually if autofill doesn't work."
         )
         layout.addRow("Document ID:", self.line_document_id)
 
@@ -254,7 +258,7 @@ class LiveWatchWindow(QMainWindow):
         self.line_scan_config.setToolTip(
             "Path to scan analysis config directory.\n"
             "Leave blank to use the default from ScanPaths configuration.\n"
-            "After changing, click ⟳ to reload the experiment list."
+            "If you change this click ⟳ to reload the Analyzer Group list."
         )
         scan_config_row.addWidget(self.line_scan_config)
 
