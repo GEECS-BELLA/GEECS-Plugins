@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QSplitter,
     QSizePolicy,
+    QFileDialog,
 )
 
 from .log_handler import QtLogHandler
@@ -50,12 +51,19 @@ _LEVEL_COLOURS = {
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
-def _try_list_experiments() -> list[str]:
-    """Return available experiment config names, or an empty list on failure."""
+def _try_list_experiments(config_dir: Optional[Path] = None) -> list[str]:
+    """Return available experiment config names, or an empty list on failure.
+
+    Parameters
+    ----------
+    config_dir : Path, optional
+        Explicit scan analysis config directory to search.  When *None*,
+        falls back to the globally configured base directory.
+    """
     try:
         from scan_analysis.config.config_loader import list_available_configs
 
-        configs = list_available_configs()
+        configs = list_available_configs(config_dir=config_dir)
         # Filter to experiment-level configs (those under experiments/ dir)
         names = []
         for name, paths in configs.items():
@@ -63,11 +71,7 @@ def _try_list_experiments() -> list[str]:
                 if "experiments" in p.parts or "experiment" in p.parts:
                     names.append(name)
                     break
-            else:
-                # Include all configs if directory structure is flat
-                if not names:
-                    names.append(name)
-        return sorted(set(names), key=str.lower) if names else sorted(configs.keys(), key=str.lower)
+        return sorted(set(names), key=str.lower)
     except Exception as exc:
         logger.warning("Could not list experiment configs: %s", exc)
         return []
@@ -162,14 +166,26 @@ class LiveWatchWindow(QMainWindow):
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
-        # Experiment
+        # Experiment (combo + refresh button)
+        experiment_row = QHBoxLayout()
         self.combo_experiment = QComboBox()
         self.combo_experiment.setEditable(True)
         self.combo_experiment.setToolTip(
             "Select the analyzer configuration group.\n"
             "Configs are loaded from the scan analysis config directory."
         )
-        layout.addRow("Experiment:", self.combo_experiment)
+        self.combo_experiment.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        experiment_row.addWidget(self.combo_experiment)
+
+        self.btn_refresh_experiments = QPushButton("⟳")
+        self.btn_refresh_experiments.setFixedWidth(32)
+        self.btn_refresh_experiments.setToolTip(
+            "Reload the experiment list from the scan analysis config directory."
+        )
+        self.btn_refresh_experiments.clicked.connect(self._on_refresh_experiments)
+        experiment_row.addWidget(self.btn_refresh_experiments)
+
+        layout.addRow("Experiment:", experiment_row)
 
         # Date
         self.date_edit = QDateEdit()
@@ -199,22 +215,39 @@ class LiveWatchWindow(QMainWindow):
         )
         layout.addRow("", self.check_gdoc)
 
-        # Advanced: config paths
+        # Advanced: config paths with browse buttons
+        scan_config_row = QHBoxLayout()
         self.line_scan_config = QLineEdit()
         self.line_scan_config.setPlaceholderText("(auto-detected)")
         self.line_scan_config.setToolTip(
             "Path to scan analysis config directory.\n"
-            "Leave blank to use the default from ScanPaths configuration."
+            "Leave blank to use the default from ScanPaths configuration.\n"
+            "After changing, click ⟳ to reload the experiment list."
         )
-        layout.addRow("Scan Config Dir:", self.line_scan_config)
+        scan_config_row.addWidget(self.line_scan_config)
 
+        self.btn_browse_scan_config = QPushButton("Browse…")
+        self.btn_browse_scan_config.setToolTip("Browse for scan analysis config directory.")
+        self.btn_browse_scan_config.clicked.connect(self._on_browse_scan_config)
+        scan_config_row.addWidget(self.btn_browse_scan_config)
+
+        layout.addRow("Scan Config Dir:", scan_config_row)
+
+        image_config_row = QHBoxLayout()
         self.line_image_config = QLineEdit()
         self.line_image_config.setPlaceholderText("(auto-detected)")
         self.line_image_config.setToolTip(
             "Path to image analysis config directory.\n"
             "Leave blank to use the default from ScanPaths configuration."
         )
-        layout.addRow("Image Config Dir:", self.line_image_config)
+        image_config_row.addWidget(self.line_image_config)
+
+        self.btn_browse_image_config = QPushButton("Browse…")
+        self.btn_browse_image_config.setToolTip("Browse for image analysis config directory.")
+        self.btn_browse_image_config.clicked.connect(self._on_browse_image_config)
+        image_config_row.addWidget(self.btn_browse_image_config)
+
+        layout.addRow("Image Config Dir:", image_config_row)
 
         group.setLayout(layout)
         return group
@@ -333,12 +366,31 @@ class LiveWatchWindow(QMainWindow):
     # Initialization helpers
     # ------------------------------------------------------------------
 
-    def _populate_experiments(self) -> None:
-        """Fill the experiment combo box from available configs."""
-        experiments = _try_list_experiments()
+    def _populate_experiments(self, config_dir: Optional[Path] = None) -> None:
+        """Fill the experiment combo box from available configs.
+
+        Parameters
+        ----------
+        config_dir : Path, optional
+            Explicit scan analysis config directory.  When *None*, uses the
+            path currently entered in the Scan Config Dir field (if any),
+            falling back to the globally configured default.
+        """
+        if config_dir is None:
+            text = self.line_scan_config.text().strip()
+            if text:
+                config_dir = Path(text)
+
+        experiments = _try_list_experiments(config_dir=config_dir)
+        previous = self.combo_experiment.currentText()
         self.combo_experiment.clear()
         if experiments:
             self.combo_experiment.addItems(experiments)
+            # Restore previous selection if still available
+            idx = self.combo_experiment.findText(previous)
+            if idx >= 0:
+                self.combo_experiment.setCurrentIndex(idx)
+            logger.info("Loaded %d experiment config(s).", len(experiments))
         else:
             self.combo_experiment.addItem("Undulator")
             logger.info("No experiment configs found; added default 'Undulator'.")
@@ -488,6 +540,36 @@ class LiveWatchWindow(QMainWindow):
         self.text_log.clear()
 
     # ------------------------------------------------------------------
+    # Slot: Browse / Refresh
+    # ------------------------------------------------------------------
+
+    def _on_browse_scan_config(self) -> None:
+        """Open a directory picker for the scan analysis config directory."""
+        current = self.line_scan_config.text().strip()
+        start_dir = current if current else ""
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Select Scan Analysis Config Directory", start_dir
+        )
+        if chosen:
+            self.line_scan_config.setText(chosen)
+            # Auto-refresh experiments when the scan config dir changes
+            self._populate_experiments(config_dir=Path(chosen))
+
+    def _on_browse_image_config(self) -> None:
+        """Open a directory picker for the image analysis config directory."""
+        current = self.line_image_config.text().strip()
+        start_dir = current if current else ""
+        chosen = QFileDialog.getExistingDirectory(
+            self, "Select Image Analysis Config Directory", start_dir
+        )
+        if chosen:
+            self.line_image_config.setText(chosen)
+
+    def _on_refresh_experiments(self) -> None:
+        """Reload the experiment list from the current scan config directory."""
+        self._populate_experiments()
+
+    # ------------------------------------------------------------------
     # UI state management
     # ------------------------------------------------------------------
 
@@ -497,11 +579,14 @@ class LiveWatchWindow(QMainWindow):
 
         # Disable config fields while running to prevent mid-run changes
         self.combo_experiment.setEnabled(not running)
+        self.btn_refresh_experiments.setEnabled(not running)
         self.date_edit.setEnabled(not running)
         self.spin_start_scan.setEnabled(not running)
         self.check_gdoc.setEnabled(not running)
         self.line_scan_config.setEnabled(not running)
+        self.btn_browse_scan_config.setEnabled(not running)
         self.line_image_config.setEnabled(not running)
+        self.btn_browse_image_config.setEnabled(not running)
 
         # Runtime options can be changed while running in the future,
         # but for now disable them too for safety
