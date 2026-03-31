@@ -13,6 +13,7 @@ pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'"}
 scananalysis = {path = "..", develop = true}
 geecs_data_utils = {path = "../../GEECS-Data-Utils", develop = true}
 LogMaker4GoogleDocs = {path = "../../LogMaker4GoogleDocs", develop = true}
+requests = "^2.28.0"
 
 [tool.poetry.scripts]
 live-watch-gui = "LiveWatchGUI.main:main"

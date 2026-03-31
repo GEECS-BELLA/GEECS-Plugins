@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
 )
 
+from .doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 from .log_handler import QtLogHandler
 from .worker import LiveWatchConfig, LiveWatchWorker
 
@@ -115,6 +116,7 @@ class LiveWatchWindow(QMainWindow):
 
         self._worker: Optional[LiveWatchWorker] = None
         self._log_handler: Optional[QtLogHandler] = None
+        self._doc_id_lookup: Optional[DocIDLookup] = None
 
         # Build UI
         central = QWidget()
@@ -147,11 +149,11 @@ class LiveWatchWindow(QMainWindow):
         splitter.setStretchFactor(0, 2)
         splitter.setStretchFactor(1, 3)
 
-        # Populate experiment dropdown
-        self._populate_experiments()
-
-        # Pre-fill config paths
+        # Pre-fill config paths first (so analyzer groups can use the config directory)
         self._populate_default_paths()
+
+        # Then populate experiment dropdown using the now-available config directory
+        self._populate_experiments()
 
         # Install log handler
         self._install_log_handler()
@@ -159,6 +161,12 @@ class LiveWatchWindow(QMainWindow):
         # Connect facility and date changes to auto-populate Document ID
         self.combo_facility.currentTextChanged.connect(self._on_facility_changed)
         self.date_edit.dateChanged.connect(self._on_date_changed)
+
+        # Trigger initial Document ID population for default facility and date
+        # This happens synchronously after all UI is initialized
+        default_facility = self.combo_facility.currentText()
+        if default_facility:
+            self._on_facility_changed(default_facility)
 
     # ------------------------------------------------------------------
     # UI construction helpers
@@ -234,8 +242,8 @@ class LiveWatchWindow(QMainWindow):
         self.line_document_id.setPlaceholderText("(auto-detected from experiment config)")
         self.line_document_id.setToolTip(
             "Google Doc ID for the experiment scan log.\n"
-            "Leave blank to auto-detect from the experiment INI file.\n"
-            "Override with a specific ID to target a different document."
+            "Leave blank to auto-detect from the experiment INI file for today's scan.\n"
+            "Override with a specific ID to target a different document (previous day)."
         )
         layout.addRow("Document ID:", self.line_document_id)
 
@@ -440,30 +448,90 @@ class LiveWatchWindow(QMainWindow):
             logging.getLogger(name).addHandler(self._log_handler)
 
     def _on_facility_changed(self, facility: str) -> None:
-        """Auto-populate Document ID when facility selection changes."""
+        """Load experiment-specific .tsv file when facility changes."""
         if not facility.strip():
             self.line_document_id.clear()
+            self._doc_id_lookup = None
             return
 
+        # Check if facility has a Google Drive file ID for date-aware lookup
+        if facility in EXPERIMENT_FILE_IDS:
+            file_id = EXPERIMENT_FILE_IDS[facility]
+            self._doc_id_lookup = DocIDLookup(facility, file_id)
+
+            # Try to load the .tsv file
+            if not self._doc_id_lookup.refresh():
+                logger.warning("Could not load doc_index.tsv for facility '%s'", facility)
+                # Fall back to resolve_document_id()
+                self._try_resolve_document_id_fallback(facility)
+                self._doc_id_lookup = None
+                return
+
+            # Now that we have the lookup loaded, update Document ID for current date
+            self._update_document_id_from_date()
+        else:
+            # Fall back to resolve_document_id() for facilities without .tsv
+            self._try_resolve_document_id_fallback(facility)
+            self._doc_id_lookup = None
+
+    def _on_date_changed(self) -> None:
+        """Refresh Document ID when date selection changes."""
+        if self._doc_id_lookup is not None:
+            # Use date-aware lookup from .tsv
+            self._update_document_id_from_date()
+        else:
+            # Fall back to facility-based lookup
+            facility = self.combo_facility.currentText().strip()
+            if facility:
+                self._try_resolve_document_id_fallback(facility)
+
+    def _update_document_id_from_date(self) -> None:
+        """Look up Document ID from current date using loaded .tsv mapping."""
+        if self._doc_id_lookup is None:
+            return
+
+        qdate = self.date_edit.date()
+        doc_id = self._doc_id_lookup.get_document_id(qdate.year(), qdate.month(), qdate.day())
+
+        if doc_id:
+            self.line_document_id.setText(doc_id)
+            logger.info(
+                "Resolved Document ID from .tsv for date %04d-%02d-%02d: %s",
+                qdate.year(),
+                qdate.month(),
+                qdate.day(),
+                doc_id,
+            )
+        else:
+            self.line_document_id.clear()
+            logger.debug(
+                "No Document ID found in .tsv for date %04d-%02d-%02d",
+                qdate.year(),
+                qdate.month(),
+                qdate.day(),
+            )
+
+    def _try_resolve_document_id_fallback(self, facility: str) -> None:
+        """Fall back to resolve_document_id() for facilities without .tsv files."""
         try:
             from scan_analysis.gdoc_upload import resolve_document_id
 
             doc_id = resolve_document_id(facility)
             if doc_id:
                 self.line_document_id.setText(doc_id)
-                logger.info("Resolved Document ID for facility '%s': %s", facility, doc_id)
+                logger.info("Resolved Document ID for facility '%s' (fallback): %s", facility, doc_id)
             else:
                 self.line_document_id.clear()
-                logger.debug("No Document ID found for facility '%s'", facility)
+                logger.debug("No Document ID found for facility '%s' (fallback)", facility)
         except Exception as exc:
             logger.debug("Could not resolve Document ID for facility '%s': %s", facility, exc)
             self.line_document_id.clear()
 
-    def _on_date_changed(self) -> None:
-        """Refresh Document ID when date selection changes."""
-        facility = self.combo_facility.currentText().strip()
-        if facility:
-            self._on_facility_changed(facility)
+    def _trigger_initial_document_id_population(self) -> None:
+        """Trigger initial Document ID population after UI is fully initialized."""
+        default_facility = self.combo_facility.currentText()
+        if default_facility:
+            self._on_facility_changed(default_facility)
 
     # ------------------------------------------------------------------
     # Build config from widgets
