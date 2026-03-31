@@ -37,6 +37,7 @@ class LiveWatchConfig:
     start_scan_number: int = 0
     experiment: str = ""
     gdoc_enabled: bool = False
+    document_id: Optional[str] = None
     config_dir: Optional[Path] = None
     image_config_dir: Optional[Path] = None
 
@@ -98,6 +99,7 @@ class LiveWatchWorker(QThread):
                 config_dir=self.config.config_dir,
                 image_config_dir=self.config.image_config_dir,
                 gdoc_enabled=self.config.gdoc_enabled,
+                document_id=self.config.document_id,
             )
             self._runner.start()
             self.status_changed.emit("running")

@@ -156,6 +156,10 @@ class LiveWatchWindow(QMainWindow):
         # Install log handler
         self._install_log_handler()
 
+        # Connect facility and date changes to auto-populate Document ID
+        self.combo_facility.currentTextChanged.connect(self._on_facility_changed)
+        self.date_edit.dateChanged.connect(self._on_date_changed)
+
     # ------------------------------------------------------------------
     # UI construction helpers
     # ------------------------------------------------------------------
@@ -166,8 +170,18 @@ class LiveWatchWindow(QMainWindow):
         layout = QFormLayout()
         layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
 
-        # Experiment (combo + refresh button)
-        experiment_row = QHBoxLayout()
+        # Experiment (for Google Docs)
+        self.combo_facility = QComboBox()
+        self.combo_facility.addItems(["Undulator", "Thomson"])
+        self.combo_facility.setToolTip(
+            "Select the experiment for Google Docs integration.\n"
+            "This determines which experiment INI file is used for Document ID resolution."
+        )
+        self.combo_facility.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        layout.addRow("Experiment (for Google Docs):", self.combo_facility)
+
+        # Analyzer Group (combo + refresh button)
+        analyzer_group_row = QHBoxLayout()
         self.combo_experiment = QComboBox()
         self.combo_experiment.setEditable(True)
         self.combo_experiment.setToolTip(
@@ -175,17 +189,17 @@ class LiveWatchWindow(QMainWindow):
             "Configs are loaded from the scan analysis config directory."
         )
         self.combo_experiment.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        experiment_row.addWidget(self.combo_experiment)
+        analyzer_group_row.addWidget(self.combo_experiment)
 
         self.btn_refresh_experiments = QPushButton("⟳")
         self.btn_refresh_experiments.setFixedWidth(32)
         self.btn_refresh_experiments.setToolTip(
-            "Reload the experiment list from the scan analysis config directory."
+            "Reload the analyzer group list from the scan analysis config directory."
         )
         self.btn_refresh_experiments.clicked.connect(self._on_refresh_experiments)
-        experiment_row.addWidget(self.btn_refresh_experiments)
+        analyzer_group_row.addWidget(self.btn_refresh_experiments)
 
-        layout.addRow("Experiment:", experiment_row)
+        layout.addRow("Analyzer Group:", analyzer_group_row)
 
         # Date
         self.date_edit = QDateEdit()
@@ -214,6 +228,16 @@ class LiveWatchWindow(QMainWindow):
             "Requires logmaker_4_googledocs to be installed and configured."
         )
         layout.addRow("", self.check_gdoc)
+
+        # Document ID (for GDoc upload)
+        self.line_document_id = QLineEdit()
+        self.line_document_id.setPlaceholderText("(auto-detected from experiment config)")
+        self.line_document_id.setToolTip(
+            "Google Doc ID for the experiment scan log.\n"
+            "Leave blank to auto-detect from the experiment INI file.\n"
+            "Override with a specific ID to target a different document."
+        )
+        layout.addRow("Document ID:", self.line_document_id)
 
         # Advanced: config paths with browse buttons
         scan_config_row = QHBoxLayout()
@@ -415,6 +439,32 @@ class LiveWatchWindow(QMainWindow):
         ):
             logging.getLogger(name).addHandler(self._log_handler)
 
+    def _on_facility_changed(self, facility: str) -> None:
+        """Auto-populate Document ID when facility selection changes."""
+        if not facility.strip():
+            self.line_document_id.clear()
+            return
+
+        try:
+            from scan_analysis.gdoc_upload import resolve_document_id
+
+            doc_id = resolve_document_id(facility)
+            if doc_id:
+                self.line_document_id.setText(doc_id)
+                logger.info("Resolved Document ID for facility '%s': %s", facility, doc_id)
+            else:
+                self.line_document_id.clear()
+                logger.debug("No Document ID found for facility '%s'", facility)
+        except Exception as exc:
+            logger.debug("Could not resolve Document ID for facility '%s': %s", facility, exc)
+            self.line_document_id.clear()
+
+    def _on_date_changed(self) -> None:
+        """Refresh Document ID when date selection changes."""
+        facility = self.combo_facility.currentText().strip()
+        if facility:
+            self._on_facility_changed(facility)
+
     # ------------------------------------------------------------------
     # Build config from widgets
     # ------------------------------------------------------------------
@@ -422,19 +472,22 @@ class LiveWatchWindow(QMainWindow):
     def _build_config(self) -> LiveWatchConfig:
         """Read current widget values and return a :class:`LiveWatchConfig`."""
         qdate = self.date_edit.date()
-        experiment = self.combo_experiment.currentText().strip()
+        facility = self.combo_facility.currentText().strip()
+        analyzer_group = self.combo_experiment.currentText().strip()
 
         scan_config_text = self.line_scan_config.text().strip()
         image_config_text = self.line_image_config.text().strip()
+        document_id_text = self.line_document_id.text().strip()
 
         return LiveWatchConfig(
-            analyzer_group=experiment,
+            analyzer_group=analyzer_group,
             year=qdate.year(),
             month=qdate.month(),
             day=qdate.day(),
             start_scan_number=self.spin_start_scan.value(),
-            experiment=experiment,
+            experiment=facility,
             gdoc_enabled=self.check_gdoc.isChecked(),
+            document_id=document_id_text if document_id_text else None,
             config_dir=Path(scan_config_text) if scan_config_text else None,
             image_config_dir=Path(image_config_text) if image_config_text else None,
             max_items=self.spin_max_items.value(),
