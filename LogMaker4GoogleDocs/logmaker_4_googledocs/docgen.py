@@ -978,7 +978,7 @@ _EXPERIMENT_INI_PATHS: dict = {
     ),
     "Thomson": Path(
         r"Z:\software\control-all-loasis\HTW2020\Active Version"
-        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTTparaeters.ini"
+        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTTparameters.ini"
     ),
 }
 
@@ -1096,7 +1096,7 @@ def upload_display_files_and_link(
     """
     experiment_mapping = {
         "Undulator": "HTUparameters.ini",
-        "Thomson": "HTTparaeters.ini",
+        "Thomson": "HTTparameters.ini",
     }
     experiment_config = configparser.ConfigParser()
     config_file = experiment_mapping.get(experiment)
@@ -1181,7 +1181,7 @@ def insertImageToExperimentLog(
     # Load per-experiment INI to resolve document ID and image folder.
     experiment_mapping = {
         "Undulator": "HTUparameters.ini",
-        "Thomson": "HTTparaeters.ini",
+        "Thomson": "HTTparameters.ini",
     }
     experiment_config = configparser.ConfigParser()
     config_file = experiment_mapping.get(experiment, None)
