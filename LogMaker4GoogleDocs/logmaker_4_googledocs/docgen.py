@@ -70,6 +70,26 @@ SCOPES = [
 
 logger = logging.getLogger(__name__)
 
+# Fallback staging folder used when no per-experiment image folder is configured.
+# This folder may be periodically purged; configure ImageParentFolderID in the
+# experiment INI to use a persistent per-day subfolder instead.
+_FALLBACK_IMAGE_FOLDER = "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2"
+
+# Fixed network paths to per-experiment INI files.
+# These files are updated daily by createExperimentLog() and contain LogID
+# and ImageParentFolderID. All lab computers share the Z:\ drive at these paths.
+_EXPERIMENT_INI_PATHS: dict = {
+    "Undulator": Path(
+        r"Z:\software\control-all-loasis\HTU\Active Version"
+        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTUparameters.ini"
+    ),
+    "Thomson": Path(
+        r"Z:\software\control-all-loasis\HTW2020\Active Version"
+        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTTparameters.ini"
+    ),
+}
+
+
 # Module-level caches — persist for the lifetime of the process.
 # _service_cache: avoids re-building the OAuth service on every API call.
 # _folder_id_cache: avoids a Drive list query for the per-day folder on every upload.
@@ -962,27 +982,6 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
     _folder_id_cache[cache_key] = folder_id
     return folder_id
 
-
-# Fallback staging folder used when no per-experiment image folder is configured.
-# This folder may be periodically purged; configure ImageParentFolderID in the
-# experiment INI to use a persistent per-day subfolder instead.
-_FALLBACK_IMAGE_FOLDER = "1O5JCAz3XF0h_spw-6kvFQOMgJHwJEvP2"
-
-# Fixed network paths to per-experiment INI files.
-# These files are updated daily by createExperimentLog() and contain LogID
-# and ImageParentFolderID. All lab computers share the Z:\ drive at these paths.
-_EXPERIMENT_INI_PATHS: dict = {
-    "Undulator": Path(
-        r"Z:\software\control-all-loasis\HTU\Active Version"
-        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTUparameters.ini"
-    ),
-    "Thomson": Path(
-        r"Z:\software\control-all-loasis\HTW2020\Active Version"
-        r"\GEECS-Plugins\LogMaker4GoogleDocs\logmaker_4_googledocs\HTTparameters.ini"
-    ),
-}
-
-
 def get_document_id(experiment: str) -> Optional[str]:
     r"""Return the current Google Doc LogID for an experiment.
 
@@ -1094,14 +1093,11 @@ def upload_display_files_and_link(
     int
         Number of files successfully uploaded and linked.
     """
-    experiment_mapping = {
-        "Undulator": "HTUparameters.ini",
-        "Thomson": "HTTparameters.ini",
-    }
+    experiment_mapping = _EXPERIMENT_INI_PATHS
     experiment_config = configparser.ConfigParser()
     config_file = experiment_mapping.get(experiment)
     if config_file:
-        config_path = Path(__file__).parent / config_file
+        config_path = config_file
         experiment_config.read(config_path)
         if document_id is None and experiment_config.has_option("DEFAULT", "logid"):
             document_id = experiment_config["DEFAULT"]["logid"]
@@ -1179,14 +1175,12 @@ def insertImageToExperimentLog(
     - INI mapping is minimal; extend `experiment_mapping` if you add experiments.
     """
     # Load per-experiment INI to resolve document ID and image folder.
-    experiment_mapping = {
-        "Undulator": "HTUparameters.ini",
-        "Thomson": "HTTparameters.ini",
-    }
+    experiment_mapping = _EXPERIMENT_INI_PATHS
+
     experiment_config = configparser.ConfigParser()
     config_file = experiment_mapping.get(experiment, None)
     if config_file:
-        config_path = Path(__file__).parent / config_file
+        config_path = config_file
         experiment_config.read(config_path)
         if not experiment_config.sections():
             logger.warning("Failed to load experiment config from: %s", config_path)
