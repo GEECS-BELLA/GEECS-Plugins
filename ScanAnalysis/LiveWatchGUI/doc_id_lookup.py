@@ -103,13 +103,19 @@ class DocIDLookup:
         # Try to download from Google Drive (unless force_download is False and cache exists)
         if force_download or not self.cache_file.exists():
             if not self._download_from_drive():
-                logger.warning("Failed to download doc_index.tsv for experiment '%s'", self.experiment)
+                logger.warning(
+                    "Failed to download doc_index.tsv for experiment '%s'",
+                    self.experiment,
+                )
                 # Fall back to cache if download fails
                 if not self.cache_file.exists():
                     return False
 
         if not self._load_from_cache():
-            logger.warning("Failed to load cached doc_index.tsv for experiment '%s'", self.experiment)
+            logger.warning(
+                "Failed to load cached doc_index.tsv for experiment '%s'",
+                self.experiment,
+            )
             return False
 
         logger.info(
@@ -175,7 +181,9 @@ class DocIDLookup:
         try:
             import requests
         except ImportError:
-            logger.error("requests library not available; cannot download from Google Drive")
+            logger.error(
+                "requests library not available; cannot download from Google Drive"
+            )
             return False
 
         # Google Drive direct download URL (more reliable than export URL)
@@ -183,13 +191,15 @@ class DocIDLookup:
 
         try:
             logger.debug("Downloading doc_index.tsv from Google Drive: %s", url)
-            
+
             # Add User-Agent header to avoid being blocked by Google Drive
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
             }
-            
-            response = requests.get(url, timeout=10, headers=headers, allow_redirects=True)
+
+            response = requests.get(
+                url, timeout=10, headers=headers, allow_redirects=True
+            )
             response.raise_for_status()
 
             # Save to cache

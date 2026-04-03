@@ -41,11 +41,11 @@ logger = logging.getLogger(__name__)
 
 # Mapping from log-level name to display colour
 _LEVEL_COLOURS = {
-    "DEBUG": QColor(128, 128, 128),     # grey
-    "INFO": QColor(0, 0, 0),            # black
-    "WARNING": QColor(200, 150, 0),     # amber
-    "ERROR": QColor(200, 0, 0),         # red
-    "CRITICAL": QColor(200, 0, 0),      # red
+    "DEBUG": QColor(128, 128, 128),  # grey
+    "INFO": QColor(0, 0, 0),  # black
+    "WARNING": QColor(200, 150, 0),  # amber
+    "ERROR": QColor(200, 0, 0),  # red
+    "CRITICAL": QColor(200, 0, 0),  # red
 }
 
 # Ordered log levels for the combo box
@@ -243,7 +243,9 @@ class LiveWatchWindow(QMainWindow):
 
         # Document ID (for GDoc upload)
         self.line_document_id = QLineEdit()
-        self.line_document_id.setPlaceholderText("(auto-detected from experiment config)")
+        self.line_document_id.setPlaceholderText(
+            "(auto-detected from experiment config)"
+        )
         self.line_document_id.setToolTip(
             "Google Doc ID for the experiment scan log, visible for debugging.\n"
             "Leave blank to auto-detect from the experiment INI file for today's scan.\n"
@@ -263,7 +265,9 @@ class LiveWatchWindow(QMainWindow):
         scan_config_row.addWidget(self.line_scan_config)
 
         self.btn_browse_scan_config = QPushButton("Browse…")
-        self.btn_browse_scan_config.setToolTip("Browse for scan analysis config directory.")
+        self.btn_browse_scan_config.setToolTip(
+            "Browse for scan analysis config directory."
+        )
         self.btn_browse_scan_config.clicked.connect(self._on_browse_scan_config)
         scan_config_row.addWidget(self.btn_browse_scan_config)
 
@@ -279,7 +283,9 @@ class LiveWatchWindow(QMainWindow):
         image_config_row.addWidget(self.line_image_config)
 
         self.btn_browse_image_config = QPushButton("Browse…")
-        self.btn_browse_image_config.setToolTip("Browse for image analysis config directory.")
+        self.btn_browse_image_config.setToolTip(
+            "Browse for image analysis config directory."
+        )
         self.btn_browse_image_config.clicked.connect(self._on_browse_image_config)
         image_config_row.addWidget(self.btn_browse_image_config)
 
@@ -373,8 +379,7 @@ class LiveWatchWindow(QMainWindow):
         self.combo_log_level.addItems(_LOG_LEVELS)
         self.combo_log_level.setCurrentText("INFO")
         self.combo_log_level.setToolTip(
-            "Minimum log level to display.\n"
-            "Messages below this level are hidden."
+            "Minimum log level to display.\nMessages below this level are hidden."
         )
         self.combo_log_level.currentTextChanged.connect(self._on_log_level_changed)
         top_row.addWidget(self.combo_log_level)
@@ -465,7 +470,9 @@ class LiveWatchWindow(QMainWindow):
 
             # Try to load the .tsv file
             if not self._doc_id_lookup.refresh():
-                logger.warning("Could not load doc_index.tsv for facility '%s'", facility)
+                logger.warning(
+                    "Could not load doc_index.tsv for facility '%s'", facility
+                )
                 # Fall back to resolve_document_id()
                 self._try_resolve_document_id_fallback(facility)
                 self._doc_id_lookup = None
@@ -495,7 +502,9 @@ class LiveWatchWindow(QMainWindow):
             return
 
         qdate = self.date_edit.date()
-        doc_id = self._doc_id_lookup.get_document_id(qdate.year(), qdate.month(), qdate.day())
+        doc_id = self._doc_id_lookup.get_document_id(
+            qdate.year(), qdate.month(), qdate.day()
+        )
 
         if doc_id:
             self.line_document_id.setText(doc_id)
@@ -523,12 +532,20 @@ class LiveWatchWindow(QMainWindow):
             doc_id = resolve_document_id(facility)
             if doc_id:
                 self.line_document_id.setText(doc_id)
-                logger.info("Resolved Document ID for facility '%s' (fallback): %s", facility, doc_id)
+                logger.info(
+                    "Resolved Document ID for facility '%s' (fallback): %s",
+                    facility,
+                    doc_id,
+                )
             else:
                 self.line_document_id.clear()
-                logger.debug("No Document ID found for facility '%s' (fallback)", facility)
+                logger.debug(
+                    "No Document ID found for facility '%s' (fallback)", facility
+                )
         except Exception as exc:
-            logger.debug("Could not resolve Document ID for facility '%s': %s", facility, exc)
+            logger.debug(
+                "Could not resolve Document ID for facility '%s': %s", facility, exc
+            )
             self.line_document_id.clear()
 
     def _trigger_initial_document_id_population(self) -> None:
