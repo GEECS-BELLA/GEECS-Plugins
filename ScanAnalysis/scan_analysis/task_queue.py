@@ -384,6 +384,10 @@ def run_worklist(
                 raw = analyzer.run_analysis(tag)
                 if raw:
                     display_files = [str(p) for p in raw]
+            # Stop heartbeat before writing final status to prevent a race where
+            # the heartbeat thread overwrites state="done" back to state="claimed".
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
             update_status(
                 scan_folder,
                 analyzer_id,
@@ -420,6 +424,8 @@ def run_worklist(
                     )
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
             update_status(
                 scan_folder,
                 analyzer_id,
@@ -431,8 +437,8 @@ def run_worklist(
                 last_heartbeat=None,
             )
         finally:
-            stop_event.set()
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            stop_event.set()  # idempotent safety net
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
             analyzer.cleanup()
 
 
