@@ -15,7 +15,6 @@ def run_interlock_client(host="0.0.0.0", port=9999):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
             client.connect((host, port))
             print("Connected! Monitoring interlock status...\n")
-
             print("=" * 80)
             while True:
                 # First read the 4-byte length prefix
@@ -62,7 +61,6 @@ def run_interlock_client(host="0.0.0.0", port=9999):
                 for dev_status in devices:
                     print(f"{dev_status} ", end="")
                 print(flush=True)
-
     except ConnectionRefusedError:
         print("Error: Could not connect to server. Is it running?")
     except KeyboardInterrupt:
