@@ -385,7 +385,7 @@ class ScanManager:
                 if set_value:
                     try:
                         results.append(
-                            self.shot_control.set(variable, set_value, exec_timeout=2.0)
+                            self.shot_control.set(variable, set_value, exec_timeout=0.5)
                         )
                         logger.info("Setting %s to %s", variable, set_value)
                     except GeecsDeviceExeTimeout as e:
