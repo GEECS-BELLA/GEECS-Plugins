@@ -84,7 +84,7 @@ class UdpHandler:
             return False
 
     def ack_cmd(
-        self, sock: Optional[socket.socket] = None, timeout: Optional[float] = 5.0
+        self, sock: Optional[socket.socket] = None, timeout: Optional[float] = 1.5
     ) -> bool:
         """Wait for an ack ('accepted' or 'ok') on `sock` (defaults to cmd socket) within timeout."""
         accepted = False

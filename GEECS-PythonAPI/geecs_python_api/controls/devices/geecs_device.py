@@ -386,7 +386,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 120.0,
+        exec_timeout: Optional[float] = 30.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Any:
@@ -440,7 +440,7 @@ class GeecsDevice:
         self._cleanup_threads()
 
         if sync:
-            self.wait_for_all_cmds(timeout=120.0)
+            self.wait_for_all_cmds(timeout=exec_timeout or 30.0)
             with GeecsDevice.threads_lock:
                 self._process_command(
                     cmd_str,
@@ -449,9 +449,19 @@ class GeecsDevice:
                     attempts_max=attempts_max,
                 )
                 assert self.dev_udp is not None
-                self.dev_udp.cmd_checker.wait_for_exe(
-                    cmd_tag=cmd_label, timeout=exec_timeout, sync=sync
+                exe_response = self.dev_udp.cmd_checker.listen(
+                    cmd_tag=cmd_label, timeout=exec_timeout
                 )
+                if not exe_response:
+                    from geecs_python_api.controls.interface.geecs_errors import (
+                        GeecsDeviceExeTimeout,
+                    )
+
+                    raise GeecsDeviceExeTimeout(
+                        device_name=self.get_name(),
+                        command=cmd_str,
+                        timeout=exec_timeout or 0.0,
+                    )
         elif exec_timeout and exec_timeout > 0:
             with GeecsDevice.threads_lock:
                 assert self.dev_udp is not None
@@ -685,7 +695,7 @@ class GeecsDevice:
                     ipv4=(self.dev_ip, self.dev_port), msg=cmd_str
                 )
                 if sent:
-                    accepted = self.dev_udp.ack_cmd(timeout=5.0)
+                    accepted = self.dev_udp.ack_cmd(timeout=1.5)
                 else:
                     time.sleep(0.1)
                     continue
