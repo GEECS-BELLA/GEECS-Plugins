@@ -449,6 +449,9 @@ class GeecsDevice:
                     attempts_max=attempts_max,
                 )
                 assert self.dev_udp is not None
+                # Drain any stale response from a previous timed-out command
+                # before listening for this command's exe response.
+                self.dev_udp.cmd_checker.drain()
                 exe_response = self.dev_udp.cmd_checker.listen(
                     cmd_tag=cmd_label, timeout=exec_timeout
                 )
