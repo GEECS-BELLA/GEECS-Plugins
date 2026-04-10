@@ -86,9 +86,26 @@ class LineStitcher(LineAnalyzer):
         }
         segments = [master_result.data]
 
+        # Directory names may have a channel suffix not present in filenames
+        # (e.g. dir "HTT-C23_1_MagSpec1-interpSpec", file "..._HTT-C23_1_MagSpec1_004.tsv").
+        # Find the longest hyphen-stripped prefix of master_device that appears in the stem.
+        stem = file_path.stem
+        device_in_filename = master_device
+        while device_in_filename not in stem:
+            if "-" not in device_in_filename:
+                device_in_filename = master_device  # fallback: no stripping
+                break
+            device_in_filename = device_in_filename.rsplit("-", 1)[0]
+        dir_suffix = master_device[len(device_in_filename) :]  # e.g. "-interpSpec"
+
         # Sibling files
         for device in self.sibling_devices:
-            sibling_filename = filename.replace(master_device, device, 1)
+            sibling_in_file = (
+                device[: -len(dir_suffix)]
+                if dir_suffix and device.endswith(dir_suffix)
+                else device
+            )
+            sibling_filename = filename.replace(device_in_filename, sibling_in_file, 1)
             sibling_path = base_dir / device / sibling_filename
             if not sibling_path.exists():
                 raise FileNotFoundError(
