@@ -265,9 +265,22 @@ Data flows from device → disk → scan folder in several stages:
 3. At scan end, orphan detection sweeps for missed files
 4. If `save_local=True`, an additional copy to the network drive happens
 
-The `FileMover` uses regex timestamp matching against device filenames. This means
-the file pipeline implicitly depends on every camera device following a naming
-convention. Any device that doesn't match the pattern silently drops data.
+**Correction from review:** The timestamp-in-filename convention is *guaranteed* by
+the GEECS hardware control system's base class — it is not a fragile regex assumption.
+Every device that saves files through the standard control system will have a
+consistent timestamp in the filename. The `FileMover` timestamp matching is
+therefore reliable for single-file-per-shot devices.
+
+The actual complexity is devices that save **multiple files per shot** (e.g. a
+camera that also saves a dark frame, or a device that writes a sidecar metadata
+file alongside the image). The current handling for these is acknowledged to be
+ad hoc and is the real fragility point, not the timestamp matching itself.
+
+The natural long-term fix for multi-file devices: each device declares its expected
+file count per shot at registration time (e.g. `files_per_shot: 2`). The `FileMover`
+waits for N files sharing the same timestamp before declaring the shot complete,
+rather than handling each device's quirks case-by-case. This becomes tractable once
+devices have a proper config model (`DeviceConfig`) that the `FileMover` can consult.
 
 There is also no transactional guarantee: if the process exits between step 2 and
 step 3, files can be left in intermediate states. The orphan detection is a best-
