@@ -811,11 +811,16 @@ class ScanManager:
 
         self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
 
-        # Step 4: Restore the initial state of devices.
+        # Step 4: Wait for save=off to complete before restore or closeout,
+        # since closeout actions may talk to the same camera devices.
+        stop_saving_thread.join()
+        logger.info("Non-scalar device save states reset.")
+
+        # Step 5: Restore the initial state of devices.
         if self.initial_state is not None:
             self.restore_initial_state(self.initial_state)
 
-        # Step 5: Execute closeout actions.  Wrapped so that a device error
+        # Step 6: Execute closeout actions.  Wrapped so that a device error
         # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
         # written above from being preserved.
         if self.device_manager.scan_closeout_action is not None:
@@ -840,10 +845,6 @@ class ScanManager:
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0
         self.data_logger.idle_time = 0
-
-        # Step 6: Wait for camera save=off to complete before closing devices.
-        stop_saving_thread.join()
-        logger.info("Non-scalar device save states reset.")
 
         # Step 7: Reset the device manager.
         self.device_manager.reset()
