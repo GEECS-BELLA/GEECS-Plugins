@@ -421,4 +421,61 @@ Given the actual code state, the blocks in priority order:
 
 ---
 
+## 14. Decisions from Review
+
+### `save_hiatus` — remove entirely
+
+Both versions (`ScanManager.save_hiatus` and `ScanStepExecutor.save_hiatus`) can
+be deleted. Removals required:
+
+| Location | What to remove |
+|----------|---------------|
+| `scan_manager.py` | `save_hiatus()` method |
+| `scan_executor.py` | `save_hiatus()` method + the hiatus check block in `wait_for_acquisition()` |
+| `data_logger.py` | `shot_save_event: threading.Event`, its initialization, and the `shot_save_event.set()` call |
+| `default_scan_manager.py` | `"Save Hiatus Period (s)": ""` entry in options dict |
+| `geecs_scanner.py` | `"Save Hiatus Period (s)"` from the options list and the `save_hiatus_s` mapping |
+
+### Trigger — consolidate into a `TriggerController`
+
+The current trigger chain has unnecessary indirection:
+
+```
+ScanStepExecutor.trigger_on()
+  → self.trigger_on_fn()          ← injected attribute (silent no-op if missing)
+    → ScanManager.trigger_on()    ← wrapper
+      → ScanManager._set_trigger("SCAN")  ← actual device call
+```
+
+The same `_set_trigger` is also called directly from `ScanManager` for STANDBY,
+SINGLESHOT, and the pre-scan trigger_off — bypassing the executor wrapper entirely.
+
+The right consolidation: extract a `TriggerController` class that owns all four
+states and is passed as a dependency to both `ScanManager` and `ScanStepExecutor`:
+
+```python
+class TriggerState(Enum):
+    OFF = "OFF"
+    SCAN = "SCAN"
+    STANDBY = "STANDBY"
+    SINGLESHOT = "SINGLESHOT"
+
+class TriggerController:
+    def __init__(self, device: GeecsDevice, variable: str, state_values: dict[TriggerState, str]):
+        ...
+    def set(self, state: TriggerState) -> None: ...
+    def on(self) -> None: self.set(TriggerState.SCAN)
+    def off(self) -> None: self.set(TriggerState.OFF)
+    def standby(self) -> None: self.set(TriggerState.STANDBY)
+    def singleshot(self) -> None: self.set(TriggerState.SINGLESHOT)
+```
+
+`ScanStepExecutor` takes a `TriggerController` in its constructor (no injection,
+no `hasattr`). `ScanManager` holds the same instance and calls it directly for
+STANDBY/SINGLESHOT. The `shot_control_editor.py` config (which already stores
+per-state values) maps naturally to the `state_values` dict. A `NullTrigger`
+implementation covers testing/no-trigger scenarios explicitly.
+
+---
+
 *End of Block 1 audit. Questions, corrections, and "you missed X" welcome before proceeding to Block 2.*
