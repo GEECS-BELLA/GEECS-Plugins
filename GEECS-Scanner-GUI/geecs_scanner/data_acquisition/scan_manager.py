@@ -755,7 +755,7 @@ class ScanManager:
         1. Trigger → STANDBY (no new shots)
         2. stop_logging() seals self.results
         3. process_results() + file-mover + _make_sFile() — data on disk
-        4. _stop_saving_devices_non_scalar() in background thread (save=off + sleep)
+        4. _stop_saving_devices() in background thread (save=off + sleep)
         5. restore initial state, closeout actions
         6. join background thread  ← must precede device_manager.reset()
         7. device_manager.reset()
@@ -773,13 +773,13 @@ class ScanManager:
 
         if self.save_data:
             # Step 2: Seal self.results so process_results() sees a consistent
-            # snapshot.  The rest of _stop_saving_devices (save=off, sleep) is
-            # handled in the background thread below.
+            # snapshot.  save=off / sleep is handled in the background thread.
             self.data_logger.stop_logging()
 
             # Step 3: Write scalar data files before any device interaction
             # that could fail (restore, closeout).
             log_df = self.scan_data_manager.process_results(self.results)
+            self.scan_data_manager._make_sFile(log_df)
 
             # Signal that the scan is no longer live so orphaned files
             # are no longer skipped during task processing.
@@ -813,13 +813,11 @@ class ScanManager:
 
             self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
 
-            self.scan_data_manager._make_sFile(log_df)
-
             # Step 4: set save=off for camera devices and wait 2 s for async
             # commands to complete — run in the background so it overlaps with
             # restore / closeout below.  Must join before device_manager.reset().
             stop_saving_thread = threading.Thread(
-                target=self._stop_saving_devices_non_scalar,
+                target=self._stop_saving_devices,
                 name="stop-saving-devices",
                 daemon=True,
             )
@@ -869,47 +867,20 @@ class ScanManager:
         return log_df
 
     def _stop_saving_devices(self):
-        """
-        Stop data logging and reset save paths for non-scalar devices.
+        """Reset save paths for non-scalar devices.
 
-        This method disables saving for all non-scalar devices and resets their
-        local save paths to a temporary directory. It ensures that all asynchronous
-        save commands have time to complete.
+        Disables saving for all non-scalar devices and resets their local save
+        paths to a temporary directory.  Waits for the async commands to land.
+
+        Note: stop_logging() is *not* called here.  The caller is responsible
+        for calling data_logger.stop_logging() before invoking this method so
+        that the two can be sequenced independently (e.g. stop_logging in the
+        main thread to seal results, then _stop_saving_devices in a background
+        thread to overlap with restore / closeout work).
 
         Notes
         -----
         Intended for internal use during scan shutdown or interruption.
-        """
-        # Stop data logging
-        self.data_logger.stop_logging()
-
-        # Handle device saving states
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                logger.info("Setting save to off for %s", device_name)
-                device.set("save", "off", sync=False)
-                logger.info("Setting save to off for %s complete", device_name)
-                device.set("localsavingpath", "c:\\temp", sync=False)
-                logger.info(
-                    "Setting save path back to temp for %s complete", device_name
-                )
-            else:
-                logger.warning("Device %s not found in DeviceManager.", device_name)
-
-        time.sleep(2)  # Ensure asynchronous commands have time to finish
-        logger.info("scanning has stopped for all devices.")
-
-    def _stop_saving_devices_non_scalar(self):
-        """Reset save paths for non-scalar devices without stopping the data logger.
-
-        Called from a background thread in stop_scan() after stop_logging() has
-        already been called in the main thread.  Runs the slow save=off / sleep
-        work concurrently with restore / closeout steps.
-
-        Notes
-        -----
-        Intended for internal use during scan shutdown only.
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
@@ -922,7 +893,7 @@ class ScanManager:
                 logger.warning("Device %s not found in DeviceManager.", device_name)
 
         time.sleep(2)  # Ensure asynchronous commands have time to finish
-        logger.info("Non-scalar device save states reset.")
+        logger.info("scanning has stopped for all devices.")
 
     def save_hiatus(self, hiatus_period: float):
         """
