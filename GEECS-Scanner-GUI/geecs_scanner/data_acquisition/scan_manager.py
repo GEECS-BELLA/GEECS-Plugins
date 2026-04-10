@@ -748,13 +748,17 @@ class ScanManager:
         """
         Stop the scan, save data, and restore initial device states.
 
-        This method finalizes the scan by performing closeout actions, restoring
-        devices to their original state, turning the trigger back on, saving
-        scan data if enabled, and resetting internal state.
+        Shutdown order is chosen to get scalar data on disk as quickly as
+        possible and to overlap the slow camera save=off / sleep(2) work
+        with restore / closeout steps:
 
-        Scalar data files (ScanData*.txt, s*.txt) are written as the very first
-        save step so that a failure in any subsequent closeout action cannot
-        prevent data from reaching disk.
+        1. Trigger → STANDBY (no new shots)
+        2. stop_logging() seals self.results
+        3. process_results() + file-mover + _make_sFile() — data on disk
+        4. _stop_saving_devices_non_scalar() in background thread (save=off + sleep)
+        5. restore initial state, closeout actions
+        6. join background thread  ← must precede device_manager.reset()
+        7. device_manager.reset()
 
         Returns
         -------
@@ -762,13 +766,19 @@ class ScanManager:
             DataFrame containing the processed and saved scan data.
         """
         log_df = pd.DataFrame()
+        stop_saving_thread = None
+
+        # Step 1: Trigger to standby immediately — no new shots from here on.
+        self._set_trigger("STANDBY")
 
         if self.save_data:
-            # Step 1: Stop data logging and handle device saving states.
-            self._stop_saving_devices()
+            # Step 2: Seal self.results so process_results() sees a consistent
+            # snapshot.  The rest of _stop_saving_devices (save=off, sleep) is
+            # handled in the background thread below.
+            self.data_logger.stop_logging()
 
-            # Step 2: Write scalar data files immediately — before restore,
-            # trigger changes, or closeout actions that could fail.
+            # Step 3: Write scalar data files before any device interaction
+            # that could fail (restore, closeout).
             log_df = self.scan_data_manager.process_results(self.results)
 
             # Signal that the scan is no longer live so orphaned files
@@ -801,19 +811,23 @@ class ScanManager:
                         "Some files may not have been moved — check the scan directory manually."
                     )
 
-            self.data_logger.file_mover.shutdown(
-                wait=False
-            )  # queue already drained above
+            self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
 
-            # Step 3: Write sfile to analysis folder.
             self.scan_data_manager._make_sFile(log_df)
 
-        # Step 4: Restore the initial state of devices.
+            # Step 4: set save=off for camera devices and wait 2 s for async
+            # commands to complete — run in the background so it overlaps with
+            # restore / closeout below.  Must join before device_manager.reset().
+            stop_saving_thread = threading.Thread(
+                target=self._stop_saving_devices_non_scalar,
+                name="stop-saving-devices",
+                daemon=True,
+            )
+            stop_saving_thread.start()
+
+        # Step 5: Restore the initial state of devices.
         if self.initial_state is not None:
             self.restore_initial_state(self.initial_state)
-
-        # Step 5: Set trigger to standby.
-        self._set_trigger("STANDBY")
 
         # Step 6: Execute closeout actions.  Wrapped so that a device error
         # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
@@ -841,10 +855,15 @@ class ScanManager:
         self.scan_step_end_time = 0
         self.data_logger.idle_time = 0
 
-        # Step 10: Reset the device manager to clear up the current subscribers
+        # Step 7: Wait for camera save=off to complete before closing devices.
+        if stop_saving_thread is not None:
+            stop_saving_thread.join()
+            logger.info("Non-scalar device save states reset.")
+
+        # Step 8: Reset the device manager to clear up the current subscribers.
         self.device_manager.reset()
 
-        # Step 11: Set the initialization flag back to False and require reinitialization to be called again
+        # Step 9: Require reinitialization before the next scan.
         self.initialization_success = False
 
         return log_df
@@ -880,6 +899,30 @@ class ScanManager:
 
         time.sleep(2)  # Ensure asynchronous commands have time to finish
         logger.info("scanning has stopped for all devices.")
+
+    def _stop_saving_devices_non_scalar(self):
+        """Reset save paths for non-scalar devices without stopping the data logger.
+
+        Called from a background thread in stop_scan() after stop_logging() has
+        already been called in the main thread.  Runs the slow save=off / sleep
+        work concurrently with restore / closeout steps.
+
+        Notes
+        -----
+        Intended for internal use during scan shutdown only.
+        """
+        for device_name in self.device_manager.non_scalar_saving_devices:
+            device = self.device_manager.devices.get(device_name)
+            if device:
+                logger.info("Setting save to off for %s", device_name)
+                device.set("save", "off", sync=False)
+                device.set("localsavingpath", "c:\\temp", sync=False)
+                logger.info("Save path reset for %s", device_name)
+            else:
+                logger.warning("Device %s not found in DeviceManager.", device_name)
+
+        time.sleep(2)  # Ensure asynchronous commands have time to finish
+        logger.info("Non-scalar device save states reset.")
 
     def save_hiatus(self, hiatus_period: float):
         """
