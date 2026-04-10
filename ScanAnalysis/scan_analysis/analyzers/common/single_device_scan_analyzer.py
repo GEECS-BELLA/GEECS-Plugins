@@ -414,6 +414,79 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.dynamic_computation.auto_save_path = Path(resolved)
             logger.info(f"Resolved background auto_save_path: {resolved}")
 
+        # Handle scan-number-based background (takes precedence over file_path)
+        if bg_config.background_scan_number is not None:
+            self._generate_scan_background(bg_config)
+
+    def _generate_scan_background(self, bg_config) -> None:
+        """Load and average all images from a background scan, cache as .npy.
+
+        Resolves the background scan's device folder using the same date and
+        experiment as the current scan. The averaged background is saved to the
+        background scan's own analysis directory so it can be reused by any
+        subsequent scan that references the same background scan number.
+
+        Parameters
+        ----------
+        bg_config : BackgroundConfig
+            The analyzer's background configuration. ``file_path`` and ``method``
+            are mutated in-place to point at the cached .npy file so that the
+            normal BackgroundManager FROM_FILE path takes over from here.
+        """
+        from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag
+        from image_analysis.processing.array2d.config_models import BackgroundMethod
+
+        bg_number = bg_config.background_scan_number
+
+        bg_tag = GeecsDataScanTag(
+            year=self.scan_tag.year,
+            month=self.scan_tag.month,
+            day=self.scan_tag.day,
+            number=bg_number,
+            experiment=self.scan_tag.experiment,
+        )
+        bg_scan_paths = ScanPaths(tag=bg_tag, read_mode=True)
+        bg_device_dir = bg_scan_paths.get_folder() / self.device_name
+
+        # Cache lives in the background scan's own analysis folder so any scan
+        # referencing the same background scan number shares the result.
+        cache_dir = bg_scan_paths.get_analysis_folder() / self.device_name
+        cache_path = cache_dir / f"{self.device_name}_background_avg.npy"
+
+        if cache_path.exists():
+            logger.info("Using cached scan background: %s", cache_path)
+        else:
+            image_files = sorted(bg_device_dir.glob(f"*{self.file_tail}"))
+            if not image_files:
+                raise FileNotFoundError(
+                    f"No background images found in {bg_device_dir}"
+                )
+
+            images = []
+            for f in image_files:
+                try:
+                    images.append(self.image_analyzer.load_image(f))
+                except Exception as e:
+                    logger.warning("Skipping background file %s: %s", f, e)
+
+            if not images:
+                raise ValueError(
+                    f"No valid images could be loaded from background scan {bg_number}"
+                )
+
+            avg = np.mean(np.stack(images), axis=0)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            np.save(cache_path, avg)
+            logger.info(
+                "Averaged %d images from scan %d, saved background to %s",
+                len(images),
+                bg_number,
+                cache_path,
+            )
+
+        bg_config.file_path = cache_path
+        bg_config.method = BackgroundMethod.FROM_FILE
+
     @staticmethod
     def _normalize_aux_value(value):
         if isinstance(value, np.generic):
