@@ -876,8 +876,18 @@ class ScanManager:
 
         def _reset_device(device_name, device):
             logger.info("Setting save to off for %s", device_name)
-            device.set("save", "off", sync=False)
-            device.set("localsavingpath", "c:\\temp", sync=False)
+            try:
+                device.set("save", "off", sync=False)
+            except Exception:
+                logger.warning(
+                    "Failed to set save=off for %s", device_name, exc_info=True
+                )
+            try:
+                device.set("localsavingpath", "c:\\temp", sync=False)
+            except Exception:
+                logger.warning(
+                    "Failed to reset localsavingpath for %s", device_name, exc_info=True
+                )
             logger.info("Save state reset for %s", device_name)
 
         devices = {

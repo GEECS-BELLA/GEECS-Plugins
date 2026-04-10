@@ -652,6 +652,10 @@ class GeecsDevice:
     # ---- Command queueing ---------------------------------------------------
     def dequeue_command(self) -> None:
         """Process all queued commands sequentially."""
+        from geecs_python_api.controls.interface.geecs_errors import (
+            GeecsDeviceCommandRejected,
+        )
+
         self._cleanup_threads()
         with GeecsDevice.threads_lock:
             while not self.queue_cmds.empty():
@@ -668,6 +672,18 @@ class GeecsDevice:
                     time.sleep(0.5)
                 except queue.Empty:
                     break
+                except GeecsDeviceCommandRejected:
+                    logger.warning(
+                        'command rejected during dequeue for "%s:%s"; continuing',
+                        self.get_name(),
+                        cmd_label,
+                    )
+                except Exception:
+                    logger.exception(
+                        'unexpected error during dequeue for "%s:%s"',
+                        self.get_name(),
+                        cmd_label,
+                    )
 
     def _process_command(
         self,
