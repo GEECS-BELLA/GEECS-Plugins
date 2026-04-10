@@ -102,7 +102,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.action_manager import prompt_user_device_timeout
+from geecs_scanner.data_acquisition.gui_dialogs import prompt_user_device_timeout
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 

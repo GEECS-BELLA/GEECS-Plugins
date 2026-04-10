@@ -515,7 +515,7 @@ class ScanStepExecutor:
                 GeecsDeviceCommandFailed,
                 GeecsDeviceExeTimeout,
             )
-            from geecs_scanner.data_acquisition.action_manager import (
+            from geecs_scanner.data_acquisition.gui_dialogs import (
                 prompt_user_device_timeout,
             )
 
