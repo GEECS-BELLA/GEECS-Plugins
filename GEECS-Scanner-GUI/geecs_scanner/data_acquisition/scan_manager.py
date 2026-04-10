@@ -753,9 +753,9 @@ class ScanManager:
         with restore / closeout steps:
 
         1. Trigger → STANDBY (no new shots)
-        2. stop_logging() seals self.results
-        3. process_results() + file-mover + _make_sFile() — data on disk
-        4. _stop_saving_devices() in background thread (save=off + sleep)
+        2. _stop_saving_devices() starts in background thread (save=off + sleep)
+        3. stop_logging() seals self.results; process_results() + _make_sFile()
+        4. file-mover drain
         5. restore initial state, closeout actions
         6. join background thread  ← must precede device_manager.reset()
         7. device_manager.reset()
@@ -768,16 +768,22 @@ class ScanManager:
         log_df = pd.DataFrame()
         stop_saving_thread = None
 
-        # Step 1: Trigger to standby immediately — no new shots from here on.
+        # Step 1: Trigger to standby — no new shots from here on.
         self._set_trigger("STANDBY")
 
         if self.save_data:
-            # Step 2: Seal self.results so process_results() sees a consistent
-            # snapshot.  save=off / sleep is handled in the background thread.
-            self.data_logger.stop_logging()
+            # Step 2: Kick off camera save=off immediately — independent of
+            # scalar file writing; its 2 s sleep runs in parallel with steps
+            # 3-6 below.  Must join before device_manager.reset().
+            stop_saving_thread = threading.Thread(
+                target=self._stop_saving_devices,
+                name="stop-saving-devices",
+                daemon=True,
+            )
+            stop_saving_thread.start()
 
-            # Step 3: Write scalar data files before any device interaction
-            # that could fail (restore, closeout).
+            # Step 3: Seal self.results and write scalar files.
+            self.data_logger.stop_logging()
             log_df = self.scan_data_manager.process_results(self.results)
             self.scan_data_manager._make_sFile(log_df)
 
@@ -812,16 +818,6 @@ class ScanManager:
                     )
 
             self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
-
-            # Step 4: set save=off for camera devices and wait 2 s for async
-            # commands to complete — run in the background so it overlaps with
-            # restore / closeout below.  Must join before device_manager.reset().
-            stop_saving_thread = threading.Thread(
-                target=self._stop_saving_devices,
-                name="stop-saving-devices",
-                daemon=True,
-            )
-            stop_saving_thread.start()
 
         # Step 5: Restore the initial state of devices.
         if self.initial_state is not None:
