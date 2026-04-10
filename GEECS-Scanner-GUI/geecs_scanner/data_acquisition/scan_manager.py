@@ -752,6 +752,10 @@ class ScanManager:
         devices to their original state, turning the trigger back on, saving
         scan data if enabled, and resetting internal state.
 
+        Scalar data files (ScanData*.txt, s*.txt) are written as the very first
+        save step so that a failure in any subsequent closeout action cannot
+        prevent data from reaching disk.
+
         Returns
         -------
         pandas.DataFrame
@@ -760,28 +764,11 @@ class ScanManager:
         log_df = pd.DataFrame()
 
         if self.save_data:
-            # Step 1: Stop data logging and handle device saving states
+            # Step 1: Stop data logging and handle device saving states.
             self._stop_saving_devices()
 
-        # Step 5: Restore the initial state of devices
-        if self.initial_state is not None:
-            self.restore_initial_state(self.initial_state)
-
-        # Step 4: Turn the trigger back on
-        self._set_trigger("STANDBY")
-
-        if self.device_manager.scan_closeout_action is not None:
-            logger.info("Attempting to execute closeout actions.")
-            logger.info("Action list %s", self.device_manager.scan_closeout_action)
-
-            self.action_manager.add_action(
-                action_name="closeout_action",
-                action_seq=self.device_manager.scan_closeout_action,
-            )
-            self.action_manager.execute_action("closeout_action")
-
-        if self.save_data:
-            # Step 6: Process results, save to disk, and log data
+            # Step 2: Write scalar data files immediately — before restore,
+            # trigger changes, or closeout actions that could fail.
             log_df = self.scan_data_manager.process_results(self.results)
 
             # Signal that the scan is no longer live so orphaned files
@@ -818,8 +805,32 @@ class ScanManager:
                 wait=False
             )  # queue already drained above
 
-            # Step 8: create sfile in analysis folder
+            # Step 3: Write sfile to analysis folder.
             self.scan_data_manager._make_sFile(log_df)
+
+        # Step 4: Restore the initial state of devices.
+        if self.initial_state is not None:
+            self.restore_initial_state(self.initial_state)
+
+        # Step 5: Set trigger to standby.
+        self._set_trigger("STANDBY")
+
+        # Step 6: Execute closeout actions.  Wrapped so that a device error
+        # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
+        # written above from being preserved.
+        if self.device_manager.scan_closeout_action is not None:
+            logger.info("Attempting to execute closeout actions.")
+            logger.info("Action list %s", self.device_manager.scan_closeout_action)
+            try:
+                self.action_manager.add_action(
+                    action_name="closeout_action",
+                    action_seq=self.device_manager.scan_closeout_action,
+                )
+                self.action_manager.execute_action("closeout_action")
+            except Exception:
+                logger.exception(
+                    "Closeout action failed — scan data has already been written."
+                )
 
         if self.scan_config.scan_mode == ScanMode.OPTIMIZATION:
             scan_dir = self.scan_data_manager.data_txt_path.parent
