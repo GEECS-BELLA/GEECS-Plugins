@@ -386,7 +386,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 30.0,
+        exec_timeout: Optional[float] = 10.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Any:
@@ -440,7 +440,7 @@ class GeecsDevice:
         self._cleanup_threads()
 
         if sync:
-            self.wait_for_all_cmds(timeout=exec_timeout or 30.0)
+            self.wait_for_all_cmds(timeout=exec_timeout or 10.0)
             with GeecsDevice.threads_lock:
                 self._process_command(
                     cmd_str,
