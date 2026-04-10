@@ -747,8 +747,8 @@ class ScanManager:
 
         1. Trigger → STANDBY (no new shots)
         2. stop_logging() seals self.results; process_results() + _make_sFile()
-        3. file-mover drain
-        4. _stop_saving_devices() in background thread (parallel save=off + sleep)
+        3. _stop_saving_devices() in background thread (parallel save=off + sleep)
+        4. file-mover drain  (overlaps with step 3)
         5. restore initial state, closeout actions
         6. join background thread  ← must precede device_manager.reset()
         7. device_manager.reset()
@@ -768,6 +768,16 @@ class ScanManager:
         self.data_logger.stop_logging()
         log_df = self.scan_data_manager.process_results(self.results)
         self.scan_data_manager._make_sFile(log_df)
+
+        # Step 3: Dispatch camera save=off in a background thread so its 2 s
+        # sleep overlaps with file-mover, restore, and closeout below.
+        # Must join before device_manager.reset().
+        stop_saving_thread = threading.Thread(
+            target=self._stop_saving_devices,
+            name="stop-saving-devices",
+            daemon=True,
+        )
+        stop_saving_thread.start()
 
         # Signal that the scan is no longer live so orphaned files
         # are no longer skipped during task processing.
@@ -800,16 +810,6 @@ class ScanManager:
                 )
 
         self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
-
-        # Step 3: Dispatch camera save=off in a background thread — its 2 s
-        # sleep overlaps with restore / closeout below.
-        # Must join before device_manager.reset().
-        stop_saving_thread = threading.Thread(
-            target=self._stop_saving_devices,
-            name="stop-saving-devices",
-            daemon=True,
-        )
-        stop_saving_thread.start()
 
         # Step 4: Restore the initial state of devices.
         if self.initial_state is not None:
