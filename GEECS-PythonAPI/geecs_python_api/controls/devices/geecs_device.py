@@ -677,10 +677,19 @@ class GeecsDevice:
         attempts_max: int = 5,
     ) -> None:
         """Send command and optionally start its listener thread upon ack."""
+        if self.dev_udp is None:
+            logger.debug(
+                'UDP handler closed before "%s" could be processed; skipping', cmd_label
+            )
+            return
         accepted = False
         try:
             for attempt in range(attempts_max):
-                assert self.dev_udp is not None
+                if self.dev_udp is None:
+                    logger.debug(
+                        'UDP handler closed mid-retry for "%s"; aborting', cmd_label
+                    )
+                    return
                 sent = self.dev_udp.send_cmd(
                     ipv4=(self.dev_ip, self.dev_port), msg=cmd_str
                 )

@@ -858,10 +858,11 @@ class ScanManager:
         """Reset save paths for non-scalar devices in parallel.
 
         Dispatches save=off and localsavingpath reset commands to all camera
-        devices concurrently using synchronous calls so that all commands are
-        fully acknowledged before this method returns.  Using sync=True avoids
-        a race condition where device UDP sockets are closed by
-        _clear_existing_devices() while async dequeue threads are still running.
+        devices concurrently using fire-and-forget (sync=False) calls so that
+        the thread returns as soon as all UDP packets have been queued.  The
+        race between dequeue threads and device.close() is handled in
+        GeecsDevice._process_command, which checks dev_udp and returns cleanly
+        if the socket has already been closed.
 
         Note: stop_logging() is *not* called here.  The caller seals
         self.results with stop_logging() before starting this as a background
@@ -875,18 +876,8 @@ class ScanManager:
 
         def _reset_device(device_name, device):
             logger.info("Setting save to off for %s", device_name)
-            try:
-                device.set("save", "off", sync=True)
-            except Exception:
-                logger.warning(
-                    "Failed to set save=off for %s", device_name, exc_info=True
-                )
-            try:
-                device.set("localsavingpath", "c:\\temp", sync=True)
-            except Exception:
-                logger.warning(
-                    "Failed to reset localsavingpath for %s", device_name, exc_info=True
-                )
+            device.set("save", "off", sync=False)
+            device.set("localsavingpath", "c:\\temp", sync=False)
             logger.info("Save state reset for %s", device_name)
 
         devices = {
