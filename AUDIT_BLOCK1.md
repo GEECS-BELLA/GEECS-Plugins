@@ -491,4 +491,63 @@ implementation covers testing/no-trigger scenarios explicitly.
 
 ---
 
-*End of Block 1 audit. Questions, corrections, and "you missed X" welcome before proceeding to Block 2.*
+## 15. Questions Back to You Before Block 2
+
+These are decisions that only you can make. Block 2 will go in different directions
+depending on the answers.
+
+### On package structure
+The audit suggests renaming `GEECS-Scanner-GUI` → `GEECS-Scanner` and adding an
+`apps/` directory at the root for GUIs. You floated this idea too. A few sub-questions:
+- Does `GEECS-Scanner` become the canonical home for the scan engine, or does the
+  engine get extracted into its own package that multiple GUIs could consume?
+- Is the `ConfigManager` GUI (already in its own directory) the model for what
+  `apps/` looks like, or is it a one-off?
+- Is there anything else in the repo root besides scanner and config manager that
+  would move into `apps/`?
+
+### On `geecs_data_utils`
+The audit recommends keeping `ScanTag`, `ScanPaths`, `ScanData`, `ECSDump` there
+and moving `ScanConfig` / `ScanMode` back to the scanner engine. Does that boundary
+feel right to you? The working definition I'd use: *"anything that a post-hoc
+analysis tool needs to find and load scan data belongs in data-utils; anything that
+controls how a scan runs belongs in the scanner."*
+
+### On the experiment-specific code in `GEECS-PythonAPI`
+There are `HTU/` and `HTT/` subdirectories in the PythonAPI with experiment-specific
+device subclasses. This is out of scope for the scanner refactor, but it's worth
+knowing: is this intentional long-term (each experiment gets subclasses), or is it
+legacy that should eventually be config-driven?
+
+### On `default_scan_manager.py`
+I saw this file but didn't read it fully. Its name suggests it holds default
+options (the `"Save Hiatus Period (s)"` default lives there). Is this a meaningful
+abstraction, or just a place defaults ended up?
+
+### On the optimization subsystem
+`ScanMode.OPTIMIZATION` drives `ScanStepExecutor` to use a `BaseOptimizer` for
+step generation. I read the executor's integration but not the optimizer subclasses
+or config models in depth. Is the optimization path something that needs to be part
+of the engine redesign, or is it stable enough to treat as a black box for now?
+
+### On iteration
+There are two parts of the codebase I haven't read closely enough to have strong
+opinions on:
+1. `geecs_scanner/app/geecs_scanner.py` — the main Qt window. I know it polls and
+   I know the options dict lives there, but I haven't mapped all the places it
+   directly touches engine state.
+2. The `data_logger.py` internals — specifically the `FileMover` worker threading
+   and orphan detection logic, which is where the multi-file-per-shot complexity
+   actually lives.
+
+If you want, I can do one more focused pass on those two before we write Block 2.
+Alternatively, we can proceed and surface issues as they arise. Up to you.
+
+### On first step
+The audit suggests Block 2 starts with promoting `ScanConfig` to a Pydantic model
+and moving it to the scanner engine. But there are two quicker wins that might be
+worth doing first as confidence-builders:
+- Removing `save_hiatus` (contained, low risk, clearly right)
+- `TriggerController` extraction (medium scope, high clarity payoff)
+
+Should those go first, or straight into the config model work?
