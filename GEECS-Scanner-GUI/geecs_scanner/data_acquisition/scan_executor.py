@@ -513,6 +513,10 @@ class ScanStepExecutor:
             from geecs_python_api.controls.interface.geecs_errors import (
                 GeecsDeviceCommandRejected,
                 GeecsDeviceCommandFailed,
+                GeecsDeviceExeTimeout,
+            )
+            from geecs_scanner.data_acquisition.gui_dialogs import (
+                prompt_user_device_timeout,
             )
 
             device = self.device_manager.devices.get(device_name)
@@ -600,6 +604,29 @@ class ScanStepExecutor:
                                 device_name,
                             )
                             self.stop_scanning_thread_event.set()
+                            return
+
+                    except GeecsDeviceExeTimeout as e:
+                        logger.error(
+                            "[%s] EXE TIMEOUT: %s (attempt %d/%d)",
+                            device_name,
+                            e,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay)
+                        else:
+                            logger.error(
+                                "[%s] Exe timeout persists after all retry attempts. "
+                                "Prompting user.",
+                                device_name,
+                            )
+                            abort = prompt_user_device_timeout(
+                                e.device_name, e.command, e.timeout
+                            )
+                            if abort:
+                                self.stop_scanning_thread_event.set()
                             return
 
                 if not success:
