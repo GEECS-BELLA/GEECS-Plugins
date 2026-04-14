@@ -103,7 +103,7 @@ def main():
     # ----------------------------------------------------------------
     # _NoiseSubtraction — background subtraction on raw trace
     # ----------------------------------------------------------------
-    noise_fn = frog._NoiseSubtraction
+    noise_fn = frog["_NoiseSubtraction@24"]
     noise_fn.restype = None
     noise_fn(
         ctypes.cast(rawdata, ctypes.POINTER(ctypes.c_double)),
