@@ -126,8 +126,8 @@ Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, 
 
 ## Architectural Roadmap
 
-A full refactor roadmap lives in `ROADMAP.md` at the repo root. Read it before
-making structural changes. Key points:
+A full refactor roadmap lives in `ROADMAP.md` in separate branch. Read it before
+making major structural changes. Key points:
 
 - The goal is a headless-capable scan engine with explicit state, a typed event
   stream, and a single `DeviceCommandExecutor` owning all device interactions
@@ -135,12 +135,3 @@ making structural changes. Key points:
 - `device.set()` calls are currently scattered; consolidation is Block 6 of the
   roadmap and requires earlier blocks to be in place first
 - Breaking changes are acceptable in the name of better organisation
-
-## Active Branches / PRs
-
-- `audit/block1-codebase-analysis` — full codebase audit (`AUDIT_BLOCK1.md`) and
-  architectural roadmap (`ROADMAP.md`); open for review
-- `fix/scan-closeout-reliability` / PR #314 — scan closeout ordering, parallel
-  device teardown, `GeecsDeviceCommandRejected` handling (geecs-scanner 0.8.0)
-- `config-manager-gui` — PyQt5 GUI for creating/editing YAML analyzer configs
-  (not yet merged)
