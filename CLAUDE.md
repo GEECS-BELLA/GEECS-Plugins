@@ -95,10 +95,52 @@ Other packages use it primarily for:
 - Database dict lookup — enumerate all devices in an experiment
 - `config.ini` — shared config file all packages read from
 
-## Active Branches / PRs to Know About
+## Release & Versioning
 
-- `gdoc-autoupload` / PR #295 — GDoc image insertion via `gdoc_slot` config
-  (merged or near-merged; see `ScanAnalysis/CLAUDE.md` for details)
-- `config-manager-gui` — PyQt5 GUI for creating/editing YAML configs (not yet merged)
-- `gdoc-hyperlinks` — Planned next PR: upload all analyzer outputs as hyperlinks
-  instead of table cells
+Each package is versioned independently using **semantic versioning**:
+
+| Digit | When to bump | Example |
+|-------|-------------|---------|
+| `0.0.x` patch | Bug fix, no behaviour or API change | `0.7.1 → 0.7.2` |
+| `0.x.0` minor | New feature or meaningful behaviour change (backwards-compatible) | `0.7.1 → 0.8.0` |
+| `1.0.0` major | Stable production API, deployed across multiple experiments | reserved |
+
+**On every PR that changes code in a package:**
+
+1. Run `poetry version patch|minor|major` from inside the package directory —
+   this edits `pyproject.toml` in place
+2. Add an entry to the package's `CHANGELOG.md` under the new version number
+3. Commit `pyproject.toml` and `CHANGELOG.md` together with the code changes
+
+```bash
+cd GEECS-Scanner-GUI && poetry version minor   # 0.7.1 → 0.8.0
+cd GEECS-PythonAPI   && poetry version patch   # 0.3.0 → 0.3.1
+```
+
+Every package has a `CHANGELOG.md` following
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
+`GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
+`ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`.
+
+Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
+
+## Architectural Roadmap
+
+A full refactor roadmap lives in `ROADMAP.md` at the repo root. Read it before
+making structural changes. Key points:
+
+- The goal is a headless-capable scan engine with explicit state, a typed event
+  stream, and a single `DeviceCommandExecutor` owning all device interactions
+- `ScanManager` can already run headlessly — the GUI adds display and dialogs only
+- `device.set()` calls are currently scattered; consolidation is Block 6 of the
+  roadmap and requires earlier blocks to be in place first
+- Breaking changes are acceptable in the name of better organisation
+
+## Active Branches / PRs
+
+- `audit/block1-codebase-analysis` — full codebase audit (`AUDIT_BLOCK1.md`) and
+  architectural roadmap (`ROADMAP.md`); open for review
+- `fix/scan-closeout-reliability` / PR #314 — scan closeout ordering, parallel
+  device teardown, `GeecsDeviceCommandRejected` handling (geecs-scanner 0.8.0)
+- `config-manager-gui` — PyQt5 GUI for creating/editing YAML analyzer configs
+  (not yet merged)
