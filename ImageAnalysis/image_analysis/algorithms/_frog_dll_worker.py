@@ -33,7 +33,9 @@ Params JSON format:
         "run_type": 1,
         "max_iterations": 200,
         "target_error": 0.005,
-        "max_time_seconds": 60
+        "max_time_seconds": 60,
+        "noise_subtype": 4,
+        "noise_rad": 1.0
     }
 """
 
@@ -78,6 +80,8 @@ def main():
     max_iterations = params.get("max_iterations", 200)
     target_error = params.get("target_error", 0.005)
     max_time_seconds = params.get("max_time_seconds", 60)
+    noise_subtype = params.get("noise_subtype", 4)
+    noise_rad = params.get("noise_rad", 1.0)
 
     # Read input trace
     with open(input_path, "rb") as f:
@@ -95,6 +99,23 @@ def main():
 
     # Load DLL
     frog = ctypes.WinDLL(dll_path)
+
+    # ----------------------------------------------------------------
+    # _NoiseSubtraction — background subtraction on raw trace
+    # ----------------------------------------------------------------
+    noise_fn = frog["_NoiseSubtraction"]
+    noise_fn.restype = None
+    noise_fn(
+        ctypes.cast(rawdata, ctypes.POINTER(ctypes.c_double)),
+        ctypes.c_int32(ntau),
+        ctypes.c_int32(nw),
+        ctypes.c_int32(noise_subtype),
+        ctypes.c_double(noise_rad),
+    )
+    print(
+        "_NoiseSubtraction: subtype={0}, rad={1}".format(noise_subtype, noise_rad),
+        file=sys.stderr,
+    )
 
     # Seed the C runtime RNG before DLLInit.
     # The FROG DLL uses rand() internally to generate a random initial
