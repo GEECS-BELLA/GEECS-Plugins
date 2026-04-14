@@ -84,7 +84,7 @@ class UdpHandler:
             return False
 
     def ack_cmd(
-        self, sock: Optional[socket.socket] = None, timeout: Optional[float] = 5.0
+        self, sock: Optional[socket.socket] = None, timeout: Optional[float] = 1.5
     ) -> bool:
         """Wait for an ack ('accepted' or 'ok') on `sock` (defaults to cmd socket) within timeout."""
         accepted = False
@@ -269,6 +269,24 @@ class UdpServer:
         except Exception:
             logger.exception("failed waiting for command execution")
         return exe_thread, stop_event
+
+    def drain(self) -> None:
+        """Discard any data already sitting in the socket receive buffer.
+
+        Call this before starting a fresh listen() to ensure stale responses
+        from a previous timed-out command do not pollute the next read.
+        """
+        if not self.sock:
+            return
+        try:
+            while True:
+                rlist, _, _ = select.select([self.sock], [], [], 0.0)
+                if not rlist:
+                    break
+                self.sock.recvfrom(self.buffer_size)
+                logger.debug("drain: discarded stale exe response")
+        except Exception:
+            logger.debug("drain: ignored error while draining socket", exc_info=True)
 
     def create_thread(self, cmd_tag: str, timeout: Optional[float] = 5.0) -> ThreadInfo:
         """Create a listening thread and its stop_event for the given tag/timeout."""

@@ -83,6 +83,11 @@ class BackgroundConfig(BaseModel):
         Additional constant to subtract AFTER primary background (default 0).
     dynamic_computation : Optional[DynamicComputationConfig]
         Configuration for dynamic background computation (batch processing only).
+    background_scan_number : int, optional
+        Scan number to use as background source. The scan analyzer will load
+        and average all images from that scan's device folder, cache the result
+        as a .npy file, and use it as a FROM_FILE background. Takes precedence
+        over file_path when set.
     """
 
     enabled: bool = Field(True, description="Enable background processing")
@@ -100,6 +105,15 @@ class BackgroundConfig(BaseModel):
     )
     dynamic_computation: Optional[DynamicComputationConfig] = Field(
         None, description="Dynamic background computation config (batch processing)"
+    )
+    background_scan_number: Optional[int] = Field(
+        None,
+        description=(
+            "Scan number whose images are averaged to form the background. "
+            "Handled by the scan analyzer: images from that scan's device folder "
+            "are loaded, averaged, and cached as a .npy file. Takes precedence "
+            "over file_path when set."
+        ),
     )
 
     @field_validator("file_path")
