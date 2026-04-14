@@ -75,6 +75,8 @@ class FrogRetrievalConfig(BaseModel):
         5.0, description="Max wall-clock time for retrieval [s]"
     )
     max_iterations: int = Field(1000000000, description="Max iterations for retrieval")
+    noise_subtype: int = Field(4, description="NoiseSubtraction SUBTYPE parameter")
+    noise_rad: float = Field(1.0, description="NoiseSubtraction RAD parameter")
 
 
 @dataclass
@@ -239,6 +241,8 @@ class FrogDllRetrieval:
         max_iterations: int = 200,
         target_error: float = 0.005,
         max_time_seconds: float = 60.0,
+        noise_subtype: int = 4,
+        noise_rad: float = 1.0,
         timeout: float = 120.0,
     ) -> FrogRetrievalResult:
         """Run the FROG retrieval algorithm on a Grenouille trace.
@@ -269,6 +273,10 @@ class FrogDllRetrieval:
             Target FROG error for early stopping (default 0.005).
         max_time_seconds : float
             Maximum wall-clock time for the retrieval loop in seconds (default 60).
+        noise_subtype : int
+            SUBTYPE argument passed to _NoiseSubtraction (default 4).
+        noise_rad : float
+            RAD argument passed to _NoiseSubtraction (default 1.0).
         timeout : float
             Maximum time for the entire subprocess in seconds (default 120).
 
@@ -356,6 +364,8 @@ class FrogDllRetrieval:
                 "max_iterations": max_iterations,
                 "target_error": target_error,
                 "max_time_seconds": max_time_seconds,
+                "noise_subtype": noise_subtype,
+                "noise_rad": noise_rad,
             }
             json.dump(params, f_params)
 

@@ -110,6 +110,8 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             target_error=self.analysis_config.target_error,
             max_time_seconds=self.analysis_config.max_time_seconds,
             max_iterations=self.analysis_config.max_iterations,
+            noise_subtype=self.analysis_config.noise_subtype,
+            noise_rad=self.analysis_config.noise_rad,
         )
 
         scalar_results = {
