@@ -389,16 +389,19 @@ class ActionLibrary(QWidget):
         )
         if reply == QMessageBox.Yes:
             # Read current version of file and delete only the specified element if it exists
-            actions_data_actual = read_yaml_file_to_dict(self.actions_file)
+            if self.actions_file.exists():
+                actions_data_actual = read_yaml_file_to_dict(self.actions_file)
 
-            if name in actions_data_actual["actions"]:
-                del actions_data_actual["actions"][name]
-                write_dict_to_yaml_file(
-                    filename=self.actions_file, dictionary=actions_data_actual
-                )
-                logger.info("Removed action '%s' from '%s'", name, self.actions_file)
-            else:
-                logger.info("Removed action '%s' from unsaved dictionary", name)
+                if name in actions_data_actual["actions"]:
+                    del actions_data_actual["actions"][name]
+                    write_dict_to_yaml_file(
+                        filename=self.actions_file, dictionary=actions_data_actual
+                    )
+                    logger.info(
+                        "Removed action '%s' from '%s'", name, self.actions_file
+                    )
+                else:
+                    logger.info("Removed action '%s' from unsaved dictionary", name)
 
             # Also delete from the GUI's version (leaving other changes unsaved)
             del self.actions_data["actions"][name]

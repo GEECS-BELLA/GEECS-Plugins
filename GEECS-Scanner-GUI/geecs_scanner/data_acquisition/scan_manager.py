@@ -99,8 +99,10 @@ from dataclasses import fields
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
+    GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
+from geecs_scanner.data_acquisition.gui_dialogs import prompt_user_device_timeout
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 
@@ -380,8 +382,24 @@ class ScanManager:
                 variable_settings = self.shot_control_variables[variable]
                 set_value = variable_settings.get(state, "")
                 if set_value:
-                    results.append(self.shot_control.set(variable, set_value))
-                    logger.info("Setting %s to %s", variable, set_value)
+                    try:
+                        results.append(
+                            self.shot_control.set(variable, set_value, exec_timeout=0.5)
+                        )
+                        logger.info("Setting %s to %s", variable, set_value)
+                    except GeecsDeviceExeTimeout as e:
+                        logger.error(
+                            "Trigger variable '%s' timed out on state '%s': %s",
+                            variable,
+                            state,
+                            e,
+                        )
+                        abort = prompt_user_device_timeout(
+                            e.device_name, e.command, e.timeout
+                        )
+                        if abort:
+                            self.stop_scanning_thread_event.set()
+                        return results
             logger.info("Trigger turned to state %s.", state)
         else:
             logger.error("Invalid trigger state: %s", state)

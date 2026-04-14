@@ -394,7 +394,7 @@ class GEECSScannerWindow(QMainWindow):
             and self.ui.experimentDisplay.isEnabled()
         ):
             experiment_names = [
-                f.stem for f in AppPaths.BASE_PATH.iterdir() if f.is_dir()
+                f.stem for f in AppPaths.base_path().iterdir() if f.is_dir()
             ]
             display_completer_list(self, self.ui.experimentDisplay, experiment_names)
             return True
