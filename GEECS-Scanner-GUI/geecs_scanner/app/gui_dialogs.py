@@ -26,8 +26,9 @@ def _build_device_error_message(exc: Exception) -> tuple[str, str]:
     Parameters
     ----------
     exc :
-        One of GeecsDeviceExeTimeout, GeecsDeviceCommandRejected,
-        GeecsDeviceCommandFailed, ActionError, or a generic Exception.
+        One of GeecsDeviceInstantiationError, GeecsDeviceExeTimeout,
+        GeecsDeviceCommandRejected, GeecsDeviceCommandFailed, ActionError,
+        or a generic Exception.
 
     Returns
     -------
@@ -38,10 +39,18 @@ def _build_device_error_message(exc: Exception) -> tuple[str, str]:
         GeecsDeviceCommandFailed,
         GeecsDeviceCommandRejected,
         GeecsDeviceExeTimeout,
+        GeecsDeviceInstantiationError,
     )
     from geecs_scanner.utils.exceptions import ActionError
 
-    if isinstance(exc, GeecsDeviceExeTimeout):
+    if isinstance(exc, GeecsDeviceInstantiationError):
+        title = "Device Instantiation Failed"
+        detail = (
+            f"{exc}\n\n"
+            f"The device may be offline, not found in the database, or\n"
+            f"unreachable on the network."
+        )
+    elif isinstance(exc, GeecsDeviceExeTimeout):
         title = "Device Execution Timeout"
         detail = (
             f"No execution response received within {exc.timeout:.1f}s.\n"
@@ -139,3 +148,36 @@ def show_device_error_dialog(request: DialogRequest) -> None:
 
     request.abort[0] = abort
     request.response_event.set()
+
+
+def show_action_error_dialog(exc: Exception) -> None:
+    """Show a simple warning dialog for an action-execution error.
+
+    Unlike :func:`show_device_error_dialog`, this has no Continue/Abort
+    choice — the action has already failed and there is nothing to abort.
+    Must be called from the Qt main thread.
+
+    Parameters
+    ----------
+    exc :
+        The exception that caused the action to fail.  ``str(exc)`` is
+        shown directly, so the device name is included as long as the
+        exception was constructed with it (as all GEECS device errors are).
+    """
+    from PyQt5.QtWidgets import QApplication, QMessageBox
+
+    logger.warning(
+        "Action failed — showing error dialog: %s: %s", type(exc).__name__, exc
+    )
+
+    if not QApplication.instance():
+        logger.error("No Qt application — cannot show action error dialog.")
+        return
+
+    msg_box = QMessageBox()
+    msg_box.setIcon(QMessageBox.Warning)
+    msg_box.setWindowTitle("Action Failed")
+    msg_box.setText(f"The action could not be completed:\n\n{exc}")
+    msg_box.setStandardButtons(QMessageBox.Ok)
+    msg_box.setDefaultButton(QMessageBox.Ok)
+    msg_box.exec_()
