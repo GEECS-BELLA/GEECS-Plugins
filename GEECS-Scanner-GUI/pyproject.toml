@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner-gui"
-version = "0.8.1"
+version = "0.8.2"
 description = ""
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"

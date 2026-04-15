@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] — 2026-04-15
+
+### Fixed
+- Orphan file-move tasks now drain in parallel instead of serially. The
+  0.5 s retry delay was previously applied inside `move_files_by_timestamp`
+  (the queueing call), which caused `_post_process_orphan_task` to sleep
+  0.5 s per task before each enqueue — serialising the entire drain through
+  a single thread regardless of the 16-worker pool. The sleep is now applied
+  inside `_process_task` (the worker), so all orphan tasks are queued
+  immediately and processed concurrently, improving end-of-scan drain
+  throughput from ~2 files/s to ~20 files/s
+- `_post_process_orphan_task` now resets `retry_count` to 0 before
+  re-queuing each task, eliminating the 0.5 s per-worker sleep during the
+  post-scan drain. No new files are written after the scan ends, so the
+  delay serves no purpose and was costing ~2 s of wall time for a typical
+  60-task backlog across 16 workers
+- `PermissionError` on `file.is_file()` inside `_process_task` no longer
+  crashes the entire task. When a device holds a write lock on a file at
+  the moment the worker tries to stat it, the file is now skipped and the
+  task continues; the retry or end-of-scan orphan sweep picks it up once
+  the lock is released
+
 ## [0.8.1] — 2026-04-15
 
 ### Fixed

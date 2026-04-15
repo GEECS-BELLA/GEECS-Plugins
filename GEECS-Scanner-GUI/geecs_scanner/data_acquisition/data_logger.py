@@ -225,6 +225,13 @@ class FileMover:
         - For MagSpec (and others devices), looks for and processes additional variant files
          with known suffixes.
         """
+        # Give the device time to finish writing before retrying.  The sleep
+        # lives here (in the worker) rather than in move_files_by_timestamp so
+        # that _post_process_orphan_task can queue all orphan tasks at once and
+        # let the 16 workers drain them in parallel instead of serially.
+        if task.retry_count > 0:
+            time.sleep(0.5)
+
         source_dir = task.source_dir
         target_dir = task.target_dir
         device_name = task.device_name
@@ -279,7 +286,12 @@ class FileMover:
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
 
             for file in variant.glob("*"):
-                if not file.is_file():
+                try:
+                    if not file.is_file():
+                        continue
+                except OSError:
+                    # File is locked for writing by the device; skip and let
+                    # the retry or orphan sweep pick it up later.
                     continue
 
                 # if the file has been checked already e.g. orphaned, skip when the scan is live.
@@ -486,8 +498,6 @@ class FileMover:
             The task containing file movement parameters such as source and target directories,
             device name, expected timestamp, and shot index.
         """
-        if task.retry_count > 0:
-            time.sleep(0.5)
         self.task_queue.put(task)
 
     def _post_process_orphaned_files(
@@ -630,6 +640,9 @@ class FileMover:
         orphan_snapshot = list(self.orphan_tasks)
         self.orphan_tasks.clear()
         for task in orphan_snapshot:
+            task.retry_count = (
+                0  # No new files are being written at scan end; skip the retry sleep.
+            )
             self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:
