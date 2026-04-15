@@ -60,6 +60,10 @@ import yaml
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
 from ..utils.exceptions import ActionError
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    escalate_device_error,
+)
 from geecs_scanner.data_acquisition.schemas.actions import (
     ActionLibrary,
     ActionSequence,
@@ -515,8 +519,9 @@ class ActionManager:
         del self.actions[action_name]
         logger.info("Removed action sequence: %s", action_name)
 
-    @staticmethod
-    def _set_device(device: ScanDevice, variable: str, value: Any, sync: bool = True):
+    def _set_device(
+        self, device: ScanDevice, variable: str, value: Any, sync: bool = True
+    ):
         """
         Set a device variable to a specified value with optional synchronization.
 
@@ -550,10 +555,6 @@ class ActionManager:
         >>> ActionManager._set_device(device, 'mode', 'calibration', sync=False)
         # Sets device mode asynchronously
         """
-        from geecs_python_api.controls.interface.geecs_errors import (
-            GeecsDeviceCommandRejected,
-        )
-
         try:
             result = device.set(variable, value, sync=sync)
             logger.info(
@@ -563,14 +564,16 @@ class ActionManager:
                 value,
                 result,
             )
-        except GeecsDeviceCommandRejected as e:
-            logger.warning(
-                "Set %s:%s to %s — command rejected, continuing: %s",
+        except DEVICE_COMMAND_ERRORS as e:
+            logger.error(
+                "Set %s:%s to %s failed (%s): %s",
                 device.get_name(),
                 variable,
                 value,
+                type(e).__name__,
                 e,
             )
+            escalate_device_error(e, self.on_user_prompt)
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """

@@ -65,6 +65,10 @@ import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    escalate_device_error,
+)
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -515,12 +519,6 @@ class ScanStepExecutor:
         # Step 2: Define per-device setting function
         def set_device_variables(device_name, var_list):
             """Helper fucntion to set vars in threads."""
-            from geecs_python_api.controls.interface.geecs_errors import (
-                GeecsDeviceCommandRejected,
-                GeecsDeviceCommandFailed,
-                GeecsDeviceExeTimeout,
-            )
-
             device = self.device_manager.devices.get(device_name)
             if not device:
                 logger.warning("Device %s not found.", device_name)
@@ -569,64 +567,24 @@ class ScanStepExecutor:
                             )
                             time.sleep(retry_delay)
 
-                    except GeecsDeviceCommandRejected as e:
+                    except DEVICE_COMMAND_ERRORS as e:
                         logger.error(
-                            "[%s] COMMAND REJECTED: %s (attempt %d/%d)",
+                            "[%s] %s (attempt %d/%d): %s",
                             device_name,
+                            type(e).__name__,
+                            attempt + 1,
+                            max_retries,
                             e,
-                            attempt + 1,
-                            max_retries,
                         )
                         if attempt < max_retries - 1:
                             time.sleep(retry_delay)
                         else:
                             logger.error(
-                                "[%s] Command rejected after all retry attempts. "
+                                "[%s] Device command error persists after all retry attempts. "
                                 "Prompting user.",
                                 device_name,
                             )
-                            if self.on_device_error is None or self.on_device_error(e):
-                                self.stop_scanning_thread_event.set()
-                            return
-
-                    except GeecsDeviceCommandFailed as e:
-                        logger.error(
-                            "[%s] COMMAND FAILED: %s (actual value: %s) (attempt %d/%d)",
-                            device_name,
-                            e.error_detail,
-                            e.actual_value,
-                            attempt + 1,
-                            max_retries,
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                "[%s] Hardware error persists after all retry attempts. "
-                                "Prompting user.",
-                                device_name,
-                            )
-                            if self.on_device_error is None or self.on_device_error(e):
-                                self.stop_scanning_thread_event.set()
-                            return
-
-                    except GeecsDeviceExeTimeout as e:
-                        logger.error(
-                            "[%s] EXE TIMEOUT: %s (attempt %d/%d)",
-                            device_name,
-                            e,
-                            attempt + 1,
-                            max_retries,
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                "[%s] Exe timeout persists after all retry attempts. "
-                                "Prompting user.",
-                                device_name,
-                            )
-                            if self.on_device_error is None or self.on_device_error(e):
+                            if escalate_device_error(e, self.on_device_error):
                                 self.stop_scanning_thread_event.set()
                             return
 

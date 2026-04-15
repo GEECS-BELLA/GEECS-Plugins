@@ -1,4 +1,4 @@
-"""Thread-safe dialog request type for the scan worker → main-thread bridge.
+"""Thread-safe dialog request type and device-error escalation helpers.
 
 Worker threads that encounter a device error create a :class:`DialogRequest`,
 put it on ``ScanManager.dialog_queue``, and block on ``response_event.wait()``.
@@ -13,8 +13,62 @@ Issue #312 tracking note: the old module called Qt directly from worker threads
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
+from typing import Callable, Optional
+
+from geecs_python_api.controls.interface.geecs_errors import (
+    GeecsDeviceCommandFailed,
+    GeecsDeviceCommandRejected,
+    GeecsDeviceExeTimeout,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Convenience tuple — use in except clauses to catch any device command error
+# ---------------------------------------------------------------------------
+
+DEVICE_COMMAND_ERRORS = (
+    GeecsDeviceExeTimeout,
+    GeecsDeviceCommandRejected,
+    GeecsDeviceCommandFailed,
+)
+
+
+# ---------------------------------------------------------------------------
+# Escalation helper
+# ---------------------------------------------------------------------------
+
+
+def escalate_device_error(
+    exc: Exception,
+    on_escalate: Optional[Callable[[Exception], bool]],
+) -> bool:
+    """Call *on_escalate* with *exc* and return its result.
+
+    If no callback is wired (headless / test context), the error is logged
+    and ``True`` (abort) is returned so the caller can stop the scan safely.
+
+    Parameters
+    ----------
+    exc :
+        The device exception to escalate.
+    on_escalate :
+        Callable that submits *exc* to the GUI dialog queue and blocks until
+        the user responds.  Returns ``True`` → Abort, ``False`` → Continue.
+
+    Returns
+    -------
+    bool
+        ``True`` if the scan should be aborted, ``False`` to continue.
+    """
+    if on_escalate is not None:
+        return on_escalate(exc)
+    logger.error("Device error with no escalation callback — auto-aborting: %s", exc)
+    return True
 
 
 # ---------------------------------------------------------------------------

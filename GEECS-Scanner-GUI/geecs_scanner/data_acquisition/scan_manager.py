@@ -100,10 +100,13 @@ from dataclasses import fields
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
-    GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.dialog_request import DialogRequest
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    DialogRequest,
+    escalate_device_error,
+)
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 
@@ -265,6 +268,7 @@ class ScanManager:
         self.executor.trigger_off_fn = self.trigger_off
         self.executor.on_device_error = self.request_user_dialog
         self.action_manager.on_user_prompt = self.request_user_dialog
+        self.scan_data_manager.on_device_error = self.request_user_dialog
 
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
@@ -421,14 +425,15 @@ class ScanManager:
                             self.shot_control.set(variable, set_value, exec_timeout=0.5)
                         )
                         logger.info("Setting %s to %s", variable, set_value)
-                    except GeecsDeviceExeTimeout as e:
+                    except DEVICE_COMMAND_ERRORS as e:
                         logger.error(
-                            "Trigger variable '%s' timed out on state '%s': %s",
+                            "Trigger variable '%s' failed on state '%s' (%s): %s",
                             variable,
                             state,
+                            type(e).__name__,
                             e,
                         )
-                        if self.request_user_dialog(e):
+                        if escalate_device_error(e, self.request_user_dialog):
                             self.stop_scanning_thread_event.set()
                         return results
             logger.info("Trigger turned to state %s.", state)

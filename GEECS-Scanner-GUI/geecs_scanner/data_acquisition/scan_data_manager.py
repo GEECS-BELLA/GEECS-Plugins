@@ -47,6 +47,10 @@ from nptdms import TdmsWriter, ChannelObject
 from . import DeviceManager, DatabaseDictLookup
 from geecs_python_api.controls.interface import GeecsDatabase
 from geecs_data_utils import ScanConfig, ScanPaths
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    escalate_device_error,
+)
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -146,6 +150,10 @@ class ScanDataManager:
         self.sFile_info_path: Optional[Path] = None
 
         self.device_save_paths_mapping: DeviceSavePaths = {}
+
+        # Injected by ScanManager — same pattern as executor/action_manager callbacks.
+        self.on_device_error = None
+
         # self.scan_number_int = self.scan_paths.get_tag().number
         # self.parsed_scan_string = f"Scan{self.scan_number_int:03}"
 
@@ -223,9 +231,18 @@ class ScanDataManager:
                 data_path_client_side = target_dir
 
             save_path = str(data_path_client_side).replace("/", "\\")
-            device.set("localsavingpath", save_path, sync=False)
-            time.sleep(0.1)
-            device.set("save", "on", sync=False)
+            try:
+                device.set("localsavingpath", save_path, sync=False)
+                time.sleep(0.1)
+                device.set("save", "on", sync=False)
+            except DEVICE_COMMAND_ERRORS as e:
+                logger.error(
+                    "Failed to configure save path for %s (%s): %s",
+                    device_name,
+                    type(e).__name__,
+                    e,
+                )
+                escalate_device_error(e, self.on_device_error)
 
             self.device_save_paths_mapping[device_name] = {
                 "target_dir": target_dir,
