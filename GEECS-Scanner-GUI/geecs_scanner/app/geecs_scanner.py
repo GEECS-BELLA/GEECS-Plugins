@@ -57,7 +57,7 @@ from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
-from geecs_scanner.data_acquisition.gui_dialogs import show_device_error_dialog
+from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 # ---------------------------------------------------------------------------

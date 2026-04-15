@@ -54,11 +54,8 @@ from typing import Dict, Any, List
 
 import time
 import logging
-import sys
 
 import yaml
-
-# from PyQt5.QtWidgets import QMessageBox, QApplication
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
@@ -719,21 +716,9 @@ class ActionManager:
             # Delegate to the main-thread dialog queue (thread-safe path).
             return self.on_user_prompt(ActionError(message))
 
-        # Fallback for headless / test contexts: inline Qt dialog.
-        # NOTE: only safe if called from the Qt main thread.
-        from PyQt5.QtWidgets import QMessageBox, QApplication
-
-        if not QApplication.instance():
-            QApplication(sys.argv)
-
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Warning)
-        msg_box.setText(
-            f'Failed "get" command: \n {message} \nQuit out of action and scan?'
+        # Headless / test fallback: no GUI available, so auto-abort.
+        logger.warning(
+            "No on_user_prompt callback wired — auto-aborting action on error: %s",
+            message,
         )
-        msg_box.setWindowTitle("Action Error")
-        msg_box.setStandardButtons(QMessageBox.Abort | QMessageBox.Ignore)
-        msg_box.setDefaultButton(QMessageBox.Abort)
-        response = msg_box.exec_()
-
-        return response == QMessageBox.Abort
+        return True
