@@ -238,6 +238,10 @@ class ScanManager:
         # is_active() transitions to False and shows a one-shot warning.
         self.restore_failures: list[str] = []
 
+        # Set by reinitialize() when a GeecsDeviceInstantiationError occurs so
+        # the GUI can include the device name in the error dialog.
+        self.last_reinit_error: Optional[str] = None
+
         self.virtual_variable_list = []
         self.virtual_variable_name = None
 
@@ -366,7 +370,8 @@ class ScanManager:
             self.device_manager.reinitialize(
                 config_path=config_path, config_dictionary=config_dictionary
             )
-        except GeecsDeviceInstantiationError:
+        except GeecsDeviceInstantiationError as e:
+            self.last_reinit_error = str(e)
             logger.exception(
                 "Device reinitialization failed during initialization of device manager. check "
                 "that all devices are on and available"

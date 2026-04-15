@@ -2058,10 +2058,12 @@ class GEECSScannerWindow(QMainWindow):
             config_dictionary=run_config, scan_config=scan_config
         )
         if not success:
+            sm = getattr(self.RunControl, "scan_manager", None)
+            detail = getattr(sm, "last_reinit_error", None) or "Check log for details."
             QMessageBox.critical(
                 self,
                 "Device Error",
-                "Device reinitialization failed.  Check log for problem device(s)",
+                f"Device reinitialization failed.\n\n{detail}",
             )
         self.is_starting = False
         self.current_scan_number += 1
