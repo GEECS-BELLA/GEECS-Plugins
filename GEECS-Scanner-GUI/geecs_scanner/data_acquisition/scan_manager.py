@@ -232,6 +232,12 @@ class ScanManager:
         # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
         self.dialog_queue: queue.Queue[DialogRequest] = queue.Queue()
 
+        # Failures collected by restore_initial_state() after the scan ends.
+        # Cannot show a blocking dialog there (scan thread would deadlock with
+        # stop_scanning_thread().join()).  The main thread reads this list once
+        # is_active() transitions to False and shows a one-shot warning.
+        self.restore_failures: list[str] = []
+
         self.virtual_variable_list = []
         self.virtual_variable_name = None
 
@@ -1540,6 +1546,9 @@ class ScanManager:
             Keys should be in the format "device_name:variable_name",
             with corresponding values representing the original state.
         """
+        # Clear any leftover failures from a previous run.
+        self.restore_failures = []
+
         for device_var, value in initial_state.items():
             # Split the key to get the device name and variable name
             device_name, variable_name = device_var.split(":", 1)
@@ -1559,14 +1568,14 @@ class ScanManager:
                         value,
                         type(e).__name__,
                     )
-                    context = (
-                        f"The scan has ended but this device could not be restored.\n"
-                        f"  \u2022 {device_name}:{variable_name} \u2192 {value}\n\n"
-                        f"Continue = attempt remaining restores\n"
-                        f"Abort = skip all remaining restores"
+                    # Cannot block here — we're in the scan thread, and
+                    # stop_scanning_thread().join() on the main thread would
+                    # deadlock.  Collect the failure; the main thread will
+                    # show a summary once the scan thread has exited.
+                    self.restore_failures.append(
+                        f"  \u2022 {device_name}:{variable_name} \u2192 {value}"
+                        f"  ({type(e).__name__})"
                     )
-                    if escalate_device_error(e, self.request_user_dialog, context):
-                        break
                 except Exception:
                     logger.exception(
                         "Failed to restore %s:%s to %s",
