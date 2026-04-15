@@ -73,6 +73,7 @@ from __future__ import annotations
 
 # Standard library imports
 from typing import Optional, Dict, Any, Union, List
+import queue
 import time
 import threading
 import logging
@@ -102,7 +103,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.gui_dialogs import prompt_user_device_timeout
+from geecs_scanner.data_acquisition.gui_dialogs import DialogRequest
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 
@@ -224,6 +225,10 @@ class ScanManager:
             threading.Event()
         )  # Event to signal the logging thread to stop
 
+        # Queue for worker threads to request GUI dialogs on the main thread.
+        # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
+        self.dialog_queue: queue.Queue[DialogRequest] = queue.Queue()
+
         self.virtual_variable_list = []
         self.virtual_variable_name = None
 
@@ -258,6 +263,35 @@ class ScanManager:
         )
         self.executor.trigger_on_fn = self.trigger_on
         self.executor.trigger_off_fn = self.trigger_off
+        self.executor.on_device_error = self.request_user_dialog
+        self.action_manager.on_user_prompt = self.request_user_dialog
+
+    # ------------------------------------------------------------------
+    # Dialog bridge (worker → main thread)
+    # ------------------------------------------------------------------
+
+    def request_user_dialog(self, exc: Exception) -> bool:
+        """Submit a device error dialog request and block until the user responds.
+
+        Called from worker threads.  Puts a :class:`DialogRequest` on
+        ``self.dialog_queue`` and blocks until the main-thread GUI timer
+        drains it and the user clicks Continue or Abort.
+
+        Parameters
+        ----------
+        exc :
+            The device exception that triggered the dialog.
+
+        Returns
+        -------
+        bool
+            ``True`` if the user chose Abort (caller should set
+            ``stop_scanning_thread_event``); ``False`` to continue.
+        """
+        request = DialogRequest(exc=exc)
+        self.dialog_queue.put(request)
+        request.response_event.wait()
+        return request.abort[0]
 
     def pause_scan(self):
         """
@@ -394,10 +428,7 @@ class ScanManager:
                             state,
                             e,
                         )
-                        abort = prompt_user_device_timeout(
-                            e.device_name, e.command, e.timeout
-                        )
-                        if abort:
+                        if self.request_user_dialog(e):
                             self.stop_scanning_thread_event.set()
                         return results
             logger.info("Trigger turned to state %s.", state)

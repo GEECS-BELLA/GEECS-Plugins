@@ -169,6 +169,11 @@ class ActionManager:
         self.instantiated_devices: Dict[str, ScanDevice] = {}
         self.actions: Dict[str, ActionSequence] = {}
 
+        # Injected by ScanManager after construction — same pattern as executor callbacks.
+        # Signature: (exc: Exception) -> bool  — True = user chose Abort.
+        # Falls back to the inline Qt dialog if None (headless / test contexts).
+        self.on_user_prompt = None
+
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
             try:
@@ -679,8 +684,7 @@ class ActionManager:
         logger.info("Waiting for %s seconds.", seconds)
         time.sleep(seconds)
 
-    @staticmethod
-    def _prompt_user_quit_action(message: str) -> bool:
+    def _prompt_user_quit_action(self, message: str) -> bool:
         """
         Display an interactive dialog for user decision during action execution.
 
@@ -711,6 +715,12 @@ class ActionManager:
         ...     # User chose to abort
         ...     raise ActionError("User aborted action")
         """
+        if self.on_user_prompt is not None:
+            # Delegate to the main-thread dialog queue (thread-safe path).
+            return self.on_user_prompt(ActionError(message))
+
+        # Fallback for headless / test contexts: inline Qt dialog.
+        # NOTE: only safe if called from the Qt main thread.
         from PyQt5.QtWidgets import QMessageBox, QApplication
 
         if not QApplication.instance():

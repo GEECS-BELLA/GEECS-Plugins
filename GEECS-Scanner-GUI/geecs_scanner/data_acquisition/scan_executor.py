@@ -188,6 +188,11 @@ class ScanStepExecutor:
         self.results = None
         self.scan_steps = []
 
+        # Injected by ScanManager after construction (same pattern as trigger_on/off_fn).
+        # Signature: (exc: Exception) -> bool  — True = user chose Abort.
+        # If None, device errors silently abort the scan.
+        self.on_device_error = None
+
         logger.info("Constructing the scan step executor")
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> None:
@@ -515,9 +520,6 @@ class ScanStepExecutor:
                 GeecsDeviceCommandFailed,
                 GeecsDeviceExeTimeout,
             )
-            from geecs_scanner.data_acquisition.gui_dialogs import (
-                prompt_user_device_timeout,
-            )
 
             device = self.device_manager.devices.get(device_name)
             if not device:
@@ -580,10 +582,11 @@ class ScanStepExecutor:
                         else:
                             logger.error(
                                 "[%s] Command rejected after all retry attempts. "
-                                "Initiating graceful scan termination.",
+                                "Prompting user.",
                                 device_name,
                             )
-                            self.stop_scanning_thread_event.set()
+                            if self.on_device_error is None or self.on_device_error(e):
+                                self.stop_scanning_thread_event.set()
                             return
 
                     except GeecsDeviceCommandFailed as e:
@@ -600,10 +603,11 @@ class ScanStepExecutor:
                         else:
                             logger.error(
                                 "[%s] Hardware error persists after all retry attempts. "
-                                "Initiating graceful scan termination.",
+                                "Prompting user.",
                                 device_name,
                             )
-                            self.stop_scanning_thread_event.set()
+                            if self.on_device_error is None or self.on_device_error(e):
+                                self.stop_scanning_thread_event.set()
                             return
 
                     except GeecsDeviceExeTimeout as e:
@@ -622,10 +626,7 @@ class ScanStepExecutor:
                                 "Prompting user.",
                                 device_name,
                             )
-                            abort = prompt_user_device_timeout(
-                                e.device_name, e.command, e.timeout
-                            )
-                            if abort:
+                            if self.on_device_error is None or self.on_device_error(e):
                                 self.stop_scanning_thread_event.set()
                             return
 

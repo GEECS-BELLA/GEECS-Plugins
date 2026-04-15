@@ -3,6 +3,21 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] — 2026-04-13
+
+### Fixed
+- Device-error dialogs (execution timeout, command rejected, command failed) are
+  now shown on the Qt main thread instead of the scan worker thread, eliminating
+  the production hang where `exec_()` blocked indefinitely (closes #312)
+- `GeecsDeviceCommandRejected` and `GeecsDeviceCommandFailed` final-attempt
+  escalations now surface a user dialog (Continue / Abort) instead of silently
+  stopping the scan with no notification
+- `ActionManager._prompt_user_quit_action` is now routed through the same
+  main-thread dialog queue, fixing a parallel thread-safety issue
+- Queue-drain mechanism lives in `GEECSScannerWindow.update_gui_status()`
+  (200 ms QTimer); worker threads block on `threading.Event` until the user
+  responds — zero busy-wait
+
 ## [0.8.0] — 2026-04-13
 
 ### Fixed

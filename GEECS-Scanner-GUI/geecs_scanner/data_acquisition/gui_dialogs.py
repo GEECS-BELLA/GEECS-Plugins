@@ -1,60 +1,173 @@
 """GUI dialog helpers for scan data-acquisition error handling.
 
-These dialogs are currently shown from the scan worker thread, which is
-technically unsafe for Qt GUI operations.  See issue #312 for the planned
-refactor to emit signals and show dialogs on the main GUI thread instead.
+Dialogs are shown on the main Qt thread via a queue drained by the
+200 ms GUI timer in GEECSScannerWindow.  Worker threads submit a
+DialogRequest and block on its response_event; the main thread shows
+the dialog and sets the event with the result.
+
+Issue #312 tracking note: this module previously called Qt directly
+from worker threads (unsafe).  The queue-based pattern implemented here
+resolves that.
 """
 
 from __future__ import annotations
 
 import logging
-import sys
+import threading
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
 
-def prompt_user_device_timeout(device_name: str, command: str, timeout: float) -> bool:
-    """Show a warning dialog when a device exe response times out after all retries.
+# ---------------------------------------------------------------------------
+# Thread-safe request object
+# ---------------------------------------------------------------------------
 
-    Blocks the calling (scan worker) thread until the user responds.
+
+@dataclass
+class DialogRequest:
+    """Carries a device error across the worker→main-thread boundary.
+
+    The worker thread puts this on ScanManager's dialog queue and then
+    calls ``response_event.wait()``.  The main-thread timer picks it up,
+    shows the dialog, writes the result into ``abort``, and calls
+    ``response_event.set()``.
 
     Parameters
     ----------
-    device_name : str
-        Name of the device that timed out.
-    command : str
-        The command string that was sent (e.g. ``'setTrigger>>SCAN'``).
-    timeout : float
-        The timeout that elapsed, in seconds.
+    exc :
+        The device exception that triggered the dialog.
+    response_event :
+        Set by the main thread once the user has responded.
+    abort :
+        Single-element list used as a mutable result container.
+        ``True`` → user chose Abort; ``False`` → user chose Continue.
+    """
+
+    exc: Exception
+    response_event: threading.Event = field(default_factory=threading.Event)
+    abort: list[bool] = field(default_factory=lambda: [False])
+
+
+# ---------------------------------------------------------------------------
+# Message construction
+# ---------------------------------------------------------------------------
+
+
+def _build_device_error_message(exc: Exception) -> tuple[str, str]:
+    """Return (title, body) for a device error dialog.
+
+    Parameters
+    ----------
+    exc :
+        One of GeecsDeviceExeTimeout, GeecsDeviceCommandRejected,
+        GeecsDeviceCommandFailed, or a generic Exception.
 
     Returns
     -------
-    bool
-        ``True`` if the user chose to abort the scan, ``False`` to continue.
+    tuple[str, str]
+        Dialog window title and body text.
+    """
+    from geecs_python_api.controls.interface.geecs_errors import (
+        GeecsDeviceCommandFailed,
+        GeecsDeviceCommandRejected,
+        GeecsDeviceExeTimeout,
+    )
+    from geecs_scanner.utils.exceptions import ActionError
 
-    Notes
-    -----
-    See issue #312 — this dialog is shown from the scan worker thread, which
-    is technically unsafe.  It will be moved to the main GUI thread via signals
-    in a future refactor.
+    if isinstance(exc, GeecsDeviceExeTimeout):
+        title = "Device Execution Timeout"
+        detail = (
+            f"No execution response received within {exc.timeout:.1f}s.\n"
+            f"The device may be slow, stuck, or disconnected."
+        )
+    elif isinstance(exc, GeecsDeviceCommandRejected):
+        title = "Device Command Rejected"
+        detail = (
+            "The device did not acknowledge the command.\n"
+            "It may be offline, busy, or the command was malformed."
+        )
+    elif isinstance(exc, GeecsDeviceCommandFailed):
+        title = "Device Command Failed"
+        detail = (
+            f"The device acknowledged the command but reported an error:\n"
+            f"    {exc.error_detail}"
+        )
+    elif isinstance(exc, ActionError):
+        title = "Action Error"
+        detail = str(exc)
+    else:
+        title = "Device Error"
+        detail = str(exc)
+
+    device_name = getattr(exc, "device_name", None)
+    command = getattr(exc, "command", None)
+
+    if device_name or command:
+        header = (
+            f"Device:   {device_name or 'unknown'}\n"
+            f"Command:  {command or 'unknown'}\n\n"
+        )
+    else:
+        header = ""
+
+    body = (
+        f"{header}"
+        f"{detail}\n\n"
+        f"Please manually verify or correct the hardware state, then:\n"
+        f"  • Click  Continue  to proceed (the scan assumes the command succeeded)\n"
+        f"  • Click  Abort  to stop the scan"
+    )
+    return title, body
+
+
+# ---------------------------------------------------------------------------
+# Main-thread dialog display  (call only from the Qt main thread)
+# ---------------------------------------------------------------------------
+
+
+def show_device_error_dialog(request: DialogRequest) -> None:
+    """Show the device error dialog and write the result into *request*.
+
+    Must be called from the Qt main thread.  Sets ``request.abort[0]``
+    and ``request.response_event`` when the user responds.
+
+    Parameters
+    ----------
+    request :
+        The pending dialog request from the worker thread.
     """
     from PyQt5.QtWidgets import QApplication, QMessageBox
 
+    title, body = _build_device_error_message(request.exc)
+    logger.warning(
+        "Showing device error dialog to user — %s: %s",
+        type(request.exc).__name__,
+        getattr(request.exc, "command", str(request.exc)),
+    )
+
     if not QApplication.instance():
-        QApplication(sys.argv)
+        # Headless fallback: auto-abort
+        logger.error("No Qt application — auto-aborting on device error.")
+        request.abort[0] = True
+        request.response_event.set()
+        return
 
     msg_box = QMessageBox()
     msg_box.setIcon(QMessageBox.Warning)
-    msg_box.setWindowTitle("Device Timeout")
-    msg_box.setText(
-        f"Device '{device_name}' did not respond to command:\n"
-        f"    {command}\n\n"
-        f"No execution response received within {timeout:.1f}s.\n\n"
-        f"Please fix the hardware manually, then choose Continue to proceed "
-        f"with the scan or Abort to stop it."
-    )
+    msg_box.setWindowTitle(title)
+    msg_box.setText(body)
     msg_box.setStandardButtons(QMessageBox.Ok | QMessageBox.Abort)
     msg_box.button(QMessageBox.Ok).setText("Continue")
     msg_box.setDefaultButton(QMessageBox.Abort)
+
     response = msg_box.exec_()
-    return response == QMessageBox.Abort
+    abort = response == QMessageBox.Abort
+
+    logger.warning(
+        "User responded to device error dialog: %s",
+        "Abort" if abort else "Continue",
+    )
+
+    request.abort[0] = abort
+    request.response_event.set()

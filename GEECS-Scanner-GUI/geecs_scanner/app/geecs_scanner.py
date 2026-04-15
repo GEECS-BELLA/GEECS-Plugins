@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 import sys
 import os
+import queue
 from pathlib import Path
 import threading
 import importlib
@@ -56,6 +57,7 @@ from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
+from geecs_scanner.data_acquisition.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 # ---------------------------------------------------------------------------
@@ -448,7 +450,21 @@ class GEECSScannerWindow(QMainWindow):
         - Disables editing when scans are running.
         - Updates progress bar, status color, and button states.
         - Handles Multiscanner and Action Library states.
+        - Drains the ScanManager dialog queue so device-error dialogs are
+          shown on this (main) thread rather than from the scan worker thread.
         """
+        # Drain pending device-error dialogs from the scan worker thread.
+        # show_device_error_dialog() blocks until the user responds and sets
+        # request.response_event so the worker can unblock.
+        sm = getattr(self.RunControl, "scan_manager", None)
+        if sm is not None:
+            try:
+                while True:
+                    request = sm.dialog_queue.get_nowait()
+                    show_device_error_dialog(request)
+            except queue.Empty:
+                pass
+
         if self.RunControl is None:
             self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
