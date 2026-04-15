@@ -635,6 +635,9 @@ class FileMover:
         orphan_snapshot = list(self.orphan_tasks)
         self.orphan_tasks.clear()
         for task in orphan_snapshot:
+            task.retry_count = (
+                0  # No new files are being written at scan end; skip the retry sleep.
+            )
             self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:

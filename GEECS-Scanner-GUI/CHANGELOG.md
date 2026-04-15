@@ -13,7 +13,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a single thread regardless of the 16-worker pool. The sleep is now applied
   inside `_process_task` (the worker), so all orphan tasks are queued
   immediately and processed concurrently, improving end-of-scan drain
-  throughput from ~2 files/s to ~32 files/s
+  throughput from ~2 files/s to ~20 files/s
+- `_post_process_orphan_task` now resets `retry_count` to 0 before
+  re-queuing each task, eliminating the 0.5 s per-worker sleep during the
+  post-scan drain. No new files are written after the scan ends, so the
+  delay serves no purpose and was costing ~2 s of wall time for a typical
+  60-task backlog across 16 workers
 
 ## [0.8.1] — 2026-04-15
 
