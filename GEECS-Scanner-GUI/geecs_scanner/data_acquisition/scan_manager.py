@@ -1551,6 +1551,22 @@ class ScanManager:
                     logger.info(
                         "Restored %s:%s to %s.", device_name, variable_name, value
                     )
+                except DEVICE_COMMAND_ERRORS as e:
+                    logger.error(
+                        "Failed to restore %s:%s to %s (%s)",
+                        device_name,
+                        variable_name,
+                        value,
+                        type(e).__name__,
+                    )
+                    context = (
+                        f"The scan has ended but this device could not be restored.\n"
+                        f"  \u2022 {device_name}:{variable_name} \u2192 {value}\n\n"
+                        f"Continue = attempt remaining restores\n"
+                        f"Abort = skip all remaining restores"
+                    )
+                    if escalate_device_error(e, self.request_user_dialog, context):
+                        break
                 except Exception:
                     logger.exception(
                         "Failed to restore %s:%s to %s",

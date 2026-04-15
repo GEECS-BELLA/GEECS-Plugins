@@ -536,6 +536,7 @@ class ScanStepExecutor:
                     )
                 )
                 success = False
+                first_exc = None  # preserve root-cause error across retries
                 for attempt in range(max_retries):
                     try:
                         ret_val = device.set(var_name, set_val)
@@ -568,6 +569,8 @@ class ScanStepExecutor:
                             time.sleep(retry_delay)
 
                     except DEVICE_COMMAND_ERRORS as e:
+                        if first_exc is None:
+                            first_exc = e  # capture root cause before retries mask it
                         logger.error(
                             "[%s] %s (attempt %d/%d): %s",
                             device_name,
@@ -593,7 +596,18 @@ class ScanStepExecutor:
                                 f"All variables queued for {device_name}:\n"
                                 + "\n".join(lines)
                             )
-                            if escalate_device_error(e, self.on_device_error, context):
+                            # Escalate the first exception so the dialog reflects
+                            # the root cause (e.g. Timeout) not a downstream
+                            # rejection caused by the device still being busy.
+                            if type(first_exc) is not type(e):
+                                context += (
+                                    f"\n\nNote: initial error was "
+                                    f"{type(first_exc).__name__}; subsequent "
+                                    f"retries got {type(e).__name__}."
+                                )
+                            if escalate_device_error(
+                                first_exc, self.on_device_error, context
+                            ):
                                 self.stop_scanning_thread_event.set()
                             return
 
