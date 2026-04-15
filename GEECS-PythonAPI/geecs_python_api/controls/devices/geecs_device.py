@@ -665,6 +665,10 @@ class GeecsDevice:
     # ---- Command queueing ---------------------------------------------------
     def dequeue_command(self) -> None:
         """Process all queued commands sequentially."""
+        from geecs_python_api.controls.interface.geecs_errors import (
+            GeecsDeviceCommandRejected,
+        )
+
         self._cleanup_threads()
         with GeecsDevice.threads_lock:
             while not self.queue_cmds.empty():
@@ -681,6 +685,18 @@ class GeecsDevice:
                     time.sleep(0.5)
                 except queue.Empty:
                     break
+                except GeecsDeviceCommandRejected:
+                    logger.warning(
+                        'command rejected during dequeue for "%s:%s"; continuing',
+                        self.get_name(),
+                        cmd_label,
+                    )
+                except Exception:
+                    logger.exception(
+                        'unexpected error during dequeue for "%s:%s"',
+                        self.get_name(),
+                        cmd_label,
+                    )
 
     def _process_command(
         self,
@@ -690,10 +706,19 @@ class GeecsDevice:
         attempts_max: int = 5,
     ) -> None:
         """Send command and optionally start its listener thread upon ack."""
+        if self.dev_udp is None:
+            logger.debug(
+                'UDP handler closed before "%s" could be processed; skipping', cmd_label
+            )
+            return
         accepted = False
         try:
             for attempt in range(attempts_max):
-                assert self.dev_udp is not None
+                if self.dev_udp is None:
+                    logger.debug(
+                        'UDP handler closed mid-retry for "%s"; aborting', cmd_label
+                    )
+                    return
                 sent = self.dev_udp.send_cmd(
                     ipv4=(self.dev_ip, self.dev_port), msg=cmd_str
                 )

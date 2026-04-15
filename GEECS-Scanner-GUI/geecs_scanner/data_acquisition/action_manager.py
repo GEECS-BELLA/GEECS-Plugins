@@ -548,10 +548,27 @@ class ActionManager:
         >>> ActionManager._set_device(device, 'mode', 'calibration', sync=False)
         # Sets device mode asynchronously
         """
-        result = device.set(variable, value, sync=sync)
-        logger.info(
-            "Set %s:%s to %s. Result: %s", device.get_name(), variable, value, result
+        from geecs_python_api.controls.interface.geecs_errors import (
+            GeecsDeviceCommandRejected,
         )
+
+        try:
+            result = device.set(variable, value, sync=sync)
+            logger.info(
+                "Set %s:%s to %s. Result: %s",
+                device.get_name(),
+                variable,
+                value,
+                result,
+            )
+        except GeecsDeviceCommandRejected as e:
+            logger.warning(
+                "Set %s:%s to %s — command rejected, continuing: %s",
+                device.get_name(),
+                variable,
+                value,
+                e,
+            )
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """

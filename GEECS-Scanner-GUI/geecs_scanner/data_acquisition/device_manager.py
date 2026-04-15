@@ -530,17 +530,30 @@ class DeviceManager:
         Unsubscribe from all currently active devices and reset the device registry.
 
         This method safely closes all device connections, unsubscribes from variable monitoring,
-        and clears the internal device dictionary. It is typically called when reloading a new
-        configuration or resetting the scan environment.
+        and clears the internal device dictionary. Disconnections run in parallel so that scans
+        with many subscribed devices close out quickly (#308).
         """
-        for device_name, device in self.devices.items():
-            try:
-                logger.info("Attempting to unsubscribe from %s...", device_name)
-                device.unsubscribe_var_values()
-                device.close()
-                logger.info("Successfully unsubscribed from %s.", device_name)
-            except Exception:
-                logger.exception("Error unsubscribing from %s", device_name)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _disconnect(device_name, device):
+            logger.info("Attempting to unsubscribe from %s...", device_name)
+            device.unsubscribe_var_values()
+            device.close()
+            logger.info("Successfully unsubscribed from %s.", device_name)
+
+        devices_snapshot = dict(self.devices)
+        if devices_snapshot:
+            with ThreadPoolExecutor(max_workers=len(devices_snapshot)) as executor:
+                futures = {
+                    executor.submit(_disconnect, name, dev): name
+                    for name, dev in devices_snapshot.items()
+                }
+                for future in as_completed(futures):
+                    device_name = futures[future]
+                    try:
+                        future.result()
+                    except Exception:
+                        logger.exception("Error unsubscribing from %s", device_name)
 
         self.devices = {}
 

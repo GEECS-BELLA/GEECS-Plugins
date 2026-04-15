@@ -210,7 +210,6 @@ class ScanManager:
         self.data_logger = DataLogger(
             experiment_dir, self.device_manager
         )  # Initialize DataLogger
-        self.save_data = True
 
         self.shot_control: Optional[ScanDevice] = None
         self.shot_control_variables = None
@@ -596,11 +595,7 @@ class ScanManager:
                     )
                 logger.info("options dict: %s", self.options_dict)
                 # Start data logging
-                if self.save_data:
-                    logger.info("add data saving here")
-                    self.results = self.data_logger.start_logging()
-                else:
-                    logger.info("not doing any data saving")
+                self.results = self.data_logger.start_logging()
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
@@ -766,9 +761,15 @@ class ScanManager:
         """
         Stop the scan, save data, and restore initial device states.
 
-        This method finalizes the scan by performing closeout actions, restoring
-        devices to their original state, turning the trigger back on, saving
-        scan data if enabled, and resetting internal state.
+        Shutdown order:
+
+        1. Trigger → STANDBY (no new shots)
+        2. stop_logging() seals self.results; process_results() + _make_sFile()
+        3. _stop_saving_devices() in background thread (parallel save=off + sleep)
+        4. file-mover drain  (overlaps with step 3)
+        5. restore initial state, closeout actions
+        6. join background thread  ← must precede device_manager.reset()
+        7. device_manager.reset()
 
         Returns
         -------
@@ -777,67 +778,82 @@ class ScanManager:
         """
         log_df = pd.DataFrame()
 
-        if self.save_data:
-            # Step 1: Stop data logging and handle device saving states
-            self._stop_saving_devices()
-
-        # Step 5: Restore the initial state of devices
-        if self.initial_state is not None:
-            self.restore_initial_state(self.initial_state)
-
-        # Step 4: Turn the trigger back on
+        # Step 1: Trigger to standby — no new shots from here on.
         self._set_trigger("STANDBY")
 
-        if self.device_manager.scan_closeout_action is not None:
-            logger.info("Attempting to execute closeout actions.")
-            logger.info("Action list %s", self.device_manager.scan_closeout_action)
+        # Step 2: Seal self.results and write scalar files before any device
+        # interaction that could fail (restore, closeout).
+        self.data_logger.stop_logging()
+        log_df = self.scan_data_manager.process_results(self.results)
+        self.scan_data_manager._make_sFile(log_df)
 
-            self.action_manager.add_action(
-                action_name="closeout_action",
-                action_seq=self.device_manager.scan_closeout_action,
+        # Step 3: Dispatch camera save=off in a background thread so its 2 s
+        # sleep overlaps with file-mover, restore, and closeout below.
+        # Must join before device_manager.reset().
+        stop_saving_thread = threading.Thread(
+            target=self._stop_saving_devices,
+            name="stop-saving-devices",
+            daemon=True,
+        )
+        stop_saving_thread.start()
+
+        # Signal that the scan is no longer live so orphaned files
+        # are no longer skipped during task processing.
+        self.data_logger.file_mover.scan_is_live = False
+
+        # Re-queue tasks that failed during live acquisition (file may
+        # not have been on disk yet when the worker first checked).
+        self.data_logger.file_mover._post_process_orphan_task()
+        try:
+            self._join_file_mover_queue(timeout=30.0)
+        except OrphanProcessingTimeout:
+            logger.error(
+                "Orphan task queue did not drain within 30 s. "
+                "Some files may not have been moved — check the scan directory manually."
             )
-            self.action_manager.execute_action("closeout_action")
 
-        if self.save_data:
-            # Step 6: Process results, save to disk, and log data
-            log_df = self.scan_data_manager.process_results(self.results)
-
-            # Signal that the scan is no longer live so orphaned files
-            # are no longer skipped during task processing.
-            self.data_logger.file_mover.scan_is_live = False
-
-            # Re-queue tasks that failed during live acquisition (file may
-            # not have been on disk yet when the worker first checked).
-            self.data_logger.file_mover._post_process_orphan_task()
+        if self.save_local:
+            # Sweep the filesystem for any remaining unmatched files
+            # and create new tasks for them based on the log DataFrame.
+            self.data_logger.file_mover._post_process_orphaned_files(
+                log_df=log_df,
+                device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
+            )
             try:
                 self._join_file_mover_queue(timeout=30.0)
             except OrphanProcessingTimeout:
                 logger.error(
-                    "Orphan task queue did not drain within 30 s. "
+                    "Filesystem sweep tasks did not drain within 30 s. "
                     "Some files may not have been moved — check the scan directory manually."
                 )
 
-            if self.save_local:
-                # Sweep the filesystem for any remaining unmatched files
-                # and create new tasks for them based on the log DataFrame.
-                self.data_logger.file_mover._post_process_orphaned_files(
-                    log_df=log_df,
-                    device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
+        self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
+
+        # Step 4: Wait for save=off to complete before restore or closeout,
+        # since closeout actions may talk to the same camera devices.
+        stop_saving_thread.join()
+        logger.info("Non-scalar device save states reset.")
+
+        # Step 5: Restore the initial state of devices.
+        if self.initial_state is not None:
+            self.restore_initial_state(self.initial_state)
+
+        # Step 6: Execute closeout actions.  Wrapped so that a device error
+        # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
+        # written above from being preserved.
+        if self.device_manager.scan_closeout_action is not None:
+            logger.info("Attempting to execute closeout actions.")
+            logger.info("Action list %s", self.device_manager.scan_closeout_action)
+            try:
+                self.action_manager.add_action(
+                    action_name="closeout_action",
+                    action_seq=self.device_manager.scan_closeout_action,
                 )
-                try:
-                    self._join_file_mover_queue(timeout=30.0)
-                except OrphanProcessingTimeout:
-                    logger.error(
-                        "Filesystem sweep tasks did not drain within 30 s. "
-                        "Some files may not have been moved — check the scan directory manually."
-                    )
-
-            self.data_logger.file_mover.shutdown(
-                wait=False
-            )  # queue already drained above
-
-            # Step 8: create sfile in analysis folder
-            self.scan_data_manager._make_sFile(log_df)
+                self.action_manager.execute_action("closeout_action")
+            except Exception:
+                logger.exception(
+                    "Closeout action failed — scan data has already been written."
+                )
 
         if self.scan_config.scan_mode == ScanMode.OPTIMIZATION:
             scan_dir = self.scan_data_manager.data_txt_path.parent
@@ -848,44 +864,72 @@ class ScanManager:
         self.scan_step_end_time = 0
         self.data_logger.idle_time = 0
 
-        # Step 10: Reset the device manager to clear up the current subscribers
+        # Step 7: Reset the device manager.
         self.device_manager.reset()
 
-        # Step 11: Set the initialization flag back to False and require reinitialization to be called again
+        # Step 8: Require reinitialization before the next scan.
         self.initialization_success = False
 
         return log_df
 
     def _stop_saving_devices(self):
-        """
-        Stop data logging and reset save paths for non-scalar devices.
+        """Reset save paths for non-scalar devices in parallel.
 
-        This method disables saving for all non-scalar devices and resets their
-        local save paths to a temporary directory. It ensures that all asynchronous
-        save commands have time to complete.
+        Dispatches save=off and localsavingpath reset commands to all camera
+        devices concurrently using fire-and-forget (sync=False) calls so that
+        the thread returns as soon as all UDP packets have been queued.  The
+        race between dequeue threads and device.close() is handled in
+        GeecsDevice._process_command, which checks dev_udp and returns cleanly
+        if the socket has already been closed.
+
+        Note: stop_logging() is *not* called here.  The caller seals
+        self.results with stop_logging() before starting this as a background
+        thread, allowing the two to overlap.
 
         Notes
         -----
         Intended for internal use during scan shutdown or interruption.
         """
-        # Stop data logging
-        self.data_logger.stop_logging()
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Handle device saving states
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                logger.info("Setting save to off for %s", device_name)
+        def _reset_device(device_name, device):
+            logger.info("Setting save to off for %s", device_name)
+            try:
                 device.set("save", "off", sync=False)
-                logger.info("Setting save to off for %s complete", device_name)
-                device.set("localsavingpath", "c:\\temp", sync=False)
-                logger.info(
-                    "Setting save path back to temp for %s complete", device_name
+            except Exception:
+                logger.warning(
+                    "Failed to set save=off for %s", device_name, exc_info=True
                 )
-            else:
-                logger.warning("Device %s not found in DeviceManager.", device_name)
+            try:
+                device.set("localsavingpath", "c:\\temp", sync=False)
+            except Exception:
+                logger.warning(
+                    "Failed to reset localsavingpath for %s", device_name, exc_info=True
+                )
+            logger.info("Save state reset for %s", device_name)
 
-        time.sleep(2)  # Ensure asynchronous commands have time to finish
+        devices = {
+            name: dev
+            for name in self.device_manager.non_scalar_saving_devices
+            if (dev := self.device_manager.devices.get(name)) is not None
+        }
+        for name in set(self.device_manager.non_scalar_saving_devices) - set(devices):
+            logger.warning("Device %s not found in DeviceManager.", name)
+
+        if devices:
+            with ThreadPoolExecutor(max_workers=len(devices)) as executor:
+                futures = {
+                    executor.submit(_reset_device, name, dev): name
+                    for name, dev in devices.items()
+                }
+                for future in as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception:
+                        logger.exception(
+                            "Error resetting save state for %s", futures[future]
+                        )
+
         logger.info("scanning has stopped for all devices.")
 
     def save_hiatus(self, hiatus_period: float):
@@ -946,8 +990,6 @@ class ScanManager:
             Manages device configurations and interactions
         self.scan_data_manager : ScanDataManager
             Handles scan data path and file management
-        self.save_data : bool
-            Flag indicating whether data should be saved during the scan
 
         Notes
         -----
@@ -986,19 +1028,16 @@ class ScanManager:
         self.scan_steps = self._generate_scan_steps()
         logger.info("steps for the scan are : %s", self.scan_steps)
 
-        if self.save_data:
-            self.scan_data_manager.configure_device_save_paths(
-                save_local=self.save_local
-            )
-            self.data_logger.save_local = self.save_local
-            self.data_logger.set_device_save_paths_mapping(
-                self.scan_data_manager.device_save_paths_mapping
-            )
-            self.data_logger.scan_number = (
-                self.scan_data_manager.scan_number_int
-            )  # TODO replace with a `set` func.
+        self.scan_data_manager.configure_device_save_paths(save_local=self.save_local)
+        self.data_logger.save_local = self.save_local
+        self.data_logger.set_device_save_paths_mapping(
+            self.scan_data_manager.device_save_paths_mapping
+        )
+        self.data_logger.scan_number = (
+            self.scan_data_manager.scan_number_int
+        )  # TODO replace with a `set` func.
 
-            self.scan_data_manager.write_scan_info_ini(self.scan_config)
+        self.scan_data_manager.write_scan_info_ini(self.scan_config)
 
         # Handle scan variables and ensure devices are initialized in DeviceManager
         logger.info("scan config in pre logging is this: %s", self.scan_config)
