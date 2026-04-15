@@ -103,7 +103,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.gui_dialogs import DialogRequest
+from geecs_scanner.data_acquisition.dialog_request import DialogRequest
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 

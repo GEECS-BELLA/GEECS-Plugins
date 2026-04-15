@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from geecs_scanner.data_acquisition.gui_dialogs import DialogRequest
+from geecs_scanner.data_acquisition.dialog_request import DialogRequest
 
 logger = logging.getLogger(__name__)
 
