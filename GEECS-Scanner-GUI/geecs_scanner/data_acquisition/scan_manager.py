@@ -274,7 +274,9 @@ class ScanManager:
     # Dialog bridge (worker → main thread)
     # ------------------------------------------------------------------
 
-    def request_user_dialog(self, exc: Exception) -> bool:
+    def request_user_dialog(
+        self, exc: Exception, context: Optional[str] = None
+    ) -> bool:
         """Submit a device error dialog request and block until the user responds.
 
         Called from worker threads.  Puts a :class:`DialogRequest` on
@@ -285,6 +287,9 @@ class ScanManager:
         ----------
         exc :
             The device exception that triggered the dialog.
+        context :
+            Optional extra information shown in the dialog body — e.g. the
+            full list of variables that were being set for a device.
 
         Returns
         -------
@@ -292,7 +297,7 @@ class ScanManager:
             ``True`` if the user chose Abort (caller should set
             ``stop_scanning_thread_event``); ``False`` to continue.
         """
-        request = DialogRequest(exc=exc)
+        request = DialogRequest(exc=exc, context=context)
         self.dialog_queue.put(request)
         request.response_event.wait()
         return request.abort[0]

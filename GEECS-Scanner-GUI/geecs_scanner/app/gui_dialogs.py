@@ -106,6 +106,8 @@ def show_device_error_dialog(request: DialogRequest) -> None:
     from PyQt5.QtWidgets import QApplication, QMessageBox
 
     title, body = _build_device_error_message(request.exc)
+    if request.context:
+        body += f"\n\n{request.context}"
     logger.warning(
         "Showing device error dialog to user — %s: %s",
         type(request.exc).__name__,

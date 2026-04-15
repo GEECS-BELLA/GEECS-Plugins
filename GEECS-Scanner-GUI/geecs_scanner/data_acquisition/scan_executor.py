@@ -584,7 +584,16 @@ class ScanStepExecutor:
                                 "Prompting user.",
                                 device_name,
                             )
-                            if escalate_device_error(e, self.on_device_error):
+                            lines = [
+                                f"  \u2022 {n} \u2192 {v}"
+                                + (" \u2190 failed here" if n == var_name else "")
+                                for n, v in var_list
+                            ]
+                            context = (
+                                f"All variables queued for {device_name}:\n"
+                                + "\n".join(lines)
+                            )
+                            if escalate_device_error(e, self.on_device_error, context):
                                 self.stop_scanning_thread_event.set()
                             return
 

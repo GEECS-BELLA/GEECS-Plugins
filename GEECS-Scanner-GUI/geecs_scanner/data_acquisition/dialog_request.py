@@ -45,7 +45,8 @@ DEVICE_COMMAND_ERRORS = (
 
 def escalate_device_error(
     exc: Exception,
-    on_escalate: Optional[Callable[[Exception], bool]],
+    on_escalate: Optional[Callable[..., bool]],
+    context: Optional[str] = None,
 ) -> bool:
     """Call *on_escalate* with *exc* and return its result.
 
@@ -59,6 +60,10 @@ def escalate_device_error(
     on_escalate :
         Callable that submits *exc* to the GUI dialog queue and blocks until
         the user responds.  Returns ``True`` → Abort, ``False`` → Continue.
+    context :
+        Optional extra information shown in the dialog body — e.g. the full
+        list of variables that were being set for a device when the error
+        occurred.
 
     Returns
     -------
@@ -66,7 +71,7 @@ def escalate_device_error(
         ``True`` if the scan should be aborted, ``False`` to continue.
     """
     if on_escalate is not None:
-        return on_escalate(exc)
+        return on_escalate(exc, context=context)
     logger.error("Device error with no escalation callback — auto-aborting: %s", exc)
     return True
 
@@ -89,6 +94,9 @@ class DialogRequest:
     ----------
     exc :
         The device exception that triggered the dialog.
+    context :
+        Optional extra information shown in the dialog body — e.g. the full
+        list of variables being set for a device when the error occurred.
     response_event :
         Set by the main thread once the user has responded.
     abort :
@@ -97,5 +105,6 @@ class DialogRequest:
     """
 
     exc: Exception
+    context: Optional[str] = None
     response_event: threading.Event = field(default_factory=threading.Event)
     abort: list[bool] = field(default_factory=lambda: [False])
