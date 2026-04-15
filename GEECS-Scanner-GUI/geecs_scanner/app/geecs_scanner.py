@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 import sys
 import os
+import queue
 from pathlib import Path
 import threading
 import importlib
@@ -56,6 +57,7 @@ from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
 from geecs_scanner.data_acquisition import DatabaseDictLookup
+from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
 # ---------------------------------------------------------------------------
@@ -308,6 +310,10 @@ class GEECSScannerWindow(QMainWindow):
 
         # Start/Stop
         self.is_starting = False
+        # Tracks whether a scan was active on the previous timer tick so we
+        # can detect the active→inactive transition and show a restore-failure
+        # summary (which cannot be shown from the scan worker thread).
+        self._was_scanning = False
         self.ui.startScanButton.clicked.connect(self.initialize_and_start_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
@@ -448,7 +454,21 @@ class GEECSScannerWindow(QMainWindow):
         - Disables editing when scans are running.
         - Updates progress bar, status color, and button states.
         - Handles Multiscanner and Action Library states.
+        - Drains the ScanManager dialog queue so device-error dialogs are
+          shown on this (main) thread rather than from the scan worker thread.
         """
+        # Drain pending device-error dialogs from the scan worker thread.
+        # show_device_error_dialog() blocks until the user responds and sets
+        # request.response_event so the worker can unblock.
+        sm = getattr(self.RunControl, "scan_manager", None)
+        if sm is not None:
+            try:
+                while True:
+                    request = sm.dialog_queue.get_nowait()
+                    show_device_error_dialog(request)
+            except queue.Empty:
+                pass
+
         if self.RunControl is None:
             self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
@@ -460,12 +480,28 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
             self.ui.progressBar.setValue(self.RunControl.get_progress())
+            self._was_scanning = True
         else:
             self._set_scan_number_info(label="Previous Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.stopScanButton.setEnabled(False)
             self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
             self.RunControl.clear_stop_state()
+
+            # Show a one-shot warning if the scan thread reported restore failures.
+            # We check _was_scanning so we only fire on the first tick after the
+            # active→inactive transition (scan thread has exited by then).
+            if self._was_scanning and sm is not None and sm.restore_failures:
+                lines = "\n".join(sm.restore_failures)
+                QMessageBox.warning(
+                    self,
+                    "Restore Failures",
+                    f"The following devices could not be restored to their initial state "
+                    f"after the scan ended.\n\nPlease verify and correct hardware manually:"
+                    f"\n\n{lines}",
+                )
+                sm.restore_failures.clear()
+            self._was_scanning = False
 
         if self.RunControl is not None:
             if self.is_starting:
@@ -2022,10 +2058,12 @@ class GEECSScannerWindow(QMainWindow):
             config_dictionary=run_config, scan_config=scan_config
         )
         if not success:
+            sm = getattr(self.RunControl, "scan_manager", None)
+            detail = getattr(sm, "last_reinit_error", None) or "Check log for details."
             QMessageBox.critical(
                 self,
                 "Device Error",
-                "Device reinitialization failed.  Check log for problem device(s)",
+                f"Device reinitialization failed.\n\n{detail}",
             )
         self.is_starting = False
         self.current_scan_number += 1

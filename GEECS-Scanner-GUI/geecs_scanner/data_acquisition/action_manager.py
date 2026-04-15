@@ -54,15 +54,16 @@ from typing import Dict, Any, List
 
 import time
 import logging
-import sys
 
 import yaml
-
-# from PyQt5.QtWidgets import QMessageBox, QApplication
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from .utils import get_full_config_path  # Import the utility function
 from ..utils.exceptions import ActionError
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    escalate_device_error,
+)
 from geecs_scanner.data_acquisition.schemas.actions import (
     ActionLibrary,
     ActionSequence,
@@ -168,6 +169,11 @@ class ActionManager:
         # Dictionary to store instantiated GeecsDevices
         self.instantiated_devices: Dict[str, ScanDevice] = {}
         self.actions: Dict[str, ActionSequence] = {}
+
+        # Injected by ScanManager after construction — same pattern as executor callbacks.
+        # Signature: (exc: Exception) -> bool  — True = user chose Abort.
+        # Falls back to the inline Qt dialog if None (headless / test contexts).
+        self.on_user_prompt = None
 
         if experiment_dir is not None:
             # Use the utility function to get the path to the actions.yaml file
@@ -513,8 +519,9 @@ class ActionManager:
         del self.actions[action_name]
         logger.info("Removed action sequence: %s", action_name)
 
-    @staticmethod
-    def _set_device(device: ScanDevice, variable: str, value: Any, sync: bool = True):
+    def _set_device(
+        self, device: ScanDevice, variable: str, value: Any, sync: bool = True
+    ):
         """
         Set a device variable to a specified value with optional synchronization.
 
@@ -548,10 +555,6 @@ class ActionManager:
         >>> ActionManager._set_device(device, 'mode', 'calibration', sync=False)
         # Sets device mode asynchronously
         """
-        from geecs_python_api.controls.interface.geecs_errors import (
-            GeecsDeviceCommandRejected,
-        )
-
         try:
             result = device.set(variable, value, sync=sync)
             logger.info(
@@ -561,14 +564,16 @@ class ActionManager:
                 value,
                 result,
             )
-        except GeecsDeviceCommandRejected as e:
-            logger.warning(
-                "Set %s:%s to %s — command rejected, continuing: %s",
+        except DEVICE_COMMAND_ERRORS as e:
+            logger.error(
+                "Set %s:%s to %s failed (%s): %s",
                 device.get_name(),
                 variable,
                 value,
+                type(e).__name__,
                 e,
             )
+            escalate_device_error(e, self.on_user_prompt)
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """
@@ -679,8 +684,7 @@ class ActionManager:
         logger.info("Waiting for %s seconds.", seconds)
         time.sleep(seconds)
 
-    @staticmethod
-    def _prompt_user_quit_action(message: str) -> bool:
+    def _prompt_user_quit_action(self, message: str) -> bool:
         """
         Display an interactive dialog for user decision during action execution.
 
@@ -711,19 +715,13 @@ class ActionManager:
         ...     # User chose to abort
         ...     raise ActionError("User aborted action")
         """
-        from PyQt5.QtWidgets import QMessageBox, QApplication
+        if self.on_user_prompt is not None:
+            # Delegate to the main-thread dialog queue (thread-safe path).
+            return self.on_user_prompt(ActionError(message))
 
-        if not QApplication.instance():
-            QApplication(sys.argv)
-
-        msg_box = QMessageBox()
-        msg_box.setIcon(QMessageBox.Warning)
-        msg_box.setText(
-            f'Failed "get" command: \n {message} \nQuit out of action and scan?'
+        # Headless / test fallback: no GUI available, so auto-abort.
+        logger.warning(
+            "No on_user_prompt callback wired — auto-aborting action on error: %s",
+            message,
         )
-        msg_box.setWindowTitle("Action Error")
-        msg_box.setStandardButtons(QMessageBox.Abort | QMessageBox.Ignore)
-        msg_box.setDefaultButton(QMessageBox.Abort)
-        response = msg_box.exec_()
-
-        return response == QMessageBox.Abort
+        return True

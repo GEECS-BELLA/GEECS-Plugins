@@ -65,6 +65,10 @@ import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    escalate_device_error,
+)
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -187,6 +191,11 @@ class ScanStepExecutor:
         self.pause_time = 0
         self.results = None
         self.scan_steps = []
+
+        # Injected by ScanManager after construction (same pattern as trigger_on/off_fn).
+        # Signature: (exc: Exception) -> bool  — True = user chose Abort.
+        # If None, device errors silently abort the scan.
+        self.on_device_error = None
 
         logger.info("Constructing the scan step executor")
 
@@ -510,15 +519,6 @@ class ScanStepExecutor:
         # Step 2: Define per-device setting function
         def set_device_variables(device_name, var_list):
             """Helper fucntion to set vars in threads."""
-            from geecs_python_api.controls.interface.geecs_errors import (
-                GeecsDeviceCommandRejected,
-                GeecsDeviceCommandFailed,
-                GeecsDeviceExeTimeout,
-            )
-            from geecs_scanner.data_acquisition.gui_dialogs import (
-                prompt_user_device_timeout,
-            )
-
             device = self.device_manager.devices.get(device_name)
             if not device:
                 logger.warning("Device %s not found.", device_name)
@@ -536,6 +536,7 @@ class ScanStepExecutor:
                     )
                 )
                 success = False
+                first_exc = None  # preserve root-cause error across retries
                 for attempt in range(max_retries):
                     try:
                         ret_val = device.set(var_name, set_val)
@@ -567,65 +568,46 @@ class ScanStepExecutor:
                             )
                             time.sleep(retry_delay)
 
-                    except GeecsDeviceCommandRejected as e:
+                    except DEVICE_COMMAND_ERRORS as e:
+                        if first_exc is None:
+                            first_exc = e  # capture root cause before retries mask it
                         logger.error(
-                            "[%s] COMMAND REJECTED: %s (attempt %d/%d)",
+                            "[%s] %s (attempt %d/%d): %s",
                             device_name,
+                            type(e).__name__,
+                            attempt + 1,
+                            max_retries,
                             e,
-                            attempt + 1,
-                            max_retries,
                         )
                         if attempt < max_retries - 1:
                             time.sleep(retry_delay)
                         else:
                             logger.error(
-                                "[%s] Command rejected after all retry attempts. "
-                                "Initiating graceful scan termination.",
-                                device_name,
-                            )
-                            self.stop_scanning_thread_event.set()
-                            return
-
-                    except GeecsDeviceCommandFailed as e:
-                        logger.error(
-                            "[%s] COMMAND FAILED: %s (actual value: %s) (attempt %d/%d)",
-                            device_name,
-                            e.error_detail,
-                            e.actual_value,
-                            attempt + 1,
-                            max_retries,
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                "[%s] Hardware error persists after all retry attempts. "
-                                "Initiating graceful scan termination.",
-                                device_name,
-                            )
-                            self.stop_scanning_thread_event.set()
-                            return
-
-                    except GeecsDeviceExeTimeout as e:
-                        logger.error(
-                            "[%s] EXE TIMEOUT: %s (attempt %d/%d)",
-                            device_name,
-                            e,
-                            attempt + 1,
-                            max_retries,
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                "[%s] Exe timeout persists after all retry attempts. "
+                                "[%s] Device command error persists after all retry attempts. "
                                 "Prompting user.",
                                 device_name,
                             )
-                            abort = prompt_user_device_timeout(
-                                e.device_name, e.command, e.timeout
+                            lines = [
+                                f"  \u2022 {n} \u2192 {v}"
+                                + (" \u2190 failed here" if n == var_name else "")
+                                for n, v in var_list
+                            ]
+                            context = (
+                                f"All variables queued for {device_name}:\n"
+                                + "\n".join(lines)
                             )
-                            if abort:
+                            # Escalate the first exception so the dialog reflects
+                            # the root cause (e.g. Timeout) not a downstream
+                            # rejection caused by the device still being busy.
+                            if type(first_exc) is not type(e):
+                                context += (
+                                    f"\n\nNote: initial error was "
+                                    f"{type(first_exc).__name__}; subsequent "
+                                    f"retries got {type(e).__name__}."
+                                )
+                            if escalate_device_error(
+                                first_exc, self.on_device_error, context
+                            ):
                                 self.stop_scanning_thread_event.set()
                             return
 

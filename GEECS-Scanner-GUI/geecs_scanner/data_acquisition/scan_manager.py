@@ -73,6 +73,7 @@ from __future__ import annotations
 
 # Standard library imports
 from typing import Optional, Dict, Any, Union, List
+import queue
 import time
 import threading
 import logging
@@ -99,10 +100,13 @@ from dataclasses import fields
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
-    GeecsDeviceExeTimeout,
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.gui_dialogs import prompt_user_device_timeout
+from geecs_scanner.data_acquisition.dialog_request import (
+    DEVICE_COMMAND_ERRORS,
+    DialogRequest,
+    escalate_device_error,
+)
 from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
 
 
@@ -224,6 +228,20 @@ class ScanManager:
             threading.Event()
         )  # Event to signal the logging thread to stop
 
+        # Queue for worker threads to request GUI dialogs on the main thread.
+        # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
+        self.dialog_queue: queue.Queue[DialogRequest] = queue.Queue()
+
+        # Failures collected by restore_initial_state() after the scan ends.
+        # Cannot show a blocking dialog there (scan thread would deadlock with
+        # stop_scanning_thread().join()).  The main thread reads this list once
+        # is_active() transitions to False and shows a one-shot warning.
+        self.restore_failures: list[str] = []
+
+        # Set by reinitialize() when a GeecsDeviceInstantiationError occurs so
+        # the GUI can include the device name in the error dialog.
+        self.last_reinit_error: Optional[str] = None
+
         self.virtual_variable_list = []
         self.virtual_variable_name = None
 
@@ -258,6 +276,41 @@ class ScanManager:
         )
         self.executor.trigger_on_fn = self.trigger_on
         self.executor.trigger_off_fn = self.trigger_off
+        self.executor.on_device_error = self.request_user_dialog
+        self.action_manager.on_user_prompt = self.request_user_dialog
+        self.scan_data_manager.on_device_error = self.request_user_dialog
+
+    # ------------------------------------------------------------------
+    # Dialog bridge (worker → main thread)
+    # ------------------------------------------------------------------
+
+    def request_user_dialog(
+        self, exc: Exception, context: Optional[str] = None
+    ) -> bool:
+        """Submit a device error dialog request and block until the user responds.
+
+        Called from worker threads.  Puts a :class:`DialogRequest` on
+        ``self.dialog_queue`` and blocks until the main-thread GUI timer
+        drains it and the user clicks Continue or Abort.
+
+        Parameters
+        ----------
+        exc :
+            The device exception that triggered the dialog.
+        context :
+            Optional extra information shown in the dialog body — e.g. the
+            full list of variables that were being set for a device.
+
+        Returns
+        -------
+        bool
+            ``True`` if the user chose Abort (caller should set
+            ``stop_scanning_thread_event``); ``False`` to continue.
+        """
+        request = DialogRequest(exc=exc, context=context)
+        self.dialog_queue.put(request)
+        request.response_event.wait()
+        return request.abort[0]
 
     def pause_scan(self):
         """
@@ -317,7 +370,8 @@ class ScanManager:
             self.device_manager.reinitialize(
                 config_path=config_path, config_dictionary=config_dictionary
             )
-        except GeecsDeviceInstantiationError:
+        except GeecsDeviceInstantiationError as e:
+            self.last_reinit_error = str(e)
             logger.exception(
                 "Device reinitialization failed during initialization of device manager. check "
                 "that all devices are on and available"
@@ -387,17 +441,15 @@ class ScanManager:
                             self.shot_control.set(variable, set_value, exec_timeout=0.5)
                         )
                         logger.info("Setting %s to %s", variable, set_value)
-                    except GeecsDeviceExeTimeout as e:
+                    except DEVICE_COMMAND_ERRORS as e:
                         logger.error(
-                            "Trigger variable '%s' timed out on state '%s': %s",
+                            "Trigger variable '%s' failed on state '%s' (%s): %s",
                             variable,
                             state,
+                            type(e).__name__,
                             e,
                         )
-                        abort = prompt_user_device_timeout(
-                            e.device_name, e.command, e.timeout
-                        )
-                        if abort:
+                        if escalate_device_error(e, self.request_user_dialog):
                             self.stop_scanning_thread_event.set()
                         return results
             logger.info("Trigger turned to state %s.", state)
@@ -1499,6 +1551,9 @@ class ScanManager:
             Keys should be in the format "device_name:variable_name",
             with corresponding values representing the original state.
         """
+        # Clear any leftover failures from a previous run.
+        self.restore_failures = []
+
         for device_var, value in initial_state.items():
             # Split the key to get the device name and variable name
             device_name, variable_name = device_var.split(":", 1)
@@ -1509,6 +1564,22 @@ class ScanManager:
                     device.set(variable_name, value)
                     logger.info(
                         "Restored %s:%s to %s.", device_name, variable_name, value
+                    )
+                except DEVICE_COMMAND_ERRORS as e:
+                    logger.error(
+                        "Failed to restore %s:%s to %s (%s)",
+                        device_name,
+                        variable_name,
+                        value,
+                        type(e).__name__,
+                    )
+                    # Cannot block here — we're in the scan thread, and
+                    # stop_scanning_thread().join() on the main thread would
+                    # deadlock.  Collect the failure; the main thread will
+                    # show a summary once the scan thread has exited.
+                    self.restore_failures.append(
+                        f"  \u2022 {device_name}:{variable_name} \u2192 {value}"
+                        f"  ({type(e).__name__})"
                     )
                 except Exception:
                     logger.exception(
