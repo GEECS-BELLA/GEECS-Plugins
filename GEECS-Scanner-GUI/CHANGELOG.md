@@ -19,6 +19,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   post-scan drain. No new files are written after the scan ends, so the
   delay serves no purpose and was costing ~2 s of wall time for a typical
   60-task backlog across 16 workers
+- `PermissionError` on `file.is_file()` inside `_process_task` no longer
+  crashes the entire task. When a device holds a write lock on a file at
+  the moment the worker tries to stat it, the file is now skipped and the
+  task continues; the retry or end-of-scan orphan sweep picks it up once
+  the lock is released
 
 ## [0.8.1] — 2026-04-15
 

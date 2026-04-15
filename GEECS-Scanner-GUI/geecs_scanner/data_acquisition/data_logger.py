@@ -286,7 +286,12 @@ class FileMover:
             adjusted_target_dir.mkdir(parents=True, exist_ok=True)
 
             for file in variant.glob("*"):
-                if not file.is_file():
+                try:
+                    if not file.is_file():
+                        continue
+                except OSError:
+                    # File is locked for writing by the device; skip and let
+                    # the retry or orphan sweep pick it up later.
                     continue
 
                 # if the file has been checked already e.g. orphaned, skip when the scan is live.
