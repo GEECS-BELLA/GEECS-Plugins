@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
 )
 
-from .doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
+from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 from .log_handler import QtLogHandler
 from .worker import LiveWatchConfig, LiveWatchWorker
 

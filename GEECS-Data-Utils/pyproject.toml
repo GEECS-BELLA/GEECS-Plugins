@@ -33,6 +33,7 @@ nptdms = "^1.10"
 pydantic = "^2.0"
 duckdb = ">=1.4.4,<2.0"
 pyyaml = "^6.0.3"
+requests = "^2.28.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0"

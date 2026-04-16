@@ -26,6 +26,7 @@ from geecs_data_utils.config_roots import (
     image_analysis_config,
     scan_analysis_config,
 )
+from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 
 __all__ = [
     "ScanData",
@@ -39,4 +40,6 @@ __all__ = [
     "ConfigDirManager",
     "image_analysis_config",
     "scan_analysis_config",
+    "DocIDLookup",
+    "EXPERIMENT_FILE_IDS",
 ]
