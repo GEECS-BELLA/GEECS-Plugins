@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import socket
+import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -105,6 +106,27 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
     return (now - last).total_seconds() > CLAIM_STALE_AFTER_SECONDS
 
 
+def _write_atomic(path: Path, content: str) -> None:
+    """Write content to path atomically via a temp file + os.replace().
+
+    Prevents partial-overwrite corruption on NFS when two writers race:
+    os.replace() is atomic on POSIX, so readers always see either the old
+    or the new file, never a byte-level mix of the two.
+    """
+    dir_ = path.parent
+    fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def init_status_for_scan(
     scan_tag: ScanTag,
     analyzers: Iterable,
@@ -139,7 +161,7 @@ def init_status_for_scan(
             priority=getattr(analyzer, "priority", 100),
             state="queued",
         )
-        path.write_text(yaml.safe_dump(ts.to_dict()))
+        _write_atomic(path, yaml.safe_dump(ts.to_dict()))
 
 
 def read_statuses(scan_folder: Path) -> List[TaskStatus]:
@@ -193,7 +215,7 @@ def update_status(
         display_files if display_files is not None else current.display_files
     )
 
-    path.write_text(yaml.safe_dump(current.to_dict()))
+    _write_atomic(path, yaml.safe_dump(current.to_dict()))
 
 
 def reset_status_for_scan(
