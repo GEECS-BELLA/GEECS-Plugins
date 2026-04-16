@@ -25,29 +25,34 @@ logger = logging.getLogger(__name__)
 def _stop_runner_with_timeout(runner: LiveTaskRunner, timeout: float = 5.0) -> None:
     """Stop a LiveTaskRunner with a timeout to prevent indefinite blocking.
 
+    Calls ``observer.stop()`` (non-blocking signal) then ``observer.join()``
+    with a bounded timeout.  Previous versions spawned a daemon thread for
+    this, but that created orphaned threads that could emit Qt signals after
+    the QThread had already finished — leading to intermittent GUI freezes.
+
     Parameters
     ----------
     runner : LiveTaskRunner
         The runner to stop.
     timeout : float
-        Maximum time to wait for runner.stop() to complete (seconds).
+        Maximum time to wait for the observer thread to finish (seconds).
     """
+    try:
+        runner.observer.stop()  # non-blocking: signals the observer to exit
+    except Exception as exc:
+        logger.warning("Error calling observer.stop(): %s", exc)
+        return
 
-    def stop_in_thread():
-        try:
-            runner.stop()
-        except Exception as exc:
-            logger.warning("Error in runner.stop(): %s", exc)
-
-    stop_thread = threading.Thread(target=stop_in_thread, daemon=True)
-    stop_thread.start()
-    stop_thread.join(timeout=timeout)
-
-    if stop_thread.is_alive():
-        logger.warning(
-            "runner.stop() did not complete within %s seconds, continuing anyway",
-            timeout,
-        )
+    try:
+        runner.observer.join(timeout=timeout)
+        if runner.observer.is_alive():
+            logger.warning(
+                "PollingObserver did not stop within %s seconds; "
+                "abandoning join to avoid blocking the QThread",
+                timeout,
+            )
+    except Exception as exc:
+        logger.warning("Error joining observer: %s", exc)
 
 
 @dataclass

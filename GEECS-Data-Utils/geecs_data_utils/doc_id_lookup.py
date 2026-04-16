@@ -2,6 +2,18 @@
 
 This module provides date-aware Document ID resolution by downloading and caching
 .tsv files from Google Drive that map dates (MM-DD-YY format) to Document IDs.
+
+The ``DocIDLookup`` class is the primary interface: given an experiment name and
+a Google Drive file ID, it downloads the corresponding ``doc_index.tsv``, caches
+it locally, and provides fast date-to-Document-ID lookups.
+
+Examples
+--------
+>>> from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
+>>> lookup = DocIDLookup("Undulator", EXPERIMENT_FILE_IDS["Undulator"])
+>>> lookup.refresh()
+True
+>>> doc_id = lookup.get_document_id(2026, 4, 16)
 """
 
 from __future__ import annotations
@@ -22,8 +34,9 @@ EXPERIMENT_FILE_IDS: Dict[str, str] = {
 class DocIDLookup:
     """Download and cache Google Drive doc_index.tsv files for date-aware Document ID lookup.
 
-    Each experiment has its own .tsv file on Google Drive that maps dates (MM-DD-YY format)
-    to Document IDs. This class handles downloading, caching, and querying these files.
+    Each experiment has its own .tsv file on Google Drive that maps dates
+    (MM-DD-YY format) to Document IDs.  This class handles downloading,
+    caching, and querying these files.
 
     Parameters
     ----------
@@ -32,7 +45,8 @@ class DocIDLookup:
     file_id : str
         Google Drive file ID for the experiment's doc_index.tsv file.
     cache_dir : Path, optional
-        Directory to cache downloaded .tsv files. Defaults to ~/.cache/LiveWatchGUI/
+        Directory to cache downloaded .tsv files.
+        Defaults to ``~/.cache/geecs_data_utils/``.
     """
 
     def __init__(
@@ -47,7 +61,7 @@ class DocIDLookup:
 
         # Set up cache directory
         if cache_dir is None:
-            cache_dir = Path.home() / ".cache" / "LiveWatchGUI"
+            cache_dir = Path.home() / ".cache" / "geecs_data_utils"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -155,7 +169,7 @@ class DocIDLookup:
             return False
 
         try:
-            with open(self.cache_file, "r", encoding="utf-8") as f:
+            with open(self.cache_file, encoding="utf-8") as f:
                 content = f.read()
             self._mapping = self._parse_tsv(content)
             logger.debug(
@@ -171,7 +185,7 @@ class DocIDLookup:
     def _download_from_drive(self) -> bool:
         """Download .tsv file from Google Drive.
 
-        Uses the Google Drive export URL to download the file as TSV format.
+        Uses the Google Drive direct download URL to fetch the file.
 
         Returns
         -------
@@ -194,7 +208,11 @@ class DocIDLookup:
 
             # Add User-Agent header to avoid being blocked by Google Drive
             headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/91.0.4472.124 Safari/537.36"
+                )
             }
 
             response = requests.get(
@@ -219,7 +237,8 @@ class DocIDLookup:
     def _parse_tsv(self, content: str) -> Dict[str, str]:
         """Parse TSV content and return date-to-DocID mapping.
 
-        Expected format:
+        Expected format::
+
             Date (MM-DD-YY) | Document ID
             01-15-26        | 1abc2def3ghi4jkl5mno6pqr7stu8vwx
             01-16-26        | 2bcd3efg4hij5klm6nop7qrs8tuv9wxy
