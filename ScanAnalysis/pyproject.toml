@@ -6,7 +6,8 @@ authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
 packages = [
     { include = "scan_analysis" },
-    { include = "LiveWatchGUI" }
+    { include = "LiveWatchGUI" },
+    { include = "ConfigFileGUI" }
 ]
 
 [tool.poetry.dependencies]
