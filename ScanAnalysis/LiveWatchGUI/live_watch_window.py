@@ -617,16 +617,48 @@ class LiveWatchWindow(QMainWindow):
         self._set_running_ui(True)
 
     def _stop_worker(self) -> None:
-        """Request the worker to stop gracefully."""
+        """Request the worker to stop gracefully.
+
+        Disconnects the log-handler signal *before* requesting stop to
+        prevent cross-thread signal deadlocks during QThread teardown.
+        The signal is reconnected in :meth:`_on_worker_finished`.
+        """
         if self._worker is not None:
+            # Prevent double-click while stopping
+            self.btn_start_stop.setEnabled(False)
+
+            # Disconnect log signal to avoid cross-thread deadlock during
+            # the shutdown sequence (observer.stop / observer.join may
+            # trigger log messages from the worker thread).
+            if self._log_handler is not None:
+                try:
+                    self._log_handler.emitter.log_record.disconnect(self._on_log_record)
+                except TypeError:
+                    pass  # already disconnected
+
             logger.info("Stopping LiveWatch...")
             self._worker.request_stop()
             # Don't block the GUI; the finished signal will clean up
 
     def _on_worker_finished(self) -> None:
-        """Clean up after the worker thread exits."""
-        self._set_running_ui(False)
+        """Clean up after the worker thread exits.
+
+        Waits briefly for the QThread to fully terminate, then
+        reconnects the log-handler signal and re-enables the UI.
+        """
+        if self._worker is not None:
+            # Ensure the QThread is fully dead before releasing the reference
+            self._worker.wait(3000)
         self._worker = None
+
+        # Reconnect log handler for the next run
+        if self._log_handler is not None:
+            try:
+                self._log_handler.emitter.log_record.connect(self._on_log_record)
+            except TypeError:
+                pass  # already connected
+
+        self._set_running_ui(False)
 
     # ------------------------------------------------------------------
     # Slot: Status updates
@@ -718,6 +750,7 @@ class LiveWatchWindow(QMainWindow):
     def _set_running_ui(self, running: bool) -> None:
         """Enable/disable widgets based on whether the worker is running."""
         self.btn_start_stop.setText("■  Stop" if running else "▶  Start")
+        self.btn_start_stop.setEnabled(True)  # re-enable after _stop_worker disabled it
 
         # Disable config fields while running to prevent mid-run changes
         self.combo_experiment.setEnabled(not running)
@@ -742,16 +775,27 @@ class LiveWatchWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:
-        """Ensure the worker is stopped before the window closes."""
-        if self._worker is not None and self._worker.isRunning():
-            self._worker.request_stop()
-            self._worker.wait(5000)  # wait up to 5 seconds
-        # Remove log handler to avoid dangling references
+        """Ensure the worker is stopped before the window closes.
+
+        Closes the log handler *first* to prevent cross-thread signal
+        emission during the shutdown wait, then stops the worker.
+        """
+        # Close the log handler first to stop cross-thread signal emission
         if self._log_handler is not None:
+            self._log_handler.close()
+            try:
+                self._log_handler.emitter.log_record.disconnect(self._on_log_record)
+            except TypeError:
+                pass
             for name in (
                 "scan_analysis.live_task_runner",
                 "scan_analysis.task_queue",
                 "LiveWatchGUI",
             ):
                 logging.getLogger(name).removeHandler(self._log_handler)
+
+        # Now safe to stop the worker — no log signals can deadlock
+        if self._worker is not None and self._worker.isRunning():
+            self._worker.request_stop()
+            self._worker.wait(5000)  # wait up to 5 seconds
         super().closeEvent(event)

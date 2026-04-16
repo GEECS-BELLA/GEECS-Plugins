@@ -43,15 +43,27 @@ class QtLogHandler(logging.Handler):
 
     def __init__(self, level: int = logging.DEBUG):
         super().__init__(level)
+        self._closed = False
         self.emitter = _LogSignalEmitter()
         self.setFormatter(
             logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
 
     def emit(self, record: logging.LogRecord) -> None:
-        """Format *record* and emit it via the Qt signal."""
+        """Format *record* and emit it via the Qt signal.
+
+        Silently drops records after :meth:`close` has been called to
+        prevent cross-thread signal emission during shutdown.
+        """
+        if self._closed:
+            return
         try:
             msg = self.format(record)
             self.emitter.log_record.emit(msg, record.levelname)
         except Exception:  # pragma: no cover – never let logging crash the app
             self.handleError(record)
+
+    def close(self) -> None:
+        """Mark the handler as closed so no further signals are emitted."""
+        self._closed = True
+        super().close()
