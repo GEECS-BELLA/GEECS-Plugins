@@ -342,6 +342,9 @@ class ConfigEditorPanel(QWidget):
             self._sections[section_name] = section
             self._content_layout.addWidget(section)
 
+        # --- Wire dynamic_computation auto-population for background ---
+        self._connect_dynamic_computation_defaults()
+
         # --- Analysis (Dict field) ---
         self._build_analysis_widget(getattr(config, "analysis", None))
 
@@ -557,6 +560,51 @@ class ConfigEditorPanel(QWidget):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _connect_dynamic_computation_defaults(self) -> None:
+        """Wire the background dynamic_computation toggle to auto-populate fields.
+
+        When the ``dynamic_computation`` nested section inside the
+        background section is toggled **on**, this automatically sets:
+
+        * ``background.method`` → ``"from_file"``
+        * ``background.file_path`` → ``"{scan_dir}/computed_background.npy"``
+        * ``dynamic_computation.auto_save_path`` →
+          ``"{scan_dir}/computed_background.npy"``
+
+        This matches the well-established convention across all config
+        files and saves the user from manually typing these values.
+        """
+        bg_section = self._sections.get("background")
+        if bg_section is None:
+            return
+
+        dc_section = bg_section._nested_sections.get("dynamic_computation")
+        if dc_section is None:
+            return
+
+        default_path = "{scan_dir}/computed_background.npy"
+
+        def _on_dynamic_computation_toggled(checked: bool) -> None:
+            if not checked:
+                return
+
+            # Set background.method to "from_file"
+            method_widget = bg_section._field_widgets.get("method")
+            if method_widget is not None:
+                method_widget.set_value("from_file")
+
+            # Set background.file_path to the conventional path
+            file_path_widget = bg_section._field_widgets.get("file_path")
+            if file_path_widget is not None:
+                file_path_widget.set_value(default_path)
+
+            # Set dynamic_computation.auto_save_path
+            auto_save_widget = dc_section._field_widgets.get("auto_save_path")
+            if auto_save_widget is not None:
+                auto_save_widget.set_value(default_path)
+
+        dc_section.toggled.connect(_on_dynamic_computation_toggled)
 
     def _set_pipeline_from_enabled_sections(self) -> None:
         """Populate the pipeline widget from currently enabled sections."""

@@ -12,6 +12,8 @@ import logging
 from typing import Any, Dict, Optional
 
 import yaml
+
+from .config_io import sanitize_for_yaml
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication,
@@ -86,8 +88,9 @@ class YamlPreviewPanel(QWidget):
             The configuration dictionary to serialize.
         """
         try:
-            yaml_text = yaml.dump(
-                config_dict,
+            clean_dict = sanitize_for_yaml(config_dict)
+            yaml_text = yaml.safe_dump(
+                clean_dict,
                 default_flow_style=False,
                 indent=2,
                 sort_keys=False,

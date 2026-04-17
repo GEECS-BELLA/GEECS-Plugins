@@ -469,9 +469,24 @@ class EnumFieldWidget(BaseFieldWidget):
         if default is not PydanticUndefined and default is not None:
             self.set_value(default)
 
-    def get_value(self) -> Enum:
-        """Return the currently selected enum member."""
-        return self._combo.currentData()
+    def get_value(self) -> Any:
+        """Return the value of the currently selected enum member.
+
+        Returns the plain ``.value`` attribute (typically a ``str``) rather
+        than the ``Enum`` member itself, so that downstream YAML
+        serialization produces clean scalar output instead of
+        ``!!python/object/apply:`` tags.
+
+        Returns
+        -------
+        Any
+            The ``.value`` of the selected enum member, or ``None`` if
+            nothing is selected.
+        """
+        member = self._combo.currentData()
+        if member is None:
+            return None
+        return member.value
 
     def set_value(self, value: Any) -> None:
         """Set the combo box to the given enum member or value.

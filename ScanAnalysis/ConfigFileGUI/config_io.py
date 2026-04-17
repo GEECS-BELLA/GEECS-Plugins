@@ -9,8 +9,9 @@ models; this module adds convenience wrappers tailored to the GUI's needs.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import List, Literal, Optional, Tuple, Union
+from enum import Enum
+from pathlib import Path, PurePath
+from typing import Any, List, Literal, Optional, Tuple, Union
 
 import yaml
 from pydantic import BaseModel
@@ -18,7 +19,6 @@ from pydantic import BaseModel
 from image_analysis.config_loader import (
     load_camera_config,
     load_line_config,
-    save_config_to_yaml,
 )
 from image_analysis.processing.array1d.config_models import (
     Data1DConfig,
@@ -28,6 +28,46 @@ from image_analysis.processing.array1d.config_models import (
 from image_analysis.processing.array2d.config_models import CameraConfig
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# YAML serialization helpers
+# ---------------------------------------------------------------------------
+
+
+def sanitize_for_yaml(obj: Any) -> Any:
+    """Recursively convert non-serializable types to YAML-safe primitives.
+
+    Walks a nested structure of dicts, lists, and scalars and converts:
+
+    * ``enum.Enum`` members → their ``.value`` attribute
+    * ``pathlib.PurePath`` instances → ``str(path)``
+    * Any other non-primitive type → ``str(obj)``
+
+    Parameters
+    ----------
+    obj : Any
+        The object to sanitize.  Typically a ``dict`` produced by
+        ``get_config_dict()`` or ``model_dump()``.
+
+    Returns
+    -------
+    Any
+        A structure containing only dicts, lists, strings, numbers,
+        booleans, and ``None`` — all safe for ``yaml.safe_dump()``.
+    """
+    if isinstance(obj, dict):
+        return {sanitize_for_yaml(k): sanitize_for_yaml(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_yaml(item) for item in obj]
+    if isinstance(obj, Enum):
+        return obj.value
+    if isinstance(obj, PurePath):
+        return str(obj)
+    if isinstance(obj, (str, int, float, bool, type(None))):
+        return obj
+    # Fallback: convert unknown types to string
+    return str(obj)
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +220,11 @@ def load_config(file_path: Path) -> Union[CameraConfig, Line1DConfig]:
 def save_config(config: BaseModel, output_path: Path) -> None:
     """Save a Pydantic configuration model to a YAML file.
 
-    Delegates to :func:`image_analysis.config_loader.save_config_to_yaml`,
-    which serialises the model via ``model_dump()`` and writes it with
-    ``yaml.dump``.  Parent directories are created automatically.
+    Serialises the model via ``model_dump()``, sanitizes the resulting
+    dictionary with :func:`sanitize_for_yaml` to convert enum members
+    and ``Path`` objects to plain primitives, then writes the output
+    with ``yaml.safe_dump``.  Parent directories are created
+    automatically.
 
     Parameters
     ----------
@@ -193,7 +235,17 @@ def save_config(config: BaseModel, output_path: Path) -> None:
         Destination file path.  Will be created or overwritten.
     """
     logger.info("Saving config to %s", output_path)
-    save_config_to_yaml(config, output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    clean_data = sanitize_for_yaml(config.model_dump())
+    with open(output_path, "w") as fh:
+        yaml.safe_dump(
+            clean_data,
+            fh,
+            default_flow_style=False,
+            indent=2,
+            sort_keys=False,
+            allow_unicode=True,
+        )
 
 
 # ---------------------------------------------------------------------------

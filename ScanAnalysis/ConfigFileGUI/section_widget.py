@@ -136,6 +136,11 @@ class SectionWidget(QGroupBox):
         self._section_name = section_name
         self._model_class = model_class
 
+        # Detect whether the model has an ``enabled`` bool field.
+        # When it does, the QGroupBox checkbox replaces the separate
+        # ``BoolFieldWidget`` that would otherwise be rendered.
+        self._has_enabled_field: bool = "enabled" in model_class.model_fields
+
         # Make the group box checkable (unchecked → section disabled)
         self.setCheckable(True)
         self.setChecked(True)
@@ -157,8 +162,18 @@ class SectionWidget(QGroupBox):
     # ------------------------------------------------------------------
 
     def _build_fields(self) -> None:
-        """Iterate over model fields and create widgets or nested sections."""
+        """Iterate over model fields and create widgets or nested sections.
+
+        When the model has an ``enabled: bool`` field, that field is
+        **skipped** because the ``QGroupBox`` checkbox already serves
+        the same purpose.
+        """
         for field_name, field_info in self._model_class.model_fields.items():
+            # Skip the ``enabled`` bool field — the QGroupBox checkbox
+            # already represents it.
+            if field_name == "enabled" and self._has_enabled_field:
+                continue
+
             field_type = self._model_class.__annotations__.get(field_name, str)
 
             if _is_basemodel_type(field_type):
@@ -202,16 +217,28 @@ class SectionWidget(QGroupBox):
         The returned dictionary is suitable for passing to
         ``model_class.model_validate()``.
 
+        For models that have an ``enabled`` field, the dict always
+        includes ``"enabled": True/False`` derived from the QGroupBox
+        checkbox state, and the full field values are always returned
+        (never ``None``).  For models *without* an ``enabled`` field,
+        ``None`` is returned when the section is unchecked.
+
         Returns
         -------
         dict or None
             Field values keyed by Pydantic field name, or ``None`` when
-            the section checkbox is unchecked.
+            the section checkbox is unchecked and the model has no
+            ``enabled`` field.
         """
-        if not self.isChecked():
+        if not self.isChecked() and not self._has_enabled_field:
             return None
 
         data: Dict[str, Any] = {}
+
+        # Inject the ``enabled`` flag from the QGroupBox checkbox.
+        if self._has_enabled_field:
+            data["enabled"] = self.isChecked()
+
         for name, widget in self._field_widgets.items():
             data[name] = widget.get_value()
         for name, section in self._nested_sections.items():
@@ -225,14 +252,23 @@ class SectionWidget(QGroupBox):
         ----------
         data : dict or None
             If ``None``, the section is unchecked (disabled).  Otherwise
-            the section is checked and each field widget is populated
-            from the corresponding key.
+            each field widget is populated from the corresponding key.
+
+            For models with an ``enabled`` field, the QGroupBox checked
+            state is driven by ``data["enabled"]`` (defaulting to
+            ``True`` when the key is absent).
         """
         if data is None:
             self.setChecked(False)
             return
 
-        self.setChecked(True)
+        # Drive the QGroupBox checkbox from the ``enabled`` key when
+        # the model declares one.
+        if self._has_enabled_field:
+            self.setChecked(data.get("enabled", True))
+        else:
+            self.setChecked(True)
+
         for name, widget in self._field_widgets.items():
             if name in data:
                 widget.set_value(data[name])
