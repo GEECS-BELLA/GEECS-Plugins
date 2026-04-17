@@ -9,7 +9,6 @@ the highest-priority queued tasks.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from queue import Queue
 from typing import Iterable, Optional
@@ -19,6 +18,7 @@ from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_c
 from scan_analysis.gdoc_upload import resolve_document_id
 from scan_analysis.task_queue import (
     build_worklist,
+    extract_scan_number,
     init_status_for_scan,
     load_analyzers_from_config,
     reset_status_for_scan,
@@ -28,16 +28,6 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
 logger = logging.getLogger(__name__)
-
-SFILE_REGEX = re.compile(r"^s(?P<num>\d+)\.txt$", re.IGNORECASE)
-
-
-def extract_scan_number(filename: str) -> Optional[int]:
-    """Return scan number from an s-file name like s123.txt."""
-    m = SFILE_REGEX.match(filename)
-    if m:
-        return int(m["num"])
-    return None
 
 
 class AnalysisEventHandler(FileSystemEventHandler):
