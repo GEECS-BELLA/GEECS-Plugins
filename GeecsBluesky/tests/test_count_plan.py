@@ -17,6 +17,7 @@ from bluesky import RunEngine
 from geecs_bluesky.devices.geecs_device import GeecsDevice
 from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 _DEV = "U_TestDevice"
 
@@ -30,14 +31,15 @@ class FakeMotor(GeecsDevice):
     """Minimal GEECS motor device for testing."""
 
     def __init__(self, host: str, port: int, name: str = "fake_motor") -> None:
+        udp = GeecsUdpClient(host, port)
         with self.add_children_as_readables():
             self.position = geecs_signal_rw(
-                float, _DEV, "Position (mm)", host, port, units="mm"
+                float, _DEV, "Position (mm)", host, port, units="mm", shared_udp=udp
             )
             self.velocity = geecs_signal_r(
-                float, _DEV, "Velocity (mm/s)", host, port, units="mm/s"
+                float, _DEV, "Velocity (mm/s)", host, port, units="mm/s", shared_udp=udp
             )
-        super().__init__(name=name)
+        super().__init__(name=name, shared_udp=udp)
 
 
 # ---------------------------------------------------------------------------

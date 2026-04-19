@@ -2,19 +2,23 @@
 
 Usage pattern::
 
-    from ophyd_async.core import StandardReadable
+    from geecs_bluesky.devices.geecs_device import GeecsDevice
     from geecs_bluesky.signals import geecs_signal_rw, geecs_signal_r
+    from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
     class JetStage(GeecsDevice):
         def __init__(self, host: str, port: int, name: str = ""):
             dev = "U_ESP_JetXYZ"
+            udp = GeecsUdpClient(host, port)   # shared; serialises parallel reads
             with self.add_children_as_readables():
-                self.position_x = geecs_signal_rw(float, dev, "Jet_X (mm)", host, port, units="mm")
-                self.position_y = geecs_signal_rw(float, dev, "Jet_Y (mm)", host, port, units="mm")
-            super().__init__(name=name)
+                self.x = geecs_signal_rw(float, dev, "Position.Axis 1", host, port,
+                                         units="mm", shared_udp=udp)
+                self.y = geecs_signal_rw(float, dev, "Position.Axis 2", host, port,
+                                         units="mm", shared_udp=udp)
+            super().__init__(name=name, shared_udp=udp)
 
-    motor = JetStage("192.168.1.10", 9000, name="jet")
-    await motor.connect()
+    motor = JetStage("192.168.8.198", 65158, name="jet")
+    await motor.connect()   # connects the shared UDP client, then all signals
 
 DB-resolved construction (requires ``geecs-pythonapi``)::
 
@@ -28,19 +32,49 @@ from typing import Any
 
 from ophyd_async.core import StandardReadable
 
+from geecs_bluesky.transport.udp_client import GeecsUdpClient
+
 logger = logging.getLogger(__name__)
 
 
 class GeecsDevice(StandardReadable):
     """Thin ``StandardReadable`` subclass for GEECS devices.
 
-    Provides a :meth:`from_db` class method for constructing devices whose
-    ``(host, port)`` is resolved from the GEECS MySQL database.
+    Provides:
+
+    * :meth:`from_db` — construct from GEECS MySQL database lookup.
+    * Shared-UDP-client lifecycle — pass ``shared_udp`` to ``super().__init__``
+      and the base class will :meth:`connect` / close it around the signal
+      lifecycle so all signals use one serialised socket.
 
     For signal creation, use the standalone factories in
     :mod:`geecs_bluesky.signals` (``geecs_signal_rw``, ``geecs_signal_r``,
-    ``geecs_signal_w``).
+    ``geecs_signal_w``), passing the same ``shared_udp`` instance.
     """
+
+    def __init__(
+        self,
+        *args: Any,
+        shared_udp: GeecsUdpClient | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Initialise device, optionally storing a shared UDP client."""
+        super().__init__(*args, **kwargs)
+        self._shared_udp = shared_udp
+
+    async def connect(
+        self,
+        mock: bool = False,
+        timeout: float = 10.0,
+        force_reconnect: bool = False,
+    ) -> None:
+        """Connect the shared UDP client first, then all child signals."""
+        if self._shared_udp is not None and self._shared_udp._cmd_transport is None:
+            await self._shared_udp.connect()
+            logger.debug("GeecsDevice shared UDP connected")
+        await super().connect(
+            mock=mock, timeout=timeout, force_reconnect=force_reconnect
+        )
 
     @classmethod
     def from_db(

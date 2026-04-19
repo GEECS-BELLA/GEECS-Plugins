@@ -53,6 +53,7 @@ class GeecsSignalBackend(SignalBackend[SignalDatatypeT]):
         port: int,
         units: str = "",
         limits: tuple[float, float] | None = None,
+        shared_udp: GeecsUdpClient | None = None,
     ) -> None:
         super().__init__(datatype)
         self._device_name = device_name
@@ -61,6 +62,9 @@ class GeecsSignalBackend(SignalBackend[SignalDatatypeT]):
         self._port = port
         self._units = units
         self._limits = limits
+        # If a shared client is provided it must already be connected;
+        # this backend will NOT close it on disconnect.
+        self._shared_udp = shared_udp
 
         self._udp: GeecsUdpClient | None = None
         self._callback: ReadingCallback | None = None
@@ -77,8 +81,11 @@ class GeecsSignalBackend(SignalBackend[SignalDatatypeT]):
 
     async def connect(self, timeout: float = 5.0) -> None:
         """Open the UDP client (TCP opened lazily on first subscription)."""
-        self._udp = GeecsUdpClient(self._host, self._port, exe_timeout=timeout)
-        await asyncio.wait_for(self._udp.connect(), timeout=timeout)
+        if self._shared_udp is not None:
+            self._udp = self._shared_udp
+        else:
+            self._udp = GeecsUdpClient(self._host, self._port, exe_timeout=timeout)
+            await asyncio.wait_for(self._udp.connect(), timeout=timeout)
         logger.debug(
             "GeecsSignalBackend connected: %s/%s", self._device_name, self._variable
         )
@@ -185,9 +192,9 @@ class GeecsSignalBackend(SignalBackend[SignalDatatypeT]):
     async def disconnect(self) -> None:
         """Release resources."""
         self.set_callback(None)
-        if self._udp is not None:
+        if self._udp is not None and self._shared_udp is None:
             await self._udp.close()
-            self._udp = None
+        self._udp = None
 
 
 def _python_type_to_dtype(t: type | None) -> str:

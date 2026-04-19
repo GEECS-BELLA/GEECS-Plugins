@@ -54,6 +54,27 @@ class _Oneshot(asyncio.DatagramProtocol):
 
 
 # ---------------------------------------------------------------------------
+# Local-IP auto-detection
+# ---------------------------------------------------------------------------
+
+
+def _detect_local_ip(remote_host: str, remote_port: int = 80) -> str:
+    """Return the local IP the OS would use to reach *remote_host*.
+
+    Uses a no-op UDP ``connect`` (no packets sent) so it works even when
+    the remote host is unreachable.  Falls back to ``""`` on failure.
+    """
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect((remote_host, remote_port))
+        local_ip = probe.getsockname()[0]
+        probe.close()
+        return local_ip
+    except OSError:
+        return ""
+
+
+# ---------------------------------------------------------------------------
 # Public client
 # ---------------------------------------------------------------------------
 
@@ -71,6 +92,10 @@ class GeecsUdpClient:
         Seconds to wait for command ACK.
     exe_timeout:
         Seconds to wait for execution response.
+    local_host:
+        Local IP address to bind sockets to.  Leave empty (default) to
+        auto-detect the interface that routes to *host* — necessary on
+        PPP/VPN links where binding to ``""`` raises ``EADDRNOTAVAIL``.
     """
 
     def __init__(
@@ -79,11 +104,13 @@ class GeecsUdpClient:
         port: int,
         ack_timeout: float = _ACK_TIMEOUT,
         exe_timeout: float = _EXE_TIMEOUT,
+        local_host: str = "",
     ) -> None:
         self._host = host
         self._port = port
         self.ack_timeout = ack_timeout
         self.exe_timeout = exe_timeout
+        self._local_host = local_host or _detect_local_ip(host)
 
         self._cmd_transport: asyncio.DatagramTransport | None = None
         self._exe_transport: asyncio.DatagramTransport | None = None
@@ -91,6 +118,9 @@ class GeecsUdpClient:
         self._exe_proto: _Oneshot | None = None
         self._cmd_port: int = -1
         self._exe_port: int = -1
+        # Serialise concurrent get/set calls — GEECS devices process one
+        # UDP command at a time and reject anything that arrives while busy.
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def connect(self) -> None:
         """Bind cmd and exe sockets on OS-assigned ports."""
@@ -99,7 +129,7 @@ class GeecsUdpClient:
         cmd_proto = _Oneshot()
         cmd_transport, _ = await loop.create_datagram_endpoint(
             lambda: cmd_proto,
-            local_addr=("", 0),
+            local_addr=(self._local_host, 0),
             family=socket.AF_INET,
         )
         self._cmd_transport = cmd_transport  # type: ignore[assignment]
@@ -110,7 +140,7 @@ class GeecsUdpClient:
         exe_proto = _Oneshot()
         exe_transport, _ = await loop.create_datagram_endpoint(
             lambda: exe_proto,
-            local_addr=("", self._cmd_port + 1),
+            local_addr=(self._local_host, self._cmd_port + 1),
             family=socket.AF_INET,
         )
         self._exe_transport = exe_transport  # type: ignore[assignment]
@@ -166,10 +196,15 @@ class GeecsUdpClient:
         if self._cmd_transport is None or self._cmd_proto is None:
             raise RuntimeError("GeecsUdpClient not connected — call connect() first")
 
+        async with self._lock:
+            return await self._exchange_inner(variable, cmd, exe_timeout)
+
+    async def _exchange_inner(self, variable: str, cmd: str, exe_timeout: float) -> Any:
+        """Inner exchange — called while holding ``self._lock``."""
         loop = asyncio.get_running_loop()
 
         # Arm futures *before* sending so we don't miss the reply
-        ack_future = self._cmd_proto.arm(loop)
+        ack_future = self._cmd_proto.arm(loop)  # type: ignore[union-attr]
         exe_future = self._exe_proto.arm(loop)  # type: ignore[union-attr]
 
         self._cmd_transport.sendto(cmd.encode("ascii"), (self._host, self._port))
