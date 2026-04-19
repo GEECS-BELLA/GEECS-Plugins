@@ -2,12 +2,21 @@
 
 Command flow
 ------------
-1. Send ``"set{var}>>{value:.12f}"`` or ``"get{var}>>"`` to ``(device_ip, device_port)``.
+1. Send ``"set{var}>>{value}"`` or ``"get{var}>>"`` to ``(device_ip, device_port)``.
 2. Await ACK on the client's own cmd socket (last ``>>`` token == ``"accepted"`` or ``"ok"``).
 3. Await exe response on the client's exe socket (cmd_port + 1):
-   ``"DevName>>VarName>>value>>ok,"``  or  ``">>error,msg"``.
+   ``"DevName>>VarName>>value>>no error,"``  or  ``">>error,msg"``.
 
 Both sockets are created by :meth:`connect` and released by :meth:`close`.
+
+Local-IP detection
+------------------
+GEECS devices sit on a private network reached via a PPP/VPN link on the lab
+machines.  Binding a UDP socket to ``""`` raises ``EADDRNOTAVAIL`` on macOS
+when the only route to the destination goes through a PPP interface.
+:func:`_detect_local_ip` probes which interface the OS would use and we bind
+explicitly to that address.  This has no effect on ordinary Ethernet/Wi-Fi
+connections (where the probed IP happens to be the default one anyway).
 """
 
 from __future__ import annotations
@@ -21,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 _ACK_TIMEOUT = 1.5  # seconds
 _EXE_TIMEOUT = 10.0  # seconds
-_BUFFER = 4096
 
 
 # ---------------------------------------------------------------------------
@@ -94,8 +102,17 @@ class GeecsUdpClient:
         Seconds to wait for execution response.
     local_host:
         Local IP address to bind sockets to.  Leave empty (default) to
-        auto-detect the interface that routes to *host* — necessary on
-        PPP/VPN links where binding to ``""`` raises ``EADDRNOTAVAIL``.
+        auto-detect the interface that routes to *host* at :meth:`connect`
+        time — necessary on PPP/VPN links where binding to ``""`` raises
+        ``EADDRNOTAVAIL``.
+
+    Notes
+    -----
+    GEECS devices process one UDP command at a time and reject any command
+    that arrives while they are still handling the previous one.  An
+    :class:`asyncio.Lock` inside :meth:`_exchange` ensures that concurrent
+    coroutine calls are serialised even when multiple signal backends share
+    the same client instance.
     """
 
     def __init__(
@@ -110,7 +127,9 @@ class GeecsUdpClient:
         self._port = port
         self.ack_timeout = ack_timeout
         self.exe_timeout = exe_timeout
-        self._local_host = local_host or _detect_local_ip(host)
+        # Stored as-supplied; resolved at connect() time if empty.
+        self._local_host_override = local_host
+        self._local_host: str = local_host  # updated in connect()
 
         self._cmd_transport: asyncio.DatagramTransport | None = None
         self._exe_transport: asyncio.DatagramTransport | None = None
@@ -118,12 +137,19 @@ class GeecsUdpClient:
         self._exe_proto: _Oneshot | None = None
         self._cmd_port: int = -1
         self._exe_port: int = -1
-        # Serialise concurrent get/set calls — GEECS devices process one
-        # UDP command at a time and reject anything that arrives while busy.
+        # Serialise concurrent get/set — see class docstring.
         self._lock: asyncio.Lock = asyncio.Lock()
 
     async def connect(self) -> None:
-        """Bind cmd and exe sockets on OS-assigned ports."""
+        """Bind cmd and exe sockets on OS-assigned ports.
+
+        Auto-detects the local interface IP at call time (not at construction)
+        so that any PPP/VPN link established after the object was created is
+        correctly picked up.
+        """
+        # Resolve the local bind address fresh each time we connect.
+        self._local_host = self._local_host_override or _detect_local_ip(self._host)
+
         loop = asyncio.get_running_loop()
 
         cmd_proto = _Oneshot()
@@ -136,7 +162,7 @@ class GeecsUdpClient:
         self._cmd_proto = cmd_proto
         self._cmd_port = cmd_transport.get_extra_info("sockname")[1]
 
-        # exe socket binds to cmd_port + 1 — may fail if that port is taken
+        # exe socket binds to cmd_port + 1 — may fail if that port is taken.
         exe_proto = _Oneshot()
         exe_transport, _ = await loop.create_datagram_endpoint(
             lambda: exe_proto,
@@ -148,7 +174,8 @@ class GeecsUdpClient:
         self._exe_port = self._cmd_port + 1
 
         logger.debug(
-            "GeecsUdpClient bound: cmd=%s exe=%s → device %s:%s",
+            "GeecsUdpClient bound: local=%s cmd=%s exe=%s → device %s:%s",
+            self._local_host,
             self._cmd_port,
             self._exe_port,
             self._host,
@@ -192,19 +219,27 @@ class GeecsUdpClient:
     # ------------------------------------------------------------------
 
     async def _exchange(self, variable: str, cmd: str, exe_timeout: float) -> Any:
-        """Send command, await ACK, await exe response, return parsed value."""
-        if self._cmd_transport is None or self._cmd_proto is None:
-            raise RuntimeError("GeecsUdpClient not connected — call connect() first")
-
+        """Acquire the device lock then run the full cmd/ACK/exe round-trip."""
         async with self._lock:
             return await self._exchange_inner(variable, cmd, exe_timeout)
 
     async def _exchange_inner(self, variable: str, cmd: str, exe_timeout: float) -> Any:
-        """Inner exchange — called while holding ``self._lock``."""
+        """Inner exchange — called while holding ``self._lock``.
+
+        Checking connection state inside the lock (rather than before acquiring
+        it) avoids a TOCTOU window where ``close()`` could run between the
+        check and the first socket operation.
+        """
+        if self._cmd_transport is None or self._cmd_proto is None:
+            raise RuntimeError(
+                f"GeecsUdpClient not connected — call connect() first "
+                f"({self._host}:{self._port})"
+            )
+
         loop = asyncio.get_running_loop()
 
-        # Arm futures *before* sending so we don't miss the reply
-        ack_future = self._cmd_proto.arm(loop)  # type: ignore[union-attr]
+        # Arm futures *before* sending so we don't miss the reply.
+        ack_future = self._cmd_proto.arm(loop)
         exe_future = self._exe_proto.arm(loop)  # type: ignore[union-attr]
 
         self._cmd_transport.sendto(cmd.encode("ascii"), (self._host, self._port))
@@ -234,7 +269,13 @@ class GeecsUdpClient:
 
 
 def _parse_exe_response(msg: str) -> Any:
-    """Parse ``DevName>>VarName>>value>>ok,`` and return the value."""
+    """Parse ``DevName>>VarName>>value>>no error,`` and return the value.
+
+    The status field (``parts[3]``) is ``"no error,"`` on success and starts
+    with ``"error"`` on failure — ``"ok,"`` was expected from the protocol
+    docs but real hardware uses ``"no error,"``.  Checking only the prefix
+    handles both.
+    """
     parts = msg.split(">>")
     if len(parts) < 4:
         raise ValueError(f"Malformed exe response: {msg!r}")

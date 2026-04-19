@@ -7,8 +7,11 @@ readme = "README.md"
 packages = [{ include = "geecs_bluesky" }]
 
 [tool.poetry.dependencies]
-python = ">=3.11"
-ophyd-async = ">=0.7"
+python = ">=3.11,<3.12"
+# Pin to the 0.16 API (source() as method, put() with no wait/timeout arg).
+# The solver struggles with pydantic-numpy's multi-Python markers; see INSTALL.md
+# for the pip-based bootstrap if `poetry install` fails.
+ophyd-async = ">=0.16,<1.0"
 bluesky = ">=1.12"
 
 # Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but

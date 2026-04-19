@@ -107,6 +107,33 @@ class TestDeviceAPI:
             reading = await motor.read()
             assert reading["fake_motor-position"]["value"] == pytest.approx(42.0)
 
+    async def test_disconnect_closes_shared_udp(
+        self, sim_device: FakeGeecsDevice
+    ) -> None:
+        """disconnect() must close the shared UDP client sockets."""
+        async with FakeGeecsServer(sim_device) as srv:
+            motor = FakeMotor(srv.host, srv.port)
+            await motor.connect()
+            assert motor._shared_udp is not None
+            assert motor._shared_udp._cmd_transport is not None  # connected
+
+            await motor.disconnect()
+
+            assert motor._shared_udp._cmd_transport is None  # sockets released
+
+    async def test_reconnect_after_disconnect(
+        self, sim_device: FakeGeecsDevice
+    ) -> None:
+        """connect(force_reconnect=True) after disconnect() should restore operation."""
+        async with FakeGeecsServer(sim_device) as srv:
+            motor = FakeMotor(srv.host, srv.port)
+            await motor.connect()
+            await motor.disconnect()
+
+            await motor.connect(force_reconnect=True)
+            reading = await motor.read()
+            assert "fake_motor-position" in reading
+
 
 # ---------------------------------------------------------------------------
 # RunEngine integration test (synchronous, server in background thread)

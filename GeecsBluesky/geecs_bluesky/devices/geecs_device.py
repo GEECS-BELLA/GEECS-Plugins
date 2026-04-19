@@ -19,10 +19,13 @@ Usage pattern::
 
     motor = JetStage("192.168.8.198", 65158, name="jet")
     await motor.connect()   # connects the shared UDP client, then all signals
+    reading = await motor.read()
+    await motor.disconnect()   # closes signal backends, then shared UDP client
 
 DB-resolved construction (requires ``geecs-pythonapi``)::
 
-    motor = JetStage.from_db("U_ESP_JetXYZ")
+    motor = JetStage.from_db("U_ESP_JetXYZ", name="jet")
+    await motor.connect()
 """
 
 from __future__ import annotations
@@ -30,8 +33,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ophyd_async.core import StandardReadable
+from ophyd_async.core import Signal, StandardReadable
 
+from geecs_bluesky.backends.geecs_signal_backend import GeecsSignalBackend
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 logger = logging.getLogger(__name__)
@@ -44,8 +48,9 @@ class GeecsDevice(StandardReadable):
 
     * :meth:`from_db` — construct from GEECS MySQL database lookup.
     * Shared-UDP-client lifecycle — pass ``shared_udp`` to ``super().__init__``
-      and the base class will :meth:`connect` / close it around the signal
-      lifecycle so all signals use one serialised socket.
+      and the base class will connect/close it around the signal lifecycle so all
+      signals use one serialised socket.
+    * :meth:`disconnect` — closes all signal backends then the shared UDP client.
 
     For signal creation, use the standalone factories in
     :mod:`geecs_bluesky.signals` (``geecs_signal_rw``, ``geecs_signal_r``,
@@ -69,12 +74,32 @@ class GeecsDevice(StandardReadable):
         force_reconnect: bool = False,
     ) -> None:
         """Connect the shared UDP client first, then all child signals."""
-        if self._shared_udp is not None and self._shared_udp._cmd_transport is None:
-            await self._shared_udp.connect()
-            logger.debug("GeecsDevice shared UDP connected")
+        if self._shared_udp is not None:
+            if force_reconnect and self._shared_udp._cmd_transport is not None:
+                await self._shared_udp.close()
+            if self._shared_udp._cmd_transport is None:
+                await self._shared_udp.connect()
+                logger.debug("GeecsDevice shared UDP connected")
         await super().connect(
             mock=mock, timeout=timeout, force_reconnect=force_reconnect
         )
+
+    async def disconnect(self) -> None:
+        """Disconnect all signal backends then release the shared UDP client.
+
+        Calls :meth:`GeecsSignalBackend.disconnect` on every child signal whose
+        backend is a :class:`~geecs_bluesky.backends.GeecsSignalBackend`, then
+        closes the shared :class:`~geecs_bluesky.transport.GeecsUdpClient` if
+        one was supplied at construction time.
+        """
+        for _name, child in self.children():
+            if isinstance(child, Signal):
+                backend = child._connector.backend
+                if isinstance(backend, GeecsSignalBackend):
+                    await backend.disconnect()
+        if self._shared_udp is not None:
+            await self._shared_udp.close()
+            logger.debug("GeecsDevice shared UDP closed")
 
     @classmethod
     def from_db(
