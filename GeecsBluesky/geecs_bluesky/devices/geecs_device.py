@@ -22,7 +22,7 @@ Usage pattern::
     reading = await motor.read()
     await motor.disconnect()   # closes signal backends, then shared UDP client
 
-DB-resolved construction (requires ``geecs-pythonapi``)::
+DB-resolved construction (requires ``mysql-connector-python``)::
 
     motor = JetStage.from_db("U_ESP_JetXYZ", name="jet")
     await motor.connect()
@@ -110,34 +110,23 @@ class GeecsDevice(StandardReadable):
     ) -> "GeecsDevice":
         """Construct a device by looking up ``(host, port)`` from the GEECS database.
 
-        Requires ``geecs-pythonapi`` to be installed::
+        Reads credentials from the standard GEECS configuration files
+        (``~/.config/geecs_python_api/config.ini`` → ``Configurations.INI``).
+        Requires ``mysql-connector-python``::
 
-            pip install -e path/to/GEECS-PythonAPI
+            pip install mysql-connector-python
 
         Parameters
         ----------
         device_name:
-            Device name to resolve via ``GeecsDatabase.find_device()``.
+            Device name to resolve (e.g. ``"U_ESP_JetXYZ"``).
         name:
             ophyd-async device name.
         **kwargs:
             Additional keyword arguments forwarded to ``cls.__init__``.
         """
-        try:
-            from geecs_python_api.controls.interface.geecs_database import (
-                GeecsDatabase,
-            )
-        except ImportError as exc:
-            raise ImportError(
-                "DB lookup requires geecs-pythonapi. "
-                "Install with: pip install -e path/to/GEECS-PythonAPI"
-            ) from exc
+        from geecs_bluesky.db.geecs_db import GeecsDb
 
-        host, port = GeecsDatabase.find_device(device_name)
-        if not host or port < 0:
-            raise RuntimeError(
-                f"Device '{device_name}' not found in GEECS database "
-                f"(got host={host!r}, port={port})"
-            )
+        host, port = GeecsDb.find_device(device_name)
         logger.info("DB resolved %s → %s:%s", device_name, host, port)
         return cls(host=host, port=port, name=name, **kwargs)

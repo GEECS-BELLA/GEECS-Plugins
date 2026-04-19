@@ -1,5 +1,13 @@
 """Fake GEECS device server speaking the real UDP/TCP wire protocol.
 
+.. note::
+
+   :meth:`FakeGeecsDevice.fire_shot` advances the ``acq_timestamp`` variable
+   to simulate a laser shot.  Tests that exercise
+   :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable` should include
+   ``"acq_timestamp": 1000.0`` in the device variables and call
+   ``device.fire_shot()`` (from a background task) to unblock ``trigger()``.
+
 Runs entirely in-process on localhost, no real hardware required.
 Use ``FakeGeecsServer`` as an async context manager in tests.
 
@@ -70,6 +78,23 @@ class FakeGeecsDevice:
             val = self.variables.get(v, 0.0)
             parts.append(f"{v} nval,{val} nvar")
         return f"{self.name}>>{shot}>>" + ",".join(parts)
+
+    def fire_shot(self) -> None:
+        """Simulate a laser shot by advancing ``acq_timestamp``.
+
+        Increments ``acq_timestamp`` by 1.0 (or sets it to
+        ``time.time()`` if the variable is not already present).
+        Call this from a background task in tests that exercise
+        :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`.
+        """
+        import time
+
+        if "acq_timestamp" in self.variables:
+            self.variables["acq_timestamp"] = (
+                float(self.variables["acq_timestamp"]) + 1.0
+            )
+        else:
+            self.variables["acq_timestamp"] = float(time.time())
 
     def build_exe_response(self, var: str, error: bool = False) -> str:
         """Build a GEECS exe-response string for ``var``."""
