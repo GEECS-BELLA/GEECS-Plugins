@@ -228,6 +228,11 @@ class BlueskyScanner:
     def _on_document(self, name: str, doc: dict) -> None:
         if name == "event":
             self._completed_shots += 1
+            data = {
+                k: f"{v:.4g}" if isinstance(v, float) else v
+                for k, v in doc["data"].items()
+            }
+            logger.info("event %d: %s", doc["seq_num"], data)
 
     def _connect_device(self, device) -> None:
         """Connect an ophyd-async device in the RE's persistent event loop."""
