@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import queue
 import re
 import threading
 from typing import Any
@@ -108,6 +109,10 @@ class BlueskyScanner:
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
+
+        # Compatibility shim: GUI drains this queue for device-error dialogs.
+        # BlueskyScanner never puts anything here; it stays empty.
+        self.dialog_queue: queue.Queue = queue.Queue()
 
         logger.info("BlueskyScanner initialised (RunEngine ready)")
 
