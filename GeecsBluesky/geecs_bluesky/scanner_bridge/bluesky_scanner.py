@@ -93,7 +93,9 @@ class BlueskyScanner:
         shot_control_information: dict | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
-        self._RE = RunEngine()
+        # context_managers=[] disables SIGINT handling, which fails when the
+        # RunEngine is called from a background thread (not the main thread).
+        self._RE = RunEngine(context_managers=[])
         self._RE.subscribe(self._on_document)
 
         self._scan_thread: threading.Thread | None = None
@@ -110,9 +112,11 @@ class BlueskyScanner:
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
 
-        # Compatibility shim: GUI drains this queue for device-error dialogs.
-        # BlueskyScanner never puts anything here; it stays empty.
+        # Compatibility shims expected by the GUI's update_gui_status():
+        # dialog_queue — device-error dialogs from the scan thread (never used here)
+        # restore_failures — list of devices that failed to restore after a scan
         self.dialog_queue: queue.Queue = queue.Queue()
+        self.restore_failures: list[str] = []
 
         logger.info("BlueskyScanner initialised (RunEngine ready)")
 
