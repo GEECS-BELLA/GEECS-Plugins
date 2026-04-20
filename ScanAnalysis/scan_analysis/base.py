@@ -35,6 +35,16 @@ class DataLengthError(ValueError):
     pass
 
 
+class DataUnavailableWarning(Exception):
+    """Raised when a device's data directory is missing or empty for a scan.
+
+    This is an expected condition when an analyzer is configured for a device
+    that was not active during a particular scan.  It is caught separately from
+    unexpected errors so that a clean warning is logged without a traceback,
+    and the task queue records the state as ``no_data`` rather than ``failed``.
+    """
+
+
 class ScanParameter(NamedTuple):
     """Lightweight wrapper for scan parameter string with common renderings."""
 

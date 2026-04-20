@@ -34,7 +34,7 @@ import pandas as pd
 import numpy as np
 
 # --- Local / Project Imports ---
-from scan_analysis.base import ScanAnalyzer
+from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -45,15 +45,6 @@ if TYPE_CHECKING:
 PRINT_TRACEBACK = True
 
 logger = logging.getLogger(__name__)
-
-
-class DataUnavailableWarning(Exception):
-    """Raised when a device's data directory is missing or empty for a scan.
-
-    This is an expected condition when an analyzer is configured for a device
-    that was not active during a particular scan.  It is caught separately from
-    unexpected errors so that a clean warning is logged without a traceback.
-    """
 
 
 # %% TypedDict Definitions
@@ -212,7 +203,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         except DataUnavailableWarning as e:
             logger.warning(str(e))
-            return None
+            raise
         except Exception as e:
             if PRINT_TRACEBACK:
                 print(traceback.format_exc())
