@@ -700,7 +700,7 @@ class ListFieldWidget(BaseFieldWidget):
 
         add_btn = QPushButton("+ Add")
         add_btn.setMaximumWidth(80)
-        add_btn.clicked.connect(self._add_item)
+        add_btn.clicked.connect(lambda _checked: self._add_item())
         header_layout.addStretch()
         header_layout.addWidget(add_btn)
 
@@ -723,7 +723,8 @@ class ListFieldWidget(BaseFieldWidget):
         Parameters
         ----------
         data : dict, optional
-            Field values to populate the new item with.
+            Field values to populate the new item with.  When ``None``
+            (the default), each sub-field widget keeps its own default.
         """
         idx = len(self._item_widgets)
         group = QGroupBox(f"Item {idx + 1}")
@@ -734,7 +735,7 @@ class ListFieldWidget(BaseFieldWidget):
         for sub_name, sub_field in self._item_model.model_fields.items():
             sub_type = self._item_model.__annotations__.get(sub_name, str)
             widget = create_field_widget(sub_name, sub_field, sub_type, group)
-            if data and sub_name in data:
+            if isinstance(data, dict) and sub_name in data:
                 widget.set_value(data[sub_name])
             widget.valueChanged.connect(self.valueChanged.emit)
             item_field_widgets.append(widget)

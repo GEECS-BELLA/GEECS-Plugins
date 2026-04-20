@@ -217,27 +217,30 @@ class SectionWidget(QGroupBox):
         The returned dictionary is suitable for passing to
         ``model_class.model_validate()``.
 
-        For models that have an ``enabled`` field, the dict always
-        includes ``"enabled": True/False`` derived from the QGroupBox
-        checkbox state, and the full field values are always returned
-        (never ``None``).  For models *without* an ``enabled`` field,
-        ``None`` is returned when the section is unchecked.
+        When the QGroupBox is **unchecked**, ``None`` is returned
+        regardless of whether the model has an ``enabled`` field.  This
+        ensures that the parent config dict omits disabled sections,
+        which is required for Pydantic ``Optional[SectionConfig]``
+        fields to validate correctly.
+
+        When the QGroupBox is **checked** and the model declares an
+        ``enabled`` field, ``"enabled": True`` is injected into the
+        returned dict.
 
         Returns
         -------
         dict or None
             Field values keyed by Pydantic field name, or ``None`` when
-            the section checkbox is unchecked and the model has no
-            ``enabled`` field.
+            the section checkbox is unchecked.
         """
-        if not self.isChecked() and not self._has_enabled_field:
+        if not self.isChecked():
             return None
 
         data: Dict[str, Any] = {}
 
-        # Inject the ``enabled`` flag from the QGroupBox checkbox.
+        # Inject ``"enabled": True`` when the model declares the field.
         if self._has_enabled_field:
-            data["enabled"] = self.isChecked()
+            data["enabled"] = True
 
         for name, widget in self._field_widgets.items():
             data[name] = widget.get_value()
