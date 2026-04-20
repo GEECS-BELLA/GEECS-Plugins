@@ -99,11 +99,13 @@ class TestDeviceAPI:
     async def test_position_reflects_external_change(
         self, sim_device: FakeGeecsDevice
     ) -> None:
-        """Direct mutation of sim_device state should be returned by read()."""
+        """External state change is reflected after the next 5-Hz TCP push."""
         async with FakeGeecsServer(sim_device) as srv:
             motor = FakeMotor(srv.host, srv.port)
             await motor.connect()
             sim_device.variables["Position (mm)"] = 42.0
+            # TCP push rate is 5 Hz (200 ms); wait for the next push to update cache
+            await asyncio.sleep(0.3)
             reading = await motor.read()
             assert reading["fake_motor-position"]["value"] == pytest.approx(42.0)
 

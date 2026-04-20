@@ -1,11 +1,10 @@
 """GeecsTriggerable — mixin adding the Bluesky Triggerable protocol to GEECS devices.
 
 The GEECS hardware at BELLA runs at 1 Hz driven by a DG645 delay generator.
-Every triggerable device exposes an ``acq_timestamp`` variable (hardware-sourced,
-transmitted via the TCP push stream) that advances each time the device captures
-a shot.  Waiting for that timestamp to change is the correct completion signal
-for a trigger — more reliable than shot numbers, which can be out-of-sync
-across devices powered on at different times.
+Every triggerable device exposes an ``acq_timestamp`` variable that advances
+each time the device captures a shot.  This mixin waits for that change via
+an event queue populated by the shared TCP subscriber on every push frame —
+fully event-driven, no UDP polling.
 
 Usage::
 
@@ -43,10 +42,12 @@ logger = logging.getLogger(__name__)
 
 
 class GeecsTriggerable:
-    """Mixin: adds ``trigger() → AsyncStatus`` via ``acq_timestamp`` polling.
+    """Mixin: adds ``trigger() → AsyncStatus`` via ``acq_timestamp`` event queue.
 
-    Relies on ``self._shared_udp`` being set by the cooperating
-    :class:`~geecs_bluesky.devices.geecs_device.GeecsDevice` initialiser.
+    Relies on the cooperating :class:`~geecs_bluesky.devices.geecs_device.GeecsDevice`
+    to set ``self._shot_cache`` and ``self._shot_queue`` during ``connect()``.
+    The ``acq_timestamp`` variable is automatically added to the TCP subscription
+    by :meth:`GeecsDevice.connect` when this mixin is present.
 
     Class-level attributes that subclasses may override
     ----------------------------------------------------
@@ -56,13 +57,10 @@ class GeecsTriggerable:
     _trigger_timeout : float
         Maximum seconds to wait for a new shot before raising
         :exc:`TimeoutError`.  Default: ``3.0`` (three 1-Hz shots).
-    _trigger_poll_interval : float
-        Polling cadence in seconds.  Default: ``0.05`` (50 ms).
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"
     _trigger_timeout: float = 3.0
-    _trigger_poll_interval: float = 0.05
 
     def trigger(self) -> AsyncStatus:
         """Return a status that completes once ``acq_timestamp`` has advanced.
@@ -73,19 +71,33 @@ class GeecsTriggerable:
         return AsyncStatus(self._wait_for_shot())
 
     async def _wait_for_shot(self) -> None:
-        """Poll ``acq_timestamp`` until it changes from its current value."""
-        # Retrieve the UDP client set by GeecsDevice.__init__
-        from geecs_bluesky.transport.udp_client import GeecsUdpClient
+        """Wait for the next TCP push frame that carries a new ``acq_timestamp``."""
+        shot_queue: asyncio.Queue | None = getattr(self, "_shot_queue", None)
+        shot_cache: dict | None = getattr(self, "_shot_cache", None)
+        udp = getattr(self, "_shared_udp", None)
+        var = self._acq_timestamp_variable
 
-        udp: GeecsUdpClient | None = getattr(self, "_shared_udp", None)
-        if udp is None:
+        # Determine baseline timestamp
+        if shot_cache is not None and var in shot_cache:
+            t0 = shot_cache[var]
+        elif udp is not None:
+            t0 = await udp.get(var)
+        else:
             raise RuntimeError(
-                "GeecsTriggerable requires _shared_udp to be set; "
-                "ensure GeecsDevice.__init__ was called with shared_udp=..."
+                "GeecsTriggerable: no shot_cache or UDP client available; "
+                "ensure device is connected"
             )
 
-        var = self._acq_timestamp_variable
-        t0 = await udp.get(var)
+        if shot_queue is None:
+            raise RuntimeError(
+                "GeecsTriggerable: _shot_queue not set; "
+                "ensure GeecsDevice.connect() completed successfully"
+            )
+
+        # Drain stale frames accumulated before this trigger call
+        while not shot_queue.empty():
+            shot_queue.get_nowait()
+
         logger.debug(
             "trigger: waiting for %s to advance past %s (timeout=%.1fs)",
             var,
@@ -97,13 +109,19 @@ class GeecsTriggerable:
         deadline = loop.time() + self._trigger_timeout
 
         while True:
-            await asyncio.sleep(self._trigger_poll_interval)
-            t1 = await udp.get(var)
-            if t1 != t0:
-                logger.debug("trigger: shot detected (%s → %s)", t0, t1)
-                return
-            if loop.time() > deadline:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
                 raise TimeoutError(
                     f"No new shot: {var!r} unchanged ({t0!r}) after "
                     f"{self._trigger_timeout:.1f}s"
                 )
+            try:
+                frame = await asyncio.wait_for(shot_queue.get(), timeout=remaining)
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"No new shot: {var!r} unchanged ({t0!r}) after "
+                    f"{self._trigger_timeout:.1f}s"
+                )
+            if frame.get(var, t0) != t0:
+                logger.debug("trigger: shot detected (%s → %s)", t0, frame.get(var))
+                return

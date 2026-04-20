@@ -124,14 +124,22 @@ class GeecsMotor(GeecsDevice):
         return AsyncStatus(self._set_and_wait(value))
 
     async def _set_and_wait(self, value: float) -> None:
-        """Write the setpoint then poll until position is within tolerance."""
+        """Write the setpoint then poll via UDP until position is within tolerance.
+
+        Both UDP GET and TCP push are gated by the same 5-Hz device loop, so
+        neither is faster than the other.  Polling via UDP keeps the position
+        check independent of the shared TCP subscriber and avoids filling the
+        shot queue with intermediate motor positions.
+        The cache is updated once on completion so subsequent read() is correct.
+        """
         await self.position.set(value)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._move_timeout
 
         while True:
-            current = await self.position.get_value()
+            raw = await self._shared_udp.get(self._variable)
+            current = float(raw)
             if abs(current - value) <= self._tolerance:
                 logger.debug(
                     "%s: arrived at %.6g (target=%.6g, tol=%.4g)",
@@ -147,6 +155,9 @@ class GeecsMotor(GeecsDevice):
                     f"(current={current:.6g}, timeout={self._move_timeout}s)"
                 )
             await asyncio.sleep(0.1)
+
+        # Write confirmed position back to cache so read() returns the correct value
+        self._shot_cache[self._variable] = current
 
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)
