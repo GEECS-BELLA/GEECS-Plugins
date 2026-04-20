@@ -1,8 +1,13 @@
 """Collapsible section widget for Pydantic sub-model form rendering.
 
-Renders all fields of a Pydantic ``BaseModel`` subclass as a checkable
-``QGroupBox`` with a ``QFormLayout``.  When the group box is unchecked
-the section is considered disabled (value is ``None``).
+Renders all fields of a Pydantic ``BaseModel`` subclass as a collapsible
+form section backed by a ``QWidget`` + custom header bar.  The header
+contains a ``QToolButton`` (▶/▼) that toggles the content area, and
+either a ``QCheckBox`` (when the model has an ``enabled: bool`` field) or
+a plain ``QLabel`` for the section title.
+
+When the ``enabled`` checkbox is unchecked, :meth:`SectionWidget.get_values`
+returns ``None``, signalling to the parent that the section is disabled.
 
 Nested ``BaseModel`` fields are rendered recursively as child
 ``SectionWidget`` instances rather than flat field widgets.
@@ -18,7 +23,17 @@ from typing import Any, Dict, List, Optional, Tuple, Type, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QFormLayout, QGroupBox, QWidget
+from PyQt5.QtWidgets import (
+    QCheckBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QSizePolicy,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .field_widgets import BaseFieldWidget, create_field_widget
 
@@ -75,6 +90,11 @@ def _unwrap_model_type(field_type: type) -> Type[BaseModel]:
     -------
     Type[BaseModel]
         The concrete model class.
+
+    Raises
+    ------
+    TypeError
+        If the type cannot be unwrapped to a ``BaseModel``.
     """
     if isinstance(field_type, type) and issubclass(field_type, BaseModel):
         return field_type
@@ -95,15 +115,22 @@ def _unwrap_model_type(field_type: type) -> Type[BaseModel]:
     raise TypeError(f"Cannot unwrap BaseModel from {field_type}")
 
 
-class SectionWidget(QGroupBox):
+class SectionWidget(QWidget):
     """Collapsible form section for a Pydantic sub-model.
 
-    Renders each field of *model_class* as an appropriate widget inside
-    a ``QFormLayout``.  Fields that are themselves ``BaseModel``
-    subclasses are rendered as nested ``SectionWidget`` instances.
+    Renders each field of *model_class* as an appropriate widget inside a
+    ``QFormLayout``.  Fields that are themselves ``BaseModel`` subclasses are
+    rendered as nested ``SectionWidget`` instances.
 
-    The ``QGroupBox`` is **checkable**: when unchecked the section is
-    disabled and :meth:`get_values` returns ``None``.
+    The widget uses a custom header bar containing:
+
+    * A ``QToolButton`` (▶ / ▼) that collapses or expands the content area.
+    * A ``QCheckBox`` (if the model declares an ``enabled: bool`` field) or a
+      plain ``QLabel`` showing the section title.  The checkbox controls the
+      *enabled* state: when unchecked, :meth:`get_values` returns ``None``.
+
+    The content area starts **collapsed** by default so that forms with many
+    sections do not overwhelm the user on first open.
 
     Parameters
     ----------
@@ -117,7 +144,7 @@ class SectionWidget(QGroupBox):
     Signals
     -------
     sectionEnabledChanged(str, bool)
-        Emitted when the section checkbox is toggled.  Arguments are
+        Emitted when the enabled checkbox is toggled.  Arguments are
         ``(section_name, is_enabled)``.
     valueChanged()
         Emitted when any field value changes within this section.
@@ -132,44 +159,95 @@ class SectionWidget(QGroupBox):
         model_class: Type[BaseModel],
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(_format_section_title(section_name), parent)
+        super().__init__(parent)
         self._section_name = section_name
         self._model_class = model_class
 
         # Detect whether the model has an ``enabled`` bool field.
-        # When it does, the QGroupBox checkbox replaces the separate
-        # ``BoolFieldWidget`` that would otherwise be rendered.
         self._has_enabled_field: bool = "enabled" in model_class.model_fields
-
-        # Make the group box checkable (unchecked → section disabled)
-        self.setCheckable(True)
-        self.setChecked(True)
-        self.toggled.connect(self._on_toggled)
 
         # Internal storage
         self._field_widgets: Dict[str, BaseFieldWidget] = {}
         self._nested_sections: Dict[str, SectionWidget] = {}
 
-        # Layout
-        self._form_layout = QFormLayout()
-        self.setLayout(self._form_layout)
+        # Whether the section is currently enabled (mirrors the checkbox).
+        self._enabled: bool = True
 
-        # Build widgets for each field in the model
+        # Build the UI
+        self._setup_ui()
         self._build_fields()
 
     # ------------------------------------------------------------------
-    # Construction helpers
+    # UI construction
     # ------------------------------------------------------------------
+
+    def _setup_ui(self) -> None:
+        """Build the outer frame, header bar, and collapsible content area."""
+        # Outer frame gives the section a visible border
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        frame = QFrame(self)
+        frame.setFrameShape(QFrame.StyledPanel)
+        frame.setFrameShadow(QFrame.Raised)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
+        frame_layout.setSpacing(0)
+        outer_layout.addWidget(frame)
+
+        # ── Header bar ──────────────────────────────────────────────────
+        self._header = QFrame(frame)
+        self._header.setObjectName("sectionHeader")
+        self._header.setStyleSheet(
+            "QFrame#sectionHeader { background-color: #d8d8d8; }"
+        )
+        header_layout = QHBoxLayout(self._header)
+        header_layout.setContentsMargins(4, 2, 4, 2)
+        header_layout.setSpacing(4)
+
+        # Collapse / expand toggle button
+        self._toggle_btn = QToolButton(self._header)
+        self._toggle_btn.setText("▶")
+        self._toggle_btn.setToolTip("Expand section")
+        self._toggle_btn.setStyleSheet("QToolButton { border: none; font-size: 10px; }")
+        self._toggle_btn.clicked.connect(self._on_toggle_clicked)
+        header_layout.addWidget(self._toggle_btn)
+
+        title_text = _format_section_title(self._section_name)
+
+        if self._has_enabled_field:
+            # Checkbox doubles as the "enabled" control + section label
+            self._enabled_cb = QCheckBox(title_text, self._header)
+            self._enabled_cb.setChecked(True)
+            self._enabled_cb.toggled.connect(self._on_enabled_toggled)
+            header_layout.addWidget(self._enabled_cb)
+        else:
+            self._enabled_cb = None  # type: ignore[assignment]
+            title_label = QLabel(title_text, self._header)
+            title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            header_layout.addWidget(title_label)
+
+        header_layout.addStretch()
+        frame_layout.addWidget(self._header)
+
+        # ── Content area ────────────────────────────────────────────────
+        self._content_widget = QWidget(frame)
+        self._form_layout = QFormLayout(self._content_widget)
+        self._form_layout.setContentsMargins(8, 4, 8, 4)
+        frame_layout.addWidget(self._content_widget)
+
+        # Start collapsed
+        self._content_widget.setVisible(False)
 
     def _build_fields(self) -> None:
         """Iterate over model fields and create widgets or nested sections.
 
         When the model has an ``enabled: bool`` field, that field is
-        **skipped** because the ``QGroupBox`` checkbox already serves
-        the same purpose.
+        **skipped** because the header checkbox already represents it.
         """
         for field_name, field_info in self._model_class.model_fields.items():
-            # Skip the ``enabled`` bool field — the QGroupBox checkbox
+            # Skip the ``enabled`` bool field — the header checkbox
             # already represents it.
             if field_name == "enabled" and self._has_enabled_field:
                 continue
@@ -196,14 +274,26 @@ class SectionWidget(QGroupBox):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_toggled(self, checked: bool) -> None:
-        """Handle the group-box checkbox toggle.
+    def _on_toggle_clicked(self) -> None:
+        """Toggle the visibility of the content area."""
+        visible = not self._content_widget.isVisible()
+        self._content_widget.setVisible(visible)
+        if visible:
+            self._toggle_btn.setText("▼")
+            self._toggle_btn.setToolTip("Collapse section")
+        else:
+            self._toggle_btn.setText("▶")
+            self._toggle_btn.setToolTip("Expand section")
+
+    def _on_enabled_toggled(self, checked: bool) -> None:
+        """Handle the enabled checkbox toggle.
 
         Parameters
         ----------
         checked : bool
             Whether the section is now enabled.
         """
+        self._enabled = checked
         self.sectionEnabledChanged.emit(self._section_name, checked)
         self.valueChanged.emit()
 
@@ -217,23 +307,21 @@ class SectionWidget(QGroupBox):
         The returned dictionary is suitable for passing to
         ``model_class.model_validate()``.
 
-        When the QGroupBox is **unchecked**, ``None`` is returned
-        regardless of whether the model has an ``enabled`` field.  This
-        ensures that the parent config dict omits disabled sections,
-        which is required for Pydantic ``Optional[SectionConfig]``
-        fields to validate correctly.
+        When the model has an ``enabled`` field and the header checkbox is
+        **unchecked**, ``None`` is returned.  For models without an
+        ``enabled`` field the section is always considered active and a
+        dict is always returned.
 
-        When the QGroupBox is **checked** and the model declares an
+        When the checkbox is **checked** and the model declares an
         ``enabled`` field, ``"enabled": True`` is injected into the
         returned dict.
 
         Returns
         -------
-        dict or None
             Field values keyed by Pydantic field name, or ``None`` when
-            the section checkbox is unchecked.
+            the section is disabled.
         """
-        if not self.isChecked():
+        if self._has_enabled_field and not self._enabled:
             return None
 
         data: Dict[str, Any] = {}
@@ -256,21 +344,22 @@ class SectionWidget(QGroupBox):
         data : dict or None
             If ``None``, the section is unchecked (disabled).  Otherwise
             each field widget is populated from the corresponding key.
-
-            For models with an ``enabled`` field, the QGroupBox checked
+            For models with an ``enabled`` field, the checkbox checked
             state is driven by ``data["enabled"]`` (defaulting to
             ``True`` when the key is absent).
         """
         if data is None:
-            self.setChecked(False)
+            if self._has_enabled_field and self._enabled_cb is not None:
+                self._enabled_cb.setChecked(False)
+            self._enabled = False
             return
 
-        # Drive the QGroupBox checkbox from the ``enabled`` key when
-        # the model declares one.
-        if self._has_enabled_field:
-            self.setChecked(data.get("enabled", True))
+        if self._has_enabled_field and self._enabled_cb is not None:
+            enabled_val = bool(data.get("enabled", True))
+            self._enabled_cb.setChecked(enabled_val)
+            self._enabled = enabled_val
         else:
-            self.setChecked(True)
+            self._enabled = True
 
         for name, widget in self._field_widgets.items():
             if name in data:
@@ -280,24 +369,27 @@ class SectionWidget(QGroupBox):
             section.set_values(section_data)
 
     def is_enabled(self) -> bool:
-        """Return whether the section checkbox is checked.
+        """Return whether the section is currently enabled.
 
         Returns
         -------
-        bool
-            ``True`` if the section is enabled.
+            ``True`` if the section is enabled (checkbox checked, or the
+            model has no ``enabled`` field).
         """
-        return self.isChecked()
+        return self._enabled
 
     def set_enabled(self, enabled: bool) -> None:
-        """Check or uncheck the section.
+        """Check or uncheck the enabled state of the section.
 
         Parameters
         ----------
         enabled : bool
             Whether to enable the section.
         """
-        self.setChecked(enabled)
+        if self._has_enabled_field and self._enabled_cb is not None:
+            self._enabled_cb.setChecked(enabled)
+        else:
+            self._enabled = enabled
 
     def validate(self) -> List[Tuple[str, str]]:
         """Validate current values through Pydantic.
@@ -308,7 +400,6 @@ class SectionWidget(QGroupBox):
 
         Returns
         -------
-        list of (str, str)
             Validation errors.  Empty list means the data is valid.
         """
         data = self.get_values()
@@ -364,14 +455,11 @@ class SectionWidget(QGroupBox):
 def _format_section_title(name: str) -> str:
     """Convert a snake_case name to a Title Case label.
 
-    Parameters
-    ----------
-    name : str
-        A snake_case identifier (e.g. ``"crosshair_masking"``).
+    Args:
+        name: A snake_case identifier (e.g. ``"crosshair_masking"``).
 
     Returns
     -------
-    str
         Title-cased string (e.g. ``"Crosshair Masking"``).
     """
     return name.replace("_", " ").title()

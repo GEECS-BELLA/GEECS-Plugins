@@ -335,7 +335,7 @@ class ConfigEditorPanel(QWidget):
             if field_value is not None:
                 section.set_values(field_value.model_dump())
             else:
-                section.setChecked(False)
+                section.set_enabled(False)
 
             section.sectionEnabledChanged.connect(self._on_value_changed)
             section.valueChanged.connect(self._on_value_changed)
@@ -458,7 +458,7 @@ class ConfigEditorPanel(QWidget):
             if field_value is not None:
                 section.set_values(field_value.model_dump())
             else:
-                section.setChecked(False)
+                section.set_enabled(False)
 
             section.sectionEnabledChanged.connect(self._on_value_changed)
             section.valueChanged.connect(self._on_value_changed)
@@ -585,7 +585,7 @@ class ConfigEditorPanel(QWidget):
 
         default_path = "{scan_dir}/computed_background.npy"
 
-        def _on_dynamic_computation_toggled(checked: bool) -> None:
+        def _on_dynamic_computation_toggled(_section_name: str, checked: bool) -> None:
             if not checked:
                 return
 
@@ -604,14 +604,14 @@ class ConfigEditorPanel(QWidget):
             if auto_save_widget is not None:
                 auto_save_widget.set_value(default_path)
 
-        dc_section.toggled.connect(_on_dynamic_computation_toggled)
+        dc_section.sectionEnabledChanged.connect(_on_dynamic_computation_toggled)
 
     def _set_pipeline_from_enabled_sections(self) -> None:
         """Populate the pipeline widget from currently enabled sections."""
         if self._pipeline is None:
             return
         enabled = [
-            name for name, section in self._sections.items() if section.isChecked()
+            name for name, section in self._sections.items() if section.is_enabled()
         ]
         self._pipeline.set_enabled_steps(enabled)
 

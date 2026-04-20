@@ -11,6 +11,7 @@ sections from Pydantic sub-models.
 from __future__ import annotations
 
 import logging
+import typing
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
@@ -689,20 +690,23 @@ class ListFieldWidget(BaseFieldWidget):
         self._item_model = item_model
         self._item_widgets: List[QGroupBox] = []
 
-        # Container for list items
-        self._items_layout = QVBoxLayout()
-        self._row_layout.addLayout(self._items_layout, stretch=1)
-
-        # Re-arrange: put items below the label row
+        # Re-arrange: replace the base-class _row_layout with a custom
+        # header row (label + Add button) and a separate items container.
+        # _row_layout was added to _outer_layout by BaseFieldWidget.__init__;
+        # remove it so we can rebuild the layout cleanly.
         self._outer_layout.removeItem(self._row_layout)
+
+        # Header row: field label + "Add" button
         header_layout = QHBoxLayout()
         header_layout.addWidget(self._label)
-
         add_btn = QPushButton("+ Add")
         add_btn.setMaximumWidth(80)
         add_btn.clicked.connect(lambda _checked: self._add_item())
         header_layout.addStretch()
         header_layout.addWidget(add_btn)
+
+        # Container layout for the dynamically added item group boxes
+        self._items_layout = QVBoxLayout()
 
         self._outer_layout.insertLayout(0, header_layout)
         self._outer_layout.insertLayout(1, self._items_layout)
@@ -730,10 +734,19 @@ class ListFieldWidget(BaseFieldWidget):
         group = QGroupBox(f"Item {idx + 1}")
         group_layout = QVBoxLayout(group)
 
-        # Build field widgets for the sub-model
+        # Build field widgets for the sub-model.
+        # Use get_type_hints() instead of __annotations__ so that string
+        # forward-references (produced by ``from __future__ import annotations``)
+        # are resolved to real type objects before being passed to
+        # create_field_widget().
+        try:
+            type_hints = typing.get_type_hints(self._item_model)
+        except Exception:
+            type_hints = dict(self._item_model.__annotations__)
+
         item_field_widgets: List[BaseFieldWidget] = []
         for sub_name, sub_field in self._item_model.model_fields.items():
-            sub_type = self._item_model.__annotations__.get(sub_name, str)
+            sub_type = type_hints.get(sub_name, str)
             widget = create_field_widget(sub_name, sub_field, sub_type, group)
             if isinstance(data, dict) and sub_name in data:
                 widget.set_value(data[sub_name])
