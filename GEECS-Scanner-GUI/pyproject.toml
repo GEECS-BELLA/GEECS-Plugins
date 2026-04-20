@@ -7,13 +7,14 @@ readme = "README.md"
 packages = [{include = "geecs_scanner"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.11"
+python = ">=3.11,<3.12"
 PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
 pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 imageanalysis = {path = "../ImageAnalysis", develop = true}
 scananalysis = {path = "../ScanAnalysis", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+geecs-bluesky = { path = "../GeecsBluesky", develop = true }
 
 pyyaml = "^6.0.2"
 pyinstaller = "^6.12.0"
