@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import queue
 import re
 import threading
@@ -41,8 +42,11 @@ from typing import Any
 
 import numpy as np
 from bluesky import RunEngine
+import bluesky.plan_stubs as bps
 import bluesky.plans as bp
+import bluesky.preprocessors as bpp
 
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 
@@ -57,6 +61,38 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
+
+
+# ---------------------------------------------------------------------------
+# Plan helpers
+# ---------------------------------------------------------------------------
+
+
+def _save_cleanup_plan(saving_detectors: list[tuple]):
+    """Turn saving off for all saving detectors (runs even on abort)."""
+    for det, _path in saving_detectors:
+        yield from bps.mv(det.save, "off")
+        logger.debug("Saving disabled for %s", det.name)
+
+
+def _scan_with_saving(inner_plan, saving_detectors: list[tuple]):
+    """Wrap *inner_plan* with per-detector save enable/disable.
+
+    For each detector in *saving_detectors* (list of ``(det, path)`` tuples):
+    - Creates the save directory
+    - Sets ``localsavingpath`` and ``save = "on"`` before the scan
+    - Sets ``save = "off"`` in a finalise wrapper (runs even on abort)
+    """
+    if saving_detectors:
+        for det, path in saving_detectors:
+            os.makedirs(path, exist_ok=True)
+            logger.info("Save path for %s: %s", det.name, path)
+            yield from bps.mv(det.localsavingpath, path, det.save, "on")
+
+    yield from bpp.finalize_wrapper(
+        inner_plan,
+        _save_cleanup_plan(saving_detectors),
+    )
 
 
 def _safe_ophyd_name(s: str) -> str:
@@ -101,6 +137,7 @@ class BlueskyScanner:
         self._scan_thread: threading.Thread | None = None
         self._config_dict: dict[str, Any] = {}
         self._shots_per_step: int = 10
+        self._devices_config: dict[str, Any] = {}
 
         self._total_shots: int = 0
         self._completed_shots: int = 0
@@ -108,6 +145,8 @@ class BlueskyScanner:
         # Devices held open between reinitialize() and scan completion
         self._motor: GeecsMotor | None = None
         self._detectors: list = []
+        # Subset of detectors that save per-shot files: list of (detector, path)
+        self._saving_detectors: list[tuple] = []
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
@@ -138,7 +177,13 @@ class BlueskyScanner:
             Ignored (compatibility shim).
         config_dictionary:
             Dict of scan/device configuration.  Recognised keys:
-                ``shots_per_step`` (int, default 10) — shots per motor position.
+
+            ``shots_per_step`` (int, default 10) — shots per motor position.
+
+            ``Devices`` (dict) — device table from the GUI, keyed by GEECS device
+            name.  Each value must have a ``variable_list`` key with a list of
+            variable name strings.  A :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`
+            is created per device at scan start.
 
         Returns
         -------
@@ -147,14 +192,18 @@ class BlueskyScanner:
         """
         self._config_dict = dict(config_dictionary or {})
         self._shots_per_step = int(self._config_dict.get("shots_per_step", 10))
+        self._devices_config = self._config_dict.get("Devices", {})
         self._completed_shots = 0
         self._total_shots = 0
+        self._saving_detectors = []
 
-        # Disconnect any leftover motor from a previous scan
+        # Disconnect any leftover devices from a previous scan
         self._disconnect_devices_sync()
 
         logger.info(
-            "BlueskyScanner reinitialised — shots_per_step=%d", self._shots_per_step
+            "BlueskyScanner reinitialised — shots_per_step=%d, devices=%s",
+            self._shots_per_step,
+            list(self._devices_config),
         )
         return True
 
@@ -252,6 +301,7 @@ class BlueskyScanner:
             for det in self._detectors:
                 self._disconnect_device(det)
             self._detectors = []
+            self._saving_detectors = []
 
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
@@ -274,6 +324,78 @@ class BlueskyScanner:
         finally:
             self._disconnect_devices_sync()
             logger.info("BlueskyScanner: scan thread finished")
+
+    def _claim_scan_number(self) -> tuple[int | None, str | None]:
+        """Claim the next scan number from the filesystem via ScanPaths.
+
+        Returns ``(scan_number, scan_folder_str)`` on success, or
+        ``(None, None)`` if ``geecs_data_utils`` is not installed, the NetApp
+        is unreachable, or the call fails for any other reason.
+        """
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.debug("geecs_data_utils not available; scan numbering disabled")
+            return None, None
+
+        try:
+            if ScanPaths.paths_config is None:
+                ScanPaths.reload_paths_config(
+                    default_experiment=self._experiment_dir or None
+                )
+            tag = ScanPaths.get_next_scan_tag(experiment=self._experiment_dir or None)
+            scan_data = ScanPaths(tag=tag, read_mode=False)
+            folder = scan_data.get_folder()
+            logger.info("Claimed scan number %d → %s", tag.number, folder)
+            return tag.number, str(folder) if folder else None
+        except Exception:
+            logger.warning("Could not claim scan number", exc_info=True)
+            return None, None
+
+    def _build_detectors(self, scan_folder: str | None = None) -> None:
+        """Create and connect detector devices from ``self._devices_config``.
+
+        Populates ``self._detectors`` (and ``self._saving_detectors`` for
+        devices with ``save_nonscalar_data=True``) in place.  Devices that
+        fail to resolve or connect are logged and skipped.
+        """
+        for device_name, dev_cfg in self._devices_config.items():
+            if isinstance(dev_cfg, dict):
+                variable_list = dev_cfg.get("variable_list", [])
+                save_nonscalar = bool(dev_cfg.get("save_nonscalar_data", False))
+            else:
+                variable_list = getattr(dev_cfg, "variable_list", [])
+                save_nonscalar = bool(getattr(dev_cfg, "save_nonscalar_data", False))
+
+            if not variable_list:
+                logger.debug("Skipping %s: empty variable_list", device_name)
+                continue
+            ophyd_name = _safe_ophyd_name(device_name)
+            try:
+                det = GeecsGenericDetector.from_db(
+                    device_name,
+                    list(variable_list),
+                    name=ophyd_name,
+                    save_nonscalar_data=save_nonscalar,
+                )
+                self._connect_device(det)
+                with self._device_lock:
+                    self._detectors.append(det)
+                    if save_nonscalar and scan_folder is not None:
+                        save_path = os.path.join(scan_folder, device_name)
+                        self._saving_detectors.append((det, save_path))
+                logger.info(
+                    "Detector ready: %s (%d variables, save_nonscalar=%s)",
+                    device_name,
+                    len(variable_list),
+                    save_nonscalar,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to create/connect detector %s — skipping",
+                    device_name,
+                    exc_info=True,
+                )
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move motor through positions, collect shots at each step."""
@@ -301,6 +423,11 @@ class BlueskyScanner:
         with self._device_lock:
             self._motor = motor
 
+        # Claim scan number before building detectors so save paths are known
+        scan_number, scan_folder = self._claim_scan_number()
+
+        self._build_detectors(scan_folder=scan_folder)
+
         positions = _build_positions(scan_config)
         n_steps = len(positions)
         n_shots = n_steps * self._shots_per_step
@@ -314,7 +441,7 @@ class BlueskyScanner:
         )
         logger.info("Positions: %s", positions)
 
-        md = {
+        md: dict[str, Any] = {
             "operator": "",
             "scan_mode": getattr(
                 scan_config.scan_mode, "value", str(scan_config.scan_mode)
@@ -323,21 +450,32 @@ class BlueskyScanner:
             "wait_time": scan_config.wait_time,
             "bluesky_backend": True,
         }
+        if scan_number is not None:
+            md["scan_number"] = scan_number
+        if scan_folder is not None:
+            md["scan_folder"] = scan_folder
         if scan_config.additional_description:
             md["description"] = scan_config.additional_description
 
         self._RE(
-            geecs_step_scan(
-                motor=motor,
-                positions=positions,
-                detectors=list(self._detectors),
-                shots_per_step=self._shots_per_step,
-                md=md,
+            _scan_with_saving(
+                geecs_step_scan(
+                    motor=motor,
+                    positions=positions,
+                    detectors=list(self._detectors),
+                    shots_per_step=self._shots_per_step,
+                    md=md,
+                ),
+                saving_detectors=list(self._saving_detectors),
             )
         )
 
     def _run_noscan(self, scan_config: Any) -> None:
         """Fixed-position data collection — count plan if detectors present."""
+        scan_number, scan_folder = self._claim_scan_number()
+
+        self._build_detectors(scan_folder=scan_folder)
+
         n_shots = self._shots_per_step
         self._total_shots = n_shots
 
@@ -355,10 +493,19 @@ class BlueskyScanner:
             len(self._detectors),
         )
 
-        md = {
+        md: dict[str, Any] = {
             "scan_mode": getattr(
                 scan_config.scan_mode, "value", str(scan_config.scan_mode)
             ),
             "bluesky_backend": True,
         }
-        self._RE(bp.count(self._detectors, num=n_shots, md=md))
+        if scan_number is not None:
+            md["scan_number"] = scan_number
+        if scan_folder is not None:
+            md["scan_folder"] = scan_folder
+        self._RE(
+            _scan_with_saving(
+                bp.count(self._detectors, num=n_shots, md=md),
+                saving_detectors=list(self._saving_detectors),
+            )
+        )
