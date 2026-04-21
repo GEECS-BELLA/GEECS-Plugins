@@ -32,6 +32,7 @@ from typing import Any
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.settable import GeecsSettable
+from geecs_bluesky.exceptions import GeecsMotorTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +143,12 @@ class GeecsMotor(GeecsSettable):
                 )
                 break
             if loop.time() > deadline:
-                raise TimeoutError(
-                    f"{self.name}: timed out waiting to reach {value} "
-                    f"(current={current:.6g}, timeout={self._move_timeout}s)"
+                raise GeecsMotorTimeoutError(
+                    self._geecs_device_name,
+                    self._variable,
+                    target=value,
+                    current=current,
+                    timeout=self._move_timeout,
                 )
             await asyncio.sleep(0.1)
 

@@ -6,6 +6,7 @@ All tests run against ``FakeGeecsServer`` on localhost — no real hardware requ
 import asyncio
 import pytest
 
+from geecs_bluesky.exceptions import GeecsCommandFailedError
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.transport.tcp_subscriber import GeecsTcpSubscriber
@@ -59,7 +60,7 @@ class TestUdpClient:
     ) -> None:
         async with FakeGeecsServer(fake_device) as srv:
             async with GeecsUdpClient(srv.host, srv.port) as client:
-                with pytest.raises(RuntimeError, match="failed"):
+                with pytest.raises(GeecsCommandFailedError):
                     await client.get("NonExistent")
 
     async def test_multiple_sequential_commands(

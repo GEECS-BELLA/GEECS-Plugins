@@ -22,6 +22,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from geecs_bluesky.exceptions import GeecsDeviceNotFoundError
+
 logger = logging.getLogger(__name__)
 
 # Cached connection parameters so we only parse config files once.
@@ -120,7 +122,7 @@ class GeecsDb:
             conn.close()
 
         if row is None:
-            raise RuntimeError(f"Device '{device_name}' not found in GEECS database.")
+            raise GeecsDeviceNotFoundError(device_name)
 
         ip, port_str = row
         return ip.strip(), int(port_str)

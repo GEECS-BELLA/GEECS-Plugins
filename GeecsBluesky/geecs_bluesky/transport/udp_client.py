@@ -26,6 +26,12 @@ import logging
 import socket
 from typing import Any
 
+from geecs_bluesky.exceptions import (
+    GeecsCommandFailedError,
+    GeecsCommandRejectedError,
+    GeecsConnectionError,
+)
+
 logger = logging.getLogger(__name__)
 
 _ACK_TIMEOUT = 1.5  # seconds
@@ -122,9 +128,11 @@ class GeecsUdpClient:
         ack_timeout: float = _ACK_TIMEOUT,
         exe_timeout: float = _EXE_TIMEOUT,
         local_host: str = "",
+        device_name: str = "",
     ) -> None:
         self._host = host
         self._port = port
+        self._device_name = device_name
         self.ack_timeout = ack_timeout
         self.exe_timeout = exe_timeout
         # Stored as-supplied; resolved at connect() time if empty.
@@ -249,26 +257,36 @@ class GeecsUdpClient:
         try:
             ack_data = await asyncio.wait_for(ack_future, timeout=self.ack_timeout)
         except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"No ACK for '{variable}' within {self.ack_timeout}s"
+            raise GeecsConnectionError(
+                f"{self._device_name or self._host}/{variable}: "
+                f"no ACK within {self.ack_timeout}s"
             ) from None
 
         ack_str = ack_data.decode("ascii", errors="replace").split(">>")[-1]
         if ack_str not in ("accepted", "ok"):
-            raise RuntimeError(f"Command '{variable}' rejected by device: {ack_str!r}")
+            raise GeecsCommandRejectedError(
+                self._device_name or self._host,
+                variable,
+                f"ACK was {ack_str!r}",
+            )
 
         # 2) Wait for exe response
         try:
             exe_data = await asyncio.wait_for(exe_future, timeout=exe_timeout)
         except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"No exe response for '{variable}' within {exe_timeout}s"
+            raise GeecsConnectionError(
+                f"{self._device_name or self._host}/{variable}: "
+                f"no exe response within {exe_timeout}s"
             ) from None
 
-        return _parse_exe_response(exe_data.decode("ascii", errors="replace"))
+        return _parse_exe_response(
+            exe_data.decode("ascii", errors="replace"),
+            self._device_name or self._host,
+            variable,
+        )
 
 
-def _parse_exe_response(msg: str) -> Any:
+def _parse_exe_response(msg: str, device_name: str = "", variable: str = "") -> Any:
     """Parse ``DevName>>VarName>>value>>no error,`` and return the value.
 
     The status field (``parts[3]``) is ``"no error,"`` on success and starts
@@ -281,8 +299,8 @@ def _parse_exe_response(msg: str) -> Any:
         raise ValueError(f"Malformed exe response: {msg!r}")
     status_field = parts[3]
     if status_field.startswith("error"):
-        detail = status_field.split(",", 1)[1] if "," in status_field else ""
-        raise RuntimeError(f"Device command failed: {detail}")
+        detail = status_field.split(",", 1)[1].strip() if "," in status_field else ""
+        raise GeecsCommandFailedError(device_name, variable, detail or status_field)
     raw_value = parts[2]
     # Try to coerce to numeric
     try:

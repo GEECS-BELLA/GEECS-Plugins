@@ -71,7 +71,7 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
         name: str = "detector",
         save_nonscalar_data: bool = False,
     ) -> None:
-        udp = GeecsUdpClient(host, port)
+        udp = GeecsUdpClient(host, port, device_name=device_name)
         used_attrs: set[str] = set()
         with self.add_children_as_readables():
             for var in variable_list:

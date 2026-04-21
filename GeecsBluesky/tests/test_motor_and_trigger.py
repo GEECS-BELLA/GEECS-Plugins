@@ -13,6 +13,7 @@ from bluesky import RunEngine
 from bluesky.protocols import Movable, Triggerable
 
 from geecs_bluesky.devices.motor import GeecsMotor
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.devices.camera import GeecsCameraBase
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
@@ -153,14 +154,14 @@ class TestGeecsTriggerable:
     async def test_trigger_timeout_if_no_shot(
         self, camera_device: FakeGeecsDevice
     ) -> None:
-        """trigger() must raise TimeoutError when no shot arrives."""
+        """trigger() must raise GeecsTriggerTimeoutError when no shot arrives."""
         async with FakeGeecsServer(camera_device) as srv:
             cam = GeecsCameraBase("U_TestCam", srv.host, srv.port, name="test_cam")
             cam._trigger_timeout = 0.3  # short timeout for fast test
             await cam.connect()
 
             status = cam.trigger()
-            with pytest.raises(TimeoutError):
+            with pytest.raises(GeecsTriggerTimeoutError):
                 await asyncio.wait_for(status, timeout=2.0)
 
     async def test_trigger_then_read_filepath(

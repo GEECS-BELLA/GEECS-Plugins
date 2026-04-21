@@ -82,7 +82,7 @@ class GeecsSettable(GeecsDevice):
         settle_time: float = 0.0,
         _readback_attr: str = "readback",
     ) -> None:
-        udp = GeecsUdpClient(host, port)
+        udp = GeecsUdpClient(host, port, device_name=device_name)
         _sig = geecs_signal_rw(
             float,
             device_name,

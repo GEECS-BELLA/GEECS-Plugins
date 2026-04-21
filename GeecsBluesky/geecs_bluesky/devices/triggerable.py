@@ -38,6 +38,8 @@ import logging
 
 from ophyd_async.core import AsyncStatus
 
+from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
+
 logger = logging.getLogger(__name__)
 
 
@@ -111,16 +113,16 @@ class GeecsTriggerable:
         while True:
             remaining = deadline - loop.time()
             if remaining <= 0:
-                raise TimeoutError(
-                    f"No new shot: {var!r} unchanged ({t0!r}) after "
-                    f"{self._trigger_timeout:.1f}s"
+                raise GeecsTriggerTimeoutError(
+                    getattr(self, "_geecs_device_name", self.name),
+                    self._trigger_timeout,
                 )
             try:
                 frame = await asyncio.wait_for(shot_queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
-                raise TimeoutError(
-                    f"No new shot: {var!r} unchanged ({t0!r}) after "
-                    f"{self._trigger_timeout:.1f}s"
+                raise GeecsTriggerTimeoutError(
+                    getattr(self, "_geecs_device_name", self.name),
+                    self._trigger_timeout,
                 )
             if frame.get(var, t0) != t0:
                 logger.debug("trigger: shot detected (%s → %s)", t0, frame.get(var))

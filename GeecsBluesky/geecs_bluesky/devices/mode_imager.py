@@ -73,7 +73,7 @@ class ModeImager(GeecsTriggerable, GeecsDevice):
         port: int,
         name: str = "mode_imager",
     ) -> None:
-        udp = GeecsUdpClient(host, port)
+        udp = GeecsUdpClient(host, port, device_name=_DEVICE_NAME)
         with self.add_children_as_readables():
             self.hardware_ts = geecs_signal_r(
                 float,
