@@ -1,9 +1,8 @@
-"""GeecsMotor — single-axis motor implementing the Bluesky Movable protocol.
+"""GeecsMotor — position-feedback motor implementing the Bluesky Movable protocol.
 
-Maps one GEECS position variable (read/write via UDP) into an ophyd-async
-device whose ``set(value)`` method moves the axis and returns an
-:class:`~ophyd_async.core.AsyncStatus` that completes when the readback
-is within ``tolerance`` of the requested position.
+Extends :class:`~geecs_bluesky.devices.settable.GeecsSettable` with a
+tolerance-based readback polling loop so that ``set()`` only resolves once
+the axis has physically arrived at the target position.
 
 Typical usage::
 
@@ -32,17 +31,15 @@ from typing import Any
 
 from ophyd_async.core import AsyncStatus
 
-from geecs_bluesky.devices.geecs_device import GeecsDevice
-from geecs_bluesky.signals import geecs_signal_rw
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_bluesky.devices.settable import GeecsSettable
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MOVE_TIMEOUT = 30.0  # seconds
 
 
-class GeecsMotor(GeecsDevice):
-    """Single-axis GEECS motor implementing :class:`bluesky.protocols.Movable`.
+class GeecsMotor(GeecsSettable):
+    """GEECS motor with position-feedback polling.
 
     Parameters
     ----------
@@ -84,24 +81,19 @@ class GeecsMotor(GeecsDevice):
         settle_time: float = 0.0,
         move_timeout: float = _DEFAULT_MOVE_TIMEOUT,
     ) -> None:
-        udp = GeecsUdpClient(host, port)
-        with self.add_children_as_readables():
-            self.position = geecs_signal_rw(
-                float,
-                device_name,
-                variable,
-                host,
-                port,
-                units=units,
-                limits=limits,
-                shared_udp=udp,
-            )
-        super().__init__(name=name, shared_udp=udp)
+        super().__init__(
+            device_name,
+            variable,
+            host,
+            port,
+            name=name,
+            units=units,
+            limits=limits,
+            settle_time=settle_time,
+            _readback_attr="position",
+        )
         self._tolerance = tolerance
-        self._settle_time = settle_time
         self._move_timeout = move_timeout
-        self._geecs_device_name = device_name
-        self._variable = variable
 
     # ------------------------------------------------------------------
     # Movable protocol
@@ -126,13 +118,13 @@ class GeecsMotor(GeecsDevice):
     async def _set_and_wait(self, value: float) -> None:
         """Write the setpoint then poll via UDP until position is within tolerance.
 
-        Both UDP GET and TCP push are gated by the same 5-Hz device loop, so
-        neither is faster than the other.  Polling via UDP keeps the position
-        check independent of the shared TCP subscriber and avoids filling the
-        shot queue with intermediate motor positions.
-        The cache is updated once on completion so subsequent read() is correct.
+        UDP polling keeps the position check independent of the shared TCP
+        subscriber and avoids filling the shot queue with intermediate motor
+        positions.  The cache is updated once on completion so subsequent
+        ``read()`` returns the correct value.
         """
-        await self.position.set(value)
+        sig = getattr(self, self._readback_attr_name)
+        await sig.set(value)
 
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._move_timeout
@@ -156,7 +148,7 @@ class GeecsMotor(GeecsDevice):
                 )
             await asyncio.sleep(0.1)
 
-        # Write confirmed position back to cache so read() returns the correct value
+        # Write confirmed position back to cache so read() returns correct value
         self._shot_cache[self._variable] = current
 
         if self._settle_time > 0:
@@ -187,8 +179,4 @@ class GeecsMotor(GeecsDevice):
         **kwargs:
             Forwarded to :class:`GeecsMotor` (units, limits, tolerance, …).
         """
-        from geecs_bluesky.db.geecs_db import GeecsDb
-
-        host, port = GeecsDb.find_device(device_name)
-        logger.info("DB resolved %s → %s:%s", device_name, host, port)
-        return cls(device_name, variable, host, port, name=name, **kwargs)
+        return cls.from_db_var(device_name, variable, name=name, **kwargs)
