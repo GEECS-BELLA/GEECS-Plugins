@@ -70,9 +70,13 @@ _DISCONNECT_TIMEOUT = 10.0
 
 def _save_cleanup_plan(saving_detectors: list[tuple]):
     """Turn saving off for all saving detectors (runs even on abort)."""
+    if not saving_detectors:
+        return
+    mv_args: list = []
     for det, _path in saving_detectors:
-        yield from bps.mv(det.save, "off")
+        mv_args.extend([det.save, "off"])
         logger.debug("Saving disabled for %s", det.name)
+    yield from bps.mv(*mv_args)
 
 
 def _scan_with_saving(inner_plan, saving_detectors: list[tuple]):
@@ -84,10 +88,13 @@ def _scan_with_saving(inner_plan, saving_detectors: list[tuple]):
     - Sets ``save = "off"`` in a finalise wrapper (runs even on abort)
     """
     if saving_detectors:
+        mv_args: list = []
         for det, path in saving_detectors:
             os.makedirs(path, exist_ok=True)
             logger.info("Save path for %s: %s", det.name, path)
-            yield from bps.mv(det.localsavingpath, path, det.save, "on")
+            mv_args.extend([det.localsavingpath, path, det.save, "on"])
+        # Single bps.mv fans out via asyncio.gather — all devices set concurrently
+        yield from bps.mv(*mv_args)
 
     yield from bpp.finalize_wrapper(
         inner_plan,
