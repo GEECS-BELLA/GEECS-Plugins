@@ -25,21 +25,15 @@ Typical usage::
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 from geecs_bluesky.devices.geecs_device import GeecsDevice
 from geecs_bluesky.devices.triggerable import GeecsTriggerable
 from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_attr_name(var: str) -> str:
-    """Convert a GEECS variable name to a valid Python identifier."""
-    cleaned = re.sub(r"[^a-zA-Z0-9_]", "_", var).strip("_").lower()
-    return cleaned or "var"
 
 
 class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
@@ -75,7 +69,7 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
         used_attrs: set[str] = set()
         with self.add_children_as_readables():
             for var in variable_list:
-                attr = _safe_attr_name(var)
+                attr = safe_name(var)
                 # Resolve name conflicts by appending an index
                 if attr in used_attrs:
                     i = 2

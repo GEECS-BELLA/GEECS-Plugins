@@ -6,23 +6,23 @@ Usage pattern::
     from geecs_bluesky.signals import geecs_signal_rw, geecs_signal_r
     from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
-    class JetStage(GeecsDevice):
+    class MyMotorStage(GeecsDevice):
         def __init__(self, host: str, port: int, name: str = ""):
-            dev = "U_ESP_JetXYZ"
+            dev = "U_MyMotor"
             udp = GeecsUdpClient(host, port)
             with self.add_children_as_readables():
-                self.x = geecs_signal_rw(float, dev, "Position.Axis 1", host, port,
+                self.x = geecs_signal_rw(float, dev, "Position (mm)", host, port,
                                          units="mm", shared_udp=udp)
             super().__init__(name=name, shared_udp=udp)
 
-    stage = JetStage("192.168.8.198", 65158, name="jet")
+    stage = MyMotorStage("192.168.8.100", 65100, name="stage")
     await stage.connect()   # connects UDP, pre-populates cache, starts TCP subscriber
     reading = await stage.read()
     await stage.disconnect()
 
 DB-resolved construction (requires ``mysql-connector-python``)::
 
-    stage = JetStage.from_db("U_ESP_JetXYZ", name="jet")
+    stage = GeecsMotor.from_db_axis("U_ESP_JetXYZ", "Position.Axis 1", name="jet_x")
     await stage.connect()
 """
 

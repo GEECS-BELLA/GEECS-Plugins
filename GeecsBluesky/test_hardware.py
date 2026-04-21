@@ -19,7 +19,7 @@ from bluesky import RunEngine
 from bluesky.callbacks import LiveTable
 
 from geecs_bluesky.devices.motor import GeecsMotor
-from geecs_bluesky.devices.mode_imager import ModeImager
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
@@ -31,7 +31,9 @@ print("\n=== Constructing devices from DB ===")
 motor = GeecsMotor.from_db_axis(
     "U_ESP_JetXYZ", "Position.Axis 1", name="jet_x", units="mm"
 )
-cam = ModeImager.from_db(name="mode_imager")
+cam = GeecsGenericDetector.from_db(
+    "UC_ModeImager", ["hardware_timestamp"], name="mode_imager"
+)
 print(f"Motor: {motor.name}")
 print(f"Camera: {cam.name}")
 
@@ -74,13 +76,13 @@ def _collect(name, doc):
         events.append(doc)
         idx = len(events)
         pos = doc["data"].get("jet_x-position", "?")
-        ts = doc["data"].get("mode_imager-hardware_ts", "?")
+        ts = doc["data"].get("mode_imager-hardware_timestamp", "?")
         print(f"  event {idx:2d}: jet_x={pos:.4f} mm  hardware_ts={ts}")
 
 
 RE.subscribe(_collect)
 
-tbl = LiveTable(["jet_x-position", "mode_imager-hardware_ts"])
+tbl = LiveTable(["jet_x-position", "mode_imager-hardware_timestamp"])
 RE.subscribe(tbl)
 
 print(f"\n=== Step scan: {POSITIONS} mm, {SHOTS_PER_STEP} shots/step ===")
@@ -106,8 +108,8 @@ for ev in events:
     if "jet_x-position" not in ev["data"]:
         print("  MISSING: jet_x-position in event")
         ok = False
-    if "mode_imager-hardware_ts" not in ev["data"]:
-        print("  MISSING: mode_imager-hardware_ts in event")
+    if "mode_imager-hardware_timestamp" not in ev["data"]:
+        print("  MISSING: mode_imager-hardware_timestamp in event")
         ok = False
 
 if len(events) == expected and ok:

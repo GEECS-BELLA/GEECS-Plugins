@@ -35,8 +35,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import queue
-import re
 import threading
 from typing import Any
 
@@ -49,6 +47,7 @@ import bluesky.preprocessors as bpp
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.utils import safe_name
 
 # ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
 # runtime so this module can be imported without geecs_data_utils installed.
@@ -102,11 +101,6 @@ def _scan_with_saving(inner_plan, saving_detectors: list[tuple]):
     )
 
 
-def _safe_ophyd_name(s: str) -> str:
-    """Convert an arbitrary string to a valid ophyd-async device name."""
-    return re.sub(r"[^a-zA-Z0-9_]", "_", s).strip("_").lower()
-
-
 def _build_positions(scan_config: Any) -> list[float]:
     """Convert ScanConfig start/end/step to an explicit list of positions."""
     start = float(scan_config.start)
@@ -157,12 +151,6 @@ class BlueskyScanner:
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
-
-        # Compatibility shims expected by the GUI's update_gui_status():
-        # dialog_queue — device-error dialogs from the scan thread (never used here)
-        # restore_failures — list of devices that failed to restore after a scan
-        self.dialog_queue: queue.Queue = queue.Queue()
-        self.restore_failures: list[str] = []
 
         logger.info("BlueskyScanner initialised (RunEngine ready)")
 
@@ -377,7 +365,7 @@ class BlueskyScanner:
             if not variable_list:
                 logger.debug("Skipping %s: empty variable_list", device_name)
                 continue
-            ophyd_name = _safe_ophyd_name(device_name)
+            ophyd_name = safe_name(device_name)
             try:
                 det = GeecsGenericDetector.from_db(
                     device_name,
@@ -418,7 +406,7 @@ class BlueskyScanner:
             return
 
         device_name, variable = scan_config.device_var.split(":", 1)
-        ophyd_name = _safe_ophyd_name(f"{device_name}_{variable}")
+        ophyd_name = safe_name(f"{device_name}_{variable}")
 
         logger.info(
             "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name

@@ -6,9 +6,9 @@ Use them when building device classes::
     from geecs_bluesky.signals import geecs_signal_rw, geecs_signal_r
     from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
-    class JetStage(GeecsDevice):
+    class MyStage(GeecsDevice):
         def __init__(self, host: str, port: int, name: str = ""):
-            dev = "U_ESP_JetXYZ"
+            dev = "U_MyStage"
             udp = GeecsUdpClient(host, port)   # shared, serialises concurrent reads
             with self.add_children_as_readables():
                 self.x = geecs_signal_rw(float, dev, "Position.Axis 1", host, port,

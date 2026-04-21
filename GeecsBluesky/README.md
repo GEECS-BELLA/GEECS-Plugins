@@ -8,7 +8,8 @@ GEECS devices speak a custom UDP/TCP protocol.  This package provides:
 - `GeecsUdpClient` / `GeecsTcpSubscriber` — asyncio transport matching the real wire format
 - `GeecsSignalBackend` — ophyd-async `SignalBackend` backed by GEECS UDP/TCP
 - `GeecsDevice` — `StandardReadable` base class with shared-client lifecycle management
-- `JetStage` — concrete device for the U_ESP_JetXYZ ESP301 motion controller
+- `GeecsGenericDetector` — dynamically-signalled detector from a plain variable list
+- `GeecsMotor` — settable motor device for any GEECS axis
 - `FakeGeecsServer` — in-process fake device server for offline testing
 
 ## Requirements
@@ -56,20 +57,18 @@ user-data directory).
 
 ```python
 import asyncio
-from geecs_bluesky.devices.jet_stage import JetStage
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 
 async def main():
-    # Explicit host/port (no DB needed):
-    stage = JetStage("192.168.8.198", 65158, name="jet")
-
-    # Or resolve via GEECS database (requires geecs-pythonapi):
-    # stage = JetStage.from_db("U_ESP_JetXYZ", name="jet")
-
-    await stage.connect()
-    reading = await stage.read()
+    # Resolve from GEECS database (requires mysql-connector-python):
+    det = GeecsGenericDetector.from_db(
+        "UC_Wavemeter", ["Wavelength (nm)", "Power (mW)"], name="wavemeter"
+    )
+    await det.connect()
+    reading = await det.read()
     for key, val in reading.items():
-        print(f"{key}: {val['value']} mm")
-    await stage.disconnect()
+        print(f"{key}: {val['value']}")
+    await det.disconnect()
 
 asyncio.run(main())
 ```
@@ -81,7 +80,7 @@ from bluesky import RunEngine
 import bluesky.plans as bp
 
 RE = RunEngine()
-RE(bp.count([stage], num=5))
+RE(bp.count([det], num=5))
 ```
 
 ## Writing a new device
