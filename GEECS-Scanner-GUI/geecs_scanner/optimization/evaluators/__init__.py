@@ -26,5 +26,15 @@ documentation and examples.
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
     MultiDeviceScanEvaluator,
 )
+from geecs_scanner.optimization.evaluators.beam_position_evaluator import (
+    BeamPositionEvaluator,
+)
+from geecs_scanner.optimization.evaluators.beam_position_evaluator_simulation import (
+    BeamPositionSimulationEvaluator,
+)
 
-__all__ = ["MultiDeviceScanEvaluator"]
+__all__ = [
+    "MultiDeviceScanEvaluator",
+    "BeamPositionEvaluator",
+    "BeamPositionSimulationEvaluator",
+]
