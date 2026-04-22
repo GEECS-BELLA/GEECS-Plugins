@@ -82,6 +82,16 @@ class PipelineWidget(QGroupBox):
         # --- Layout ---
         layout = QVBoxLayout(self)
 
+        # Status label — shown when using runtime default (Bug 3)
+        self._status_label = QLabel(
+            "Using runtime default \u2014 pipeline not saved to file"
+        )
+        self._status_label.setWordWrap(True)
+        self._status_label.setStyleSheet(
+            "color: gray; font-size: 11px; font-style: italic;"
+        )
+        layout.addWidget(self._status_label)
+
         # List widget with drag-and-drop
         self._list_widget = QListWidget()
         self._list_widget.setDragDropMode(QAbstractItemView.InternalMove)
@@ -150,6 +160,19 @@ class PipelineWidget(QGroupBox):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_using_default(self, is_default: bool) -> None:
+        """Show or hide the 'using runtime default' status indicator.
+
+        Parameters
+        ----------
+        is_default : bool
+            ``True`` when the pipeline was not present in the source YAML
+            and the widget is showing the runtime fallback order.
+            ``False`` when the pipeline was explicitly configured in the
+            source file or the user has manually reordered steps.
+        """
+        self._status_label.setVisible(is_default)
 
     def set_enabled_steps(self, step_names: List[str]) -> None:
         """Update the list to show only the given steps.

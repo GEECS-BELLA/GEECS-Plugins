@@ -36,27 +36,28 @@ logger = logging.getLogger(__name__)
 # Lazy imports for config models — done inside methods to avoid
 # import-time failures when image_analysis is not installed.
 
-# 2D section order (matches CameraConfig field order)
+# 2D section order (matches ProcessingStepType enum definition order)
 _2D_SECTIONS = [
     "background",
-    "roi",
-    "crosshair_masking",
-    "circular_mask",
     "vignette",
+    "crosshair_masking",
+    "roi",
+    "circular_mask",
     "thresholding",
     "filtering",
     "normalization",
     "transforms",
 ]
 
-# 1D section order (matches Line1DConfig field order)
+# 1D section order: data_loading first (not a pipeline step), then
+# remaining sections in PipelineStepType enum definition order.
 _1D_SECTIONS = [
     "data_loading",
-    "background",
     "roi",
+    "interpolation",
+    "background",
     "filtering",
     "thresholding",
-    "interpolation",
 ]
 
 
@@ -92,6 +93,10 @@ class ConfigEditorPanel(QWidget):
         self._top_widgets: Dict[str, QWidget] = {}
         self._analysis_widget: Optional[DictFieldWidget] = None
         self._metadata_widget: Optional[DictFieldWidget] = None
+        # Bug 2: track whether the source YAML had an explicit pipeline key
+        self._source_had_pipeline: bool = False
+        # Bug 2: track whether the user has manually interacted with the pipeline
+        self._pipeline_user_modified: bool = False
 
         self._setup_ui()
 
@@ -192,13 +197,12 @@ class ConfigEditorPanel(QWidget):
             if extra and isinstance(extra, dict):
                 data.update(extra)
 
-        # Pipeline
-        if self._pipeline is not None:
+        # Pipeline — only emit if the source had one OR the user reordered steps
+        if self._pipeline is not None and (
+            self._source_had_pipeline or self._pipeline_user_modified
+        ):
             step_order = self._pipeline.get_step_order()
-            if self._config_type == "camera_2d":
-                data["pipeline"] = {"steps": step_order}
-            elif self._config_type == "line_1d":
-                data["pipeline"] = {"steps": step_order}
+            data["pipeline"] = {"steps": step_order}
 
         return data
 
@@ -334,6 +338,12 @@ class ConfigEditorPanel(QWidget):
 
             if field_value is not None:
                 section.set_values(field_value.model_dump())
+            elif "enabled" not in model_class.model_fields:
+                # Models without an ``enabled`` field cannot be toggled via
+                # a checkbox, so the SectionWidget has no enable/disable
+                # control.  Populate with defaults so the step remains
+                # visible and can be included in the pipeline order.
+                section.set_values(model_class().model_dump())
             else:
                 section.set_enabled(False)
 
@@ -356,6 +366,8 @@ class ConfigEditorPanel(QWidget):
 
         # Determine initially enabled steps from config
         pipeline_config = getattr(config, "pipeline", None)
+        self._source_had_pipeline = pipeline_config is not None
+        self._pipeline_user_modified = False
         if pipeline_config is not None and hasattr(pipeline_config, "steps"):
             steps = pipeline_config.steps
             if steps:
@@ -368,13 +380,16 @@ class ConfigEditorPanel(QWidget):
         else:
             self._set_pipeline_from_enabled_sections()
 
+        # Visual indicator: show whether pipeline came from source or is a default
+        self._pipeline.set_using_default(not self._source_had_pipeline)
+
         # Wire section enable/disable to pipeline
         for section_name, section in self._sections.items():
             section.sectionEnabledChanged.connect(
                 self._pipeline.on_section_enabled_changed
             )
 
-        self._pipeline.orderChanged.connect(self._on_value_changed)
+        self._pipeline.orderChanged.connect(self._on_pipeline_user_modified)
         self._content_layout.addWidget(self._pipeline)
 
     def _build_1d_editor(self, config) -> None:
@@ -473,6 +488,8 @@ class ConfigEditorPanel(QWidget):
 
         # Determine initially enabled steps from config
         pipeline_config = getattr(config, "pipeline", None)
+        self._source_had_pipeline = pipeline_config is not None
+        self._pipeline_user_modified = False
         if pipeline_config is not None and hasattr(pipeline_config, "steps"):
             steps = pipeline_config.steps
             if steps:
@@ -485,13 +502,16 @@ class ConfigEditorPanel(QWidget):
         else:
             self._set_pipeline_from_enabled_sections()
 
+        # Visual indicator: show whether pipeline came from source or is a default
+        self._pipeline.set_using_default(not self._source_had_pipeline)
+
         # Wire section enable/disable to pipeline
         for section_name, section in self._sections.items():
             section.sectionEnabledChanged.connect(
                 self._pipeline.on_section_enabled_changed
             )
 
-        self._pipeline.orderChanged.connect(self._on_value_changed)
+        self._pipeline.orderChanged.connect(self._on_pipeline_user_modified)
         self._content_layout.addWidget(self._pipeline)
 
     def _build_analysis_widget(self, analysis_data: Optional[Dict[str, Any]]) -> None:
@@ -623,6 +643,8 @@ class ConfigEditorPanel(QWidget):
         self._analysis_widget = None
         self._metadata_widget = None
         self._dirty = False
+        self._source_had_pipeline = False
+        self._pipeline_user_modified = False
 
         # Remove all widgets from the content layout
         while self._content_layout.count():
@@ -630,6 +652,18 @@ class ConfigEditorPanel(QWidget):
             widget = item.widget()
             if widget is not None:
                 widget.deleteLater()
+
+    def _on_pipeline_user_modified(self, *_args) -> None:
+        """Handle pipeline reorder by the user.
+
+        Marks the pipeline as explicitly modified so it will be included
+        in ``get_config_dict()`` even if the source YAML had no pipeline.
+        Also updates the visual indicator on the pipeline widget.
+        """
+        self._pipeline_user_modified = True
+        if self._pipeline is not None:
+            self._pipeline.set_using_default(False)
+        self._on_value_changed()
 
     def _on_value_changed(self, *_args) -> None:
         """Handle any value change in the editor.
