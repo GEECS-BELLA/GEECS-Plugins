@@ -146,23 +146,21 @@ class LineStitcher(LineAnalyzer):
 
         return result
 
+    _OUTPUT_FOLDER = "HTT-C23_MagSpecAnalysis"
+    _OUTPUT_LABEL = "HTT-C23_MagSpecStitched"
+
     def _save_stitched_output(
         self, result: ImageAnalyzerResult, file_path: Path
     ) -> None:
-        """Save the stitched lineout as a TSV alongside the per-camera interpSpec files.
-
-        Output goes to {scan_dir}/{line_config_name}/{stem}.tsv where the
-        device name in the stem is replaced with the line config name, matching
-        the naming convention used by the individual camera interpSpec directories.
-        """
+        """Save the stitched lineout as a TSV in HTT-C23_MagSpecAnalysis under the scan dir."""
         if result.line_data is None:
             return
 
-        device_in_filename = self._device_in_filename or file_path.parent.name
-        output_name = self.line_config.name
-        new_stem = file_path.stem.replace(device_in_filename, output_name, 1)
+        scan_dir = file_path.parent.parent
+        shot_num = file_path.stem.rsplit("_", 1)[-1]
+        new_stem = f"{scan_dir.name}_{self._OUTPUT_LABEL}_{shot_num}"
 
-        output_dir = file_path.parent.parent / output_name
+        output_dir = scan_dir / self._OUTPUT_FOLDER
         output_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = result.metadata or {}
