@@ -117,12 +117,20 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
 
 
 def _write_atomic(path: Path, content: str) -> None:
-    """Write content to path atomically via a temp file + os.replace().
+    """Write content to path, atomically where the OS supports it.
 
-    Prevents partial-overwrite corruption on NFS when two writers race:
-    os.replace() is atomic on POSIX, so readers always see either the old
-    or the new file, never a byte-level mix of the two.
+    On POSIX, uses a temp file + os.replace() so readers always see either the
+    old or new file, never a partial write.
+
+    On Windows, writes directly instead: os.replace() requires DELETE permission
+    on the destination, which is typically restricted to the file's creator on
+    SMB shares. Direct writes only require WRITE permission, which is granted
+    more broadly, allowing multiple machines to update the same status file.
     """
+    if os.name == "nt":
+        path.write_text(content, encoding="utf-8")
+        return
+
     dir_ = path.parent
     fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
     try:
