@@ -15,13 +15,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
-from image_analysis.types import Array1D
+from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ class LineStitcher(LineAnalyzer):
     ):
         super().__init__(line_config_name, metric_suffix)
         self.sibling_devices = sibling_devices
+        self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:
         """Load and concatenate data from the master device and all siblings.
@@ -57,7 +58,7 @@ class LineStitcher(LineAnalyzer):
         ----------
         file_path : Path
             Path to the master device file, e.g.
-            ``/scan_dir/magcam1/magcam1_001.tsv``.
+            /scan_dir/magcam1/magcam1_001.tsv.
 
         Returns
         -------
@@ -98,6 +99,9 @@ class LineStitcher(LineAnalyzer):
             device_in_filename = device_in_filename.rsplit("-", 1)[0]
         dir_suffix = master_device[len(device_in_filename) :]  # e.g. "-interpSpec"
 
+        # Cache for use in _save_stitched_output
+        self._device_in_filename = device_in_filename
+
         # Sibling files
         for device in self.sibling_devices:
             sibling_in_file = (
@@ -126,3 +130,55 @@ class LineStitcher(LineAnalyzer):
         )
 
         return combined
+
+    def analyze_image(
+        self, image: Array1D, auxiliary_data: Optional[Dict] = None
+    ) -> ImageAnalyzerResult:
+        """Analyze stitched line data and save the result as a TSV."""
+        result = super().analyze_image(image=image, auxiliary_data=auxiliary_data)
+
+        file_path = auxiliary_data.get("file_path") if auxiliary_data else None
+        if file_path is not None:
+            try:
+                self._save_stitched_output(result, Path(file_path))
+            except Exception as e:
+                logger.warning("Failed to save stitched output for %s: %s", file_path, e)
+
+        return result
+
+    def _save_stitched_output(
+        self, result: ImageAnalyzerResult, file_path: Path
+    ) -> None:
+        """Save the stitched lineout as a TSV alongside the per-camera interpSpec files.
+
+        Output goes to {scan_dir}/{line_config_name}/{stem}.tsv where the
+        device name in the stem is replaced with the line config name, matching
+        the naming convention used by the individual camera interpSpec directories.
+        """
+        if result.line_data is None:
+            return
+
+        device_in_filename = self._device_in_filename or file_path.parent.name
+        output_name = self.line_config.name
+        new_stem = file_path.stem.replace(device_in_filename, output_name, 1)
+
+        output_dir = file_path.parent.parent / output_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        metadata = result.metadata or {}
+        x_label = metadata.get("x_label", "X")
+        x_units = metadata.get("x_units", "")
+        y_label = metadata.get("y_label", "Y")
+        y_units = metadata.get("y_units", "")
+        x_header = f"{x_label} [{x_units}]" if x_units else x_label
+        y_header = f"{y_label} [{y_units}]" if y_units else y_label
+
+        output_path = output_dir / f"{new_stem}.tsv"
+        np.savetxt(
+            str(output_path),
+            result.line_data,
+            delimiter="	",
+            header=f"{x_header}	{y_header}",
+            comments="",
+        )
+        logger.info("Saved stitched lineout to %s", output_path)
