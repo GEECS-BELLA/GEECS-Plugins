@@ -142,7 +142,9 @@ class LineStitcher(LineAnalyzer):
             try:
                 self._save_stitched_output(result, Path(file_path))
             except Exception as e:
-                logger.warning("Failed to save stitched output for %s: %s", file_path, e)
+                logger.warning(
+                    "Failed to save stitched output for %s: %s", file_path, e
+                )
 
         return result
 
