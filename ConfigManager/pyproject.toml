@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "config-manager"
+version = "0.1.0"
+description = "PyQt5 GUI for creating and editing GEECS analysis config YAML files"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+packages = [{include = "config_manager"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+PyQt5 = "^5.15"
+pyyaml = "^6.0"
+pydantic = "^2.0"
+imageanalysis = { path = "../ImageAnalysis", develop = true }
+scananalysis = { path = "../ScanAnalysis", develop = true }
+
+[tool.poetry.scripts]
+config-manager = "config_manager.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
