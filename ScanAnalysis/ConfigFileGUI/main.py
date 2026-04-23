@@ -45,6 +45,15 @@ def _parse_args() -> argparse.Namespace:
             "device configuration YAML files."
         ),
     )
+    p.add_argument(
+        "--scan-config-dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to the scan_analysis_configs directory containing "
+            "scan configuration YAML files (experiments, library, groups)."
+        ),
+    )
     return p.parse_args()
 
 
@@ -69,6 +78,11 @@ def main() -> int:
     if args.config_dir is not None:
         config_dir = Path(args.config_dir).resolve()
 
+    # Resolve scan config directory if provided
+    scan_config_dir: Optional[Path] = None
+    if args.scan_config_dir is not None:
+        scan_config_dir = Path(args.scan_config_dir).resolve()
+
     # Import Qt after logging is set up
     from PyQt5.QtWidgets import QApplication
 
@@ -77,7 +91,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Config File Editor")
 
-    window = ConfigEditorWindow(config_dir=config_dir)
+    window = ConfigEditorWindow(
+        config_dir=config_dir,
+        scan_config_dir=scan_config_dir,
+    )
     window.show()
 
     return app.exec_()

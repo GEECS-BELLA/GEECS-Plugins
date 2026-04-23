@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QComboBox,
     QVBoxLayout,
     QWidget,
 )
@@ -65,6 +66,7 @@ class FileListPanel(QWidget):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self._config_dir: Optional[Path] = None
+        self._mode: str = "DEVICE"  # "DEVICE" or "SCAN"
         self._file_paths: dict[str, Path] = {}  # display text -> full path
 
         self._setup_ui()
@@ -84,6 +86,18 @@ class FileListPanel(QWidget):
         self._dir_label.setWordWrap(True)
         self._dir_label.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(self._dir_label)
+
+        # Category selector for Scan Analysis mode
+        self._category_selector = QComboBox()
+        self._category_selector.addItems(
+            [
+                "Experiments",
+                "Library Analyzers",
+                "Library Groups",
+            ]
+        )
+        self._category_selector.hide()
+        layout.addWidget(self._category_selector)
 
         # Search / filter
         self._filter_edit = QLineEdit()
@@ -114,10 +128,26 @@ class FileListPanel(QWidget):
         self._new_2d_btn.clicked.connect(self._on_new_2d_clicked)
         self._new_1d_btn.clicked.connect(self._on_new_1d_clicked)
         self._refresh_btn.clicked.connect(self.refresh)
+        self._category_selector.currentIndexChanged.connect(self.refresh)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_mode(self, mode: str) -> None:
+        """Switch between 'DEVICE' and 'SCAN' modes.
+
+        Parameters
+        ----------
+        mode : str
+            The mode to switch to ("DEVICE" or "SCAN").
+        """
+        self._mode = mode
+        if mode == "SCAN":
+            self._category_selector.show()
+        else:
+            self._category_selector.hide()
+        self.refresh()
 
     def set_config_dir(self, dir_path: Path) -> None:
         """Set the configuration directory and refresh the file list.
@@ -141,6 +171,10 @@ class FileListPanel(QWidget):
     def refresh(self) -> None:
         """Reload the file list from the current directory.
 
+        In 'DEVICE' mode, lists files from the base config directory.
+        In 'SCAN' mode, lists files from sub-directories based on the
+        selected category.
+
         Calls :func:`config_io.list_config_files` and populates the
         list widget with type-prefixed filenames.
         """
@@ -150,11 +184,28 @@ class FileListPanel(QWidget):
         if self._config_dir is None:
             return
 
+        # Determine target directory and filter based on mode
+        target_dir = self._config_dir
+        filter_filename: Optional[str] = None
+
+        if self._mode == "SCAN":
+            category = self._category_selector.currentText()
+            if category == "Experiments":
+                target_dir = self._config_dir / "experiments"
+            elif category == "Library Analyzers":
+                target_dir = self._config_dir / "library/analyzers"
+            elif category == "Library Groups":
+                target_dir = self._config_dir / "library"
+                filter_filename = "groups.yaml"
+
         try:
-            files = list_config_files(self._config_dir)
+            files = list_config_files(target_dir)
         except (FileNotFoundError, NotADirectoryError) as exc:
-            logger.warning("Cannot list config files: %s", exc)
+            logger.warning("Cannot list config files in %s: %s", target_dir, exc)
             return
+
+        if filter_filename:
+            files = [f for f in files if f.name == filter_filename]
 
         for file_path in files:
             try:
