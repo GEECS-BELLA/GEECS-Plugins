@@ -2,6 +2,8 @@
 
 Modules
 -------
+analysis_preview
+    Analysis preview dialog for running and visualising image analysis.
 config_io
     Device-config I/O layer (load, save, validate, list).
 config_editor_panel

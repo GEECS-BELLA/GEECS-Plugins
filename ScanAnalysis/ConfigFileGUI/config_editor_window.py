@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from .analysis_preview import AnalysisPreviewDialog
 from .config_editor_panel import ConfigEditorPanel
 from .config_io import detect_config_type, load_config, save_config
 from .experiment_editor import ExperimentEditorPanel
@@ -319,6 +320,12 @@ class ConfigEditorWindow(QMainWindow):
         self._toggle_yaml_action.setChecked(False)
         self._toggle_yaml_action.triggered.connect(self._on_toggle_yaml_preview)
         view_menu.addAction(self._toggle_yaml_action)
+
+        view_menu.addSeparator()
+
+        self._analysis_preview_action = QAction("&Analysis Preview…", self)
+        self._analysis_preview_action.triggered.connect(self._on_analysis_preview)
+        view_menu.addAction(self._analysis_preview_action)
 
     def _setup_statusbar(self) -> None:
         """Create the status bar."""
@@ -768,6 +775,42 @@ class ConfigEditorWindow(QMainWindow):
         else:
             # Cancel
             return False
+
+    # ------------------------------------------------------------------
+    # Analysis preview
+    # ------------------------------------------------------------------
+
+    def get_current_config_info(self) -> tuple:
+        """Return info about the currently loaded device config.
+
+        Returns
+        -------
+        tuple
+            ``(config_name, config_dict, config_type)`` where
+            *config_name* is the file stem, *config_dict* is the
+            current in-memory dict from the editor, and *config_type*
+            is ``"camera_2d"`` or ``"line_1d"``.  Returns
+            ``("", {}, "")`` when no config is loaded.
+        """
+        if self._current_file is None or self._current_config_type == "":
+            return ("", {}, "")
+
+        config_dict = self._editor_panel.get_config_dict()
+        return (
+            self._current_file.stem,
+            config_dict,
+            self._current_config_type,
+        )
+
+    def _on_analysis_preview(self) -> None:
+        """Open the Analysis Preview dialog."""
+        config_dir = self._file_list.get_config_dir()
+        dlg = AnalysisPreviewDialog(
+            config_dir=config_dir,
+            get_current_config=self.get_current_config_info,
+            parent=self,
+        )
+        dlg.show()
 
     def closeEvent(self, event) -> None:
         """Handle window close — check for unsaved changes.

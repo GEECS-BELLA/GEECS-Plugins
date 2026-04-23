@@ -241,6 +241,17 @@ class FileListPanel(QWidget):
             return None
         return self._file_paths.get(current.text())
 
+    def get_config_dir(self) -> Optional[Path]:
+        """Return the current device-config directory.
+
+        Returns
+        -------
+        Path or None
+            The directory set via :meth:`set_config_dir`, or ``None``
+            if no directory has been selected yet.
+        """
+        return self._config_dir
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
