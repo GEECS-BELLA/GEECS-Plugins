@@ -51,6 +51,38 @@ from .yaml_preview import YamlPreviewPanel
 logger = logging.getLogger(__name__)
 
 
+def _groups_to_display_yaml(
+    groups_data: dict,
+) -> str:
+    """Convert internal groups data to the user-facing YAML format.
+
+    Transforms the ``{"id": str, "enabled": bool}`` internal representation
+    into the ``groups.yaml`` convention where enabled entries are plain list
+    items and disabled entries are commented-out lines.
+
+    Parameters
+    ----------
+    groups_data : dict
+        Mapping of group name to list of ``{"id": str, "enabled": bool}``.
+
+    Returns
+    -------
+    str
+        YAML-formatted text matching the on-disk ``groups.yaml`` format.
+    """
+    lines: list[str] = ["groups:"]
+    for group_name, members in groups_data.items():
+        lines.append(f"  {group_name}:")
+        for member in members:
+            analyzer_id = member["id"]
+            enabled = member.get("enabled", True)
+            if enabled:
+                lines.append(f"    - {analyzer_id}")
+            else:
+                lines.append(f"    # - {analyzer_id}")
+    return "\n".join(lines) + "\n"
+
+
 class ConfigEditorWindow(QMainWindow):
     """Main window for the Config File Editor.
 
@@ -617,16 +649,18 @@ class ConfigEditorWindow(QMainWindow):
             current_index = self._scan_stack.currentIndex()
             if current_index == 0:
                 config_dict = self._scan_analyzer_editor.get_config_dict()
+                self._scan_yaml_preview.update_preview(config_dict)
             elif current_index == 1:
-                config_dict = self._scan_groups_editor.get_groups_data()
+                groups_data = self._scan_groups_editor.get_groups_data()
+                yaml_text = _groups_to_display_yaml(groups_data)
+                self._scan_yaml_preview.update_preview_raw(yaml_text)
             elif current_index == 2:
                 config_dict = self._scan_experiment_editor.get_config_dict()
+                self._scan_yaml_preview.update_preview(config_dict)
             else:
                 # Placeholder is showing — clear the preview
                 self._scan_yaml_preview.clear()
                 return
-
-            self._scan_yaml_preview.update_preview(config_dict)
         except Exception as exc:
             logger.warning("Failed to update scan YAML preview: %s", exc)
 

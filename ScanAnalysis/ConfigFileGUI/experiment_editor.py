@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
@@ -163,10 +164,11 @@ class IncludeEntryDialog(QDialog):
         # -- Target value combo box -----------------------------------------
         target_layout = QFormLayout()
 
+        self._target_label = QLabel("Group:")
         self._target_combo = QComboBox()
         self._target_combo.setEditable(True)
         self._target_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        target_layout.addRow("Target:", self._target_combo)
+        target_layout.addRow(self._target_label, self._target_combo)
         layout.addLayout(target_layout)
 
         # Populate initial combo contents
@@ -225,7 +227,11 @@ class IncludeEntryDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _on_type_changed(self) -> None:
-        """Swap combo box contents when the radio button changes."""
+        """Swap combo box contents and label when the radio button changes."""
+        if self._radio_group_btn.isChecked():
+            self._target_label.setText("Group:")
+        else:
+            self._target_label.setText("Analyzer:")
         self._update_target_combo()
 
     def _update_target_combo(self) -> None:

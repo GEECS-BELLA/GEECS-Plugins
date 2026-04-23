@@ -101,6 +101,20 @@ class YamlPreviewPanel(QWidget):
             logger.warning("Failed to serialize config to YAML: %s", exc)
             self._text_edit.setPlainText(f"# Error serializing YAML:\n# {exc}")
 
+    def update_preview_raw(self, yaml_text: str) -> None:
+        """Display pre-formatted YAML text directly.
+
+        Unlike :meth:`update_preview`, this bypasses ``yaml.safe_dump``
+        and displays the provided text as-is.  Useful for formats that
+        include comments (e.g. ``groups.yaml``).
+
+        Parameters
+        ----------
+        yaml_text : str
+            Pre-formatted YAML string to display.
+        """
+        self._text_edit.setPlainText(yaml_text)
+
     def clear(self) -> None:
         """Clear the YAML preview text."""
         self._text_edit.clear()

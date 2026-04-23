@@ -15,11 +15,19 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+import yaml
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QMessageBox,
     QPushButton,
     QStyle,
     QTreeWidget,
@@ -97,14 +105,24 @@ class ScanTreePanel(QWidget):
         self._tree.setColumnCount(1)
         layout.addWidget(self._tree, stretch=1)
 
-        # Refresh button
+        # Bottom row: Refresh + New Config buttons
+        bottom_row = QHBoxLayout()
         self._refresh_btn = QPushButton("Refresh")
-        layout.addWidget(self._refresh_btn)
+        bottom_row.addWidget(self._refresh_btn)
+
+        self._new_config_btn = QPushButton("New Config…")
+        self._new_config_btn.setToolTip(
+            "Create a new library analyzer or experiment config file"
+        )
+        bottom_row.addWidget(self._new_config_btn)
+
+        layout.addLayout(bottom_row)
 
     def _connect_signals(self) -> None:
         """Wire up internal signals and slots."""
         self._browse_btn.clicked.connect(self._on_browse_clicked)
         self._refresh_btn.clicked.connect(self.refresh)
+        self._new_config_btn.clicked.connect(self._on_new_config_clicked)
         self._tree.itemClicked.connect(self._on_item_clicked)
 
     # ------------------------------------------------------------------
@@ -261,3 +279,153 @@ class ScanTreePanel(QWidget):
             dir_str = "..." + dir_str[-47:]
         self._path_label.setText(dir_str)
         self._path_label.setToolTip(str(self._root))
+
+    def _on_new_config_clicked(self) -> None:
+        """Open a dialog to create a new analyzer or experiment config."""
+        if self._root is None:
+            QMessageBox.warning(
+                self,
+                "No Root Directory",
+                "Please select a scan_analysis_configs directory first.",
+            )
+            return
+
+        dialog = _NewConfigDialog(self)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+
+        config_type = dialog.get_config_type()
+        filename = dialog.get_filename()
+
+        if not filename:
+            return
+
+        # Ensure .yaml extension
+        if not filename.endswith(".yaml"):
+            filename += ".yaml"
+
+        if config_type == "Library Analyzer":
+            target_dir = self._root / "library" / "analyzers"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            file_path = target_dir / filename
+            template = _ANALYZER_TEMPLATE.copy()
+            template["id"] = Path(filename).stem
+            scan_type = "analyzer"
+        else:
+            target_dir = self._root / "experiments"
+            target_dir.mkdir(parents=True, exist_ok=True)
+            file_path = target_dir / filename
+            template = _EXPERIMENT_TEMPLATE.copy()
+            template["experiment"] = Path(filename).stem
+            scan_type = "experiment"
+
+        if file_path.exists():
+            QMessageBox.warning(
+                self,
+                "File Exists",
+                f"A file named '{filename}' already exists in\n{target_dir}",
+            )
+            return
+
+        try:
+            text = yaml.safe_dump(template, default_flow_style=False, sort_keys=False)
+            file_path.write_text(text, encoding="utf-8")
+            logger.info("Created new %s config: %s", config_type, file_path)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Creation Error",
+                f"Failed to create config file:\n{exc}",
+            )
+            return
+
+        # Refresh the tree and auto-select the new file
+        self._build_tree()
+        self.file_selected.emit(file_path, scan_type)
+
+
+# ---------------------------------------------------------------------------
+# New Config Dialog
+# ---------------------------------------------------------------------------
+
+_ANALYZER_TEMPLATE: dict = {
+    "id": "NewAnalyzer",
+    "type": "array2d",
+    "device_name": "",
+    "image_analyzer": {
+        "analyzer_class": "",
+        "config_name": "",
+    },
+}
+
+_EXPERIMENT_TEMPLATE: dict = {
+    "experiment": "new_experiment",
+    "description": "",
+    "version": "1.0",
+    "include": [],
+}
+
+
+class _NewConfigDialog(QDialog):
+    """Simple dialog to choose config type and filename for creation.
+
+    Parameters
+    ----------
+    parent : QWidget, optional
+        Parent widget.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("New Config File")
+        self.setMinimumWidth(350)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self._type_combo = QComboBox()
+        self._type_combo.addItems(["Library Analyzer", "Experiment"])
+        form.addRow("Config type:", self._type_combo)
+
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("Filename (without .yaml)")
+        form.addRow("Filename:", self._name_edit)
+
+        layout.addLayout(form)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self._on_accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def _on_accept(self) -> None:
+        """Validate and accept the dialog."""
+        name = self._name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(
+                self,
+                "Validation Error",
+                "Please enter a filename.",
+            )
+            return
+        self.accept()
+
+    def get_config_type(self) -> str:
+        """Return the selected config type string.
+
+        Returns
+        -------
+        str
+            Either ``"Library Analyzer"`` or ``"Experiment"``.
+        """
+        return self._type_combo.currentText()
+
+    def get_filename(self) -> str:
+        """Return the entered filename (stripped).
+
+        Returns
+        -------
+        str
+            The filename without leading/trailing whitespace.
+        """
+        return self._name_edit.text().strip()
