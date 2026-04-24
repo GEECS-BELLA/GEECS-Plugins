@@ -46,9 +46,13 @@ class LineStitcher(LineAnalyzer):
         line_config_name: str,
         sibling_devices: List[str],
         metric_suffix: Optional[str] = None,
+        output_folder: str = "stitched_files",
+        output_label: str = "stitched_data",
     ):
         super().__init__(line_config_name, metric_suffix)
         self.sibling_devices = sibling_devices
+        self.output_folder = output_folder
+        self.output_label = output_label
         self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:
@@ -148,21 +152,18 @@ class LineStitcher(LineAnalyzer):
 
         return result
 
-    _OUTPUT_FOLDER = "HTT-C23_MagSpecAnalysis"
-    _OUTPUT_LABEL = "HTT-C23_MagSpecStitched"
-
     def _save_stitched_output(
         self, result: ImageAnalyzerResult, file_path: Path
     ) -> None:
-        """Save the stitched lineout as a TSV in HTT-C23_MagSpecAnalysis under the scan dir."""
+        """Save the stitched lineout as a TSV under the scan dir."""
         if result.line_data is None:
             return
 
         scan_dir = file_path.parent.parent
         shot_num = file_path.stem.rsplit("_", 1)[-1]
-        new_stem = f"{scan_dir.name}_{self._OUTPUT_LABEL}_{shot_num}"
+        new_stem = f"{scan_dir.name}_{self.output_label}_{shot_num}"
 
-        output_dir = scan_dir / self._OUTPUT_FOLDER
+        output_dir = scan_dir / self.output_folder
         output_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = result.metadata or {}
