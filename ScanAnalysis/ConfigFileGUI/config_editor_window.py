@@ -14,22 +14,74 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5.QtCore import QTimer
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QAction,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
+    QStackedWidget,
     QStatusBar,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
+from .analysis_preview import AnalysisPreviewDialog
 from .config_editor_panel import ConfigEditorPanel
 from .config_io import detect_config_type, load_config, save_config
+from .experiment_editor import ExperimentEditorPanel
 from .file_list_panel import FileListPanel
+from .groups_editor import GroupsEditorPanel
+from .scan_analyzer_editor import ScanAnalyzerEditorPanel
+from .scan_config_io import (
+    list_all_analyzer_ids,
+    load_analyzer_yaml,
+    load_experiment_yaml,
+    load_groups_yaml,
+    save_analyzer_yaml,
+    save_experiment_yaml,
+    save_groups_yaml,
+)
+from .scan_tree_panel import ScanTreePanel
 from .yaml_preview import YamlPreviewPanel
 
 logger = logging.getLogger(__name__)
+
+
+def _groups_to_display_yaml(
+    groups_data: dict,
+) -> str:
+    """Convert internal groups data to the user-facing YAML format.
+
+    Transforms the ``{"id": str, "enabled": bool}`` internal representation
+    into the ``groups.yaml`` convention where enabled entries are plain list
+    items and disabled entries are commented-out lines.
+
+    Parameters
+    ----------
+    groups_data : dict
+        Mapping of group name to list of ``{"id": str, "enabled": bool}``.
+
+    Returns
+    -------
+    str
+        YAML-formatted text matching the on-disk ``groups.yaml`` format.
+    """
+    lines: list[str] = ["groups:"]
+    for group_name, members in groups_data.items():
+        lines.append(f"  {group_name}:")
+        for member in members:
+            analyzer_id = member["id"]
+            enabled = member.get("enabled", True)
+            if enabled:
+                lines.append(f"    - {analyzer_id}")
+            else:
+                lines.append(f"    # - {analyzer_id}")
+    return "\n".join(lines) + "\n"
 
 
 class ConfigEditorWindow(QMainWindow):
@@ -45,6 +97,10 @@ class ConfigEditorWindow(QMainWindow):
         files.  If ``None``, the user is prompted to select a directory
         or the ``IMAGE_ANALYSIS_CONFIG_DIR`` environment variable is
         used.
+    scan_config_dir : Path, optional
+        Path to the ``scan_analysis_configs/`` root directory.  When
+        provided, the Scan Configs tree panel is pre-populated with
+        this directory.
     parent : QMainWindow, optional
         Parent widget, if any.
     """
@@ -52,6 +108,7 @@ class ConfigEditorWindow(QMainWindow):
     def __init__(
         self,
         config_dir: Optional[Path] = None,
+        scan_config_dir: Optional[Path] = None,
         parent: Optional[QMainWindow] = None,
     ) -> None:
         super().__init__(parent)
@@ -60,6 +117,10 @@ class ConfigEditorWindow(QMainWindow):
         self._current_config_type: str = ""
         self._yaml_preview_visible: bool = False
         self._debounce_timer: Optional[QTimer] = None
+
+        # Scan config state
+        self._scan_current_path: Optional[Path] = None
+        self._scan_current_type: str = ""
 
         self._setup_window()
         self._setup_panels()
@@ -79,6 +140,10 @@ class ConfigEditorWindow(QMainWindow):
                 # Defer directory selection — user can open via menu
                 pass
 
+        # Set initial scan config directory if provided
+        if scan_config_dir is not None:
+            self._scan_tree.set_root(scan_config_dir)
+
     # ------------------------------------------------------------------
     # Setup helpers
     # ------------------------------------------------------------------
@@ -89,9 +154,23 @@ class ConfigEditorWindow(QMainWindow):
         self.resize(1400, 900)
 
     def _setup_panels(self) -> None:
-        """Create the three-panel splitter layout."""
-        self._splitter = QSplitter(self)
-        self.setCentralWidget(self._splitter)
+        """Create the tabbed interface for different config types."""
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        self._tabs = QTabWidget()
+        main_layout.addWidget(self._tabs)
+
+        # ---- Device Configs tab ----
+        self._device_tab = QWidget()
+        device_layout = QVBoxLayout(self._device_tab)
+        device_layout.setContentsMargins(0, 0, 0, 0)
+        device_layout.setSpacing(0)
+
+        self._splitter = QSplitter()
 
         # Left: file list
         self._file_list = FileListPanel(self)
@@ -109,6 +188,89 @@ class ConfigEditorWindow(QMainWindow):
 
         # Set initial splitter sizes
         self._splitter.setSizes([280, 820, 300])
+        device_layout.addWidget(self._splitter)
+
+        self._tabs.addTab(self._device_tab, "Device Configs")
+
+        # ---- Scan Configs tab ----
+        self._setup_scan_tab()
+
+        # Connect tab change signal
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+
+    def _setup_scan_tab(self) -> None:
+        """Build the Scan Configs tab with tree, stacked editors, and YAML preview."""
+        self._scan_tab = QWidget()
+        scan_layout = QVBoxLayout(self._scan_tab)
+        scan_layout.setContentsMargins(0, 0, 0, 0)
+        scan_layout.setSpacing(0)
+
+        self._scan_splitter = QSplitter(Qt.Horizontal)
+
+        # -- Left pane (20%): ScanTreePanel --
+        self._scan_tree = ScanTreePanel(self)
+        self._scan_tree.setMinimumWidth(200)
+        self._scan_splitter.addWidget(self._scan_tree)
+
+        # -- Center pane (50%): Save button + QStackedWidget --
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(0)
+
+        self._scan_stack = QStackedWidget()
+
+        # Index 0: ScanAnalyzerEditorPanel
+        self._scan_analyzer_editor = ScanAnalyzerEditorPanel(self)
+        self._scan_stack.addWidget(self._scan_analyzer_editor)
+
+        # Index 1: GroupsEditorPanel
+        self._scan_groups_editor = GroupsEditorPanel(self)
+        self._scan_stack.addWidget(self._scan_groups_editor)
+
+        # Index 2: ExperimentEditorPanel
+        self._scan_experiment_editor = ExperimentEditorPanel(self)
+        self._scan_stack.addWidget(self._scan_experiment_editor)
+
+        # Index 3: Placeholder label (shown initially)
+        placeholder = QLabel("Select a config file from the tree on the left")
+        placeholder.setAlignment(Qt.AlignCenter)
+        placeholder.setStyleSheet("color: gray; font-size: 14px;")
+        self._scan_stack.addWidget(placeholder)
+        self._scan_stack.setCurrentIndex(3)
+
+        center_layout.addWidget(self._scan_stack, stretch=1)
+
+        # Save button at bottom of center pane
+        self._scan_save_btn = QPushButton("Save")
+        self._scan_save_btn.setToolTip("Save the current scan config file")
+        self._scan_save_btn.clicked.connect(self._on_scan_save)
+        center_layout.addWidget(self._scan_save_btn)
+
+        self._scan_splitter.addWidget(center_widget)
+
+        # -- Right pane (30%): YamlPreviewPanel --
+        self._scan_yaml_preview = YamlPreviewPanel(self)
+        self._scan_splitter.addWidget(self._scan_yaml_preview)
+
+        # Set initial splitter sizes (20%, 50%, 30%)
+        self._scan_splitter.setSizes([280, 700, 420])
+        scan_layout.addWidget(self._scan_splitter)
+
+        self._tabs.addTab(self._scan_tab, "Scan Configs")
+
+        # Wire scan-tab signals
+        self._scan_tree.file_selected.connect(self._on_scan_file_selected)
+        self._scan_tree.root_changed.connect(self._on_scan_root_changed)
+        self._scan_analyzer_editor.config_changed.connect(
+            self._on_scan_editor_changed,
+        )
+        self._scan_groups_editor.groups_changed.connect(
+            self._on_scan_editor_changed,
+        )
+        self._scan_experiment_editor.config_changed.connect(
+            self._on_scan_editor_changed,
+        )
 
     def _setup_menus(self) -> None:
         """Build the menu bar with File, Edit, and View menus."""
@@ -159,6 +321,12 @@ class ConfigEditorWindow(QMainWindow):
         self._toggle_yaml_action.triggered.connect(self._on_toggle_yaml_preview)
         view_menu.addAction(self._toggle_yaml_action)
 
+        view_menu.addSeparator()
+
+        self._analysis_preview_action = QAction("&Analysis Preview…", self)
+        self._analysis_preview_action.triggered.connect(self._on_analysis_preview)
+        view_menu.addAction(self._analysis_preview_action)
+
     def _setup_statusbar(self) -> None:
         """Create the status bar."""
         self._statusbar = QStatusBar(self)
@@ -180,6 +348,11 @@ class ConfigEditorWindow(QMainWindow):
 
         # Connect editor valueChanged to debounced preview update
         self._editor_panel.valueChanged.connect(self._on_editor_value_changed)
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Handle switching between configuration tabs."""
+        tab_text = self._tabs.tabText(index)
+        self._statusbar.showMessage(f"Mode: {tab_text}")
 
     # ------------------------------------------------------------------
     # Slots: File operations
@@ -225,6 +398,11 @@ class ConfigEditorWindow(QMainWindow):
 
     def _on_save(self) -> None:
         """Save the current config to its file path."""
+        # If the Scan Configs tab is active, delegate to scan save
+        if self._tabs.currentIndex() == 1:
+            self._on_scan_save()
+            return
+
         if self._current_file is None:
             self._statusbar.showMessage("No file loaded to save")
             return
@@ -386,6 +564,175 @@ class ConfigEditorWindow(QMainWindow):
         self._update_title()
 
     # ------------------------------------------------------------------
+    # Scan Configs tab: signal handlers
+    # ------------------------------------------------------------------
+
+    def _on_scan_file_selected(self, file_path: Path, config_type: str) -> None:
+        """Handle file selection from the :class:`ScanTreePanel`.
+
+        Loads the selected file into the appropriate editor panel and
+        switches the stacked widget to display it.
+
+        Parameters
+        ----------
+        file_path : Path
+            Full path to the selected configuration file.
+        config_type : str
+            One of ``"analyzer"``, ``"groups"``, or ``"experiment"``.
+        """
+        try:
+            if config_type == "analyzer":
+                data = load_analyzer_yaml(file_path)
+                self._scan_analyzer_editor.load_config(data)
+                self._scan_stack.setCurrentIndex(0)
+
+            elif config_type == "groups":
+                data = load_groups_yaml(file_path)
+                self._scan_groups_editor.load_groups(data)
+                # Populate autocomplete with known analyzer IDs
+                root = self._scan_tree.get_root()
+                if root is not None:
+                    ids = list_all_analyzer_ids(root)
+                    self._scan_groups_editor.set_analyzer_ids(ids)
+                self._scan_stack.setCurrentIndex(1)
+
+            elif config_type == "experiment":
+                data = load_experiment_yaml(file_path)
+                self._scan_experiment_editor.load_config(data)
+                # Populate available groups and analyzer IDs
+                root = self._scan_tree.get_root()
+                if root is not None:
+                    ids = list_all_analyzer_ids(root)
+                    self._scan_experiment_editor.set_available_analyzers(ids)
+                    group_names = self._get_group_names_from_root(root)
+                    self._scan_experiment_editor.set_available_groups(group_names)
+                self._scan_stack.setCurrentIndex(2)
+
+            else:
+                self._statusbar.showMessage(f"Unknown scan config type: {config_type}")
+                return
+
+            self._scan_current_path = file_path
+            self._scan_current_type = config_type
+            self._statusbar.showMessage(f"Loaded: {file_path.name} ({config_type})")
+
+            # Update YAML preview immediately
+            self._update_scan_yaml_preview()
+
+        except Exception as exc:
+            logger.exception("Failed to load scan config: %s", file_path)
+            self._statusbar.showMessage(f"Error loading: {file_path.name} — {exc}")
+
+    def _on_scan_root_changed(self, root: Path) -> None:
+        """Handle root directory change in the :class:`ScanTreePanel`.
+
+        Reloads available analyzer IDs and group names for autocomplete
+        and combo-box population.
+
+        Parameters
+        ----------
+        root : Path
+            New root directory path.
+        """
+        try:
+            ids = list_all_analyzer_ids(root)
+            self._scan_groups_editor.set_analyzer_ids(ids)
+            self._scan_experiment_editor.set_available_analyzers(ids)
+
+            group_names = self._get_group_names_from_root(root)
+            self._scan_experiment_editor.set_available_groups(group_names)
+        except Exception as exc:
+            logger.warning("Error refreshing scan config data from root: %s", exc)
+
+        self._statusbar.showMessage(f"Scan config root: {root}")
+
+    def _on_scan_editor_changed(self) -> None:
+        """Handle config_changed / groups_changed from any scan editor."""
+        self._update_scan_yaml_preview()
+
+    def _update_scan_yaml_preview(self) -> None:
+        """Update the scan-tab YAML preview from the active editor."""
+        try:
+            current_index = self._scan_stack.currentIndex()
+            if current_index == 0:
+                config_dict = self._scan_analyzer_editor.get_config_dict()
+                self._scan_yaml_preview.update_preview(config_dict)
+            elif current_index == 1:
+                groups_data = self._scan_groups_editor.get_groups_data()
+                yaml_text = _groups_to_display_yaml(groups_data)
+                self._scan_yaml_preview.update_preview_raw(yaml_text)
+            elif current_index == 2:
+                config_dict = self._scan_experiment_editor.get_config_dict()
+                self._scan_yaml_preview.update_preview(config_dict)
+            else:
+                # Placeholder is showing — clear the preview
+                self._scan_yaml_preview.clear()
+                return
+        except Exception as exc:
+            logger.warning("Failed to update scan YAML preview: %s", exc)
+
+    def _on_scan_save(self) -> None:
+        """Save the current scan config file."""
+        if self._scan_current_path is None or not self._scan_current_type:
+            self._statusbar.showMessage("No scan config file loaded to save")
+            return
+
+        try:
+            if self._scan_current_type == "analyzer":
+                data = self._scan_analyzer_editor.get_config_dict()
+                save_analyzer_yaml(self._scan_current_path, data)
+
+            elif self._scan_current_type == "groups":
+                data = self._scan_groups_editor.get_groups_data()
+                save_groups_yaml(self._scan_current_path, data)
+
+            elif self._scan_current_type == "experiment":
+                data = self._scan_experiment_editor.get_config_dict()
+                save_experiment_yaml(self._scan_current_path, data)
+
+            else:
+                self._statusbar.showMessage(
+                    f"Unknown scan config type: {self._scan_current_type}"
+                )
+                return
+
+            self._statusbar.showMessage(f"Saved: {self._scan_current_path.name}")
+        except Exception as exc:
+            logger.exception("Failed to save scan config: %s", exc)
+            self._statusbar.showMessage(
+                f"Save error: {self._scan_current_path.name} — {exc}"
+            )
+
+    # ------------------------------------------------------------------
+    # Scan Configs tab: helpers
+    # ------------------------------------------------------------------
+
+    def _get_group_names_from_root(self, root: Path) -> list:
+        """Load group names from the groups.yaml file under *root*.
+
+        Parameters
+        ----------
+        root : Path
+            Scan config root directory.
+
+        Returns
+        -------
+        list
+            Sorted list of group names, or empty list on error.
+        """
+        from .scan_config_io import get_groups_file
+
+        groups_path = get_groups_file(root)
+        if groups_path is None:
+            return []
+        try:
+            groups_data = load_groups_yaml(groups_path)
+            return sorted(groups_data.keys())
+        except Exception as exc:
+            logger.warning("Failed to load group names: %s", exc)
+            return []
+
+    # ------------------------------------------------------------------
     # Window management
     # ------------------------------------------------------------------
 
@@ -428,6 +775,42 @@ class ConfigEditorWindow(QMainWindow):
         else:
             # Cancel
             return False
+
+    # ------------------------------------------------------------------
+    # Analysis preview
+    # ------------------------------------------------------------------
+
+    def get_current_config_info(self) -> tuple:
+        """Return info about the currently loaded device config.
+
+        Returns
+        -------
+        tuple
+            ``(config_name, config_dict, config_type)`` where
+            *config_name* is the file stem, *config_dict* is the
+            current in-memory dict from the editor, and *config_type*
+            is ``"camera_2d"`` or ``"line_1d"``.  Returns
+            ``("", {}, "")`` when no config is loaded.
+        """
+        if self._current_file is None or self._current_config_type == "":
+            return ("", {}, "")
+
+        config_dict = self._editor_panel.get_config_dict()
+        return (
+            self._current_file.stem,
+            config_dict,
+            self._current_config_type,
+        )
+
+    def _on_analysis_preview(self) -> None:
+        """Open the Analysis Preview dialog."""
+        config_dir = self._file_list.get_config_dir()
+        dlg = AnalysisPreviewDialog(
+            config_dir=config_dir,
+            get_current_config=self.get_current_config_info,
+            parent=self,
+        )
+        dlg.show()
 
     def closeEvent(self, event) -> None:
         """Handle window close — check for unsaved changes.

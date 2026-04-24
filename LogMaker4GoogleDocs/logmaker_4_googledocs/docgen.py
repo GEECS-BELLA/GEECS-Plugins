@@ -571,7 +571,7 @@ def appendToLog(templateID, documentID, search, servicevar):
         logger.warning("Failed to check document for search pattern '%s'", search)
         return 1
 
-    if not tmp:
+    if tmp is False:
         try:
             logger.info("Appending template to document %s", documentID)
             response = service.scripts().run(body=request, scriptId=SCRIPT_ID).execute()
