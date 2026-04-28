@@ -48,5 +48,5 @@ def apply_row_filters(
         fn = _OPERATORS.get(operator)
         if fn is None:
             raise ValueError(f"Unsupported filter operator: '{operator}'")
-        df = df[fn(df[column, value])]
+        df = df[fn(df[column], value)]
     return df
