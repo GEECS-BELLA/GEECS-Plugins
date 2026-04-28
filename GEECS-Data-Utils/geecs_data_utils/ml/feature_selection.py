@@ -8,6 +8,7 @@ from typing import List, Literal, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
+from geecs_data_utils.data.cleaning import apply_row_filters
 
 # ---------------------------------------------------------------------------
 # Outlier handling
@@ -187,7 +188,7 @@ class CorrelationReport:
 
         # Row filters
         if filters:
-            filtered = _apply_row_filters(filtered, filters)
+            filtered = apply_row_filters(filtered, filters)
 
         # Drop NaN in target
         filtered = filtered.dropna(subset=[target])
@@ -229,30 +230,3 @@ class CorrelationReport:
             rows_before_filter=rows_before,
             rows_after_filter=rows_after,
         )
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-_OPS = {
-    ">": lambda s, v: s > v,
-    "<": lambda s, v: s < v,
-    ">=": lambda s, v: s >= v,
-    "<=": lambda s, v: s <= v,
-    "==": lambda s, v: s == v,
-    "!=": lambda s, v: s != v,
-}
-
-
-def _apply_row_filters(
-    df: pd.DataFrame,
-    filters: List[Tuple[str, str, Union[int, float]]],
-) -> pd.DataFrame:
-    """Apply a list of ``(column, operator, value)`` row filters."""
-    for col, op, val in filters:
-        fn = _OPS.get(op)
-        if fn is None:
-            raise ValueError(f"Unsupported filter operator: '{op}'")
-        df = df[fn(df[col], val)]
-    return df

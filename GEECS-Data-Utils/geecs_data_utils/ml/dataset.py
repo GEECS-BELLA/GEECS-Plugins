@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import pandas as pd
 
+from geecs_data_utils.data.cleaning import apply_row_filters
 from geecs_data_utils.ml.feature_selection import sigma_clip_frame, sigma_nan_frame
 
 
@@ -226,9 +227,7 @@ class BeamPredictionDatasetBuilder:
 
         # Row filters
         if filters:
-            from geecs_data_utils.ml.feature_selection import _apply_row_filters
-
-            out = _apply_row_filters(out, filters)
+            out = apply_row_filters(out, filters)
 
         # Resolve features
         if feature_columns is not None:
@@ -284,9 +283,7 @@ class BeamPredictionDatasetBuilder:
 
         # Row filters
         if filters:
-            from geecs_data_utils.ml.feature_selection import _apply_row_filters
-
-            out = _apply_row_filters(out, filters)
+            out = apply_row_filters(out, filters)
 
         # Resolve target
         tgt: str
@@ -295,9 +292,7 @@ class BeamPredictionDatasetBuilder:
         elif target_specs is not None:
             tgt = _resolve_column(scan, out, target_specs)
         else:
-            raise ValueError(
-                "Either target_column or target_specs must be provided."
-            )
+            raise ValueError("Either target_column or target_specs must be provided.")
 
         # Resolve features
         if feature_specs is not None:
@@ -352,9 +347,7 @@ def _extract_scan_info(scan: Any) -> Dict[str, Any]:
     return info
 
 
-def _resolve_column(
-    scan: Any, df: pd.DataFrame, specs: Sequence[str]
-) -> str:
+def _resolve_column(scan: Any, df: pd.DataFrame, specs: Sequence[str]) -> str:
     """Resolve a single column from search specs using ScanData.find_cols."""
     for spec in specs:
         if hasattr(scan, "find_cols"):
@@ -364,9 +357,7 @@ def _resolve_column(
         # Fallback: direct column lookup
         if spec in df.columns:
             return spec
-    raise ValueError(
-        f"Could not resolve any column from specs: {list(specs)}"
-    )
+    raise ValueError(f"Could not resolve any column from specs: {list(specs)}")
 
 
 def _resolve_feature_columns(
