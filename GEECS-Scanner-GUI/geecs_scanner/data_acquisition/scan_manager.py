@@ -616,12 +616,6 @@ class ScanManager:
             logger.info("Turning off the trigger.")
             self.trigger_off()
             self.scan_data_manager.initialize_scan_data_and_output_files()
-        except GeecsDeviceInstantiationError:
-            logger.exception(
-                "Pre-logging setup failed: one or more devices could not be instantiated. "
-                "Aborting scan."
-            )
-            return pd.DataFrame()
         except Exception:
             logger.exception("Pre-logging setup failed. Aborting scan.")
             return pd.DataFrame()
@@ -676,6 +670,11 @@ class ScanManager:
 
             except ScanAbortedError:
                 logger.info("Scan aborted; running cleanup.")
+
+            except GeecsDeviceInstantiationError:
+                logger.exception(
+                    "Scan aborted: one or more devices could not be instantiated."
+                )
 
             except DeviceSynchronizationError as sync_err:
                 logger.error(
