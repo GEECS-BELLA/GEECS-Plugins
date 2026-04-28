@@ -141,6 +141,12 @@ class DeviceSynchronizationTimeout(DeviceSynchronizationError):
     pass
 
 
+class ScanAbortedError(Exception):
+    """Raised when the user requests a stop during prelogging or before scan execution begins."""
+
+    pass
+
+
 class ScanManager:
     """Manage the execution of scans in the GEECS system.
 
@@ -546,30 +552,24 @@ class ScanManager:
 
     def stop_scanning_thread(self):
         """
-        Stop the currently running scanning thread and clean up resources.
+        Signal the running scan thread to stop and return immediately.
 
-        This method sets an internal event to halt the scanning thread, waits for the thread
-        to finish, and then disposes of it. If no scanning thread is active, a warning is logged.
+        Sets the stop event so the scan thread exits at its next cooperative
+        check-point.  Does *not* block — the caller returns before the thread
+        finishes.  Use ``is_scanning_active()`` to poll for completion.
+        The scan thread clears ``self.scanning_thread`` itself when it exits.
 
         Notes
         -----
-        This method is safe to call even if scanning is not active. It performs no action
-        in that case except logging a warning.
+        This method is safe to call even if scanning is not active. It performs
+        no action in that case except logging a warning.
         """
         if not self.is_scanning_active():
             logger.warning("No active scanning thread to stop.")
             return
 
-        # Stop the scan and wait for the thread to finish
-        logger.info("Stopping the scanning thread...")
-
-        # Set the event to signal the logging loop to stop
         logger.info("Stopping the scanning thread...")
         self.stop_scanning_thread_event.set()
-
-        self.scanning_thread.join()  # Wait for the thread to finish
-        self.scanning_thread = None  # Clean up the thread
-        logger.info("scanning thread stopped and disposed.")
 
     def _start_scan(self) -> pd.DataFrame:
         """
@@ -605,15 +605,17 @@ class ScanManager:
         log_df = pd.DataFrame()  # Initialize in case of early exit
 
         # ------------------------------------------------------------------ #
-        # Phase 1: pre-logging setup                                          #
-        # Scan paths don't exist yet, so the scan log cannot be opened here.  #
-        # Any failure here means nothing has been started — abort cleanly.    #
+        # Phase 1: before scan paths exist                                    #
+        # Disable the trigger and create the scan directory.  Any failure     #
+        # here means nothing has been committed — abort cleanly.              #
         # ------------------------------------------------------------------ #
         logger.info(
             "scan config getting sent to pre logging is this: %s", self.scan_config
         )
         try:
-            self.pre_logging_setup()
+            logger.info("Turning off the trigger.")
+            self.trigger_off()
+            self.scan_data_manager.initialize_scan_data_and_output_files()
         except GeecsDeviceInstantiationError:
             logger.exception(
                 "Pre-logging setup failed: one or more devices could not be instantiated. "
@@ -624,6 +626,10 @@ class ScanManager:
             logger.exception("Pre-logging setup failed. Aborting scan.")
             return pd.DataFrame()
 
+        if self.stop_scanning_thread_event.is_set():
+            logger.info("Stop requested before scan directory was used; aborting.")
+            return pd.DataFrame()
+
         # Figure out scan_dir and a human-friendly scan_id *after* paths exist
         scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
         scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
@@ -632,12 +638,16 @@ class ScanManager:
             scan_id = f"Scan{int(num):03d}" if num is not None else "Scan-UNKNOWN"
 
         # ------------------------------------------------------------------ #
-        # Phase 2: full scan lifecycle captured inside the per-scan log       #
+        # Phase 2: remaining prelogging + full scan lifecycle, all captured   #
+        # inside the per-scan log.  Aborts during setup are now visible in    #
+        # scan.log, not only in the global geecs_scanner.log.                 #
         # stop_scan() is in the finally block so cleanup is always logged.    #
         # ------------------------------------------------------------------ #
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
             try:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
+                self.pre_logging_setup()
+
                 # Estimate acquisition time if necessary
                 if self.scan_config:
                     self.estimate_acquisition_time()
@@ -646,6 +656,10 @@ class ScanManager:
                         self.acquisition_time,
                     )
                 logger.info("options dict: %s", self.options_dict)
+
+                if self.stop_scanning_thread_event.is_set():
+                    raise ScanAbortedError("Stop requested after prelogging")
+
                 # Start data logging
                 self.results = self.data_logger.start_logging()
 
@@ -659,6 +673,9 @@ class ScanManager:
                 self.executor.execute_scan_loop(self.scan_steps)
 
                 logger.info("scan %s: completed normally", scan_id)
+
+            except ScanAbortedError:
+                logger.info("Scan aborted; running cleanup.")
 
             except DeviceSynchronizationError as sync_err:
                 logger.error(
@@ -680,6 +697,7 @@ class ScanManager:
 
                 logger.info("scan %s: finished", scan_id)
 
+        self.scanning_thread = None
         return log_df  # Return the DataFrame with the logged data
 
     def check_devices_in_standby_mode(self) -> bool:
@@ -849,37 +867,40 @@ class ScanManager:
         )
         stop_saving_thread.start()
 
-        # Signal that the scan is no longer live so orphaned files
-        # are no longer skipped during task processing.
-        self.data_logger.file_mover.scan_is_live = False
+        if self.data_logger.file_mover is not None:
+            # Signal that the scan is no longer live so orphaned files
+            # are no longer skipped during task processing.
+            self.data_logger.file_mover.scan_is_live = False
 
-        # Re-queue tasks that failed during live acquisition (file may
-        # not have been on disk yet when the worker first checked).
-        self.data_logger.file_mover._post_process_orphan_task()
-        try:
-            self._join_file_mover_queue(timeout=30.0)
-        except OrphanProcessingTimeout:
-            logger.error(
-                "Orphan task queue did not drain within 30 s. "
-                "Some files may not have been moved — check the scan directory manually."
-            )
-
-        if self.save_local:
-            # Sweep the filesystem for any remaining unmatched files
-            # and create new tasks for them based on the log DataFrame.
-            self.data_logger.file_mover._post_process_orphaned_files(
-                log_df=log_df,
-                device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
-            )
+            # Re-queue tasks that failed during live acquisition (file may
+            # not have been on disk yet when the worker first checked).
+            self.data_logger.file_mover._post_process_orphan_task()
             try:
                 self._join_file_mover_queue(timeout=30.0)
             except OrphanProcessingTimeout:
                 logger.error(
-                    "Filesystem sweep tasks did not drain within 30 s. "
+                    "Orphan task queue did not drain within 30 s. "
                     "Some files may not have been moved — check the scan directory manually."
                 )
 
-        self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
+            if self.save_local:
+                # Sweep the filesystem for any remaining unmatched files
+                # and create new tasks for them based on the log DataFrame.
+                self.data_logger.file_mover._post_process_orphaned_files(
+                    log_df=log_df,
+                    device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
+                )
+                try:
+                    self._join_file_mover_queue(timeout=30.0)
+                except OrphanProcessingTimeout:
+                    logger.error(
+                        "Filesystem sweep tasks did not drain within 30 s. "
+                        "Some files may not have been moved — check the scan directory manually."
+                    )
+
+            self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
+        else:
+            logger.info("Logging never started; skipping file-mover cleanup.")
 
         # Step 4: Wait for save=off to complete before restore or closeout,
         # since closeout actions may talk to the same camera devices.
@@ -1017,68 +1038,45 @@ class ScanManager:
                 logger.warning("Device %s not found in DeviceManager.", device_name)
 
     def pre_logging_setup(self):
-        """Prepare the experimental environment and devices for data acquisition.
+        """Configure devices and files for data acquisition.
 
-        This comprehensive method orchestrates multiple setup steps to ensure
-        the experimental system is correctly configured before a scan begins.
-        It handles device initialization, trigger management, file preparation,
-        and pre-scan configuration.
+        Called from within the per-scan log context, after the scan directory
+        has been created and the trigger disabled.  Raises ``ScanAbortedError``
+        at each cooperative check-point so that a stop request is honoured
+        between steps rather than waiting for the entire setup to finish.
 
-        Detailed Setup Steps:
-        1. Disable trigger to prevent unintended shots
-        2. Initialize scan data files and paths
-        3. Generate scan steps based on configuration
-        4. Configure device save paths (if data saving enabled)
-        5. Initialize scan variables through DeviceManager
-        6. Capture initial device states
-        7. Execute pre-scan setup actions
-        8. Generate live experiment configuration dump
+        Setup steps (trigger-off and path initialisation are done by the
+        caller before this method is invoked):
 
-        Requires
-        --------
-        self.scan_config : ScanConfig
-            Scan configuration object containing sweep parameters
-        self.device_manager : DeviceManager
-            Manages device configurations and interactions
-        self.scan_data_manager : ScanDataManager
-            Handles scan data path and file management
-
-        Notes
-        -----
-        - Method is critical for ensuring reproducible and controlled experimental scans
-        - Handles both standard and composite scan variables
-        - Supports different scan modes (standard, noscan, optimization)
-        - Provides flexibility for various experimental configurations
+        1. Generate scan steps
+        2. Configure device save paths
+        3. Initialize scan variables through DeviceManager
+        4. Settle delay (interruptible)
+        5. Capture initial device states
+        6. Execute pre-scan setup actions
+        7. Generate live experiment configuration dump
 
         Raises
         ------
+        ScanAbortedError
+            If ``stop_scanning_thread_event`` is set between steps.
         GeecsDeviceInstantiationError
-            If device initialization or configuration fails
+            If device initialization or configuration fails.
         ValueError
-            If scan configuration is incomplete or invalid
-
-        Examples
-        --------
-        >>> scan_mgr = ScanManager(...)
-        >>> scan_mgr.scan_config = ScanConfig(...)
-        >>> scan_mgr.pre_logging_setup()
-        # Prepares devices and environment for the upcoming scan
+            If scan configuration is incomplete or invalid.
 
         See Also
         --------
-        start_scan_thread : Initiates the scan after pre-logging setup
-        _generate_scan_steps : Generates the sequence of scan steps
-        device_manager.handle_scan_variables : Manages device variable initialization
+        _start_scan : Calls this method inside the per-scan log context.
+        _generate_scan_steps : Generates the sequence of scan steps.
+        device_manager.handle_scan_variables : Manages device variable init.
         """
-        logger.info("Turning off the trigger.")
-        self.trigger_off()
-
-        # initialize a ScanPaths objet and create basic scan files
-        self.scan_data_manager.initialize_scan_data_and_output_files()
-
         # Generate the scan steps
         self.scan_steps = self._generate_scan_steps()
         logger.info("steps for the scan are : %s", self.scan_steps)
+
+        if self.stop_scanning_thread_event.is_set():
+            raise ScanAbortedError("Stop requested during prelogging")
 
         self.scan_data_manager.configure_device_save_paths(save_local=self.save_local)
         self.data_logger.save_local = self.save_local
@@ -1088,6 +1086,9 @@ class ScanManager:
         self.data_logger.scan_number = (
             self.scan_data_manager.scan_number_int
         )  # TODO replace with a `set` func.
+
+        if self.stop_scanning_thread_event.is_set():
+            raise ScanAbortedError("Stop requested during prelogging")
 
         self.scan_data_manager.write_scan_info_ini(self.scan_config)
 
@@ -1101,11 +1102,16 @@ class ScanManager:
             )
             raise
 
-        time.sleep(2.5)
+        # Interruptible settle delay — returns immediately if stop is signalled.
+        if self.stop_scanning_thread_event.wait(timeout=2.5):
+            raise ScanAbortedError("Stop requested during prelogging settle delay")
 
         device_var = self.scan_config.device_var
         if device_var:
             self.initial_state = self.get_initial_state()
+
+        if self.stop_scanning_thread_event.is_set():
+            raise ScanAbortedError("Stop requested during prelogging")
 
         if self.device_manager.scan_setup_action is not None:
             logger.info("Attempting to execute pre-scan actions.")
@@ -1116,6 +1122,9 @@ class ScanManager:
                 action_seq=self.device_manager.scan_setup_action,
             )
             self.action_manager.execute_action("setup_action")
+
+        if self.stop_scanning_thread_event.is_set():
+            raise ScanAbortedError("Stop requested during prelogging")
 
         logger.info("attempting to generate ECS live dump using %s", self.MC_ip)
         if self.MC_ip is not None and self.shot_control is not None:
