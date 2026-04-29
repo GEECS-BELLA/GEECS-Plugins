@@ -1077,7 +1077,10 @@ class ScanManager:
         if self.stop_scanning_thread_event.is_set():
             raise ScanAbortedError("Stop requested during prelogging")
 
-        self.scan_data_manager.configure_device_save_paths(save_local=self.save_local)
+        self.scan_data_manager.configure_device_save_paths(
+            save_local=self.save_local,
+            stop_event=self.stop_scanning_thread_event,
+        )
         self.data_logger.save_local = self.save_local
         self.data_logger.set_device_save_paths_mapping(
             self.scan_data_manager.device_save_paths_mapping
