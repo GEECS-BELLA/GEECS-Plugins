@@ -525,12 +525,13 @@ def detect_scan_config_type(
 
 
 def list_all_analyzer_ids(root: Path) -> List[str]:
-    """Scan all analyzer YAML files and return a sorted list of ``id`` fields.
+    """Return a sorted list of analyzer IDs derived from filenames.
 
-    Reads each ``.yaml`` file in ``<root>/library/analyzers/`` and extracts
-    the top-level ``id`` key.  Files that lack an ``id`` key are skipped.
-
-    This is useful for populating autocomplete widgets in the groups editor.
+    Uses the filename stem (without ``.yaml``) of each file in
+    ``<root>/library/analyzers/`` as the canonical analyzer ID.  This
+    matches what the user sees in the tree panel and what
+    ``groups.yaml`` references, so the autocomplete is always
+    up-to-date even when internal ``id`` fields are stale.
 
     Parameters
     ----------
@@ -542,25 +543,12 @@ def list_all_analyzer_ids(root: Path) -> List[str]:
     List[str]
         Alphabetically sorted list of unique analyzer IDs.
     """
-    ids: List[str] = []
-
     try:
         analyzer_files = list_analyzer_configs(root)
     except (FileNotFoundError, NotADirectoryError) as exc:
         logger.warning("Cannot list analyzer configs: %s", exc)
-        return ids
+        return []
 
-    for filepath in analyzer_files:
-        try:
-            data = load_analyzer_yaml(filepath)
-            analyzer_id = data.get("id")
-            if analyzer_id and isinstance(analyzer_id, str):
-                ids.append(analyzer_id)
-            else:
-                logger.debug("No 'id' field in %s", filepath)
-        except (yaml.YAMLError, OSError) as exc:
-            logger.warning("Skipping %s: %s", filepath, exc)
-
-    ids = sorted(set(ids), key=str.lower)
+    ids = sorted({f.stem for f in analyzer_files}, key=str.lower)
     logger.debug("Found %d unique analyzer IDs", len(ids))
     return ids
