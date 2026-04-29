@@ -898,6 +898,7 @@ class ScanManager:
                     )
 
             self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
+            self.data_logger.file_mover = None
         else:
             logger.info("Logging never started; skipping file-mover cleanup.")
 
