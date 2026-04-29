@@ -5,84 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Sequence, Tuple, Union
 
-import numpy as np
 import pandas as pd
 
 from geecs_data_utils.data.cleaning import apply_row_filters
-
-# ---------------------------------------------------------------------------
-# Outlier handling
-# ---------------------------------------------------------------------------
-
-
-def sigma_clip_frame(
-    df: pd.DataFrame,
-    sigma: float = 6.0,
-    columns: Optional[Sequence[str]] = None,
-) -> pd.DataFrame:
-    """Remove rows where any selected column exceeds +/-*sigma* standard deviations.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Input data.
-    sigma : float
-        Number of standard deviations for the clipping threshold.
-    columns : sequence of str, optional
-        Columns to clip on.  Defaults to all numeric columns.
-
-    Returns
-    -------
-    DataFrame
-        Filtered copy with outlier rows removed.
-    """
-    out = df.copy()
-    if columns is None:
-        columns = out.select_dtypes(include="number").columns.tolist()
-    for col in columns:
-        mean = out[col].mean()
-        std = out[col].std()
-        if std == 0 or np.isnan(std):
-            continue
-        out = out[(out[col] >= mean - sigma * std) & (out[col] <= mean + sigma * std)]
-    return out
-
-
-def sigma_nan_frame(
-    df: pd.DataFrame,
-    sigma: float = 6.0,
-    columns: Optional[Sequence[str]] = None,
-) -> pd.DataFrame:
-    """Replace values outside +/-*sigma* standard deviations with ``NaN``.
-
-    Parameters
-    ----------
-    df : DataFrame
-        Input data.
-    sigma : float
-        Number of standard deviations for the outlier threshold.
-    columns : sequence of str, optional
-        Columns to apply to.  Defaults to all numeric columns.
-
-    Returns
-    -------
-    DataFrame
-        Copy with outlier values set to ``NaN``.
-    """
-    out = df.copy()
-    if columns is None:
-        columns = out.select_dtypes(include="number").columns.tolist()
-    for col in columns:
-        mean = out[col].mean()
-        std = out[col].std()
-        if std == 0 or np.isnan(std):
-            continue
-        lower = mean - sigma * std
-        upper = mean + sigma * std
-        mask = (out[col] < lower) | (out[col] > upper)
-        out.loc[mask, col] = np.nan
-    return out
-
 
 # ---------------------------------------------------------------------------
 # Correlation report

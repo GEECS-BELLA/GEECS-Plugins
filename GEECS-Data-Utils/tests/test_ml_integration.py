@@ -3,11 +3,11 @@
 import numpy as np
 import pytest
 
+from geecs_data_utils.data import OutlierConfig
 from geecs_data_utils.ml import (
     BeamPredictionDatasetBuilder,
     CorrelationReport,
     ModelArtifact,
-    OutlierConfig,
     RegressionTrainer,
     load_model_artifact,
     save_model_artifact,

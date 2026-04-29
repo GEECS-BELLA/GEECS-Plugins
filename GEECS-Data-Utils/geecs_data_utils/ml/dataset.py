@@ -7,29 +7,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import pandas as pd
 
-from geecs_data_utils.data.cleaning import apply_row_filters
-from geecs_data_utils.ml.feature_selection import sigma_clip_frame, sigma_nan_frame
-
-
-@dataclass
-class OutlierConfig:
-    """Configuration for outlier handling during dataset assembly.
-
-    Parameters
-    ----------
-    method : ``"clip"`` | ``"nan"``
-        ``"clip"`` removes entire rows; ``"nan"`` replaces outlier values
-        with ``NaN``.
-    sigma : float
-        Number of standard deviations for the threshold.
-    columns : list of str, optional
-        Columns to apply outlier handling to.  Defaults to all numeric
-        columns.
-    """
-
-    method: str = "nan"
-    sigma: float = 5.0
-    columns: Optional[List[str]] = None
+from geecs_data_utils.data.cleaning import (
+    apply_row_filters,
+    OutlierConfig,
+    apply_outlier_config,
+)
 
 
 @dataclass
@@ -223,7 +205,7 @@ class BeamPredictionDatasetBuilder:
 
         # Outlier handling
         if outlier_config is not None:
-            out = _apply_outlier_config(out, outlier_config)
+            out = apply_outlier_config(out, outlier_config)
 
         # Row filters
         if filters:
@@ -279,7 +261,7 @@ class BeamPredictionDatasetBuilder:
 
         # Outlier handling
         if outlier_config is not None:
-            out = _apply_outlier_config(out, outlier_config)
+            out = apply_outlier_config(out, outlier_config)
 
         # Row filters
         if filters:
@@ -323,16 +305,6 @@ class BeamPredictionDatasetBuilder:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _apply_outlier_config(df: pd.DataFrame, cfg: OutlierConfig) -> pd.DataFrame:
-    """Apply outlier handling based on config."""
-    if cfg.method == "clip":
-        return sigma_clip_frame(df, sigma=cfg.sigma, columns=cfg.columns)
-    elif cfg.method == "nan":
-        return sigma_nan_frame(df, sigma=cfg.sigma, columns=cfg.columns)
-    else:
-        raise ValueError(f"Unknown outlier method: '{cfg.method}'")
 
 
 def _extract_scan_info(scan: Any) -> Dict[str, Any]:

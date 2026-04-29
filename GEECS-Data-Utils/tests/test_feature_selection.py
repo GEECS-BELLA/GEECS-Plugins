@@ -3,11 +3,8 @@
 import pandas as pd
 import pytest
 
-from geecs_data_utils.ml.feature_selection import (
-    CorrelationReport,
-    sigma_clip_frame,
-    sigma_nan_frame,
-)
+from geecs_data_utils.data import sigma_clip_frame, sigma_nan_frame
+from geecs_data_utils.ml.feature_selection import CorrelationReport
 
 
 class TestSigmaClipFrame:
@@ -101,9 +98,7 @@ class TestCorrelationReport:
 
     def test_top_n_limit(self, sample_df):
         """top_n limits the result."""
-        report = CorrelationReport.from_dataframe(
-            sample_df, target="charge", top_n=2
-        )
+        report = CorrelationReport.from_dataframe(sample_df, target="charge", top_n=2)
         assert len(report.correlations) == 2
 
     def test_invalid_target_raises(self, sample_df):

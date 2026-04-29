@@ -3,10 +3,8 @@
 import numpy as np
 import pytest
 
-from geecs_data_utils.ml.dataset import (
-    BeamPredictionDatasetBuilder,
-    OutlierConfig,
-)
+from geecs_data_utils.ml.dataset import BeamPredictionDatasetBuilder
+from geecs_data_utils.data import OutlierConfig
 
 
 class TestFromDataframe:
