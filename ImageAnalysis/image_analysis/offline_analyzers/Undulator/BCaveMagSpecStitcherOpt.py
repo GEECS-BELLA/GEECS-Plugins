@@ -126,7 +126,7 @@ class BCaveMagOpt(Standard1DAnalyzer):
         processed_line_data = initial_result.line_data
 
         obj = objective(processed_line_data)
-        scalars = {f"{self.line_config.name} objective": obj}
+        scalars = {f"{self.line_config.name}_objective": obj}
 
         # Build result with line-specific data
         result = ImageAnalyzerResult(
