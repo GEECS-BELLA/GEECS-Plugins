@@ -55,8 +55,12 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     Attributes
     ----------
     device_name : str
-        Name of the device whose data will be analyzed (e.g., 'UC_ALineEBeam3').
-        This is used to locate data files and identify the device in results.
+        GEECS device name used for communication and device requirements
+        (e.g., 'U_BCaveMagSpec').
+    data_device_name : str, optional
+        Name of the data subfolder within the scan directory. Set this when the
+        saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
+        for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
         Type of scan analyzer to instantiate. Choose based on data dimensionality.
     file_tail : str, default=".png"
@@ -74,6 +78,7 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     """
 
     device_name: str
+    data_device_name: Optional[str] = None
     analyzer_type: Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]
     file_tail: str = ".png"
     image_analyzer: ImageAnalyzerConfig

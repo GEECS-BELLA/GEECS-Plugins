@@ -183,6 +183,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             image_analyzer=image_analyzer,
             file_tail=config.file_tail,
             analysis_mode=config.analysis_mode,
+            data_device_name=config.data_device_name,
             # flag_save_data=False,  # Don't save outputs during optimization
         )
 
