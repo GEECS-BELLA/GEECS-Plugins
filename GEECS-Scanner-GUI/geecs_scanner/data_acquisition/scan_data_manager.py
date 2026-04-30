@@ -36,6 +36,7 @@ and with ScanData to manage file paths and scan metadata.
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Dict, Union
+import threading
 import time
 import logging
 
@@ -200,7 +201,11 @@ class ScanDataManager:
         self.initialize_tdms_writers(str(self.tdms_output_path))
         time.sleep(1)
 
-    def configure_device_save_paths(self, save_local: bool = True):
+    def configure_device_save_paths(
+        self,
+        save_local: bool = True,
+        stop_event: Optional[threading.Event] = None,
+    ):
         """
         Configure save paths and enable saving for non-scalar devices.
 
@@ -208,6 +213,9 @@ class ScanDataManager:
         ----------
         save_local : bool, optional
             If True, configures local saving to a shared directory. If False, saves to scan folder.
+        stop_event : threading.Event, optional
+            When provided, the file-purge loop inside this method checks the event between
+            deletions and returns early if a stop is requested.
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
             logger.info("Configuring save paths for device: %s", device_name)
@@ -224,7 +232,8 @@ class ScanDataManager:
             dev_host_ip_string = device.dev_ip
             if save_local:
                 source_dir = Path(f"//{dev_host_ip_string}/SharedData/{device_name}")
-                self.purge_local_save_dir(source_dir)
+                if not self.purge_local_save_dir(source_dir, stop_event=stop_event):
+                    return  # stop requested during purge; caller will detect via stop_event
                 data_path_client_side = Path("C:/SharedData") / device_name
             else:
                 source_dir = target_dir
@@ -286,7 +295,10 @@ class ScanDataManager:
                     logger.warning("Base directory %s does not exist.", base_dir)
 
     @staticmethod
-    def purge_local_save_dir(source_dir: Path) -> None:
+    def purge_local_save_dir(
+        source_dir: Path,
+        stop_event: Optional[threading.Event] = None,
+    ) -> bool:
         """
         Recursively purge all files from a given directory.
 
@@ -294,15 +306,29 @@ class ScanDataManager:
         ----------
         source_dir : Path
             Path to the directory whose contents will be deleted.
+        stop_event : threading.Event, optional
+            If provided, checked between file deletions. Returns False immediately
+            when set so the caller can react to the abort request.
+
+        Returns
+        -------
+        bool
+            True if purge completed; False if interrupted by stop_event.
         """
         if source_dir.exists():
             for item in source_dir.rglob("*"):
                 if item.is_file():
+                    if stop_event is not None and stop_event.is_set():
+                        logger.info(
+                            "File purge interrupted by stop request at %s", item
+                        )
+                        return False
                     try:
                         item.unlink()
                         logger.info("Removed file: %s", item)
                     except Exception:
                         logger.exception("Error removing %s", item)
+        return True
 
     def initialize_tdms_writers(self, tdms_output_path: str) -> None:
         """Initialize TDMS writers for scalar data and index file generation.
