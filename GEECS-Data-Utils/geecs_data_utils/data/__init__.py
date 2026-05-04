@@ -7,6 +7,14 @@ from geecs_data_utils.data.cleaning import (
     sigma_clip_frame,
     sigma_nan_frame,
 )
+from geecs_data_utils.data.columns import (
+    ColumnMatchMode,
+    ResolveColResult,
+    find_cols,
+    flatten_columns,
+    resolve_col,
+    resolve_col_detailed,
+)
 
 __all__ = [
     "apply_row_filters",
@@ -14,4 +22,10 @@ __all__ = [
     "apply_outlier_config",
     "sigma_clip_frame",
     "sigma_nan_frame",
+    "ColumnMatchMode",
+    "ResolveColResult",
+    "find_cols",
+    "flatten_columns",
+    "resolve_col",
+    "resolve_col_detailed",
 ]

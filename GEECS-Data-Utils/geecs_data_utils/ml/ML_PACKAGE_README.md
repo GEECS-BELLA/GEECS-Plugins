@@ -86,7 +86,7 @@ Assembles ML-ready DataFrames from GEECS scan data.
 | `.from_dataframe(df, ...)` | Build from a raw pandas DataFrame |
 
 Common parameters:
-- `feature_specs` — search terms to select feature columns (uses `ScanData.find_cols`)
+- `feature_specs` — one resolved column per term via `geecs_data_utils.data.columns.resolve_col` (same rules as `ScanData.resolve_col` without local aliases)
 - `target_specs` / `target_column` — the column to predict
 - `filters` — row filters as `(column, operator, value)` tuples, e.g. `[("charge", ">", 2)]`
 - `outlier_config` — optional `OutlierConfig(method="nan", sigma=5.0)` for outlier handling
@@ -212,6 +212,8 @@ from geecs_data_utils.ml import predict_from_scan
 
 preds = predict_from_scan(artifact, scan)
 ```
+
+Optional `feature_specs` uses `geecs_data_utils.data.columns.find_cols` on the scan frame (same matching rules as `ScanData.find_cols`) to discover columns that contain the trained feature names.
 
 ### Schema Validation
 

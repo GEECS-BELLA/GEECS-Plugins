@@ -12,6 +12,7 @@ from geecs_data_utils.data.cleaning import (
     OutlierConfig,
     apply_outlier_config,
 )
+from geecs_data_utils.data.columns import resolve_col
 
 
 @dataclass
@@ -81,12 +82,13 @@ class BeamPredictionDatasetBuilder:
         scan : ScanData
             A loaded scan data object (must have a populated ``data_frame``).
         feature_specs : sequence of str, optional
-            Search terms used to select feature columns via
-            ``scan.find_cols``.  If ``None``, all numeric columns (except the
-            target) are used.
+            Search terms resolved with :func:`~geecs_data_utils.data.columns.resolve_col`
+            (same rules as :meth:`~geecs_data_utils.ScanData.resolve_col`, without
+            local aliases). One column per spec. If ``None``, all numeric columns
+            (except the target) are used.
         target_specs : sequence of str, optional
-            Search terms used to find the target column.  The first match
-            is used.  Ignored if *target_column* is provided directly.
+            Terms tried in order until one resolves via ``resolve_col``.
+            Ignored if *target_column* is provided directly.
         target_column : str, optional
             Explicit target column name.  Takes precedence over
             *target_specs*.
@@ -108,7 +110,6 @@ class BeamPredictionDatasetBuilder:
         scan_info = _extract_scan_info(scan)
         return BeamPredictionDatasetBuilder._build(
             df,
-            scan=scan,
             feature_specs=feature_specs,
             target_specs=target_specs,
             target_column=target_column,
@@ -158,7 +159,6 @@ class BeamPredictionDatasetBuilder:
 
         return BeamPredictionDatasetBuilder._build(
             df,
-            scan=scans[0],
             feature_specs=feature_specs,
             target_specs=target_specs,
             target_column=target_column,
@@ -246,7 +246,6 @@ class BeamPredictionDatasetBuilder:
     def _build(
         df: pd.DataFrame,
         *,
-        scan: Any,
         feature_specs: Optional[Sequence[str]],
         target_specs: Optional[Sequence[str]],
         target_column: Optional[str],
@@ -272,13 +271,13 @@ class BeamPredictionDatasetBuilder:
         if target_column is not None:
             tgt = target_column
         elif target_specs is not None:
-            tgt = _resolve_column(scan, out, target_specs)
+            tgt = _resolve_column(out, target_specs)
         else:
             raise ValueError("Either target_column or target_specs must be provided.")
 
         # Resolve features
         if feature_specs is not None:
-            features = _resolve_feature_columns(scan, out, feature_specs)
+            features = _resolve_feature_columns(out, feature_specs)
             # Exclude target from features
             features = [f for f in features if f != tgt]
         else:
@@ -319,33 +318,26 @@ def _extract_scan_info(scan: Any) -> Dict[str, Any]:
     return info
 
 
-def _resolve_column(scan: Any, df: pd.DataFrame, specs: Sequence[str]) -> str:
-    """Resolve a single column from search specs using ScanData.find_cols."""
+def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
+    """Resolve a single column; try each spec until :func:`resolve_col` succeeds."""
     for spec in specs:
-        if hasattr(scan, "find_cols"):
-            matches = scan.find_cols(spec)
-            if matches:
-                return matches[0]
-        # Fallback: direct column lookup
-        if spec in df.columns:
-            return spec
+        try:
+            return resolve_col(df, spec)
+        except ValueError:
+            continue
     raise ValueError(f"Could not resolve any column from specs: {list(specs)}")
 
 
-def _resolve_feature_columns(
-    scan: Any, df: pd.DataFrame, specs: Sequence[str]
-) -> List[str]:
-    """Resolve multiple feature columns from search specs."""
+def _resolve_feature_columns(df: pd.DataFrame, specs: Sequence[str]) -> List[str]:
+    """One resolved column per spec (deduplicated), using :func:`resolve_col`."""
     features: List[str] = []
     seen: set[str] = set()
     for spec in specs:
-        if hasattr(scan, "find_cols"):
-            matches = scan.find_cols(spec)
-            for m in matches:
-                if m not in seen:
-                    features.append(m)
-                    seen.add(m)
-        elif spec in df.columns and spec not in seen:
-            features.append(spec)
-            seen.add(spec)
+        try:
+            col = resolve_col(df, spec)
+        except ValueError:
+            continue
+        if col not in seen:
+            features.append(col)
+            seen.add(col)
     return features

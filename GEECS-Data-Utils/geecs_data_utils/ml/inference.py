@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import Any, Optional, Sequence
 
 import numpy as np
+import pandas as pd
 
+from geecs_data_utils.data.columns import find_cols, flatten_columns
 from geecs_data_utils.ml.models import ModelArtifact
 
 
@@ -31,9 +33,10 @@ def predict_from_scan(
     scan : ScanData
         A loaded scan data object.
     feature_specs : sequence of str, optional
-        Search terms to locate the required feature columns via
-        ``scan.find_cols``.  If ``None``, the feature names from
-        the artifact schema are used directly.
+        Search terms passed to :func:`~geecs_data_utils.data.columns.find_cols`
+        on the scan dataframe (same matching rules as
+        :meth:`~geecs_data_utils.ScanData.find_cols`). If ``None``, the feature
+        names from the artifact schema are used directly.
 
     Returns
     -------
@@ -52,8 +55,7 @@ def predict_from_scan(
     expected = artifact.feature_schema.feature_names
 
     if feature_specs is not None:
-        # Remap feature specs to actual column names
-        col_map = _resolve_feature_map(scan, feature_specs, expected)
+        col_map = _resolve_feature_map(df, feature_specs, expected)
         sub = df[list(col_map.values())].rename(
             columns={v: k for k, v in col_map.items()}
         )
@@ -70,16 +72,21 @@ def predict_from_scan(
 
 
 def _resolve_feature_map(
-    scan: Any,
+    df: pd.DataFrame,
     specs: Sequence[str],
     expected: list[str],
 ) -> dict[str, str]:
-    """Map expected feature names to actual scan column names via specs."""
+    """Map expected feature names to dataframe columns using shared ``find_cols``."""
+    flat_set = set(flatten_columns(df))
     available: list[str] = []
     for spec in specs:
-        if hasattr(scan, "find_cols"):
-            available.extend(scan.find_cols(spec))
-        elif spec in scan.data_frame.columns:
+        matches = find_cols(df, spec)
+        if matches:
+            available.extend(matches)
+            continue
+        if spec in df.columns:
+            available.append(spec)
+        elif spec in flat_set:
             available.append(spec)
 
     mapping: dict[str, str] = {}
