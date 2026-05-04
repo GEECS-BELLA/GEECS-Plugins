@@ -15,6 +15,7 @@ from geecs_data_utils.data.columns import (
     resolve_col,
     resolve_col_detailed,
 )
+from geecs_data_utils.data.dataset import DatasetBuilder, DatasetFrame, LoadScansReport
 
 __all__ = [
     "apply_row_filters",
@@ -28,4 +29,7 @@ __all__ = [
     "flatten_columns",
     "resolve_col",
     "resolve_col_detailed",
+    "DatasetBuilder",
+    "DatasetFrame",
+    "LoadScansReport",
 ]

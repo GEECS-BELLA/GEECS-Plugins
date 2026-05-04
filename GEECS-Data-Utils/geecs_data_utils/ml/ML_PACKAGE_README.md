@@ -12,6 +12,10 @@ pip install geecs-data-utils[ml]
 
 This pulls in `scikit-learn` (and optionally `optuna` for future tuning support).
 
+## Shared data utilities (non-ML)
+
+Multi-scan assembly and cleaning live in `geecs_data_utils.data.dataset` (see the package `README.md`). Typical flow: `DatasetBuilder.from_date_scan_numbers(...)` for a one-shot table plus `DatasetFrame.load_report` for skipped scan numbers, or `DatasetBuilder.load_scans_from_date_report` if you only need load diagnostics before concatenation.
+
 ## Quick Start
 
 ```python

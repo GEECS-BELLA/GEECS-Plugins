@@ -7,12 +7,9 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import pandas as pd
 
-from geecs_data_utils.data.cleaning import (
-    apply_row_filters,
-    OutlierConfig,
-    apply_outlier_config,
-)
+from geecs_data_utils.data.cleaning import OutlierConfig
 from geecs_data_utils.data.columns import resolve_col
+from geecs_data_utils.data.dataset import DatasetBuilder
 
 
 @dataclass
@@ -46,9 +43,10 @@ class DatasetResult:
 class BeamPredictionDatasetBuilder:
     """Assembles ML-ready DataFrames from GEECS scan data.
 
-    This class converts one or more :class:`~geecs_data_utils.ScanData`
-    objects (or raw DataFrames) into a rectangular dataset suitable for
-    regression training.
+    Scan concatenation and shared cleaning (outliers, row filters) delegate to
+    :class:`~geecs_data_utils.data.dataset.DatasetBuilder` with ``dropna=False``
+    so ML column selection runs first; final ``dropna`` applies only to the
+    selected feature and target columns.
 
     Examples
     --------
@@ -103,20 +101,23 @@ class BeamPredictionDatasetBuilder:
         -------
         DatasetResult
         """
-        df = scan.data_frame
-        if df is None:
+        if scan.data_frame is None:
             raise ValueError("ScanData has no loaded data_frame.")
 
-        scan_info = _extract_scan_info(scan)
-        return BeamPredictionDatasetBuilder._build(
-            df,
+        assembled = DatasetBuilder.from_scan(
+            scan,
+            filters=filters,
+            outlier_config=outlier_config,
+            dropna=False,
+        )
+        return BeamPredictionDatasetBuilder._build_ml_columns(
+            assembled.frame,
+            rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,
             target_specs=target_specs,
             target_column=target_column,
-            filters=filters,
-            outlier_config=outlier_config,
             dropna=dropna,
-            scan_info=scan_info,
+            scan_info=assembled.scan_info,
         )
 
     @staticmethod
@@ -143,29 +144,20 @@ class BeamPredictionDatasetBuilder:
         -------
         DatasetResult
         """
-        frames = []
-        scan_infos = []
-        for s in scans:
-            if s.data_frame is None:
-                continue
-            frames.append(s.data_frame)
-            scan_infos.append(_extract_scan_info(s))
-
-        if not frames:
-            raise ValueError("No scans with loaded data_frame provided.")
-
-        df = pd.concat(frames, ignore_index=True)
-        scan_info = {"scans": scan_infos, "total_scans": len(scan_infos)}
-
-        return BeamPredictionDatasetBuilder._build(
-            df,
+        assembled = DatasetBuilder.from_scans(
+            scans,
+            filters=filters,
+            outlier_config=outlier_config,
+            dropna=False,
+        )
+        return BeamPredictionDatasetBuilder._build_ml_columns(
+            assembled.frame,
+            rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,
             target_specs=target_specs,
             target_column=target_column,
-            filters=filters,
-            outlier_config=outlier_config,
             dropna=dropna,
-            scan_info=scan_info,
+            scan_info=assembled.scan_info,
         )
 
     @staticmethod
@@ -200,18 +192,15 @@ class BeamPredictionDatasetBuilder:
         -------
         DatasetResult
         """
-        rows_raw = len(df)
-        out = df.copy()
+        assembled = DatasetBuilder.from_dataframe(
+            df,
+            filters=filters,
+            outlier_config=outlier_config,
+            dropna=False,
+        )
+        out = assembled.frame
+        rows_raw = assembled.rows_raw
 
-        # Outlier handling
-        if outlier_config is not None:
-            out = apply_outlier_config(out, outlier_config)
-
-        # Row filters
-        if filters:
-            out = apply_row_filters(out, filters)
-
-        # Resolve features
         if feature_columns is not None:
             features = list(feature_columns)
         else:
@@ -239,35 +228,21 @@ class BeamPredictionDatasetBuilder:
         )
 
     # ------------------------------------------------------------------
-    # Internal build logic
+    # Internal: ML column selection (after shared DatasetBuilder cleaning)
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _build(
-        df: pd.DataFrame,
+    def _build_ml_columns(
+        out: pd.DataFrame,
         *,
+        rows_raw: int,
         feature_specs: Optional[Sequence[str]],
         target_specs: Optional[Sequence[str]],
         target_column: Optional[str],
-        filters: Optional[list],
-        outlier_config: Optional[OutlierConfig],
         dropna: bool,
         scan_info: Dict[str, Any],
     ) -> DatasetResult:
-        """Shared build logic for scan-based factories."""
-        rows_raw = len(df)
-        out = df.copy()
-
-        # Outlier handling
-        if outlier_config is not None:
-            out = apply_outlier_config(out, outlier_config)
-
-        # Row filters
-        if filters:
-            out = apply_row_filters(out, filters)
-
-        # Resolve target
-        tgt: str
+        """Select target and feature columns; optional ``dropna`` on selection only."""
         if target_column is not None:
             tgt = target_column
         elif target_specs is not None:
@@ -275,10 +250,8 @@ class BeamPredictionDatasetBuilder:
         else:
             raise ValueError("Either target_column or target_specs must be provided.")
 
-        # Resolve features
         if feature_specs is not None:
             features = _resolve_feature_columns(out, feature_specs)
-            # Exclude target from features
             features = [f for f in features if f != tgt]
         else:
             features = [
@@ -299,23 +272,6 @@ class BeamPredictionDatasetBuilder:
             rows_raw=rows_raw,
             rows_final=len(out),
         )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _extract_scan_info(scan: Any) -> Dict[str, Any]:
-    """Extract metadata from a ScanData object."""
-    info: Dict[str, Any] = {}
-    if hasattr(scan, "paths") and hasattr(scan.paths, "tag"):
-        tag = scan.paths.tag
-        if hasattr(tag, "_asdict"):
-            info.update(tag._asdict())
-        elif hasattr(tag, "__dict__"):
-            info.update(tag.__dict__)
-    return info
 
 
 def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
