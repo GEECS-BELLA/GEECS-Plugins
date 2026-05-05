@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from geecs_data_utils.data import sigma_clip_frame, sigma_nan_frame
-from geecs_data_utils.ml.feature_selection import CorrelationReport
+from geecs_data_utils.analysis import CorrelationReport
 
 
 class TestSigmaClipFrame:

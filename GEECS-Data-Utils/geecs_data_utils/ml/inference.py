@@ -9,7 +9,7 @@ This module provides additional helpers for common inference patterns.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -55,7 +55,7 @@ def predict_from_scan(
     expected = artifact.feature_schema.feature_names
 
     if feature_specs is not None:
-        col_map = _resolve_feature_map(df, feature_specs, expected)
+        col_map = _resolve_feature_map(df, feature_specs, tuple(expected))
         sub = df[list(col_map.values())].rename(
             columns={v: k for k, v in col_map.items()}
         )
@@ -74,9 +74,13 @@ def predict_from_scan(
 def _resolve_feature_map(
     df: pd.DataFrame,
     specs: Sequence[str],
-    expected: list[str],
-) -> dict[str, str]:
-    """Map expected feature names to dataframe columns using shared ``find_cols``."""
+    expected: Sequence[str],
+) -> Dict[str, str]:
+    """Map artifact feature names to physical columns using :func:`find_cols`.
+
+    Each *spec* expands to zero or more column names; the union must contain
+    every name in *expected* so the model receives correctly ordered columns.
+    """
     flat_set = set(flatten_columns(df))
     available: list[str] = []
     for spec in specs:

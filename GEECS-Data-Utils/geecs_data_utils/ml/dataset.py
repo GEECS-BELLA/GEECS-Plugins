@@ -1,4 +1,8 @@
-"""Dataset construction from GEECS scan data for ML workflows."""
+"""ML dataset assembly: column resolution on top of :mod:`geecs_data_utils.data.dataset`.
+
+Concatenation, outliers, and row filtering reuse :class:`~geecs_data_utils.data.dataset.DatasetBuilder`
+so behavior stays aligned with non-ML scan table workflows (Task D split).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import pandas as pd
 
-from geecs_data_utils.data.cleaning import OutlierConfig
+from geecs_data_utils.data.cleaning import OutlierConfig, RowFilterSpec
 from geecs_data_utils.data.columns import resolve_col
 from geecs_data_utils.data.dataset import DatasetBuilder
 
@@ -27,9 +31,9 @@ class DatasetResult:
     scan_info : dict
         Metadata about the source scan(s).
     rows_raw : int
-        Row count before any filtering or outlier removal.
+        Row count of the merged / single-scan frame before outlier and row-filter steps.
     rows_final : int
-        Row count after filtering.
+        Row count in ``frame`` after the full ML pipeline (including optional ``dropna``).
     """
 
     frame: pd.DataFrame
@@ -69,7 +73,7 @@ class BeamPredictionDatasetBuilder:
         feature_specs: Optional[Sequence[str]] = None,
         target_specs: Optional[Sequence[str]] = None,
         target_column: Optional[str] = None,
-        filters: Optional[list] = None,
+        filters: Optional[List[RowFilterSpec]] = None,
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
@@ -127,7 +131,7 @@ class BeamPredictionDatasetBuilder:
         feature_specs: Optional[Sequence[str]] = None,
         target_specs: Optional[Sequence[str]] = None,
         target_column: Optional[str] = None,
-        filters: Optional[list] = None,
+        filters: Optional[List[RowFilterSpec]] = None,
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
@@ -166,7 +170,7 @@ class BeamPredictionDatasetBuilder:
         *,
         feature_columns: Optional[Sequence[str]] = None,
         target_column: str,
-        filters: Optional[list] = None,
+        filters: Optional[List[RowFilterSpec]] = None,
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
@@ -242,7 +246,11 @@ class BeamPredictionDatasetBuilder:
         dropna: bool,
         scan_info: Dict[str, Any],
     ) -> DatasetResult:
-        """Select target and feature columns; optional ``dropna`` on selection only."""
+        """Resolve target/features with :func:`~geecs_data_utils.data.columns.resolve_col`; subset columns.
+
+        Expects *out* to already reflect :meth:`~geecs_data_utils.data.dataset.DatasetBuilder.prepare_frame`
+        (with ``dropna=False`` when called from the public builders).
+        """
         if target_column is not None:
             tgt = target_column
         elif target_specs is not None:
@@ -275,7 +283,7 @@ class BeamPredictionDatasetBuilder:
 
 
 def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
-    """Resolve a single column; try each spec until :func:`resolve_col` succeeds."""
+    """Return the first *spec* that :func:`~geecs_data_utils.data.columns.resolve_col` resolves."""
     for spec in specs:
         try:
             return resolve_col(df, spec)
@@ -285,7 +293,7 @@ def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
 
 
 def _resolve_feature_columns(df: pd.DataFrame, specs: Sequence[str]) -> List[str]:
-    """One resolved column per spec (deduplicated), using :func:`resolve_col`."""
+    """Resolve each *spec* to at most one column; skip specs that match nothing."""
     features: List[str] = []
     seen: set[str] = set()
     for spec in specs:

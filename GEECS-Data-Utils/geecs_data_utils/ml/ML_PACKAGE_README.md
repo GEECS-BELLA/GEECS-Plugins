@@ -16,6 +16,8 @@ This pulls in `scikit-learn` (and optionally `optuna` for future tuning support)
 
 Multi-scan assembly and cleaning live in `geecs_data_utils.data.dataset` (see the package `README.md`). Typical flow: `DatasetBuilder.from_date_scan_numbers(...)` for a one-shot table plus `DatasetFrame.load_report` for skipped scan numbers, or `DatasetBuilder.load_scans_from_date_report` if you only need load diagnostics before concatenation.
 
+Correlation ranking (`CorrelationReport`) is implemented in `geecs_data_utils.analysis.correlation` and re-exported from `geecs_data_utils.ml` for convenience; prefer `from geecs_data_utils.analysis import CorrelationReport` in new code.
+
 ## Quick Start
 
 ```python
@@ -64,10 +66,14 @@ predictions = loaded.predict(new_data[top_features])
 ## Package Structure
 
 ```
+geecs_data_utils/analysis/
+    __init__.py
+    correlation.py         # CorrelationReport (tabular correlation ranking)
+
 geecs_data_utils/ml/
     __init__.py            # Public API exports
     dataset.py             # BeamPredictionDatasetBuilder, DatasetResult, OutlierConfig
-    feature_selection.py   # CorrelationReport, sigma_clip_frame, sigma_nan_frame
+    feature_selection.py   # re-exports CorrelationReport from analysis
     preprocessing.py       # build_preprocessing_pipeline (internal)
     models.py              # RegressionTrainer, ModelArtifact
     persistence.py         # save_model_artifact, load_model_artifact
@@ -109,11 +115,13 @@ OutlierConfig(method="nan", sigma=5.0, columns=None)
 - `sigma` — number of standard deviations for the threshold
 - `columns` — specific columns to apply to (default: all numeric)
 
-### Feature Selection
+### Correlation ranking (also `geecs_data_utils.analysis`)
 
 #### `CorrelationReport`
 
 ```python
+from geecs_data_utils.analysis import CorrelationReport
+
 report = CorrelationReport.from_dataframe(
     df,
     target="charge",

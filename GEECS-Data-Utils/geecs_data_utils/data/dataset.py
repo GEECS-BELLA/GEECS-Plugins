@@ -22,6 +22,7 @@ import pandas as pd
 
 from geecs_data_utils.data.cleaning import (
     OutlierConfig,
+    RowFilterSpec,
     apply_outlier_config,
     apply_row_filters,
 )
@@ -80,7 +81,19 @@ class DatasetFrame:
 
 
 class DatasetBuilder:
-    """Build generic DataFrames from ScanData objects and apply shared cleaning."""
+    """Concatenate scan scalar tables and run shared cleaning.
+
+    Inputs are duck-typed: anything with a ``data_frame`` attribute works;
+    :class:`~geecs_data_utils.ScanData` is the usual type. Heavy lifting uses
+    :meth:`prepare_frame` (outliers → row filters → optional ``dropna``).
+
+    :class:`~geecs_data_utils.ml.dataset.BeamPredictionDatasetBuilder` calls these
+    entry points with ``dropna=False``, then applies ML-specific column selection
+    and drops NaNs only on the chosen columns.
+
+    ``ScanData`` is imported inside load helpers so this module stays importable
+    without pulling scan IO unless those paths are used.
+    """
 
     @staticmethod
     def extract_scan_info(scan: Any) -> Dict[str, Any]:
@@ -121,10 +134,16 @@ class DatasetBuilder:
             Scan indices to try (e.g. ``range(1, 55)``).
         on_missing
             ``"skip"`` records failures in ``LoadScansReport.skipped`` and continues.
-            ``"raise"`` re-raises the first ``FileNotFoundError`` or ``ValueError``.
+            ``"raise"`` re-raises the first ``FileNotFoundError`` or ``ValueError``
+            from :meth:`~geecs_data_utils.ScanData.from_date`, or raises
+            ``ValueError`` if a scan loads but ``data_frame`` is ``None``.
         append_paths
             Passed to :meth:`~geecs_data_utils.ScanData.from_date` (often ``False``
             when you only need scalar columns for concatenation).
+
+        Notes
+        -----
+        Side-effect free regarding disk beyond calling ``ScanData.from_date`` per number.
         """
         from geecs_data_utils.scan_data import ScanData
 
@@ -183,7 +202,9 @@ class DatasetBuilder:
         append_paths: bool = False,
         on_missing: Literal["skip", "raise"] = "skip",
     ) -> list[Any]:
-        """Load scans for a date; return only the list of successful ``ScanData`` objects.
+        """Load scans for a date; return successful :class:`~geecs_data_utils.ScanData` instances.
+
+        Order matches iteration over ``numbers`` (missing scans omitted).
 
         For skipped numbers and reasons, use :meth:`load_scans_from_date_report`.
         """
@@ -213,14 +234,14 @@ class DatasetBuilder:
         source: Literal["sfile", "tdms"] = "sfile",
         append_paths: bool = False,
         on_missing: Literal["skip", "raise"] = "skip",
-        filters: list[tuple[str, str, Any]] | None = None,
+        filters: list[RowFilterSpec] | None = None,
         outlier_config: OutlierConfig | None = None,
         dropna: bool = False,
     ) -> DatasetFrame:
-        """One-shot: load scan numbers for a date, concatenate, then apply shared cleaning.
+        """Load many scan numbers for one date, concatenate, then run :meth:`prepare_frame`.
 
-        Equivalent to :meth:`load_scans_from_date_report` followed by
-        :meth:`from_scans`, with :attr:`DatasetFrame.load_report` filled in.
+        Equivalent to :meth:`load_scans_from_date_report` plus :meth:`from_scans`,
+        with :attr:`DatasetFrame.load_report` set for troubleshooting skips.
 
         Raises
         ------
@@ -258,11 +279,11 @@ class DatasetBuilder:
     def from_scan(
         scan: Any,
         *,
-        filters: list[tuple[str, str, Any]] | None = None,
+        filters: list[RowFilterSpec] | None = None,
         outlier_config: OutlierConfig | None = None,
         dropna: bool = False,
     ) -> DatasetFrame:
-        """Assemble and optionally clean a frame from one scan."""
+        """Copy ``scan.data_frame``, apply :meth:`prepare_frame`, attach ``scan_info``."""
         df = getattr(scan, "data_frame", None)
         if df is None:
             raise ValueError("ScanData has no loaded data_frame.")
@@ -281,7 +302,7 @@ class DatasetBuilder:
     def from_scans(
         scans: Sequence[Any],
         *,
-        filters: list[tuple[str, str, Any]] | None = None,
+        filters: list[RowFilterSpec] | None = None,
         outlier_config: OutlierConfig | None = None,
         dropna: bool = False,
     ) -> DatasetFrame:
@@ -318,11 +339,11 @@ class DatasetBuilder:
     def from_dataframe(
         df: pd.DataFrame,
         *,
-        filters: list[tuple[str, str, Any]] | None = None,
+        filters: list[RowFilterSpec] | None = None,
         outlier_config: OutlierConfig | None = None,
         dropna: bool = False,
     ) -> DatasetFrame:
-        """Wrap an existing DataFrame and optionally apply shared cleaning."""
+        """Apply :meth:`prepare_frame` to an arbitrary table (no ``scan_info``)."""
         cleaned = DatasetBuilder.prepare_frame(
             df, filters=filters, outlier_config=outlier_config, dropna=dropna
         )
@@ -332,11 +353,20 @@ class DatasetBuilder:
     def prepare_frame(
         df: pd.DataFrame,
         *,
-        filters: list[tuple[str, str, Any]] | None = None,
+        filters: list[RowFilterSpec] | None = None,
         outlier_config: OutlierConfig | None = None,
         dropna: bool = False,
     ) -> pd.DataFrame:
-        """Apply shared non-ML frame transforms in one place."""
+        """Ordered pipeline: optional outliers → optional row filters → optional ``dropna``.
+
+        Used by :class:`DatasetBuilder` and by ML builders that disable ``dropna``
+        here so NaNs can be handled after column selection.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A copy of ``df`` after the requested steps (possibly unchanged length).
+        """
         out = df.copy()
         if outlier_config is not None:
             out = apply_outlier_config(out, outlier_config)
