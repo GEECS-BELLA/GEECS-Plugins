@@ -64,7 +64,6 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Store analyzer state
         self.line_config_name = line_config_name
-        self.run_analyze_image_asynchronously = False
 
         # Storage for metadata from read_1d_data
         self.data_metadata: Optional[Dict[str, str]] = None
