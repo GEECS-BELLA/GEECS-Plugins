@@ -14,7 +14,7 @@ the StandardAnalyzer for all image processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Set, Tuple, Dict
+from typing import Optional, Set, Tuple, Dict, Union
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+import image_analysis.processing.array2d.config_models as cfg_2d
 
 # Import beam-specific tools
 from image_analysis.algorithms.basic_beam_stats import (
@@ -88,7 +89,7 @@ class BeamAnalyzer(StandardAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: str,
+        camera_config_name: Union[str, cfg_2d.CameraConfig],
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
@@ -96,8 +97,9 @@ class BeamAnalyzer(StandardAnalyzer):
 
         Parameters
         ----------
-        camera_config_name : str
-            Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
+        camera_config_name : str or CameraConfig
+            Name of the camera configuration to load (e.g., "UC_ALineEBeam3"),
+            or a pre-constructed ``CameraConfig`` instance.
         name_suffix : str, optional
             Suffix to append to camera name for scalar result prefixes.
             Useful for distinguishing multiple analysis passes on the same camera.

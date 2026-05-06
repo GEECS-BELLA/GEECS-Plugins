@@ -18,7 +18,7 @@ analysis capabilities.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Union, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -59,8 +59,11 @@ class StandardAnalyzer(ImageAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str
-        Name of the camera configuration to load (e.g., "undulator_exit_cam")
+    camera_config_name : str or CameraConfig
+        Name of the camera configuration to load (e.g., "undulator_exit_cam"),
+        or a pre-constructed ``CameraConfig`` instance.  Passing a config
+        object bypasses YAML loading entirely — useful for testing or for
+        building configs programmatically at runtime.
     name_suffix : str, optional
         Suffix to append to camera name for scalar result prefixes.
         Useful for distinguishing multiple analysis passes on the same camera.
@@ -75,19 +78,27 @@ class StandardAnalyzer(ImageAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: str,
+        camera_config_name: Union[str, cfg_2d.CameraConfig],
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
         """Initialize the standard analyzer with external configuration."""
-        # Load camera configuration
-        try:
-            self.camera_config = load_camera_config(camera_config_name)
-            logger.info("Loaded configuration for camera: %s", self.camera_config.name)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load camera configuration '{camera_config_name}': {e}"
-            )
+        # Accept a pre-built CameraConfig directly (bypasses YAML loading)
+        if isinstance(camera_config_name, cfg_2d.CameraConfig):
+            self.camera_config = camera_config_name
+            camera_config_name = self.camera_config.name
+            logger.info("Using provided CameraConfig: %s", self.camera_config.name)
+        else:
+            # Load camera configuration from YAML
+            try:
+                self.camera_config = load_camera_config(camera_config_name)
+                logger.info(
+                    "Loaded configuration for camera: %s", self.camera_config.name
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load camera configuration '{camera_config_name}': {e}"
+                )
 
         # Create background manager if background processing is configured
         self.background_manager = create_background_manager_from_config(
