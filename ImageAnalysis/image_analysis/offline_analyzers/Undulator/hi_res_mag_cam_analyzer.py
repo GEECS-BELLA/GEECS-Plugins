@@ -8,7 +8,7 @@ emittance proxy score suitable for optimization.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Dict, Any, Union
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.processing.array2d.config_models import CameraConfig
 from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
 from image_analysis.types import ImageAnalyzerResult
 
@@ -34,7 +35,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: str = "UC_HiResMagCam",
+        camera_config_name: Union[str, CameraConfig] = "UC_HiResMagCam",
         config_overrides: Optional[Dict[str, Any]] = None,
         n_beam_size_clearance: int = 4,
         min_total_counts: float = 2500.0,
