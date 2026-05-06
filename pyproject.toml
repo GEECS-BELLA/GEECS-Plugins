@@ -34,6 +34,24 @@ ipykernel = "^6.30.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+# -------------------------------
+# Pytest settings
+# -------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests"]
+markers = [
+    "integration: requires external resources (data or hardware) — skipped in CI",
+    "data: requires network-mounted GEECS data (combine with integration)",
+    "hardware: requires live GEECS devices (combine with integration)",
+]
+# Exclude pre-existing test stubs that require optional/unavailable deps
+norecursedirs = [
+    "tests/ScannerTools",
+    "ImageAnalysis/tests/labview_analyzer_unit_tests",
+    ".git", ".venv", "dist", "build", "__pycache__",
+]
+
 # -------------------------------
 # Ruff settings
 # -------------------------------
