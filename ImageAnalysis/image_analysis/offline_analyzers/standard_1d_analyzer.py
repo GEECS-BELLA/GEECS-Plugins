@@ -53,6 +53,9 @@ class Standard1DAnalyzer(ImageAnalyzer):
         line_config_name: str,
     ):
         """Initialize the standard 1D analyzer with external configuration."""
+        # Initialize base class first so any defaults it sets can be overridden below.
+        super().__init__()
+
         # Load line configuration
         try:
             self.line_config = load_line_config(line_config_name)
@@ -64,13 +67,10 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Store analyzer state
         self.line_config_name = line_config_name
-        self.run_analyze_image_asynchronously = False
+        self.run_analyze_image_asynchronously = True
 
         # Storage for metadata from read_1d_data
         self.data_metadata: Optional[Dict[str, str]] = None
-
-        # Initialize base class
-        super().__init__()
 
     def load_image(self, file_path: Path) -> Array1D:
         """Load 1D data from file using configured data loader.
