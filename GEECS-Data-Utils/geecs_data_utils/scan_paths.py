@@ -43,10 +43,6 @@ class ScanPaths:
     ----------
     scan_info : dict[str, str]
         Dictionary containing scan configuration information loaded from scan info file
-    data_dict : dict
-        Dictionary containing loaded device data
-    data_frame : pandas.DataFrame or None
-        DataFrame representation of the scan data
     paths_config : GeecsPathsConfig
         Class-level configuration object for managing GEECS data paths
     """
@@ -83,9 +79,6 @@ class ScanPaths:
         self._tag: Optional[ScanTag] = None
         self._tag_date: Optional[date] = None
         self._analysis_folder: Optional[Path] = None
-
-        self.data_dict = {}
-        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         # Handle folder initialization
         if folder is None and tag is not None:
@@ -564,13 +557,6 @@ class ScanPaths:
         """Get lists of device folders and files in the scan directory."""
         top_content = next(os.walk(self._folder))
         return {"devices": top_content[1], "files": top_content[2]}
-
-    def get_device_data(self, device_name: str):
-        """Get data for a specific device from the loaded data dictionary."""
-        if device_name in self.data_dict:
-            return self.data_dict[device_name]
-        else:
-            return {}
 
     def load_scan_info(self):
         """Load scan configuration information from the scan info file."""
