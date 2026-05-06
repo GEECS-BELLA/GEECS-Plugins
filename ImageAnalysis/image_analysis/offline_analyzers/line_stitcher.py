@@ -41,12 +41,6 @@ class LineStitcher(LineAnalyzer):
         Passed through to LineAnalyzer for metric naming.
     """
 
-    # Threads avoid spawning subprocesses that re-import matplotlib and crash
-    # in GUI contexts where no QApplication exists in the worker process.
-    # Threads also share instance state, so load_image's write to
-    # self._device_in_filename is visible to analyze_image on the same shot.
-    run_analyze_image_asynchronously = True
-
     def __init__(
         self,
         line_config_name: str,
