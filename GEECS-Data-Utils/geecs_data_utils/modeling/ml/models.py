@@ -1,4 +1,16 @@
-"""Regression model training with sklearn pipelines."""
+"""Sklearn regression training wrapped as :class:`ModelArtifact`.
+
+The fitted estimator is always ``Pipeline(preprocessing + regressor)``.
+Preprocessing defaults match serialized artifacts in
+:mod:`~geecs_data_utils.modeling.ml.persistence`.
+
+See Also
+--------
+geecs_data_utils.modeling.ml.persistence :
+    Save/load ``ModelArtifact`` and sidecar JSON.
+geecs_data_utils.modeling.ml.preprocessing :
+    Default imputer/scaler pipeline.
+"""
 
 from __future__ import annotations
 
@@ -11,8 +23,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import Pipeline
 
-from geecs_data_utils.ml.preprocessing import build_preprocessing_pipeline
-from geecs_data_utils.ml.schemas import FeatureSchema, ModelMetadata, TrainingMetrics
+from geecs_data_utils.modeling.ml.preprocessing import build_preprocessing_pipeline
+from geecs_data_utils.modeling.ml.schemas import (
+    FeatureSchema,
+    ModelMetadata,
+    TrainingMetrics,
+)
 
 ModelName = Literal["linear", "ridge", "elasticnet"]
 
@@ -24,21 +40,18 @@ _ESTIMATORS: Dict[str, type] = {
 
 
 class ModelArtifact:
-    """A trained model artifact containing the pipeline, schema, and metadata.
+    """Fitted pipeline plus schema and metrics for I/O and inference.
 
-    This is the primary object returned by :meth:`RegressionTrainer.fit` and
-    by :func:`~geecs_data_utils.ml.persistence.load_model_artifact`.
-
-    Parameters
+    Attributes
     ----------
-    pipeline : Pipeline
-        The fitted sklearn pipeline (preprocessing + estimator).
+    pipeline : sklearn.pipeline.Pipeline
+        Preprocessing steps followed by the regression estimator.
     feature_schema : FeatureSchema
-        Feature contract for inference.
+        Ordered feature names required by :meth:`predict`.
     metadata : ModelMetadata
-        Training metadata.
+        Training provenance and hyperparameters.
     metrics : TrainingMetrics
-        Evaluation metrics from training.
+        Scores computed during :meth:`RegressionTrainer.fit`.
     """
 
     def __init__(
@@ -48,29 +61,41 @@ class ModelArtifact:
         metadata: ModelMetadata,
         metrics: TrainingMetrics,
     ) -> None:
+        """Attach fitted pipeline and metadata containers.
+
+        Parameters
+        ----------
+        pipeline : sklearn.pipeline.Pipeline
+            Fitted preprocess + estimator pipeline.
+        feature_schema : FeatureSchema
+            Feature column contract for :meth:`predict`.
+        metadata : ModelMetadata
+            Training summary for persistence.
+        metrics : TrainingMetrics
+            Fit-time scores for persistence.
+        """
         self.pipeline = pipeline
         self.feature_schema = feature_schema
         self.metadata = metadata
         self.metrics = metrics
 
     def predict(self, df: pd.DataFrame) -> np.ndarray:
-        """Run predictions on new data with schema validation.
+        """Run the fitted pipeline on rows of ``df``.
 
         Parameters
         ----------
-        df : DataFrame
-            Input data.  Must contain exactly the columns listed in
-            :attr:`feature_schema`.
+        df : pandas.DataFrame
+            Must contain exactly the columns in ``feature_schema.feature_names``.
 
         Returns
         -------
-        ndarray
-            Predicted values.
+        numpy.ndarray
+            Predicted target values, shape ``(n_samples,)``.
 
         Raises
         ------
         ValueError
-            If the input columns don't match the feature schema.
+            If columns do not match the schema (including unexpected extras).
         """
         self.feature_schema.validate_columns(df.columns.tolist())
         X = df[self.feature_schema.feature_names].values
@@ -78,26 +103,16 @@ class ModelArtifact:
 
 
 class RegressionTrainer:
-    """Train sklearn-pipeline regression models.
+    """Fit linear, ridge, or elastic-net regressors with optional CV metrics.
 
-    Parameters
-    ----------
-    model : ``"linear"`` | ``"ridge"`` | ``"elasticnet"``
-        Estimator to use.
-    model_params : dict, optional
-        Keyword arguments forwarded to the estimator constructor.
-    impute : bool
-        Include imputation in the preprocessing pipeline.
-    scale : bool
-        Include standard scaling in the preprocessing pipeline.
+    Notes
+    -----
+    Use :meth:`fit` to obtain a :class:`ModelArtifact` suitable for
+    :func:`~geecs_data_utils.modeling.ml.persistence.save_model_artifact`.
 
-    Examples
+    See Also
     --------
-    >>> trainer = RegressionTrainer(model="ridge", model_params={"alpha": 1.0})
-    >>> artifact = trainer.fit(X_train, y_train, feature_names=X_train.columns.tolist(),
-    ...                        target_name="charge")
-    >>> artifact.metrics.r2
-    0.87
+    geecs_data_utils.modeling.ml.persistence.save_model_artifact
     """
 
     def __init__(
@@ -107,6 +122,24 @@ class RegressionTrainer:
         impute: bool = True,
         scale: bool = True,
     ) -> None:
+        """Configure estimator kind and preprocessing flags.
+
+        Parameters
+        ----------
+        model : {'linear', 'ridge', 'elasticnet'}, default 'ridge'
+            Which sklearn linear model to wrap in the pipeline.
+        model_params : dict, optional
+            Keyword arguments passed to the sklearn estimator constructor.
+        impute : bool, default True
+            Include ``SimpleImputer`` before scaling/regression when True.
+        scale : bool, default True
+            Include ``StandardScaler`` after imputation when True.
+
+        Raises
+        ------
+        ValueError
+            If ``model`` is not one of the supported names.
+        """
         if model not in _ESTIMATORS:
             raise ValueError(
                 f"Unknown model '{model}'. Choose from: {list(_ESTIMATORS)}"
@@ -126,29 +159,35 @@ class RegressionTrainer:
         cv: Optional[int] = None,
         scan_info: Optional[Dict[str, Any]] = None,
     ) -> ModelArtifact:
-        """Fit a regression pipeline and return a :class:`ModelArtifact`.
+        """Fit preprocessing + estimator and return a :class:`ModelArtifact`.
 
         Parameters
         ----------
-        X : DataFrame or ndarray
-            Feature matrix.
-        y : Series or ndarray
-            Target values.
+        X : pandas.DataFrame or numpy.ndarray
+            Training features.
+        y : pandas.Series or numpy.ndarray
+            Training targets.
         feature_names : list of str, optional
-            Feature column names.  Inferred from *X* if it is a DataFrame.
-        target_name : str
-            Name of the target variable.
+            Stored in ``FeatureSchema``. Defaults to DataFrame columns or
+            ``feature_0``, ``feature_1``, ... for ndarray ``X``.
+        target_name : str, default 'target'
+            Recorded in schema/metadata only.
         cv : int, optional
-            If given, run cross-validation with this many folds and store
-            the results in the returned metrics.
+            If greater than 1, runs ``cross_val_score`` on the full pipeline
+            (including preprocessing) and fills ``TrainingMetrics.cv_r2_*``.
         scan_info : dict, optional
-            Optional source scan metadata to store in the artifact.
+            Arbitrary JSON-serializable metadata stored in ``ModelMetadata``.
 
         Returns
         -------
         ModelArtifact
+
+        Notes
+        -----
+        ``TrainingMetrics.r2``, ``mae``, and ``rmse`` are **in-sample** on the
+        training data; interpret ``cv_r2_mean`` / ``cv_r2_std`` separately when
+        ``cv`` is set.
         """
-        # Resolve feature names
         if feature_names is None:
             if isinstance(X, pd.DataFrame):
                 feature_names = X.columns.tolist()
@@ -158,19 +197,12 @@ class RegressionTrainer:
         X_arr = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
         y_arr = y.values if isinstance(y, pd.Series) else np.asarray(y)
 
-        # Build pipeline
-        preprocess = build_preprocessing_pipeline(
-            impute=self.impute, scale=self.scale
-        )
+        preprocess = build_preprocessing_pipeline(impute=self.impute, scale=self.scale)
         estimator = _ESTIMATORS[self.model_name](**self.model_params)
-        pipeline = Pipeline(
-            preprocess.steps + [("estimator", estimator)]
-        )
+        pipeline = Pipeline(preprocess.steps + [("estimator", estimator)])
 
-        # Fit
         pipeline.fit(X_arr, y_arr)
 
-        # Evaluate on training data
         y_pred = pipeline.predict(X_arr)
         metrics = TrainingMetrics(
             r2=float(r2_score(y_arr, y_pred)),
@@ -178,15 +210,11 @@ class RegressionTrainer:
             rmse=float(np.sqrt(mean_squared_error(y_arr, y_pred))),
         )
 
-        # Optional cross-validation
         if cv is not None and cv > 1:
-            cv_scores = cross_val_score(
-                pipeline, X_arr, y_arr, cv=cv, scoring="r2"
-            )
+            cv_scores = cross_val_score(pipeline, X_arr, y_arr, cv=cv, scoring="r2")
             metrics.cv_r2_mean = float(cv_scores.mean())
             metrics.cv_r2_std = float(cv_scores.std())
 
-        # Build schema and metadata
         schema = FeatureSchema(
             feature_names=feature_names,
             target_name=target_name,

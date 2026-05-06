@@ -1,4 +1,18 @@
-"""Model artifact persistence — save and load trained models to disk."""
+"""Persist :class:`~geecs_data_utils.modeling.ml.models.ModelArtifact` to disk.
+
+Notes
+-----
+Each artifact is a directory (caller-defined path) containing:
+
+* ``model.joblib`` — pickled sklearn ``Pipeline`` via ``joblib``
+* ``metadata.json`` — :class:`~geecs_data_utils.modeling.ml.schemas.ModelMetadata`
+* ``feature_schema.json`` — :class:`~geecs_data_utils.modeling.ml.schemas.FeatureSchema`
+* ``metrics.json`` — :class:`~geecs_data_utils.modeling.ml.schemas.TrainingMetrics`
+
+See Also
+--------
+geecs_data_utils.modeling.ml.models.ModelArtifact
+"""
 
 from __future__ import annotations
 
@@ -8,8 +22,12 @@ from typing import Union
 
 import joblib
 
-from geecs_data_utils.ml.models import ModelArtifact
-from geecs_data_utils.ml.schemas import FeatureSchema, ModelMetadata, TrainingMetrics
+from geecs_data_utils.modeling.ml.models import ModelArtifact
+from geecs_data_utils.modeling.ml.schemas import (
+    FeatureSchema,
+    ModelMetadata,
+    TrainingMetrics,
+)
 
 _MODEL_FILE = "model.joblib"
 _METADATA_FILE = "metadata.json"
@@ -18,27 +36,19 @@ _METRICS_FILE = "metrics.json"
 
 
 def save_model_artifact(artifact: ModelArtifact, path: Union[str, Path]) -> Path:
-    """Persist a :class:`ModelArtifact` to a directory.
-
-    The directory layout is::
-
-        <path>/
-            model.joblib          # fitted sklearn pipeline
-            metadata.json         # training metadata
-            feature_schema.json   # feature contract
-            metrics.json          # evaluation metrics
+    """Write pipeline and JSON sidecars under ``path``.
 
     Parameters
     ----------
     artifact : ModelArtifact
-        The trained artifact to save.
-    path : str or Path
-        Directory to write the artifact into.  Created if it does not exist.
+        Object produced by :meth:`~geecs_data_utils.modeling.ml.models.RegressionTrainer.fit`.
+    path : str or pathlib.Path
+        Directory to create or reuse.
 
     Returns
     -------
-    Path
-        The resolved artifact directory.
+    pathlib.Path
+        Absolute-style resolved directory ``path`` used for writes.
     """
     out = Path(path)
     out.mkdir(parents=True, exist_ok=True)
@@ -53,12 +63,12 @@ def save_model_artifact(artifact: ModelArtifact, path: Union[str, Path]) -> Path
 
 
 def load_model_artifact(path: Union[str, Path]) -> ModelArtifact:
-    """Load a :class:`ModelArtifact` from a directory written by :func:`save_model_artifact`.
+    """Reload artifact written by :func:`save_model_artifact`.
 
     Parameters
     ----------
-    path : str or Path
-        Path to the artifact directory.
+    path : str or pathlib.Path
+        Artifact directory containing the four standard filenames.
 
     Returns
     -------
@@ -67,7 +77,7 @@ def load_model_artifact(path: Union[str, Path]) -> ModelArtifact:
     Raises
     ------
     FileNotFoundError
-        If the directory or any required file is missing.
+        If ``path`` is not an existing directory.
     """
     root = Path(path)
     if not root.is_dir():
@@ -86,16 +96,11 @@ def load_model_artifact(path: Union[str, Path]) -> ModelArtifact:
     )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _write_json(path: Path, data: dict) -> None:
-    """Write a dict as pretty-printed JSON."""
+    """Serialize ``data`` as indented UTF-8 JSON at ``path``."""
     path.write_text(json.dumps(data, indent=2, default=str))
 
 
 def _read_json(path: Path) -> dict:
-    """Read a JSON file and return a dict."""
+    """Parse JSON object from ``path``."""
     return json.loads(path.read_text())

@@ -1,7 +1,23 @@
-"""ML dataset assembly: column resolution on top of :mod:`geecs_data_utils.data.dataset`.
+"""ML-oriented dataset assembly on top of :mod:`geecs_data_utils.data.dataset`.
 
-Concatenation, outliers, and row filtering reuse :class:`~geecs_data_utils.data.dataset.DatasetBuilder`
-so behavior stays aligned with non-ML scan table workflows (Task D split).
+Notes
+-----
+Processing is conceptually three stages:
+
+1. Generic assembly and cleaning via
+   :class:`~geecs_data_utils.data.dataset.DatasetBuilder` with ``dropna=False``,
+   so final NaN handling stays with ML column selection.
+2. Target and feature columns chosen by explicit names or by *specs* resolved
+   with :func:`~geecs_data_utils.data.columns.resolve_col`.
+3. Optional ``dropna`` on the selected columns only.
+
+For tabular assembly without sklearn column semantics, use
+:mod:`geecs_data_utils.data.dataset` directly.
+
+See Also
+--------
+geecs_data_utils.data.dataset.DatasetBuilder : Generic concat/clean assembly.
+geecs_data_utils.data.columns.resolve_col : Column matching for specs.
 """
 
 from __future__ import annotations
@@ -18,22 +34,25 @@ from geecs_data_utils.data.dataset import DatasetBuilder
 
 @dataclass
 class DatasetResult:
-    """The output of :class:`BeamPredictionDatasetBuilder`.
+    """Container returned by :class:`BeamPredictionDatasetBuilder`.
+
+    ``frame`` contains exactly the predictor columns plus the target, ordered for
+    ``X`` / ``y`` extraction.
 
     Attributes
     ----------
-    frame : DataFrame
-        The assembled ML-ready dataframe.
+    frame : pandas.DataFrame
+        Subset ready for modeling (typically numeric columns).
     feature_columns : list of str
-        Names of the feature columns in *frame*.
+        Predictor column names present in ``frame``.
     target_column : str
-        Name of the target column in *frame*.
+        Response column name in ``frame``.
     scan_info : dict
-        Metadata about the source scan(s).
+        Optional provenance from ``DatasetBuilder`` (e.g. merged scan metadata).
     rows_raw : int
-        Row count of the merged / single-scan frame before outlier and row-filter steps.
+        Row count before this builder's final ``dropna``.
     rows_final : int
-        Row count in ``frame`` after the full ML pipeline (including optional ``dropna``).
+        Row count after final ``dropna`` when enabled.
     """
 
     frame: pd.DataFrame
@@ -45,25 +64,24 @@ class DatasetResult:
 
 
 class BeamPredictionDatasetBuilder:
-    """Assembles ML-ready DataFrames from GEECS scan data.
+    """Build :class:`DatasetResult` from scans or from an existing DataFrame.
 
-    Scan concatenation and shared cleaning (outliers, row filters) delegate to
-    :class:`~geecs_data_utils.data.dataset.DatasetBuilder` with ``dropna=False``
-    so ML column selection runs first; final ``dropna`` applies only to the
-    selected feature and target columns.
+    ``from_scan`` and ``from_scans`` delegate to ``DatasetBuilder``, then apply
+    ML-specific column resolution. ``from_dataframe`` skips scan loading but
+    uses the same cleaning hooks.
 
-    Examples
+    Notes
+    -----
+    Target selection: pass ``target_column`` for an exact name, or
+    ``target_specs`` to try each string with ``resolve_col`` until one matches.
+
+    Feature selection: pass ``feature_specs`` to resolve distinct columns in
+    order; if omitted, all numeric columns except the target are used.
+
+    See Also
     --------
-    >>> from geecs_data_utils import ScanData
-    >>> from geecs_data_utils.ml import BeamPredictionDatasetBuilder
-    >>> scan = ScanData.from_date(year=2026, month=2, day=18, number=1,
-    ...                           experiment="Undulator")
-    >>> ds = BeamPredictionDatasetBuilder.from_scan(
-    ...     scan,
-    ...     feature_specs=["laser", "pressure"],
-    ...     target_specs=["charge"],
-    ... )
-    >>> ds.frame.head()
+    geecs_data_utils.data.dataset.DatasetBuilder
+        Generic scan and DataFrame assembly.
     """
 
     @staticmethod
@@ -77,33 +95,34 @@ class BeamPredictionDatasetBuilder:
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
-        """Build a dataset from a single :class:`~geecs_data_utils.ScanData`.
+        """Assemble from one scan with ``ScanData``-like ``data_frame``.
 
         Parameters
         ----------
-        scan : ScanData
-            A loaded scan data object (must have a populated ``data_frame``).
+        scan : object
+            Must provide ``data_frame`` (e.g. :class:`~geecs_data_utils.scan_data.ScanData`).
         feature_specs : sequence of str, optional
-            Search terms resolved with :func:`~geecs_data_utils.data.columns.resolve_col`
-            (same rules as :meth:`~geecs_data_utils.ScanData.resolve_col`, without
-            local aliases). One column per spec. If ``None``, all numeric columns
-            (except the target) are used.
+            Passed to :func:`~geecs_data_utils.data.columns.resolve_col` in order.
         target_specs : sequence of str, optional
-            Terms tried in order until one resolves via ``resolve_col``.
-            Ignored if *target_column* is provided directly.
+            First matching spec becomes the target; ignored if ``target_column`` is set.
         target_column : str, optional
-            Explicit target column name.  Takes precedence over
-            *target_specs*.
-        filters : list of (column, operator, value) tuples, optional
-            Row filters applied before assembling the dataset.
+            Exact target column name; mutually exclusive with needing ``target_specs``.
+        filters : list, optional
+            Row filters forwarded to ``DatasetBuilder``.
         outlier_config : OutlierConfig, optional
-            Outlier handling configuration.
-        dropna : bool
-            If ``True``, drop rows with any ``NaN`` in the selected columns.
+            Outlier handling forwarded to ``DatasetBuilder``.
+        dropna : bool, default True
+            Drop rows with NaN in selected feature + target columns.
 
         Returns
         -------
         DatasetResult
+
+        Raises
+        ------
+        ValueError
+            If ``scan.data_frame`` is None, or neither ``target_column`` nor
+            ``target_specs`` yields a target.
         """
         if scan.data_frame is None:
             raise ValueError("ScanData has no loaded data_frame.")
@@ -114,7 +133,7 @@ class BeamPredictionDatasetBuilder:
             outlier_config=outlier_config,
             dropna=False,
         )
-        return BeamPredictionDatasetBuilder._build_ml_columns(
+        return BeamPredictionDatasetBuilder._build_model_columns(
             assembled.frame,
             rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,
@@ -135,14 +154,14 @@ class BeamPredictionDatasetBuilder:
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
-        """Build a dataset from multiple scans concatenated together.
+        """Like :meth:`from_scan`, but concatenate multiple scans first.
 
         Parameters
         ----------
-        scans : sequence of ScanData
-            Loaded scan data objects.
+        scans : sequence
+            Scan objects accepted by :meth:`DatasetBuilder.from_scans`.
         feature_specs, target_specs, target_column, filters, outlier_config, dropna
-            Same as :meth:`from_scan`.
+            Same semantics as :meth:`from_scan`.
 
         Returns
         -------
@@ -154,7 +173,7 @@ class BeamPredictionDatasetBuilder:
             outlier_config=outlier_config,
             dropna=False,
         )
-        return BeamPredictionDatasetBuilder._build_ml_columns(
+        return BeamPredictionDatasetBuilder._build_model_columns(
             assembled.frame,
             rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,
@@ -174,27 +193,32 @@ class BeamPredictionDatasetBuilder:
         outlier_config: Optional[OutlierConfig] = None,
         dropna: bool = True,
     ) -> DatasetResult:
-        """Build a dataset from a raw DataFrame.
+        """Build from a DataFrame without loading scans.
 
         Parameters
         ----------
-        df : DataFrame
-            Input data.
+        df : pandas.DataFrame
+            Input table.
         feature_columns : sequence of str, optional
-            Explicit feature column names.  If ``None``, all numeric columns
-            except the target are used.
+            Exact predictor names; if omitted, all numeric columns except
+            ``target_column`` are used.
         target_column : str
-            Target column name.
-        filters : list of (column, operator, value) tuples, optional
-            Row filters.
+            Exact response column name.
+        filters : list, optional
+            Row filters for ``DatasetBuilder``.
         outlier_config : OutlierConfig, optional
-            Outlier handling configuration.
-        dropna : bool
-            Drop rows with ``NaN`` in selected columns.
+            Outlier handling for ``DatasetBuilder``.
+        dropna : bool, default True
+            Drop NaNs on the selected columns.
 
         Returns
         -------
         DatasetResult
+
+        Raises
+        ------
+        ValueError
+            If any selected column is missing from ``df``.
         """
         assembled = DatasetBuilder.from_dataframe(
             df,
@@ -231,12 +255,8 @@ class BeamPredictionDatasetBuilder:
             rows_final=len(out),
         )
 
-    # ------------------------------------------------------------------
-    # Internal: ML column selection (after shared DatasetBuilder cleaning)
-    # ------------------------------------------------------------------
-
     @staticmethod
-    def _build_ml_columns(
+    def _build_model_columns(
         out: pd.DataFrame,
         *,
         rows_raw: int,
@@ -246,10 +266,24 @@ class BeamPredictionDatasetBuilder:
         dropna: bool,
         scan_info: Dict[str, Any],
     ) -> DatasetResult:
-        """Resolve target/features with :func:`~geecs_data_utils.data.columns.resolve_col`; subset columns.
+        """Resolve specs, subset columns, optionally drop NaNs (internal).
 
-        Expects *out* to already reflect :meth:`~geecs_data_utils.data.dataset.DatasetBuilder.prepare_frame`
-        (with ``dropna=False`` when called from the public builders).
+        Parameters
+        ----------
+        out : pandas.DataFrame
+            Assembled frame from ``DatasetBuilder``.
+        rows_raw : int
+            Row count before this step's ``dropna``.
+        feature_specs : sequence of str, optional
+        target_specs : sequence of str, optional
+        target_column : str, optional
+        dropna : bool
+        scan_info : dict
+            Forwarded into :class:`DatasetResult`.
+
+        Returns
+        -------
+        DatasetResult
         """
         if target_column is not None:
             tgt = target_column
@@ -283,7 +317,24 @@ class BeamPredictionDatasetBuilder:
 
 
 def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
-    """Return the first *spec* that :func:`~geecs_data_utils.data.columns.resolve_col` resolves."""
+    """First column matched by any spec via :func:`~geecs_data_utils.data.columns.resolve_col`.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    specs : sequence of str
+        Tried in order until one resolves.
+
+    Returns
+    -------
+    str
+        Resolved column name.
+
+    Raises
+    ------
+    ValueError
+        If no spec matches.
+    """
     for spec in specs:
         try:
             return resolve_col(df, spec)
@@ -293,7 +344,17 @@ def _resolve_column(df: pd.DataFrame, specs: Sequence[str]) -> str:
 
 
 def _resolve_feature_columns(df: pd.DataFrame, specs: Sequence[str]) -> List[str]:
-    """Resolve each *spec* to at most one column; skip specs that match nothing."""
+    """Resolve each spec to one column; preserve order; omit duplicates.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+    specs : sequence of str
+
+    Returns
+    -------
+    list of str
+    """
     features: List[str] = []
     seen: set[str] = set()
     for spec in specs:

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from geecs_data_utils.ml.models import ModelArtifact, RegressionTrainer
+from geecs_data_utils.modeling.ml.models import ModelArtifact, RegressionTrainer
 
 
 class TestRegressionTrainer:

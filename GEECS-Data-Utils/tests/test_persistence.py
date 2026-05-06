@@ -5,8 +5,11 @@ import json
 import numpy as np
 import pytest
 
-from geecs_data_utils.ml.models import RegressionTrainer
-from geecs_data_utils.ml.persistence import load_model_artifact, save_model_artifact
+from geecs_data_utils.modeling.ml.models import RegressionTrainer
+from geecs_data_utils.modeling.ml.persistence import (
+    load_model_artifact,
+    save_model_artifact,
+)
 
 
 class TestPersistence:

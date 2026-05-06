@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from geecs_data_utils.data import OutlierConfig
-from geecs_data_utils.ml import (
+from geecs_data_utils.modeling.ml import (
     BeamPredictionDatasetBuilder,
     CorrelationReport,
     ModelArtifact,

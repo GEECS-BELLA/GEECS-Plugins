@@ -2,7 +2,7 @@
 
 import pandas as pd
 
-from geecs_data_utils.ml.inference import _resolve_feature_map
+from geecs_data_utils.modeling.ml.inference import _resolve_feature_map
 
 
 def test_resolve_feature_map_unions_find_cols_matches():
