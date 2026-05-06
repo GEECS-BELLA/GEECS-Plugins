@@ -20,40 +20,6 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Canonical test scans
-# These are stable scans kept on the data server for integration testing.
-# Add new entries here when adding new integration test cases.
-# ---------------------------------------------------------------------------
-
-CANONICAL_SCANS = {
-    "undulator_2d": {
-        "experiment": "Undulator",
-        "year": 2025,
-        "month": 2,
-        "day": 20,
-        "number": 14,
-        "description": "Standard Undulator scan — 2D beam analysis (BeamAnalyzer)",
-    },
-    "undulator_1d": {
-        "experiment": "Undulator",
-        "year": 2025,
-        "month": 8,
-        "day": 19,
-        "number": 1,
-        "description": "Standard Undulator scan — 1D ICT / spectral analysis",
-    },
-    "thomson_beam": {
-        "experiment": "Thomson",
-        "year": 2025,
-        "month": 9,
-        "day": 24,
-        "number": 13,
-        "description": "Thomson beamline scan — BeamAnalyzer + MagSpec",
-    },
-}
-
-
-# ---------------------------------------------------------------------------
 # Data availability fixture
 # ---------------------------------------------------------------------------
 
@@ -95,35 +61,6 @@ def data_root() -> Path:
             "Run on a networked machine with data access."
         )
     return root
-
-
-@pytest.fixture(scope="session")
-def canonical_scan(data_root):
-    """Factory fixture: return a ScanData for a named canonical test scan.
-
-    Usage in tests::
-
-        def test_something(canonical_scan):
-            sd = canonical_scan("undulator_2d")
-    """
-    from geecs_data_utils import ScanData
-
-    def _factory(name: str):
-        if name not in CANONICAL_SCANS:
-            raise ValueError(
-                f"Unknown canonical scan '{name}'. Available: {list(CANONICAL_SCANS)}"
-            )
-        info = CANONICAL_SCANS[name]
-        return ScanData.from_date(
-            year=info["year"],
-            month=info["month"],
-            day=info["day"],
-            number=info["number"],
-            experiment=info["experiment"],
-            load_scalars=True,
-        )
-
-    return _factory
 
 
 # ---------------------------------------------------------------------------
