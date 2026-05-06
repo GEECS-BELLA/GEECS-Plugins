@@ -35,6 +35,7 @@ def bowtie_image():
         total_charge=1.0,
         noise_level=10.0,
         background_level=0,
+        seed=42,
     )
 
 

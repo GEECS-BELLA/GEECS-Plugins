@@ -133,6 +133,7 @@ def generate_bowtie_image(
     energy_spread: float = 100.0,
     background_level: float = 40,
     energy_center: Optional[float] = None,
+    seed: Optional[int] = None,
 ) -> np.ndarray:
     """Generate a synthetic bowtie beam image.
 
@@ -163,12 +164,15 @@ def generate_bowtie_image(
         Uniform background offset.
     energy_center : float, optional
         Centre of horizontal energy envelope; defaults to image centre.
+    seed : int, optional
+        Random seed for reproducible noise generation.
 
     Returns
     -------
     np.ndarray
         Synthetic image, dtype ``uint16``.
     """
+    rng = np.random.default_rng(seed)
     h, w = shape
     center_x = w // 2
     center_y = h // 2 + vertical_offset
@@ -195,6 +199,6 @@ def generate_bowtie_image(
     img += background_level
 
     if noise_level > 0:
-        img += noise_level * np.random.randn(*img.shape)
+        img += noise_level * rng.standard_normal(img.shape)
 
     return np.clip(img, 0, None).astype(np.uint16)

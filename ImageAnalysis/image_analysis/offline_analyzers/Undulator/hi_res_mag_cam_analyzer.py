@@ -8,7 +8,7 @@ emittance proxy score suitable for optimization.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Dict, Any, Union
+from typing import Optional, Tuple, Union
 from pathlib import Path
 
 import numpy as np
@@ -36,7 +36,6 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
     def __init__(
         self,
         camera_config_name: Union[str, CameraConfig] = "UC_HiResMagCam",
-        config_overrides: Optional[Dict[str, Any]] = None,
         n_beam_size_clearance: int = 4,
         min_total_counts: float = 2500.0,
         threshold_factor: float = 10.0,
@@ -45,10 +44,9 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
         Parameters
         ----------
-        camera_config_name : str, default="UC_HiResMagCam"
-            Name of the camera configuration to load
-        config_overrides : dict, optional
-            Runtime overrides for configuration parameters
+        camera_config_name : str or CameraConfig, default="UC_HiResMagCam"
+            Name of the camera configuration to load, or a pre-constructed
+            ``CameraConfig`` instance.
         n_beam_size_clearance : int, default=4
             Bowtie fit parameter: beam size clearance
         min_total_counts : float, default=2500.0
@@ -56,7 +54,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         threshold_factor : float, default=10.0
             Bowtie fit parameter: threshold factor for fit
         """
-        super().__init__(camera_config_name, config_overrides)
+        super().__init__(camera_config_name)
 
         # Initialize bowtie fit algorithm with custom parameters
         self.algo = BowtieFitAlgorithm(
