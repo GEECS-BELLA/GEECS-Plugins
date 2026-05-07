@@ -348,3 +348,19 @@ class BaseOptimizerConfig(BaseModel):
             Module name and class name for the evaluator.
         """
         return self.evaluator.module, self.evaluator.class_
+
+
+# SaveDeviceConfig is imported under TYPE_CHECKING to avoid pulling the full
+# data_acquisition chain in at module load. Pydantic v2 needs the type resolved
+# before it can validate BaseOptimizerConfig, so rebuild here once all classes
+# are defined.
+def _rebuild() -> None:
+    from geecs_scanner.data_acquisition.schemas.save_devices import (
+        SaveDeviceConfig as _SDC,
+    )
+
+    BaseOptimizerConfig.model_rebuild(_types_namespace={"SaveDeviceConfig": _SDC})
+
+
+_rebuild()
+del _rebuild
