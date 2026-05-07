@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+from typing import TYPE_CHECKING
+
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
-from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
 
 
 class ImageAnalyzerConfig(BaseModel):
@@ -292,6 +295,10 @@ class BaseOptimizerConfig(BaseModel):
         """
         # Load save_devices from file if specified
         if self.save_devices is None and self.save_devices_file is not None:
+            from geecs_scanner.data_acquisition.schemas.save_devices import (
+                SaveDeviceConfig,
+            )
+
             with open(self.save_devices_file, "r") as f:
                 loaded = yaml.safe_load(f)
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
