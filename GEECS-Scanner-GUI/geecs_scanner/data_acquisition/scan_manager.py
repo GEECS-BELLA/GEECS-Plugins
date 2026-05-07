@@ -105,14 +105,15 @@ from geecs_python_api.controls.interface.geecs_errors import (
 from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
-    escalate_device_error,
 )
 from geecs_scanner.utils.exceptions import (
     DeviceSynchronizationError,
     DeviceSynchronizationTimeout,
     OrphanProcessingTimeout,
     ScanAbortedError,
+    TriggerError,
 )
+from geecs_scanner.utils.retry import retry
 
 
 # Module-level logger (internal module, no NullHandler)
@@ -396,58 +397,62 @@ class ScanManager:
         self.initialization_success = True
         return self.initialization_success
 
-    def _set_trigger(self, state: str):
-        """
-        Set the trigger state and update variables accordingly.
-
-        Can be specified using Timing Setup in the GUI.
+    def _set_trigger(self, state: str) -> list:
+        """Set the trigger device to *state* for all shot-control variables.
 
         Parameters
         ----------
         state : str
-            Either 'OFF', 'SCAN', 'STANDBY', or 'SINGLESHOT'. Used for when
-            trigger is off, or during/outside a scan.
+            One of ``'OFF'``, ``'SCAN'``, ``'STANDBY'``, ``'SINGLESHOT'``.
 
         Returns
         -------
         list
-            List of results from setting trigger variables.
+            Return values from each ``shot_control.set()`` call.
 
-        Notes
-        -----
-        Valid states are: 'OFF', 'SCAN', 'STANDBY', 'SINGLESHOT'.
+        Raises
+        ------
+        TriggerError
+            If any trigger variable fails after retries.  Trigger failures are
+            always scan-fatal — do not catch and continue.
         """
         if self.shot_control is None or self.shot_control_variables is None:
             logger.info("No shot control device, skipping 'set state %s'", state)
-            return
+            return []
 
         valid_states = ["OFF", "SCAN", "STANDBY", "SINGLESHOT"]
-        results = []
-
-        if state in valid_states:
-            for variable in self.shot_control_variables.keys():
-                variable_settings = self.shot_control_variables[variable]
-                set_value = variable_settings.get(state, "")
-                if set_value:
-                    try:
-                        results.append(
-                            self.shot_control.set(variable, set_value, exec_timeout=0.5)
-                        )
-                        logger.info("Setting %s to %s", variable, set_value)
-                    except DEVICE_COMMAND_ERRORS as e:
-                        logger.error(
-                            "Trigger variable '%s' failed on state '%s' (%s): %s",
-                            variable,
-                            state,
-                            type(e).__name__,
-                            e,
-                        )
-                        if escalate_device_error(e, self.request_user_dialog):
-                            self.stop_scanning_thread_event.set()
-                        return results
-            logger.info("Trigger turned to state %s.", state)
-        else:
+        if state not in valid_states:
             logger.error("Invalid trigger state: %s", state)
+            return []
+
+        device_name = self.shot_control.get_name()
+        results = []
+        for variable, variable_settings in self.shot_control_variables.items():
+            set_value = variable_settings.get(state, "")
+            if not set_value:
+                continue
+            try:
+                result = retry(
+                    lambda v=variable, sv=set_value: self.shot_control.set(
+                        v, sv, exec_timeout=0.5
+                    ),
+                    attempts=2,
+                    delay=0.25,
+                    catch=DEVICE_COMMAND_ERRORS,
+                    on_retry=lambda exc, n, var=variable: logger.debug(
+                        "Trigger variable '%s' retry %d: %s", var, n, exc
+                    ),
+                )
+                results.append(result)
+                logger.info("Trigger: set %s → %s", variable, set_value)
+            except DEVICE_COMMAND_ERRORS as exc:
+                raise TriggerError(
+                    device_name,
+                    f"set trigger state '{state}' on variable '{variable}'",
+                    variable=variable,
+                ) from exc
+
+        logger.info("Trigger state → %s", state)
         return results
 
     def trigger_off(self):
@@ -657,6 +662,9 @@ class ScanManager:
 
             except ScanAbortedError:
                 logger.info("Scan aborted; running cleanup.")
+
+            except TriggerError as trig_err:
+                logger.critical("Scan aborted: trigger device failed — %s", trig_err)
 
             except GeecsDeviceInstantiationError:
                 logger.exception(

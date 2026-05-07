@@ -69,6 +69,8 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
+from geecs_scanner.utils.exceptions import DeviceCommandError
+from geecs_scanner.utils.retry import retry
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -314,7 +316,6 @@ class ScanStepExecutor:
         self.prepare_for_step()
 
         logger.info("Moving devices for step: %s", step["variables"])
-        # self.move_devices(step["variables"], step["is_composite"])
         self.move_devices_parallel_by_device(step["variables"], step["is_composite"])
 
         logger.info("Waiting for acquisition: %s", step)
@@ -364,110 +365,6 @@ class ScanStepExecutor:
 
         self.trigger_off()
 
-    def move_devices(
-        self,
-        component_vars: Dict[str, Any],
-        is_composite: bool,
-        max_retries: int = 3,
-        retry_delay: float = 0.5,
-    ) -> None:
-        """
-        Set device variables for a scan step with robust error handling and retry mechanism.
-
-        This method attempts to set device variables to specified target values,
-        implementing a retry strategy to handle potential setting failures. It supports
-        both standard and composite device variables.
-
-        Parameters
-        ----------
-        component_vars : Dict[str, Any]
-            A dictionary mapping device variables to their target values.
-            Keys are formatted as 'device_name:variable_name'.
-        is_composite : bool
-            Flag indicating whether the variables are part of a composite device configuration.
-        max_retries : int, optional
-            Maximum number of attempts to set a device variable before giving up.
-            Defaults to 3.
-        retry_delay : float, optional
-            Time in seconds to wait between retry attempts.
-            Defaults to 0.5 seconds.
-
-        Notes
-        -----
-        - Skips device setting for statistical no-scan configurations
-        - Retrieves device tolerance from experiment info
-        - Logs detailed information about setting attempts
-        - Handles devices not found in device manager
-
-        Raises
-        ------
-        Logs warnings and errors for failed device settings, but does not raise exceptions
-
-        See Also
-        --------
-        device_manager : Manages device configurations and interactions
-        GeecsDevice : Base class for device interactions
-        """
-        if not self.device_manager.is_statistic_noscan(component_vars):
-            for device_var, set_val in component_vars.items():
-                device_name, var_name = (device_var.split(":") + ["composite_var"])[:2]
-                device = self.device_manager.devices.get(device_name)
-
-                if device:
-                    tol = (
-                        10000
-                        if device.is_composite
-                        else float(
-                            GeecsDevice.exp_info["devices"][device_name][var_name][
-                                "tolerance"
-                            ]
-                        )
-                    )
-                    success = False
-
-                    for attempt in range(max_retries):
-                        ret_val = device.set(var_name, set_val)
-                        logger.info(
-                            "Attempt %d: Setting %s to %s on %s, returned %s",
-                            attempt + 1,
-                            var_name,
-                            set_val,
-                            device_name,
-                            ret_val,
-                        )
-                        if ret_val - tol <= set_val <= ret_val + tol:
-                            logger.info(
-                                "Success: %s set to %s (within tolerance %s) on %s",
-                                var_name,
-                                ret_val,
-                                tol,
-                                device_name,
-                            )
-                            success = True
-                            break
-                        else:
-                            logger.warning(
-                                "Attempt %d: %s on %s not within tolerance (%s != %s)",
-                                attempt + 1,
-                                var_name,
-                                device_name,
-                                ret_val,
-                                set_val,
-                            )
-                            time.sleep(retry_delay)
-
-                    if not success:
-                        logger.error(
-                            "Failed to set %s on %s after %d attempts",
-                            var_name,
-                            device_name,
-                            max_retries,
-                        )
-                else:
-                    logger.warning(
-                        "Device %s not found in device manager.", device_name
-                    )
-
     def move_devices_parallel_by_device(
         self,
         component_vars: Dict[str, Any],
@@ -475,158 +372,130 @@ class ScanStepExecutor:
         max_retries: int = 3,
         retry_delay: float = 0.5,
     ) -> None:
-        """
-        Set device variables in parallel, grouped by device, with optional retry and tolerance checks.
+        """Set device variables in parallel, grouped by device.
 
-        This method initiates device variable settings in parallel by assigning one thread per device.
-        Variables belonging to the same device are set sequentially in that thread, preserving device-level
-        ordering and avoiding conflicts. Threads are launched and the method returns immediately without
-        waiting for completion.
+        One thread is launched per device; variables for the same device are
+        set sequentially within that thread to avoid conflicts.  Hardware
+        communication is retried up to *max_retries* times via
+        :func:`~geecs_scanner.utils.retry.retry`.  On exhaustion a
+        :class:`~geecs_scanner.utils.exceptions.DeviceCommandError` is raised
+        (with exception chaining to the root hardware error) and the user is
+        prompted to continue or abort.
+
+        Tolerance failures (device accepted the command but the readback
+        is out of spec) are logged as WARNING and do not trigger a retry \u2014
+        retrying the same command won't fix a mechanical tuning problem.
 
         Parameters
         ----------
-        component_vars : dict of str to Any
-            Dictionary mapping device variables to target values.
-            Keys are formatted as "device_name:variable_name".
+        component_vars : dict
+            ``"device_name:variable_name"`` \u2192 target value.
         is_composite : bool
-            Flag indicating whether the variables are part of a composite device configuration.
-        max_retries : int, optional
-            Maximum number of attempts to set each device variable. Defaults to 3.
-        retry_delay : float, optional
-            Time (in seconds) to wait between retry attempts. Defaults to 0.5 seconds.
-
-        Notes
-        -----
-        - This method returns immediately after launching threads; device settings may still be in progress.
-        - Device setting for composite variables is performed without tolerance checking.
-        - For standard variables, the device-specific tolerance is used to verify success.
-        - Device setting is skipped if `component_vars` corresponds to a statistical no-scan configuration.
-        - Logs are generated for each attempt, including success, warnings, and failures.
+            True when the variables belong to a composite device configuration.
+        max_retries : int
+            Hardware-exception retry limit per variable.  Default 3.
+        retry_delay : float
+            Seconds between retries.  Default 0.5.
         """
         if self.device_manager.is_statistic_noscan(component_vars):
             return
-
         if not component_vars:
             logger.info("No variables to move for this scan step.")
             return
 
-        # Step 1: Group variables by device
-        vars_by_device = defaultdict(list)
+        # Group variables by device so each device gets its own thread.
+        vars_by_device: dict[str, list] = defaultdict(list)
         for device_var, set_val in component_vars.items():
             device_name, var_name = (device_var.split(":") + ["composite_var"])[:2]
             vars_by_device[device_name].append((var_name, set_val))
 
-        # Step 2: Define per-device setting function
-        def set_device_variables(device_name, var_list):
-            """Helper fucntion to set vars in threads."""
+        def _get_tolerance(device, device_name: str, var_name: str) -> float:
+            if device.is_composite:
+                return 10000.0
+            return float(
+                GeecsDevice.exp_info["devices"][device_name][var_name]["tolerance"]
+            )
+
+        def set_device_variables(device_name: str, var_list: list) -> None:
+            """Set all variables for one device; raises DeviceCommandError on failure."""
             device = self.device_manager.devices.get(device_name)
             if not device:
-                logger.warning("Device %s not found.", device_name)
+                logger.warning("[%s] Device not found in device manager.", device_name)
                 return
 
-            logger.info("[%s] Preparing to set vars: %s", device_name, var_list)
+            logger.info("[%s] Setting vars: %s", device_name, var_list)
             for var_name, set_val in var_list:
-                tol = (
-                    10000
-                    if device.is_composite
-                    else float(
-                        GeecsDevice.exp_info["devices"][device_name][var_name][
-                            "tolerance"
-                        ]
-                    )
-                )
-                success = False
-                first_exc = None  # preserve root-cause error across retries
-                for attempt in range(max_retries):
-                    try:
-                        ret_val = device.set(var_name, set_val)
-                        logger.info(
-                            "[%s] Attempt %d: Set %s=%s, got %s",
-                            device_name,
-                            attempt + 1,
-                            var_name,
-                            set_val,
-                            ret_val,
-                        )
-                        if ret_val - tol <= set_val <= ret_val + tol:
-                            logger.info(
-                                "[%s] Success: %s=%s within tolerance %s",
-                                device_name,
-                                var_name,
-                                ret_val,
-                                tol,
-                            )
-                            success = True
-                            break
-                        else:
-                            logger.warning(
-                                "[%s] %s=%s not within tolerance of %s",
-                                device_name,
-                                var_name,
-                                ret_val,
-                                set_val,
-                            )
-                            time.sleep(retry_delay)
+                tol = _get_tolerance(device, device_name, var_name)
 
-                    except DEVICE_COMMAND_ERRORS as e:
-                        if first_exc is None:
-                            first_exc = e  # capture root cause before retries mask it
-                        logger.error(
-                            "[%s] %s (attempt %d/%d): %s",
+                # Retry on hardware communication errors; raise on exhaustion.
+                try:
+                    ret_val = retry(
+                        lambda vn=var_name, sv=set_val: device.set(vn, sv),
+                        attempts=max_retries,
+                        delay=retry_delay,
+                        catch=DEVICE_COMMAND_ERRORS,
+                        on_retry=lambda exc, n, vn=var_name: logger.debug(
+                            "[%s] hardware error (attempt %d/%d) setting %s: %s",
                             device_name,
-                            type(e).__name__,
-                            attempt + 1,
+                            n,
                             max_retries,
-                            e,
-                        )
-                        if attempt < max_retries - 1:
-                            time.sleep(retry_delay)
-                        else:
-                            logger.error(
-                                "[%s] Device command error persists after all retry attempts. "
-                                "Prompting user.",
-                                device_name,
-                            )
-                            lines = [
-                                f"  \u2022 {n} \u2192 {v}"
-                                + (" \u2190 failed here" if n == var_name else "")
-                                for n, v in var_list
-                            ]
-                            context = (
-                                f"All variables queued for {device_name}:\n"
-                                + "\n".join(lines)
-                            )
-                            # Escalate the first exception so the dialog reflects
-                            # the root cause (e.g. Timeout) not a downstream
-                            # rejection caused by the device still being busy.
-                            if type(first_exc) is not type(e):
-                                context += (
-                                    f"\n\nNote: initial error was "
-                                    f"{type(first_exc).__name__}; subsequent "
-                                    f"retries got {type(e).__name__}."
-                                )
-                            if escalate_device_error(
-                                first_exc, self.on_device_error, context
-                            ):
-                                self.stop_scanning_thread_event.set()
-                            return
+                            vn,
+                            exc,
+                        ),
+                    )
+                except DEVICE_COMMAND_ERRORS as exc:
+                    raise DeviceCommandError(
+                        device_name,
+                        f"set {var_name}",
+                        variable=var_name,
+                    ) from exc
 
-                if not success:
-                    logger.error(
-                        "[%s] Failed to set %s after %d attempts.",
+                # Hardware call succeeded; check whether the value landed in spec.
+                if ret_val - tol <= set_val <= ret_val + tol:
+                    logger.info(
+                        "[%s] %s=%s within tolerance %s",
                         device_name,
                         var_name,
-                        max_retries,
+                        ret_val,
+                        tol,
+                    )
+                else:
+                    logger.warning(
+                        "[%s] %s=%s not within tolerance of %s",
+                        device_name,
+                        var_name,
+                        ret_val,
+                        set_val,
                     )
 
-        # Step 3: Run each device in parallel
+        # Run per-device workers in parallel; collect DeviceCommandError from threads.
         with ThreadPoolExecutor(max_workers=len(vars_by_device)) as executor:
-            futures = [
-                executor.submit(set_device_variables, device_name, var_list)
+            futures = {
+                executor.submit(
+                    set_device_variables, device_name, var_list
+                ): device_name
                 for device_name, var_list in vars_by_device.items()
-            ]
-            for f in futures:
-                f.result()  # propagate exceptions, if any
+            }
+            for future, device_name in futures.items():
+                try:
+                    future.result()
+                except DeviceCommandError as exc:
+                    var_list = vars_by_device[device_name]
+                    lines = [
+                        f"  \u2022 {n} \u2192 {v}"
+                        + (" \u2190 failed here" if n == exc.variable else "")
+                        for n, v in var_list
+                    ]
+                    context = f"All variables queued for {device_name}:\n" + "\n".join(
+                        lines
+                    )
+                    if exc.__cause__ is not None and type(exc.__cause__) is not type(
+                        exc
+                    ):
+                        context += f"\n\nRoot cause: {type(exc.__cause__).__name__}"
+                    if escalate_device_error(exc, self.on_device_error, context):
+                        self.stop_scanning_thread_event.set()
+                    return
 
     def wait_for_acquisition(self, wait_time: float) -> None:
         """
