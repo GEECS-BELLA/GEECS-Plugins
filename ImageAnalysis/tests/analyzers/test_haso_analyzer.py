@@ -67,7 +67,9 @@ class TestHASOAnalyzerIntegration:
 
     def test_processed_image_not_nan_dominated(self, haso_result):
         nan_fraction = np.isnan(haso_result.processed_image).mean()
-        assert nan_fraction < 0.5, f"Over 50% NaN in processed_image ({nan_fraction:.1%})"
+        assert (
+            nan_fraction < 0.5
+        ), f"Over 50% NaN in processed_image ({nan_fraction:.1%})"
 
     def test_processed_image_has_nonzero_extent(self, haso_result):
         """Phase image should have at least a few rows and columns of output."""
@@ -75,13 +77,16 @@ class TestHASOAnalyzerIntegration:
         assert rows > 10, f"Too few rows in processed_image: {rows}"
         assert cols > 10, f"Too few cols in processed_image: {cols}"
 
-    @pytest.mark.parametrize("suffix", [
-        "_raw.has",
-        "_postprocessed.has",
-        "_raw.tsv",
-        "_postprocessed.tsv",
-        "_intensity.tsv",
-    ])
+    @pytest.mark.parametrize(
+        "suffix",
+        [
+            "_raw.has",
+            "_postprocessed.has",
+            "_raw.tsv",
+            "_postprocessed.tsv",
+            "_intensity.tsv",
+        ],
+    )
     def test_sidecar_files_created(self, haso_result, suffix):
         expected = DATA_FILE.parent / f"{DATA_FILE.stem}{suffix}"
         assert expected.exists(), f"Expected sidecar file not found: {expected}"
