@@ -31,6 +31,7 @@ from .analyzer_config_models import (
     Array1DAnalyzerConfig,
     Array2DAnalyzerConfig,
     ImageAnalyzerConfig,
+    ScatterAnalyzerConfig,
     ScanAnalyzerConfig,
 )
 
@@ -209,6 +210,8 @@ def create_analyzer(config: ScanAnalyzerConfig) -> "ScanAnalyzer":
         return _create_array2d_analyzer(config)
     elif isinstance(config, Array1DAnalyzerConfig):
         return _create_array1d_analyzer(config)
+    elif isinstance(config, ScatterAnalyzerConfig):
+        return _create_scatter_analyzer(config)
     else:
         raise ValueError(f"Unknown analyzer config type: {type(config)}")
 
@@ -254,6 +257,47 @@ def _create_array2d_analyzer(config: Array2DAnalyzerConfig) -> "ScanAnalyzer":
     except TypeError as e:
         raise TypeError(
             f"Failed to instantiate Array2DScanAnalyzer for {config.device_name}: {e}"
+        ) from e
+
+
+def _create_scatter_analyzer(config: ScatterAnalyzerConfig) -> "ScanAnalyzer":
+    """Create ScatterPlotterAnalysis from configuration."""
+    from scan_analysis.analyzers.common.scatter_plotter_analysis import (
+        PlotParameter,
+        ScatterPlotterAnalysis,
+    )
+
+    parameters = [
+        PlotParameter(
+            key_name=p.key_name,
+            legend_label=p.label if p.label is not None else p.key_name,
+            axis_label=p.label if p.label is not None else p.key_name,
+            color=p.color,
+            y_range=tuple(p.y_range) if p.y_range is not None else None,
+        )
+        for p in config.parameters
+    ]
+
+    try:
+        logger.info(
+            f"Creating ScatterPlotterAnalysis '{config.filename}' (priority={config.priority})"
+        )
+        analyzer = ScatterPlotterAnalysis(
+            use_median=config.use_median,
+            title=config.title,
+            parameters=parameters,
+            filename=config.filename,
+            x_column=config.x_column,
+        )
+
+        analyzer.id = config.id
+        analyzer.priority = config.priority
+        analyzer.gdoc_slot = config.gdoc_slot
+
+        return analyzer
+    except TypeError as e:
+        raise TypeError(
+            f"Failed to instantiate ScatterPlotterAnalysis '{config.filename}': {e}"
         ) from e
 
 

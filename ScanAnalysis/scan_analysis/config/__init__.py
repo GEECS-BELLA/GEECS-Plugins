@@ -136,6 +136,8 @@ from .analyzer_config_models import (
     Array2DAnalyzerConfig,
     ExperimentAnalysisConfig,
     ImageAnalyzerConfig,
+    PlotParameterConfig,
+    ScatterAnalyzerConfig,
     ScanAnalyzerConfig,
 )
 
@@ -154,6 +156,8 @@ __all__ = [
     "ImageAnalyzerConfig",
     "Array2DAnalyzerConfig",
     "Array1DAnalyzerConfig",
+    "PlotParameterConfig",
+    "ScatterAnalyzerConfig",
     "ScanAnalyzerConfig",
     "ExperimentAnalysisConfig",
     # Config loading

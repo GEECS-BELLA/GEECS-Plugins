@@ -67,6 +67,9 @@ class PlotParameter(NamedTuple):
         Label to use for the y-axis corresponding to this parameter.
     color : str
         Matplotlib-compatible color specifier for plotting this parameter.
+    y_range : tuple of float, optional
+        Fixed (min, max) limits for the y-axis. If ``None``, matplotlib chooses
+        the range automatically.
 
     Notes
     -----
@@ -78,6 +81,7 @@ class PlotParameter(NamedTuple):
     legend_label: str  # String to appear on plot's y-axis for given parameter
     axis_label: str  # String to appear on plot's legend for given parameter
     color: str  # String that determines the color for the plot (see matplotlib)
+    y_range: Optional[tuple[float, float]] = None  # Fixed y-axis limits
 
 
 class ScatterPlotterAnalysis(ScanAnalyzer):
@@ -120,6 +124,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         title: str,
         parameters: Union[PlotParameter, list[PlotParameter]],
         filename: str,
+        x_column: Optional[str] = None,
         skip_plt_show: bool = True,
         device_name: Optional[str] = None,
         flag_logging: bool = True,
@@ -138,6 +143,11 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             Single plot parameter or a list of parameters to include.
         filename : str
             Output PNG filename stem (without extension).
+        x_column : str, optional
+            S-file column to use as the x-axis. For 1D scans the per-bin
+            statistic of this column is used; for noscans the per-shot values
+            are used. When ``None`` (default), falls back to the scan parameter
+            (1D scans) or shot number (noscans).
         skip_plt_show : bool, optional
             If ``True``, do not display the plot interactively. Default is ``True``.
         device_name : str, optional
@@ -149,6 +159,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         self.flag_logging = flag_logging
         self.filename = filename
+        self.x_column = x_column
         self.base_title = title
         self.title: str
 
@@ -170,7 +181,8 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         Raises
         ------
         KeyError
-            If any `PlotParameter.key_name` is not present in the loaded sfile data.
+            If any `PlotParameter.key_name` or the configured `x_column` is not
+            present in the loaded sfile data.
         """
         found_keys = self.auxiliary_data.keys()
 
@@ -179,6 +191,11 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 raise KeyError(
                     f"f{param.key_name} not found in sfile for Scan {self.scan_tag.number}"
                 )
+
+        if self.x_column is not None and self.x_column not in found_keys:
+            raise KeyError(
+                f"x_column '{self.x_column}' not found in sfile for Scan {self.scan_tag.number}"
+            )
 
     def _set_plotting_options(self) -> None:
         """
@@ -194,12 +211,7 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             f"Scan{self.scan_tag.number:03d}: {self.base_title}"
         )
 
-        self.save_path = (
-            self.scan_directory.parents[1]
-            / "analysis"
-            / self.scan_directory.name
-            / "ParameterPlots"
-        )
+        self.save_path = self.scan_path / "scatter_plots"
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """
@@ -294,8 +306,16 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         Notes
         -----
         A new twinx axis is created for each additional parameter, and axis spines are
-        shifted outward to mitigate overlap. The x-axis is shot number.
+        shifted outward to mitigate overlap. The x-axis is shot number by default, or
+        the column named by ``self.x_column`` when configured.
         """
+        if self.x_column is not None:
+            x_data = self.auxiliary_data[self.x_column].values
+            x_label = self.x_column
+        else:
+            x_data = self.auxiliary_data["Shotnumber"].values
+            x_label = "Shotnumber"
+
         fig, ax1 = plt.subplots(figsize=(7, 5))
 
         counter = 0
@@ -304,13 +324,15 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 new_ax = ax1.twinx()
             else:
                 new_ax = ax1
-            self._generate_noscan_plot(axis=new_ax, plot_parameter=param)
+            self._generate_noscan_plot(axis=new_ax, plot_parameter=param, x_data=x_data)
             self._shift_axis_spine(axis=new_ax, plot_number=counter)
             counter += 1
 
-        ax1.set_xlabel("Shotnumber")
+        ax1.set_xlabel(x_label)
 
-    def _generate_noscan_plot(self, axis: Axes, plot_parameter: PlotParameter):
+    def _generate_noscan_plot(
+        self, axis: Axes, plot_parameter: PlotParameter, x_data: np.ndarray
+    ):
         """
         Create a scatter plot and reference lines for a parameter in noscan mode.
 
@@ -320,6 +342,8 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             Axis on which to render the scatter and reference lines.
         plot_parameter : PlotParameter
             Plot specification containing key name, labels, and color.
+        x_data : numpy.ndarray
+            Values to use for the x-axis (shot number or custom column).
 
         Notes
         -----
@@ -327,7 +351,6 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         (median if configured, otherwise mean). Dashed lines show mean ±1σ.
         """
         data_array = self.auxiliary_data[plot_parameter.key_name].values
-        shotnumber = self.auxiliary_data["Shotnumber"].values
 
         average = np.average(data_array)
         sigma = np.std(data_array)
@@ -337,32 +360,34 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             center = average
 
         c = plot_parameter.color
-        axis.scatter(shotnumber, data_array, c=c, label=plot_parameter.legend_label)
+        axis.scatter(x_data, data_array, c=c, label=plot_parameter.legend_label)
 
         axis.hlines(
             y=center,
             colors=c,
             linestyles="solid",
-            xmin=shotnumber[0],
-            xmax=shotnumber[-1],
+            xmin=x_data[0],
+            xmax=x_data[-1],
         )
         axis.hlines(
             y=average - sigma,
             colors=c,
             linestyles="dashed",
-            xmin=shotnumber[0],
-            xmax=shotnumber[-1],
+            xmin=x_data[0],
+            xmax=x_data[-1],
         )
         axis.hlines(
             y=average + sigma,
             colors=c,
             linestyles="dashed",
-            xmin=shotnumber[0],
-            xmax=shotnumber[-1],
+            xmin=x_data[0],
+            xmax=x_data[-1],
         )
 
         axis.set_ylabel(plot_parameter.axis_label)
         axis.tick_params(axis="y", labelcolor=c)
+        if plot_parameter.y_range is not None:
+            axis.set_ylim(*plot_parameter.y_range)
 
     # # # # # # Routine for Scan Analysis # # # # # #
 
@@ -374,7 +399,17 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         -----
         Data are grouped by the scanned parameter into unique bins. The representative
         statistic (median or mean) is plotted per bin. Error bars reflect mean ±1σ.
+        When ``x_column`` is set, the per-bin statistic of that column is used as the
+        x-axis instead of the scan parameter values.
         """
+        if self.x_column is not None:
+            x_binned = self.process_to_bins(self.x_column)
+            x_values = x_binned[self.stat_type]
+            x_label = self.x_column
+        else:
+            x_values = np.array(list(self.binned_param_values))
+            x_label = str(self.scan_parameter)
+
         fig, ax1 = plt.subplots(figsize=(7, 5))
 
         counter = 0
@@ -383,13 +418,17 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
                 new_ax = ax1.twinx()
             else:
                 new_ax = ax1
-            self._generate_scan_plot(axis=new_ax, plot_parameter=param)
+            self._generate_scan_plot(
+                axis=new_ax, plot_parameter=param, x_values=x_values
+            )
             self._shift_axis_spine(axis=new_ax, plot_number=counter)
             counter += 1
 
-        ax1.set_xlabel(self.scan_parameter)
+        ax1.set_xlabel(x_label)
 
-    def _generate_scan_plot(self, axis: Axes, plot_parameter: PlotParameter):
+    def _generate_scan_plot(
+        self, axis: Axes, plot_parameter: PlotParameter, x_values: np.ndarray
+    ):
         """
         Plot per-bin statistics and error bars for a parameter in 1D scan mode.
 
@@ -399,6 +438,8 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             Axis on which to render the per-bin statistics.
         plot_parameter : PlotParameter
             Plot specification containing key name, labels, and color.
+        x_values : numpy.ndarray
+            Per-bin x-axis values (scan parameter or custom column statistic).
 
         Notes
         -----
@@ -408,16 +449,16 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
         binned_data = self.process_to_bins(plot_parameter.key_name)
 
         c = plot_parameter.color
-        axis.scatter(binned_data["bin"], binned_data[self.stat_type], c=c, s=10)
+        axis.scatter(x_values, binned_data[self.stat_type], c=c, s=10)
         axis.plot(
-            binned_data["bin"],
+            x_values,
             binned_data[self.stat_type],
             c=c,
             ls="-",
             label=plot_parameter.legend_label,
         )
         axis.errorbar(
-            binned_data["bin"],
+            x_values,
             binned_data["average"],
             yerr=binned_data["sigma"],
             c=c,
@@ -427,6 +468,8 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
 
         axis.set_ylabel(plot_parameter.axis_label)
         axis.tick_params(axis="y", labelcolor=c)
+        if plot_parameter.y_range is not None:
+            axis.set_ylim(*plot_parameter.y_range)
 
     def process_to_bins(self, key_name: str) -> dict[str, np.ndarray]:
         """
