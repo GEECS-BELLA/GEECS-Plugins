@@ -30,5 +30,5 @@ class EBeamSourceOpt(MultiDeviceScanEvaluator):
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """Compute objective."""
-        total = self.get_scalar(self.device_name, "objective", scalar_results)
+        total = self.get_scalar(self.device_name, "U_BCaveMagSpec-interpSpec_objective", scalar_results)
         return -total
