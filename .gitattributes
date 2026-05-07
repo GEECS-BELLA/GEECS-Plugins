@@ -1,0 +1,26 @@
+# Normalize line endings: store as LF, check out as LF everywhere
+* text=auto eol=lf
+
+# Explicitly LF for text source files
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.rst   text eol=lf
+*.json  text eol=lf
+*.ini   text eol=lf
+*.cfg   text eol=lf
+*.txt   text eol=lf
+*.sh    text eol=lf
+
+# Binary — never touch line endings
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.pdf   binary
+*.zip   binary
+*.so    binary
+*.dll   binary
+*.exe   binary
+*.pyc   binary

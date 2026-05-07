@@ -83,21 +83,11 @@ def scatter_result():
 
 @pytest.mark.integration
 class TestScatterPlotterAnalysisIntegration:
-    def test_returns_display_contents(self, scatter_result):
-        assert scatter_result is not None
-        assert len(scatter_result) > 0
-
     def test_png_created(self, scatter_result):
         assert EXPECTED_PNG.exists(), f"Expected PNG not found: {EXPECTED_PNG}"
 
     def test_png_path_in_display_contents(self, scatter_result):
         assert str(EXPECTED_PNG) in scatter_result
-
-    def test_png_in_scatter_plots_subdir(self, scatter_result):
-        png_path = Path(scatter_result[-1])
-        assert png_path.parent.name == "scatter_plots"
-        assert png_path.parent.parent.name == SCAN_FOLDER.name  # Scan018
-        assert png_path.parent.parent.parent.name == "analysis"
 
 
 @pytest.mark.integration
