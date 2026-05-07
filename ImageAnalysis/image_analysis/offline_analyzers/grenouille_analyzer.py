@@ -157,7 +157,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             }
         )
 
-        file_path = auxiliary_data.get("file_path", None)
+        file_path = auxiliary_data.get("file_path") if auxiliary_data is not None else None
         if file_path is not None:
             # Generate output filename
             file_stem = Path(file_path).stem

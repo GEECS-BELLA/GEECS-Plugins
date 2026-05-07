@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.3] — 2026-05-06
+
+### Fixed
+- `GrenouilleAnalyzer.analyze_image` no longer raises `AttributeError` when
+  `auxiliary_data` is `None` (i.e. when called via `analyze_image_file` without
+  passing auxiliary data). The TSV lineout export is now correctly skipped in
+  that case.
+
+### Added
+- `tests/conftest.py` — session-scoped autouse fixture that initialises the
+  image-analysis config base directory; no-op on CI.
+- `tests/analyzers/test_grenouille_analyzer.py` — integration tests for
+  `GrenouilleAnalyzer` covering scalar keys, physical plausibility of FWHM and
+  FROG error, result structure, and sidecar TSV creation. Config is frozen in
+  code to avoid YAML drift.
+- `tests/analyzers/test_haso_analyzer.py` — integration tests for
+  `HASOHimgHasProcessor` covering result structure and all five sidecar file
+  outputs. Entire module skips when WaveKit SDK is unavailable.
+
 ## [1.1.2] — 2026-05-06
 
 ### Fixed
