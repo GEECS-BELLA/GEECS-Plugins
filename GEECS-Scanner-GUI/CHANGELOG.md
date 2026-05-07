@@ -55,6 +55,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `pint` pinned to `>=0.24` in `pyproject.toml`; lock file updated from 0.22 to
   0.24.4, resolving a `NumPy 2.0` incompatibility (`np.cumproduct` removal) that
   prevented `image_analysis.types` from being imported in tests
+- `BaseOptimizerConfig.model_rebuild()` called at module load so Pydantic v2 can
+  resolve the `SaveDeviceConfig` forward reference at validation time; previously
+  raised `PydanticUserError` and prevented any optimization run from starting
 - Closes #339
 
 ## [0.8.2] — 2026-04-15
