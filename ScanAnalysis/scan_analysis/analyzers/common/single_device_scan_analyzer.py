@@ -98,6 +98,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
+        data_device_name: Optional[str] = None,
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -110,6 +111,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         self.max_workers = 16
         self.saved_avg_data_paths: Dict[int, Path] = {}
+        self.data_device_name: str = data_device_name or device_name
+        self.results: dict = {}
 
         # Define flags
         self.flag_save_data = flag_save_data
@@ -136,7 +139,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         # Organize various paths for location of saved data
         self.path_dict = {
-            "data": Path(self.scan_directory) / f"{self.device_name}",
+            "data": Path(self.scan_directory) / f"{self.data_device_name}",
             "save": (
                 self.scan_directory.parents[1]
                 / "analysis"
