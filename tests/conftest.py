@@ -20,40 +20,6 @@ import pytest
 
 
 # ---------------------------------------------------------------------------
-# Canonical test scans
-# These are stable scans kept on the data server for integration testing.
-# Add new entries here when adding new integration test cases.
-# ---------------------------------------------------------------------------
-
-CANONICAL_SCANS = {
-    "undulator_2d": {
-        "experiment": "Undulator",
-        "year": 2025,
-        "month": 2,
-        "day": 20,
-        "number": 14,
-        "description": "Standard Undulator scan — 2D beam analysis (BeamAnalyzer)",
-    },
-    "undulator_1d": {
-        "experiment": "Undulator",
-        "year": 2025,
-        "month": 8,
-        "day": 19,
-        "number": 1,
-        "description": "Standard Undulator scan — 1D ICT / spectral analysis",
-    },
-    "thomson_beam": {
-        "experiment": "Thomson",
-        "year": 2025,
-        "month": 9,
-        "day": 24,
-        "number": 13,
-        "description": "Thomson beamline scan — BeamAnalyzer + MagSpec",
-    },
-}
-
-
-# ---------------------------------------------------------------------------
 # Data availability fixture
 # ---------------------------------------------------------------------------
 
@@ -97,33 +63,30 @@ def data_root() -> Path:
     return root
 
 
-@pytest.fixture(scope="session")
-def canonical_scan(data_root):
-    """Factory fixture: return a ScanData for a named canonical test scan.
+# ---------------------------------------------------------------------------
+# Image analysis config initialisation
+# ---------------------------------------------------------------------------
 
-    Usage in tests::
 
-        def test_something(canonical_scan):
-            sd = canonical_scan("undulator_2d")
+@pytest.fixture(scope="session", autouse=True)
+def _init_image_analysis_config():
+    """Set the image_analysis config base directory for the test session.
+
+    Resolves the path via ScanPaths (same as the example notebooks).  If the
+    configs repo is not present the fixture is a no-op — integration tests
+    that actually need YAML configs will fail with a clear ValueError rather
+    than a silent skip, since those tests are only run on networked machines
+    that should also have the configs repo checked out.
     """
-    from geecs_data_utils import ScanData
+    try:
+        from geecs_data_utils import ScanPaths
+        from geecs_data_utils.config_roots import image_analysis_config
 
-    def _factory(name: str):
-        if name not in CANONICAL_SCANS:
-            raise ValueError(
-                f"Unknown canonical scan '{name}'. Available: {list(CANONICAL_SCANS)}"
-            )
-        info = CANONICAL_SCANS[name]
-        return ScanData.from_date(
-            year=info["year"],
-            month=info["month"],
-            day=info["day"],
-            number=info["number"],
-            experiment=info["experiment"],
-            load_scalars=True,
-        )
-
-    return _factory
+        config_path = ScanPaths.paths_config.image_analysis_configs_path
+        if config_path and Path(config_path).exists():
+            image_analysis_config.set_base_dir(config_path)
+    except Exception:
+        pass  # CI / offline: no configs repo; integration tests are already skipped
 
 
 # ---------------------------------------------------------------------------
