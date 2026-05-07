@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] — 2026-05-07
+
+### Added
+- `scan_log_loader` module providing `LogEntry`, `Severity`, `parse_lines`,
+  `parse_scan_log`, and `load_scan_log`. Reads the per-scan log format
+  written by `geecs_scanner.logging_setup.attach_scan_log` (multi-line
+  tracebacks aggregated into the preceding record). Returned models are
+  shared with the new `geecs-log-triage` subpackage and intended for any
+  consumer needing to read scan logs (notebooks, plotting helpers,
+  diagnostics tooling).
+
 ## [0.3.0] — 2026-05-06
 
 ### Added
