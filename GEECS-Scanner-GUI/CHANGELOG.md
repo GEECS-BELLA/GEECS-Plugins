@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.utils.exceptions`: typed exception hierarchy rooted at `ScanError`.
+  New types: `ConfigError`, `DeviceCommandError`, `TriggerError`,
+  `DataFileError`. Existing names (`ActionError`, `ConflictingScanElements`,
+  `ScanSetupError`, `OrphanProcessingTimeout`) are now subclasses of the
+  hierarchy; all existing catch sites continue to work without change.
+- `geecs_scanner.utils.retry`: `retry(fn, *, attempts, delay, backoff, catch,
+  on_retry)` — centralizes retry-with-backoff logic for hardware call sites.
+  Replaces three incompatible hand-rolled retry loops that will be migrated in
+  subsequent issues (#291, #292).
+
+### Changed
+- `DeviceSynchronizationError`, `DeviceSynchronizationTimeout`, and
+  `ScanAbortedError` promoted from local definitions inside `scan_manager.py`
+  to `geecs_scanner.utils.exceptions`. Import paths updated; no behaviour
+  change.
+
 ## [0.8.2] — 2026-04-15
 
 ### Fixed

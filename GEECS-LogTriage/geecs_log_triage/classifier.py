@@ -28,10 +28,24 @@ from geecs_log_triage.schemas import Classification
 # added, edit this map rather than scattering classification logic through
 # the codebase.
 CLASSIFICATION_MAP: dict[str, Classification] = {
-    # GEECS-specific (from geecs_scanner.utils.exceptions and friends).
+    # geecs_scanner typed exceptions (geecs_scanner.utils.exceptions).
+    # These appear in tracebacks once #291/#292 are landed.
+    "DeviceCommandError": Classification.HARDWARE_ISSUE,
+    "TriggerError": Classification.HARDWARE_ISSUE,
+    "DeviceSynchronizationError": Classification.HARDWARE_ISSUE,
+    "DeviceSynchronizationTimeout": Classification.HARDWARE_ISSUE,
+    "ScanSetupError": Classification.CONFIG_ISSUE,
+    "ScanAbortedError": Classification.OPERATOR_ERROR,
+    "DataFileError": Classification.HARDWARE_ISSUE,
+    "OrphanProcessingTimeout": Classification.HARDWARE_ISSUE,
     "ActionError": Classification.CONFIG_ISSUE,
     "ConflictingScanElements": Classification.CONFIG_ISSUE,
+    # geecs_python_api hardware exceptions (geecs_python_api.controls.interface.geecs_errors).
+    # Appear in logs and tracebacks from the TCP/UDP device layer.
     "GeecsDeviceInstantiationError": Classification.HARDWARE_ISSUE,
+    "GeecsDeviceCommandRejected": Classification.HARDWARE_ISSUE,
+    "GeecsDeviceExeTimeout": Classification.HARDWARE_ISSUE,
+    "GeecsDeviceCommandFailed": Classification.HARDWARE_ISSUE,
     # Python builtins commonly indicating a code bug.
     "KeyError": Classification.BUG_CANDIDATE,
     "AttributeError": Classification.BUG_CANDIDATE,
@@ -43,7 +57,7 @@ CLASSIFICATION_MAP: dict[str, Classification] = {
     "NameError": Classification.BUG_CANDIDATE,
     "ImportError": Classification.BUG_CANDIDATE,
     "ModuleNotFoundError": Classification.BUG_CANDIDATE,
-    # Network / hardware-ish.
+    # Network / OS failures without a GEECS wrapper yet.
     "ConnectionRefusedError": Classification.HARDWARE_ISSUE,
     "ConnectionResetError": Classification.HARDWARE_ISSUE,
     "ConnectionAbortedError": Classification.HARDWARE_ISSUE,
@@ -63,11 +77,32 @@ CLASSIFICATION_MAP: dict[str, Classification] = {
 # type, hint at a particular classification. Lower-priority than the
 # exception map.
 _MESSAGE_HINTS: list[tuple[str, Classification]] = [
+    # Lifecycle / code bugs
     ("Uncaught exception", Classification.BUG_CANDIDATE),
+    ("owner.handle_response raised", Classification.BUG_CANDIDATE),
+    # Hardware / device communication — seen in real logs
     ("subscription failed", Classification.HARDWARE_ISSUE),
     ("device not responding", Classification.HARDWARE_ISSUE),
+    ("command timed out", Classification.HARDWARE_ISSUE),
+    ("attempted to unregister from unknown event", Classification.HARDWARE_ISSUE),
+    ("GeecsDeviceExeTimeout", Classification.HARDWARE_ISSUE),
+    ("GeecsDeviceCommandRejected", Classification.HARDWARE_ISSUE),
+    ("GeecsDeviceCommandFailed", Classification.HARDWARE_ISSUE),
+    ("Failed to restore", Classification.HARDWARE_ISSUE),
+    ("not within tolerance", Classification.HARDWARE_ISSUE),
+    ("Failed to set", Classification.HARDWARE_ISSUE),
+    ("Device command error persists", Classification.HARDWARE_ISSUE),
+    ("control-system error", Classification.HARDWARE_ISSUE),
+    # Data / file sync — seen in real logs
+    ("No file found", Classification.HARDWARE_ISSUE),
+    ("No matching shot number found for orphan file", Classification.HARDWARE_ISSUE),
+    ("No data was collected", Classification.HARDWARE_ISSUE),
+    ("Attempting to save an empty DataFrame", Classification.HARDWARE_ISSUE),
+    # Config / operator
+    ("Overwriting existing action", Classification.CONFIG_ISSUE),
     ("scan aborted", Classification.OPERATOR_ERROR),
-    ("config", Classification.CONFIG_ISSUE),
+    ("User responded to device error dialog", Classification.OPERATOR_ERROR),
+    ("Showing device error dialog", Classification.OPERATOR_ERROR),
 ]
 
 

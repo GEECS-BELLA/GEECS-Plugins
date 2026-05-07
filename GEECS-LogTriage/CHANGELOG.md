@@ -5,6 +5,19 @@ All notable changes to `geecs-log-triage` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-05-07
+
+### Changed
+- `classifier.CLASSIFICATION_MAP` expanded with all `geecs_python_api` hardware
+  exception names (`GeecsDeviceExeTimeout`, `GeecsDeviceCommandRejected`,
+  `GeecsDeviceCommandFailed`) and the new `geecs_scanner` typed exceptions
+  (`DeviceCommandError`, `TriggerError`, `DataFileError`, etc.).
+- `_MESSAGE_HINTS` expanded with high-volume real-log patterns observed on
+  May 5 2026: device timeouts, tolerance failures, orphan files, empty
+  DataFrame saves, and the `attempted to unregister from unknown event` noise.
+  Previously everything classified as `unknown`; hardware issues now surface
+  as `hardware_issue` and config issues as `config_issue`.
+
 ## [0.1.0] - 2026-05-07
 
 ### Added

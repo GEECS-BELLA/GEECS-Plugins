@@ -107,7 +107,12 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DialogRequest,
     escalate_device_error,
 )
-from geecs_scanner.utils.exceptions import OrphanProcessingTimeout
+from geecs_scanner.utils.exceptions import (
+    DeviceSynchronizationError,
+    DeviceSynchronizationTimeout,
+    OrphanProcessingTimeout,
+    ScanAbortedError,
+)
 
 
 # Module-level logger (internal module, no NullHandler)
@@ -127,24 +132,6 @@ def get_database_dict():
         The internal dictionary stored in the `DatabaseDictLookup` instance.
     """
     return database_dict.get_database()
-
-
-class DeviceSynchronizationError(Exception):
-    """Base class for device synchronization failures."""
-
-    pass
-
-
-class DeviceSynchronizationTimeout(DeviceSynchronizationError):
-    """Raised when devices fail to synchronize within timeout."""
-
-    pass
-
-
-class ScanAbortedError(Exception):
-    """Raised when the user requests a stop during prelogging or before scan execution begins."""
-
-    pass
 
 
 class ScanManager:
