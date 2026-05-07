@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+from typing import TYPE_CHECKING
+
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
-from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
+if TYPE_CHECKING:
+    from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
 
 
 class ImageAnalyzerConfig(BaseModel):
@@ -212,8 +215,6 @@ class BaseOptimizerConfig(BaseModel):
         Evaluator module/class specification and initialization arguments.
     generator : GeneratorConfig
         Optimization generator configuration.
-    evaluation_mode : {"per_shot", "per_bin"}, default="per_shot"
-        Mode of evaluation, either per individual shot or aggregated across shots.
     xopt_config_overrides : dict of str, Any
         Dictionary of optional overrides for Xopt configuration.
     device_requirements : dict, optional
@@ -246,7 +247,6 @@ class BaseOptimizerConfig(BaseModel):
     evaluator: EvaluatorConfig
     generator: GeneratorConfig
 
-    evaluation_mode: Literal["per_shot", "per_bin"] = "per_shot"
     xopt_config_overrides: Dict[str, Any] = Field(default_factory=dict)
 
     device_requirements: Optional[Dict] = None
@@ -297,6 +297,10 @@ class BaseOptimizerConfig(BaseModel):
         """
         # Load save_devices from file if specified
         if self.save_devices is None and self.save_devices_file is not None:
+            from geecs_scanner.data_acquisition.schemas.save_devices import (
+                SaveDeviceConfig,
+            )
+
             with open(self.save_devices_file, "r") as f:
                 loaded = yaml.safe_load(f)
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
@@ -344,3 +348,19 @@ class BaseOptimizerConfig(BaseModel):
             Module name and class name for the evaluator.
         """
         return self.evaluator.module, self.evaluator.class_
+
+
+# SaveDeviceConfig is imported under TYPE_CHECKING to avoid pulling the full
+# data_acquisition chain in at module load. Pydantic v2 needs the type resolved
+# before it can validate BaseOptimizerConfig, so rebuild here once all classes
+# are defined.
+def _rebuild() -> None:
+    from geecs_scanner.data_acquisition.schemas.save_devices import (
+        SaveDeviceConfig as _SDC,
+    )
+
+    BaseOptimizerConfig.model_rebuild(_types_namespace={"SaveDeviceConfig": _SDC})
+
+
+_rebuild()
+del _rebuild

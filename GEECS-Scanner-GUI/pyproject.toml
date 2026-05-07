@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner-gui"
-version = "0.8.2"
+version = "0.9.0"
 description = ""
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
@@ -15,6 +15,7 @@ imageanalysis = {path = "../ImageAnalysis", develop = true}
 scananalysis = {path = "../ScanAnalysis", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
+pint = ">=0.24"
 pyyaml = "^6.0.2"
 pyinstaller = "^6.12.0"
 pillow = "^11.1.0"
