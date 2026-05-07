@@ -52,6 +52,7 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
+from geecs_scanner.utils.exceptions import DataFileError
 
 # -----------------------------------------------------------------------------
 # Module-level logger
@@ -358,9 +359,10 @@ class ScanDataManager:
         try:
             self.tdms_writer = TdmsWriter(tdms_output_path, index_file=True)
             logger.info("TDMS writer initialized with path: %s", tdms_output_path)
-        except (IOError, OSError) as e:
-            logger.error("Failed to initialize TDMS writer: %s", e)
-            raise
+        except (IOError, OSError) as exc:
+            raise DataFileError(
+                f"Failed to initialize TDMS writer at {tdms_output_path}"
+            ) from exc
 
     def write_scan_info_ini(self, scan_config: ScanConfig) -> None:
         """Generate a comprehensive scan configuration INI file for documentation and analysis.
@@ -486,21 +488,17 @@ class ScanDataManager:
         convert_to_dataframe : Method that prepares DataFrame for saving
         dataframe_to_tdms : Method for saving data in TDMS format
         """
-        try:
-            if df.empty:
-                logger.warning("Attempting to save an empty DataFrame to text file")
-                return
+        if df.empty:
+            logger.warning("Attempting to save an empty DataFrame to text file")
+            return
 
-            # Save as .txt file (TSV format)
+        try:
             df.to_csv(self.data_txt_path, sep="\t", index=False)
             logger.info("Scan data saved to %s", self.data_txt_path)
-
-            # Commented out alternative save path for potential future use
-            # df.to_csv(self.sFile_txt_path, sep='\t', index=False)
-
-        except (IOError, ValueError) as e:
-            logger.error("Error saving text file: %s", e)
-            raise
+        except OSError as exc:
+            raise DataFileError(
+                f"Cannot write scan data to {self.data_txt_path}"
+            ) from exc
 
     def _make_sFile(self, df: pd.DataFrame) -> None:
         """Create an analysis-ready s-file from processed scan data.
@@ -536,16 +534,17 @@ class ScanDataManager:
         convert_to_dataframe : Method that prepares DataFrame for s-file creation
         save_to_txt_and_h5 : Alternative method for saving scan data
         """
-        try:
-            if df.empty:
-                logger.warning("Attempting to save an empty DataFrame to s-file")
-                return
+        if df.empty:
+            logger.warning("Attempting to save an empty DataFrame to s-file")
+            return
 
+        try:
             df.to_csv(self.sFile_txt_path, sep="\t", index=False)
             logger.info("Analysis-ready data saved to %s", self.sFile_txt_path)
-        except (IOError, ValueError) as e:
-            logger.error("Error saving s-file: %s", e)
-            raise
+        except OSError as exc:
+            raise DataFileError(
+                f"Cannot write s-file to {self.sFile_txt_path}"
+            ) from exc
 
     def dataframe_to_tdms(self, df: pd.DataFrame) -> None:
         """Convert DataFrame to TDMS file with comprehensive device and variable metadata.
@@ -797,14 +796,12 @@ class ScanDataManager:
             try:
                 log_df = self.convert_to_dataframe(results)
                 logger.info("Data logging complete. Returning DataFrame.")
-
-                # Save results to .txt and .h5
                 self.save_to_txt_and_h5(log_df)
-
-                # Write TDMS files (data and index)
                 self.dataframe_to_tdms(log_df)
-
                 return log_df
+            except DataFileError:
+                logger.exception("Failed to save scan data to disk")
+                return pd.DataFrame()
             except Exception:
                 logger.exception("Error processing scan results")
                 return pd.DataFrame()

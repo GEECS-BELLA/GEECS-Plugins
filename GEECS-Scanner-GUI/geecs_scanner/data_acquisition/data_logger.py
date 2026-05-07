@@ -47,6 +47,8 @@ from dataclasses import dataclass
 
 from . import DeviceManager
 from geecs_scanner.utils import SoundPlayer
+from geecs_scanner.utils.exceptions import DataFileError
+from geecs_scanner.utils.retry import retry
 from geecs_scanner.logging_setup import update_context
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
@@ -242,16 +244,23 @@ class FileMover:
         home_dir = source_dir.parent
 
         # For MagSpec devices, only search the primary folder (exact match).
-        if device_type in ["MagSpecStitcher", "MagSpecCamera"]:
-            variant_dirs = [
-                d for d in home_dir.iterdir() if d.is_dir() and d.name == device_name
-            ]
-        else:
-            variant_dirs = [
-                d
-                for d in home_dir.iterdir()
-                if d.is_dir() and d.name.startswith(device_name)
-            ]
+        try:
+            if device_type in ["MagSpecStitcher", "MagSpecCamera"]:
+                variant_dirs = [
+                    d
+                    for d in home_dir.iterdir()
+                    if d.is_dir() and d.name == device_name
+                ]
+            else:
+                variant_dirs = [
+                    d
+                    for d in home_dir.iterdir()
+                    if d.is_dir() and d.name.startswith(device_name)
+                ]
+        except OSError as exc:
+            raise DataFileError(
+                f"Cannot read source directory {home_dir} for device {device_name}"
+            ) from exc
 
         # Determine expected file count.
         if device_type in [
@@ -376,12 +385,16 @@ class FileMover:
 
     def _move_file(
         self, task: FileMoveTask, source_file: Path, new_device_name: str
-    ) -> bool:
+    ) -> None:
         """
         Rename and move a file based on the given FileMoveTask and device variant.
 
-        Constructs a standardized file name using the scan number, device name, and shot index.
-        The file is then moved to the appropriate target directory, which is created if needed.
+        Constructs a standardized file name using the scan number, device name, and shot
+        index.  The move is retried up to three times with exponential backoff to tolerate
+        transient network-share locking (the source lives on the device host's SharedData
+        share).  On exhaustion a :class:`~geecs_scanner.utils.exceptions.DataFileError`
+        is raised with the original :class:`OSError` chained, so the worker thread's
+        broad exception handler logs a typed, classifiable entry.
 
         Parameters
         ----------
@@ -392,10 +405,10 @@ class FileMover:
         new_device_name : str
             Name of the device (or variant) used in the target path and naming.
 
-        Returns
-        -------
-        bool
-            True if the file was moved successfully; False if an error occurred.
+        Raises
+        ------
+        DataFileError
+            If the file cannot be moved after all retry attempts.
         """
         target_dir = task.target_dir.parent / new_device_name
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -409,12 +422,21 @@ class FileMover:
         new_filename = new_file_stem + source_file.suffix
         dest_file = target_dir / new_filename
         try:
-            shutil.move(str(source_file), str(dest_file))
+            retry(
+                lambda: shutil.move(str(source_file), str(dest_file)),
+                attempts=3,
+                delay=0.5,
+                backoff=2.0,
+                catch=(OSError,),
+                on_retry=lambda exc, n: logger.debug(
+                    "Retry %d moving %s → %s: %s", n, source_file.name, dest_file, exc
+                ),
+            )
             self.processed_files.add(dest_file)
-            return True
-        except Exception:
-            logger.exception("Error moving %s to %s", source_file, dest_file)
-            return False
+        except OSError as exc:
+            raise DataFileError(
+                f"Failed to move {source_file.name} → {dest_file} after retries"
+            ) from exc
 
     def _process_variant_file(self, task: FileMoveTask) -> None:
         """
@@ -566,15 +588,15 @@ class FileMover:
             # using the same pattern as _process_task. This ensures we find files in
             # directories like DeviceName-Temporal, DeviceName-Spatial, etc.
             home_dir = source_dir.parent
-            if home_dir.exists():
+            try:
                 variant_dirs = [
                     d
                     for d in home_dir.iterdir()
                     if d.is_dir() and d.name.startswith(device_name)
                 ]
-            else:
+            except OSError:
                 logger.warning(
-                    "Parent directory %s does not exist for %s; skipping orphan sweep.",
+                    "Cannot iterate %s for orphan sweep of %s; skipping.",
                     home_dir,
                     device_name,
                 )
