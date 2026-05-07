@@ -136,10 +136,18 @@ sessions. Validate with Pydantic schemas in `data_acquisition/schemas/`.
 `optimization/base_optimizer.py` wraps [Xopt](https://github.com/ChristopherMayes/Xopt)
 for Bayesian and genetic optimization loops.
 
-- `BaseEvaluator` — defines the objective function; must implement `evaluate()`
-  which returns a scalar from an `ImageAnalyzerResult`
-- Evaluators in `optimization/evaluators/` use `ImageAnalysis` analyzers to
-  compute beam metrics from live images
+- `BaseEvaluator` — template-method base; subclasses implement `_get_value()`.
+  Owns the shared hook API: `compute_objective`, `compute_objective_from_shots`
+  (default mean-aggregation), `compute_observables` (default empty), and
+  `_compute_outputs` which merges objective + observables into the final dict.
+  Loaded from a YAML config via `BaseOptimizer.from_config_file()`; `DataLogger`
+  and `ScanDataManager` are injected at that point — evaluators are purely reactive
+  (they read whatever `DataLogger.bin_num` says is current).
+- `MultiDeviceScanEvaluator` — runs one or more `SingleDeviceScanAnalyzer`s and
+  builds a per-shot scalar list for `_compute_outputs`; supports `per_bin` and
+  `per_shot` analysis modes per analyzer, with mixed-mode merging.
+- `ScalarLogEvaluator` — reads scalars directly from `DataLogger.log_entries`
+  columns; no image analysis required. Same hook API as above.
 - Generators in `optimization/generators/` select next scan parameters
 - Configured via Pydantic models in `optimization/config_models.py`
 

@@ -20,28 +20,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   directly from `log_entries` columns with no image analysis required; supports
   the same hook API (`compute_objective`, `compute_objective_from_shots`,
   `compute_observables`) and observables-only mode via `observables_only()`
-- Comprehensive CI-friendly test suite (51 tests, no network or scan files):
+- CI-friendly test suite (82 tests, no network or scan files):
   `test_base_evaluator`, `test_evaluator_get_scalar`, `test_evaluator_bax_mode`,
-  `test_config_models`, `test_scalar_log_evaluator`, plus shared fixtures
-  (`FakeDataLogger`, `make_log_entries`) in `tests/optimization/conftest.py`
+  `test_config_models`, `test_multi_device_scan_evaluator`,
+  `test_scalar_log_evaluator`, `test_concrete_evaluators` (uses real
+  `ImageAnalyzerResult` with synthetic scalars — no image files), plus shared
+  fixtures (`FakeDataLogger`, `make_log_entries`) in `tests/optimization/conftest.py`
 
 ### Removed
 - Legacy evaluators `ALine3_FWHM.py` and `HiResMagCam.py` (dead code, no known
   callers outside this repo; superseded by the `MultiDeviceScanEvaluator` pattern)
+- `evaluation_mode` field removed from `BaseOptimizer` and `BaseOptimizerConfig`
+  (was stored but never read; analysis mode is configured per-analyzer via
+  `SingleDeviceScanAnalyzerConfig.analysis_mode`)
 
 ### Changed
 - `BaseEvaluator` stripped of dead-code methods (`_gather_shot_entries`,
   `validate_variable_keys_against_requirements`, `log_objective_result`,
   `get_device_shot_path`, `convert_log_entries_to_df`, `get_shotnumbers_for_bin`);
   `pandas` import moved inside `get_current_data` to avoid module-level import cost
+- `BaseEvaluator` now owns the shared hook API: `compute_objective`,
+  `compute_objective_from_shots` (default mean-aggregation), `compute_observables`
+  (default empty dict), and `_compute_outputs` helper that handles objective
+  computation, observable merging, and output-key shadowing checks; eliminates
+  duplication that previously existed in both `MultiDeviceScanEvaluator` and
+  `ScalarLogEvaluator`
 - `MultiDeviceScanEvaluator`: unified `merged` slots approach replaces the
-  `has_per_shot` branching; `compute_objective` raises `NotImplementedError`
-  instead of being `@abstractmethod`, allowing `compute_objective_from_shots`-only
-  overrides; added `primary_device` property
+  `has_per_shot` branching; added `primary_device` property; `_get_value` now
+  delegates to `_compute_outputs` after building the shot list
 - `config_models.py`: `SaveDeviceConfig` import moved to `TYPE_CHECKING` + lazy
   inside `_load_and_check` to break the module-level chain to live DB connections
 
 ### Fixed
+- `pint` pinned to `>=0.24` in `pyproject.toml`; lock file updated from 0.22 to
+  0.24.4, resolving a `NumPy 2.0` incompatibility (`np.cumproduct` removal) that
+  prevented `image_analysis.types` from being imported in tests
 - Closes #339
 
 ## [0.8.2] — 2026-04-15
