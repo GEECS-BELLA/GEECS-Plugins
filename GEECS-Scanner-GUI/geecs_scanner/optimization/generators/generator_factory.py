@@ -128,10 +128,10 @@ def build_generator_from_config(config: Dict[str, Any], vocs: VOCS):
 def _make_bayes_turbo(
     vocs: VOCS,
     length: float = 0.30,
-    length_min: float = 0.01,
+    length_min: float = 0.05,
     length_max: float = 1.00,
-    success_tolerance: int = 3,
-    failure_tolerance: int = 3,
+    success_tolerance: int = 2,
+    failure_tolerance: int = 2,
     scale_factor: float = 2.0,
     restrict_model_data: bool = True,
     batch_size: int = 1,

@@ -134,6 +134,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             image_analyzer=image_analyzer,
             file_tail=config.file_tail,
             analysis_mode=config.analysis_mode,
+            data_device_name=config.data_device_name,
         )
         scan_analyzer.live_analysis = True
         scan_analyzer.use_colon_scan_param = False
