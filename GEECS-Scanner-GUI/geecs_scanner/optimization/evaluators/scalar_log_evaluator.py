@@ -18,9 +18,7 @@ ScalarLogEvaluator
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Union
-
-import numpy as np
+from typing import Dict, List
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
@@ -71,15 +69,7 @@ class ScalarLogEvaluator(BaseEvaluator):
     # ------------------------------------------------------------------
 
     def _get_value(self, input_data: Dict) -> Dict[str, float]:
-        """
-        Extract per-shot scalars from current_data_bin, call objective/observable hooks.
-
-        Returns
-        -------
-        dict
-            Scalar results including the objective (if ``output_key`` is set)
-            and any extra observables from :meth:`compute_observables`.
-        """
+        """Extract per-shot scalars from current_data_bin and compute outputs."""
         shot_scalars: List[Dict[str, float]] = []
         for _, row in self.current_data_bin.iterrows():
             slot: Dict[str, float] = {}
@@ -94,118 +84,7 @@ class ScalarLogEvaluator(BaseEvaluator):
                             row[key],
                         )
             shot_scalars.append(slot)
-
-        outputs: Dict[str, float] = {}
-        output_key = self.output_key
-
-        if output_key is not None:
-            objective_result = self.compute_objective_from_shots(
-                scalar_results_list=shot_scalars, bin_number=self.bin_number
-            )
-            if isinstance(objective_result, dict):
-                if output_key not in objective_result:
-                    logger.warning(
-                        "compute_objective_from_shots dict missing key '%s'", output_key
-                    )
-                outputs.update({str(k): float(v) for k, v in objective_result.items()})
-            else:
-                outputs[output_key] = float(objective_result)
-
-        # Mean-aggregate shot scalars for compute_observables
-        all_keys = (
-            set().union(*(d.keys() for d in shot_scalars)) if shot_scalars else set()
-        )
-        aggregated: Dict[str, float] = {
-            k: float(np.mean([d[k] for d in shot_scalars if k in d])) for k in all_keys
-        }
-
-        extra = (
-            self.compute_observables(
-                scalar_results=aggregated, bin_number=self.bin_number
-            )
-            or {}
-        )
-        if output_key is not None and output_key in extra:
-            logger.warning(
-                "compute_observables returned objective key '%s'; removing", output_key
-            )
-            extra = {k: v for k, v in extra.items() if k != output_key}
-
-        for k, v in extra.items():
-            if str(k) not in outputs:
-                outputs[str(k)] = float(v)
-
-        return outputs
-
-    # ------------------------------------------------------------------
-    # Hooks for subclasses — mirror the MultiDeviceScanEvaluator API
-    # ------------------------------------------------------------------
-
-    def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """
-        Compute the objective from mean-aggregated scalars.
-
-        Override this for simple evaluators.  For full per-shot control
-        override :meth:`compute_objective_from_shots` instead.
-
-        Raises
-        ------
-        NotImplementedError
-            When neither this method nor :meth:`compute_objective_from_shots`
-            is overridden.
-        """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement compute_objective "
-            "or override compute_objective_from_shots."
-        )
-
-    def compute_objective_from_shots(
-        self,
-        scalar_results_list: List[Dict[str, float]],
-        bin_number: int,
-    ) -> Union[float, Dict[str, float]]:
-        """
-        Compute the objective from per-shot scalar results.
-
-        The default mean-aggregates all shots and delegates to
-        :meth:`compute_objective`.
-
-        Parameters
-        ----------
-        scalar_results_list : list of dict
-            One dict per shot with extracted scalar values.
-        bin_number : int
-
-        Returns
-        -------
-        float or dict
-            Scalar objective, or a dict containing at least ``self.output_key``
-            plus any extra keys (e.g. ``f_noise``) to pass through to Xopt.
-        """
-        if not scalar_results_list:
-            logger.warning(
-                "compute_objective_from_shots received empty list for bin %s",
-                bin_number,
-            )
-            return 0.0
-
-        all_keys = set().union(*scalar_results_list)
-        aggregated: Dict[str, float] = {
-            k: float(np.mean([d[k] for d in scalar_results_list if k in d]))
-            for k in all_keys
-        }
-        return self.compute_objective(scalar_results=aggregated, bin_number=bin_number)
-
-    def compute_observables(
-        self, scalar_results: dict, bin_number: int
-    ) -> Dict[str, float]:
-        """
-        Return extra scalar observables alongside the objective.
-
-        *scalar_results* is the mean-aggregated dict across all shots.
-        The default returns an empty dict.
-        """
-        return {}
+        return self._compute_outputs(shot_scalars, self.bin_number)
 
     # ------------------------------------------------------------------
     # Observable-only mode (output_key = None)

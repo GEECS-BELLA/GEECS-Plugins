@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from geecs_scanner.data_acquisition.data_logger import DataLogger
     from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
 
 import logging
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +166,131 @@ class BaseEvaluator(ABC):
             )
             self.data_logger.log_entries[elapsed_time][key] = v
             logger.info("Logged %s = %s for shot %s", key, v, shot_num)
+
+    # ------------------------------------------------------------------
+    # Hooks — override in subclasses
+    # ------------------------------------------------------------------
+
+    def compute_objective(
+        self, scalar_results: Dict[str, float], bin_number: int
+    ) -> float:
+        """
+        Compute the scalar objective from aggregated per-shot scalars.
+
+        Override for simple evaluators where mean aggregation is sufficient.
+        For full per-shot control (median, noise estimates) override
+        :meth:`compute_objective_from_shots` instead.
+
+        Raises
+        ------
+        NotImplementedError
+            When neither this method nor :meth:`compute_objective_from_shots`
+            is overridden.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement compute_objective "
+            "or override compute_objective_from_shots."
+        )
+
+    def compute_objective_from_shots(
+        self,
+        scalar_results_list: List[Dict[str, float]],
+        bin_number: int,
+    ) -> Union[float, Dict[str, float]]:
+        """
+        Compute the objective from a list of per-shot scalar dicts.
+
+        The default mean-aggregates all shots and delegates to
+        :meth:`compute_objective`. Override for custom statistics::
+
+            def compute_objective_from_shots(self, scalar_results_list, bin_number):
+                vals = [d["energy"] for d in scalar_results_list if "energy" in d]
+                return {"f": -float(np.median(vals)), "f_noise": float(np.std(vals))}
+
+        Returns
+        -------
+        float or dict
+            Scalar objective, or a dict with at least ``self.output_key`` plus
+            any extra keys (e.g. ``f_noise``) to pass through to Xopt.
+        """
+        if not scalar_results_list:
+            logger.warning(
+                "compute_objective_from_shots received empty list for bin %s",
+                bin_number,
+            )
+            return 0.0
+
+        all_keys = set().union(*scalar_results_list)
+        aggregated: Dict[str, float] = {
+            k: float(np.mean([d[k] for d in scalar_results_list if k in d]))
+            for k in all_keys
+        }
+        return self.compute_objective(scalar_results=aggregated, bin_number=bin_number)
+
+    def compute_observables(
+        self, scalar_results: Dict[str, float], bin_number: int
+    ) -> Dict[str, float]:
+        """
+        Return extra scalar observables to log alongside the objective.
+
+        *scalar_results* is the mean-aggregated dict across all shots.
+        The default returns an empty dict.
+        """
+        return {}
+
+    def _compute_outputs(
+        self,
+        scalar_results_list: List[Dict[str, float]],
+        bin_number: int,
+    ) -> Dict[str, float]:
+        """
+        Build the final outputs dict from a list of per-shot scalar dicts.
+
+        Called at the end of :meth:`_get_value` by subclasses after they have
+        assembled their shot list.  Handles objective computation, observable
+        merging, and the output-key shadowing check.
+        """
+        outputs: Dict[str, float] = {}
+        output_key = self.output_key
+
+        if output_key is not None:
+            objective_result = self.compute_objective_from_shots(
+                scalar_results_list=scalar_results_list, bin_number=bin_number
+            )
+            if isinstance(objective_result, dict):
+                if output_key not in objective_result:
+                    logger.warning(
+                        "compute_objective_from_shots dict missing key '%s'", output_key
+                    )
+                outputs.update({str(k): float(v) for k, v in objective_result.items()})
+            else:
+                outputs[output_key] = float(objective_result)
+
+        all_keys = (
+            set().union(*(d.keys() for d in scalar_results_list))
+            if scalar_results_list
+            else set()
+        )
+        aggregated: Dict[str, float] = {
+            k: float(np.mean([d[k] for d in scalar_results_list if k in d]))
+            for k in all_keys
+        }
+
+        extra = (
+            self.compute_observables(scalar_results=aggregated, bin_number=bin_number)
+            or {}
+        )
+        if output_key is not None and output_key in extra:
+            logger.warning(
+                "compute_observables returned objective key '%s'; removing", output_key
+            )
+            extra = {k: v for k, v in extra.items() if k != output_key}
+
+        for k, v in extra.items():
+            if str(k) not in outputs:
+                outputs[str(k)] = float(v)
+
+        return outputs
 
     # ------------------------------------------------------------------
     # Abstract

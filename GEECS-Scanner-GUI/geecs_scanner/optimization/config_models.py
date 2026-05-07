@@ -215,8 +215,6 @@ class BaseOptimizerConfig(BaseModel):
         Evaluator module/class specification and initialization arguments.
     generator : GeneratorConfig
         Optimization generator configuration.
-    evaluation_mode : {"per_shot", "per_bin"}, default="per_shot"
-        Mode of evaluation, either per individual shot or aggregated across shots.
     xopt_config_overrides : dict of str, Any
         Dictionary of optional overrides for Xopt configuration.
     device_requirements : dict, optional
@@ -249,7 +247,6 @@ class BaseOptimizerConfig(BaseModel):
     evaluator: EvaluatorConfig
     generator: GeneratorConfig
 
-    evaluation_mode: Literal["per_shot", "per_bin"] = "per_shot"
     xopt_config_overrides: Dict[str, Any] = Field(default_factory=dict)
 
     device_requirements: Optional[Dict] = None
