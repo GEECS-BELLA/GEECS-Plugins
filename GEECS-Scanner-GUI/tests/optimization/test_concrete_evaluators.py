@@ -9,11 +9,11 @@ does each evaluator compute the right objective and observables?
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import pandas as pd
 import pytest
 from unittest.mock import MagicMock
+
+from image_analysis.types import ImageAnalyzerResult
 
 
 # ---------------------------------------------------------------------------
@@ -36,11 +36,9 @@ def _fake_analyzer(results_by_key: dict):
     return m
 
 
-@dataclass
-class _Result:
-    """Minimal stand-in for ImageAnalyzerResult — evaluators only access .scalars."""
-
-    scalars: dict
+def _result(scalars: dict) -> ImageAnalyzerResult:
+    """Build a minimal ImageAnalyzerResult with the given scalars."""
+    return ImageAnalyzerResult(scalars=scalars)
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +111,7 @@ class TestBeamSizeEvaluator:
         """ImageAnalyzerResult.scalars must flow through _get_value to compute_objective."""
         ev = self._make_shell(device_name="UC_Cam", calibration=1.0)
         ev.scan_analyzers = {
-            "UC_Cam": _fake_analyzer({1: _Result({"x_fwhm": 3.0, "y_fwhm": 4.0})})
+            "UC_Cam": _fake_analyzer({1: _result({"x_fwhm": 3.0, "y_fwhm": 4.0})})
         }
         outputs = ev._get_value({})
         assert outputs["f"] == pytest.approx(25.0)
@@ -177,7 +175,7 @@ class TestMaxCountsEvaluator:
         ev.scan_analyzers = {
             "UC_Cam": _fake_analyzer(
                 {
-                    1: _Result(
+                    1: _result(
                         {
                             "image_total": 5000.0,
                             "x_CoM": 100.0,

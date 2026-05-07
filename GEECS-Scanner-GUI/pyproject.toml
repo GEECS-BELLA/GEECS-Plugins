@@ -15,6 +15,7 @@ imageanalysis = {path = "../ImageAnalysis", develop = true}
 scananalysis = {path = "../ScanAnalysis", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 
+pint = ">=0.24"
 pyyaml = "^6.0.2"
 pyinstaller = "^6.12.0"
 pillow = "^11.1.0"
