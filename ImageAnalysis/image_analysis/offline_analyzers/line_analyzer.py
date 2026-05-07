@@ -14,11 +14,12 @@ the Standard1DAnalyzer for all 1D data processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 
 
 # Import the Standard1DAnalyzer parent class
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.processing.array1d.config_models import Line1DConfig
 
 # Import line-specific tools
 from image_analysis.algorithms.basic_line_stats import LineBasicStats
@@ -53,15 +54,16 @@ class LineAnalyzer(Standard1DAnalyzer):
 
     def __init__(
         self,
-        line_config_name: str,
+        line_config_name: Union[str, Line1DConfig],
         metric_suffix: Optional[str] = None,
     ):
         """Initialize the line analyzer with external configuration.
 
         Parameters
         ----------
-        line_config_name : str
-            Name of the line configuration to load (e.g., "spectrometer_config")
+        line_config_name : str or Line1DConfig
+            Name of the line configuration to load (e.g., "spectrometer_config"),
+            or a pre-constructed ``Line1DConfig`` instance.
         metric_suffix : str, optional
             Suffix to append to all metric names (underscore is auto-prepended).
             For example, "calibrated" becomes "_calibrated" in the output keys.
