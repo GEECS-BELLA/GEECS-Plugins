@@ -8,7 +8,7 @@ Test scan: Undulator 2026-05-05 Scan018
   y-series: UC_ModeImager_x_rms, UC_ModeImager_y_rms, UC_ModeImager_image_peak_value
 
 Output is written to:
-  Scan018/analysis/scatter_plots/mode_imager_rms.png
+  26_0505/analysis/Scan018/scatter_plots/mode_imager_rms.png
 """
 
 from pathlib import Path
@@ -31,7 +31,14 @@ SCAN_FOLDER = Path("Z:/data/Undulator/Y2026/05-May/26_0505/scans/Scan018")
 SCAN_TAG = ScanTag(year=2026, month=5, day=5, number=18, experiment="Undulator")
 
 FILENAME = "mode_imager_rms"
-EXPECTED_PNG = SCAN_FOLDER / "analysis" / "scatter_plots" / f"{FILENAME}.png"
+# analysis/ lives alongside scans/, not inside the scan folder
+EXPECTED_PNG = (
+    SCAN_FOLDER.parents[1]
+    / "analysis"
+    / SCAN_FOLDER.name
+    / "scatter_plots"
+    / f"{FILENAME}.png"
+)
 
 PARAMETERS = [
     PlotParameter(
@@ -89,7 +96,8 @@ class TestScatterPlotterAnalysisIntegration:
     def test_png_in_scatter_plots_subdir(self, scatter_result):
         png_path = Path(scatter_result[-1])
         assert png_path.parent.name == "scatter_plots"
-        assert png_path.parent.parent.name == "analysis"
+        assert png_path.parent.parent.name == SCAN_FOLDER.name  # Scan018
+        assert png_path.parent.parent.parent.name == "analysis"
 
 
 @pytest.mark.integration
@@ -140,6 +148,10 @@ class TestScatterAnalyzerConfigFactory:
         result = analyzer.run_analysis(SCAN_TAG)
         assert result is not None
         expected = (
-            SCAN_FOLDER / "analysis" / "scatter_plots" / f"{FILENAME}_factory.png"
+            SCAN_FOLDER.parents[1]
+            / "analysis"
+            / SCAN_FOLDER.name
+            / "scatter_plots"
+            / f"{FILENAME}_factory.png"
         )
         assert expected.exists()

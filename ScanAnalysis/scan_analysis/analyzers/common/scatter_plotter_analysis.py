@@ -211,7 +211,12 @@ class ScatterPlotterAnalysis(ScanAnalyzer):
             f"Scan{self.scan_tag.number:03d}: {self.base_title}"
         )
 
-        self.save_path = self.scan_directory / "analysis" / "scatter_plots"
+        self.save_path = (
+            self.scan_directory.parents[1]
+            / "analysis"
+            / self.scan_directory.name
+            / "scatter_plots"
+        )
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """
