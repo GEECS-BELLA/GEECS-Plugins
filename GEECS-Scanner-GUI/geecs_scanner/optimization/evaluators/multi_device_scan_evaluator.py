@@ -6,9 +6,16 @@ orchestration of one or more SingleDeviceScanAnalyzers (Array1D or Array2D)
 for optimization tasks. It eliminates boilerplate code by managing analyzer
 instantiation, data collection, and result extraction automatically.
 
-The evaluator leverages the 'per_bin' analysis mode of SingleDeviceScanAnalyzer
-to automatically handle image averaging and scalar result computation, allowing
-subclasses to focus solely on defining their objective function logic.
+The evaluator supports two analysis modes, configured per analyzer via
+``analysis_mode`` in ``SingleDeviceScanAnalyzerConfig``:
+
+- **per_bin** (default): one averaged result per bin →
+  ``compute_objective(scalar_results, bin_number)``
+- **per_shot**: one result per individual shot →
+  ``compute_objective_from_shots(scalar_results_list, bin_number)``
+
+``per_shot`` mode enables richer statistical treatment (median, std dev) and
+allows returning ``f_noise`` to Xopt for improved GP surrogate modelling.
 
 Classes
 -------
@@ -21,7 +28,9 @@ from __future__ import annotations
 import importlib
 import logging
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional, Union
+
+import numpy as np
 
 if TYPE_CHECKING:
     from geecs_scanner.data_acquisition.data_logger import DataLogger
@@ -36,8 +45,6 @@ from geecs_data_utils import ScanPaths
 from geecs_data_utils.config_roots import image_analysis_config
 from image_analysis.types import ImageAnalyzerResult
 
-image_analysis_config.set_base_dir(ScanPaths.paths_config.image_analysis_configs_path)
-
 logger = logging.getLogger(__name__)
 
 
@@ -47,13 +54,24 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     This evaluator handles orchestration of SingleDeviceScanAnalyzers (Array1D
     or Array2D), automatically managing analyzer instantiation, data collection,
-    and result extraction. It uses the 'per_bin' analysis mode to leverage
-    built-in averaging functionality, eliminating the need for manual image
-    averaging code.
+    and result extraction.
 
-    Subclasses need only implement the `compute_objective` method to define
-    their specific objective function logic based on the scalar results
-    extracted from the analyzers.
+    Two analysis modes are supported, selected per analyzer via ``analysis_mode``
+    in ``SingleDeviceScanAnalyzerConfig``:
+
+    - **per_bin** (default): images in a bin are averaged before analysis;
+      the evaluator receives a single scalar dict and calls
+      ``compute_objective(scalar_results, bin_number)``.
+    - **per_shot**: each image is analyzed individually; the evaluator
+      collects one scalar dict per shot and calls
+      ``compute_objective_from_shots(scalar_results_list, bin_number)``.
+
+    When analyzers have mixed modes, per_bin results are merged into every
+    shot dict before ``compute_objective_from_shots`` is called.
+
+    Subclasses must implement ``compute_objective``. Override
+    ``compute_objective_from_shots`` to apply custom per-shot statistics
+    (e.g. median, noise estimate for Xopt GP).
 
     Parameters
     ----------
@@ -84,13 +102,9 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         Helper method to extract scalar values with flexible key naming.
     compute_objective(scalar_results, bin_number)
         Abstract method for subclasses to implement objective function logic.
-
-    Notes
-    -----
-    - Uses 'per_bin' analysis mode by default for automatic averaging
-    - Automatically generates device_requirements from analyzer configs
-    - Provides flexible scalar key lookup via get_scalar() helper
-    - All analyzer results are combined into a single scalar_results dict
+    compute_objective_from_shots(scalar_results_list, bin_number)
+        Hook for per-shot statistical treatment; default delegates to
+        ``compute_objective`` via mean aggregation.
     """
 
     def __init__(
@@ -155,6 +169,10 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         AttributeError
             If the specified class cannot be found in the module.
         """
+        image_analysis_config.set_base_dir(
+            ScanPaths.paths_config.image_analysis_configs_path
+        )
+
         # Import the appropriate scan analyzer class
         from scan_analysis.analyzers.common.array1d_scan_analysis import (
             Array1DScanAnalyzer,
@@ -252,16 +270,31 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     def _get_value(self, input_data: Dict) -> Dict[str, float]:
         """
-        Execute ScanAnalyzers for relevant diagnostics, use reults to compute objective.
+        Execute ScanAnalyzers for relevant diagnostics, use results to compute objective.
 
         Assumes BaseEvaluator.get_value() already refreshed current data and will log results.
         Returns a dict of outputs. If `self.output_key` is not None, the dict will include it.
-        """
-        all_scalar_results: Dict[str, float] = {}
 
-        for device_name, analyzer in self.scan_analyzers.items():
+        Routes to ``compute_objective`` (per_bin) or ``compute_objective_from_shots``
+        (per_shot) depending on each analyzer's ``analysis_mode``. When modes are
+        mixed, per_bin scalars are merged into every shot dict before the per_shot
+        path is taken.
+        """
+        per_bin_scalars: Dict[str, float] = {}
+        # shot_scalars[i] holds the merged scalar dict for the i-th shot in the bin
+        shot_scalars: List[Dict[str, float]] = []
+        shot_numbers: List[int] = list(self.current_shot_numbers or [])
+        has_per_shot = any(
+            cfg.analysis_mode == "per_shot" for cfg in self.analyzer_configs
+        )
+
+        for config in self.analyzer_configs:
+            device_name = config.device_name
+            analyzer = self.scan_analyzers[device_name]
+
             logger.info(
-                "Running analyzer for device '%s' on bin %s",
+                "Running %s analyzer for device '%s' on bin %s",
+                config.analysis_mode,
                 device_name,
                 self.bin_number,
             )
@@ -269,36 +302,88 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
-            result: ImageAnalyzerResult = analyzer.results.get(self.bin_number)
-            if result:
-                scalars = result.scalars
-                all_scalar_results.update(scalars)
-                logger.info(
-                    "Extracted %d scalar results from '%s'", len(scalars), device_name
-                )
-            else:
-                logger.warning(
-                    "No results found for bin %s from '%s'",
-                    self.bin_number,
-                    device_name,
-                )
+            if config.analysis_mode == "per_bin":
+                result: ImageAnalyzerResult = analyzer.results.get(self.bin_number)
+                if result:
+                    per_bin_scalars.update(result.scalars)
+                    logger.info(
+                        "Extracted %d per_bin scalars from '%s'",
+                        len(result.scalars),
+                        device_name,
+                    )
+                else:
+                    logger.warning(
+                        "No per_bin result for bin %s from '%s'",
+                        self.bin_number,
+                        device_name,
+                    )
+            else:  # per_shot
+                if not shot_scalars:
+                    shot_scalars = [{} for _ in shot_numbers]
+                for i, shot in enumerate(shot_numbers):
+                    result = analyzer.results.get(shot)
+                    if result:
+                        shot_scalars[i].update(result.scalars)
+                    else:
+                        logger.warning(
+                            "No per_shot result for shot %s from '%s'",
+                            shot,
+                            device_name,
+                        )
 
         outputs: Dict[str, float] = {}
-
-        # Optional objective
         output_key = getattr(self, "output_key", None)
-        if output_key is not None:
-            objective_value = float(
-                self.compute_objective(
-                    scalar_results=all_scalar_results, bin_number=self.bin_number
+
+        if has_per_shot:
+            # Merge per_bin scalars (e.g. from a mixed-mode setup) into each shot dict
+            if per_bin_scalars:
+                for shot_dict in shot_scalars:
+                    for k, v in per_bin_scalars.items():
+                        shot_dict.setdefault(k, v)
+
+            if output_key is not None:
+                objective_result = self.compute_objective_from_shots(
+                    scalar_results_list=shot_scalars, bin_number=self.bin_number
                 )
+                if isinstance(objective_result, dict):
+                    if output_key not in objective_result:
+                        logger.warning(
+                            "compute_objective_from_shots dict missing key '%s'",
+                            output_key,
+                        )
+                    outputs.update(
+                        {str(k): float(v) for k, v in objective_result.items()}
+                    )
+                else:
+                    outputs[output_key] = float(objective_result)
+
+            # Pass mean-aggregated scalars to compute_observables for consistency
+            all_keys = (
+                set().union(*(d.keys() for d in shot_scalars))
+                if shot_scalars
+                else set()
             )
-            outputs[output_key] = objective_value
+            aggregated: Dict[str, float] = {}
+            for key in all_keys:
+                vals = [d[key] for d in shot_scalars if key in d]
+                if vals:
+                    aggregated[key] = float(np.mean(vals))
+            aggregated.update(per_bin_scalars)
+            scalar_results_for_observables = aggregated
+        else:
+            if output_key is not None:
+                outputs[output_key] = float(
+                    self.compute_objective(
+                        scalar_results=per_bin_scalars, bin_number=self.bin_number
+                    )
+                )
+            scalar_results_for_observables = per_bin_scalars
 
         # Optional extras
         extra = (
             self.compute_observables(
-                scalar_results=all_scalar_results, bin_number=self.bin_number
+                scalar_results=scalar_results_for_observables,
+                bin_number=self.bin_number,
             )
             or {}
         )
@@ -311,8 +396,11 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             )
             extra = {k: v for k, v in extra.items() if k != output_key}
 
-        # Ensure plain floats
-        outputs.update({str(k): float(v) for k, v in extra.items()})
+        # Ensure plain floats (skip keys already written by per_shot dict path)
+        for k, v in extra.items():
+            if str(k) not in outputs:
+                outputs[str(k)] = float(v)
+
         return outputs
 
     @abstractmethod
@@ -324,6 +412,10 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         their specific objective function logic. The method receives all
         scalar results from all configured analyzers and should combine
         them into a single objective value.
+
+        Called when all analyzers use ``analysis_mode="per_bin"``, or by the
+        default ``compute_objective_from_shots`` implementation after
+        mean-aggregating per-shot scalars.
 
         Parameters
         ----------
@@ -351,6 +443,63 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         """
         pass
 
+    def compute_objective_from_shots(
+        self,
+        scalar_results_list: List[Dict[str, float]],
+        bin_number: int,
+    ) -> Union[float, Dict[str, float]]:
+        """
+        Compute objective from per-shot scalar results.
+
+        Called when any analyzer uses ``analysis_mode="per_shot"``.
+        The default implementation mean-aggregates the per-shot scalars and
+        delegates to ``compute_objective``, so existing subclasses require no
+        changes when switching from ``per_bin`` to ``per_shot``.
+
+        Override this method to apply custom statistical treatment, for example
+        returning a noise estimate alongside the objective so Xopt's GP
+        surrogate can account for shot-to-shot jitter::
+
+            def compute_objective_from_shots(self, scalar_results_list, bin_number):
+                values = [
+                    self.get_scalar(self.device_name, "image_total", r)
+                    for r in scalar_results_list
+                ]
+                return {"f": -float(np.median(values)), "f_noise": float(np.std(values))}
+
+        Parameters
+        ----------
+        scalar_results_list : list of dict
+            One scalar dict per shot in the current bin. Each dict contains
+            the same keys as the ``scalar_results`` dict passed to
+            ``compute_objective`` in per_bin mode.
+        bin_number : int
+            Current bin number being evaluated.
+
+        Returns
+        -------
+        float or dict
+            Either a single float objective value, or a dict mapping output
+            keys to floats. When returning a dict, it must contain
+            ``self.output_key`` (typically ``"f"``). Extra keys (e.g.
+            ``"f_noise"``) are passed through to Xopt.
+        """
+        if not scalar_results_list:
+            logger.warning(
+                "compute_objective_from_shots received empty list for bin %s",
+                bin_number,
+            )
+            return 0.0
+
+        all_keys = set().union(*scalar_results_list)
+        aggregated: Dict[str, float] = {}
+        for key in all_keys:
+            vals = [d[key] for d in scalar_results_list if key in d]
+            if vals:
+                aggregated[key] = float(np.mean(vals))
+
+        return self.compute_objective(scalar_results=aggregated, bin_number=bin_number)
+
     def compute_observables(
         self, scalar_results: dict, bin_number: int
     ) -> Dict[str, float]:
@@ -364,7 +513,8 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         Parameters
         ----------
         scalar_results : dict
-            Combined scalar results from all analyzers.
+            Combined scalar results from all analyzers. In per_shot mode,
+            this is the mean-aggregated dict across shots in the bin.
         bin_number : int
             Current bin number being evaluated.
 
