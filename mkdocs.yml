@@ -82,6 +82,7 @@ nav:
           - Basic Usage with Array2DAnalysis: scan_analysis/examples/basic_usage.ipynb
           - Basic Usage with Array1DAnalysis: scan_analysis/examples/basic_usage_1D.ipynb
           - Variational analysis: scan_analysis/examples/variational_analysis.ipynb
+          - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
   - GEECS Python API:
       - Overview: geecs_python_api/overview.md
       - API Reference:
