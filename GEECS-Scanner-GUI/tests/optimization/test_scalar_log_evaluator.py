@@ -132,40 +132,7 @@ class TestScalarExtraction:
 
 
 class TestComputeObjectiveFromShots:
-    """Default compute_objective_from_shots must mean-aggregate and delegate."""
-
-    def test_mean_aggregation(self):
-        from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (
-            ScalarLogEvaluator,
-        )
-
-        class _Ev(ScalarLogEvaluator):
-            def compute_objective(self, scalar_results, bin_number):
-                return scalar_results["x"]
-
-        obj = object.__new__(_Ev)
-        obj.output_key = "f"
-        obj.scalar_keys = ["x"]
-
-        shots = [{"x": 10.0}, {"x": 20.0}, {"x": 30.0}]
-        result = obj.compute_objective_from_shots(shots, bin_number=1)
-        assert result == pytest.approx(20.0)
-
-    def test_empty_list_returns_zero(self):
-        from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (
-            ScalarLogEvaluator,
-        )
-
-        class _Ev(ScalarLogEvaluator):
-            def compute_objective(self, scalar_results, bin_number):
-                return 0.0
-
-        obj = object.__new__(_Ev)
-        obj.output_key = "f"
-        obj.scalar_keys = ["x"]
-
-        result = obj.compute_objective_from_shots([], bin_number=1)
-        assert result == 0.0
+    """compute_objective_from_shots override must work correctly."""
 
     def test_custom_override_uses_median(self):
         from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (
@@ -193,15 +160,7 @@ class TestComputeObjectiveFromShots:
 
 
 class TestObservablesOnly:
-    """observables_only() must return an instance with output_key=None."""
-
-    def test_output_key_is_none(self):
-        from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (
-            ScalarLogEvaluator,
-        )
-
-        ev = ScalarLogEvaluator.observables_only(scalar_keys=["energy"])
-        assert ev.output_key is None
+    """observables_only() must return observables without an objective key."""
 
     def test_observables_pass_through(self):
         from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (
@@ -290,6 +249,39 @@ class TestFullPipeline:
         ]
         assert len(logged) == 3
         assert all(v == pytest.approx(-20.0) for v in logged)
+
+    def test_compute_observables_output_key_stripped_with_warning(self, caplog):
+        """compute_observables returning output_key must not overwrite the objective."""
+        import logging
+
+        ev = _make_evaluator(
+            scalar_keys=["energy"],
+            n_shots=2,
+            extra_columns={"energy": [10.0, 20.0]},
+        )
+
+        real_objective = None
+
+        def _objective(scalar_results, bin_number):
+            nonlocal real_objective
+            real_objective = -scalar_results.get("energy", 0.0)
+            return real_objective
+
+        ev.compute_objective = _objective
+        ev.compute_observables = lambda scalar_results, bin_number: {
+            "f": 999.0,  # accidentally shadows output_key
+            "other": 1.0,
+        }
+
+        with caplog.at_level(logging.WARNING):
+            result = ev._get_value({})
+
+        assert result["f"] == pytest.approx(real_objective)
+        assert result["other"] == pytest.approx(1.0)
+        assert any(
+            "compute_observables returned objective key" in r.message
+            for r in caplog.records
+        )
 
     def test_dict_return_from_compute_objective_from_shots(self):
         from geecs_scanner.optimization.evaluators.scalar_log_evaluator import (

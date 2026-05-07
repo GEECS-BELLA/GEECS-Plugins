@@ -5,7 +5,6 @@ All helpers here are network-free and require no scan files on disk.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
@@ -74,22 +73,6 @@ class FakeDataLogger:
     ):
         self.log_entries = log_entries
         self.bin_num = bin_num
-
-
-# ---------------------------------------------------------------------------
-# FakeResult
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class FakeResult:
-    """
-    Minimal replacement for ``ImageAnalyzerResult``.
-
-    Scan-analyzer results in tests only need ``.scalars``.
-    """
-
-    scalars: Dict[str, float] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

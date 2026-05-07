@@ -251,3 +251,67 @@ class TestGetValueRouting:
             evaluator._get_value({})
 
         assert any("No per_bin result" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# Tests for compute_observables key shadowing
+# ---------------------------------------------------------------------------
+
+
+class TestObservablesShadowing:
+    """compute_observables must not overwrite the objective key in outputs."""
+
+    def _make_shadowing_evaluator(self, objective_value: float = 42.0):
+        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
+            MultiDeviceScanEvaluator,
+        )
+
+        class _Shadowing(MultiDeviceScanEvaluator):
+            def compute_objective(self, scalar_results, bin_number):
+                return objective_value
+
+            def compute_observables(self, scalar_results, bin_number):
+                # Accidentally returns "f", the same key as output_key
+                return {"f": 999.0, "other": 1.0}
+
+        obj = object.__new__(_Shadowing)
+        obj.analyzer_configs = []
+        obj.scan_analyzers = {}
+        obj.output_key = "f"
+        obj.objective_tag = "test"
+        obj.bin_number = 1
+        obj.current_shot_numbers = [1]
+        obj.current_data_bin = MagicMock()
+        obj.scan_tag = None
+        return obj
+
+    def test_objective_not_overwritten(self, caplog):
+        import logging
+
+        ev = self._make_shadowing_evaluator(objective_value=42.0)
+        with caplog.at_level(logging.WARNING):
+            result = ev._get_value({})
+
+        assert result["f"] == pytest.approx(42.0)
+
+    def test_other_observables_still_present(self, caplog):
+        import logging
+
+        ev = self._make_shadowing_evaluator()
+        with caplog.at_level(logging.WARNING):
+            result = ev._get_value({})
+
+        assert "other" in result
+        assert result["other"] == pytest.approx(1.0)
+
+    def test_warning_logged(self, caplog):
+        import logging
+
+        ev = self._make_shadowing_evaluator()
+        with caplog.at_level(logging.WARNING):
+            ev._get_value({})
+
+        assert any(
+            "compute_observables returned objective key" in r.message
+            for r in caplog.records
+        )
