@@ -95,15 +95,21 @@ class TestGrenouilleAnalyzerIntegration:
     def test_frog_error_plausible(self, grenouille_result):
         """FROG error should be a small positive fraction for a converged retrieval."""
         frog_error = grenouille_result.scalars[f"{CAMERA_NAME}_frog_error"]
-        assert 0.0 < frog_error < 0.1, f"FROG error out of expected range: {frog_error:.4f}"
+        assert 0.0 < frog_error < 0.1, (
+            f"FROG error out of expected range: {frog_error:.4f}"
+        )
 
     def test_temporal_fwhm_plausible(self, grenouille_result):
         fwhm = grenouille_result.scalars[f"{CAMERA_NAME}_temporal_fwhm"]
-        assert 20.0 < fwhm < 60.0, f"temporal_fwhm out of expected range [20, 60] fs: {fwhm:.1f}"
+        assert 20.0 < fwhm < 60.0, (
+            f"temporal_fwhm out of expected range [20, 60] fs: {fwhm:.1f}"
+        )
 
     def test_spectral_fwhm_plausible(self, grenouille_result):
         fwhm = grenouille_result.scalars[f"{CAMERA_NAME}_spectral_fwhm"]
-        assert 10.0 < fwhm < 50.0, f"spectral_fwhm out of expected range [10, 50] nm: {fwhm:.1f}"
+        assert 10.0 < fwhm < 50.0, (
+            f"spectral_fwhm out of expected range [10, 50] nm: {fwhm:.1f}"
+        )
 
     def test_frog_iterations_plausible(self, grenouille_result):
         iterations = grenouille_result.scalars[f"{CAMERA_NAME}_frog_iterations"]
