@@ -146,9 +146,10 @@ class GeecsPathsConfig:
         self.image_analysis_configs_path = image_analysis_configs_path
         self.scan_analysis_configs_path = scan_analysis_configs_path
 
-        # Optional FROG DLL paths (for Grenouille pulse retrieval)
+        # Optional tool-specific paths loaded from config.ini
         self.frog_dll_path: Optional[Path] = None
         self.frog_python32_path: Optional[Path] = None
+        self.wavekit_config_path: Optional[Path] = None
 
         if config_path.exists():
             try:
@@ -162,8 +163,12 @@ class GeecsPathsConfig:
                     self.frog_python32_path = self._validate_path(
                         Path(_config["Paths"]["frog_python32_path"])
                     )
+                if _config.has_option("Paths", "wavekit_config_path"):
+                    self.wavekit_config_path = self._validate_path(
+                        Path(_config["Paths"]["wavekit_config_path"])
+                    )
             except Exception as e:
-                logger.debug(f"Could not read FROG paths from config: {e}")
+                logger.debug(f"Could not read tool paths from config: {e}")
 
     def _is_default_server_address(self) -> bool:
         """
