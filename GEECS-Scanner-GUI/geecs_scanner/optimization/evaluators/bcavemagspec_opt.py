@@ -9,26 +9,23 @@ MaxCountsEvaluator
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
-
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
     MultiDeviceScanEvaluator,
 )
 
 
 class EBeamSourceOpt(MultiDeviceScanEvaluator):
-    """Maximize total counts."""
+    """Maximize spectral density on BCaveMagSpec."""
 
     def __init__(self, calibration: float = 24.4e-3, **kwargs):
         super().__init__(**kwargs)
         self.calibration = calibration
         self.device_name = self.analyzer_configs[0].device_name
-        self.objective_tag = "SpectralDensity"  # shows up as "Objective:TotalCounts"
+        self.objective_tag = "SpectralDensity"
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """Compute objective."""
-        total = self.get_scalar(self.device_name, "U_BCaveMagSpec-interpSpec_objective", scalar_results)
+        total = self.get_scalar(
+            self.device_name, "U_BCaveMagSpec-interpSpec_objective", scalar_results
+        )
         return -total

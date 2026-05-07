@@ -1,26 +1,21 @@
 """
 Simulation evaluator for BAX multipoint alignment testing.
 
-Overrides ``compute_observables`` to derive beam centroid position from a
-physics-based formula rather than real camera images, enabling offline
-convergence testing without hardware.
+Derives beam centroid from corrector/quadrupole setpoints via a parametric
+ray-tracing model, enabling offline convergence testing without hardware.
 
 Classes
 -------
 BeamPositionSimulationEvaluator
-    Computes x_CoM from corrector/quadrupole setpoints via a parametric
-    ray-tracing model.  Use ``BeamPositionEvaluator`` for real hardware runs.
+    Computes x_CoM from corrector/quadrupole setpoints.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Dict
-
-if TYPE_CHECKING:
-    pass
+import logging
+from typing import Dict
 
 import numpy as np
-import logging
 
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
     MultiDeviceScanEvaluator,
@@ -33,23 +28,26 @@ class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
     """
     Simulation-mode evaluator that publishes x_CoM derived from setpoints.
 
-    The centroid model is:
+    The centroid model is::
+
         x_CoM = scale_factor * (S1H - reference_setpoint) * (1 + EMQ) + noise
 
     Parameters
     ----------
     control_variable_name : str
-        Name of the horizontal corrector variable in current_data_bin.
+        Horizontal corrector column name in ``current_data_bin``.
     measurement_variable_name : str
-        Name of the quadrupole current variable in current_data_bin.
+        Quadrupole current column name in ``current_data_bin``.
     scale_factor : float
-        Pixels per unit corrector offset (1000.0 for nominal HTU geometry).
+        Pixels per unit corrector offset.
     reference_setpoint : float
-        Corrector setpoint that produces zero offset (1.0 A nominal).
+        Corrector setpoint that produces zero offset.
     noise_amplitude : float
-        Peak-to-peak pixel noise added to the centroid (±noise_amplitude/2).
+        Peak-to-peak pixel noise (±noise_amplitude/2).
     calibration : float
-        Pixel-to-physical-unit scale applied after the simulation.
+        Pixel-to-physical-unit scale applied after simulation.
+    **kwargs
+        Forwarded to :class:`MultiDeviceScanEvaluator`.
     """
 
     def __init__(
@@ -71,11 +69,7 @@ class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
         self.calibration = calibration
 
         self.objective_tag = "BeamPosition"
-        self.output_key = None  # BAX doesn't use objectives
-
-    def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """Not used — BAX models observables only."""
-        return None
+        self.output_key = None  # BAX — observables only, no objective
 
     def compute_observables(
         self, scalar_results: dict, bin_number: int
@@ -97,10 +91,4 @@ class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
         offset = control_val - self.reference_setpoint
         centroid_x = self.scale_factor * offset * (1.0 + measure_val)
         centroid_x += (np.random.random_sample() - 0.5) * self.noise_amplitude
-        centroid_x = float(centroid_x * self.calibration)
-
-        return {"x_CoM": centroid_x}
-
-
-# Backwards-compatible alias used in older scan configs
-BeamPositionEvaluator = BeamPositionSimulationEvaluator
+        return {"x_CoM": float(centroid_x * self.calibration)}
