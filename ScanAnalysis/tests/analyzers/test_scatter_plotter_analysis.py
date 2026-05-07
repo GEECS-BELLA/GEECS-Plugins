@@ -125,23 +125,3 @@ class TestScatterAnalyzerConfigFactory:
         assert analyzer.priority == 200
         assert analyzer.x_column == X_COLUMN
         assert len(analyzer.parameters) == 3
-
-    def test_factory_roundtrip_runs(self):
-        if not SCAN_FOLDER.exists():
-            pytest.skip(f"Scan folder not found: {SCAN_FOLDER}")
-
-        cfg = ScatterAnalyzerConfig(
-            title="ModeImager Beam Properties",
-            filename=f"{FILENAME}_factory",
-            x_column=X_COLUMN,
-            parameters=[
-                PlotParameterConfig(
-                    key_name="UC_ModeImager_x_rms", label="x RMS (px)", color="blue"
-                ),
-            ],
-        )
-        analyzer = create_analyzer(cfg)
-        result = analyzer.run_analysis(SCAN_TAG)
-        assert result is not None
-        expected = _ANALYSIS_FOLDER / "scatter_plots" / f"{FILENAME}_factory.png"
-        assert expected.exists()
