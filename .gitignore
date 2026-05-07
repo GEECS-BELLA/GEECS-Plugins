@@ -39,6 +39,11 @@ GEECS-Scanner-GUI/xopt optimizer tests.ipynb
 GEECS-Scanner-GUI/testing.ipynb
 
 # -----------------------------
+# Claude Code
+# -----------------------------
+.claude/settings.local.json
+
+# -----------------------------
 # Editors / OS files
 # -----------------------------
 .DS_Store
@@ -106,3 +111,4 @@ LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
 LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
 LogMaker4GoogleDocs/logmaker_4_googledocs/HTUcurrentvalues.in
 ScanAnalysis/frog.dat
+ImageAnalysis/frog.dat

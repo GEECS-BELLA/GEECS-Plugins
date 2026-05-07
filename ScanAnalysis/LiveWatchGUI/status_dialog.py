@@ -82,6 +82,7 @@ class StatusDialog(QDialog):
         self._timer.timeout.connect(self._refresh)
 
         self._build_ui()
+        self._check_auto.setChecked(True)
         self._refresh()
 
     # ------------------------------------------------------------------

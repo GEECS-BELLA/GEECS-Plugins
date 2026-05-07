@@ -121,5 +121,86 @@ def test_flatten_beam_stats_include_empty_set():
     assert flat == {}
 
 
+# ---------------------------------------------------------------------------
+# roi_offset parameter in beam_profile_stats
+# ---------------------------------------------------------------------------
+
+
+class TestBeamProfileStatsROIOffset:
+    """Position stats shift by the ROI offset; width stats are unaffected."""
+
+    def _single_pixel_image(self, shape=(20, 30), hot_row=10, hot_col=15):
+        """Image with a single bright pixel at (hot_row, hot_col)."""
+        img = np.zeros(shape, dtype=float)
+        img[hot_row, hot_col] = 1.0
+        return img
+
+    def test_default_offset_is_zero(self):
+        """beam_profile_stats() with no roi_offset equals (0, 0)."""
+        img = self._single_pixel_image(hot_row=5, hot_col=8)
+        stats_default = bbs.beam_profile_stats(img)
+        stats_zero = bbs.beam_profile_stats(img, roi_offset=(0, 0))
+        assert stats_default.x.CoM == pytest.approx(stats_zero.x.CoM)
+        assert stats_default.y.CoM == pytest.approx(stats_zero.y.CoM)
+
+    def test_x_offset_shifts_x_com(self):
+        """x_CoM increases by x_offset when roi_offset is applied."""
+        img = self._single_pixel_image(hot_row=5, hot_col=8)
+        x_offset = 100
+        stats_local = bbs.beam_profile_stats(img)
+        stats_global = bbs.beam_profile_stats(img, roi_offset=(x_offset, 0))
+        assert stats_global.x.CoM == pytest.approx(stats_local.x.CoM + x_offset)
+
+    def test_y_offset_shifts_y_com(self):
+        """y_CoM increases by y_offset when roi_offset is applied."""
+        img = self._single_pixel_image(hot_row=5, hot_col=8)
+        y_offset = 50
+        stats_local = bbs.beam_profile_stats(img)
+        stats_global = bbs.beam_profile_stats(img, roi_offset=(0, y_offset))
+        assert stats_global.y.CoM == pytest.approx(stats_local.y.CoM + y_offset)
+
+    def test_x_offset_shifts_peak_location(self):
+        """x peak_location is also shifted by x_offset."""
+        img = self._single_pixel_image(hot_row=5, hot_col=8)
+        x_offset = 37
+        stats_local = bbs.beam_profile_stats(img)
+        stats_global = bbs.beam_profile_stats(img, roi_offset=(x_offset, 0))
+        assert stats_global.x.peak_location == pytest.approx(
+            stats_local.x.peak_location + x_offset
+        )
+
+    def test_offset_does_not_affect_rms(self):
+        """rms (beam width) is independent of ROI position offset."""
+        img = np.zeros((40, 60), dtype=float)
+        # Broad Gaussian-like profile — use a real 2D image
+        from image_analysis.tools.synthetic_generators import gaussian_beam_2d
+
+        img = gaussian_beam_2d(shape=(40, 60), center=(20.0, 30.0), seed=7)
+        stats_no_offset = bbs.beam_profile_stats(img)
+        stats_offset = bbs.beam_profile_stats(img, roi_offset=(200, 300))
+        assert stats_offset.x.rms == pytest.approx(stats_no_offset.x.rms, rel=1e-9)
+        assert stats_offset.y.rms == pytest.approx(stats_no_offset.y.rms, rel=1e-9)
+
+    def test_offset_does_not_affect_fwhm(self):
+        """fwhm (beam width) is independent of ROI position offset."""
+        from image_analysis.tools.synthetic_generators import gaussian_beam_2d
+
+        img = gaussian_beam_2d(shape=(40, 60), center=(20.0, 30.0), seed=8)
+        stats_no_offset = bbs.beam_profile_stats(img)
+        stats_offset = bbs.beam_profile_stats(img, roi_offset=(500, 100))
+        assert stats_offset.x.fwhm == pytest.approx(stats_no_offset.x.fwhm, rel=1e-9)
+        assert stats_offset.y.fwhm == pytest.approx(stats_no_offset.y.fwhm, rel=1e-9)
+
+    def test_image_stats_unaffected_by_offset(self):
+        """Total intensity and peak value are not changed by roi_offset."""
+        img = self._single_pixel_image(hot_row=3, hot_col=12)
+        stats_local = bbs.beam_profile_stats(img)
+        stats_global = bbs.beam_profile_stats(img, roi_offset=(99, 77))
+        assert stats_global.image.total == pytest.approx(stats_local.image.total)
+        assert stats_global.image.peak_value == pytest.approx(
+            stats_local.image.peak_value
+        )
+
+
 if __name__ == "__main__":
     pytest.main()
