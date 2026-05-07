@@ -38,6 +38,54 @@ class TestROICropping:
         result = apply_roi_cropping(image, config)
         assert np.array_equal(result, image)
 
+    # ------------------------------------------------------------------
+    # Clamping: ROI larger than actual image
+    # ------------------------------------------------------------------
+
+    def test_clamps_x_max_to_image_width(self):
+        """ROI x_max beyond image width is clamped; no exception raised."""
+        image = np.ones((10, 10), dtype=np.float64)
+        # x_max=20 exceeds width=10
+        config = ROIConfig(x_min=0, x_max=20, y_min=0, y_max=5)
+        result = apply_roi_cropping(image, config)
+        assert result.shape == (5, 10)  # clamped to full width
+
+    def test_clamps_y_max_to_image_height(self):
+        """ROI y_max beyond image height is clamped; no exception raised."""
+        image = np.ones((10, 10), dtype=np.float64)
+        config = ROIConfig(x_min=0, x_max=5, y_min=0, y_max=20)
+        result = apply_roi_cropping(image, config)
+        assert result.shape == (10, 5)  # clamped to full height
+
+    def test_clamped_result_contains_correct_pixels(self):
+        """After clamping the returned data matches the valid sub-region."""
+        image = np.arange(100, dtype=np.float64).reshape(10, 10)
+        # x_max=15 clamped to 10, y_max=15 clamped to 10
+        config = ROIConfig(x_min=2, x_max=15, y_min=3, y_max=15)
+        result = apply_roi_cropping(image, config)
+        expected = image[3:10, 2:10]
+        assert np.array_equal(result, expected)
+
+    def test_clamp_emits_warning(self, caplog):
+        """A logger warning is emitted when the ROI is clamped."""
+        import logging
+
+        image = np.ones((10, 10), dtype=np.float64)
+        config = ROIConfig(x_min=0, x_max=20, y_min=0, y_max=5)
+        with caplog.at_level(
+            logging.WARNING, logger="image_analysis.processing.array2d.masking"
+        ):
+            apply_roi_cropping(image, config)
+        assert any("clamped" in record.message.lower() for record in caplog.records)
+
+    def test_zero_area_after_clamp_returns_full_image(self):
+        """When clamping leaves a zero-area ROI, the full image is returned."""
+        image = np.arange(100, dtype=np.float64).reshape(10, 10)
+        # x_min=15 clamped to 15, x_max=20 clamped to 10 → x_min >= x_max → zero area
+        config = ROIConfig(x_min=15, x_max=20, y_min=0, y_max=5)
+        result = apply_roi_cropping(image, config)
+        assert result.shape == image.shape
+
 
 class TestCircularMask:
     """Tests for apply_circular_mask().
