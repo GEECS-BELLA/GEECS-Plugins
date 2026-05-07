@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 from geecs_data_utils import ScanTag
+from geecs_data_utils import ScanPaths
 
 from scan_analysis.analyzers.common.scatter_plotter_analysis import (
     PlotParameter,
@@ -31,14 +32,9 @@ SCAN_FOLDER = Path("Z:/data/Undulator/Y2026/05-May/26_0505/scans/Scan018")
 SCAN_TAG = ScanTag(year=2026, month=5, day=5, number=18, experiment="Undulator")
 
 FILENAME = "mode_imager_rms"
-# analysis/ lives alongside scans/, not inside the scan folder
-EXPECTED_PNG = (
-    SCAN_FOLDER.parents[1]
-    / "analysis"
-    / SCAN_FOLDER.name
-    / "scatter_plots"
-    / f"{FILENAME}.png"
-)
+# ScanPaths resolves the analysis/ folder (sibling of scans/) for this tag
+_ANALYSIS_FOLDER = ScanPaths.get_scan_analysis_folder_path(SCAN_TAG)
+EXPECTED_PNG = _ANALYSIS_FOLDER / "scatter_plots" / f"{FILENAME}.png"
 
 PARAMETERS = [
     PlotParameter(
@@ -147,11 +143,5 @@ class TestScatterAnalyzerConfigFactory:
         analyzer = create_analyzer(cfg)
         result = analyzer.run_analysis(SCAN_TAG)
         assert result is not None
-        expected = (
-            SCAN_FOLDER.parents[1]
-            / "analysis"
-            / SCAN_FOLDER.name
-            / "scatter_plots"
-            / f"{FILENAME}_factory.png"
-        )
+        expected = _ANALYSIS_FOLDER / "scatter_plots" / f"{FILENAME}_factory.png"
         assert expected.exists()
