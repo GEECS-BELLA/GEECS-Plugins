@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — 2026-05-07
+
+### Added
+- `per_shot` analysis mode in `MultiDeviceScanEvaluator`: each image in a bin
+  is analyzed individually instead of averaged, enabling richer per-shot
+  statistical treatment (median, std dev, noise estimates for Xopt GP surrogate)
+- `compute_objective_from_shots(scalar_results_list, bin_number)` hook on
+  `MultiDeviceScanEvaluator`; default implementation mean-aggregates per-shot
+  scalars and delegates to `compute_objective`, so existing subclasses require
+  no changes when switching from `per_bin` to `per_shot`
+- Mixed-mode support: when analyzers have different `analysis_mode` settings,
+  `per_bin` scalars are merged into every shot dict before
+  `compute_objective_from_shots` is called
+- Unit tests for `MultiDeviceScanEvaluator` per-shot behaviour covering mean
+  aggregation, empty-list handling, partial-key averaging, `per_bin`/`per_shot`
+  routing, dict passthrough (with `f_noise`), mixed-mode scalar merging, and
+  missing-result warning logging (closes #339)
+
 ## [0.8.2] — 2026-04-15
 
 ### Fixed

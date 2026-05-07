@@ -35,6 +35,7 @@ import numpy as np
 if TYPE_CHECKING:
     from geecs_scanner.data_acquisition.data_logger import DataLogger
     from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from image_analysis.types import ImageAnalyzerResult
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.optimization.config_models import (
@@ -43,7 +44,6 @@ from geecs_scanner.optimization.config_models import (
 )
 from geecs_data_utils import ScanPaths
 from geecs_data_utils.config_roots import image_analysis_config
-from image_analysis.types import ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
 

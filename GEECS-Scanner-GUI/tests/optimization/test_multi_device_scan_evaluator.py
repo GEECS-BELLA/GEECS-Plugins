@@ -49,8 +49,12 @@ class TestComputeObjectiveFromShotsDefault:
             MultiDeviceScanEvaluator,
         )
 
+        class _Concrete(MultiDeviceScanEvaluator):
+            def compute_objective(self, scalar_results, bin_number):
+                return -scalar_results.get("signal", 0.0)
+
         # Bypass __init__ entirely — we only test the method logic
-        obj = object.__new__(MultiDeviceScanEvaluator)
+        obj = object.__new__(_Concrete)
         obj.output_key = "f"
         obj.bin_number = 1
         obj.current_shot_numbers = [1, 2, 3]
@@ -106,7 +110,11 @@ class TestGetValueRouting:
             MultiDeviceScanEvaluator,
         )
 
-        obj = object.__new__(MultiDeviceScanEvaluator)
+        class _Concrete(MultiDeviceScanEvaluator):
+            def compute_objective(self, scalar_results, bin_number):
+                return 0.0
+
+        obj = object.__new__(_Concrete)
         obj.analyzer_configs = analyzer_configs
         obj.scan_analyzers = scan_analyzers
         obj.output_key = "f"
