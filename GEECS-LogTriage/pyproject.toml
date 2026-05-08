@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-log-triage"
-version = "0.1.1"
+version = "0.2.0"
 description = "Harvest, classify, and aggregate errors from GEECS scan execution logs."
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
