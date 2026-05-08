@@ -101,7 +101,7 @@ class FileMover:
         self.scan_number: Optional[int] = (
             None  # TODO Should have a `set` function instead of editing externally
         )
-        logger.info("FileMover worker started.")
+        logger.debug("FileMover worker started.")
 
     def _worker_func(self) -> None:
         """Drain the task queue until stopped."""
@@ -122,7 +122,7 @@ class FileMover:
                 logger.exception("Error processing task")
             finally:
                 self.task_queue.task_done()
-        logger.info("FileMover worker stopped.")
+        logger.debug("FileMover worker stopped.")
 
     def _process_task(self, task: FileMoveTask) -> None:
         """Locate the file matching *task*'s timestamp and move it to the target dir."""
@@ -219,7 +219,7 @@ class FileMover:
                         self.file_check_counts.get(file, 0) + 1
                     )
                     if self.file_check_counts[file] > 1:
-                        logger.info(
+                        logger.debug(
                             "File %s checked >1 times; marking as orphaned.", file
                         )
                         self.orphaned_files.add(file)
@@ -262,7 +262,7 @@ class FileMover:
         if not task_success:
             if self.scan_is_live and task.retry_count < task.max_retries:
                 task.retry_count += 1
-                logger.info(
+                logger.debug(
                     "Re-queuing task for %s with timestamp %s (retry %d/%d)",
                     task.device_name,
                     task.expected_timestamp,
@@ -271,8 +271,8 @@ class FileMover:
                 )
                 self.move_files_by_timestamp(task)
             else:
-                logger.info(
-                    "failed to find a file for %s with timestamp %s",
+                logger.warning(
+                    "Failed to find a file for %s with timestamp %s — will orphan.",
                     task.device_name,
                     task.expected_timestamp,
                 )
@@ -319,14 +319,14 @@ class FileMover:
     def _process_variant_file(self, task: FileMoveTask) -> None:
         """Find and move the variant file (e.g. ``-interpSpec``) matching *task.random_part*."""
         if task.suffix is None or task.random_part is None:
-            logger.info(
+            logger.debug(
                 "No suffix or random_part in task; skipping variant processing."
             )
             return
 
         variant_dir = task.source_dir.parent / f"{task.device_name}{task.suffix}"
         if not variant_dir.exists():
-            logger.info(
+            logger.debug(
                 "Variant directory %s does not exist; skipping processing for %s.",
                 variant_dir,
                 task.suffix,
@@ -365,7 +365,7 @@ class FileMover:
         self, log_df: pd.DataFrame, device_save_paths_mapping: dict
     ) -> None:
         """Match unprocessed files on disk against log timestamps and re-queue them."""
-        logger.info("looking to handle orphaned data files")
+        logger.debug("looking to handle orphaned data files")
         tolerance = 0.0011
         for device_name, device_info in device_save_paths_mapping.items():
             source_dir = Path(device_info["source_dir"])
@@ -375,7 +375,7 @@ class FileMover:
             # *NOTE* Using `acq_timestamp` for data that was logged
             acq_col = f"{device_name} acq_timestamp"
             if acq_col not in log_df.columns:
-                logger.info(
+                logger.warning(
                     "No acq_timestamp column for %s in log_df; skipping orphan sweep.",
                     device_name,
                 )
@@ -388,7 +388,7 @@ class FileMover:
             ]
 
             if not shot_timestamp_pairs:
-                logger.info(
+                logger.debug(
                     "No valid timestamps for %s; skipping orphan sweep.", device_name
                 )
                 continue
@@ -414,7 +414,7 @@ class FileMover:
                     if f.is_file() and f not in self.processed_files:
                         orphan_files.append(f)
 
-            logger.info(
+            logger.debug(
                 "Found %d candidate orphan files for %s across %d variant dirs.",
                 len(orphan_files),
                 device_name,
@@ -431,7 +431,7 @@ class FileMover:
                         break
 
                 if matched_shot is not None:
-                    logger.info(
+                    logger.debug(
                         "Found orphan file %s matching shot %s", file, matched_shot
                     )
                     random_part = file.stem.replace(f"{device_name}_", "")
@@ -471,7 +471,7 @@ class FileMover:
             self.task_queue.put(None)
         for worker in self.workers:
             worker.join()
-        logger.info("FileMover has been shut down gracefully.")
+        logger.debug("FileMover has been shut down gracefully.")
 
 
 class DataLogger:
@@ -674,12 +674,12 @@ class DataLogger:
         )
 
         if all_in_dict and all_on:
-            logger.info(
+            logger.debug(
                 "All device names are present in standby_mode_device_status dict and all have True status."
             )
             return True
         else:
-            logger.info(
+            logger.debug(
                 "Not all devices are in standby: %s", self.standby_mode_device_status
             )
 
@@ -697,7 +697,7 @@ class DataLogger:
         )
 
         if all_in_dict and all_off:
-            logger.info(
+            logger.debug(
                 "All device names are present in standby_mode_device_status dict and all "
                 "have False status meaning they have exited standby mode."
             )
@@ -734,14 +734,14 @@ class DataLogger:
 
         if t0 is None:
             self.initial_timestamps[device.get_name()] = timestamp
-            logger.info(
+            logger.debug(
                 "First TCP event received from %s. Initial dummy timestamp set to %s.",
                 device.get_name(),
                 timestamp,
             )
             return
 
-        logger.info("checking standby status of %s", device.get_name())
+        logger.debug("checking standby status of %s", device.get_name())
 
         # update the timestamp in this dict each call. Once all devices have verifiably
         # entered standby and exited standby synchronously, we will overwrite the
@@ -751,11 +751,11 @@ class DataLogger:
         # *NOTE* This uses `timestamp` from `_extract_timestamp_from_tcp_message` for synchronization check
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
-            logger.info("%s is in standby", device.get_name())
+            logger.debug("%s is in standby", device.get_name())
             return
         else:
             self.standby_mode_device_status[device.get_name()] = False
-            logger.info("%s has exited in standby", device.get_name())
+            logger.debug("%s has exited in standby", device.get_name())
             return
 
     def update_repetition_rate(self, new_repetition_rate) -> None:
@@ -786,7 +786,7 @@ class DataLogger:
         for device_name, device in self.device_manager.devices.items():
             for observable in self.event_driven_observables:
                 if observable.startswith(device_name):
-                    logger.info(
+                    logger.debug(
                         "Registering logging for event-driven observable: %s",
                         observable,
                     )
@@ -810,7 +810,7 @@ class DataLogger:
             device.get_name() in self.last_timestamps
             and self.last_timestamps[device.get_name()] == current_timestamp
         ):
-            logger.info(
+            logger.debug(
                 "Timestamp hasn't changed for %s. Skipping log.", device.get_name()
             )
             return True
@@ -836,7 +836,7 @@ class DataLogger:
                     self.log_entries[elapsed_time][f"{device_name}:composite_var"] = (
                         composite_value
                     )
-                    logger.info(
+                    logger.debug(
                         "Updated composite var %s:composite_var to %s for elapsed time %s.",
                         device_name,
                         composite_value,
@@ -853,7 +853,7 @@ class DataLogger:
                             self.log_entries[elapsed_time][
                                 f"{sub_device_name}:{sub_var_name}"
                             ] = sub_value
-                            logger.info(
+                            logger.debug(
                                 "Updated sub-component %s:%s to %s for elapsed time %s.",
                                 sub_device_name,
                                 sub_var_name,
@@ -876,7 +876,7 @@ class DataLogger:
 
                     value = device.state.get(var_name, "N/A")
                     self.log_entries[elapsed_time][f"{device_name}:{var_name}"] = value
-                    logger.info(
+                    logger.debug(
                         "Updated async var %s:%s to %s for elapsed time %s.",
                         device_name,
                         var_name,
@@ -897,7 +897,7 @@ class DataLogger:
                                 shot_index=self.shot_index,
                             )
                             self.file_mover.move_files_by_timestamp(task)
-                            logger.info(
+                            logger.debug(
                                 "Created FileMoveTask for async device %s with timestamp %s for shot %s.",
                                 device_name,
                                 acq_timestamp,
@@ -925,7 +925,7 @@ class DataLogger:
                 if observable.startswith(device.get_name())
             }
             if elapsed_time not in self.log_entries:
-                logger.info(
+                logger.debug(
                     "elapsed time in sync devices %s. reported by %s",
                     elapsed_time,
                     device.get_name(),
@@ -1019,7 +1019,7 @@ class DataLogger:
             True if all device timestamps are within ``global_sync_tol_ms`` and
             synchronization flags have been set; False if the timeout fallback is needed.
         """
-        logger.info("Attempting global time synchronization")
+        logger.debug("Attempting global time synchronization")
 
         current_timestamps = {}
         for device_name in self.synchronous_device_names:
@@ -1043,7 +1043,7 @@ class DataLogger:
             )
             return True
         else:
-            logger.info(
+            logger.debug(
                 "Device timestamps not within tolerance. Falling back to timeout method."
             )
             logger.debug("Timestamps were: %s", current_timestamps)
@@ -1074,7 +1074,7 @@ class DataLogger:
     def _timestamps_within_tolerance(self, timestamps: Dict[str, float]) -> bool:
         """Return True if all timestamps in *timestamps* are within ``global_sync_tol_ms``."""
         if len(timestamps) < 2:
-            logger.info("Only one or no devices to synchronize")
+            logger.debug("Only one or no devices to synchronize")
             return True
 
         tolerance_seconds = self.global_sync_tol_ms / 1000.0
@@ -1101,7 +1101,7 @@ class DataLogger:
             )
 
             if time_diff > tolerance_seconds:
-                logger.info(
+                logger.debug(
                     "Device %s timestamp differs by %s ms (> %s ms tolerance)",
                     device_name,
                     time_diff * 1000,
@@ -1109,7 +1109,7 @@ class DataLogger:
                 )
                 return False
 
-        logger.info(
+        logger.debug(
             "All device timestamps within %s ms tolerance", self.global_sync_tol_ms
         )
         return True
