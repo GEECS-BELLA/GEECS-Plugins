@@ -33,23 +33,21 @@ first and explain to the user what you did.
 
 ## Step 2 — Generate the triage report
 
-Run the CLI with `--format json` to stdout (JSON is easier to parse than Markdown):
+Run two commands from `GEECS-LogTriage/`:
 
+**JSON** (for your analysis — always goes to stdout):
 ```bash
 cd GEECS-LogTriage && poetry run geecs-log-triage $ARGUMENTS --format json
 ```
+Capture the stdout JSON into memory. If the command fails, show the error and stop.
 
-Capture the JSON output into memory. If the command fails, show the error and stop.
-
-Also write the Markdown version alongside the scan folder for operators:
-
+**Markdown** (for operators — auto-written to the data folder):
 ```bash
-cd GEECS-LogTriage && poetry run geecs-log-triage $ARGUMENTS --format md
+cd GEECS-LogTriage && poetry run geecs-log-triage $ARGUMENTS
 ```
-
-(The CLI will auto-write `triage.md` into the day folder when `--date` and
-`--experiment` are given; with `--scan-folder` it prints to stdout — capture and
-write next to the scan folder yourself if needed.)
+With `--date` + `--experiment`, this silently writes `triage.md` alongside the
+scan data. With `--scan-folder`, it prints to stdout; write it next to the scan
+folder yourself. No need to capture this output.
 
 ---
 

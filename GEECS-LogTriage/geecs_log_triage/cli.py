@@ -125,8 +125,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _default_output_path(args: argparse.Namespace) -> Optional[Path]:
-    """Return the auto-output path for --date + --experiment, or None."""
-    if args.date is not None and args.experiment:
+    """Return the auto-output path for --date + --experiment in md mode, or None.
+
+    JSON format always goes to stdout regardless of auto-path, so callers can
+    pipe or capture it without interference from the data-volume write.
+    """
+    if args.fmt == "md" and args.date is not None and args.experiment:
         return day_folder_for(args.date, args.experiment) / "triage.md"
     return None
 
