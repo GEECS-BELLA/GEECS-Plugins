@@ -4,11 +4,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
-from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.app.lib.action_control import ActionControl
-from geecs_data_utils import ScanConfig
-
+from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
+from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
+from geecs_scanner.engine.scan_manager import ScanManager, get_database_dict
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
@@ -31,9 +30,14 @@ class RunControl:
     ):
         """Initialise with either the legacy ScanManager or the Bluesky backend.
 
-        :param experiment_name: Experiment name as in the GEECS Database and Scan Manager file structure
-        :param shot_control_configuration: Path to the configuration file with shot control information
-        :param use_bluesky: If True, use the BlueskyScanner backend instead of ScanManager
+        Parameters
+        ----------
+        experiment_name : str
+            Experiment name as in the GEECS Database and Scan Manager file structure.
+        shot_control_configuration : Path, optional
+            Path to the configuration file with shot control information.
+        use_bluesky : bool
+            If True, use the BlueskyScanner backend instead of ScanManager.
         """
         self.is_in_setup = False
         self.is_in_stopping = False
@@ -72,40 +76,55 @@ class RunControl:
     def get_action_control(
         self, experiment_name_refresh: Optional[str] = None
     ) -> ActionControl:
-        """Return the ActionControl instance for the current experiment name."""
+        """Return the action control instance associated with the current experiment.
+
+        Parameters
+        ----------
+        experiment_name_refresh : str, optional
+            If provided, reinitialize the action control with this experiment name.
+
+        Returns
+        -------
+        ActionControl
+        """
         if experiment_name_refresh:
             self.action_control = ActionControl(experiment_name=experiment_name_refresh)
         return self.action_control
 
-    def submit_run(self, config_dictionary: dict, scan_config: ScanConfig) -> bool:
-        """Submit a scan request to Scan Manager after reinitialising it.
+    def submit_run(self, exec_config: ScanExecutionConfig) -> bool:
+        """Submit a scan request to Scan Manager after reinitializing it.
 
-        :param config_dictionary: Dictionary of devices to be saved and actions to take
-        :param scan_config: ScanConfig of parameters used in a 1d scan
+        Parameters
+        ----------
+        exec_config : ScanExecutionConfig
+            Fully validated scan execution config produced by the GUI.
+
+        Returns
+        -------
+        bool
+            True if device reinitialization succeeded.
         """
         success = False
         if self.scan_manager is not None:
             self.is_in_setup = True
-
-            success = self.scan_manager.reinitialize(
-                config_path=None, config_dictionary=config_dictionary
-            )
-            self.scan_manager.start_scan_thread(scan_config=scan_config)
-
+            success = self.scan_manager.reinitialize(exec_config=exec_config)
+            self.scan_manager.start_scan_thread()
             self.is_in_setup = False
         return success
 
     def get_progress(self) -> int:
-        """Return current percentage of completion according to Scan Manager."""
+        """Return the current percentage of completion according to Scan Manager."""
         if self.scan_manager is not None:
             return int(self.scan_manager.estimate_current_completion() * 100)
         else:
             return 0
 
     def is_busy(self) -> bool:
-        """Return True if setup is in progress, False otherwise.
+        """Return True if the scan manager is currently in setup.
 
-        TODO: check if this is still wired up correctly.
+        Returns
+        -------
+        bool
         """
         return self.is_in_setup
 
@@ -117,7 +136,7 @@ class RunControl:
             return False
 
     def stop_scan(self):
-        """Send a stop request to Scan Manager and flag that stopping is in progress."""
+        """Send a stop request to Scan Manager and flag that a stop has been received."""
         if self.scan_manager is not None:
             if not self.is_stopping():
                 self.is_in_stopping = True

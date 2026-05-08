@@ -4,13 +4,12 @@ Type definitions for GEECS scan configuration and modes.
 This module defines the core data structures used throughout the GEECS
 plugin suite for configuring and managing experimental scans.
 
-Contains enumerations for scan modes and dataclass definitions for
-scan configuration parameters.
+Contains enumerations for scan modes and Pydantic models for scan
+configuration parameters.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union, Dict, Any, List
 from enum import Enum
@@ -93,55 +92,38 @@ class ScanMode(str, Enum):
     BACKGROUND = "background"
 
 
-@dataclass
-class ScanConfig:
+class ScanConfig(BaseModel):
     """
-    Configuration dataclass for GEECS scan parameters.
+    Pydantic model for GEECS scan parameters.
 
-    Encapsulates all parameters needed to configure and execute
-    a scan in the python-base GEECS-Scanner, including scan mode,
-    device settings, parameter ranges, and optimization configurations.
+    Describes a scan completely enough to write ``ScanInfo{scan}.ini`` and
+    to be parsed back by analysis tools.  All fields have defaults so that
+    partial construction (e.g. noscan with only ``wait_time``) is valid.
 
     Attributes
     ----------
     scan_mode : ScanMode
-        Type of scan to perform (default is NOSCAN)
+        Type of scan to perform.
     device_var : str, optional
-        GEECS device variable to scan (default is None). Note, the
-        style should be 'device_name:device_variable', where
-        device_variable is the non aliased name
-    start : Union[int, float]
-        Starting value for parameter scan (default is 0)
-    end : Union[int, float]
-        Ending value for parameter scan (default is 1)
-    step : Union[int, float]
-        Step size for parameter scan (default is 1)
+        ``"device_name:variable_name"`` for the scanned variable.
+    start : int or float
+        Starting value for a parameter sweep.
+    end : int or float
+        Ending value for a parameter sweep.
+    step : int or float
+        Step size for a parameter sweep.
     wait_time : float
-        Wait time between scan points in seconds (default is 1.0)
+        Acquisition time per step in seconds.
     additional_description : str, optional
-        Additional description for the scan (default is None). This
-        description is added to the scan_info file
+        Free-text appended to ``ScanStartInfo`` in the scan_info file.
     background : bool
-        Whether this is a background measurement (default is False)
-    optimizer_config_path : Union[str, Path], optional
-        Path to optimizer configuration file (default is None)
-    optimizer_overrides : Dict[str, Any]
-        Override parameters for optimizer (default is empty dict)
-        Not currently in use
-    evaluator_kwargs : Dict[str, Any]
-        Keyword arguments for evaluator (default is empty dict)
-
-    Examples
-    --------
-    >>> config = ScanConfig(
-    ...     scan_mode=ScanMode.STANDARD,
-    ...     device_var="U_ESPJetXYZ:Position.Axis 1",
-    ...     start=0.1,
-    ...     end=1.0,
-    ...     step=0.1
-    ... )
-    >>> print(f"Scanning {config.device_var} from {config.start} to {config.end}")
-    Scanning laser_power from 0.1 to 1.0
+        Flags this scan as a background measurement.
+    optimizer_config_path : str or Path, optional
+        Path to the Xopt optimizer configuration YAML.
+    optimizer_overrides : dict
+        Per-run overrides applied on top of the optimizer config.
+    evaluator_kwargs : dict
+        Extra keyword arguments forwarded to the evaluator constructor.
     """
 
     scan_mode: ScanMode = ScanMode.NOSCAN
@@ -153,8 +135,10 @@ class ScanConfig:
     additional_description: Optional[str] = None
     background: bool = False
     optimizer_config_path: Optional[Union[str, Path]] = None
-    optimizer_overrides: Optional[Dict[str, Any]] = field(default_factory=dict)
-    evaluator_kwargs: Optional[Dict[str, Any]] = field(default_factory=dict)
+    optimizer_overrides: Optional[Dict[str, Any]] = Field(default_factory=dict)
+    evaluator_kwargs: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 class DeviceDump(BaseModel):

@@ -35,6 +35,7 @@ from PyQt5.QtWidgets import (
 
 from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 from .log_handler import QtLogHandler
+from .status_dialog import StatusDialog
 from .worker import LiveWatchConfig, LiveWatchWorker
 
 logger = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ class LiveWatchWindow(QMainWindow):
         self._worker: Optional[LiveWatchWorker] = None
         self._log_handler: Optional[QtLogHandler] = None
         self._doc_id_lookup: Optional[DocIDLookup] = None
+        self._status_dialog: Optional[StatusDialog] = None
 
         # Build UI
         central = QWidget()
@@ -354,6 +356,15 @@ class LiveWatchWindow(QMainWindow):
         self.btn_start_stop.clicked.connect(self._on_start_stop)
         layout.addWidget(self.btn_start_stop)
 
+        self.btn_status = QPushButton("Status…")
+        self.btn_status.setMinimumHeight(36)
+        self.btn_status.setToolTip(
+            "Open the status overview grid for the selected date.\n"
+            "Shows per-scan, per-analyzer task states."
+        )
+        self.btn_status.clicked.connect(self._on_show_status)
+        layout.addWidget(self.btn_status)
+
         layout.addSpacing(20)
 
         self.label_status = QLabel("● Idle")
@@ -584,6 +595,55 @@ class LiveWatchWindow(QMainWindow):
             rerun_completed=self.check_rerun_completed.isChecked(),
             rerun_failed=self.check_rerun_failed.isChecked(),
         )
+
+    # ------------------------------------------------------------------
+    # Slot: Status dialog
+    # ------------------------------------------------------------------
+
+    def _on_show_status(self) -> None:
+        """Open (or refresh and raise) the status overview dialog."""
+        config = self._build_config()
+        date_tag = config.to_scan_tag()
+        analyzer_ids = self._get_analyzer_ids(config)
+        base_directory = self._get_base_directory()
+
+        if self._status_dialog is None or not self._status_dialog.isVisible():
+            self._status_dialog = StatusDialog(
+                date_tag, analyzer_ids, base_directory, parent=self
+            )
+            self._status_dialog.show()
+        else:
+            self._status_dialog.update_config(date_tag, analyzer_ids, base_directory)
+            self._status_dialog.raise_()
+            self._status_dialog.activateWindow()
+
+    def _get_analyzer_ids(self, config: "LiveWatchConfig") -> list[str]:
+        """Return ordered analyzer IDs for the current experiment config."""
+        try:
+            from scan_analysis.task_queue import load_analyzers_from_config
+
+            analyzers = load_analyzers_from_config(
+                config.analyzer_group, config_dir=config.config_dir
+            )
+            ids = []
+            for a in analyzers:
+                aid = getattr(a, "id", None) or getattr(a, "device_name", None)
+                if not aid:
+                    aid = f"{a.__class__.__name__}_{getattr(a, 'device_name', '')}"
+                ids.append(aid)
+            return ids
+        except Exception as exc:
+            logger.warning("Could not load analyzer IDs for status dialog: %s", exc)
+            return []
+
+    def _get_base_directory(self) -> Optional[Path]:
+        """Return the configured data base directory, or None."""
+        try:
+            from geecs_data_utils import ScanPaths
+
+            return ScanPaths.paths_config.base_path
+        except Exception:
+            return None
 
     # ------------------------------------------------------------------
     # Slot: Start / Stop

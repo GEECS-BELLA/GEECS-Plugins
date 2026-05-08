@@ -56,7 +56,9 @@ from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
-from geecs_scanner.data_acquisition import DatabaseDictLookup
+from geecs_scanner.engine import DatabaseDictLookup
+from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
+from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
@@ -76,17 +78,14 @@ MAXIMUM_SCAN_SIZE = (
 BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network", "Enable Global Time Sync"]
 STRING_OPTIONS = [
     "Master Control IP",
-    "Save Hiatus Period (s)",
     "Global Time Tolerance (ms)",
 ]
-# Menu labels ↔ backend keys + caster
+# Menu labels ↔ ScanOptions field names + caster
 OPTION_MAP: dict[str, tuple[str, type]] = {
     "Enable Global Time Sync": ("enable_global_time_sync", bool),
-    "Global Time Tolerance (ms)": (
-        "global_time_tolerance_ms",
-        float,
-    ),  # cast to float first, clamp, then int
-    "Save Hiatus Period (s)": ("save_hiatus_s", float),
+    "On-Shot TDMS": ("on_shot_tdms", bool),
+    "Save Direct on Network": ("save_direct_on_network", bool),
+    "Global Time Tolerance (ms)": ("global_time_tolerance_ms", float),
     "Master Control IP": ("master_control_ip", str),
 }
 
@@ -858,47 +857,28 @@ class GEECSScannerWindow(QMainWindow):
                 return val if val not in ("", None) else default
         return default
 
-    def _collect_options(self) -> dict:
-        """Read, cast, and validate menu options → backend-friendly keys."""
-        opts: dict = {}
+    def _collect_options(self) -> ScanOptions:
+        """Read menu-bar settings and return a validated :class:`ScanOptions`."""
+        raw: dict = {}
         for label, (key, caster) in OPTION_MAP.items():
-            raw = self._get_menu_opt(label, default=None)
-
-            # Booleans from MenuBarOptionBool should already be bools
+            val = self._get_menu_opt(label, default=None)
             if caster is bool:
-                value = bool(raw) if raw is not None else False
-
+                raw[key] = bool(val) if val is not None else False
             elif caster is float:
                 try:
-                    value = float(raw)
+                    raw[key] = float(val)
                 except (TypeError, ValueError):
-                    value = 0.0
-                # specific clamp for tolerance
-                if key == "global_time_tolerance_ms":
-                    value = max(0.0, min(value, 60_000.0))  # 0 … 60 s safety guard
-
-            elif caster is int:
-                try:
-                    value = int(raw)
-                except (TypeError, ValueError):
-                    value = 0
+                    raw[key] = 0.0
             else:
-                value = str(raw) if raw is not None else ""
+                raw[key] = str(val) if val is not None else ""
 
-            # Finalize types (e.g., tolerance as int ms)
-            if key == "global_time_tolerance_ms":
-                value = int(round(value))
-
-            opts[key] = value
-
-        # Always include repetition rate and GUI flag
-        opts["rep_rate_hz"] = self.repetition_rate
-        opts["randomized_beeps"] = (
+        raw["rep_rate_hz"] = self.repetition_rate
+        raw["randomized_beeps"] = bool(
             getattr(self.ui, "actionRandomizedBeeps", None)
             and self.ui.actionRandomizedBeeps.isChecked()
         )
-
-        return opts
+        # ScanOptions validators handle clamping (e.g. global_time_tolerance_ms)
+        return ScanOptions.model_validate(raw)
 
     def populate_available_element_list(self):
         """Populate the available elements list from the experiment's save_devices folder."""
@@ -2037,26 +2017,24 @@ class GEECSScannerWindow(QMainWindow):
             else:
                 scan_config = None
 
-        scan_config.background = str(self.ui.backgroundRadioButton.isChecked())
+        scan_config.background = self.ui.backgroundRadioButton.isChecked()
 
-        option_dict = self._collect_options()
+        scan_options = self._collect_options()
 
         run_config = {
             "Devices": save_device_list,
             "scan_info": scan_information,
-            "options": option_dict,
         }
 
         if list_of_setup_steps:
-            setup_action_steps = {"steps": list_of_setup_steps}
-            run_config["setup_action"] = setup_action_steps
+            run_config["setup_action"] = {"steps": list_of_setup_steps}
         if list_of_closeout_steps:
-            closeout_action_steps = {"steps": list_of_closeout_steps}
-            run_config["closeout_action"] = closeout_action_steps
+            run_config["closeout_action"] = {"steps": list_of_closeout_steps}
 
-        success = self.RunControl.submit_run(
-            config_dictionary=run_config, scan_config=scan_config
+        exec_config = ScanExecutionConfig.from_gui_dict(
+            run_config, scan_config, scan_options
         )
+        success = self.RunControl.submit_run(exec_config=exec_config)
         if not success:
             sm = getattr(self.RunControl, "scan_manager", None)
             detail = getattr(sm, "last_reinit_error", None) or "Check log for details."

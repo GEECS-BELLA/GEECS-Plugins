@@ -16,15 +16,17 @@ disconnected when the scan finishes or is aborted.
 Usage (standalone)::
 
     from geecs_bluesky.scanner_bridge import BlueskyScanner
+    from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
     from geecs_data_utils import ScanConfig, ScanMode
 
     scanner = BlueskyScanner()
-    scanner.reinitialize(config_dictionary={"shots_per_step": 5})
-    scanner.start_scan_thread(ScanConfig(
+    exec_config = ScanExecutionConfig(scan_config=ScanConfig(
         scan_mode=ScanMode.STANDARD,
         device_var="U_ESP_JetXYZ:Position.Axis 1",
-        start=4.0, end=6.0, step=0.5,
+        start=4.0, end=6.0, step=0.5, wait_time=5.0,
     ))
+    scanner.reinitialize(exec_config=exec_config)
+    scanner.start_scan_thread()
     while scanner.is_scanning_active():
         time.sleep(0.5)
         print(f"{scanner.estimate_current_completion()*100:.0f}%")
@@ -121,8 +123,8 @@ class BlueskyScanner:
     experiment_dir:
         Experiment name (currently unused; reserved for future path integration).
     shot_control_information:
-        Shot-controller YAML config dict (currently unused; shots_per_step can
-        be passed via ``config_dictionary`` in :meth:`reinitialize`).
+        Shot-controller YAML config dict (currently unused; reserved for future
+        DG645 integration).
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
@@ -158,7 +160,7 @@ class BlueskyScanner:
             self._subscribe_tiled(tiled_uri, tiled_api_key)
 
         self._scan_thread: threading.Thread | None = None
-        self._config_dict: dict[str, Any] = {}
+        self._scan_config: Any = None
         self._shots_per_step: int = 10
         self._devices_config: dict[str, Any] = {}
 
@@ -180,36 +182,35 @@ class BlueskyScanner:
     # ScanManager-compatible public API
     # ------------------------------------------------------------------
 
-    def reinitialize(
-        self,
-        config_path: Any = None,
-        config_dictionary: dict | None = None,
-        **_kwargs: Any,
-    ) -> bool:
-        """Store the device configuration for the next scan.
+    def reinitialize(self, exec_config: Any, **_kwargs: Any) -> bool:
+        """Store the scan configuration for the next run.
 
         Parameters
         ----------
-        config_path:
-            Ignored (compatibility shim).
-        config_dictionary:
-            Dict of scan/device configuration.  Recognised keys:
-
-            ``shots_per_step`` (int, default 10) — shots per motor position.
-
-            ``Devices`` (dict) — device table from the GUI, keyed by GEECS device
-            name.  Each value must have a ``variable_list`` key with a list of
-            variable name strings.  A :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`
-            is created per device at scan start.
+        exec_config : ScanExecutionConfig
+            Validated scan configuration produced by the GUI.  Provides device
+            list, scan parameters, and execution options.
 
         Returns
         -------
         bool
             Always ``True`` (no hardware initialisation done here).
         """
-        self._config_dict = dict(config_dictionary or {})
-        self._shots_per_step = int(self._config_dict.get("shots_per_step", 10))
-        self._devices_config = self._config_dict.get("Devices", {})
+        self._scan_config = exec_config.scan_config
+
+        # Derive shots from rep_rate × wait_time (ScanOptions has no shots_per_step field)
+        rep_rate = getattr(exec_config.options, "rep_rate_hz", 1.0)
+        wait_time = getattr(self._scan_config, "wait_time", 10.0)
+        self._shots_per_step = max(1, round(rep_rate * wait_time))
+
+        # Build a plain-dict device map compatible with _build_detectors
+        save_config = exec_config.save_config
+        devices_pydantic = getattr(save_config, "Devices", None) or {}
+        self._devices_config = {
+            name: (dev.model_dump() if hasattr(dev, "model_dump") else dict(dev))
+            for name, dev in devices_pydantic.items()
+        }
+
         self._completed_shots = 0
         self._total_shots = 0
         self._saving_detectors = []
@@ -224,16 +225,8 @@ class BlueskyScanner:
         )
         return True
 
-    def start_scan_thread(self, scan_config: Any) -> None:
-        """Launch the scan in a background thread.
-
-        Parameters
-        ----------
-        scan_config:
-            A :class:`~geecs_data_utils.ScanConfig`-compatible object with fields
-            ``scan_mode``, ``device_var``, ``start``, ``end``, ``step``,
-            ``wait_time``, ``additional_description``.
-        """
+    def start_scan_thread(self) -> None:
+        """Launch the scan stored by :meth:`reinitialize` in a background thread."""
         if self.is_scanning_active():
             logger.warning(
                 "start_scan_thread called while scan already active; ignoring"
@@ -243,7 +236,7 @@ class BlueskyScanner:
         self._completed_shots = 0
         self._scan_thread = threading.Thread(
             target=self._run_scan,
-            args=(scan_config,),
+            args=(self._scan_config,),
             daemon=True,
             name="bluesky-scan",
         )

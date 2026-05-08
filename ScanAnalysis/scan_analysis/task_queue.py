@@ -6,13 +6,14 @@ Single-app assumptions:
 - Per-scan status files stored under `<scan_folder>/analysis_status/<analyzer_id>.yaml`.
 - Worklist sorted by (priority, scan_number).
 
-States: queued -> claimed -> done/failed.
+States: queued -> claimed -> done/failed/no_data.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
 import tempfile
 import threading
@@ -24,6 +25,7 @@ from typing import Dict, Iterable, List, Optional
 import yaml
 
 from geecs_data_utils import ScanPaths, ScanTag
+from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.analyzer_factory import create_analyzer
 from scan_analysis.config.config_loader import load_experiment_config
 from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
@@ -33,6 +35,14 @@ logger = logging.getLogger(__name__)
 STATUS_DIR_NAME = "analysis_status"
 HEARTBEAT_INTERVAL_SECONDS = 30
 CLAIM_STALE_AFTER_SECONDS = 180
+
+SFILE_REGEX = re.compile(r"^s(?P<num>\d+)\.txt$", re.IGNORECASE)
+
+
+def extract_scan_number(filename: str) -> Optional[int]:
+    """Return scan number from an s-file name like ``s123.txt``, or None."""
+    m = SFILE_REGEX.match(filename)
+    return int(m["num"]) if m else None
 
 
 @dataclass
@@ -107,12 +117,19 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
 
 
 def _write_atomic(path: Path, content: str) -> None:
-    """Write content to path atomically via a temp file + os.replace().
+    """Write content to path, atomically where the OS supports it.
 
-    Prevents partial-overwrite corruption on NFS when two writers race:
-    os.replace() is atomic on POSIX, so readers always see either the old
-    or the new file, never a byte-level mix of the two.
+    On POSIX, uses a temp file + os.replace() so readers always see either the
+    old or new file, never a partial write.
+
+    On Windows, writes directly instead: os.replace() requires DELETE permission
+    on the destination, which is typically restricted to the file's creator on
+    SMB shares. Direct writes only require WRITE permission, which is granted
+    more broadly, allowing multiple machines to update the same status file.
     """
+    if os.name == "nt":
+        path.write_text(content, encoding="utf-8")
+        return
     dir_ = path.parent
     fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
     try:
@@ -176,6 +193,74 @@ def read_statuses(scan_folder: Path) -> List[TaskStatus]:
         except Exception as exc:  # pragma: no cover - log and skip
             logger.warning("Failed to read status %s: %s", f, exc)
     return statuses
+
+
+def read_day_statuses(
+    date_tag: ScanTag,
+    *,
+    base_directory: Optional[Path] = None,
+) -> Dict[int, Dict[str, "TaskStatus"]]:
+    """Return all task statuses for every scan discovered on a given day.
+
+    Scans are discovered by looking for s-files under the day's ``analysis/``
+    folder (the same folder that :class:`~scan_analysis.live_task_runner.LiveTaskRunner`
+    watches).
+
+    Parameters
+    ----------
+    date_tag : ScanTag
+        Identifies the experiment and date to inspect.  The ``number`` field
+        is ignored — all scans for the day are returned.
+    base_directory : Path, optional
+        Root data directory; ``None`` defers to the configured default.
+
+    Returns
+    -------
+    dict[int, dict[str, TaskStatus]]
+        ``{scan_number: {analyzer_id: TaskStatus}}`` sorted by scan number.
+    """
+    scan_map: Dict[int, Dict[str, TaskStatus]] = {}
+
+    try:
+        daily_scans = ScanPaths.get_daily_scan_folder(
+            tag=date_tag, base_directory=base_directory
+        )
+        scan_root = daily_scans.parent / "analysis"
+    except Exception as exc:
+        logger.warning("read_day_statuses: could not resolve scan root: %s", exc)
+        return scan_map
+
+    if not scan_root.exists():
+        return scan_map
+
+    for f in scan_root.iterdir():
+        if not f.is_file():
+            continue
+        num = extract_scan_number(f.name)
+        if num is None:
+            continue
+
+        tag = ScanTag(
+            year=date_tag.year,
+            month=date_tag.month,
+            day=date_tag.day,
+            number=num,
+            experiment=date_tag.experiment,
+        )
+        try:
+            scan_folder = ScanPaths.get_scan_folder_path(
+                tag=tag, base_directory=base_directory
+            )
+            statuses = read_statuses(scan_folder)
+        except Exception as exc:
+            logger.warning(
+                "read_day_statuses: could not read statuses for scan %d: %s", num, exc
+            )
+            statuses = []
+
+        scan_map[num] = {s.analyzer_id: s for s in statuses}
+
+    return dict(sorted(scan_map.items()))
 
 
 def update_status(
@@ -444,6 +529,21 @@ def run_worklist(
                         display_files=display_files,
                         document_id=document_id,
                     )
+        except DataUnavailableWarning:
+            # Device did not record data for this scan — expected, not an error.
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            update_status(
+                scan_folder,
+                analyzer_id,
+                priority=priority,
+                state="no_data",
+                error=None,
+                claimed_by=None,
+                claimed_at=None,
+                last_heartbeat=None,
+            )
+            logger.info("run_worklist: no_data scan=%s analyzer=%s", tag, analyzer_id)
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
             stop_event.set()

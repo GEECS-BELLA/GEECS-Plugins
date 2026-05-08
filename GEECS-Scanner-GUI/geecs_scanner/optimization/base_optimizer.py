@@ -20,8 +20,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, List, Any, Dict
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-    from geecs_scanner.data_acquisition.data_logger import DataLogger
+    from geecs_scanner.engine.scan_data_manager import ScanDataManager
+    from geecs_scanner.engine.data_logger import DataLogger
 
 from xopt import Xopt, VOCS
 
@@ -55,9 +55,6 @@ class BaseOptimizer:
         a dictionary of objective and constraint results.
     generator_name : str
         Name of the Xopt generator algorithm to use (e.g., 'random', 'cnsga', 'upper_confidence_bound').
-    evaluation_mode : str, default='per_shot'
-        Evaluation mode, either 'per_shot' for individual shot analysis
-        or 'aggregate' for combined shot analysis.
     xopt_config_overrides : dict, optional
         Dictionary to override default Xopt configuration parameters.
     evaluator : BaseEvaluator, optional
@@ -75,8 +72,6 @@ class BaseOptimizer:
         The optimization problem specification.
     evaluate_function : callable
         The objective function evaluator.
-    evaluation_mode : str
-        Current evaluation mode setting.
     generator_name : str
         Name of the optimization algorithm being used.
     evaluator : BaseEvaluator or None
@@ -112,7 +107,6 @@ class BaseOptimizer:
         vocs: VOCS,
         evaluate_function: Callable[[Dict[str, Any]], Dict[str, Any]],
         generator_name: str,
-        evaluation_mode: str = "per_shot",
         xopt_config_overrides: Optional[dict] = None,
         evaluator: Optional[BaseEvaluator] = None,
         device_requirements: Optional[Dict[str, Any]] = None,
@@ -121,7 +115,6 @@ class BaseOptimizer:
     ):
         self.vocs = vocs
         self.evaluate_function = evaluate_function
-        self.evaluation_mode = evaluation_mode
         self.generator_name = generator_name
         self.evaluator = evaluator
         self.device_requirements = device_requirements or {}
@@ -346,7 +339,6 @@ class BaseOptimizer:
         return cls(
             vocs=config.vocs,
             evaluate_function=evaluator.get_value,
-            evaluation_mode=config.evaluation_mode,
             generator_name=config.generator.name,
             xopt_config_overrides=overrides,
             evaluator=evaluator,

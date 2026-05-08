@@ -149,6 +149,12 @@ def apply_roi_cropping(image: Array2D, config: ROIConfig) -> Array2D:
     """
     Crop image to specified region of interest.
 
+    If the configured ROI extends beyond the actual image dimensions the
+    boundaries are clamped to the image size and a warning is logged.  This
+    avoids hard failures when a config written for a larger sensor is applied
+    to a smaller image (e.g. binned or test data).  If after clamping the ROI
+    has zero area, the full image is returned.
+
     Parameters
     ----------
     image : Array2D
@@ -161,28 +167,40 @@ def apply_roi_cropping(image: Array2D, config: ROIConfig) -> Array2D:
     Array2D
         Cropped image containing only the specified ROI.
 
-    Raises
-    ------
-    ValueError
-        If ROI boundaries are outside image dimensions.
-
     """
     height, width = image.shape
 
-    # Validate ROI boundaries
-    if config.x_min < 0 or config.x_max > width:
-        raise ValueError(
-            f"X boundaries [{config.x_min}, {config.x_max}] outside image width {width}"
-        )
-    if config.y_min < 0 or config.y_max > height:
-        raise ValueError(
-            f"Y boundaries [{config.y_min}, {config.y_max}] outside image height {height}"
+    x_min = max(0, config.x_min)
+    x_max = min(width, config.x_max)
+    y_min = max(0, config.y_min)
+    y_max = min(height, config.y_max)
+
+    if (
+        x_min != config.x_min
+        or x_max != config.x_max
+        or y_min != config.y_min
+        or y_max != config.y_max
+    ):
+        logger.warning(
+            "ROI [x=%d:%d, y=%d:%d] exceeds image dimensions (%dx%d); "
+            "clamped to [x=%d:%d, y=%d:%d].",
+            config.x_min,
+            config.x_max,
+            config.y_min,
+            config.y_max,
+            width,
+            height,
+            x_min,
+            x_max,
+            y_min,
+            y_max,
         )
 
-    # Crop the image
-    cropped_image = image[config.y_min : config.y_max, config.x_min : config.x_max]
+    if x_min >= x_max or y_min >= y_max:
+        logger.warning("Clamped ROI has zero area; returning full image.")
+        return image.copy()
 
-    return cropped_image
+    return image[y_min:y_max, x_min:x_max]
 
 
 def apply_circular_mask(image: Array2D, config: CircularMaskConfig) -> Array2D:

@@ -3,6 +3,221 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] — 2026-05-08
+
+### Changed
+- Restored 14 log lines from DEBUG back to INFO across `action_manager`,
+  `scan_data_manager`, `device_manager`, `scan_manager`, and `data_logger`.
+  These were demoted in 0.9.1 to reduce terminal noise, but with the
+  log-triage tooling in place the richer log signal is more valuable than
+  the brevity. Restored lines: action sequence start/complete, pre-scan and
+  closeout action attempts, configure-save-paths per device, scan-info file
+  written, scan-info loaded, device unsubscribe lifecycle, orphan-file sweep
+  start, FileMover worker started/stopped, per-device acq_timestamp during
+  global time sync, and timestamp-tolerance-failed fallback message.
+
+## [0.12.0] — 2026-05-08
+
+### Added
+- `DeviceCommandExecutor` — single policy object for all `device.set()` /
+  `device.get()` calls during a scan.  Enforces a per-error-type retry
+  policy: `GeecsDeviceCommandRejected` retries up to `max_retries` times;
+  `GeecsDeviceExeTimeout` and `GeecsDeviceCommandFailed` escalate immediately
+  (no retry, since retrying a hung or hardware-failed device makes it worse).
+  The `escalate()` method routes failures to the operator dialog callback and
+  sets the scan `stop_event` when the user chooses Abort.
+- Exported from `geecs_scanner.engine` package.
+
+### Changed
+- `ScanStepExecutor`: replaced scattered `retry()` + `escalate_device_error()`
+  calls in `move_devices_parallel_by_device` with `cmd_executor.set()` /
+  `cmd_executor.escalate()`.  `max_retries` / `retry_delay` parameters removed
+  from `move_devices_parallel_by_device` (now configured on the executor).
+- `ScanDataManager.configure_device_save_paths`: fixed bug where the return
+  value of the escalation callback was ignored, so an Abort choice never
+  stopped the device-configuration loop.  Now correctly returns early on
+  Abort and skips the failed device on Continue.
+- `ActionManager._set_device`: routes device failures through
+  `cmd_executor.set()` / `cmd_executor.escalate()`; re-raises on Abort so
+  the enclosing action sequence fails cleanly.
+- `ScanManager`: creates a `DeviceCommandExecutor` instance in `__init__` and
+  injects it into `ScanStepExecutor`, `ScanDataManager`, and `ActionManager`.
+  Also re-injects into the new `ScanDataManager` created during `reinitialize()`.
+
+### Fixed
+- `ActionControl`: `cmd_executor` was never wired into its standalone
+  `ActionManager`, causing `AttributeError` on any action execution outside a
+  scan.  Now creates a `DeviceCommandExecutor` at construction time.
+- `ScanStepExecutor.move_devices_parallel_by_device`: `device.set()` can return
+  `None` when the device raises `GeecsDeviceCommandFailed` in the UDP listener
+  thread rather than the calling thread.  `None` is now treated as a command
+  failure and raises `DeviceCommandError` so the normal escalation dialog fires
+  instead of crashing with `TypeError` at the tolerance check.
+- Scan log now includes scan config summary (device, range, step, wait, mode)
+  at INFO level immediately after scan start — triage agent no longer needs to
+  read the `.ini` file for context.
+- Per-variable hardware set commands restored to INFO level in scan log
+  (`[DeviceName] setting Var → value`); quieted previously by the async/file-mover
+  noise reduction pass.
+- Per-shot heartbeat (`shot N`) logged at INFO from `DataLogger` so acquisition
+  progress is visible in the scan log during long wait-time steps.
+
+## [0.11.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.trigger_controller.TriggerController` —
+  encapsulates all shot-trigger interactions (`trigger_on`, `trigger_off`,
+  `set_standby`, `singleshot`) previously spread across `ScanManager`.
+  `ScanStepExecutor` now receives a `TriggerController` via constructor
+  injection instead of dynamically-injected `trigger_on_fn`/`trigger_off_fn`
+  callable attributes.
+
+### Changed
+- `ScanStepExecutor.__init__`: removed `shot_control` positional parameter;
+  added `trigger_controller: Optional[TriggerController] = None`. The
+  `hasattr` guard pattern for `trigger_on_fn`/`trigger_off_fn` is replaced
+  with a typed `if self.trigger_controller is not None` check.
+- `ScanManager`: `_set_trigger`, `trigger_on`, and `trigger_off` methods
+  are now thin delegations to `self.trigger_controller`; `SINGLESHOT` and
+  `STANDBY` states use `trigger_controller.singleshot()` and
+  `trigger_controller.set_standby()`.
+- `ActionManager`: removed `instantiated_devices` persistent device cache.
+  Devices are now opened fresh at the start of each `execute_action` call
+  (and `ping_devices_in_action_list` / `return_value`) and closed in a
+  `finally` block regardless of success or failure.  This prevents stale
+  TCP connections surviving across actions and removes the hidden cache that
+  could hold devices open indefinitely.
+
+## [0.10.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.scan_options.ScanOptions` — new Pydantic
+  model for all engine-level execution options (`rep_rate_hz`,
+  `enable_global_time_sync`, `global_time_tolerance_ms`, `master_control_ip`,
+  `on_shot_tdms`, `save_direct_on_network`, `randomized_beeps`). Replaces the
+  raw `options_dict: dict` that was previously threaded through
+  `ScanManager` and `ScanStepExecutor`.
+
+### Changed
+- `ScanManager.__init__` and `reinitialize()` now accept and store a
+  `ScanOptions` instance instead of a plain dict; all internal `.get("key")`
+  accesses replaced with typed attribute access.
+- `ScanStepExecutor.__init__` parameter `options_dict` renamed to `options:
+  ScanOptions`; `on_shot_tdms` read via `options.on_shot_tdms`.
+- `DataLogger.reinitialize_sound_player()` parameter changed from
+  `Optional[dict]` to `Optional[ScanOptions]`.
+- `SoundPlayer.__init__` no longer accepts an `options` dict; takes an explicit
+  `randomized_beeps: bool` parameter instead.
+- `RunControl.submit_run()` gains an optional `options: ScanOptions` parameter;
+  when provided it is injected into the config dictionary before passing to
+  `ScanManager.reinitialize()`.
+- `GEECSScannerWindow._collect_options()` now returns a `ScanOptions` instance.
+- Fixed bug where `On-Shot TDMS` and `Save Direct on Network` GUI toggles were
+  defined in `BOOLEAN_OPTIONS` but absent from `OPTION_MAP`, so they were never
+  collected and the engine always defaulted to `False`.
+- Fixed bug where `scan_config.background` was set to a string `"True"/"False"`
+  instead of a bool.
+
+## [0.9.1] — 2026-05-07
+
+### Changed
+- Log level rationalization across all six `data_acquisition/` modules
+  (`data_logger`, `device_manager`, `scan_manager`, `scan_executor`,
+  `scan_data_manager`, `action_manager`).  Per-shot ticker events (standby
+  checks, timestamp comparisons, async variable updates, file iteration,
+  orphan retries, per-step device moves, optimizer chatter) demoted from INFO
+  to DEBUG.  Two cases promoted to WARNING: file not found after all retries
+  (orphaned to post-scan sweep), and missing `acq_timestamp` column during
+  orphan sweep.  Lifecycle milestones (scan start/end/abort, device subscribed,
+  config loaded, files written, devices synchronized) remain at INFO.
+- Docstring purge in `data_acquisition/`: removed boilerplate NumPy-style
+  docstrings from methods whose signatures and names are self-explanatory,
+  leaving only non-obvious `Parameters`/`Returns`/`Raises` blocks and
+  single-line summaries where warranted.
+
+## [0.9.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.utils.exceptions`: typed exception hierarchy rooted at `ScanError`.
+  New types: `ConfigError`, `DeviceCommandError`, `TriggerError`,
+  `DataFileError`. Existing names (`ActionError`, `ConflictingScanElements`,
+  `ScanSetupError`, `OrphanProcessingTimeout`) are now subclasses of the
+  hierarchy; all existing catch sites continue to work without change.
+- `geecs_scanner.utils.retry`: `retry(fn, *, attempts, delay, backoff, catch,
+  on_retry)` — centralizes retry-with-backoff logic for hardware call sites.
+- `per_shot` analysis mode in `MultiDeviceScanEvaluator`: each image in a bin
+  is analyzed individually instead of averaged, enabling richer per-shot
+  statistical treatment (median, std dev, noise estimates for Xopt GP surrogate)
+- `compute_objective_from_shots(scalar_results_list, bin_number)` hook on
+  `MultiDeviceScanEvaluator`; default implementation mean-aggregates per-shot
+  scalars and delegates to `compute_objective`, so existing subclasses require
+  no changes when switching from `per_bin` to `per_shot`
+- Mixed-mode support: when analyzers have different `analysis_mode` settings,
+  `per_bin` scalars are merged into every shot dict before
+  `compute_objective_from_shots` is called
+- `ScalarLogEvaluator` — a new `BaseEvaluator` subclass that reads scalars
+  directly from `log_entries` columns with no image analysis required; supports
+  the same hook API (`compute_objective`, `compute_objective_from_shots`,
+  `compute_observables`) and observables-only mode via `observables_only()`
+- CI-friendly test suite (82 tests, no network or scan files):
+  `test_base_evaluator`, `test_evaluator_get_scalar`, `test_evaluator_bax_mode`,
+  `test_config_models`, `test_multi_device_scan_evaluator`,
+  `test_scalar_log_evaluator`, `test_concrete_evaluators` (uses real
+  `ImageAnalyzerResult` with synthetic scalars — no image files), plus shared
+  fixtures (`FakeDataLogger`, `make_log_entries`) in `tests/optimization/conftest.py`
+
+### Removed
+- Legacy evaluators `ALine3_FWHM.py` and `HiResMagCam.py` (dead code, no known
+  callers outside this repo; superseded by the `MultiDeviceScanEvaluator` pattern)
+- `evaluation_mode` field removed from `BaseOptimizer` and `BaseOptimizerConfig`
+  (was stored but never read; analysis mode is configured per-analyzer via
+  `SingleDeviceScanAnalyzerConfig.analysis_mode`)
+- Dead `move_devices()` method removed from `ScanStepExecutor`; only
+  `move_devices_parallel_by_device()` remains (#291)
+
+### Changed
+- `DeviceSynchronizationError`, `DeviceSynchronizationTimeout`, and
+  `ScanAbortedError` promoted from local definitions inside `scan_manager.py`
+  to `geecs_scanner.utils.exceptions`. Import paths updated; no behaviour change.
+- `move_devices_parallel_by_device()` uses `retry()` for hardware exceptions and
+  raises `DeviceCommandError` (with chaining) on exhaustion; tolerance failures
+  are logged as WARNING and no longer trigger a retry (#291)
+- `_set_trigger()` in `ScanManager` uses `retry()` and raises `TriggerError` on
+  exhaustion; `_start_scan()` catches `TriggerError` with `logger.critical` (#291)
+- `FileMover._move_file()` retries `shutil.move()` on `OSError` (3 attempts,
+  exponential backoff) and raises `DataFileError` on exhaustion; callers no longer
+  silently discard move failures (#292)
+- `FileMover._process_task()` and `_post_process_orphaned_files()` guard
+  `home_dir.iterdir()` against `OSError` so a disconnected network share raises a
+  typed exception rather than crashing a worker thread silently (#292)
+- `ScanDataManager` filesystem failures (`initialize_tdms_writers`, `save_to_txt_and_h5`,
+  `_make_sFile`) now chain into `DataFileError`; `process_results()` catches
+  `DataFileError` explicitly before the broad handler (#292)
+- `BaseEvaluator` stripped of dead-code methods (`_gather_shot_entries`,
+  `validate_variable_keys_against_requirements`, `log_objective_result`,
+  `get_device_shot_path`, `convert_log_entries_to_df`, `get_shotnumbers_for_bin`);
+  `pandas` import moved inside `get_current_data` to avoid module-level import cost
+- `BaseEvaluator` now owns the shared hook API: `compute_objective`,
+  `compute_objective_from_shots` (default mean-aggregation), `compute_observables`
+  (default empty dict), and `_compute_outputs` helper that handles objective
+  computation, observable merging, and output-key shadowing checks; eliminates
+  duplication that previously existed in both `MultiDeviceScanEvaluator` and
+  `ScalarLogEvaluator`
+- `MultiDeviceScanEvaluator`: unified `merged` slots approach replaces the
+  `has_per_shot` branching; added `primary_device` property; `_get_value` now
+  delegates to `_compute_outputs` after building the shot list
+- `config_models.py`: `SaveDeviceConfig` import moved to `TYPE_CHECKING` + lazy
+  inside `_load_and_check` to break the module-level chain to live DB connections
+
+### Fixed
+- `pint` pinned to `>=0.24` in `pyproject.toml`; lock file updated from 0.22 to
+  0.24.4, resolving a `NumPy 2.0` incompatibility (`np.cumproduct` removal) that
+  prevented `image_analysis.types` from being imported in tests
+- `BaseOptimizerConfig.model_rebuild()` called at module load so Pydantic v2 can
+  resolve the `SaveDeviceConfig` forward reference at validation time; previously
+  raised `PydanticUserError` and prevented any optimization run from starting
+- Closes #339
+
 ## [0.8.2] — 2026-04-15
 
 ### Fixed

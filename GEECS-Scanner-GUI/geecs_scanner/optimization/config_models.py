@@ -5,11 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Union
 
+from typing import TYPE_CHECKING
+
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
-from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
+if TYPE_CHECKING:
+    from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
 
 
 class ImageAnalyzerConfig(BaseModel):
@@ -55,8 +58,12 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     Attributes
     ----------
     device_name : str
-        Name of the device whose data will be analyzed (e.g., 'UC_ALineEBeam3').
-        This is used to locate data files and identify the device in results.
+        GEECS device name used for communication and device requirements
+        (e.g., 'U_BCaveMagSpec').
+    data_device_name : str, optional
+        Name of the data subfolder within the scan directory. Set this when the
+        saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
+        for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
         Type of scan analyzer to instantiate. Choose based on data dimensionality.
     file_tail : str, default=".png"
@@ -74,6 +81,7 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     """
 
     device_name: str
+    data_device_name: Optional[str] = None
     analyzer_type: Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]
     file_tail: str = ".png"
     image_analyzer: ImageAnalyzerConfig
@@ -207,8 +215,6 @@ class BaseOptimizerConfig(BaseModel):
         Evaluator module/class specification and initialization arguments.
     generator : GeneratorConfig
         Optimization generator configuration.
-    evaluation_mode : {"per_shot", "per_bin"}, default="per_shot"
-        Mode of evaluation, either per individual shot or aggregated across shots.
     xopt_config_overrides : dict of str, Any
         Dictionary of optional overrides for Xopt configuration.
     device_requirements : dict, optional
@@ -241,7 +247,6 @@ class BaseOptimizerConfig(BaseModel):
     evaluator: EvaluatorConfig
     generator: GeneratorConfig
 
-    evaluation_mode: Literal["per_shot", "per_bin"] = "per_shot"
     xopt_config_overrides: Dict[str, Any] = Field(default_factory=dict)
 
     device_requirements: Optional[Dict] = None
@@ -292,6 +297,10 @@ class BaseOptimizerConfig(BaseModel):
         """
         # Load save_devices from file if specified
         if self.save_devices is None and self.save_devices_file is not None:
+            from geecs_scanner.engine.models.save_devices import (
+                SaveDeviceConfig,
+            )
+
             with open(self.save_devices_file, "r") as f:
                 loaded = yaml.safe_load(f)
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
@@ -339,3 +348,19 @@ class BaseOptimizerConfig(BaseModel):
             Module name and class name for the evaluator.
         """
         return self.evaluator.module, self.evaluator.class_
+
+
+# SaveDeviceConfig is imported under TYPE_CHECKING to avoid pulling the full
+# data_acquisition chain in at module load. Pydantic v2 needs the type resolved
+# before it can validate BaseOptimizerConfig, so rebuild here once all classes
+# are defined.
+def _rebuild() -> None:
+    from geecs_scanner.engine.models.save_devices import (
+        SaveDeviceConfig as _SDC,
+    )
+
+    BaseOptimizerConfig.model_rebuild(_types_namespace={"SaveDeviceConfig": _SDC})
+
+
+_rebuild()
+del _rebuild

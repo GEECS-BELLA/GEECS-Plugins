@@ -10,7 +10,7 @@ such as :mod:`image_analysis.algorithms.beam_slopes`.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional, Set, Union
+from typing import NamedTuple, Optional, Set, Tuple, Union
 import logging
 
 import numpy as np
@@ -97,20 +97,23 @@ def _antidiag_projection(img: np.ndarray) -> np.ndarray:
     return np.array([np.diag(flipped, k=k).sum() for k in range(-(h - 1), w)])
 
 
-def _projection_to_line_data(projection: np.ndarray) -> np.ndarray:
+def _projection_to_line_data(projection: np.ndarray, offset: int = 0) -> np.ndarray:
     """Convert a 1D projection array to Nx2 format for LineBasicStats.
 
     Parameters
     ----------
     projection : np.ndarray
         1D projection array
+    offset : int
+        Coordinate of the first element in the projection within the parent
+        (full-image) coordinate system.  Defaults to 0 (no offset).
 
     Returns
     -------
     np.ndarray
-        Nx2 array where column 0 is index coordinates and column 1 is projection values
+        Nx2 array where column 0 is coordinates and column 1 is projection values
     """
-    x_coords = np.arange(len(projection))
+    x_coords = np.arange(len(projection)) + offset
     return np.column_stack([x_coords, projection])
 
 
@@ -135,16 +138,30 @@ def _line_stats_to_projection_stats(line_stats: LineBasicStats) -> ProjectionSta
     )
 
 
-def beam_profile_stats(img: np.ndarray) -> BeamStats:
+def beam_profile_stats(
+    img: np.ndarray,
+    roi_offset: Tuple[int, int] = (0, 0),
+) -> BeamStats:
     """Compute basic beam profile statistics from a 2-D image.
 
     Computes projection statistics (CoM, rms, fwhm, peak_location) along
     four axes (x, y, x_45, y_45) and image-level totals (total, peak_value).
 
+    Position statistics (CoM, peak_location) along the x and y axes are
+    expressed in the coordinate system of the *parent* image when
+    ``roi_offset`` is supplied.  Width statistics (rms, fwhm) are unaffected
+    by the offset.  The 45° diagonal projections are always in local
+    (cropped-image) index space.
+
     Parameters
     ----------
     img : np.ndarray
-        2D image array
+        2D image array (may already be ROI-cropped).
+    roi_offset : tuple of int, optional
+        ``(x_offset, y_offset)`` — pixel coordinate of the top-left corner of
+        ``img`` within the full sensor frame.  Use ``(roi.x_min, roi.y_min)``
+        when ``img`` is the result of an ROI crop.  Defaults to ``(0, 0)``
+        (no offset — stats are in the local frame).
 
     Returns
     -------
@@ -164,15 +181,22 @@ def beam_profile_stats(img: np.ndarray) -> BeamStats:
             image=nan_img, x=nan_proj, y=nan_proj, x_45=nan_proj, y_45=nan_proj
         )
 
-    # Standard x/y projections
+    x_offset, y_offset = roi_offset
+
+    # Standard x/y projections — offset coordinates so stats are in the
+    # full-image (global) coordinate system.
     x_stats = _line_stats_to_projection_stats(
-        LineBasicStats(line_data=_projection_to_line_data(img.sum(axis=0)))
+        LineBasicStats(
+            line_data=_projection_to_line_data(img.sum(axis=0), offset=x_offset)
+        )
     )
     y_stats = _line_stats_to_projection_stats(
-        LineBasicStats(line_data=_projection_to_line_data(img.sum(axis=1)))
+        LineBasicStats(
+            line_data=_projection_to_line_data(img.sum(axis=1), offset=y_offset)
+        )
     )
 
-    # 45° projections
+    # 45° projections — diagonal index space; no simple global offset applies.
     x45_stats = _line_stats_to_projection_stats(
         LineBasicStats(line_data=_projection_to_line_data(_diag_projection(img)))
     )

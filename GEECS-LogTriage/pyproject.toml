@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "geecs-log-triage"
+version = "0.2.1"
+description = "Harvest, classify, and aggregate errors from GEECS scan execution logs."
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+license = "BSD-3-Clause"
+homepage = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+repository = "https://github.com/GEECS-BELLA/GEECS-Plugins"
+keywords = ["GEECS", "logging", "triage", "diagnostics"]
+
+packages = [{ include = "geecs_log_triage" }]
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: BSD License",
+  "Operating System :: OS Independent",
+]
+
+[tool.poetry.urls]
+"Source (subdir)" = "https://github.com/GEECS-BELLA/GEECS-Plugins/tree/master/GEECS-LogTriage"
+"Issues" = "https://github.com/GEECS-BELLA/GEECS-Plugins/issues"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+pydantic = "^2.0"
+geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0"
+
+[tool.poetry.scripts]
+geecs-log-triage = "geecs_log_triage.cli:main"
+
+[build-system]
+requires = ["poetry-core>=1.8"]
+build-backend = "poetry.core.masonry.api"
