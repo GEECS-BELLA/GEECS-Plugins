@@ -1,4 +1,4 @@
-"""Bridge between the GEECS Scanner GUI and the scan engine."""
+"""RunControl — interface between GEECS Scanner GUI and the scan execution backend."""
 
 import logging
 from pathlib import Path
@@ -14,14 +14,21 @@ from geecs_python_api.controls.interface.geecs_errors import (
 
 
 class RunControl:
-    """Interface class between the GEECS Scanner GUI and the scan engine."""
+    """Interface class between the GEECS Scanner GUI and the scan execution backend.
+
+    Pass ``use_bluesky=True`` to route all scan execution through the Bluesky
+    RunEngine backend (``BlueskyScanner``) instead of the legacy ScanManager.
+    In Bluesky mode, ``shot_control_configuration`` is not required and
+    geecs-python-api hardware connections are not established at init time.
+    """
 
     def __init__(
         self,
         experiment_name: str = "",
         shot_control_configuration: Optional[Path] = None,
+        use_bluesky: bool = False,
     ):
-        """Initialize a ScanManager using the given experiment information.
+        """Initialise with either the legacy ScanManager or the Bluesky backend.
 
         Parameters
         ----------
@@ -29,7 +36,20 @@ class RunControl:
             Experiment name as in the GEECS Database and Scan Manager file structure.
         shot_control_configuration : Path, optional
             Path to the configuration file with shot control information.
+        use_bluesky : bool
+            If True, use the BlueskyScanner backend instead of ScanManager.
         """
+        self.is_in_setup = False
+        self.is_in_stopping = False
+
+        if use_bluesky:
+            from geecs_bluesky.scanner_bridge import BlueskyScanner
+
+            self.scan_manager = BlueskyScanner(experiment_dir=experiment_name)
+            self.action_control = None
+            logging.info("RunControl: using Bluesky backend (BlueskyScanner)")
+            return
+
         # TODO check if this is still necessary, given GEECSScanner is skipping initialization already if expt is None
         if experiment_name == "" or shot_control_configuration is None:
             logging.warning("Specify experiment name and shot control configuration")
@@ -45,9 +65,6 @@ class RunControl:
             except GeecsDeviceInstantiationError as e:
                 logging.error(f"GeecsDeviceInstantiationError: {e.message}")
                 raise ConnectionError(e.message)
-
-        self.is_in_setup = False
-        self.is_in_stopping = False
 
     def get_database_dict(self) -> dict:
         """Return the dictionary of the entire database stored in Scan Manager."""

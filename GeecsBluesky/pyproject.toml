@@ -1,0 +1,37 @@
+[tool.poetry]
+name = "geecs-bluesky"
+version = "0.2.0"
+description = "Bluesky / ophyd-async bridge for the GEECS control system"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{ include = "geecs_bluesky" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+# Pin to the 0.16 API (source() as method, put() with no wait/timeout arg).
+# The solver struggles with pydantic-numpy's multi-Python markers; see INSTALL.md
+# for the pip-based bootstrap if `poetry install` fails.
+ophyd-async = ">=0.16,<1.0"
+bluesky = ">=1.12"
+
+# Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but
+# that package uses a separate Poetry env (Python <3.12).  Install it manually:
+#   pip install -e ../GEECS-PythonAPI
+# It is intentionally omitted here to keep the build-system dependency-free.
+pandas = ">=2.1.1"
+nptdms = "^1.10.0"
+tiled = {version = ">=0.2", extras = ["client"], optional = true}
+
+[tool.poetry.extras]
+tiled = ["tiled"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-asyncio = ">=0.23"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

@@ -14,6 +14,7 @@ geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 imageanalysis = {path = "../ImageAnalysis", develop = true}
 scananalysis = {path = "../ScanAnalysis", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+geecs-bluesky = { path = "../GeecsBluesky", develop = true }
 
 pint = ">=0.24"
 pyyaml = "^6.0.2"
