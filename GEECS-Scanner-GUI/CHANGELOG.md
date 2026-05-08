@@ -31,6 +31,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   injects it into `ScanStepExecutor`, `ScanDataManager`, and `ActionManager`.
   Also re-injects into the new `ScanDataManager` created during `reinitialize()`.
 
+### Fixed
+- `ActionControl`: `cmd_executor` was never wired into its standalone
+  `ActionManager`, causing `AttributeError` on any action execution outside a
+  scan.  Now creates a `DeviceCommandExecutor` at construction time.
+- `ScanStepExecutor.move_devices_parallel_by_device`: `device.set()` can return
+  `None` when the device raises `GeecsDeviceCommandFailed` in the UDP listener
+  thread rather than the calling thread.  `None` is now treated as a command
+  failure and raises `DeviceCommandError` so the normal escalation dialog fires
+  instead of crashing with `TypeError` at the tolerance check.
+- Scan log now includes scan config summary (device, range, step, wait, mode)
+  at INFO level immediately after scan start — triage agent no longer needs to
+  read the `.ini` file for context.
+- Per-variable hardware set commands restored to INFO level in scan log
+  (`[DeviceName] setting Var → value`); quieted previously by the async/file-mover
+  noise reduction pass.
+- Per-shot heartbeat (`shot N`) logged at INFO from `DataLogger` so acquisition
+  progress is visible in the scan log during long wait-time steps.
+
 ## [0.11.0] — 2026-05-07
 
 ### Added

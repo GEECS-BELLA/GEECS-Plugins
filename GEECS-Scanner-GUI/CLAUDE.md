@@ -27,19 +27,25 @@ geecs_scanner/
     action_library.py         # Dialog: scripted action sequences
     multi_scanner.py          # Dialog: batch scan queue
     gui/                      # Qt Designer *_ui.py files (auto-generated)
-    lib/                      # Menu bar, UI utilities, action control helpers
+    lib/
+      action_control.py       # Standalone ActionManager wrapper (used by GUI outside scans)
+      gui_utilities.py        # YAML loading, misc helpers
   engine/
     scan_manager.py           # Central scan orchestrator (runs in a thread)
     device_manager.py         # Device subscriptions + config loading
     data_logger.py            # Per-shot data polling + file management
     scan_executor.py          # Step-by-step scan execution logic
     action_manager.py         # Automated action execution
-    scan_data_manager.py      # Processed scan data handling
+    scan_data_manager.py      # Output path setup, data conversion, file I/O
+    device_command_executor.py # Single policy point for all device.set()/get() calls
     database_dict_lookup.py   # GEECS device database query interface
-    models/                   # Pydantic models for YAML-backed configs
-    trigger_controller.py     # Timing/trigger management
-    default_scan_manager.py   # Default ScanManager implementation
-    dialog_request.py         # Dialog request types
+    trigger_controller.py     # Timing/trigger management (OFF/STANDBY/SCAN/SINGLESHOT)
+    dialog_request.py         # Thread-safe dialog request type + escalation helpers
+    models/
+      scan_execution_config.py # Top-level validated scan config (GUI → engine handoff)
+      scan_options.py          # Runtime knobs: rep rate, sync, save mode, etc.
+      save_devices.py          # Device list + setup/closeout action config
+      actions.py               # Action sequence Pydantic models
   optimization/
     base_optimizer.py         # Xopt wrapper
     base_evaluator.py         # Objective function base class
@@ -48,9 +54,11 @@ geecs_scanner/
     generators/               # Xopt algorithms: random, genetic, BAX
   utils/
     application_paths.py      # Path management (config + data folders)
-    exceptions.py             # ActionError, ConflictingScanElements, etc.
+    config_utils.py           # get_full_config_path, visa_config_generator
+    exceptions.py             # Full typed exception hierarchy (ScanError subtypes)
+    retry.py                  # Generic retry helper
     sound_player.py           # Audio feedback
-  logging_setup.py            # Thread-safe centralized logging
+  logging_setup.py            # Thread-safe centralized logging (QueueHandler → per-scan file)
 main.py                       # Entry point
 ```
 
@@ -79,19 +87,27 @@ uncaught exceptions to the logger, then creates and shows `GEECSScannerWindow`.
 
 ```
 User clicks Start
-  → initialize_and_start_scan()    (compiles config dict from GUI state)
-  → RunControl.submit_run(config)
-  → ScanManager.reinitialize(...)
-  → ScanManager.start_scan_thread(scan_config)   ← new thread
-      → DeviceManager.load_config()              (subscribe to devices)
-      → ScanStepExecutor.execute_steps()
+  → initialize_and_start_scan()        (builds ScanExecutionConfig from GUI state)
+  → RunControl.submit_run(exec_config) (ScanExecutionConfig — validated Pydantic model)
+  → ScanManager.reinitialize(exec_config)
+      → DeviceManager.reinitialize()   (subscribe to save devices)
+  → ScanManager.start_scan_thread()    ← new thread
+      Phase 1 (outside scan log):
+        trigger_off()
+        ScanDataManager.initialize_scan_data_and_output_files()  (creates scan folder)
+      Phase 2 (inside per-scan scan.log):
+        pre_logging_setup()
+          → ScanDataManager.configure_device_save_paths()  (via DeviceCommandExecutor)
+          → DeviceManager.handle_scan_variables()
+          → ActionManager.execute_action("setup_action")   (via DeviceCommandExecutor)
+        DataLogger.start_logging()
+        ScanStepExecutor.execute_scan_loop()
           For each step:
-            Set device variable via TCP (geecs-pythonapi)
-            Wait for stabilization
-            DataLogger.log_data()               (poll, save to files)
-            Move/rename files to daily folder
+            DeviceCommandExecutor.set()   (retry/escalate per error type)
+            wait_for_acquisition()
+            DataLogger logs per-shot heartbeat + updates shot_id context
+        stop_scan()                       (data written before device teardown)
   GUI QTimer polls ScanManager.estimate_current_completion() every 200ms
-  On completion: ScanManager signals → GUI re-enables controls
 ```
 
 ## Threading Model
@@ -166,11 +182,36 @@ for Bayesian and genetic optimization loops.
 
 ## Error Handling Patterns
 
-- `ActionError` — User-facing errors displayed in message boxes; scan aborts
-- `ConflictingScanElements` — Two save elements share a device but incompatible
-  configs; caught at scan start
-- `GeecsDeviceInstantiationError` — TCP connection failed; wrapped as
-  `ActionError` with friendly message
+All device command failures during a scan flow through `DeviceCommandExecutor`
+(`engine/device_command_executor.py`).  Never call `device.set()` / `device.get()`
+directly from scan logic — use `self.cmd_executor.set()` / `self.cmd_executor.get()`.
+
+Retry policy (per error type):
+- `GeecsDeviceCommandRejected` → retry up to `max_retries` times (transient comms)
+- `GeecsDeviceExeTimeout` → escalate immediately (device hung; retry makes it worse)
+- `GeecsDeviceCommandFailed` → escalate immediately (hardware error)
+
+Escalation calls `on_escalate(exc, context) -> bool` on the main thread via
+`ScanManager.dialog_queue` + `DialogRequest`.  `True` = Abort (sets `stop_event`);
+`False` = Continue.
+
+Scanner exception hierarchy (`utils/exceptions.py`):
+```
+ScanError
+├── ConfigError          user-visible config problems (wrong range, bad YAML)
+│   ├── ActionError      wrong action name / failed GetStep
+│   └── ConflictingScanElements
+├── DeviceCommandError   hardware failure; wraps geecs_python_api errors
+│   └── TriggerError     trigger failure; always scan-fatal
+├── DeviceSynchronizationError
+│   └── DeviceSynchronizationTimeout
+├── ScanAbortedError     user requested stop
+└── DataFileError        file / network I/O failure
+    └── OrphanProcessingTimeout
+```
+
+`GeecsDeviceInstantiationError` (from the API layer) is caught at device-open
+boundaries and re-raised or logged with context.
 
 ## Key Files for New Developers
 
@@ -178,11 +219,21 @@ for Bayesian and genetic optimization loops.
 2. `geecs_scanner/app/geecs_scanner.py` — main window signal wiring
 3. `geecs_scanner/engine/scan_manager.py` — scan orchestrator
 4. `geecs_scanner/app/run_control.py` — GUI ↔ ScanManager bridge
-5. `geecs_scanner/engine/data_logger.py` — real-time data acquisition
-6. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
+5. `geecs_scanner/engine/device_command_executor.py` — all device command policy
+6. `geecs_scanner/engine/data_logger.py` — real-time data acquisition
+7. `geecs_scanner/engine/models/scan_execution_config.py` — validated scan config model
+8. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
 
-## Utility Functions Relocation
+## Known Tech Debt
 
-The `utils.py` file has been moved to `geecs_scanner/utils/config_utils.py` to consolidate
-configuration utilities. Key functions like `get_full_config_path()` and `visa_config_generator()`
-are re-exported from `geecs_scanner.engine` for backwards compatibility.
+- `on_device_error` attribute still exists on `ScanStepExecutor` and
+  `ScanDataManager` and is set by `ScanManager.__init__`, but is no longer
+  used internally — both classes now go through `cmd_executor`.  Safe to
+  remove in a follow-up cleanup.
+- `ScanManager` is still the largest single file (~1100 lines) and mixes
+  orchestration, state management, and lifecycle bookkeeping.  See ROADMAP.md
+  Block 5 for the planned state machine decomposition.
+- The `GeecsDevice` UDP listener raises `GeecsDeviceCommandFailed` in a
+  separate thread, so `device.set()` can silently return `None` on hardware
+  rejection.  Guarded in `scan_executor.py` with a `None` check, but the
+  root fix requires GeecsDevice API changes (see ROADMAP.md — API cleanup).

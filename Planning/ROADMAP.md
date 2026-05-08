@@ -19,7 +19,7 @@ worth the cost of migration.
 
 ---
 
-## Current State (as of April 2026)
+## Current State (as of May 2026)
 
 ### What works well
 - `GeecsDevice` UDP/TCP communication layer is solid and well-typed
@@ -66,6 +66,37 @@ Stabilised the existing system enough to refactor safely.
 ---
 
 ## Roadmap
+
+### PR #366 — Engine reorganisation + config model (branch: `worktree-refactor-blocks-2-4`)
+
+Structural groundwork enabling Block 6 and the log-triage work.
+
+- `data_acquisition/` renamed to `engine/`; `schemas/` consolidated into `engine/models/`
+- `ScanExecutionConfig` — new top-level Pydantic model (scan config + options + save
+  config) produced by the GUI and consumed by `ScanManager`.  Replaces the raw dict
+  handoff that previously crossed the GUI ↔ engine boundary.
+- `ScanOptions` and `SaveDeviceConfig` models completed and wired through `reinitialize()`
+- `TriggerController` extracted from `ScanManager` — owns all trigger state transitions
+  (`OFF / STANDBY / SCAN / SINGLESHOT`)
+- `DialogRequest` dataclass for thread-safe GUI escalation (worker thread posts;
+  Qt timer drains)
+- `geecs_scanner/utils/config_utils.py` created from `data_acquisition/utils.py`
+- Per-scan `scan.log` file: `pre_logging_setup()` moved inside `scan_log()` context
+  so device subscription and action execution are captured in the scan file
+
+### PR #??? — DeviceCommandExecutor + log-triage prep (branch: `feature/engine-refactor`)
+
+Block 6 implementation and scan log improvements for the log-triage vision.
+
+- `DeviceCommandExecutor` — single policy object for all `device.set()` / `device.get()`
+  calls.  Per-error-type retry policy.  Injected into `ScanStepExecutor`,
+  `ScanDataManager`, `ActionManager`, and `ActionControl`.
+- Fixed `configure_device_save_paths` escalation bug (Abort was silently ignored)
+- Fixed `None` return from `device.set()` crashing tolerance check when hardware
+  raises in the UDP listener thread
+- Scan log now shows: scan config summary at start, per-variable set commands at INFO,
+  per-shot heartbeat — sufficient context for automated log triage without reading
+  external files
 
 ### Block 1 — Full codebase audit ✓ (branch: `audit/block1-codebase-analysis`)
 
@@ -169,9 +200,9 @@ dependency.
   `_stop_event`) with state machine transitions
 - `PAUSED_ON_ERROR` state is reachable (stub — the UI for it comes in Block 7)
 - Remove `save_hiatus` entirely (deprecated, unused)
-- Consolidate trigger control into a `TriggerController` object owned by
-  `ScanManager` — a single place responsible for `OFF / STANDBY / SCAN /
-  SINGLESHOT` transitions
+- `TriggerController` — already extracted in PR #366 (`engine/trigger_controller.py`),
+  owning `OFF / STANDBY / SCAN / SINGLESHOT` transitions.  The state machine wires
+  trigger transitions to `ScanState` changes.
 
 **Why here:** The operator intervention flow (Block 7) *is* the
 `PAUSED_ON_ERROR → RUNNING` transition. You can't implement it without the state
@@ -181,37 +212,38 @@ machine.
 
 ---
 
-### Block 6 — Device command policy layer
+### Block 6 — Device command policy layer ✓ (branch: `feature/engine-refactor`)
 
 **Goal:** One object is responsible for all device commands during a scan.
 `device.set()` is never called directly from scan logic.
 
 **What this includes:**
-- `DeviceCommandExecutor` in `geecs_scanner/data_acquisition/device_command_executor.py`
-- Retry and escalation policy:
+- `DeviceCommandExecutor` in `geecs_scanner/engine/device_command_executor.py`
+- Retry and escalation policy (implemented):
   - `GeecsDeviceExeTimeout` → escalate immediately (device hung; retrying makes it
     worse)
   - `GeecsDeviceCommandFailed` → escalate immediately (hardware error; retry won't help)
   - `GeecsDeviceCommandRejected` → retry N times, then escalate
 - Escalation calls an injected `on_escalate(exc) -> bool` callback:
-  - `True` = operator chose abort → raises `ScanAbortRequested`
+  - `True` = operator chose abort → sets `stop_event` on the scan thread
   - `False` = operator chose continue → returns `None` (best-effort)
-- `ScanAbortRequested` propagates up the call stack; the state machine transitions
-  to `ABORTED`
 - `ScanManager` instantiates one executor per scan and injects it into
-  `ScanStepExecutor`, `ActionManager`, etc.
-- All direct `device.set()` / `device.get()` calls in scan logic are replaced with
-  `command_executor.set()` / `command_executor.get()`
+  `ScanStepExecutor`, `ActionManager`, `ScanDataManager`.  Also wired into
+  `ActionControl` for the standalone action-library path.
+- All direct `device.set()` / `device.get()` calls in scan logic replaced with
+  `cmd_executor.set()` / `cmd_executor.escalate()`
 
 **Why this is not in `geecs-python-api`:** The API is a pure device control library
 — it raises typed exceptions and knows nothing about retries, dialogs, or scan
 context. The executor is a scanner-level policy object, not a library primitive.
 
-**Why here:** Consolidating `device.set()` calls requires clean seams (Block 4) and
-a state machine to transition on abort (Block 5). Without those, the call sites
-can't be safely migrated.
+**Note:** Two attributes (`on_device_error`) remain assigned on `ScanStepExecutor`
+and `ScanDataManager` in `ScanManager.__init__` but are no longer read — dead code
+from the pre-executor wiring.  Safe to remove in a follow-up cleanup (see Tech Debt
+below).
 
-*Review gate: is the retry/escalation policy correct for each error type?*
+*Status: complete. Validated on real hardware (NOSCAN, 1D scan, out-of-range
+hardware error triggering escalation dialog, action library).*
 
 ---
 
@@ -238,6 +270,75 @@ machine (Block 5) provides the `PAUSED_ON_ERROR` state; the engine/GUI separatio
 result but is the least code once the groundwork is in place.
 
 *Review gate: does the UX match what operators actually need in the lab?*
+
+---
+
+### Block 8 — Automated log-triage agent (future)
+
+**Goal:** A triage agent reads a per-scan `scan.log` and returns a structured
+diagnosis — what happened, which device failed, what error was raised, and whether
+the scan completed cleanly.
+
+**Motivation:** After the logging improvements in PR #???, the scan log now contains:
+- Scan config summary (device, range, step, wait, mode) at INFO immediately after
+  scan start
+- Per-variable hardware set commands at INFO (`[DeviceName] setting Var → value`)
+- Per-shot heartbeat (`shot N`) so progress is visible
+- All device command failures with error type and context
+- Lifecycle milestones (start, stop, abort) at INFO
+
+This is sufficient structured signal for an LLM-based triage agent without any
+additional instrumentation.
+
+**What this includes:**
+- A triage agent that accepts a `scan.log` path and returns a structured report
+- Test corpus: 2026-05-08 HTU scans 004–006 — a clean NOSCAN, a 1D scan with a
+  hardware-rejected command (out-of-range value, operator chose Continue each step),
+  and a 1D scan with a stale-socket cascade (`[WinError 10048]` pattern causing
+  spurious timeouts that resolved on the second run)
+- The stale-socket case is a good regression test: the agent should identify the
+  `WinError 10048` pattern and note the socket was released before the second scan
+
+**Why here:** Requires the log improvements from Block 6 / PR #??? to have enough
+signal. Further improvements (Phase 1 messages inside `scan_log`, JSON format) can
+be added as the agent's requirements become clearer.
+
+---
+
+## Known Tech Debt
+
+Items surfaced during the Block 6 refactor that are safe to leave for now.
+
+### Dead `on_device_error` attribute
+`ScanManager.__init__` still assigns `self.executor.on_device_error` and
+`self.scan_data_manager.on_device_error`.  Neither class reads this attribute
+internally — both now route through `cmd_executor`.  The assignment is harmless but
+confusing.  Remove in a follow-up PR alongside any other `ScanManager` cleanup.
+
+### `ScanManager` size (~1100 lines)
+The orchestrator still mixes scan lifecycle, state management, and threading
+bookkeeping.  Block 5 (state machine) is the planned decomposition.  Don't attempt
+to split it before the state machine is in place — the boundaries won't be clean.
+
+### GeecsDevice API backlog
+Three issues rooted in the `geecs-python-api` device layer that affect scanner
+reliability.  These require API changes and are tracked separately:
+
+1. **Stale UDP socket** (`[WinError 10048]`) — previous scan leaves port bound;
+   next scan's `listen()` fails with `OSError`, causing immediate
+   `GeecsDeviceExeTimeout` on every device command.  Resolves when OS releases the
+   socket (usually <30 s).  Pattern in logs: `listen called with no socket bound`
+   followed by a wave of timeout dialogs that disappear on the second attempt.
+
+2. **`None` return on hardware rejection** — `GeecsDeviceCommandFailed` is raised
+   in the UDP listener thread (not the calling thread), so `device.set()` returns
+   `None` instead of raising.  The scanner now guards against this with an explicit
+   `None` check that raises `DeviceCommandError`.  The root fix is in the API.
+
+3. **Excessive `DEBUG`-level log noise** — the API layer emits verbose per-packet
+   and per-variable messages.  These land in the terminal but not in the scan log
+   (the scan log is gated at INFO).  Harmless today; worth pruning when the API is
+   refactored.
 
 ---
 
