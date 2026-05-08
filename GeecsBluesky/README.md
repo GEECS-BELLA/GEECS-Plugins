@@ -37,21 +37,22 @@ $VENV/bin/pip install "ophyd-async>=0.16,<1.0" "bluesky>=1.12" -q
 $VENV/bin/pip install "pytest>=7" "pytest-asyncio>=0.23" -q
 ```
 
-### DB lookup (optional)
+### DB lookup
 
 `GeecsDevice.from_db()` resolves `(host, port)` from the GEECS MySQL database.
-It requires `geecs-pythonapi`, which is not on PyPI — install from the monorepo:
+`mysql-connector-python` is included as a direct Poetry dependency and is
+installed automatically by `poetry install`.
 
-```bash
-VENV=$(poetry env info --path)
-$VENV/bin/pip install -e ../GEECS-PythonAPI --no-deps
-# geecs-pythonapi transitive deps (add any that are missing):
-$VENV/bin/pip install mysql-connector-python python-dateutil
+The package reads DB credentials from the standard GEECS user-data directory.
+Configure the path in `~/.config/geecs_python_api/config.ini`:
+
+```ini
+[Paths]
+geecs_data = /path/to/user data   # directory containing Configurations.INI
 ```
 
-The package reads DB credentials from
-`~/Desktop/Github_repos/user\ data/Configurations.INI` (the standard GEECS
-user-data directory).
+`Configurations.INI` in that directory provides the `[Database]` section
+(host, port, name, user, password).
 
 ## Quick start
 
@@ -115,7 +116,14 @@ internal `asyncio.Lock` serialises them automatically.
 poetry run pytest tests/ -v
 ```
 
-All 14+ tests run against `FakeGeecsServer` on localhost — no real hardware required.
+All tests run against `FakeGeecsServer` on localhost — no real hardware required.
+
+A hardware integration test (`test_bluesky_scanner.py`) exercises NOSCAN, STANDARD
+step scan, and DG645 shot control against real lab devices:
+
+```bash
+poetry run python test_bluesky_scanner.py
+```
 
 ## Architecture notes
 

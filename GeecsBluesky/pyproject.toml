@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
