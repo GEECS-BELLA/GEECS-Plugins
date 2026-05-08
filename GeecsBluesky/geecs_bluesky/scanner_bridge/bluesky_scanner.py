@@ -146,8 +146,11 @@ class BlueskyScanner:
     experiment_dir:
         Experiment name (currently unused; reserved for future path integration).
     shot_control_information:
-        Shot-controller YAML config dict (currently unused; reserved for future
-        DG645 integration).
+        Shot-controller YAML config dict with keys ``"device"`` (GEECS device
+        name) and ``"variables"`` (mapping of variable name → state → value,
+        where states are ``"OFF"``, ``"SCAN"``, ``"STANDBY"``,
+        ``"SINGLESHOT"``).  When provided, the DG645 is armed before each
+        acquisition step and disarmed after.
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
