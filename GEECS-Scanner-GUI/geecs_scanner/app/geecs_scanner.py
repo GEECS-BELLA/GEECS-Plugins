@@ -57,6 +57,7 @@ from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
 from geecs_scanner.engine import DatabaseDictLookup
+from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
@@ -2023,19 +2024,17 @@ class GEECSScannerWindow(QMainWindow):
         run_config = {
             "Devices": save_device_list,
             "scan_info": scan_information,
-            "options": scan_options,
         }
 
         if list_of_setup_steps:
-            setup_action_steps = {"steps": list_of_setup_steps}
-            run_config["setup_action"] = setup_action_steps
+            run_config["setup_action"] = {"steps": list_of_setup_steps}
         if list_of_closeout_steps:
-            closeout_action_steps = {"steps": list_of_closeout_steps}
-            run_config["closeout_action"] = closeout_action_steps
+            run_config["closeout_action"] = {"steps": list_of_closeout_steps}
 
-        success = self.RunControl.submit_run(
-            config_dictionary=run_config, scan_config=scan_config
+        exec_config = ScanExecutionConfig.from_gui_dict(
+            run_config, scan_config, scan_options
         )
+        success = self.RunControl.submit_run(exec_config=exec_config)
         if not success:
             sm = getattr(self.RunControl, "scan_manager", None)
             detail = getattr(sm, "last_reinit_error", None) or "Check log for details."

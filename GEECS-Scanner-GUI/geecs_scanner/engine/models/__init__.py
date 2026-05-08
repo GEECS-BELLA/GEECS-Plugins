@@ -15,6 +15,7 @@ __all__ = [
     "RunStep",
     "SaveDeviceConfig",
     "DeviceConfig",
+    "ScanExecutionConfig",
     "ScanOptions",
 ]
 
@@ -28,4 +29,5 @@ from .actions import (
     WaitStep,
 )
 from .save_devices import DeviceConfig, SaveDeviceConfig
+from .scan_execution_config import ScanExecutionConfig
 from .scan_options import ScanOptions
