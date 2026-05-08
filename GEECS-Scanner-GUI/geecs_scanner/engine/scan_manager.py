@@ -9,7 +9,7 @@ import threading
 import time
 import warnings
 from dataclasses import fields
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
 
@@ -20,6 +20,16 @@ from . import (
     DeviceManager,
     ScanDataManager,
     ScanStepExecutor,
+)
+from .scan_events import (
+    DeviceCommandEvent,  # noqa: F401 — re-exported for convenience
+    ScanDialogEvent,
+    ScanErrorEvent,
+    ScanEvent,
+    ScanLifecycleEvent,
+    ScanRestoreFailedEvent,
+    ScanState,
+    ScanStepEvent,  # noqa: F401 — re-exported for convenience
 )
 from geecs_data_utils import ScanConfig, ScanMode
 from geecs_python_api.controls.devices.scan_device import ScanDevice
@@ -80,6 +90,7 @@ class ScanManager:
         options: Optional[ScanOptions] = None,
         device_manager=None,
         scan_data=None,
+        on_event: Optional[Callable[[ScanEvent], None]] = None,
     ):
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(
@@ -149,9 +160,12 @@ class ScanManager:
 
         self.scan_config: ScanConfig
 
+        self._on_event = on_event
+
         self.cmd_executor = DeviceCommandExecutor(
             on_escalate=self.request_user_dialog,
             stop_event=self.stop_scanning_thread_event,
+            on_event=on_event,
         )
 
         self.executor = ScanStepExecutor(
@@ -165,8 +179,20 @@ class ScanManager:
             trigger_controller=self.trigger_controller,
         )
         self.executor.cmd_executor = self.cmd_executor
+        self.executor.on_event = on_event
         self.action_manager.cmd_executor = self.cmd_executor
         self.scan_data_manager.cmd_executor = self.cmd_executor
+
+    # ------------------------------------------------------------------
+    # Event emission
+    # ------------------------------------------------------------------
+
+    def _emit(self, event: ScanEvent) -> None:
+        if self._on_event is not None:
+            try:
+                self._on_event(event)
+            except Exception:
+                logger.debug("on_event callback raised; ignoring", exc_info=True)
 
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
@@ -194,6 +220,7 @@ class ScanManager:
             ``True`` if the user chose Abort; ``False`` to continue.
         """
         request = DialogRequest(exc=exc, context=context)
+        self._emit(ScanDialogEvent(request=request))
         self.dialog_queue.put(request)
         request.response_event.wait()
         return request.abort[0]
@@ -369,6 +396,7 @@ class ScanManager:
             return
 
         logger.info("Stopping the scanning thread...")
+        self._emit(ScanLifecycleEvent(state=ScanState.STOPPING))
         self.stop_scanning_thread_event.set()
 
     def _start_scan(self) -> pd.DataFrame:
@@ -412,6 +440,7 @@ class ScanManager:
         # stop_scan() is in the finally block so cleanup is always logged.    #
         # ------------------------------------------------------------------ #
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
+            _aborted = False
             try:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
                 if self.scan_config:
@@ -438,6 +467,14 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
+                self._emit(
+                    ScanLifecycleEvent(
+                        state=ScanState.INITIALIZING,
+                        total_shots=int(
+                            self.acquisition_time * self.options.rep_rate_hz
+                        ),
+                    )
+                )
                 logger.debug("scan options: %s", self.options)
 
                 if self.stop_scanning_thread_event.is_set():
@@ -450,27 +487,45 @@ class ScanManager:
 
                 self.scan_data_manager.purge_all_local_save_dir()
 
+                self._emit(ScanLifecycleEvent(state=ScanState.RUNNING))
                 self.executor.execute_scan_loop(self.scan_steps)
 
                 logger.info("scan %s: completed normally", scan_id)
 
             except ScanAbortedError:
+                _aborted = True
                 logger.info("Scan aborted; running cleanup.")
 
             except TriggerError as trig_err:
+                _aborted = True
+                self._emit(
+                    ScanErrorEvent(
+                        message=str(trig_err), recoverable=False, exc=trig_err
+                    )
+                )
                 logger.critical("Scan aborted: trigger device failed — %s", trig_err)
 
-            except GeecsDeviceInstantiationError:
+            except GeecsDeviceInstantiationError as e:
+                _aborted = True
+                self._emit(ScanErrorEvent(message=str(e), recoverable=False, exc=e))
                 logger.exception(
                     "Scan aborted: one or more devices could not be instantiated."
                 )
 
             except DeviceSynchronizationError as sync_err:
+                _aborted = True
+                self._emit(
+                    ScanErrorEvent(
+                        message=str(sync_err), recoverable=False, exc=sync_err
+                    )
+                )
                 logger.error(
                     "Scan aborted due to device synchronization failure: %s", sync_err
                 )
 
-            except Exception:
+            except Exception as e:
+                _aborted = True
+                self._emit(ScanErrorEvent(message=str(e), recoverable=False, exc=e))
                 logger.exception("Error during scan execution")
 
             finally:
@@ -482,6 +537,11 @@ class ScanManager:
                         "Error during scan cleanup - attempting to continue"
                     )
 
+                self._emit(
+                    ScanLifecycleEvent(
+                        state=ScanState.ABORTED if _aborted else ScanState.DONE
+                    )
+                )
                 logger.info("scan %s: finished", scan_id)
 
         self.scanning_thread = None
@@ -1052,10 +1112,11 @@ class ScanManager:
                     # stop_scanning_thread().join() on the main thread would
                     # deadlock.  Collect the failure; the main thread will
                     # show a summary once the scan thread has exited.
-                    self.restore_failures.append(
-                        f"  • {device_name}:{variable_name} → {value}"
-                        f"  ({type(e).__name__})"
+                    msg = (
+                        f"{device_name}:{variable_name} → {value} ({type(e).__name__})"
                     )
+                    self.restore_failures.append(f"  • {msg}")
+                    self._emit(ScanRestoreFailedEvent(device=device_name, message=msg))
                 except Exception:
                     logger.exception(
                         "Failed to restore %s:%s to %s",

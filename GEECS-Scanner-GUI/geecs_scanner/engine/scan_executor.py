@@ -6,7 +6,10 @@ import logging
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from geecs_scanner.engine.scan_events import ScanEvent
 
 import numpy as np
 
@@ -66,23 +69,51 @@ class ScanStepExecutor:
         self.scan_steps = []
         self.on_device_error = None
         self.cmd_executor: Optional[DeviceCommandExecutor] = None
+        self.on_event: Optional[Callable[[ScanEvent], None]] = None
 
         logger.debug("Constructing the scan step executor")
 
+    def _emit(self, event: ScanEvent) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:
+                logger.debug("on_event callback raised; ignoring", exc_info=True)
+
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> None:
         """Iterate through *scan_steps*, executing each until stopped externally."""
+        from geecs_scanner.engine.scan_events import ScanStepEvent
+
         self.scan_steps = scan_steps
         logger.debug("Attempting to start scan loop with steps: %s", scan_steps)
+        total_steps = len(scan_steps)
         step_index = 0
 
-        while step_index < len(self.scan_steps):
+        while step_index < total_steps:
             if self.stop_scanning_thread_event.is_set():
                 logger.info("Scanning has been stopped externally.")
                 break
 
             scan_step = self.scan_steps[step_index]
+            shots_before = self.data_logger.get_current_shot()
+            self._emit(
+                ScanStepEvent(
+                    step_index=step_index,
+                    total_steps=total_steps,
+                    shots_completed=shots_before,
+                    phase="started",
+                )
+            )
             logger.debug("Executing scan step: %s", scan_step)
             self.execute_step(scan_step, step_index)
+            self._emit(
+                ScanStepEvent(
+                    step_index=step_index,
+                    total_steps=total_steps,
+                    shots_completed=self.data_logger.get_current_shot(),
+                    phase="completed",
+                )
+            )
             step_index += 1
 
         logger.info("Scan loop completed. Stopping logging.")

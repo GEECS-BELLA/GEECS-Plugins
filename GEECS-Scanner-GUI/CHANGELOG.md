@@ -3,6 +3,35 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] — 2026-05-08
+
+### Added
+- Block 6: typed event stream for the scan engine.  `ScanEvent` dataclass
+  hierarchy (`ScanLifecycleEvent`, `ScanStepEvent`, `DeviceCommandEvent`,
+  `ScanErrorEvent`, `ScanRestoreFailedEvent`, `ScanDialogEvent`) defined in
+  `engine/scan_events.py`.
+- `ScanManager` accepts an optional `on_event: Callable[[ScanEvent], None]`
+  callback (injected on construction).  Emits `ScanLifecycleEvent` at each
+  state transition (INITIALIZING → RUNNING → DONE / ABORTED).
+- `ScanStepExecutor.execute_scan_loop()` emits `ScanStepEvent` (phase
+  "started" / "completed") before and after each step; carries `step_index`,
+  `total_steps`, and `shots_completed`.
+- `DeviceCommandExecutor.set()` / `.get()` emit `DeviceCommandEvent` on every
+  outcome (accepted / rejected / timeout / failed).
+- `_emit()` defensive wrapper — callback exceptions are caught and logged at
+  DEBUG level; never propagate into the engine.
+- Unit tests: `tests/engine/test_event_emission.py` — 17 network-free tests
+  covering all `DeviceCommandExecutor` outcomes and the full
+  `execute_scan_loop` event sequence.
+- Hardware integration test skeleton:
+  `tests/integration/hardware/test_scan_manager_hardware.py` — lifecycle and
+  step-event assertions against live hardware (gated by
+  `GEECS_HARDWARE_AVAILABLE` environment variable).
+- Updated `tests/conftest.py` `hardware_available` fixture from always-skip
+  stub to `GEECS_HARDWARE_AVAILABLE` env-var gate.
+- Exported `ScanState`, `ScanLifecycleEvent`, `ScanStepEvent`,
+  `DeviceCommandEvent`, `ScanEvent` from `geecs_scanner.engine`.
+
 ## [0.12.2] — 2026-05-08
 
 ### Changed

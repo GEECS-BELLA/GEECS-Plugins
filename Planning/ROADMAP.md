@@ -21,27 +21,24 @@ worth the cost of migration.
 
 ## Current Focus (as of May 2026)
 
-**Planned next block:** Block 3 — Scan event model
+**Completed since last update:** GeecsAPI cleanup (PR #369), log-triage
+`/triage` Claude Code skill, and Block 3 — scan event model (PR #370).
 
-**Actual current order — three prerequisites identified during PR #367:**
+**Blocks 1, 3, 6 and the API / log-triage prerequisites are all done.**
 
-1. **GeecsAPI full cleanup** ← *in progress (branch: `worktree-api-cleanup`)*
-   Full audit + purge of dead code; fix the `None` return on hardware rejection
-   and UDP socket lifecycle. Doing this before Block 3 so the event model sits on
-   a reliable foundation rather than papering over two known bugs.
+**Next options (in rough dependency order):**
 
-2. **Log-triage `/triage` Claude Code skill** — interactive session where Claude
-   runs the CLI, presents results, and the user annotates human context (hardware
-   vs bug vs user error) before optionally filing GitHub issues. Stage 2 of the
-   auto-debugger pipeline.
+1. **Block 5 — Scan lifecycle state machine** — replace scattered boolean flags
+   with an explicit `ScanState` machine; prerequisite for the operator
+   intervention UI (Block 7).
+2. **Block 4 — Engine / GUI separation** — remove Qt imports from engine code
+   so the engine can run headlessly in tests and scripts; large structural
+   change, needs a clean window to do it without regressions.
+3. **Block 7 — Operator intervention UI** — non-modal panel for device
+   errors; requires Block 5 for the `PAUSED_ON_ERROR` state.
 
-3. **Block 3** — scan event model, once the API foundation is clean.
-
-**Why the detour:** `DeviceCommandExecutor` (Block 6, PR #367) exposed two
-API-layer bugs we are patching around: `device.set()` silently returning `None`
-on hardware rejection (instead of raising), and the UDP socket lifecycle leaving
-ports bound across scans (WinError 10048). Building the event model on those
-would muddy event semantics. Better to fix the foundation first.
+Recommended order: Block 5 → Block 7 → Block 4 (structural separation can
+follow once the interaction model is settled).
 
 ---
 
@@ -52,26 +49,30 @@ would muddy event semantics. Better to fix the foundation first.
 - `GeecsDevice` UDP/TCP communication layer is solid and well-typed
 - Exception hierarchy (`GeecsDeviceExeTimeout`, `GeecsDeviceCommandRejected`,
   `GeecsDeviceCommandFailed`) is well-defined
+- `DeviceCommandExecutor` is the single policy point for all device commands;
+  retry/escalation is consistent across `ScanStepExecutor`, `ScanDataManager`,
+  `ActionManager`, and `ActionControl`
+- Typed `ScanEvent` stream — `ScanLifecycleEvent`, `ScanStepEvent`,
+  `DeviceCommandEvent`, `ScanErrorEvent`, `ScanRestoreFailedEvent`,
+  `ScanDialogEvent` — emitted via `on_event` callback on `ScanManager`
 - `ScanAnalysis` task queue and analyzer framework are clean and well-organised
 - `geecs_data_utils` provides a good home for scan data structures (`ScanTag`,
   `ScanPaths`, `ScanData`)
 - Pre-commit hooks, ruff formatting, and pydocstyle are enforced
+- Per-scan `scan.log` captures enough structured signal for automated triage
+- 19 unit tests cover all Block 3 event-emission paths; hardware integration
+  test skeleton ready for lab validation
 
-### Core structural problems
-- `scan_manager.py` is a ~1000-line monolith mixing scan control, device
+### Core structural problems (remaining)
+- `scan_manager.py` is a ~1100-line monolith mixing scan control, device
   orchestration, file I/O, and state management
-- `device.set()` is called directly from at least four different objects with no
-  consistent error handling policy
-- The scan's current state is implicit — inferred from scattered boolean flags
-  (`_scanning_active`, `_pause_event`, `_stop_event`)
-- GUI code (`app/`) is entangled with engine code; the engine cannot run without Qt
-- Config is a mix of validated Pydantic models, raw dicts, and INI files depending
-  on where you look
-- `ScanConfig` is a plain dataclass in `geecs_data_utils` — a data utility package
-  should not own scan execution config
+- The scan's current state is still implicit — inferred from scattered boolean
+  flags (`_scanning_active`, `_pause_event`, `_stop_event`). Block 5 fixes this.
+- GUI code (`app/`) is entangled with engine code; the engine cannot run without
+  Qt. Block 4 fixes this.
 - `save_hiatus` is a deprecated, unused code path that adds noise
-- Trigger control (`_set_trigger`, `trigger_on`, `trigger_off`) is scattered across
-  `scan_manager` and `scan_executor` with no central owner
+- The GUI still polls `ScanManager` every 200ms instead of consuming the event
+  stream. Block 7 replaces the polling timer with event subscription.
 
 ---
 
@@ -159,32 +160,37 @@ data-utils and scanner correct?*
 
 ---
 
-### Block 3 — Scan event model
+### Block 3 — Scan event model ✓ (PR #370, branch: `block-6-scan-events`)
 
 **Goal:** A single, typed event stream describes everything the scan engine does.
 The GUI becomes a consumer of that stream.
 
-**What this includes:**
-- Define a `ScanEvent` hierarchy as plain Python dataclasses (no Qt):
+**What was delivered:**
+- `ScanEvent` hierarchy in `engine/scan_events.py` (no Qt dependency):
   ```
   ScanEvent
-  ├── ScanLifecycleEvent  (started, paused, resumed, completed, aborted)
-  ├── ScanStepEvent       (step_started, step_completed)
-  ├── DeviceCommandEvent  (sent, accepted, rejected, failed, timeout)
-  └── ScanErrorEvent      (recoverable=True/False)
+  ├── ScanLifecycleEvent  (INITIALIZING, RUNNING, STOPPING, DONE, ABORTED)
+  ├── ScanStepEvent       (phase="started"/"completed"; step_index, total_steps,
+  │                        shots_completed)
+  ├── DeviceCommandEvent  (accepted, rejected, failed, timeout)
+  ├── ScanErrorEvent      (recoverable=True/False)
+  ├── ScanRestoreFailedEvent
+  └── ScanDialogEvent     (carries DialogRequest for Block 7 wiring)
   ```
-- `ScanManager` accepts an `on_event: Callable[[ScanEvent], None]` callback
-- Wire the callback into the existing GUI as a thin adapter — emit events alongside
-  existing behavior, don't replace it yet
-- Identify every place the GUI currently reads engine state directly (these become
-  the migration list for Block 4)
+- `ScanManager` accepts `on_event: Callable[[ScanEvent], None]`; threaded through
+  to `ScanStepExecutor` and `DeviceCommandExecutor`
+- `_emit()` wrapper on all three classes — callback exceptions are caught and
+  logged at DEBUG; never propagate into the engine
+- `ScanState` enum (`str, enum.Enum`) — IDLE / INITIALIZING / RUNNING /
+  STOPPING / DONE / ABORTED; serialises naturally to JSON / log messages
+- GUI is not yet wired to consume events (still polls every 200ms) — Block 7
+  replaces the timer
+- 19 unit tests; hardware integration test skeleton for lab validation
+- Bug found and fixed during audit: `total_shots` on INITIALIZING event was
+  storing scan duration in seconds instead of shot count; fixed to
+  `int(acquisition_time × rep_rate_hz)` with regression tests
 
-**Why here:** The event model is the contract between engine and GUI. Once it
-exists, the operator intervention flow, live status display, and audit log all
-become consumers of the same stream. The engine doesn't need to know about any of
-them.
-
-*Review gate: does the event set cover everything the GUI needs to know about?*
+*Status: complete. GUI polling unchanged — Block 7 is the migration.*
 
 ---
 
@@ -270,7 +276,8 @@ from the pre-executor wiring.  Safe to remove in a follow-up cleanup (see Tech D
 below).
 
 *Status: complete. Validated on real hardware (NOSCAN, 1D scan, out-of-range
-hardware error triggering escalation dialog, action library).*
+hardware error triggering escalation dialog, action library). Event emission
+wired into `DeviceCommandExecutor.set()` / `.get()` in PR #370 (Block 3).*
 
 ---
 

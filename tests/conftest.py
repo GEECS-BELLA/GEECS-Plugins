@@ -98,10 +98,16 @@ def _init_image_analysis_config():
 def hardware_available():
     """Skip the test if live GEECS hardware is not reachable.
 
-    This fixture is a stub. Hardware detection logic will be added when
-    hardware integration tests are introduced (simulated and real devices).
+    Hardware tests are gated by the ``GEECS_HARDWARE_AVAILABLE`` environment
+    variable.  Set it to any non-empty value in the lab before running::
+
+        export GEECS_HARDWARE_AVAILABLE=1
+        pytest -m "integration and hardware"
     """
-    pytest.skip(
-        "Hardware integration tests not yet implemented. "
-        "See: https://github.com/GEECS-BELLA/GEECS-Plugins/issues/349"
-    )
+    import os
+
+    if not os.environ.get("GEECS_HARDWARE_AVAILABLE"):
+        pytest.skip(
+            "Hardware integration tests require GEECS_HARDWARE_AVAILABLE=1. "
+            "Set this environment variable in the lab before running."
+        )

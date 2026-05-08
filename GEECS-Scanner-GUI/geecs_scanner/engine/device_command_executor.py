@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandFailed,
@@ -13,8 +13,12 @@ from geecs_python_api.controls.interface.geecs_errors import (
 )
 
 from geecs_scanner.engine.dialog_request import DEVICE_COMMAND_ERRORS
+from geecs_scanner.engine.scan_events import DeviceCommandEvent
 from geecs_scanner.utils.exceptions import DeviceCommandError
 from geecs_scanner.utils.retry import retry
+
+if TYPE_CHECKING:
+    from geecs_scanner.engine.scan_events import ScanEvent
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +57,20 @@ class DeviceCommandExecutor:
         stop_event: Optional[threading.Event] = None,
         max_retries: int = 3,
         retry_delay: float = 0.5,
+        on_event: Optional[Callable[[ScanEvent], None]] = None,
     ):
         self.on_escalate = on_escalate
         self.stop_event = stop_event
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.on_event = on_event
+
+    def _emit(self, event: ScanEvent) -> None:
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:
+                logger.debug("on_event callback raised; ignoring", exc_info=True)
 
     # ------------------------------------------------------------------
     # Public API
@@ -97,7 +110,7 @@ class DeviceCommandExecutor:
         """
         device_name = self._name(device)
         try:
-            return retry(
+            result = retry(
                 lambda: device.set(variable, value, sync=sync),
                 attempts=self.max_retries,
                 delay=self.retry_delay,
@@ -111,11 +124,36 @@ class DeviceCommandExecutor:
                     exc,
                 ),
             )
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="accepted"
+                )
+            )
+            return result
         except GeecsDeviceCommandRejected as exc:
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="rejected"
+                )
+            )
             raise DeviceCommandError(
                 device_name, f"set {variable}", variable=variable
             ) from exc
-        except (GeecsDeviceExeTimeout, GeecsDeviceCommandFailed) as exc:
+        except GeecsDeviceExeTimeout as exc:
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="timeout"
+                )
+            )
+            raise DeviceCommandError(
+                device_name, f"set {variable}", variable=variable
+            ) from exc
+        except GeecsDeviceCommandFailed as exc:
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="failed"
+                )
+            )
             raise DeviceCommandError(
                 device_name, f"set {variable}", variable=variable
             ) from exc
@@ -144,8 +182,28 @@ class DeviceCommandExecutor:
         """
         device_name = self._name(device)
         try:
-            return device.get(variable)
+            result = device.get(variable)
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="accepted"
+                )
+            )
+            return result
+        except GeecsDeviceExeTimeout as exc:
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="timeout"
+                )
+            )
+            raise DeviceCommandError(
+                device_name, f"get {variable}", variable=variable
+            ) from exc
         except DEVICE_COMMAND_ERRORS as exc:
+            self._emit(
+                DeviceCommandEvent(
+                    device=device_name, variable=variable, outcome="failed"
+                )
+            )
             raise DeviceCommandError(
                 device_name, f"get {variable}", variable=variable
             ) from exc

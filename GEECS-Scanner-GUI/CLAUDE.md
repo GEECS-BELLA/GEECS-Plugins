@@ -38,6 +38,7 @@ geecs_scanner/
     action_manager.py         # Automated action execution
     scan_data_manager.py      # Output path setup, data conversion, file I/O
     device_command_executor.py # Single policy point for all device.set()/get() calls
+    scan_events.py            # Typed ScanEvent hierarchy + ScanState enum (Block 3)
     database_dict_lookup.py   # GEECS device database query interface
     trigger_controller.py     # Timing/trigger management (OFF/STANDBY/SCAN/SINGLESHOT)
     dialog_request.py         # Thread-safe dialog request type + escalation helpers
@@ -213,6 +214,58 @@ ScanError
 `GeecsDeviceInstantiationError` (from the API layer) is caught at device-open
 boundaries and re-raised or logged with context.
 
+## Scan Event System (Block 3)
+
+The engine emits a typed event stream via an `on_event` callback injected at
+construction time.  The GUI does not yet consume this stream (Block 7 will replace
+the 200 ms polling timer); the callback is intended for headless consumers, tests,
+and future GUI wiring.
+
+### Event hierarchy (`engine/scan_events.py`)
+
+```
+ScanEvent
+├── ScanLifecycleEvent   state: ScanState (INITIALIZING/RUNNING/STOPPING/DONE/ABORTED)
+│                        total_shots: int  — non-zero only on INITIALIZING
+├── ScanStepEvent        step_index, total_steps, shots_completed, phase ("started"/"completed")
+├── DeviceCommandEvent   device, variable, outcome ("accepted"/"rejected"/"failed"/"timeout")
+├── ScanErrorEvent       message, recoverable: bool, exc: BaseException | None
+├── ScanRestoreFailedEvent  device, message
+└── ScanDialogEvent      request: DialogRequest  — for Block 7 GUI wiring
+```
+
+`ScanState` is a `str, enum.Enum` — values serialise naturally to JSON / log messages.
+
+### Usage
+
+```python
+from geecs_scanner.engine import ScanManager, ScanLifecycleEvent, ScanStepEvent
+
+events = []
+mgr = ScanManager(
+    experiment_dir="Undulator",
+    shot_control_information=shot_info,
+    on_event=events.append,
+)
+```
+
+### Contract
+
+- **`_emit()` is defensive** — callback exceptions are caught and logged at DEBUG;
+  they never propagate into the scan engine.
+- **`on_event` is optional** — passing `None` (the default) disables emission
+  with no performance cost.
+- **Three classes emit**: `ScanManager` (lifecycle), `ScanStepExecutor` (step
+  boundaries), `DeviceCommandExecutor` (per-command outcomes).
+
+### `total_shots` note
+
+`ScanLifecycleEvent.total_shots` on the INITIALIZING event is an estimate:
+`int(acquisition_time_seconds × rep_rate_hz)`.  The actual rep rate is
+hardware/laser-driven; `rep_rate_hz` in `ScanOptions` is a software approximation
+used to scale the count.  Treat `total_shots` as a progress denominator, not a
+guaranteed shot count.
+
 ## Key Files for New Developers
 
 1. `main.py` — logging init + Qt app launch
@@ -220,9 +273,10 @@ boundaries and re-raised or logged with context.
 3. `geecs_scanner/engine/scan_manager.py` — scan orchestrator
 4. `geecs_scanner/app/run_control.py` — GUI ↔ ScanManager bridge
 5. `geecs_scanner/engine/device_command_executor.py` — all device command policy
-6. `geecs_scanner/engine/data_logger.py` — real-time data acquisition
-7. `geecs_scanner/engine/models/scan_execution_config.py` — validated scan config model
-8. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
+6. `geecs_scanner/engine/scan_events.py` — typed event hierarchy + ScanState enum
+7. `geecs_scanner/engine/data_logger.py` — real-time data acquisition
+8. `geecs_scanner/engine/models/scan_execution_config.py` — validated scan config model
+9. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
 
 ## Known Tech Debt
 
