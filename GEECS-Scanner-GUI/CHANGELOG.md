@@ -3,9 +3,33 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] — 2026-05-07
+
+### Changed
+- Log level rationalization across all six `data_acquisition/` modules
+  (`data_logger`, `device_manager`, `scan_manager`, `scan_executor`,
+  `scan_data_manager`, `action_manager`).  Per-shot ticker events (standby
+  checks, timestamp comparisons, async variable updates, file iteration,
+  orphan retries, per-step device moves, optimizer chatter) demoted from INFO
+  to DEBUG.  Two cases promoted to WARNING: file not found after all retries
+  (orphaned to post-scan sweep), and missing `acq_timestamp` column during
+  orphan sweep.  Lifecycle milestones (scan start/end/abort, device subscribed,
+  config loaded, files written, devices synchronized) remain at INFO.
+- Docstring purge in `data_acquisition/`: removed boilerplate NumPy-style
+  docstrings from methods whose signatures and names are self-explanatory,
+  leaving only non-obvious `Parameters`/`Returns`/`Raises` blocks and
+  single-line summaries where warranted.
+
 ## [0.9.0] — 2026-05-07
 
 ### Added
+- `geecs_scanner.utils.exceptions`: typed exception hierarchy rooted at `ScanError`.
+  New types: `ConfigError`, `DeviceCommandError`, `TriggerError`,
+  `DataFileError`. Existing names (`ActionError`, `ConflictingScanElements`,
+  `ScanSetupError`, `OrphanProcessingTimeout`) are now subclasses of the
+  hierarchy; all existing catch sites continue to work without change.
+- `geecs_scanner.utils.retry`: `retry(fn, *, attempts, delay, backoff, catch,
+  on_retry)` — centralizes retry-with-backoff logic for hardware call sites.
 - `per_shot` analysis mode in `MultiDeviceScanEvaluator`: each image in a bin
   is analyzed individually instead of averaged, enabling richer per-shot
   statistical treatment (median, std dev, noise estimates for Xopt GP surrogate)
@@ -33,8 +57,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `evaluation_mode` field removed from `BaseOptimizer` and `BaseOptimizerConfig`
   (was stored but never read; analysis mode is configured per-analyzer via
   `SingleDeviceScanAnalyzerConfig.analysis_mode`)
+- Dead `move_devices()` method removed from `ScanStepExecutor`; only
+  `move_devices_parallel_by_device()` remains (#291)
 
 ### Changed
+- `DeviceSynchronizationError`, `DeviceSynchronizationTimeout`, and
+  `ScanAbortedError` promoted from local definitions inside `scan_manager.py`
+  to `geecs_scanner.utils.exceptions`. Import paths updated; no behaviour change.
+- `move_devices_parallel_by_device()` uses `retry()` for hardware exceptions and
+  raises `DeviceCommandError` (with chaining) on exhaustion; tolerance failures
+  are logged as WARNING and no longer trigger a retry (#291)
+- `_set_trigger()` in `ScanManager` uses `retry()` and raises `TriggerError` on
+  exhaustion; `_start_scan()` catches `TriggerError` with `logger.critical` (#291)
+- `FileMover._move_file()` retries `shutil.move()` on `OSError` (3 attempts,
+  exponential backoff) and raises `DataFileError` on exhaustion; callers no longer
+  silently discard move failures (#292)
+- `FileMover._process_task()` and `_post_process_orphaned_files()` guard
+  `home_dir.iterdir()` against `OSError` so a disconnected network share raises a
+  typed exception rather than crashing a worker thread silently (#292)
+- `ScanDataManager` filesystem failures (`initialize_tdms_writers`, `save_to_txt_and_h5`,
+  `_make_sFile`) now chain into `DataFileError`; `process_results()` catches
+  `DataFileError` explicitly before the broad handler (#292)
 - `BaseEvaluator` stripped of dead-code methods (`_gather_shot_entries`,
   `validate_variable_keys_against_requirements`, `log_objective_result`,
   `get_device_shot_path`, `convert_log_entries_to_df`, `get_shotnumbers_for_bin`);

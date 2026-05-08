@@ -27,6 +27,13 @@ from geecs_data_utils.config_roots import (
     scan_analysis_config,
 )
 from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
+from geecs_data_utils.scan_log_loader import (
+    LogEntry,
+    Severity,
+    load_scan_log,
+    parse_lines,
+    parse_scan_log,
+)
 
 __all__ = [
     "ScanData",
@@ -42,4 +49,10 @@ __all__ = [
     "scan_analysis_config",
     "DocIDLookup",
     "EXPERIMENT_FILE_IDS",
+    # scan log loader
+    "LogEntry",
+    "Severity",
+    "load_scan_log",
+    "parse_lines",
+    "parse_scan_log",
 ]

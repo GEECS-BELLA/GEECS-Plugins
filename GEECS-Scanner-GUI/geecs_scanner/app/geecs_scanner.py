@@ -76,7 +76,6 @@ MAXIMUM_SCAN_SIZE = (
 BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network", "Enable Global Time Sync"]
 STRING_OPTIONS = [
     "Master Control IP",
-    "Save Hiatus Period (s)",
     "Global Time Tolerance (ms)",
 ]
 # Menu labels ↔ backend keys + caster
@@ -86,7 +85,6 @@ OPTION_MAP: dict[str, tuple[str, type]] = {
         "global_time_tolerance_ms",
         float,
     ),  # cast to float first, clamp, then int
-    "Save Hiatus Period (s)": ("save_hiatus_s", float),
     "Master Control IP": ("master_control_ip", str),
 }
 
