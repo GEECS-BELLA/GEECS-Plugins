@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import logging
+import re
 
 from pathlib import Path
 from dateutil.parser import parse as dateparse
@@ -69,6 +70,47 @@ def month_to_int(month: Union[str, int]) -> int:
         return dateparse(month).month
     else:
         raise ValueError(f"'{month}' is not a valid month")
+
+
+def timestamp_from_string(string: str) -> float:
+    """Extract epoch-seconds timestamp from a GEECS filename string.
+
+    Parameters
+    ----------
+    string : str
+        Filename or string containing a timestamp in the form ``_<digits>.<3-digits>.<ext>``.
+
+    Returns
+    -------
+    float
+        Epoch seconds extracted from the string.
+
+    Raises
+    ------
+    ValueError
+        If the pattern is not found in *string*.
+    """
+    pattern = r"_(\d+\.\d{3})\.[^.]+$"
+    match = re.search(pattern, string)
+    if match:
+        return float(match.group(1))
+    raise ValueError(f"Could not extract timestamp from '{string}'")
+
+
+def timestamp_from_filename(file: Path) -> float:
+    """Extract epoch-seconds timestamp from a GEECS data file's name.
+
+    Parameters
+    ----------
+    file : Path
+        Path whose filename encodes a timestamp (see :func:`timestamp_from_string`).
+
+    Returns
+    -------
+    float
+        Epoch seconds.
+    """
+    return timestamp_from_string(file.name)
 
 
 class ConfigurationError(Exception):

@@ -1,11 +1,10 @@
 [tool.poetry]
 name = "geecs-pythonapi"
-version = "0.3.1"
+version = "0.4.2"
 description = "Python interface to GEECS control system"
 authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>", "Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
-packages = [{include = "geecs_python_api"},
-            {include = "labview_interface"}]
+packages = [{include = "geecs_python_api"}]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.12"
@@ -35,6 +34,12 @@ mysql-connector-python = "^8.2.0"
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "hardware: requires live GEECS hardware (use --hardware to enable)",
+]
 
 [build-system]
 requires = ["poetry-core"]

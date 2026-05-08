@@ -17,7 +17,7 @@ import pandas as pd
 
 from . import DeviceManager
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
+from geecs_data_utils import timestamp_from_filename
 import geecs_python_api.controls.interface.message_handling as mh
 from geecs_scanner.logging_setup import update_context
 from geecs_scanner.utils import SoundPlayer
@@ -226,7 +226,7 @@ class FileMover:
                         self.orphaned_files.add(file)
                         continue
 
-                file_ts = extract_timestamp_from_file(file, device_type)
+                file_ts = timestamp_from_filename(file)
                 if abs(file_ts - expected_timestamp) < 0.0011:
                     found_files_count += 1
                     task.files_found_so_far += 1
@@ -423,7 +423,7 @@ class FileMover:
             )
 
             for file in orphan_files:
-                file_ts = extract_timestamp_from_file(file, device_type)
+                file_ts = timestamp_from_filename(file)
                 matched_shot = None
 
                 for shot_number, ts in shot_timestamp_pairs:

@@ -72,7 +72,7 @@ class GeecsDevice:
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
-        self.use_alias_in_TCP_subscription: bool = True
+        self.use_alias_in_TCP_subscription: bool = False
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {
@@ -428,8 +428,13 @@ class GeecsDevice:
             cmd_label = f"get({variable})"
 
         if not self.is_valid():
-            logger.warning('failed to execute "%s": device not connected', cmd_label)
-            return None
+            from geecs_python_api.controls.interface.geecs_errors import (
+                GeecsDeviceInstantiationError,
+            )
+
+            raise GeecsDeviceInstantiationError(
+                f'cannot execute "{cmd_label}": device "{self.get_name()}" is not connected'
+            )
 
         stamp = re.sub(r"[\s.:]", "-", dtime.now().__str__())
         cmd_label += f" @ {stamp}"
