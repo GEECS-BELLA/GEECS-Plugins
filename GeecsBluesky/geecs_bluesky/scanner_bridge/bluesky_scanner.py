@@ -122,18 +122,33 @@ class BlueskyScanner:
     shot_control_information:
         Shot-controller YAML config dict (currently unused; shots_per_step can
         be passed via ``config_dictionary`` in :meth:`reinitialize`).
+    tiled_uri:
+        URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
+        When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
+        is subscribed to the RunEngine so every scan is persisted automatically.
+        Requires ``tiled[client]`` to be installed; silently skipped if absent.
+    tiled_api_key:
+        API key for the Tiled server, if authentication is enabled.
     """
 
     def __init__(
         self,
         experiment_dir: str = "",
         shot_control_information: dict | None = None,
+        tiled_uri: str | None = None,
+        tiled_api_key: str | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
         # context_managers=[] disables SIGINT handling, which fails when the
         # RunEngine is called from a background thread (not the main thread).
         self._RE = RunEngine(context_managers=[])
         self._RE.subscribe(self._on_document)
+
+        self._tiled_token: int | None = None
+        if tiled_uri is None:
+            tiled_uri, tiled_api_key = self._read_tiled_config()
+        if tiled_uri:
+            self._subscribe_tiled(tiled_uri, tiled_api_key)
 
         self._scan_thread: threading.Thread | None = None
         self._config_dict: dict[str, Any] = {}
@@ -268,6 +283,58 @@ class BlueskyScanner:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _read_tiled_config() -> tuple[str | None, str | None]:
+        """Read Tiled URI and API key from ~/.config/geecs_python_api/config.ini.
+
+        Returns ``(uri, api_key)``, either of which may be ``None`` if absent.
+        """
+        import configparser
+        from pathlib import Path
+
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None, None
+
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path)
+
+        if "tiled" not in cfg:
+            return None, None
+
+        uri = cfg["tiled"].get("uri") or None
+        api_key = cfg["tiled"].get("api_key") or None
+        logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
+        return uri, api_key
+
+    def _subscribe_tiled(self, tiled_uri: str, api_key: str | None = None) -> None:
+        """Subscribe a TiledWriter to the RunEngine.
+
+        Silently skips if ``tiled[client]`` is not installed or the server is
+        unreachable, so the scanner remains functional without Tiled.
+        """
+        try:
+            from bluesky.callbacks.tiled_writer import TiledWriter
+            from tiled.client import from_uri
+        except ImportError:
+            logger.warning(
+                "tiled not installed — Tiled storage disabled. "
+                "Enable with: pip install 'tiled[client]'"
+            )
+            return
+
+        try:
+            client = from_uri(tiled_uri, api_key=api_key)
+            writer = TiledWriter(client)
+            self._tiled_token = self._RE.subscribe(writer)
+            logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
+        except Exception:
+            logger.warning(
+                "Could not connect TiledWriter to %s — Tiled storage disabled",
+                tiled_uri,
+                exc_info=True,
+            )
 
     def _on_document(self, name: str, doc: dict) -> None:
         if name == "event":
