@@ -109,7 +109,7 @@ class ScanDataManager:
             If set, the pre-scan purge exits early and this method returns.
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
-            logger.info("Configuring save paths for device: %s", device_name)
+            logger.debug("Configuring save paths for device: %s", device_name)
             target_dir = self.scan_paths.get_folder() / device_name
             target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -162,7 +162,7 @@ class ScanDataManager:
                 if base_dir.exists():
                     for subdir in base_dir.iterdir():
                         if subdir.is_dir() and dev_name in subdir.name:
-                            logger.info("Purging directory: %s", subdir)
+                            logger.debug("Purging directory: %s", subdir)
                             self.purge_local_save_dir(subdir)
                 else:
                     logger.warning("Base directory %s does not exist.", base_dir)
@@ -189,13 +189,13 @@ class ScanDataManager:
             for item in source_dir.rglob("*"):
                 if item.is_file():
                     if stop_event is not None and stop_event.is_set():
-                        logger.info(
+                        logger.debug(
                             "File purge interrupted by stop request at %s", item
                         )
                         return False
                     try:
                         item.unlink()
-                        logger.info("Removed file: %s", item)
+                        logger.debug("Removed file: %s", item)
                     except Exception:
                         logger.exception("Error removing %s", item)
         return True
@@ -241,13 +241,13 @@ class ScanDataManager:
 
         full_path = Path(self.data_txt_path).parent / filename
         full_path.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Attempting to write to %s", full_path)
+        logger.debug("Attempting to write to %s", full_path)
 
         with full_path.open("w") as configfile:
             for line in config_file_contents:
                 configfile.write(line)
 
-        logger.info("Scan info written to %s", full_path)
+        logger.debug("Scan info written to %s", full_path)
 
     def save_to_txt_and_h5(self, df: pd.DataFrame) -> None:
         """Write *df* to ``ScanData{scan}.txt`` (TSV).
@@ -389,7 +389,7 @@ class ScanDataManager:
         if results:
             try:
                 log_df = self.convert_to_dataframe(results)
-                logger.info("Data logging complete. Returning DataFrame.")
+                logger.debug("Data logging complete. Returning DataFrame.")
                 self.save_to_txt_and_h5(log_df)
                 self.dataframe_to_tdms(log_df)
                 return log_df
@@ -446,7 +446,7 @@ class ScanDataManager:
 
             log_df = log_df.fillna(fill_value)
             log_df = log_df.infer_objects(copy=False)
-            logger.info("Filled remaining NaN and empty values with %s.", fill_value)
+            logger.debug("Filled remaining NaN and empty values with %s.", fill_value)
 
             return log_df
 

@@ -102,7 +102,7 @@ class ActionManager:
                 logger.warning("Overwriting existing action: %s", action_name)
 
             self.actions[action_name] = action_seq
-            logger.info("Added action sequence: %s", action_name)
+            logger.debug("Added action sequence: %s", action_name)
 
         except Exception:
             logger.exception("Failed to add action %s", action_name)
@@ -120,7 +120,7 @@ class ActionManager:
         if action_name not in self.actions:
             raise ActionError(f"Action '{action_name}' is not defined.")
 
-        logger.info("Starting execution of action sequence: %s", action_name)
+        logger.debug("Starting execution of action sequence: %s", action_name)
 
         action = self.actions[action_name]
         steps = action.steps
@@ -141,10 +141,10 @@ class ActionManager:
             try:
                 match step:
                     case WaitStep():
-                        logger.info("Waiting for %s seconds", step.wait)
+                        logger.debug("Waiting for %s seconds", step.wait)
                         self._wait(step.wait)
                     case ExecuteStep():
-                        logger.info("Executing nested action: %s", step.action_name)
+                        logger.debug("Executing nested action: %s", step.action_name)
                         self.execute_action(step.action_name)
                     case SetStep():
                         device = self._get_or_create_device(step.device)
@@ -168,7 +168,7 @@ class ActionManager:
                 )
                 raise ActionError(f"Step execution failed in action {action_name}")
 
-        logger.info("Successfully completed action sequence: %s", action_name)
+        logger.debug("Successfully completed action sequence: %s", action_name)
 
     def _get_or_create_device(self, device_name: str) -> ScanDevice:
         if device_name not in self.instantiated_devices:
@@ -181,7 +181,7 @@ class ActionManager:
             step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
         }
 
-        logger.info(
+        logger.debug(
             "Checking instantiation status for %d unique device(s)", len(devices)
         )
 
@@ -208,7 +208,7 @@ class ActionManager:
             return
 
         del self.actions[action_name]
-        logger.info("Removed action sequence: %s", action_name)
+        logger.debug("Removed action sequence: %s", action_name)
 
     def _set_device(
         self, device: ScanDevice, variable: str, value: Any, sync: bool = True
@@ -216,7 +216,7 @@ class ActionManager:
         """Call ``device.set(variable, value)`` and escalate errors to the user dialog."""
         try:
             result = device.set(variable, value, sync=sync)
-            logger.info(
+            logger.debug(
                 "Set %s:%s to %s. Result: %s",
                 device.get_name(),
                 variable,
@@ -244,7 +244,7 @@ class ActionManager:
         """
         value = device.get(variable)
         if value == expected_value:
-            logger.info(
+            logger.debug(
                 "Get %s:%s returned expected value: %s",
                 device.get_name(),
                 variable,
@@ -266,7 +266,7 @@ class ActionManager:
 
     @staticmethod
     def _wait(seconds: float):
-        logger.info("Waiting for %s seconds.", seconds)
+        logger.debug("Waiting for %s seconds.", seconds)
         time.sleep(seconds)
 
     def _prompt_user_quit_action(self, message: str) -> bool:
