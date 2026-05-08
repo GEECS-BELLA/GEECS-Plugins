@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import yaml
 
@@ -16,7 +16,6 @@ from geecs_scanner.data_acquisition.dialog_request import (
 from geecs_scanner.data_acquisition.schemas.actions import (
     ActionLibrary,
     ActionSequence,
-    ActionStep,
     ExecuteStep,
     GetStep,
     SetStep,
@@ -174,11 +173,13 @@ class ActionManager:
                             raise ActionError(
                                 f"Unrecognized action step type: {type(step)}"
                             )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "Error executing step %s in action %s", step_index, action_name
                     )
-                    raise ActionError(f"Step execution failed in action {action_name}")
+                    raise ActionError(
+                        f"Step execution failed in action {action_name}"
+                    ) from exc
 
         finally:
             for name, device in open_devices.items():
@@ -188,35 +189,6 @@ class ActionManager:
                     logger.warning("Failed to close device %s after action", name)
 
         logger.debug("Successfully completed action sequence: %s", action_name)
-
-    def ping_devices_in_action_list(self, action_steps: List[ActionStep]):
-        """Open each device in *action_steps* briefly and verify its alive flag."""
-        devices = {
-            step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
-        }
-
-        logger.debug(
-            "Checking instantiation status for %d unique device(s)", len(devices)
-        )
-
-        for device_name in devices:
-            device = ScanDevice(device_name)
-            try:
-                if not device.state.get("Device alive on instantiation", False):
-                    raise Exception(
-                        f"Device {device_name} failed instantiation connectivity test"
-                    )
-                logger.debug("Device %s instantiation check passed", device_name)
-            except Exception:
-                logger.exception(
-                    "Device instantiation check failed for %s", device_name
-                )
-                raise
-            finally:
-                try:
-                    device.close()
-                except Exception:
-                    logger.warning("Failed to close device %s after ping", device_name)
 
     def clear_action(self, action_name: str):
         """Remove *action_name* from the in-memory library."""

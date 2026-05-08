@@ -147,7 +147,6 @@ def make_executor(monkeypatch):
             device_manager=device_manager,
             data_logger=MagicMock(),
             scan_data_manager=MagicMock(),
-            shot_control=None,
             options=options or ScanOptions(),
             stop_scanning_thread_event=stop_event,
             pause_scan_event=pause_event,

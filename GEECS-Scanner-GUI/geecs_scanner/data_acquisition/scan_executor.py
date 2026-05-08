@@ -51,7 +51,6 @@ class ScanStepExecutor:
         options: ScanOptions,
         stop_scanning_thread_event,
         pause_scan_event,
-        shot_control=None,
         optimizer: Optional[BaseOptimizer] = None,
         trigger_controller: Optional[TriggerController] = None,
     ):
