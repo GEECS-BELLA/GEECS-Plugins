@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import queue
 import threading
 from typing import Any
 
@@ -143,6 +144,9 @@ class BlueskyScanner:
         # RunEngine is called from a background thread (not the main thread).
         self._RE = RunEngine(context_managers=[])
         self._RE.subscribe(self._on_document)
+
+        # GUI compatibility shim — always empty; BlueskyScanner uses bps.pause() not dialogs
+        self.dialog_queue: queue.Queue = queue.Queue()
 
         self._tiled_token: int | None = None
         if tiled_uri is None:
