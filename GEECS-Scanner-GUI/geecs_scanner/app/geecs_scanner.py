@@ -591,6 +591,7 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl = run_control_class(
                 experiment_name=self.experiment,
                 shot_control_configuration=shot_control_path,
+                use_bluesky=True,
             )
 
         except AttributeError:
