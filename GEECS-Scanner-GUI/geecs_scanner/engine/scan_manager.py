@@ -26,6 +26,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
@@ -148,6 +149,11 @@ class ScanManager:
 
         self.scan_config: ScanConfig
 
+        self.cmd_executor = DeviceCommandExecutor(
+            on_escalate=self.request_user_dialog,
+            stop_event=self.stop_scanning_thread_event,
+        )
+
         self.executor = ScanStepExecutor(
             device_manager=self.device_manager,
             data_logger=self.data_logger,
@@ -158,9 +164,9 @@ class ScanManager:
             pause_scan_event=self.pause_scan_event,
             trigger_controller=self.trigger_controller,
         )
-        self.executor.on_device_error = self.request_user_dialog
-        self.action_manager.on_user_prompt = self.request_user_dialog
-        self.scan_data_manager.on_device_error = self.request_user_dialog
+        self.executor.cmd_executor = self.cmd_executor
+        self.action_manager.cmd_executor = self.cmd_executor
+        self.scan_data_manager.cmd_executor = self.cmd_executor
 
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
@@ -257,6 +263,7 @@ class ScanManager:
         self.scan_data_manager = ScanDataManager(
             self.device_manager, scan_data, database_dict
         )
+        self.scan_data_manager.cmd_executor = self.cmd_executor
 
         if exec_config is not None:
             options = exec_config.options

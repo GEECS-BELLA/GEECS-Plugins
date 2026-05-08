@@ -7,6 +7,7 @@ This package re-exports common classes so callers can write:
 
 __all__ = [
     "ActionManager",
+    "DeviceCommandExecutor",
     "DeviceManager",
     "DataLogger",
     "ScanStepExecutor",
@@ -18,6 +19,7 @@ __all__ = [
 ]
 
 from .action_manager import ActionManager
+from .device_command_executor import DeviceCommandExecutor
 from .device_manager import DeviceManager
 from .data_logger import DataLogger
 from .scan_executor import ScanStepExecutor

@@ -14,11 +14,8 @@ from nptdms import ChannelObject, TdmsWriter
 from . import DatabaseDictLookup, DeviceManager
 from geecs_data_utils import ScanConfig, ScanPaths
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_scanner.engine.dialog_request import (
-    DEVICE_COMMAND_ERRORS,
-    escalate_device_error,
-)
-from geecs_scanner.utils.exceptions import DataFileError
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.utils.exceptions import DataFileError, DeviceCommandError
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +64,7 @@ class ScanDataManager:
         self.sFile_info_path: Optional[Path] = None
         self.device_save_paths_mapping: DeviceSavePaths = {}
         self.on_device_error = None
+        self.cmd_executor: Optional[DeviceCommandExecutor] = None
         self.scan_number_int: Optional[int] = None
         self.parsed_scan_string: Optional[str] = None
 
@@ -132,17 +130,14 @@ class ScanDataManager:
 
             save_path = str(data_path_client_side).replace("/", "\\")
             try:
-                device.set("localsavingpath", save_path, sync=False)
+                self.cmd_executor.set(device, "localsavingpath", save_path, sync=False)
                 time.sleep(0.1)
-                device.set("save", "on", sync=False)
-            except DEVICE_COMMAND_ERRORS as e:
-                logger.error(
-                    "Failed to configure save path for %s (%s): %s",
-                    device_name,
-                    type(e).__name__,
-                    e,
-                )
-                escalate_device_error(e, self.on_device_error)
+                self.cmd_executor.set(device, "save", "on", sync=False)
+            except DeviceCommandError as exc:
+                abort = self.cmd_executor.escalate(exc)
+                if abort:
+                    return
+                continue
 
             self.device_save_paths_mapping[device_name] = {
                 "target_dir": target_dir,

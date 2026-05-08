@@ -3,6 +3,34 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] — 2026-05-08
+
+### Added
+- `DeviceCommandExecutor` — single policy object for all `device.set()` /
+  `device.get()` calls during a scan.  Enforces a per-error-type retry
+  policy: `GeecsDeviceCommandRejected` retries up to `max_retries` times;
+  `GeecsDeviceExeTimeout` and `GeecsDeviceCommandFailed` escalate immediately
+  (no retry, since retrying a hung or hardware-failed device makes it worse).
+  The `escalate()` method routes failures to the operator dialog callback and
+  sets the scan `stop_event` when the user chooses Abort.
+- Exported from `geecs_scanner.engine` package.
+
+### Changed
+- `ScanStepExecutor`: replaced scattered `retry()` + `escalate_device_error()`
+  calls in `move_devices_parallel_by_device` with `cmd_executor.set()` /
+  `cmd_executor.escalate()`.  `max_retries` / `retry_delay` parameters removed
+  from `move_devices_parallel_by_device` (now configured on the executor).
+- `ScanDataManager.configure_device_save_paths`: fixed bug where the return
+  value of the escalation callback was ignored, so an Abort choice never
+  stopped the device-configuration loop.  Now correctly returns early on
+  Abort and skips the failed device on Continue.
+- `ActionManager._set_device`: routes device failures through
+  `cmd_executor.set()` / `cmd_executor.escalate()`; re-raises on Abort so
+  the enclosing action sequence fails cleanly.
+- `ScanManager`: creates a `DeviceCommandExecutor` instance in `__init__` and
+  injects it into `ScanStepExecutor`, `ScanDataManager`, and `ActionManager`.
+  Also re-injects into the new `ScanDataManager` created during `reinitialize()`.
+
 ## [0.11.0] — 2026-05-07
 
 ### Added

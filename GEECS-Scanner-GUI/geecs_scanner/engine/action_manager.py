@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import yaml
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_scanner.engine.dialog_request import (
-    DEVICE_COMMAND_ERRORS,
-    escalate_device_error,
-)
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
 from geecs_scanner.engine.models.actions import (
     ActionLibrary,
     ActionSequence,
@@ -22,7 +19,7 @@ from geecs_scanner.engine.models.actions import (
     WaitStep,
 )
 
-from ..utils.exceptions import ActionError
+from ..utils.exceptions import ActionError, DeviceCommandError
 from ..utils.config_utils import get_full_config_path
 
 logger = logging.getLogger(__name__)
@@ -49,6 +46,7 @@ class ActionManager:
 
         # Injected by ScanManager after construction — same pattern as executor callbacks.
         self.on_user_prompt = None
+        self.cmd_executor: Optional[DeviceCommandExecutor] = None
 
         if experiment_dir is not None:
             try:
@@ -206,7 +204,7 @@ class ActionManager:
     ):
         """Call ``device.set(variable, value)`` and escalate errors to the user dialog."""
         try:
-            result = device.set(variable, value, sync=sync)
+            result = self.cmd_executor.set(device, variable, value, sync=sync)
             logger.debug(
                 "Set %s:%s to %s. Result: %s",
                 device.get_name(),
@@ -214,16 +212,10 @@ class ActionManager:
                 value,
                 result,
             )
-        except DEVICE_COMMAND_ERRORS as e:
-            logger.error(
-                "Set %s:%s to %s failed (%s): %s",
-                device.get_name(),
-                variable,
-                value,
-                type(e).__name__,
-                e,
-            )
-            escalate_device_error(e, self.on_user_prompt)
+        except DeviceCommandError as exc:
+            abort = self.cmd_executor.escalate(exc)
+            if abort:
+                raise
 
     def _get_device(self, device: ScanDevice, variable: str, expected_value: Any):
         """Retrieve *variable* from *device* and prompt the user if it differs from *expected_value*.
