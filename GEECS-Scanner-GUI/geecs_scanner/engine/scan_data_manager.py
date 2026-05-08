@@ -107,7 +107,7 @@ class ScanDataManager:
             If set, the pre-scan purge exits early and this method returns.
         """
         for device_name in self.device_manager.non_scalar_saving_devices:
-            logger.debug("Configuring save paths for device: %s", device_name)
+            logger.info("Configuring save paths for device: %s", device_name)
             target_dir = self.scan_paths.get_folder() / device_name
             target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -242,7 +242,7 @@ class ScanDataManager:
             for line in config_file_contents:
                 configfile.write(line)
 
-        logger.debug("Scan info written to %s", full_path)
+        logger.info("Scan info written to %s", full_path)
 
     def save_to_txt_and_h5(self, df: pd.DataFrame) -> None:
         """Write *df* to ``ScanData{scan}.txt`` (TSV).

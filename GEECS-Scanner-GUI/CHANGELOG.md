@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] — 2026-05-08
+
+### Changed
+- Restored 14 log lines from DEBUG back to INFO across `action_manager`,
+  `scan_data_manager`, `device_manager`, `scan_manager`, and `data_logger`.
+  These were demoted in 0.9.1 to reduce terminal noise, but with the
+  log-triage tooling in place the richer log signal is more valuable than
+  the brevity. Restored lines: action sequence start/complete, pre-scan and
+  closeout action attempts, configure-save-paths per device, scan-info file
+  written, scan-info loaded, device unsubscribe lifecycle, orphan-file sweep
+  start, FileMover worker started/stopped, per-device acq_timestamp during
+  global time sync, and timestamp-tolerance-failed fallback message.
+
 ## [0.12.0] — 2026-05-08
 
 ### Added

@@ -674,7 +674,7 @@ class ScanManager:
         # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
         # written above from being preserved.
         if self.device_manager.scan_closeout_action is not None:
-            logger.debug("Attempting to execute closeout actions.")
+            logger.info("Attempting to execute closeout actions.")
             logger.debug("Action list %s", self.device_manager.scan_closeout_action)
             try:
                 self.action_manager.add_action(
@@ -752,7 +752,7 @@ class ScanManager:
                             "Error resetting save state for %s", futures[future]
                         )
 
-        logger.debug("scanning has stopped for all devices.")
+        logger.info("scanning has stopped for all devices.")
 
     def pre_logging_setup(self):
         """Configure devices and files for data acquisition.
@@ -824,7 +824,7 @@ class ScanManager:
             raise ScanAbortedError("Stop requested during prelogging")
 
         if self.device_manager.scan_setup_action is not None:
-            logger.debug("Attempting to execute pre-scan actions.")
+            logger.info("Attempting to execute pre-scan actions.")
             logger.debug("Action list %s", self.device_manager.scan_setup_action)
 
             self.action_manager.add_action(

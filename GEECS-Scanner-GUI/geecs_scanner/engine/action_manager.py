@@ -117,7 +117,7 @@ class ActionManager:
         if action_name not in self.actions:
             raise ActionError(f"Action '{action_name}' is not defined.")
 
-        logger.debug("Starting execution of action sequence: %s", action_name)
+        logger.info("Starting execution of action sequence: %s", action_name)
 
         action = self.actions[action_name]
         steps = action.steps
@@ -186,7 +186,7 @@ class ActionManager:
                 except Exception:
                     logger.warning("Failed to close device %s after action", name)
 
-        logger.debug("Successfully completed action sequence: %s", action_name)
+        logger.info("Successfully completed action sequence: %s", action_name)
 
     def clear_action(self, action_name: str):
         """Remove *action_name* from the in-memory library."""
