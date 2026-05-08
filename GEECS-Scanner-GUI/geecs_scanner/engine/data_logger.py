@@ -942,6 +942,7 @@ class DataLogger:
                 # This ensures both sync and async devices use the same shot number
                 self.shot_index += 1
                 update_context({"shot_id": str(self.shot_index)})
+                logger.info("shot %s", self.shot_index)
 
                 self._update_async_observables(
                     self.device_manager.async_observables, elapsed_time
