@@ -14,6 +14,14 @@ __all__ = [
     "DatabaseDictLookup",
     "ScanDataManager",
     "ScanManager",
+    "ScanState",
+    "ScanEvent",
+    "ScanLifecycleEvent",
+    "ScanStepEvent",
+    "DeviceCommandEvent",
+    "ScanErrorEvent",
+    "ScanRestoreFailedEvent",
+    "ScanDialogEvent",
     "get_full_config_path",
     "visa_config_generator",
 ]
@@ -26,4 +34,14 @@ from .scan_executor import ScanStepExecutor
 from .database_dict_lookup import DatabaseDictLookup
 from .scan_data_manager import ScanDataManager
 from .scan_manager import ScanManager
+from .scan_events import (
+    ScanState,
+    ScanEvent,
+    ScanLifecycleEvent,
+    ScanStepEvent,
+    DeviceCommandEvent,
+    ScanErrorEvent,
+    ScanRestoreFailedEvent,
+    ScanDialogEvent,
+)
 from ..utils.config_utils import get_full_config_path, visa_config_generator
