@@ -1,59 +1,28 @@
-"""
-Data logging and file management module for GEECS experimental scans.
-
-This module defines the `DataLogger` and `FileMover` classes, which coordinate
-data acquisition, device synchronization, and file organization during scans.
-These classes are intended to be used exclusively by within this project and
-not standalone objects. In other words, creation and use of DataLogger should
-be handled exclusively by a ScanManager object.
-
-Classes
--------
-DataLogger
-    Handles event-driven and asynchronous logging from GEECS devices.
-    Manages timestamps, synchronization, and log data organization.
-FileMover
-    Processes file move tasks based on timestamp matching and device type.
-    Supports background thread workers, orphan file handling, and variant processing.
-
-Functionality
--------------
-- Logs data via TCP subscriptions using elapsed time.
-- Synchronizes multiple devices using standby/trigger detection.
-- Automatically renames and moves primary and derived files.
-- Supports composite variables, asynchronous polling, and audio feedback.
-
-Dependencies
-------------
-- DeviceManager
-- GeecsDevice (GEECS Python API)
-- SoundPlayer (utils)
-- pandas, threading, pathlib, logging
-"""
+"""Per-shot data logging, device synchronization, and file management for ScanManager."""
 
 from __future__ import annotations
-from typing import Optional, Dict, Any, Callable, List, Union
 
-import time
-from time import time as _now
-import threading
-from datetime import datetime
 import logging
-import pandas as pd
 import queue
 import shutil
-from pathlib import Path
+import threading
+import time
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from time import time as _now
+from typing import Any, Callable, Dict, List, Optional, Union
+
+import pandas as pd
 
 from . import DeviceManager
-from geecs_scanner.utils import SoundPlayer
-from geecs_scanner.utils.exceptions import DataFileError
-from geecs_scanner.utils.retry import retry
-from geecs_scanner.logging_setup import update_context
-
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_python_api.tools.files.timestamping import extract_timestamp_from_file
 import geecs_python_api.controls.interface.message_handling as mh
+from geecs_scanner.logging_setup import update_context
+from geecs_scanner.utils import SoundPlayer
+from geecs_scanner.utils.exceptions import DataFileError
+from geecs_scanner.utils.retry import retry
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
@@ -62,31 +31,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FileMoveTask:
-    """
-    Task definition for moving and renaming files during data acquisition.
-
-    Attributes
-    ----------
-    source_dir : Path
-        Directory where the original file is expected to be located.
-    target_dir : Path
-        Destination directory where the file should be moved.
-    device_name : str
-        Name of the device that generated the file.
-    device_type : str
-        Type of device (e.g., 'UC_UndulatorRad2', etc.).
-    expected_timestamp : float
-        Timestamp to match when identifying the correct file.
-    shot_index : int
-        Shot number corresponding to this file.
-    random_part : Optional[str], optional
-        Unique identifier extracted from the file name which is generated
-        using the system timestamp after 'successful' acquire loop execution
-    suffix : Optional[str], optional
-        Suffix to identify file variants (e.g., '-interpSpec').
-    new_name : Optional[str], optional
-        New standardized file name (without extension).
-    """
+    """Task definition for moving and renaming a device file after acquisition."""
 
     source_dir: Path
     target_dir: Path
@@ -111,49 +56,30 @@ class FileMoveTask:
 
 
 class FileMover:
-    """
-    Class for managing file renaming and relocation during or after scan acquisition.
+    """Rename and relocate device files using background worker threads.
 
-    Uses background worker threads to handle file matching and movement based on
-    acquisition timestamps and scan metadata.
+    Files are matched by acquisition timestamp: when a device saves a file after
+    a shot, the filename encodes the system timestamp, which is also recorded in
+    scalar data.  Workers extract that timestamp, compare it against the expected
+    value, and rename the file to the scan's shot-number convention.
 
-    When a file is created after a successful acquisition, the file name contains
-    the system timestamp. The same timestamp is recorded in the scalar data (aka
-    scan_paths, sfile, etc.) during acquisition. This information is used to infer
-    the shot number and change the name to match the shot number based naming
-    convention established by Master Control.
-
-    save_local = True is the more reliable mode. This requires the device computers
-    to have a folder in the C: drive called SharedData that is shared with the
-    appropriate domain users. Local saving prevents network bottlenecks of saving
-    all data to single location at the same time.
+    ``save_local=True`` (the default) points devices at ``C:/SharedData`` on
+    their host rather than the network share, avoiding write-time bottlenecks.
 
     Attributes
     ----------
     task_queue : queue.Queue
-        Queue to hold FileMoveTask instances.
     stop_event : threading.Event
-        Event used to signal shutdown to worker threads.
     workers : list[threading.Thread]
-        Pool of worker threads for parallel processing.
     file_check_counts : dict
-        Counts of how many times a file was examined. When this exceeds a defined
-        limit, the file is no longer checked. It's possible that a file and the
-        metadata don't produce an immediate match and this prevents inifinitely
-        checking files. When the threshold is met, the file gets added to the
-        orphaned_files set.
+        How many times each file has been examined; files exceeding the limit
+        are moved to ``orphaned_files`` to prevent infinite re-checking.
     orphaned_files : set
-        Files checked multiple times without being moved.
     orphan_tasks : list
-        Tasks that could not be completed due to missing files.
     processed_files : set
-        Set of files already moved.
     scan_is_live : bool
-        Indicates if acquisition is still in progress.
     save_local : bool
-        If True, disables network delay sleep.
-    scan_number : Optional[int]
-        The scan number used in renaming files.
+    scan_number : int or None
     """
 
     def __init__(self, num_workers: int = 16) -> None:
@@ -165,9 +91,7 @@ class FileMover:
             worker.start()
             self.workers.append(worker)
 
-        # Track how many times a file has been checked.
         self.file_check_counts = {}
-        # Files checked more than twice without moving will be marked as orphaned.
         self.orphaned_files = set()
         self.orphan_tasks = []
         self.processed_files = set()
@@ -180,12 +104,7 @@ class FileMover:
         logger.info("FileMover worker started.")
 
     def _worker_func(self) -> None:
-        """
-        Continuously process file move tasks from the queue until stopped.
-
-        This background thread worker runs in a loop, pulling tasks from the queue.
-        It handles graceful shutdown when `stop_event` is set and the queue is empty.
-        """
+        """Drain the task queue until stopped."""
         while True:
             try:
                 task: Optional[FileMoveTask] = self.task_queue.get(timeout=1)
@@ -206,27 +125,7 @@ class FileMover:
         logger.info("FileMover worker stopped.")
 
     def _process_task(self, task: FileMoveTask) -> None:
-        """
-        Process a FileMoveTask by locating, renaming, and moving matching files.
-
-        This method searches the appropriate variant directories for files that match the
-        expected acquisition timestamp. Once a match is found, the file is renamed using
-        a standardized naming convention and moved to the corresponding target directory.
-        If the device type is a MagSpec variant, additional related files (e.g., "-interpSpec")
-        are also processed.
-
-        Parameters
-        ----------
-        task : FileMoveTask
-            The task containing source/target paths, device info, and expected timestamp.
-
-        Notes
-        -----
-        - If `save_local` is False, adds a short delay to allow time for files to be written.
-        - Files that cannot be matched after repeated checks are marked as orphaned.
-        - For MagSpec (and others devices), looks for and processes additional variant files
-         with known suffixes.
-        """
+        """Locate the file matching *task*'s timestamp and move it to the target dir."""
         # Give the device time to finish writing before retrying.  The sleep
         # lives here (in the worker) rather than in move_files_by_timestamp so
         # that _post_process_orphan_task can queue all orphan tasks at once and
@@ -357,14 +256,11 @@ class FileMover:
                         task_success = True
                         break
 
-            # Break out of the outer variant loop if we've found all expected files
             if task_success:
                 break
 
         if not task_success:
             if self.scan_is_live and task.retry_count < task.max_retries:
-                # Re-queue the task for another attempt; the file may not
-                # have been written to disk yet.
                 task.retry_count += 1
                 logger.info(
                     "Re-queuing task for %s with timestamp %s (retry %d/%d)",
@@ -375,7 +271,6 @@ class FileMover:
                 )
                 self.move_files_by_timestamp(task)
             else:
-                # Task exhausted retries (or scan is no longer live); mark as orphan
                 logger.info(
                     "failed to find a file for %s with timestamp %s",
                     task.device_name,
@@ -386,24 +281,7 @@ class FileMover:
     def _move_file(
         self, task: FileMoveTask, source_file: Path, new_device_name: str
     ) -> None:
-        """
-        Rename and move a file based on the given FileMoveTask and device variant.
-
-        Constructs a standardized file name using the scan number, device name, and shot
-        index.  The move is retried up to three times with exponential backoff to tolerate
-        transient network-share locking (the source lives on the device host's SharedData
-        share).  On exhaustion a :class:`~geecs_scanner.utils.exceptions.DataFileError`
-        is raised with the original :class:`OSError` chained, so the worker thread's
-        broad exception handler logs a typed, classifiable entry.
-
-        Parameters
-        ----------
-        task : FileMoveTask
-            The task containing directory paths, shot index, and naming metadata.
-        source_file : Path
-            The original file to be moved and renamed.
-        new_device_name : str
-            Name of the device (or variant) used in the target path and naming.
+        """Move *source_file* to the target dir, retrying on transient network-share errors.
 
         Raises
         ------
@@ -439,18 +317,7 @@ class FileMover:
             ) from exc
 
     def _process_variant_file(self, task: FileMoveTask) -> None:
-        """
-        Process and move a file from a variant directory based on the task's suffix and random part.
-
-        Constructs a variant directory path using the device name and suffix. Searches the directory
-        for a file whose name contains the task's `random_part`, then renames and moves the file
-        using the standardized name defined in `task.new_name`.
-
-        Parameters
-        ----------
-        task : FileMoveTask
-            The task containing device name, suffix, random part, and target directory information.
-        """
+        """Find and move the variant file (e.g. ``-interpSpec``) matching *task.random_part*."""
         if task.suffix is None or task.random_part is None:
             logger.info(
                 "No suffix or random_part in task; skipping variant processing."
@@ -485,84 +352,26 @@ class FileMover:
     def _generate_device_shot_filename(
         scan_number: int, device_name: str, shot_index: int
     ) -> str:
-        """
-        Generate a standardized file stem using scan number, device name, and shot index.
-
-        The output format is: "ScanXXX_Device_YYY", where:
-        - XXX is the zero-padded scan number
-        - YYY is the zero-padded shot index
-
-        Parameters
-        ----------
-        scan_number : int
-            Scan number to include in the filename (zero-padded to 3 digits).
-        device_name : str
-            Name of the device generating the file.
-        shot_index : int
-            Shot number (zero-padded to 3 digits).
-
-        Returns
-        -------
-        str
-            Standardized file stem for the device shot.
-        """
+        """Return ``Scan{NNN}_{device}_{SSS}`` — the shot-number naming convention."""
         scan_number_str = str(scan_number).zfill(3)
         shot_number_str = str(shot_index).zfill(3)
         return f"Scan{scan_number_str}_{device_name}_{shot_number_str}"
 
     def move_files_by_timestamp(self, task: FileMoveTask) -> None:
-        """
-        Enqueue a file move task to be processed by worker threads.
-
-        Parameters
-        ----------
-        task : FileMoveTask
-            The task containing file movement parameters such as source and target directories,
-            device name, expected timestamp, and shot index.
-        """
+        """Enqueue *task* for processing by a worker thread."""
         self.task_queue.put(task)
 
     def _post_process_orphaned_files(
         self, log_df: pd.DataFrame, device_save_paths_mapping: dict
     ) -> None:
-        """
-        Attempt to recover and process orphaned files based on device timestamps and log data.
-
-        For each device listed in the `device_save_paths_mapping`, search the source
-        directory and its variant directories (sibling directories whose names start with
-        the device name) for unprocessed files. For each file found, extract its timestamp
-        and compare it to acquisition timestamps in `log_df`. If a match is found within a
-        tolerance window, determine the corresponding shot number, construct a `FileMoveTask`,
-        and enqueue it for processing.
-
-        Parameters
-        ----------
-        log_df : pd.DataFrame
-            DataFrame containing shot metadata with a 'Shotnumber' column and per-device acquisition
-            timestamps (e.g., `"DeviceA acq_timestamp"`).
-
-        device_save_paths_mapping : dict
-            Mapping of device names to a dictionary with keys:
-            - 'source_dir': directory where the raw files are located
-            - 'target_dir': destination directory for processed files
-            - 'device_type': type of the device, used for timestamp parsing
-
-        Notes
-        -----
-        - Matching is done using a configurable timestamp tolerance (`0.0011` seconds).
-        - Orphan files are those not processed during live acquisition but present on disk.
-        - Files already in `processed_files` are skipped to avoid redundant work.
-        - Searches variant directories (e.g., DeviceName-Temporal, DeviceName-Spatial)
-          in addition to the base source directory, using the same pattern as `_process_task`.
-        """
+        """Match unprocessed files on disk against log timestamps and re-queue them."""
         logger.info("looking to handle orphaned data files")
-        tolerance = 0.0011  # Adjust as needed
+        tolerance = 0.0011
         for device_name, device_info in device_save_paths_mapping.items():
             source_dir = Path(device_info["source_dir"])
             target_dir = Path(device_info["target_dir"])
             device_type = device_info["device_type"]
 
-            # Create a list of (shotnumber, timestamp) pairs from the df.
             # *NOTE* Using `acq_timestamp` for data that was logged
             acq_col = f"{device_name} acq_timestamp"
             if acq_col not in log_df.columns:
@@ -584,9 +393,6 @@ class FileMover:
                 )
                 continue
 
-            # Search variant directories (siblings whose names start with device_name),
-            # using the same pattern as _process_task. This ensures we find files in
-            # directories like DeviceName-Temporal, DeviceName-Spatial, etc.
             home_dir = source_dir.parent
             try:
                 variant_dirs = [
@@ -602,7 +408,6 @@ class FileMover:
                 )
                 continue
 
-            # Collect orphan files from all variant directories, skipping already-processed files.
             orphan_files = []
             for variant_dir in variant_dirs:
                 for f in variant_dir.glob("*"):
@@ -620,7 +425,6 @@ class FileMover:
                 file_ts = extract_timestamp_from_file(file, device_type)
                 matched_shot = None
 
-                # Find the matching shot number using the pairs from the DataFrame.
                 for shot_number, ts in shot_timestamp_pairs:
                     if abs(file_ts - ts) < tolerance:
                         matched_shot = int(shot_number)
@@ -630,10 +434,7 @@ class FileMover:
                     logger.info(
                         "Found orphan file %s matching shot %s", file, matched_shot
                     )
-                    # Extract unique random part from the filename.
                     random_part = file.stem.replace(f"{device_name}_", "")
-
-                    # Create a FileMoveTask for this orphan file.
                     task = FileMoveTask(
                         source_dir=file.parent,
                         target_dir=target_dir,
@@ -652,13 +453,7 @@ class FileMover:
                     )
 
     def _post_process_orphan_task(self):
-        """
-        Enqueue all previously failed `FileMoveTask` entries for reprocessing.
-
-        This method iterates through the list of orphaned tasks (i.e., tasks that failed
-        to find matching files during initial processing) and re-adds them to the queue
-        for another attempt at moving files.
-        """
+        """Re-queue all previously failed tasks for a final move attempt."""
         orphan_snapshot = list(self.orphan_tasks)
         self.orphan_tasks.clear()
         for task in orphan_snapshot:
@@ -668,19 +463,7 @@ class FileMover:
             self.move_files_by_timestamp(task)
 
     def shutdown(self, wait: bool = True) -> None:
-        """
-        Shut down all worker threads gracefully.
-
-        This method signals that no new tasks will be added by setting the stop event.
-        If `wait` is True, it blocks until all currently queued tasks are processed.
-        It then sends shutdown signals to all worker threads and waits for them to exit.
-
-        Parameters
-        ----------
-        wait : bool, optional
-            Whether to wait for all currently queued tasks to finish before shutdown.
-            Defaults to True.
-        """
+        """Signal workers to stop; if *wait*, drain the queue first."""
         self.stop_event.set()
         if wait:
             self.task_queue.join()
@@ -692,113 +475,73 @@ class FileMover:
 
 
 class DataLogger:
-    """
-    Handle logging of device data during scans.
+    """Handle event-driven and polled data logging from GEECS devices during scans.
 
-    This class manages both event-driven (synchronous) and polled (asynchronous) observables.
-    It coordinates synchronization, state tracking, file handling, sound feedback, and metadata
-    logging across devices. It integrates with a `DeviceManager` and a `FileMover` to enable
-    hardware-aware acquisition and post-acquisition file management.
+    Owned and reinitialized by ``ScanManager`` for each scan; not intended for
+    standalone use.
 
     Attributes
     ----------
     device_manager : DeviceManager
-        Manages connections to GEECS devices and tracks observables.
     file_mover : FileMover or None
-        Handles renaming and organizing of data files per shot.
     log_entries : dict
-        Stores logged data per elapsed time during a scan.
+        ``{elapsed_time: {column: value, ...}}`` — the live in-memory log.
     scan_number : int or None
-        Identifier for the scan; used in filenames and metadata.
     bin_num : int
-        Bin number index; set externally via the ScanManager.
+        Set externally by ScanManager before each step.
     shot_index : int
-        Counter for the number of shots logged during the current scan.
     polling_interval : float
-        Polling frequency (seconds) for asynchronous observables.
     repetition_rate : float
-        Repetition rate (Hz) used for timestamp rounding in elapsed time.
+        Used to round elapsed times to the nearest shot interval.
     virtual_variable_name : str or None
-        Optional scan variable name to record with each shot.
     virtual_variable_value : float
-        The current value of the virtual scan variable.
     data_recording : bool
-        Flag indicating if logging is actively recording data.
     idle_time : float
-        Duration of inactivity during polling.
     lock : threading.Lock
-        Lock to synchronize access to log entries.
     stop_event : threading.Event
-        Used to signal the stop of polling and logging threads.
     shot_save_event : threading.Event
-        Signaled when a shot has been successfully logged.
+        Set whenever a new shot is logged; cleared by ScanStepExecutor.
     warning_timeout_sync : float
-        Timeout for determining if a synchronous device is idle.
     warning_timeout_async_factor : float
-        Multiplier of polling_interval for async timeout threshold.
     last_log_time_sync : dict
-        Tracks last successful logging times for sync devices.
     last_log_time_async : dict
-        Tracks last successful logging times for async devices.
     last_timestamps : dict
-        Most recent timestamps received from each device.
     initial_timestamps : dict
-        Initial timestamps used to compute elapsed times.
     synced_timestamps : dict
-        Timestamps received post-synchronization shot.
     standby_mode_device_status : dict
-        Status flags indicating whether each sync device is in standby.
-    device_save_paths_mapping : dict
-        Maps device names to file save and source directory information.
-    synchronous_device_names : list of str
-        Names of devices that report data via event triggers.
-    event_driven_observables : list of str
-        Observable strings (device:variable) monitored via event.
+        Per-device standby flag: ``None`` = unknown, ``True`` = in standby,
+        ``False`` = exited standby (received trigger).
+    device_save_paths_mapping : DeviceSavePaths
+    synchronous_device_names : list[str]
+    event_driven_observables : list[str]
     all_devices_in_standby : bool
-        True if all sync devices have entered standby state.
     devices_synchronized : bool
-        True once all sync devices have received a trigger post-standby.
     save_local : bool
-        Whether to store file data locally.
     sound_player : SoundPlayer
-        Manages audio feedback for new shots and session completion.
+    global_sync_tol_ms : float
     """
 
     def __init__(
         self, experiment_dir: Optional[str], device_manager: DeviceManager = None
     ):
-        """
-        Initialize the DataLogger with the experiment directory and a device manager.
-
-        Parameters
-        ----------
-        experiment_dir : str, optional
-            Path to the experiment directory, typically identifying the experiment name.
-        device_manager : DeviceManager, optional
-            An instance of DeviceManager to use for controlling devices.
-            If None, a new one is created using the experiment_dir.
-        """
         self.device_manager = device_manager or DeviceManager(experiment_dir)
         self.global_sync_tol_ms = 0
 
-        self.stop_event = threading.Event()  # Event to control polling thread
-        self.warning_timeout_sync = 2  # Timeout for synchronous devices (seconds)
-        self.warning_timeout_async_factor = (
-            1  # Factor of polling interval for async timeout
-        )
-        self.last_log_time_sync = {}  # Dictionary to track last log time for synchronous devices
-        self.last_log_time_async = {}  # Dictionary to track last log time for async devices
+        self.stop_event = threading.Event()
+        self.warning_timeout_sync = 2
+        self.warning_timeout_async_factor = 1
+        self.last_log_time_sync = {}
+        self.last_log_time_async = {}
         self.polling_interval = 0.5
-        self.results = {}  # Store results for later processing
+        self.results = {}
 
         self.log_entries = {}
 
-        # Initialize the sound player
         self.sound_player = SoundPlayer()
         self.shot_index = 0
 
         # Note: bin_num and scan_number are updated in ScanManager
-        self.bin_num = 0  # Initialize bin as 0
+        self.bin_num = 0
         self.scan_number = None
 
         self.virtual_variable_name = None
@@ -809,63 +552,35 @@ class DataLogger:
 
         self.lock = threading.Lock()
 
-        self.repetition_rate = 1.0  # Gets updated upon scan manager's reinitialization
+        self.repetition_rate = 1.0
 
         self.shot_save_event = threading.Event()
 
-        # Dictionaries for tracking timestamps and statuses
-        self.last_timestamps: Dict[str, float] = {}  # Maps device names to timestamps
+        self.last_timestamps: Dict[str, float] = {}
         self.initial_timestamps: Dict[str, Optional[float]] = {}
         self.synced_timestamps: Dict[str, float] = {}
         self.standby_mode_device_status: Dict[str, Optional[bool]] = {}
         self.device_save_paths_mapping: DeviceSavePaths = {}
-        # Uses Optional[bool] because status can be True, False, or None
 
-        # File management and observables
-        self.file_mover: Optional[FileMover] = (
-            None  # Will be assigned a FileMover instance later
-        )
+        self.file_mover: Optional[FileMover] = None
         self.synchronous_device_names: List[str] = []
         self.event_driven_observables: List[str] = []
 
-        # Boolean flags
         self.all_devices_in_standby: bool = False
         self.devices_synchronized: bool = False
         self.save_local = True
 
     def set_device_save_paths_mapping(self, mapping: DeviceSavePaths) -> None:
-        """
-        Set the mapping of device names to their corresponding save path configurations.
-
-        This method allows external components (e.g., ScanManager) to define where
-        each device's data should be sourced and saved during logging.
-
-        Parameters
-        ----------
-        mapping : DeviceSavePaths
-            A dictionary mapping device names to their respective save path settings,
-            typically including 'source_dir', 'target_dir', and 'device_type' for each device.
-        """
+        """Inject the per-device save-path config from ScanManager."""
         self.device_save_paths_mapping = mapping
 
     def start_logging(self) -> Dict[str, Any]:
-        """
-        Start logging data for all devices.
-
-        This method initializes the internal state for a new logging session,
-        including timestamp tracking, standby mode detection, and event registrations.
-        It configures a `FileMover` instance, starts the sound queue for shot notifications,
-        and registers event-driven observables for real-time data logging.
-
-        Devices marked as event-driven will trigger logging upon updates. Asynchronous devices
-        will be polled periodically, and their values will be included in log entries.
+        """Reset state, create a FileMover, and register TCP callbacks.
 
         Returns
         -------
         dict
-            A dictionary mapping elapsed time (float) to dictionaries of logged device data.
-            Each entry contains device variables, optional virtual scan parameters, and metadata
-            such as scan number and bin number.
+            Reference to ``self.log_entries`` (populated live during the scan).
         """
         self.last_timestamps = {}
         self.initial_timestamps = {}
@@ -873,21 +588,18 @@ class DataLogger:
         self.standby_mode_device_status = {}
         self.log_entries = {}
 
-        # Create a FileMover instance specific to this thread, e.g. scan
         self.file_mover = FileMover()
 
         self.all_devices_in_standby = False
         self.devices_synchronized = False
         self.synchronous_device_names = []
 
-        # Start the sound player
         self.sound_player.start_queue()
 
         # Scan number in datalogger updates in scan_manager
         self.file_mover.scan_number = self.scan_number
         self.file_mover.save_local = self.save_local
 
-        # Access event-driven and async observables from DeviceManager
         self.event_driven_observables = self.device_manager.event_driven_observables
 
         for observable in self.event_driven_observables:
@@ -895,7 +607,6 @@ class DataLogger:
             if device_name not in self.synchronous_device_names:
                 self.synchronous_device_names.append(device_name)
 
-        # Register the logging function for event-driven observables
         self._register_event_logging(self._handle_TCP_message_from_device)
 
         logger.info("Logging has started for all event-driven devices.")
@@ -905,40 +616,19 @@ class DataLogger:
     def _handle_TCP_message_from_device(
         self, message: str, device: GeecsDevice
     ) -> None:
+        """Parse a TCP message and log a new shot if the timestamp advanced.
+
+        TCP messages and events get generated constantly from a GEECS device. We need to
+        determine if a message and event are originating from a triggered event or from a
+        timeout event. This involves parsing out the device specific timestamp on the first
+        TCP event. Then, we need to compare it to the timestamp from the following event.
+        During a timeout event, the device timestamp is not updated as it represents the
+        timestamp from the last successful acquisition. If we see that the timestamp is not
+        updating, that means we know that the device has timed out and can be considered
+        to be in standby mode. It is awaiting the next hardware trigger. So, the process
+        here is to interpret the first few messages from each device to conclude everything
+        is in standby mode and can be then be synchronized through a dedicated timing shot
         """
-        Process incoming TCP messages from a device and log new data when a valid timestamp is detected.
-
-        This method is registered as a callback for event-driven devices. It parses the device-specific
-        acquisition timestamp from the incoming message and determines whether the device is in standby mode
-        or has received a new hardware trigger. Once all devices are confirmed to be in standby and then
-        synchronized, new data is logged only if the timestamp is unique and the synchronization shot has passed.
-
-        Parameters
-        ----------
-        message : str
-            The raw TCP message string received from the device.
-        device : GeecsDevice
-            The device instance that produced the message.
-
-        Notes
-        -----
-        - This method is central to event-driven logging and controls both synchronization state
-          detection and real-time data acquisition.
-        - Standby mode is inferred by detecting unchanged timestamps across multiple events.
-        - Data is only logged after synchronization is confirmed and duplicate timestamps are filtered out.
-        - The synchronization shot itself is ignored to prevent polluting the data logs.
-        """
-        # TCP messages and events get generated constantly from a GEECS device. We need to
-        # determine if a message and event are originating from a triggered event or from a
-        # timeout event. This involves parsing out the device specific timestamp on the first
-        # TCP event. Then, we need to compare it to the timestamp from the following event.
-        # During a timeout event, the device timestamp is not updated as it represents the
-        # timestamp from the last successful acquisition. If we see that the timestamp is not
-        # updating, that means we know that the device has timed out and can be considered
-        # to be in standby mode. It is awaiting the next hardware trigger. So, the process
-        # here is to interpret the first few messages from each device to conclude everything
-        # is in standby mode and can be then be synchronized through a dedicated timing shot
-
         timestamp_from_device = self._extract_timestamp_from_tcp_message(
             message, device
         )
@@ -973,24 +663,7 @@ class DataLogger:
             self._log_device_data(device, elapsed_time)
 
     def _check_all_standby_status(self) -> bool:
-        """
-        Check if all synchronous devices are in standby mode.
-
-        This method verifies that:
-        - Each device listed in `synchronous_device_names` is present in the `standby_mode_device_status` dictionary.
-        - All such devices have a status of `True`, indicating they are in standby mode (i.e., not receiving new triggers).
-
-        Returns
-        -------
-        bool
-            True if all synchronous devices are present in the status dictionary and are confirmed to be in standby mode.
-            False otherwise.
-
-        Notes
-        -----
-        - This method is typically used before initiating synchronization to confirm that all relevant devices are idle.
-        - Devices not yet added to the status dictionary or with `False`/`None` status are considered not in standby.
-        """
+        """Return True if every synchronous device has ``standby_mode_device_status == True``."""
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -1013,26 +686,7 @@ class DataLogger:
             return False
 
     def _check_all_exited_standby_status(self) -> bool:
-        """
-        Check if all synchronous devices have exited standby mode.
-
-        This method verifies that:
-        - Each device listed in `synchronous_device_names` is present in the `standby_mode_device_status` dictionary.
-        - All such devices have a status of `False`, indicating they have received a hardware trigger
-          and are no longer in standby mode.
-
-        Returns
-        -------
-        bool
-            True if all synchronous devices are present in the status dictionary and are confirmed to have
-            exited standby mode. False otherwise.
-
-        Notes
-        -----
-        - This check is used after all devices are confirmed to have entered standby,
-          to detect whether they have subsequently received a valid trigger.
-        - Devices with `True` or `None` status are considered still in or indeterminate standby.
-        """
+        """Return True if every synchronous device has ``standby_mode_device_status == False``."""
         device_names = set(self.synchronous_device_names)
         standby_keys = self.standby_mode_device_status.keys()
 
@@ -1054,31 +708,13 @@ class DataLogger:
     def _check_device_standby_mode_status(
         self, device: GeecsDevice, timestamp: float
     ) -> None:
-        """
-        Update the standby mode status of a device based on repeated timestamp checks.
-
-        This method tracks whether a device is in standby mode (i.e., has not received new data)
-        by checking if its device-reported timestamp remains unchanged across TCP events.
-        Devices are considered:
-        - `None`: Unknown/initial state; not enough information to determine status.
-        - `True`: Device is in standby (repeated identical timestamps).
-        - `False`: Device has exited standby mode (received a hardware trigger and updated timestamp).
+        """Update *device*'s standby flag based on whether its timestamp changed.
 
         Parameters
         ----------
         device : GeecsDevice
-            The device whose standby status is being evaluated.
         timestamp : float
-            The latest timestamp extracted from the device's TCP message.
-
-        Notes
-        -----
-        - This method initializes `standby_mode_device_status` and `initial_timestamps` on first call.
-        - If this is the first timestamp seen for the device, it sets the initial value but makes no status change.
-        - On subsequent calls, if the timestamp is unchanged, the device is considered in standby.
-        - If the timestamp has updated, the device is assumed to have exited standby and cannot return to `True`
-          until explicitly reset.
-        - Status tracking is critical for determining when all devices are idle and ready to synchronize.
+            Latest timestamp from the device's TCP message.
         """
         # TODO: statuses are bit wonky and could be cleaned up. Right now, 'None'
         #  really means the status is unknown. "True" indicates the device verifiably
@@ -1087,9 +723,6 @@ class DataLogger:
         #  once a "False" status has been flagged, it should stay that way until something
         #  explicitly turns it back to "None".
 
-        # if this is the first call to this method, add the device a standby_mode
-        # dict to be tracked. When it is entered, we don't know anything about its
-        # status, so set it to none.
         if device.get_name() not in self.standby_mode_device_status:
             self.standby_mode_device_status[device.get_name()] = None
             self.initial_timestamps[device.get_name()] = None
@@ -1097,11 +730,8 @@ class DataLogger:
         if self.standby_mode_device_status[device.get_name()] is False:
             return  # TODO may be worth to instead have a custom variable than can be one of three states
 
-        # check if there has been a timestamp added to the dict for a given device
         t0 = self.initial_timestamps.get(device.get_name(), None)
 
-        # if this is the first logged timestamp, return None because we can't say for
-        # certain if the device is in standby mode
         if t0 is None:
             self.initial_timestamps[device.get_name()] = timestamp
             logger.info(
@@ -1118,11 +748,6 @@ class DataLogger:
         # initial_timestamps dict to reset t0 for each device
         self.synced_timestamps[device.get_name()] = timestamp
 
-        # handle the case that this isn't the first call. If the passed timestamp
-        # is equal to the timestamp in the dict, that means we've received two
-        # TCP events from the device without the device timestamp updating, which
-        # means the device has timed out and can be considered to be in standby mode
-
         # *NOTE* This uses `timestamp` from `_extract_timestamp_from_tcp_message` for synchronization check
         if t0 == timestamp:
             self.standby_mode_device_status[device.get_name()] = True
@@ -1134,43 +759,12 @@ class DataLogger:
             return
 
     def update_repetition_rate(self, new_repetition_rate) -> None:
-        """
-        Update the repetition rate for the scan.
-
-        Parameters
-        ----------
-        new_repetition_rate : float
-            The new repetition rate in Hz (shots per second).
-        """
+        """Set the repetition rate (Hz) used to round elapsed times."""
         self.repetition_rate = new_repetition_rate
 
     @staticmethod
     def _extract_timestamp_from_tcp_message(message: str, device: GeecsDevice) -> float:
-        """
-        Extract the acquisition timestamp from a TCP message sent by a GEECS device.
-
-        This function wraps the message into a `NetworkMessage`, passes it through the device's
-        subscription handler, and extracts the `'acq_timestamp'` field from the parsed result.
-        If no timestamp is present, the current system time is used as a fallback.
-
-        Parameters
-        ----------
-        message : str
-            The raw TCP message received from the device.
-        device : GeecsDevice
-            The device object responsible for parsing and interpreting the message.
-
-        Returns
-        -------
-        float
-            The extracted timestamp (in seconds). If unavailable, falls back to the system time.
-
-        Notes
-        -----
-        - The `acq_timestamp` is critical for synchronizing and logging device data.
-        - If `None` is returned by the parser, the fallback to system time is logged as a warning.
-        - Fallback values may affect synchronization accuracy and should be used with caution.
-        """
+        """Parse ``acq_timestamp`` from *message*; falls back to system time if absent."""
         stamp_str = datetime.now().__str__()
         net_msg = mh.NetworkMessage(tag=device.get_name(), stamp=stamp_str, msg=message)
         parsed = device.handle_subscription(net_msg)
@@ -1188,18 +782,7 @@ class DataLogger:
     def _register_event_logging(
         self, log_update: Callable[[str, GeecsDevice], None]
     ) -> None:
-        """
-        Register a logging callback for all event-driven observables.
-
-        This sets up the `log_update` function to be triggered whenever an update
-        event occurs on any registered event-driven observable.
-
-        Parameters
-        ----------
-        log_update : Callable[[str, GeecsDevice], None]
-            The callback function to invoke on observable updates. It must accept
-            a string message and a GeecsDevice instance.
-        """
+        """Wire *log_update* as the TCP-event callback for all event-driven observables."""
         for device_name, device in self.device_manager.devices.items():
             for observable in self.event_driven_observables:
                 if observable.startswith(device_name):
@@ -1207,7 +790,6 @@ class DataLogger:
                         "Registering logging for event-driven observable: %s",
                         observable,
                     )
-                    # Ensure the device wires its TCP → event publisher callback
                     device.register_update_listener(
                         "logger", lambda msg, dev=device: log_update(msg, dev)
                     )
@@ -1215,24 +797,7 @@ class DataLogger:
     def _calculate_elapsed_time(
         self, device: GeecsDevice, current_timestamp: float
     ) -> float:
-        """
-        Calculate the elapsed time since the initial timestamp for a given device.
-
-        The result is rounded to the nearest multiple of 1/repetition_rate to ensure
-        consistency with scan timing intervals.
-
-        Parameters
-        ----------
-        device : GeecsDevice
-            The device for which to calculate elapsed time.
-        current_timestamp : float
-            The current acquisition timestamp reported by the device.
-
-        Returns
-        -------
-        float
-            The rounded elapsed time (in seconds) since the initial timestamp.
-        """
+        """Return elapsed time since sync, rounded to the nearest shot interval."""
         t0 = self.initial_timestamps[device.get_name()]
         elapsed_time = current_timestamp - t0
         return round(elapsed_time * self.repetition_rate) / self.repetition_rate
@@ -1240,24 +805,7 @@ class DataLogger:
     def _check_duplicate_timestamp(
         self, device: GeecsDevice, current_timestamp: float
     ) -> bool:
-        """
-        Determine whether the given timestamp has already been logged for the device.
-
-        If the timestamp matches the last recorded timestamp for the device, it is
-        considered a duplicate and should not be logged again.
-
-        Parameters
-        ----------
-        device : GeecsDevice
-            The device to check for duplicate timestamp.
-        current_timestamp : float
-            The timestamp to compare against the last logged timestamp.
-
-        Returns
-        -------
-        bool
-            True if the timestamp is a duplicate and should be skipped; False otherwise.
-        """
+        """Return True if *current_timestamp* was already logged for *device*."""
         if (
             device.get_name() in self.last_timestamps
             and self.last_timestamps[device.get_name()] == current_timestamp
@@ -1272,24 +820,8 @@ class DataLogger:
     def _update_async_observables(
         self, async_observables: list, elapsed_time: float
     ) -> None:
-        """
-        Update the log entries for asynchronous observables at the specified elapsed time.
-
-        This method retrieves the latest values for each asynchronous observable from the
-        associated device and stores them in the `log_entries` dictionary. It handles both
-        standard and composite devices, including their sub-components.
-
-        Parameters
-        ----------
-        async_observables : list of str
-            List of asynchronous observables to update, specified as
-            "device_name" or "device_name:variable_name".
-        elapsed_time : float
-            Time (in seconds) since the start of logging, used as the key
-            in the `log_entries` dictionary.
-        """
+        """Poll the current state of async devices and write values into the log entry."""
         for observable in async_observables:
-            # Check if the observable has a variable specified (e.g., 'Dev1:var1')
             if ":" in observable:
                 device_name, var_name = observable.split(":")
             else:
@@ -1300,7 +832,6 @@ class DataLogger:
 
             if device:
                 if device.is_composite:
-                    # Handle composite devices
                     composite_value = device.state.get("composite_var", "N/A")
                     self.log_entries[elapsed_time][f"{device_name}:composite_var"] = (
                         composite_value
@@ -1312,7 +843,6 @@ class DataLogger:
                         elapsed_time,
                     )
 
-                    # Log sub-component states
                     for comp in device.components:
                         sub_device_name = comp["device"]
                         sub_var_name = comp["variable"]
@@ -1337,7 +867,6 @@ class DataLogger:
                                 device_name,
                             )
                 else:
-                    # Handle regular devices
                     if var_name is None:
                         logger.warning(
                             "No variable specified for device %s. Skipping.",
@@ -1355,7 +884,6 @@ class DataLogger:
                         elapsed_time,
                     )
 
-                    # Handle file movement for async devices that save non-scalar data
                     if device_name in self.device_save_paths_mapping:
                         acq_timestamp = device.state.get("acq_timestamp")
                         if acq_timestamp is not None:
@@ -1383,30 +911,12 @@ class DataLogger:
                 )
 
     def _log_device_data(self, device: GeecsDevice, elapsed_time: float) -> None:
-        """
-        Log the data for a device during an event-driven observation.
+        """Write device observables into ``log_entries[elapsed_time]``.
 
-        If the elapsed time is not yet recorded in `log_entries`, a new entry is created,
-        including metadata like scan number, bin number, virtual variable (if present),
-        and asynchronous observables. A beep sound is played, and the shot index is incremented.
-
-        Then, data from the current device's observables is added to the entry. If the
-        device is configured for file movement, a `FileMoveTask` is constructed and enqueued.
-
-        Parameters
-        ----------
-        device : GeecsDevice
-            The device whose state is being logged.
-        elapsed_time : float
-            The time (in seconds) since logging began, used as the key in `log_entries`.
-
-        Side Effects
-        ------------
-        - Updates `log_entries` with device data and metadata.
-        - Sets `shot_save_event` to signal that a shot occurred.
-        - Triggers an audible beep via `sound_player`.
-        - Increments `shot_index`.
-        - Enqueues a file move task to the `FileMover` (if configured).
+        Creates a new entry on the first device report for a given *elapsed_time*,
+        populating bin, scan, virtual-variable, and async-observable fields, then
+        increments ``shot_index`` and enqueues a file move task if configured.
+        Subsequent devices for the same shot merge their observables into the same entry.
         """
         with self.lock:
             observables_data = {
@@ -1436,18 +946,14 @@ class DataLogger:
                 self.shot_index += 1
                 update_context({"shot_id": str(self.shot_index)})
 
-                # Update with async observable values
                 self._update_async_observables(
                     self.device_manager.async_observables, elapsed_time
                 )
 
                 # TODO move the on-shot tdms writer functionality from scan manager to here
 
-                # Set a flag to tell scan manager that a shot occurred
                 self.shot_save_event.set()
-
-                # Trigger the beep in the background
-                self.sound_player.play_beep()  # Play the beep sound
+                self.sound_player.play_beep()
 
             self.log_entries[elapsed_time].update(
                 {
@@ -1472,94 +978,49 @@ class DataLogger:
                 self.file_mover.move_files_by_timestamp(task)
 
     def stop_logging(self) -> None:
-        """
-        Stop the logging process and clean up resources.
-
-        This method performs the following tasks:
-        - Unregisters event handlers from all devices to stop event-driven logging.
-        - Plays a sound to indicate that logging has stopped.
-        - Signals the polling thread to stop asynchronous logging.
-        - Stops the sound player.
-        - Clears the stop event to allow future logging sessions to start cleanly.
+        """Unregister TCP callbacks, play completion sound, and signal the stop event.
 
         Note
         ----
-        The shutdown of the file_mover happens in scan_manager for an order of operations
-        issue that could be resolved.
+        FileMover shutdown is intentionally deferred to ScanManager to preserve
+        the correct shutdown order (scalar data must be written before the workers
+        drain, so the orphan sweep has a complete DataFrame to match against).
         """
-        # Unregister all event-driven logging
         for device_name, device in self.device_manager.devices.items():
             device.unregister_update_listener("logger")
 
         self.sound_player.play_toot()
 
-        # Signal to stop the polling thread
         self.stop_event.set()
 
         self.sound_player.stop()
         # TODO check if this needs to be moved.  It might be cleared before the stop is registered
-        # Reset the stop_event for future logging sessions
-
         self.stop_event.clear()
 
     def reinitialize_sound_player(self, options: Optional[dict] = None) -> None:
-        """
-        Reinitialize the sound player with optional settings.
-
-        This stops the current `SoundPlayer` instance and replaces it with a new one
-        using the provided options. The `shot_index` is also reset to 0.
-
-        Parameters
-        ----------
-        options : dict, optional
-            Dictionary of options to pass to the `SoundPlayer` constructor.
-
-        Returns
-        -------
-        None
-        """
+        """Replace the SoundPlayer with a fresh instance and reset ``shot_index``."""
         self.sound_player.stop()
         self.sound_player = SoundPlayer(options=options)
         self.shot_index = 0
 
     def get_current_shot(self) -> int:
-        """
-        Get the current shot index.
-
-        Used for progress tracking during data acquisition.
-
-        Returns
-        -------
-        int
-            The current shot index.
-        """
+        """Return the current shot index for progress tracking."""
         return self.shot_index
 
     def synchronize_devices_global_time(self) -> bool:
-        """
-        Attempt to synchronize devices using global time synchronization.
+        """Check if devices are already synchronized via Windows domain time.
 
-        This method leverages improved Windows domain time synchronization to check
-        if devices are already synchronized based on their current acquisition timestamps.
-        If all device timestamps are within tolerance, synchronization is considered
-        successful and the timeout-based method can be skipped entirely.
+        Windows domain time sync gives ~10ms accuracy, which is enough to skip the
+        timeout-based standby/trigger handshake and save several seconds per scan.
 
         Returns
         -------
         bool
-            True if global time synchronization was successful, False if fallback
-            to timeout method is needed.
-
-        Notes
-        -----
-        - Requires that Windows domain time sync is working well (~10ms accuracy)
-        - Uses configurable tolerance for timestamp comparison
-        - Sets initial_timestamps and devices_synchronized flags on success
-        - Provides significant time savings by avoiding timeout waits
+            True if all device timestamps are within ``global_sync_tol_ms`` and
+            synchronization flags have been set; False if the timeout fallback is needed.
         """
         logger.info("Attempting global time synchronization")
 
-        # Collect current timestamps from all synchronous devices
         current_timestamps = {}
         for device_name in self.synchronous_device_names:
             timestamp = self._get_current_device_timestamp(device_name)
@@ -1572,9 +1033,7 @@ class DataLogger:
             current_timestamps[device_name] = timestamp
             logger.debug("Device %s current timestamp: %s", device_name, timestamp)
 
-        # Check if all timestamps are within tolerance
         if self._timestamps_within_tolerance(current_timestamps):
-            # Devices are already synchronized!
             self.initial_timestamps = current_timestamps.copy()
             self.synced_timestamps = current_timestamps.copy()
             self.devices_synchronized = True
@@ -1591,49 +1050,21 @@ class DataLogger:
             return False
 
     def _get_current_device_timestamp(self, device_name: str) -> Optional[float]:
-        """
-        Get the current acquisition timestamp from a specific device.
-
-        This method retrieves the latest timestamp from a device by accessing
-        its current state or triggering a status update.
-
-        Parameters
-        ----------
-        device_name : str
-            Name of the device to get timestamp from.
-
-        Returns
-        -------
-        float or None
-            The current acquisition timestamp from the device, or None if
-            the timestamp could not be retrieved.
-
-        Notes
-        -----
-        - Uses the device manager to access device instances
-        - Attempts to get 'acq_timestamp' from device state
-        - Returns None if device not found or timestamp unavailable
-        """
+        """Return ``acq_timestamp`` from *device_name*'s current state, or None."""
         device = self.device_manager.devices.get(device_name)
         if device is None:
             logger.warning("Device %s not found in device manager", device_name)
             return None
 
         try:
-            # Try to get the acquisition timestamp from device state
             timestamp = device.state.get("acq_timestamp")
             if timestamp is not None:
                 return float(timestamp)
 
-            # If not available in state, try to trigger an update
-            # This might involve calling a device-specific method to get current status
             logger.debug(
                 "No acq_timestamp in state for %s, attempting to get current value",
                 device_name,
             )
-
-            # For now, return None if timestamp not readily available
-            # This could be enhanced to actively query the device
             return None
 
         except Exception:
@@ -1641,36 +1072,13 @@ class DataLogger:
             return None
 
     def _timestamps_within_tolerance(self, timestamps: Dict[str, float]) -> bool:
-        """
-        Check if all device timestamps are within acceptable tolerance of each other.
-
-        This method determines if devices are synchronized by comparing their
-        acquisition timestamps. Static offsets between devices are acceptable
-        as long as they are consistent.
-
-        Parameters
-        ----------
-        timestamps : dict
-            Dictionary mapping device names to their current timestamps.
-
-        Returns
-        -------
-        bool
-            True if all timestamps are within tolerance, False otherwise.
-
-        Notes
-        -----
-        - Uses configurable tolerance (default 50ms)
-        - Handles the case where devices have consistent static offsets
-        - Compares all timestamps against the first device's timestamp
-        """
+        """Return True if all timestamps in *timestamps* are within ``global_sync_tol_ms``."""
         if len(timestamps) < 2:
             logger.info("Only one or no devices to synchronize")
             return True
 
         tolerance_seconds = self.global_sync_tol_ms / 1000.0
 
-        # Get reference timestamp (first device)
         reference_timestamp = next(iter(timestamps.values()))
         reference_device = next(iter(timestamps.keys()))
 
@@ -1681,7 +1089,6 @@ class DataLogger:
             self.global_sync_tol_ms,
         )
 
-        # Check all other timestamps against reference
         for device_name, timestamp in timestamps.items():
             if device_name == reference_device:
                 continue
