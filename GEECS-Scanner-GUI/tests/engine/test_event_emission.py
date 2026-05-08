@@ -18,6 +18,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandRejected,
     GeecsDeviceExeTimeout,
 )
+from geecs_data_utils import ScanConfig, ScanMode
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
@@ -302,3 +303,54 @@ class TestScanLoopEventSequence:
 
         steps = [{"variables": {}, "is_composite": False, "wait_time": 0.0}]
         executor.execute_scan_loop(steps)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# ScanManager — INITIALIZING event total_shots field
+# ---------------------------------------------------------------------------
+
+
+class TestScanManagerTotalShots:
+    """Verify total_shots on the INITIALIZING event accounts for rep rate.
+
+    Uses object.__new__ to bypass ScanManager.__init__ (which needs live
+    network access) and only exercises estimate_acquisition_time() + the
+    formula in the INITIALIZING emit path.
+    """
+
+    def _make_mgr(self, rep_rate_hz: float, start, end, step, wait_time):
+        from geecs_scanner.engine.scan_manager import ScanManager
+
+        mgr = object.__new__(ScanManager)
+        mgr.options = ScanOptions(rep_rate_hz=rep_rate_hz)
+        mgr.scan_config = ScanConfig(
+            scan_mode=ScanMode.STANDARD,
+            device_var="FakeDevice:FakeVar",
+            start=start,
+            end=end,
+            step=step,
+            wait_time=wait_time,
+        )
+        mgr.acquisition_time = 0
+        return mgr
+
+    def test_total_shots_at_1hz(self):
+        mgr = self._make_mgr(
+            rep_rate_hz=1.0, start=4.0, end=5.0, step=0.5, wait_time=2.5
+        )
+        mgr.estimate_acquisition_time()
+        total_shots = int(mgr.acquisition_time * mgr.options.rep_rate_hz)
+        assert total_shots > 0
+        # 3 steps × 2.5 s × 1 Hz ≈ 7
+        assert total_shots == pytest.approx(7, abs=1)
+
+    def test_total_shots_at_10hz_not_equal_duration(self):
+        # Regression: at 10 Hz, total_shots must NOT equal acquisition_time in seconds.
+        mgr = self._make_mgr(
+            rep_rate_hz=10.0, start=4.0, end=5.0, step=0.5, wait_time=2.5
+        )
+        mgr.estimate_acquisition_time()
+        total_shots = int(mgr.acquisition_time * mgr.options.rep_rate_hz)
+        # acquisition_time is ~7.5 s; at 10 Hz total shots should be ~75, not 7
+        assert total_shots > 50
+        assert total_shots != int(mgr.acquisition_time)

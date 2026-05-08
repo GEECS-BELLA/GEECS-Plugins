@@ -470,7 +470,9 @@ class ScanManager:
                 self._emit(
                     ScanLifecycleEvent(
                         state=ScanState.INITIALIZING,
-                        total_shots=int(self.acquisition_time),
+                        total_shots=int(
+                            self.acquisition_time * self.options.rep_rate_hz
+                        ),
                     )
                 )
                 logger.debug("scan options: %s", self.options)
