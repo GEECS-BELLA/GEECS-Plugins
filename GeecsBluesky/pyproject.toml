@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -21,6 +21,7 @@ bluesky = ">=1.12"
 pandas = ">=2.1.1"
 nptdms = "^1.10.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
+mysql-connector-python = "^9.7.0"
 
 [tool.poetry.extras]
 tiled = ["tiled"]

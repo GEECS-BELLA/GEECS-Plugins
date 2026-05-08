@@ -51,7 +51,7 @@ Example::
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
@@ -62,6 +62,8 @@ def geecs_step_scan(
     positions: Iterable[float],
     detectors: list[Any],
     shots_per_step: int = 5,
+    arm_trigger: Callable | None = None,
+    disarm_trigger: Callable | None = None,
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -79,6 +81,14 @@ def geecs_step_scan(
         automatically so its position is recorded in every event document.
     shots_per_step:
         Number of shots to collect at each motor position.  Default: ``5``.
+    arm_trigger:
+        Optional callable returning a plan generator that arms the shot
+        controller (e.g. sets DG645 outputs to SCAN state).  Called after
+        each motor move, before collecting shots.
+    disarm_trigger:
+        Optional callable returning a plan generator that disarms the shot
+        controller (e.g. sets DG645 outputs to STANDBY state).  Called after
+        collecting shots at each step, before the next motor move.
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -94,6 +104,9 @@ def geecs_step_scan(
     * Non-Triggerable devices in *detectors* are read without calling
       ``trigger()`` (standard :func:`bluesky.plan_stubs.trigger_and_read`
       behaviour).
+    * ``arm_trigger`` / ``disarm_trigger`` bracket the per-step acquisition
+      window so the shot controller is only active while shots are being
+      collected, not during motor moves.
     """
     _positions = list(positions)
     _read_devices = list(detectors) + [motor]
@@ -112,7 +125,11 @@ def geecs_step_scan(
     def _inner():
         for pos in _positions:
             yield from bps.mv(motor, pos)
+            if arm_trigger is not None:
+                yield from arm_trigger()
             for _shot in range(shots_per_step):
                 yield from bps.trigger_and_read(_read_devices)
+            if disarm_trigger is not None:
+                yield from disarm_trigger()
 
     yield from _inner()

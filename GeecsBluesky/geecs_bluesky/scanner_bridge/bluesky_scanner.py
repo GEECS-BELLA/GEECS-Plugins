@@ -44,12 +44,14 @@ from typing import Any
 import numpy as np
 from bluesky import RunEngine
 import bluesky.plan_stubs as bps
-import bluesky.plans as bp
 import bluesky.preprocessors as bpp
+
+from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
 
 # ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
@@ -63,6 +65,27 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
+
+
+class _UdpSetter:
+    """Minimal Bluesky Movable: sets one GEECS variable via a shared UDP client.
+
+    Values are sent as strings, matching the GEECS wire protocol and the
+    shot-control YAML format (which may contain numeric strings or words
+    like ``"on"``/``"off"``).
+    """
+
+    def __init__(self, udp: GeecsUdpClient, variable: str) -> None:
+        self._udp = udp
+        self._variable = variable
+
+    def set(self, value: Any) -> AsyncStatus:
+        """Send *value* to the device; resolves when the UDP ACK is received."""
+
+        async def _do() -> None:
+            await self._udp.set(self._variable, str(value))
+
+        return AsyncStatus(_do())
 
 
 # ---------------------------------------------------------------------------
@@ -123,8 +146,11 @@ class BlueskyScanner:
     experiment_dir:
         Experiment name (currently unused; reserved for future path integration).
     shot_control_information:
-        Shot-controller YAML config dict (currently unused; reserved for future
-        DG645 integration).
+        Shot-controller YAML config dict with keys ``"device"`` (GEECS device
+        name) and ``"variables"`` (mapping of variable name → state → value,
+        where states are ``"OFF"``, ``"SCAN"``, ``"STANDBY"``,
+        ``"SINGLESHOT"``).  When provided, the DG645 is armed before each
+        acquisition step and disarmed after.
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
@@ -172,6 +198,15 @@ class BlueskyScanner:
         self._detectors: list = []
         # Subset of detectors that save per-shot files: list of (detector, path)
         self._saving_detectors: list[tuple] = []
+
+        # Shot control — parsed from shot_control_information YAML
+        self._shot_control_device_name: str | None = None
+        self._shot_control_variables: dict[str, dict] = {}
+        self._shot_control_udp: GeecsUdpClient | None = None
+        self._shot_control_setters: dict[str, _UdpSetter] = {}
+        if shot_control_information:
+            self._shot_control_device_name = shot_control_information.get("device")
+            self._shot_control_variables = shot_control_information.get("variables", {})
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
@@ -355,7 +390,7 @@ class BlueskyScanner:
             logger.debug("disconnect raised for %s", device, exc_info=True)
 
     def _disconnect_devices_sync(self) -> None:
-        """Disconnect motor + detectors if they exist (called from non-scan threads)."""
+        """Disconnect motor, detectors, and shot controller (called from non-scan threads)."""
         with self._device_lock:
             if self._motor is not None:
                 self._disconnect_device(self._motor)
@@ -364,6 +399,78 @@ class BlueskyScanner:
                 self._disconnect_device(det)
             self._detectors = []
             self._saving_detectors = []
+
+        if self._shot_control_udp is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._shot_control_udp.close(), self._RE._loop
+                ).result(timeout=_DISCONNECT_TIMEOUT)
+            except Exception:
+                logger.debug("Shot control UDP close raised", exc_info=True)
+            self._shot_control_udp = None
+            self._shot_control_setters = {}
+
+    def _build_shot_controller(self) -> None:
+        """Resolve the shot control device and create one _UdpSetter per variable.
+
+        Silently skips if no shot control device is configured or the DB
+        lookup fails, so scans without trigger control still run (e.g. in
+        internal-trigger test mode).
+        """
+        if not self._shot_control_device_name or not self._shot_control_variables:
+            logger.debug("No shot control device configured — trigger control disabled")
+            return
+        try:
+            from geecs_bluesky.db.geecs_db import GeecsDb
+
+            host, port = GeecsDb.find_device(self._shot_control_device_name)
+            udp = GeecsUdpClient(host, port, device_name=self._shot_control_device_name)
+            asyncio.run_coroutine_threadsafe(udp.connect(), self._RE._loop).result(
+                timeout=_CONNECT_TIMEOUT
+            )
+            self._shot_control_udp = udp
+            self._shot_control_setters = {
+                var: _UdpSetter(udp, var) for var in self._shot_control_variables
+            }
+            logger.info(
+                "Shot controller ready: %s (%d variables)",
+                self._shot_control_device_name,
+                len(self._shot_control_setters),
+            )
+        except Exception:
+            logger.warning(
+                "Could not build shot controller — trigger control disabled",
+                exc_info=True,
+            )
+
+    def _arm_trigger(self):
+        """Bluesky plan stub: set all shot control variables to SCAN state."""
+        yield from self._set_trigger_state("SCAN")
+
+    def _disarm_trigger(self):
+        """Bluesky plan stub: set all shot control variables to STANDBY state."""
+        yield from self._set_trigger_state("STANDBY")
+
+    def _set_trigger_state(self, state: str):
+        """Bluesky plan stub: drive all shot control variables to *state*.
+
+        Uses ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv`` because
+        ``bps.mv`` inspects ``.parent`` for coupled-device handling — an
+        ophyd-specific attribute that ``_UdpSetter`` intentionally omits.
+        All active variables are set concurrently then waited on as a group.
+        """
+        if not self._shot_control_setters:
+            return
+        group = f"shot_ctrl_{state}"
+        n_set = 0
+        for var_name, setter in self._shot_control_setters.items():
+            val = self._shot_control_variables[var_name].get(state)
+            if val:  # skip None and empty string (matches TriggerController)
+                yield from bps.abs_set(setter, val, group=group)
+                n_set += 1
+        if n_set:
+            yield from bps.wait(group)
+            logger.info("Shot controller → %s", state)
 
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
@@ -519,18 +626,26 @@ class BlueskyScanner:
         if scan_config.additional_description:
             md["description"] = scan_config.additional_description
 
-        self._RE(
-            _scan_with_saving(
-                geecs_step_scan(
-                    motor=motor,
-                    positions=positions,
-                    detectors=list(self._detectors),
-                    shots_per_step=self._shots_per_step,
-                    md=md,
-                ),
-                saving_detectors=list(self._saving_detectors),
-            )
+        self._build_shot_controller()
+        arm = self._arm_trigger if self._shot_control_setters else None
+        disarm = self._disarm_trigger if self._shot_control_setters else None
+
+        plan = _scan_with_saving(
+            geecs_step_scan(
+                motor=motor,
+                positions=positions,
+                detectors=list(self._detectors),
+                shots_per_step=self._shots_per_step,
+                arm_trigger=arm,
+                disarm_trigger=disarm,
+                md=md,
+            ),
+            saving_detectors=list(self._saving_detectors),
         )
+        # Outer finalize ensures disarm even on mid-step abort
+        if disarm is not None:
+            plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
+        self._RE(plan)
 
     def _run_noscan(self, scan_config: Any) -> None:
         """Fixed-position data collection — count plan if detectors present."""
@@ -565,9 +680,23 @@ class BlueskyScanner:
             md["scan_number"] = scan_number
         if scan_folder is not None:
             md["scan_folder"] = scan_folder
-        self._RE(
-            _scan_with_saving(
-                bp.count(self._detectors, num=n_shots, md=md),
-                saving_detectors=list(self._saving_detectors),
-            )
+        self._build_shot_controller()
+        arm = self._arm_trigger if self._shot_control_setters else None
+        disarm = self._disarm_trigger if self._shot_control_setters else None
+
+        @bpp.run_decorator(md=md)
+        def _noscan_plan():
+            if arm is not None:
+                yield from arm()
+            for _ in range(n_shots):
+                yield from bps.trigger_and_read(self._detectors)
+            if disarm is not None:
+                yield from disarm()
+
+        plan = _scan_with_saving(
+            _noscan_plan(),
+            saving_detectors=list(self._saving_detectors),
         )
+        if disarm is not None:
+            plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
+        self._RE(plan)
