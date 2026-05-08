@@ -26,6 +26,8 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.data_acquisition.trigger_controller import TriggerController
 from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
@@ -39,7 +41,6 @@ from geecs_scanner.utils.exceptions import (
     ScanAbortedError,
     TriggerError,
 )
-from geecs_scanner.utils.retry import retry
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class ScanManager:
         self,
         experiment_dir: str,
         shot_control_information: dict,
-        options_dict: Optional[dict] = None,
+        options: Optional[ScanOptions] = None,
         device_manager=None,
         scan_data=None,
     ):
@@ -100,6 +101,11 @@ class ScanManager:
         if shot_control_device:
             self.shot_control = ScanDevice(shot_control_information["device"])
             self.shot_control_variables = shot_control_information["variables"]
+
+        self.trigger_controller = TriggerController(
+            shot_control=self.shot_control,
+            shot_control_variables=self.shot_control_variables,
+        )
 
         self.results = {}
 
@@ -136,8 +142,8 @@ class ScanManager:
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
-        self.options_dict: dict = {} if options_dict is None else options_dict
-        self.save_local = True
+        self.options: ScanOptions = options if options is not None else ScanOptions()
+        self.save_local = not self.options.save_direct_on_network
 
         self.scan_config: ScanConfig
 
@@ -146,13 +152,11 @@ class ScanManager:
             data_logger=self.data_logger,
             scan_data_manager=self.scan_data_manager,
             optimizer=self.optimizer,
-            shot_control=self.shot_control,
-            options_dict=self.options_dict,
+            options=self.options,
             stop_scanning_thread_event=self.stop_scanning_thread_event,
             pause_scan_event=self.pause_scan_event,
+            trigger_controller=self.trigger_controller,
         )
-        self.executor.trigger_on_fn = self.trigger_on
-        self.executor.trigger_off_fn = self.trigger_off
         self.executor.on_device_error = self.request_user_dialog
         self.action_manager.on_user_prompt = self.request_user_dialog
         self.scan_data_manager.on_device_error = self.request_user_dialog
@@ -245,89 +249,30 @@ class ScanManager:
         logger.debug("config dictionary in reinitialize: %s", config_dictionary)
 
         if config_dictionary is not None and "options" in config_dictionary:
-            self.options_dict = config_dictionary["options"]
-            self.save_local = not self.options_dict.get("Save Direct on Network", False)
+            self.options = config_dictionary["options"]
+            self.executor.options = self.options
+            self.save_local = not self.options.save_direct_on_network
 
-        new_mc_ip = self.options_dict.get("master_control_ip", "")
+        new_mc_ip = self.options.master_control_ip
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
-        self.data_logger.reinitialize_sound_player(options=self.options_dict)
+        self.data_logger.reinitialize_sound_player(options=self.options)
         self.data_logger.last_log_time_sync = {}
-        self.data_logger.update_repetition_rate(self.options_dict.get("rep_rate_hz", 1))
-        self.data_logger.global_sync_tol_ms = self.options_dict.get(
-            "global_time_tolerance_ms", 0
-        )
+        self.data_logger.update_repetition_rate(self.options.rep_rate_hz)
+        self.data_logger.global_sync_tol_ms = self.options.global_time_tolerance_ms
 
         self.initialization_success = True
         return self.initialization_success
 
-    def _set_trigger(self, state: str) -> list:
-        """Set the trigger device to *state* for all shot-control variables.
-
-        Parameters
-        ----------
-        state : str
-            One of ``'OFF'``, ``'SCAN'``, ``'STANDBY'``, ``'SINGLESHOT'``.
-
-        Returns
-        -------
-        list
-            Return values from each ``shot_control.set()`` call.
-
-        Raises
-        ------
-        TriggerError
-            If any trigger variable fails after retries.  Trigger failures are
-            always scan-fatal — do not catch and continue.
-        """
-        if self.shot_control is None or self.shot_control_variables is None:
-            logger.debug("No shot control device, skipping 'set state %s'", state)
-            return []
-
-        valid_states = ["OFF", "SCAN", "STANDBY", "SINGLESHOT"]
-        if state not in valid_states:
-            logger.error("Invalid trigger state: %s", state)
-            return []
-
-        device_name = self.shot_control.get_name()
-        results = []
-        for variable, variable_settings in self.shot_control_variables.items():
-            set_value = variable_settings.get(state, "")
-            if not set_value:
-                continue
-            try:
-                result = retry(
-                    lambda v=variable, sv=set_value: self.shot_control.set(
-                        v, sv, exec_timeout=0.5
-                    ),
-                    attempts=2,
-                    delay=0.25,
-                    catch=DEVICE_COMMAND_ERRORS,
-                    on_retry=lambda exc, n, var=variable: logger.debug(
-                        "Trigger variable '%s' retry %d: %s", var, n, exc
-                    ),
-                )
-                results.append(result)
-                logger.debug("Trigger: set %s → %s", variable, set_value)
-            except DEVICE_COMMAND_ERRORS as exc:
-                raise TriggerError(
-                    device_name,
-                    f"set trigger state '{state}' on variable '{variable}'",
-                    variable=variable,
-                ) from exc
-
-        logger.debug("Trigger state → %s", state)
-        return results
-
     def trigger_off(self):
         """Set trigger state to OFF."""
-        self._set_trigger("OFF")
+        self.trigger_controller.trigger_off()
 
     def trigger_on(self):
         """Set trigger state to SCAN."""
-        self._set_trigger("SCAN")
+        self.trigger_controller.trigger_on()
 
     def is_scanning_active(self):
         """Return True if the scan thread is currently alive."""
@@ -362,7 +307,7 @@ class ScanManager:
                 )
 
             warnings.warn(
-                "Passing scan_config as a dict is deprecated. Please migrate to using ScanConfig dataclass.",
+                "Passing scan_config as a dict is deprecated. Use ScanConfig directly.",
                 DeprecationWarning,
             )
             scan_config = ScanConfig(
@@ -442,7 +387,7 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-                logger.debug("options dict: %s", self.options_dict)
+                logger.debug("scan options: %s", self.options)
 
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
@@ -512,7 +457,7 @@ class ScanManager:
         DeviceSynchronizationTimeout
             If devices do not synchronize within 15.5 seconds.
         """
-        if self.options_dict.get("enable_global_time_sync", False):
+        if self.options.enable_global_time_sync:
             logger.debug("Attempting global time synchronization")
             if self.data_logger.synchronize_devices_global_time():
                 logger.info(
@@ -540,7 +485,7 @@ class ScanManager:
             if self.data_logger.all_devices_in_standby:
                 logger.debug("Sending single-shot trigger to synchronize devices.")
 
-                res = self._set_trigger("SINGLESHOT")
+                res = self.trigger_controller.singleshot()
                 logger.debug("Result of single shot command: %s", res)
                 # wait 3.5 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(3.5)
@@ -611,7 +556,7 @@ class ScanManager:
         log_df = pd.DataFrame()
 
         # Step 1: Trigger to standby — no new shots from here on.
-        self._set_trigger("STANDBY")
+        self.trigger_controller.set_standby()
 
         # Step 2: Seal self.results and write scalar files before any device
         # interaction that could fail (restore, closeout).

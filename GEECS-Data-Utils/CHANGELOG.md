@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] — 2026-05-07
+
+### Changed
+- `ScanConfig` migrated from `@dataclass` to `pydantic.BaseModel`.
+  Construction syntax is unchanged (all fields use keyword arguments); the
+  migration adds runtime validation and makes `ScanConfig` composable with other
+  Pydantic models throughout the scanner engine.
+
 ## [0.4.0] — 2026-05-07
 
 ### Added

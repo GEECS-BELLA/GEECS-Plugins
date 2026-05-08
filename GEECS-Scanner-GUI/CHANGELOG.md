@@ -3,6 +3,62 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.trigger_controller.TriggerController` —
+  encapsulates all shot-trigger interactions (`trigger_on`, `trigger_off`,
+  `set_standby`, `singleshot`) previously spread across `ScanManager`.
+  `ScanStepExecutor` now receives a `TriggerController` via constructor
+  injection instead of dynamically-injected `trigger_on_fn`/`trigger_off_fn`
+  callable attributes.
+
+### Changed
+- `ScanStepExecutor.__init__`: removed `shot_control` positional parameter;
+  added `trigger_controller: Optional[TriggerController] = None`. The
+  `hasattr` guard pattern for `trigger_on_fn`/`trigger_off_fn` is replaced
+  with a typed `if self.trigger_controller is not None` check.
+- `ScanManager`: `_set_trigger`, `trigger_on`, and `trigger_off` methods
+  are now thin delegations to `self.trigger_controller`; `SINGLESHOT` and
+  `STANDBY` states use `trigger_controller.singleshot()` and
+  `trigger_controller.set_standby()`.
+- `ActionManager`: removed `instantiated_devices` persistent device cache.
+  Devices are now opened fresh at the start of each `execute_action` call
+  (and `ping_devices_in_action_list` / `return_value`) and closed in a
+  `finally` block regardless of success or failure.  This prevents stale
+  TCP connections surviving across actions and removes the hidden cache that
+  could hold devices open indefinitely.
+
+## [0.10.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.scan_options.ScanOptions` — new Pydantic
+  model for all engine-level execution options (`rep_rate_hz`,
+  `enable_global_time_sync`, `global_time_tolerance_ms`, `master_control_ip`,
+  `on_shot_tdms`, `save_direct_on_network`, `randomized_beeps`). Replaces the
+  raw `options_dict: dict` that was previously threaded through
+  `ScanManager` and `ScanStepExecutor`.
+
+### Changed
+- `ScanManager.__init__` and `reinitialize()` now accept and store a
+  `ScanOptions` instance instead of a plain dict; all internal `.get("key")`
+  accesses replaced with typed attribute access.
+- `ScanStepExecutor.__init__` parameter `options_dict` renamed to `options:
+  ScanOptions`; `on_shot_tdms` read via `options.on_shot_tdms`.
+- `DataLogger.reinitialize_sound_player()` parameter changed from
+  `Optional[dict]` to `Optional[ScanOptions]`.
+- `SoundPlayer.__init__` no longer accepts an `options` dict; takes an explicit
+  `randomized_beeps: bool` parameter instead.
+- `RunControl.submit_run()` gains an optional `options: ScanOptions` parameter;
+  when provided it is injected into the config dictionary before passing to
+  `ScanManager.reinitialize()`.
+- `GEECSScannerWindow._collect_options()` now returns a `ScanOptions` instance.
+- Fixed bug where `On-Shot TDMS` and `Save Direct on Network` GUI toggles were
+  defined in `BOOLEAN_OPTIONS` but absent from `OPTION_MAP`, so they were never
+  collected and the engine always defaulted to `False`.
+- Fixed bug where `scan_config.background` was set to a string `"True"/"False"`
+  instead of a bool.
+
 ## [0.9.1] — 2026-05-07
 
 ### Changed

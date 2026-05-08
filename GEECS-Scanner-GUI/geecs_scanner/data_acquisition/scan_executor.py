@@ -15,6 +15,8 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.data_acquisition.trigger_controller import TriggerController
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import DeviceCommandError
 from geecs_scanner.utils.retry import retry
@@ -25,9 +27,7 @@ logger = logging.getLogger(__name__)
 class ScanStepExecutor:
     """Execute scan steps: move devices, acquire data, drive the optimizer.
 
-    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`,
-    which injects callbacks (``trigger_on_fn``, ``trigger_off_fn``,
-    ``on_device_error``) after construction.
+    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`.
 
     Attributes
     ----------
@@ -35,8 +35,8 @@ class ScanStepExecutor:
     data_logger : DataLogger
     scan_data_manager : ScanDataManager
     optimizer : BaseOptimizer or None
-    shot_control : ShotControl or None
-    options_dict : dict
+    trigger_controller : TriggerController or None
+    options : ScanOptions
     stop_scanning_thread_event : threading.Event
     pause_scan_event : threading.Event
     on_device_error : callable or None
@@ -48,18 +48,18 @@ class ScanStepExecutor:
         device_manager,
         data_logger,
         scan_data_manager,
-        shot_control,
-        options_dict,
+        options: ScanOptions,
         stop_scanning_thread_event,
         pause_scan_event,
         optimizer: Optional[BaseOptimizer] = None,
+        trigger_controller: Optional[TriggerController] = None,
     ):
         self.device_manager = device_manager
         self.data_logger = data_logger
         self.scan_data_manager = scan_data_manager
         self.optimizer = optimizer
-        self.shot_control = shot_control
-        self.options_dict = options_dict
+        self.trigger_controller = trigger_controller
+        self.options = options
         self.stop_scanning_thread_event = stop_scanning_thread_event
         self.pause_scan_event = pause_scan_event
 
@@ -257,8 +257,7 @@ class ScanStepExecutor:
         """Enable trigger, wait *wait_time* seconds, disable trigger.
 
         Handles pause/resume events and optional per-shot TDMS saves
-        (``options_dict["On-Shot TDMS"]``) and save-hiatus periods
-        (``options_dict["Save Hiatus Period (s)"]``).
+        (``options.on_shot_tdms``).
         """
         self.trigger_on()
 
@@ -294,7 +293,7 @@ class ScanStepExecutor:
             time.sleep(interval_time)
             current_time = time.time() - start_time
 
-            if self.options_dict.get("On-Shot TDMS", False):
+            if self.options.on_shot_tdms:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
@@ -394,11 +393,11 @@ class ScanStepExecutor:
         )
 
     def trigger_on(self) -> None:
-        """Call ``trigger_on_fn`` if injected."""
-        if hasattr(self, "trigger_on_fn"):
-            self.trigger_on_fn()
+        """Delegate to trigger_controller if available."""
+        if self.trigger_controller is not None:
+            self.trigger_controller.trigger_on()
 
     def trigger_off(self) -> None:
-        """Call ``trigger_off_fn`` if injected."""
-        if hasattr(self, "trigger_off_fn"):
-            self.trigger_off_fn()
+        """Delegate to trigger_controller if available."""
+        if self.trigger_controller is not None:
+            self.trigger_controller.trigger_off()

@@ -1,21 +1,20 @@
-"""
-Contains all things sound-related within GEECS Scanner.  This includes beeps during the shots, and jingles for the
-multiscanner completion and action success/failure.
+"""Sound playback utilities for GEECS Scanner.
 
--Chris + Sam
+Includes per-shot beeps, multi-scanner completion jingles, and action
+success/failure jingles.
 """
 
 from __future__ import annotations
-from typing import Optional
 
-import platform
-import os
-import queue
-import threading
-import numpy as np
 import logging
-import time
+import os
+import platform
+import queue
 import random
+import threading
+import time
+
+import numpy as np
 
 # For Windows-specific imports
 if platform.system() == "Windows":
@@ -26,139 +25,152 @@ elif platform.system() == "Darwin":
 
 
 class SimpleSoundPlayer:
-    """ Un-threaded sound player.  Only capable of receiving a playing single notes """
+    """Un-threaded sound player capable of playing single notes."""
+
     def __init__(self, sample_rate=44100):
-        """
-        Args
-            sample_rate (int, optional): Sample rate for sound generation (used for macOS). Default is 44100.
+        """Initialize the player with the given sample rate.
+
+        Parameters
+        ----------
+        sample_rate : int, optional
+            Sample rate for sound generation (used for macOS). Default is 44100.
         """
         self.sample_rate = sample_rate
 
     def play_sound(self, frequency, duration):
-        """
-        Play a sound based on the platform (Windows or macOS).
+        """Play a sound based on the platform (Windows or macOS).
 
-        Args:
-            frequency (int): Frequency of the sound in Hz.
-            duration (float): Duration of the sound in seconds.
+        Parameters
+        ----------
+        frequency : int
+            Frequency of the sound in Hz.
+        duration : float
+            Duration of the sound in seconds.
         """
-        # Windows: Use winsound.Beep
         if platform.system() == "Windows":
-            winsound.Beep(frequency, int(duration * 1000))  # Duration is in milliseconds
-        # macOS: Use simpleaudio to play the generated sound
+            winsound.Beep(frequency, int(duration * 1000))
         elif platform.system() == "Darwin":
             audio_data = self._generate_sound(frequency, duration)
-            play_obj = sa.play_buffer(audio_data, 1, 2, self.sample_rate)  # 1 channel, 2 bytes per sample
+            play_obj = sa.play_buffer(audio_data, 1, 2, self.sample_rate)
             play_obj.wait_done()
-        # Optionally add Linux support or other platforms if needed
         else:
-            os.system('printf "\a"')  # Default to terminal bell for unsupported platforms
+            os.system('printf "\a"')
 
     def _generate_sound(self, frequency, duration):
+        """Generate a sound for macOS given a frequency and duration.
 
+        Parameters
+        ----------
+        frequency : int
+            Frequency of the sound in Hz.
+        duration : float
+            Duration of the sound in seconds.
+
+        Returns
+        -------
+        numpy.ndarray
+            Array of sound data formatted for playback.
         """
-        Generate a sound for macOS given a frequency and duration.
-
-        Args:
-            frequency (int): Frequency of the sound in Hz.
-            duration (float): Duration of the sound in seconds.
-
-        Returns:
-            numpy.ndarray: Array of sound data formatted for playback.
-        """
-
         t = np.linspace(0, duration, int(self.sample_rate * duration), False)
         tone = np.sin(2 * np.pi * frequency * t)
-        return (tone * 32767).astype(np.int16)  # Convert to 16-bit PCM format
+        return (tone * 32767).astype(np.int16)
 
 
 class SoundPlayer(SimpleSoundPlayer):
-    """
-    A class to handle playing sounds (beep and toot) in a background thread.
-    """
+    """Threaded sound player that queues beep and toot requests."""
 
-    def __init__(self, beep_frequency=700, beep_duration=0.1, toot_frequency=1200, toot_duration=0.75,
-                 sample_rate=44100, options: Optional[dict] = None):
-        """
-        Initialize the SoundPlayer with default or user-defined frequency, duration.  Then begins thread and Queue
+    def __init__(
+        self,
+        beep_frequency=700,
+        beep_duration=0.1,
+        toot_frequency=1200,
+        toot_duration=0.75,
+        sample_rate=44100,
+        randomized_beeps: bool = False,
+    ):
+        """Initialize the SoundPlayer and start the background queue thread.
 
-        Args:
-            beep_frequency (int, optional): Frequency of the beep sound in Hz. Default is 500.
-            beep_duration (float, optional): Duration of the beep sound in seconds. Default is 0.1.
-            toot_frequency (int, optional): Frequency of the toot sound in Hz. Default is 1500.
-            toot_duration (float, optional): Duration of the toot sound in seconds. Default is 0.75.
-            sample_rate (int, optional): Sample rate for sound generation (used for macOS). Default is 44100.
+        Parameters
+        ----------
+        beep_frequency : int, optional
+            Frequency of the beep sound in Hz. Default is 700.
+        beep_duration : float, optional
+            Duration of the beep sound in seconds. Default is 0.1.
+        toot_frequency : int, optional
+            Frequency of the toot sound in Hz. Default is 1200.
+        toot_duration : float, optional
+            Duration of the toot sound in seconds. Default is 0.75.
+        sample_rate : int, optional
+            Sample rate for sound generation (used for macOS). Default is 44100.
+        randomized_beeps : bool, optional
+            Vary pitch between shots. Default is False.
         """
         super().__init__(sample_rate=sample_rate)
 
-        # Sets the frequency and duration of the scan beeps and toots
         self.beep_frequency = beep_frequency
         self.beep_duration = beep_duration
         self.toot_frequency = toot_frequency
         self.toot_duration = toot_duration
 
-        # Create a queue to hold sound requests
         self.sound_queue = queue.Queue()
 
-        # Create and start the background thread
         self.sound_thread = threading.Thread(target=self._process_queue)
-        self.sound_thread.daemon = True  # Mark thread as a daemon so it exits when the main program exits
-        self.running = False  # Flag to control thread running
+        self.sound_thread.daemon = True
+        self.running = False
 
-        self.random_beeps = False if options is None else options.get('randomized_beeps', False)
+        self.random_beeps = randomized_beeps
 
     def start_queue(self):
-        self.running = True  # Flag to control thread running
+        """Start the background sound processing thread."""
+        self.running = True
         self.sound_thread.start()
 
     def play_beep(self):
         """Add a beep sound request to the queue."""
-        self.sound_queue.put('beep')
+        self.sound_queue.put("beep")
 
     def play_toot(self):
         """Add a toot sound request to the queue."""
-        self.sound_queue.put('toot')
+        self.sound_queue.put("toot")
 
     def stop(self):
         """Stop the sound player by sending a termination signal."""
         self.running = False
-        self.sound_queue.put(None)  # Add a termination signal to the queue
+        self.sound_queue.put(None)
 
     def _process_queue(self):
-
-        """
-        Continuously process the sound queue and play the appropriate sound
-        based on the request.
-        """
-
+        """Process the sound queue and play sounds until stopped."""
         while self.running:
             try:
-                # Wait for the next sound request (this blocks until a request is added)
                 sound_type = self.sound_queue.get()
 
-                # Exit the loop if the termination signal is received
                 if sound_type is None:
                     break
 
-                # Play the requested sound
-                if sound_type == 'beep':
+                if sound_type == "beep":
                     if self.random_beeps:
-                        self.play_sound(round(self.beep_frequency*(0.7*(random.random()+0.5))), self.beep_duration)
+                        self.play_sound(
+                            round(
+                                self.beep_frequency * (0.7 * (random.random() + 0.5))
+                            ),
+                            self.beep_duration,
+                        )
                     else:
                         self.play_sound(self.beep_frequency, self.beep_duration)
-                elif sound_type == 'toot':
+                elif sound_type == "toot":
                     self.play_sound(self.toot_frequency, self.toot_duration)
-                # Mark the task as done
                 self.sound_queue.task_done()
             except Exception as e:
                 logging.error(f"Error processing sound: {e}")
 
 
 def play_jingle(notes: list[tuple[int, float, float]]):
-    """
-     Plays a given sequence of notes
+    """Play a given sequence of notes.
 
-    :param notes: list of three numbers ( frequency (Hz), duration (s), wait time (s) )
+    Parameters
+    ----------
+    notes : list of tuple[int, float, float]
+        Each tuple is ``(frequency_hz, duration_s, wait_s)``.
     """
     player = SimpleSoundPlayer()
     for freq, duration, wait in notes:
@@ -167,18 +179,13 @@ def play_jingle(notes: list[tuple[int, float, float]]):
 
 
 def multiscan_finish_jingle():
-    """Play a jingle of 4 notes, used at the end of a multiscan script"""
-    notes = [
-        (784, 0.25, 0),
-        (1047, 0.10, 0.15),
-        (1175, 0.25, 0),
-        (1568, 0.5, 0)
-    ]
+    """Play a 4-note jingle used at the end of a multiscan script."""
+    notes = [(784, 0.25, 0), (1047, 0.10, 0.15), (1175, 0.25, 0), (1568, 0.5, 0)]
     play_jingle(notes)
 
 
 def action_finish_jingle():
-    """ Plays when an action finishes successfully """
+    """Play a jingle indicating a successful action completion."""
     notes = [
         (900, 0.20, 0),
         (1300, 0.50, 0),
@@ -187,7 +194,7 @@ def action_finish_jingle():
 
 
 def action_failed_jingle():
-    """ Plays when an action encounters an error """
+    """Play a jingle indicating an action encountered an error."""
     notes = [
         (1300, 0.20, 0),
         (900, 0.50, 0),
@@ -195,5 +202,5 @@ def action_failed_jingle():
     play_jingle(notes)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     action_finish_jingle()

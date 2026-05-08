@@ -23,6 +23,7 @@ from geecs_scanner.logging_setup import update_context
 from geecs_scanner.utils import SoundPlayer
 from geecs_scanner.utils.exceptions import DataFileError
 from geecs_scanner.utils.retry import retry
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
@@ -992,10 +993,11 @@ class DataLogger:
         # TODO check if this needs to be moved.  It might be cleared before the stop is registered
         self.stop_event.clear()
 
-    def reinitialize_sound_player(self, options: Optional[dict] = None) -> None:
+    def reinitialize_sound_player(self, options: Optional[ScanOptions] = None) -> None:
         """Replace the SoundPlayer with a fresh instance and reset ``shot_index``."""
         self.sound_player.stop()
-        self.sound_player = SoundPlayer(options=options)
+        randomized = options.randomized_beeps if options is not None else False
+        self.sound_player = SoundPlayer(randomized_beeps=randomized)
         self.shot_index = 0
 
     def get_current_shot(self) -> int:
