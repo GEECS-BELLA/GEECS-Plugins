@@ -242,7 +242,7 @@ class ScanManager:
             self.device_manager, scan_data, database_dict
         )
 
-        logger.info("config dictionary in reinitialize: %s", config_dictionary)
+        logger.debug("config dictionary in reinitialize: %s", config_dictionary)
 
         if config_dictionary is not None and "options" in config_dictionary:
             self.options_dict = config_dictionary["options"]
@@ -283,7 +283,7 @@ class ScanManager:
             always scan-fatal — do not catch and continue.
         """
         if self.shot_control is None or self.shot_control_variables is None:
-            logger.info("No shot control device, skipping 'set state %s'", state)
+            logger.debug("No shot control device, skipping 'set state %s'", state)
             return []
 
         valid_states = ["OFF", "SCAN", "STANDBY", "SINGLESHOT"]
@@ -310,7 +310,7 @@ class ScanManager:
                     ),
                 )
                 results.append(result)
-                logger.info("Trigger: set %s → %s", variable, set_value)
+                logger.debug("Trigger: set %s → %s", variable, set_value)
             except DEVICE_COMMAND_ERRORS as exc:
                 raise TriggerError(
                     device_name,
@@ -373,7 +373,7 @@ class ScanManager:
 
         self.stop_scanning_thread_event.clear()
 
-        logger.info("Scan config: %s", self.scan_config)
+        logger.debug("Scan config: %s", self.scan_config)
         self.scanning_thread = threading.Thread(target=self._start_scan)
         self.scanning_thread.start()
         logger.info("Scan thread started.")
@@ -404,11 +404,11 @@ class ScanManager:
         # Disable the trigger and create the scan directory.  Any failure     #
         # here means nothing has been committed — abort cleanly.              #
         # ------------------------------------------------------------------ #
-        logger.info(
+        logger.debug(
             "scan config getting sent to pre logging is this: %s", self.scan_config
         )
         try:
-            logger.info("Turning off the trigger.")
+            logger.debug("Turning off the trigger.")
             self.trigger_off()
             self.scan_data_manager.initialize_scan_data_and_output_files()
         except Exception:
@@ -438,11 +438,11 @@ class ScanManager:
 
                 if self.scan_config:
                     self.estimate_acquisition_time()
-                    logger.info(
+                    logger.debug(
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-                logger.info("options dict: %s", self.options_dict)
+                logger.debug("options dict: %s", self.options_dict)
 
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
@@ -513,7 +513,7 @@ class ScanManager:
             If devices do not synchronize within 15.5 seconds.
         """
         if self.options_dict.get("enable_global_time_sync", False):
-            logger.info("Attempting global time synchronization")
+            logger.debug("Attempting global time synchronization")
             if self.data_logger.synchronize_devices_global_time():
                 logger.info(
                     "Global time synchronization successful. Skipping timeout method."
@@ -521,11 +521,11 @@ class ScanManager:
                 self.data_logger.all_devices_in_standby = True
                 return
             else:
-                logger.info(
+                logger.debug(
                     "Global time synchronization failed. Falling back to timeout method."
                 )
 
-        logger.info("Using timeout-based synchronization method")
+        logger.debug("Using timeout-based synchronization method")
         timeout = 15.5
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
@@ -538,10 +538,10 @@ class ScanManager:
                 )
 
             if self.data_logger.all_devices_in_standby:
-                logger.info("Sending single-shot trigger to synchronize devices.")
+                logger.debug("Sending single-shot trigger to synchronize devices.")
 
                 res = self._set_trigger("SINGLESHOT")
-                logger.info("Result of single shot command: %s", res)
+                logger.debug("Result of single shot command: %s", res)
                 # wait 3.5 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(3.5)
                 if self.data_logger.devices_synchronized:
@@ -557,17 +557,17 @@ class ScanManager:
                     logger.warning(
                         "Devices still in standby: %s", devices_still_in_standby
                     )
-                    logger.info("Resetting standby status to none for all devices.")
+                    logger.debug("Resetting standby status to none for all devices.")
                     self.data_logger.standby_mode_device_status = {
                         key: None for key in self.data_logger.standby_mode_device_status
                     }
-                    logger.info(
+                    logger.debug(
                         "Resetting initial timestamp to None for each device to enforce rechecking of stanby mode."
                     )
                     self.data_logger.initial_timestamps = {
                         key: None for key in self.data_logger.initial_timestamps
                     }
-                    logger.info("Waiting for devices to re-enter standby mode.")
+                    logger.debug("Waiting for devices to re-enter standby mode.")
                     self.data_logger.all_devices_in_standby = False
             time.sleep(0.1)
 
@@ -663,12 +663,12 @@ class ScanManager:
             self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
             self.data_logger.file_mover = None
         else:
-            logger.info("Logging never started; skipping file-mover cleanup.")
+            logger.debug("Logging never started; skipping file-mover cleanup.")
 
         # Step 4: Wait for save=off to complete before restore or closeout,
         # since closeout actions may talk to the same camera devices.
         stop_saving_thread.join()
-        logger.info("Non-scalar device save states reset.")
+        logger.debug("Non-scalar device save states reset.")
 
         # Step 5: Restore the initial state of devices.
         if self.initial_state is not None:
@@ -678,8 +678,8 @@ class ScanManager:
         # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
         # written above from being preserved.
         if self.device_manager.scan_closeout_action is not None:
-            logger.info("Attempting to execute closeout actions.")
-            logger.info("Action list %s", self.device_manager.scan_closeout_action)
+            logger.debug("Attempting to execute closeout actions.")
+            logger.debug("Action list %s", self.device_manager.scan_closeout_action)
             try:
                 self.action_manager.add_action(
                     action_name="closeout_action",
@@ -719,7 +719,7 @@ class ScanManager:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def _reset_device(device_name, device):
-            logger.info("Setting save to off for %s", device_name)
+            logger.debug("Setting save to off for %s", device_name)
             try:
                 device.set("save", "off", sync=False)
             except Exception:
@@ -732,7 +732,7 @@ class ScanManager:
                 logger.warning(
                     "Failed to reset localsavingpath for %s", device_name, exc_info=True
                 )
-            logger.info("Save state reset for %s", device_name)
+            logger.debug("Save state reset for %s", device_name)
 
         devices = {
             name: dev
@@ -756,25 +756,25 @@ class ScanManager:
                             "Error resetting save state for %s", futures[future]
                         )
 
-        logger.info("scanning has stopped for all devices.")
+        logger.debug("scanning has stopped for all devices.")
 
     def save_hiatus(self, hiatus_period: float):
         """Disable saving on all non-scalar devices, wait *hiatus_period* seconds, then re-enable."""
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
             if device:
-                logger.info("Setting save to off for %s", device_name)
+                logger.debug("Setting save to off for %s", device_name)
                 device.set("save", "off", sync=False)
             else:
                 logger.warning("Device %s not found in DeviceManager.", device_name)
 
-        logger.info("All devices with Save OFF for %s s", hiatus_period)
+        logger.debug("All devices with Save OFF for %s s", hiatus_period)
         time.sleep(hiatus_period)
 
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
             if device:
-                logger.info("Setting save to on for %s", device_name)
+                logger.debug("Setting save to on for %s", device_name)
                 device.set("save", "on", sync=False)
             else:
                 logger.warning("Device %s not found in DeviceManager.", device_name)
@@ -806,7 +806,7 @@ class ScanManager:
             If device initialization or configuration fails.
         """
         self.scan_steps = self._generate_scan_steps()
-        logger.info("steps for the scan are : %s", self.scan_steps)
+        logger.debug("steps for the scan are : %s", self.scan_steps)
 
         if self.stop_scanning_thread_event.is_set():
             raise ScanAbortedError("Stop requested during prelogging")
@@ -828,7 +828,7 @@ class ScanManager:
 
         self.scan_data_manager.write_scan_info_ini(self.scan_config)
 
-        logger.info("scan config in pre logging is this: %s", self.scan_config)
+        logger.debug("scan config in pre logging is this: %s", self.scan_config)
         try:
             self.device_manager.handle_scan_variables(self.scan_config)
         except GeecsDeviceInstantiationError:
@@ -849,8 +849,8 @@ class ScanManager:
             raise ScanAbortedError("Stop requested during prelogging")
 
         if self.device_manager.scan_setup_action is not None:
-            logger.info("Attempting to execute pre-scan actions.")
-            logger.info("Action list %s", self.device_manager.scan_setup_action)
+            logger.debug("Attempting to execute pre-scan actions.")
+            logger.debug("Action list %s", self.device_manager.scan_setup_action)
 
             self.action_manager.add_action(
                 action_name="setup_action",
@@ -861,12 +861,11 @@ class ScanManager:
         if self.stop_scanning_thread_event.is_set():
             raise ScanAbortedError("Stop requested during prelogging")
 
-        logger.info("attempting to generate ECS live dump using %s", self.MC_ip)
+        logger.debug("attempting to generate ECS live dump using %s", self.MC_ip)
         if self.MC_ip is not None and self.shot_control is not None:
-            logger.info("attempting to generate ECS live dump using %s", self.MC_ip)
             self.generate_live_ECS_dump(self.MC_ip)
 
-        logger.info("Pre-logging setup completed.")
+        logger.debug("Pre-logging setup completed.")
 
     def enable_live_ECS_dump(self, client_ip: str = "192.168.0.1"):
         """Send UDP commands to MC to enable remote ECS dumps for this scan."""
@@ -879,7 +878,7 @@ class ScanManager:
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
             time.sleep(0.5)
-            logger.info("enable live ecs dumps step %s complete", step)
+            logger.debug("enable live ecs dumps step %s complete", step)
             if not success:
                 logger.warning(
                     "Failed to enable live ECS dumps on MC on computer: %s", client_ip
@@ -891,7 +890,7 @@ class ScanManager:
         if self.shot_control is None:
             logger.error("Cannot enable live ECS dump without shot control device")
             return
-        logger.info("sending comands to MC to generate ECS live dump")
+        logger.debug("sending comands to MC to generate ECS live dump")
 
         steps = ["Save Live Expt Devices Configuration>>ScanStart"]
 
@@ -963,7 +962,7 @@ class ScanManager:
                     }
                 )
                 current_value += step if positive else -step
-        logger.info("scan steps generate: %s", steps)
+        logger.debug("scan steps generate: %s", steps)
         return steps
 
     def _setup_optimizer_from_config(self):
@@ -1018,7 +1017,7 @@ class ScanManager:
             steps = abs((end - start) / step) + 1
             total_time += steps * wait_time
 
-        logger.info("Estimated scan time: %s", total_time)
+        logger.debug("Estimated scan time: %s", total_time)
         self.acquisition_time = total_time
 
     def estimate_current_completion(self):
@@ -1044,7 +1043,7 @@ class ScanManager:
                 device_var: self.device_manager.devices[device_name].state.get(var_name)
             }
 
-        logger.info("Initial scan variable state: %s", initial_state)
+        logger.debug("Initial scan variable state: %s", initial_state)
         return initial_state
 
     def restore_initial_state(self, initial_state):
@@ -1063,7 +1062,7 @@ class ScanManager:
                 device = self.device_manager.devices[device_name]
                 try:
                     device.set(variable_name, value)
-                    logger.info(
+                    logger.debug(
                         "Restored %s:%s to %s.", device_name, variable_name, value
                     )
                 except DEVICE_COMMAND_ERRORS as e:
