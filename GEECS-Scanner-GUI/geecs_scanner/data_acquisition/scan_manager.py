@@ -1,103 +1,27 @@
-"""
-ScanManager module for GEECS Scanner data acquisition.
-
-This module defines the `ScanManager` class, the central coordinator for
-executing scans in the GEECS system. It encapsulates configuration loading,
-device orchestration, data logging, trigger control, and optional optimizer
-integration. Scan execution is thread-based, enabling pause/resume and safe
-stop operations from external GUIs.
-
-Key Responsibilities
---------------------
-- Load or receive `ScanConfig` objects and pre-compute scan step sequences
-- Configure, synchronize, and restore GEECS devices via `DeviceManager`
-- Control shot-trigger hardware through `ScanDevice` interfaces
-- Manage data acquisition and file movement via `DataLogger` / `ScanDataManager`
-- Support three scan modes:
-    * STANDARD      (regular variable sweep)
-    * NOSCAN        (single-shot statistics collection)
-    * OPTIMIZATION  (feedback-driven scans with a pluggable optimizer)
-- Provide thread-safe controls for start, stop, pause, and resume
-- Estimate total acquisition time and real-time completion
-
-Dependencies
-------------
-Standard Library
-    threading, time, logging, importlib, warnings, pathlib.Path, typing
-Third-Party
-    pandas
-Internal Modules
-    geecs_scanner.data_acquisition:
-        • DeviceManager
-        • DataLogger
-        • ActionManager
-        • ScanDataManager
-        • ScanStepExecutor
-    geecs_scanner.optimization.base_optimizer.BaseOptimizer
-    geecs_data_utils (ScanConfig, ScanMode)
-    geecs_python_api.controls.devices.scan_device.ScanDevice
-    geecs_python_api.controls.interface.geecs_errors.GeecsDeviceInstantiationError
-
-Examples
---------
->>> from geecs_scanner.data_acquisition import ScanManager
->>> scan_mgr = ScanManager(
-...     experiment_dir=r"C:/Experiments/UndulatorTest",
-...     shot_control_information={
-...         "device": "MasterControl",
-...         "variables": {"Trigger": {"SCAN": 4.0, "OFF": 0.5}}
-...     }
-... )
->>> my_scan = ScanConfig(
-...     device_var="Undulator:gap",
-...     start=10,
-...     end=15,
-...     step=0.5,
-...     wait_time=1.0,
-...     scan_mode=ScanMode.STANDARD
-... )
->>> scan_mgr.reinitialize(config_dictionary={"options": {"rep_rate_hz": 1}})
->>> scan_mgr.initialization_success
-True
->>> scan_mgr.start_scan_thread(my_scan)
-
-Notes
------
-All time-critical operations (trigger handling, device polling, optimizer
-feedback) are executed in secondary threads to avoid blocking the main GUI
-loop. Any method marked as *thread-safe* can be invoked from an external
-thread without additional locks.
-"""
+"""Central scan orchestrator: device setup, trigger control, data acquisition, and cleanup."""
 
 from __future__ import annotations
 
-# Standard library imports
-from typing import Optional, Dict, Any, Union, List
-import queue
-import time
-import threading
-import logging
 import importlib
+import logging
+import queue
+import threading
+import time
 import warnings
+from dataclasses import fields
+from typing import Any, Dict, List, Optional, Union
 
-# Third-party library imports
 import pandas as pd
 
-# Internal project imports
 from . import (
-    DeviceManager,
     ActionManager,
     DataLogger,
     DatabaseDictLookup,
+    DeviceManager,
     ScanDataManager,
     ScanStepExecutor,
 )
-from geecs_scanner.optimization.base_optimizer import BaseOptimizer
-from geecs_scanner.logging_setup import scan_log
-
-from geecs_data_utils import ScanConfig, ScanMode  # Adjust the path as needed
-from dataclasses import fields
-
+from geecs_data_utils import ScanConfig, ScanMode
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
@@ -106,6 +30,8 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
 )
+from geecs_scanner.logging_setup import scan_log
+from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import (
     DeviceSynchronizationError,
     DeviceSynchronizationTimeout,
@@ -115,56 +41,33 @@ from geecs_scanner.utils.exceptions import (
 )
 from geecs_scanner.utils.retry import retry
 
-
-# Module-level logger (internal module, no NullHandler)
 logger = logging.getLogger(__name__)
-
 
 database_dict = DatabaseDictLookup()
 
 
 def get_database_dict():
-    """
-    Retrieve the current database dictionary.
-
-    Returns
-    -------
-    dict
-        The internal dictionary stored in the `DatabaseDictLookup` instance.
-    """
+    """Return the current database dictionary."""
     return database_dict.get_database()
 
 
 class ScanManager:
-    """Manage the execution of scans in the GEECS system.
-
-    This class coordinates all aspects of a scan, including device configuration,
-    data acquisition, and logger. It handles different scan modes (standard, noscan,
-    optimization) and provides thread-based control for pausing/resuming scans.
+    """Coordinate all aspects of a scan: devices, trigger, logging, and cleanup.
 
     Attributes
     ----------
     device_manager : DeviceManager
-        Manager for configuring and controlling devices
     action_manager : ActionManager
-        Handles pre/post-scan actions
     optimizer : BaseOptimizer or None
-        Optimizer for optimization scans
     initialization_success : bool
-        Flag indicating successful initialization
     scan_config : ScanConfig
-        Current scan configuration
-
-    Methods
-    -------
-    start_scan_thread(scan_config)
-        Start a new scan in a separate thread
-    stop_scanning_thread()
-        Stop the currently running scan
-    pause_scan()
-        Pause the scanning process
-    resume_scan()
-        Resume the paused scan
+    dialog_queue : queue.Queue[DialogRequest]
+        Worker threads post dialog requests here; the main-thread 200 ms timer drains it.
+    restore_failures : list[str]
+        Collected by restore_initial_state(); shown once by the main thread after the
+        scan thread exits (blocking in the scan thread would deadlock with join()).
+    last_reinit_error : str or None
+        Device name from the most recent GeecsDeviceInstantiationError, for the GUI dialog.
     """
 
     def __init__(
@@ -175,21 +78,6 @@ class ScanManager:
         device_manager=None,
         scan_data=None,
     ):
-        """Initialize the ScanManager with experiment settings and device configuration.
-
-        Parameters
-        ----------
-        experiment_dir : str
-            Directory where experiment data is stored
-        shot_control_information : dict
-            Dictionary containing shot control device information
-        options_dict : dict, optional
-            Additional options for scan configuration
-        device_manager : DeviceManager, optional
-            Pre-initialized device manager
-        scan_data : ScanData, optional
-            Pre-initialized scan data manager
-        """
         database_dict.reload(experiment_name=experiment_dir)
         self.device_manager = device_manager or DeviceManager(
             experiment_dir=experiment_dir
@@ -200,14 +88,11 @@ class ScanManager:
 
         self.MC_ip = ""
 
-        # Initialize ScanDataManager with device_manager and scan_paths
         self.scan_data_manager = ScanDataManager(
             self.device_manager, scan_data, database_dict
         )
 
-        self.data_logger = DataLogger(
-            experiment_dir, self.device_manager
-        )  # Initialize DataLogger
+        self.data_logger = DataLogger(experiment_dir, self.device_manager)
 
         self.shot_control: Optional[ScanDevice] = None
         self.shot_control_variables = None
@@ -216,11 +101,9 @@ class ScanManager:
             self.shot_control = ScanDevice(shot_control_information["device"])
             self.shot_control_variables = shot_control_information["variables"]
 
-        self.results = {}  # Store results for later processing
+        self.results = {}
 
-        self.stop_scanning_thread_event = (
-            threading.Event()
-        )  # Event to signal the logging thread to stop
+        self.stop_scanning_thread_event = threading.Event()
 
         # Queue for worker threads to request GUI dialogs on the main thread.
         # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
@@ -241,20 +124,20 @@ class ScanManager:
 
         self.acquisition_time = 0
 
-        self.scanning_thread = None  # NEW: Separate thread for scanning
+        self.scanning_thread = None
 
         self.scan_step_start_time = 0
         self.scan_step_end_time = 0
 
         self.initial_state = None
-        self.scan_steps = []  # To store the precomputed scan steps
+        self.scan_steps = []
 
-        self.pause_scan_event = threading.Event()  # Event to handle scan pausing
+        self.pause_scan_event = threading.Event()
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
         self.options_dict: dict = {} if options_dict is None else options_dict
-        self.save_local = True  # If true, will save locally on device PC before being queued to transfer to network
+        self.save_local = True
 
         self.scan_config: ScanConfig
 
@@ -281,7 +164,7 @@ class ScanManager:
     def request_user_dialog(
         self, exc: Exception, context: Optional[str] = None
     ) -> bool:
-        """Submit a device error dialog request and block until the user responds.
+        """Submit a device-error dialog request and block until the user responds.
 
         Called from worker threads.  Puts a :class:`DialogRequest` on
         ``self.dialog_queue`` and blocks until the main-thread GUI timer
@@ -289,17 +172,15 @@ class ScanManager:
 
         Parameters
         ----------
-        exc :
+        exc : Exception
             The device exception that triggered the dialog.
-        context :
-            Optional extra information shown in the dialog body — e.g. the
-            full list of variables that were being set for a device.
+        context : str, optional
+            Extra information shown in the dialog body.
 
         Returns
         -------
         bool
-            ``True`` if the user chose Abort (caller should set
-            ``stop_scanning_thread_event``); ``False`` to continue.
+            ``True`` if the user chose Abort; ``False`` to continue.
         """
         request = DialogRequest(exc=exc, context=context)
         self.dialog_queue.put(request)
@@ -307,25 +188,13 @@ class ScanManager:
         return request.abort[0]
 
     def pause_scan(self):
-        """
-        Pause the scanning process by clearing the pause event.
-
-        Notes
-        -----
-        Clears the `pause_scan_event` to pause scanning.
-        """
+        """Pause the scan by clearing the pause event."""
         if self.pause_scan_event.is_set():
             self.pause_scan_event.clear()
             logger.info("Scanning paused.")
 
     def resume_scan(self):
-        """
-        Resume the scanning process by setting the pause event.
-
-        Notes
-        -----
-        Sets the `pause_scan_event` to resume scanning.
-        """
+        """Resume the scan by setting the pause event."""
         if not self.pause_scan_event.is_set():
             self.pause_scan_event.set()
             logger.info("Scanning resumed.")
@@ -333,27 +202,24 @@ class ScanManager:
     def reinitialize(
         self, config_path=None, config_dictionary=None, scan_data=None
     ) -> bool:
-        """
-        Reinitialize the ScanManager with new configurations and reset the logging system.
+        """Reset and reload device configuration.
 
         Parameters
         ----------
         config_path : str, optional
-            Path to the configuration file.
         config_dictionary : dict, optional
-            Dictionary containing configuration settings.
         scan_data : ScanData, optional
             If given, scan_data_manager will use an alternative scan folder.
 
         Returns
         -------
         bool
-            True if successful and all devices connected, False otherwise.
+            True if successful and all devices connected.
 
         Raises
         ------
         GeecsDeviceInstantiationError
-            If device reinitialization fails during initialization of device manager.
+            If device reinitialization fails.
         """
         self.initial_state = None
         self.initialization_success = False
@@ -456,52 +322,24 @@ class ScanManager:
         return results
 
     def trigger_off(self):
-        """
-        Turn off the trigger by setting state to 'OFF'.
-
-        Notes
-        -----
-        Calls `_set_trigger` with 'OFF' state to disable the trigger.
-        """
+        """Set trigger state to OFF."""
         self._set_trigger("OFF")
 
     def trigger_on(self):
-        """
-        Turn on the trigger by setting state to 'SCAN'.
-
-        Notes
-        -----
-        Calls `_set_trigger` with 'SCAN' state to enable the trigger.
-        """
+        """Set trigger state to SCAN."""
         self._set_trigger("SCAN")
 
     def is_scanning_active(self):
-        """
-        Check if a scan is currently active.
-
-        Returns
-        -------
-            bool: True if scanning is active, False otherwise.
-        """
+        """Return True if the scan thread is currently alive."""
         return bool(self.scanning_thread and self.scanning_thread.is_alive())
 
     def start_scan_thread(self, scan_config: Union[ScanConfig, dict] = None) -> None:
-        """Start a new scan in a separate thread.
-
-        This allows the scan to be interrupted externally using the
-        stop_scanning_thread method.
+        """Start the scan in a background thread.
 
         Parameters
         ----------
-        scan_config : ScanConfig or dict, optional
-            Configuration settings for the scan, including variables, start, end,
-            step, and wait times. If a dict is provided, it will be converted to
-            a ScanConfig object (with a deprecation warning).
-
-        Notes
-        -----
-        The scan runs in a separate thread, which allows it to be paused, resumed,
-        or stopped externally during execution.
+        scan_config : ScanConfig or dict
+            Passing a dict is deprecated — use :class:`~geecs_data_utils.ScanConfig` directly.
         """
         if not self.initialization_success:
             logger.error("Initialization unsuccessful, cannot start a new scan session")
@@ -533,28 +371,18 @@ class ScanManager:
 
         self.scan_config = scan_config
 
-        # Ensure the stop event is cleared before starting a new session
         self.stop_scanning_thread_event.clear()
 
-        # Start a new thread for logging
         logger.info("Scan config: %s", self.scan_config)
         self.scanning_thread = threading.Thread(target=self._start_scan)
         self.scanning_thread.start()
         logger.info("Scan thread started.")
 
     def stop_scanning_thread(self):
-        """
-        Signal the running scan thread to stop and return immediately.
+        """Signal the scan thread to stop; returns immediately without blocking.
 
-        Sets the stop event so the scan thread exits at its next cooperative
-        check-point.  Does *not* block — the caller returns before the thread
-        finishes.  Use ``is_scanning_active()`` to poll for completion.
-        The scan thread clears ``self.scanning_thread`` itself when it exits.
-
-        Notes
-        -----
-        This method is safe to call even if scanning is not active. It performs
-        no action in that case except logging a warning.
+        Safe to call when no scan is active.  Use ``is_scanning_active()`` to
+        poll for completion.  The scan thread clears ``self.scanning_thread`` itself.
         """
         if not self.is_scanning_active():
             logger.warning("No active scanning thread to stop.")
@@ -564,37 +392,12 @@ class ScanManager:
         self.stop_scanning_thread_event.set()
 
     def _start_scan(self) -> pd.DataFrame:
-        """
-        Start and execute a scan using the current scan configuration.
-
-        This method performs the full scan lifecycle, including pre-scan setup,
-        acquisition time estimation, data logging, device synchronization,
-        and execution of the scan steps. Upon completion or error, the scan is
-        finalized and cleaned up.
-
-        Requires
-        --------
-        self.scan_config : ScanConfig
-            Must be set before calling this method.
-        self.initialization_success : bool
-            Must be True to begin the scan.
-
-        Returns
-        -------
-        pandas.DataFrame
-            A DataFrame containing the logged scan data. If the scan fails early,
-            the DataFrame may be empty.
-
-        Raises
-        ------
-        Exception
-            Logs and suppresses any exceptions raised during scan execution.
-        """
+        """Run the full scan lifecycle in the scan thread."""
         if not self.initialization_success:
             logger.error("initialization unsuccessful, cannot start a new scan session")
             return pd.DataFrame()
 
-        log_df = pd.DataFrame()  # Initialize in case of early exit
+        log_df = pd.DataFrame()
 
         # ------------------------------------------------------------------ #
         # Phase 1: before scan paths exist                                    #
@@ -616,7 +419,6 @@ class ScanManager:
             logger.info("Stop requested before scan directory was used; aborting.")
             return pd.DataFrame()
 
-        # Figure out scan_dir and a human-friendly scan_id *after* paths exist
         scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
         scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
         if not scan_id:
@@ -634,7 +436,6 @@ class ScanManager:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
                 self.pre_logging_setup()
 
-                # Estimate acquisition time if necessary
                 if self.scan_config:
                     self.estimate_acquisition_time()
                     logger.info(
@@ -646,16 +447,13 @@ class ScanManager:
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
 
-                # Start data logging
                 self.results = self.data_logger.start_logging()
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
 
-                # clear source directories of synchronization shots
                 self.scan_data_manager.purge_all_local_save_dir()
 
-                # Execute the scan loop
                 self.executor.execute_scan_loop(self.scan_steps)
 
                 logger.info("scan %s: completed normally", scan_id)
@@ -680,7 +478,6 @@ class ScanManager:
                 logger.exception("Error during scan execution")
 
             finally:
-                # ALWAYS run cleanup so that stop_scan() is captured in the log
                 logger.info("Executing scan cleanup...")
                 try:
                     log_df = self.stop_scan()
@@ -692,17 +489,11 @@ class ScanManager:
                 logger.info("scan %s: finished", scan_id)
 
         self.scanning_thread = None
-        return log_df  # Return the DataFrame with the logged data
+        return log_df
 
     def check_devices_in_standby_mode(self) -> bool:
-        """
-        Check whether all devices have entered standby mode, with a timeout.
-
-        Returns
-        -------
-            bool: True if all devices are in standby mode within the timeout; otherwise, False.
-        """
-        timeout = 8  # timeout in seconds
+        """Wait up to 8 s for all devices to enter standby; return False on timeout."""
+        timeout = 8
         start_time = time.time()
         while not self.data_logger.all_devices_in_standby:
             if time.time() - start_time > timeout:
@@ -714,30 +505,19 @@ class ScanManager:
         return True
 
     def synchronize_devices(self) -> None:
-        """
-        Attempt to synchronize all devices using global time sync or fallback to timeout method.
-
-        This method first tries to use global time synchronization if enabled, which leverages
-        improved Windows domain time synchronization to check if devices are already synchronized.
-        If global sync fails or is disabled, it falls back to the original timeout-based method.
-
-        Notes
-        -----
-        Global time sync provides significant time savings by avoiding timeout waits when
-        devices are already synchronized. The timeout method serves as a robust fallback.
+        """Synchronize all devices via global-time or timeout-based fallback.
 
         Raises
         ------
-        None directly, but logs and stops the scan if timeout is reached.
+        DeviceSynchronizationTimeout
+            If devices do not synchronize within 15.5 seconds.
         """
-        # Try global time synchronization first if enabled
         if self.options_dict.get("enable_global_time_sync", False):
             logger.info("Attempting global time synchronization")
             if self.data_logger.synchronize_devices_global_time():
                 logger.info(
                     "Global time synchronization successful. Skipping timeout method."
                 )
-                # skip the check stanby step
                 self.data_logger.all_devices_in_standby = True
                 return
             else:
@@ -745,9 +525,8 @@ class ScanManager:
                     "Global time synchronization failed. Falling back to timeout method."
                 )
 
-        # Original timeout-based synchronization method
         logger.info("Using timeout-based synchronization method")
-        timeout = 15.5  # seconds
+        timeout = 15.5
         start_time = time.time()
         while not self.data_logger.devices_synchronized:
             if time.time() - start_time > timeout:
@@ -790,20 +569,10 @@ class ScanManager:
                     }
                     logger.info("Waiting for devices to re-enter standby mode.")
                     self.data_logger.all_devices_in_standby = False
-            # wait 100 ms between checks of device standby status
             time.sleep(0.1)
 
     def _join_file_mover_queue(self, timeout: float = 30.0) -> None:
-        """
-        Wait for the FileMover task queue to drain, with a hard timeout.
-
-        Runs ``task_queue.join()`` in a daemon thread so the calling thread is
-        never blocked indefinitely.
-
-        Parameters
-        ----------
-        timeout : float
-            Maximum seconds to wait before raising OrphanProcessingTimeout.
+        """Wait for the FileMover queue to drain, with a hard *timeout*.
 
         Raises
         ------
@@ -822,8 +591,7 @@ class ScanManager:
             )
 
     def stop_scan(self):
-        """
-        Stop the scan, save data, and restore initial device states.
+        """Stop the scan, persist all data, and restore device state.
 
         Shutdown order:
 
@@ -837,8 +605,8 @@ class ScanManager:
 
         Returns
         -------
-        pandas.DataFrame
-            DataFrame containing the processed and saved scan data.
+        pd.DataFrame
+            Processed scan data.
         """
         log_df = pd.DataFrame()
 
@@ -941,22 +709,12 @@ class ScanManager:
         return log_df
 
     def _stop_saving_devices(self):
-        """Reset save paths for non-scalar devices in parallel.
+        """Dispatch save=off and path-reset to all camera devices in parallel.
 
-        Dispatches save=off and localsavingpath reset commands to all camera
-        devices concurrently using fire-and-forget (sync=False) calls so that
-        the thread returns as soon as all UDP packets have been queued.  The
-        race between dequeue threads and device.close() is handled in
-        GeecsDevice._process_command, which checks dev_udp and returns cleanly
-        if the socket has already been closed.
-
-        Note: stop_logging() is *not* called here.  The caller seals
-        self.results with stop_logging() before starting this as a background
-        thread, allowing the two to overlap.
-
-        Notes
-        -----
-        Intended for internal use during scan shutdown or interruption.
+        Fire-and-forget (sync=False) so the thread returns as soon as all UDP
+        packets are queued.  stop_logging() is *not* called here — the caller
+        seals self.results first, allowing this thread to overlap with the
+        file-mover drain and restore steps.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -1001,18 +759,7 @@ class ScanManager:
         logger.info("scanning has stopped for all devices.")
 
     def save_hiatus(self, hiatus_period: float):
-        """
-        Temporarily disable and then re-enable saving on non-scalar devices.
-
-        This method turns off data saving for all non-scalar devices, waits for a
-        specified hiatus period, and then re-enables saving. It is useful during
-        experimental pauses or transitions when saving should be momentarily halted.
-
-        Parameters
-        ----------
-        hiatus_period : float
-            Duration of the hiatus in seconds before re-enabling saving.
-        """
+        """Disable saving on all non-scalar devices, wait *hiatus_period* seconds, then re-enable."""
         for device_name in self.device_manager.non_scalar_saving_devices:
             device = self.device_manager.devices.get(device_name)
             if device:
@@ -1057,16 +804,7 @@ class ScanManager:
             If ``stop_scanning_thread_event`` is set between steps.
         GeecsDeviceInstantiationError
             If device initialization or configuration fails.
-        ValueError
-            If scan configuration is incomplete or invalid.
-
-        See Also
-        --------
-        _start_scan : Calls this method inside the per-scan log context.
-        _generate_scan_steps : Generates the sequence of scan steps.
-        device_manager.handle_scan_variables : Manages device variable init.
         """
-        # Generate the scan steps
         self.scan_steps = self._generate_scan_steps()
         logger.info("steps for the scan are : %s", self.scan_steps)
 
@@ -1090,7 +828,6 @@ class ScanManager:
 
         self.scan_data_manager.write_scan_info_ini(self.scan_config)
 
-        # Handle scan variables and ensure devices are initialized in DeviceManager
         logger.info("scan config in pre logging is this: %s", self.scan_config)
         try:
             self.device_manager.handle_scan_variables(self.scan_config)
@@ -1132,22 +869,7 @@ class ScanManager:
         logger.info("Pre-logging setup completed.")
 
     def enable_live_ECS_dump(self, client_ip: str = "192.168.0.1"):
-        """
-        Enable live ECS dumps on the Master Control (MC) system.
-
-        Sends a sequence of UDP commands to the shot control device to enable remote
-        scan ECS dumps and verify the scan path configuration. Intended for setting
-        up real-time experiment configuration saving.
-
-        Parameters
-        ----------
-        client_ip : str, optional
-            IP address of the client computer requesting the ECS dump (default is "192.168.0.1").
-
-        Notes
-        -----
-        If `shot_control` is not configured, the method logs an error and exits.
-        """
+        """Send UDP commands to MC to enable remote ECS dumps for this scan."""
         if self.shot_control is None:
             logger.error("Cannot enable live ECS dump without shot control device")
             return
@@ -1165,30 +887,13 @@ class ScanManager:
                 break
 
     def generate_live_ECS_dump(self, client_ip: str = "192.168.0.1"):
-        """
-        Trigger the generation of a live ECS dump on the Master Control (MC) system.
-
-        Sends a UDP command to save the current experiment device configuration
-        at the beginning of a scan.
-
-        Parameters
-        ----------
-        client_ip : str, optional
-            IP address of the client computer requesting the ECS dump (default is "192.168.0.1").
-
-        Notes
-        -----
-        If `shot_control` is not configured, the method logs an error and exits.
-        """
+        """Trigger a live ECS configuration dump at scan start."""
         if self.shot_control is None:
             logger.error("Cannot enable live ECS dump without shot control device")
             return
         logger.info("sending comands to MC to generate ECS live dump")
 
-        steps = [
-            # "Main: Check scans path>>None",
-            "Save Live Expt Devices Configuration>>ScanStart"
-        ]
+        steps = ["Save Live Expt Devices Configuration>>ScanStart"]
 
         for step in steps:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
@@ -1198,63 +903,14 @@ class ScanManager:
                 break
 
     def _generate_scan_steps(self) -> List[Dict[str, Any]]:
-        """Generate a sequence of scan steps based on the current scan configuration.
-
-        Prepares a list of steps to be executed during the scan, accommodating
-        different scan modes and variable configurations. This method handles
-        standard linear scans, no-scan modes, and optimization-driven scans.
-
-        Parameters
-        ----------
-        None (uses instance attributes)
+        """Build the list of scan steps from the current scan configuration.
 
         Returns
         -------
-        List[Dict[str, Any]]
-            A list of dictionaries representing scan steps, where each dictionary contains:
-            - 'variables': A dictionary of device variables and their target values
-            - 'wait_time': Duration to wait at each step
-            - 'is_composite': Flag indicating if the step involves a composite variable
-
-        Notes
-        -----
-        Scan Step Generation Strategy:
-        - NOSCAN mode: Single step with no variable changes
-        - OPTIMIZATION mode: Placeholder steps for dynamic optimization
-        - STANDARD mode: Linear sweep of a device variable between start and end values
-
-        Scan Configuration Requirements:
-        - scan_config.scan_mode must be set
-        - For STANDARD mode, start, end, step, and device_var must be defined
-        - For OPTIMIZATION mode, optimizer configuration is required
-
-        Examples
-        --------
-        >>> scan_mgr = ScanManager(...)
-        >>> scan_mgr.scan_config = ScanConfig(
-        ...     device_var='Undulator:gap',
-        ...     start=10.0,
-        ...     end=15.0,
-        ...     step=0.5,
-        ...     scan_mode=ScanMode.STANDARD
-        ... )
-        >>> steps = scan_mgr._generate_scan_steps()
-        >>> print(steps)
-        [
-            {'variables': {'Undulator:gap': 10.0}, 'wait_time': 1.0, 'is_composite': False},
-            {'variables': {'Undulator:gap': 10.5}, 'wait_time': 1.0, 'is_composite': False},
-            ...
-        ]
-
-        Raises
-        ------
-        ValueError
-            If scan configuration is incomplete or incompatible with the scan mode
-
-        See Also
-        --------
-        start_scan_thread : Initiates scan execution using generated steps
-        _setup_optimizer_from_config : Configures optimizer for optimization scans
+        list[dict]
+            Each dict has keys ``'variables'``, ``'wait_time'``, ``'is_composite'``.
+            NOSCAN → one step with empty variables; OPTIMIZATION → placeholder
+            steps filled in dynamically; STANDARD → linear sweep.
         """
         self.data_logger.bin_num = 0
         steps: List[Dict[str, Any]] = []
@@ -1311,62 +967,12 @@ class ScanManager:
         return steps
 
     def _setup_optimizer_from_config(self):
-        """Configure and initialize an optimizer for dynamic scan optimization.
-
-        This method handles the complex process of setting up an optimization
-        strategy for experimental scans. It loads an optimizer configuration,
-        instantiates the optimizer, configures device requirements, and prepares
-        the system for an optimization-driven scan.
-
-        Detailed Setup Process:
-        1. Validate optimizer configuration path
-        2. Load optimizer configuration
-        3. Instantiate BaseOptimizer with required dependencies
-        4. Configure device requirements for optimization
-        5. Add optimization variables to device manager
-        6. Update scan executor with optimizer and logger
-
-        Requires
-        --------
-        self.scan_config : ScanConfig
-            Must contain a valid `optimizer_config_path`
-        self.scan_data_manager : ScanDataManager
-            Used to provide context for optimizer initialization
-        self.data_logger : DataLogger
-            Used to provide logging capabilities to the optimizer
-
-        Returns
-        -------
-        None
-            Configures the optimizer in-place and updates related components
+        """Instantiate the optimizer from ``scan_config.optimizer_config_path``.
 
         Raises
         ------
         ValueError
-            If optimizer configuration path is not specified
-        ImportError
-            If required optimizer modules cannot be imported
-        ConfigurationError
-            If optimizer configuration is invalid or incomplete
-
-        Notes
-        -----
-        - Supports dynamic configuration of optimization strategies
-        - Handles variable mapping between devices and optimizer
-        - Ensures compatibility between optimizer and experimental setup
-
-        Examples
-        --------
-        >>> scan_mgr = ScanManager(...)
-        >>> scan_mgr.scan_config.optimizer_config_path = 'path/to/optimizer_config.yaml'
-        >>> scan_mgr._setup_optimizer_from_config()
-        # Configures optimizer for the upcoming scan
-
-        See Also
-        --------
-        BaseOptimizer.from_config_file : Method used to instantiate optimizer
-        start_scan_thread : Initiates scan execution with configured optimizer
-        device_manager.add_scan_device : Adds optimization variables to device manager
+            If ``optimizer_config_path`` is not set.
         """
         if not self.scan_config.optimizer_config_path:
             raise ValueError(
@@ -1383,80 +989,19 @@ class ScanManager:
 
         from collections import defaultdict
 
-        # Step 1: Consolidate variables by device
         device_variables = defaultdict(list)
         for key in self.optimizer.vocs.variables.keys():
             device, variable = key.split(":", 1)
             device_variables[device].append(variable)
 
-        # Step 2: Call add_scan_device for each device
         for device, variables in device_variables.items():
             self.device_manager.add_scan_device(device, variables)
 
-        # Ensure the executor sees the updated optimizer
         self.executor.optimizer = self.optimizer
         self.executor.data_logger = self.data_logger
 
     def estimate_acquisition_time(self):
-        """Compute the estimated total duration for a scan based on configuration parameters.
-
-        This method calculates the expected total acquisition time by analyzing
-        the scan configuration, taking into account the scan mode, variable range,
-        step size, and wait time between steps. The result provides a predictive
-        estimate of the scan's total execution time.
-
-        Calculation Strategy:
-        - NOSCAN mode: Single wait time period
-        - STANDARD mode: Number of steps multiplied by wait time
-        - Handles both positive and negative scan directions
-
-        Requires
-        --------
-        self.scan_config : ScanConfig
-            Scan configuration object containing:
-            - device_var: Scan variable
-            - start: Starting value of the scan
-            - end: Ending value of the scan
-            - step: Increment/decrement between steps
-            - wait_time: Duration to wait at each step
-
-        Attributes Modified
-        ------------------
-        self.acquisition_time : float
-            Total estimated scan duration in seconds
-
-        Notes
-        -----
-        - Adjusts for different scan modes and variable ranges
-        - Provides a predictive estimate, not an exact measurement
-        - Useful for progress tracking and resource allocation
-        - Handles both linear and reverse scan directions
-
-        Examples
-        --------
-        >>> scan_mgr = ScanManager(...)
-        >>> scan_mgr.scan_config = ScanConfig(
-        ...     device_var='Undulator:gap',
-        ...     start=10.0,
-        ...     end=15.0,
-        ...     step=0.5,
-        ...     wait_time=1.0,
-        ...     scan_mode=ScanMode.STANDARD
-        ... )
-        >>> scan_mgr.estimate_acquisition_time()
-        >>> print(scan_mgr.acquisition_time)
-        11.0  # 11 steps * 1.0 seconds per step
-
-        Raises
-        ------
-        AttributeError
-            If scan_config is not set before method invocation
-
-        See Also
-        --------
-        estimate_current_completion : Calculates current scan progress
-        _generate_scan_steps : Generates the sequence of scan steps
-        """
+        """Compute and store the estimated total scan duration in ``self.acquisition_time``."""
         total_time = 0
 
         if (
@@ -1470,62 +1015,21 @@ class ScanManager:
             step = self.scan_config.step
             wait_time = self.scan_config.wait_time
 
-            # Calculate the number of steps and the total time for this device
             steps = abs((end - start) / step) + 1
             total_time += steps * wait_time
 
         logger.info("Estimated scan time: %s", total_time)
-
         self.acquisition_time = total_time
 
     def estimate_current_completion(self):
-        """
-        Estimate the current completion percentage of the scan.
-
-        The estimate is based on the current shot number and the total estimated acquisition time.
-
-        Returns
-        -------
-        float
-            A value between 0.0 and 1.0 indicating the fraction of the scan completed.
-            Returns 1.0 if the estimate exceeds 100%.
-        """
+        """Return the fraction of the scan completed (0.0–1.0)."""
         if self.acquisition_time == 0:
             return 0
         completion = self.data_logger.get_current_shot() / self.acquisition_time
         return 1 if completion > 1 else completion
 
     def get_initial_state(self):
-        """Capture the initial state of the scan variable before experimental manipulation.
-
-        This method retrieves the current value of the scan variable, handling
-        both standard device variables and composite variables. The captured
-        state serves as a reference point for restoring the device to its
-        original configuration after the scan is complete.
-
-        Detailed State Retrieval Process:
-        1. Determine if the scan variable is a composite or standard variable
-        2. Access the current value from the appropriate device
-        3. Create a dictionary mapping the variable to its initial value
-
-        Parameters
-        ----------
-        None (uses instance attributes)
-
-        Requires
-        --------
-        self.scan_config : ScanConfig
-            Must contain the `device_var` to be tracked
-        self.device_manager : DeviceManager
-            Used to access device states and check variable types
-
-        Returns
-        -------
-        dict
-            A dictionary with the following possible formats:
-            - For standard variables: {'device_name:variable_name': initial_value}
-            - For composite variables: {'device_name:composite_var': initial_value}
-        """
+        """Return ``{device_var: current_value}`` for the scan variable before manipulation."""
         device_var = self.scan_config.device_var
 
         if self.device_manager.is_composite_variable(device_var):
@@ -1544,25 +1048,15 @@ class ScanManager:
         return initial_state
 
     def restore_initial_state(self, initial_state):
-        """Revert devices to their pre-scan configuration after experimental manipulation.
+        """Restore each device variable in *initial_state* to its pre-scan value.
 
-        This method systematically restores devices to their original state by
-        setting each device variable back to its initial value. It is a critical
-        step in maintaining experimental reproducibility and preventing unintended
-        long-term effects from scan procedures.
-
-        Parameters
-        ----------
-        initial_state : dict
-            A dictionary mapping device variables to their initial values.
-            Keys should be in the format "device_name:variable_name",
-            with corresponding values representing the original state.
+        Failures are collected into ``self.restore_failures`` rather than shown
+        immediately — blocking a dialog here would deadlock with
+        ``stop_scanning_thread().join()`` on the main thread.
         """
-        # Clear any leftover failures from a previous run.
         self.restore_failures = []
 
         for device_var, value in initial_state.items():
-            # Split the key to get the device name and variable name
             device_name, variable_name = device_var.split(":", 1)
 
             if device_name in self.device_manager.devices:
@@ -1585,7 +1079,7 @@ class ScanManager:
                     # deadlock.  Collect the failure; the main thread will
                     # show a summary once the scan thread has exited.
                     self.restore_failures.append(
-                        f"  \u2022 {device_name}:{variable_name} \u2192 {value}"
+                        f"  • {device_name}:{variable_name} → {value}"
                         f"  ({type(e).__name__})"
                     )
                 except Exception:
