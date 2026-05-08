@@ -37,10 +37,8 @@ VARIABLE = "Current"
 
 
 def _open(geecs_exp_info) -> GeecsDevice:  # noqa: ARG001
-    """Open U_S1H with alias translation disabled (unstable default)."""
-    device = GeecsDevice(DEVICE_NAME)
-    device.use_alias_in_TCP_subscription = False
-    return device
+    """Open U_S1H using the default alias mode (use_alias_in_TCP_subscription=False)."""
+    return GeecsDevice(DEVICE_NAME)
 
 
 # ---------------------------------------------------------------------------
@@ -73,22 +71,20 @@ class TestGeecsDeviceHappyPath:
         finally:
             device.close()
 
-    def test_get_default_alias_mode_is_broken(self, geecs_exp_info):
-        """Document the known alias instability: with use_alias_in_TCP_subscription=True
-        (the default), get() may silently return None even on a successful command.
-
-        This test is expected to FAIL (or return None) until the default is fixed.
-        Remove the xfail mark once the alias default is corrected.
+    def test_get_default_alias_mode_works(self, geecs_exp_info):
+        """Default use_alias_in_TCP_subscription=False: get() must return a numeric
+        without any manual flag override.
         """
-        device = GeecsDevice(DEVICE_NAME)  # default: use_alias_in_TCP_subscription=True
+        device = GeecsDevice(
+            DEVICE_NAME
+        )  # default: use_alias_in_TCP_subscription=False
         try:
             value = device.get(VARIABLE)
-            # If the alias lookup happened to work, that's fine too — note it.
-            if value is None:
-                pytest.xfail(
-                    "get() returned None with use_alias_in_TCP_subscription=True "
-                    "(expected — Bug 1 alias instability)"
-                )
+            assert value is not None, (
+                "get() returned None with default alias mode — "
+                "use_alias_in_TCP_subscription default may have regressed to True"
+            )
+            assert isinstance(value, (int, float))
         finally:
             device.close()
 

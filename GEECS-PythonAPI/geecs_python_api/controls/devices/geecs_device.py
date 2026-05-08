@@ -72,7 +72,7 @@ class GeecsDevice:
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
-        self.use_alias_in_TCP_subscription: bool = True
+        self.use_alias_in_TCP_subscription: bool = False
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {
