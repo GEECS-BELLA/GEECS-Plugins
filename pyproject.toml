@@ -48,7 +48,6 @@ markers = [
 # Exclude pre-existing test stubs that require optional/unavailable deps
 norecursedirs = [
     "tests/ScannerTools",
-    "ImageAnalysis/tests/labview_analyzer_unit_tests",
     ".git", ".venv", "dist", "build", "__pycache__",
 ]
 
