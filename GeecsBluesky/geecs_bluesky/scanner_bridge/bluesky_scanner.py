@@ -452,16 +452,24 @@ class BlueskyScanner:
         yield from self._set_trigger_state("STANDBY")
 
     def _set_trigger_state(self, state: str):
-        """Bluesky plan stub: drive all shot control variables to *state*."""
+        """Bluesky plan stub: drive all shot control variables to *state*.
+
+        Uses ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv`` because
+        ``bps.mv`` inspects ``.parent`` for coupled-device handling — an
+        ophyd-specific attribute that ``_UdpSetter`` intentionally omits.
+        All active variables are set concurrently then waited on as a group.
+        """
         if not self._shot_control_setters:
             return
-        mv_args: list = []
+        group = f"shot_ctrl_{state}"
+        n_set = 0
         for var_name, setter in self._shot_control_setters.items():
             val = self._shot_control_variables[var_name].get(state)
-            if val is not None:
-                mv_args.extend([setter, val])
-        if mv_args:
-            yield from bps.mv(*mv_args)
+            if val:  # skip None and empty string (matches TriggerController)
+                yield from bps.abs_set(setter, val, group=group)
+                n_set += 1
+        if n_set:
+            yield from bps.wait(group)
             logger.info("Shot controller → %s", state)
 
     def _run_scan(self, scan_config: Any) -> None:
