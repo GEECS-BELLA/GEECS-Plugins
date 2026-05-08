@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.2] — 2026-05-08
+
+### Changed
+- `engine/data_logger.py`: replaced `geecs_python_api.tools.files.timestamping.extract_timestamp_from_file`
+  with `geecs_data_utils.timestamp_from_filename`. Removes dependency on the
+  deleted `GEECS-PythonAPI` timestamping module.
+
 ## [0.12.1] — 2026-05-08
 
 ### Changed

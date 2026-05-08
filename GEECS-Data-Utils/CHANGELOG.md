@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] — 2026-05-08
+
+### Added
+- `timestamp_from_string(string)` and `timestamp_from_filename(file)` migrated
+  from `geecs_python_api.tools.files.timestamping`. Both are exported from the
+  package root. Eliminates the scanner's dependency on the now-deleted
+  `GEECS-PythonAPI` timestamping module.
+- `tests/test_utils.py` — first test suite for `geecs_data_utils`.
+
 ## [0.4.1] — 2026-05-07
 
 ### Changed

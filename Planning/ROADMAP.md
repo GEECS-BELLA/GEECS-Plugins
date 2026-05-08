@@ -19,6 +19,33 @@ worth the cost of migration.
 
 ---
 
+## Current Focus (as of May 2026)
+
+**Planned next block:** Block 3 — Scan event model
+
+**Actual current order — three prerequisites identified during PR #367:**
+
+1. **GeecsAPI full cleanup** ← *in progress (branch: `worktree-api-cleanup`)*
+   Full audit + purge of dead code; fix the `None` return on hardware rejection
+   and UDP socket lifecycle. Doing this before Block 3 so the event model sits on
+   a reliable foundation rather than papering over two known bugs.
+
+2. **Log-triage `/triage` Claude Code skill** — interactive session where Claude
+   runs the CLI, presents results, and the user annotates human context (hardware
+   vs bug vs user error) before optionally filing GitHub issues. Stage 2 of the
+   auto-debugger pipeline.
+
+3. **Block 3** — scan event model, once the API foundation is clean.
+
+**Why the detour:** `DeviceCommandExecutor` (Block 6, PR #367) exposed two
+API-layer bugs we are patching around: `device.set()` silently returning `None`
+on hardware rejection (instead of raising), and the UDP socket lifecycle leaving
+ports bound across scans (WinError 10048). Building the event model on those
+would muddy event semantics. Better to fix the foundation first.
+
+---
+
+
 ## Current State (as of May 2026)
 
 ### What works well
