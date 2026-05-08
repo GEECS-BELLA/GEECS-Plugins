@@ -15,6 +15,7 @@ from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import DeviceCommandError
 from geecs_scanner.utils.retry import retry
@@ -36,7 +37,7 @@ class ScanStepExecutor:
     scan_data_manager : ScanDataManager
     optimizer : BaseOptimizer or None
     shot_control : ShotControl or None
-    options_dict : dict
+    options : ScanOptions
     stop_scanning_thread_event : threading.Event
     pause_scan_event : threading.Event
     on_device_error : callable or None
@@ -49,7 +50,7 @@ class ScanStepExecutor:
         data_logger,
         scan_data_manager,
         shot_control,
-        options_dict,
+        options: ScanOptions,
         stop_scanning_thread_event,
         pause_scan_event,
         optimizer: Optional[BaseOptimizer] = None,
@@ -59,7 +60,7 @@ class ScanStepExecutor:
         self.scan_data_manager = scan_data_manager
         self.optimizer = optimizer
         self.shot_control = shot_control
-        self.options_dict = options_dict
+        self.options = options
         self.stop_scanning_thread_event = stop_scanning_thread_event
         self.pause_scan_event = pause_scan_event
 
@@ -257,8 +258,7 @@ class ScanStepExecutor:
         """Enable trigger, wait *wait_time* seconds, disable trigger.
 
         Handles pause/resume events and optional per-shot TDMS saves
-        (``options_dict["On-Shot TDMS"]``) and save-hiatus periods
-        (``options_dict["Save Hiatus Period (s)"]``).
+        (``options.on_shot_tdms``).
         """
         self.trigger_on()
 
@@ -294,7 +294,7 @@ class ScanStepExecutor:
             time.sleep(interval_time)
             current_time = time.time() - start_time
 
-            if self.options_dict.get("On-Shot TDMS", False):
+            if self.options.on_shot_tdms:
                 if current_time % 1 < interval_time:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)

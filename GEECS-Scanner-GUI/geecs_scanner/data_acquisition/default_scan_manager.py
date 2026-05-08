@@ -12,37 +12,27 @@ from pathlib import Path
 import yaml
 
 from geecs_scanner.data_acquisition import ScanManager
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
 from geecs_scanner.utils import ApplicationPaths
 
 
 def get_default_scan_manager(experiment: str) -> ScanManager:
     """Returns a default instance of Scan Manager for the given experiment name."""
-    defaults = {
-        "Undulator": {
-            "shot_control_config": "HTU-Normal.yaml",
-            "options": {
-                "rep_rate_hz": 1,
-                "On-Shot TDMS": False,
-                "Master Control IP": "192.168.7.203",
-            },
-        }
-    }
-    default_settings = defaults["Undulator"]
+    app_paths = ApplicationPaths(experiment=experiment)
+    shot_control_path = app_paths.exp_shot_control / "HTU-Normal.yaml"
 
-    app_paths = ApplicationPaths(experiment="Undulator")
-    shot_control = app_paths.exp_shot_control / default_settings["shot_control_config"]
-
-    # shot_control = (Path(__file__).parents[2] / "scanner_configs" / "experiments" / experiment
-    #                 / "shot_control_configurations" / default_settings["shot_control_config"])
-
-    with open(shot_control) as file:
+    with open(shot_control_path) as file:
         shot_control_information = yaml.safe_load(file)
-    default_options = default_settings["options"]
+
+    options = ScanOptions(
+        rep_rate_hz=1.0,
+        master_control_ip="192.168.7.203",
+    )
 
     return ScanManager(
         experiment_dir=experiment,
         shot_control_information=shot_control_information,
-        options_dict=default_options,
+        options=options,
     )
 
 

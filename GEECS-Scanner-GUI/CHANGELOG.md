@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.scan_options.ScanOptions` — new Pydantic
+  model for all engine-level execution options (`rep_rate_hz`,
+  `enable_global_time_sync`, `global_time_tolerance_ms`, `master_control_ip`,
+  `on_shot_tdms`, `save_direct_on_network`, `randomized_beeps`). Replaces the
+  raw `options_dict: dict` that was previously threaded through
+  `ScanManager` and `ScanStepExecutor`.
+
+### Changed
+- `ScanManager.__init__` and `reinitialize()` now accept and store a
+  `ScanOptions` instance instead of a plain dict; all internal `.get("key")`
+  accesses replaced with typed attribute access.
+- `ScanStepExecutor.__init__` parameter `options_dict` renamed to `options:
+  ScanOptions`; `on_shot_tdms` read via `options.on_shot_tdms`.
+- `DataLogger.reinitialize_sound_player()` parameter changed from
+  `Optional[dict]` to `Optional[ScanOptions]`.
+- `SoundPlayer.__init__` no longer accepts an `options` dict; takes an explicit
+  `randomized_beeps: bool` parameter instead.
+- `RunControl.submit_run()` gains an optional `options: ScanOptions` parameter;
+  when provided it is injected into the config dictionary before passing to
+  `ScanManager.reinitialize()`.
+- `GEECSScannerWindow._collect_options()` now returns a `ScanOptions` instance.
+- Fixed bug where `On-Shot TDMS` and `Save Direct on Network` GUI toggles were
+  defined in `BOOLEAN_OPTIONS` but absent from `OPTION_MAP`, so they were never
+  collected and the engine always defaulted to `False`.
+- Fixed bug where `scan_config.background` was set to a string `"True"/"False"`
+  instead of a bool.
+
 ## [0.9.1] — 2026-05-07
 
 ### Changed

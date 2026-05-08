@@ -26,6 +26,7 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
+from geecs_scanner.data_acquisition.scan_options import ScanOptions
 from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
@@ -74,7 +75,7 @@ class ScanManager:
         self,
         experiment_dir: str,
         shot_control_information: dict,
-        options_dict: Optional[dict] = None,
+        options: Optional[ScanOptions] = None,
         device_manager=None,
         scan_data=None,
     ):
@@ -136,8 +137,8 @@ class ScanManager:
         self.pause_scan_event.set()  # Set to 'running' by default
         self.pause_time = 0
 
-        self.options_dict: dict = {} if options_dict is None else options_dict
-        self.save_local = True
+        self.options: ScanOptions = options if options is not None else ScanOptions()
+        self.save_local = not self.options.save_direct_on_network
 
         self.scan_config: ScanConfig
 
@@ -147,7 +148,7 @@ class ScanManager:
             scan_data_manager=self.scan_data_manager,
             optimizer=self.optimizer,
             shot_control=self.shot_control,
-            options_dict=self.options_dict,
+            options=self.options,
             stop_scanning_thread_event=self.stop_scanning_thread_event,
             pause_scan_event=self.pause_scan_event,
         )
@@ -245,20 +246,19 @@ class ScanManager:
         logger.debug("config dictionary in reinitialize: %s", config_dictionary)
 
         if config_dictionary is not None and "options" in config_dictionary:
-            self.options_dict = config_dictionary["options"]
-            self.save_local = not self.options_dict.get("Save Direct on Network", False)
+            self.options = config_dictionary["options"]
+            self.executor.options = self.options
+            self.save_local = not self.options.save_direct_on_network
 
-        new_mc_ip = self.options_dict.get("master_control_ip", "")
+        new_mc_ip = self.options.master_control_ip
         if self.shot_control and new_mc_ip and self.MC_ip != new_mc_ip:
             self.MC_ip = new_mc_ip
             self.enable_live_ECS_dump(client_ip=self.MC_ip)
 
-        self.data_logger.reinitialize_sound_player(options=self.options_dict)
+        self.data_logger.reinitialize_sound_player(options=self.options)
         self.data_logger.last_log_time_sync = {}
-        self.data_logger.update_repetition_rate(self.options_dict.get("rep_rate_hz", 1))
-        self.data_logger.global_sync_tol_ms = self.options_dict.get(
-            "global_time_tolerance_ms", 0
-        )
+        self.data_logger.update_repetition_rate(self.options.rep_rate_hz)
+        self.data_logger.global_sync_tol_ms = self.options.global_time_tolerance_ms
 
         self.initialization_success = True
         return self.initialization_success
@@ -362,7 +362,7 @@ class ScanManager:
                 )
 
             warnings.warn(
-                "Passing scan_config as a dict is deprecated. Please migrate to using ScanConfig dataclass.",
+                "Passing scan_config as a dict is deprecated. Use ScanConfig directly.",
                 DeprecationWarning,
             )
             scan_config = ScanConfig(
@@ -442,7 +442,7 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-                logger.debug("options dict: %s", self.options_dict)
+                logger.debug("scan options: %s", self.options)
 
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
@@ -512,7 +512,7 @@ class ScanManager:
         DeviceSynchronizationTimeout
             If devices do not synchronize within 15.5 seconds.
         """
-        if self.options_dict.get("enable_global_time_sync", False):
+        if self.options.enable_global_time_sync:
             logger.debug("Attempting global time synchronization")
             if self.data_logger.synchronize_devices_global_time():
                 logger.info(
