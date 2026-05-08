@@ -145,8 +145,11 @@ class BlueskyScanner:
         self._RE = RunEngine(context_managers=[])
         self._RE.subscribe(self._on_document)
 
-        # GUI compatibility shim — always empty; BlueskyScanner uses bps.pause() not dialogs
-        self.dialog_queue: queue.Queue = queue.Queue()
+        # GUI compatibility shims
+        self.dialog_queue: queue.Queue = (
+            queue.Queue()
+        )  # always empty; RE uses bps.pause()
+        self.restore_failures: list = []  # no legacy device restore needed
 
         self._tiled_token: int | None = None
         if tiled_uri is None:
