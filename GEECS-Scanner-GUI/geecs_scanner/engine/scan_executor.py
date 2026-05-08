@@ -171,8 +171,8 @@ class ScanStepExecutor:
                 logger.warning("[%s] Device not found in device manager.", device_name)
                 return
 
-            logger.debug("[%s] Setting vars: %s", device_name, var_list)
             for var_name, set_val in var_list:
+                logger.info("[%s] setting %s → %s", device_name, var_name, set_val)
                 tol = _get_tolerance(device, device_name, var_name)
                 ret_val = self.cmd_executor.set(device, var_name, set_val)
 

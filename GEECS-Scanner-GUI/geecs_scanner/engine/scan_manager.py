@@ -414,6 +414,22 @@ class ScanManager:
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
             try:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
+                if self.scan_config:
+                    if self.scan_config.device_var:
+                        logger.info(
+                            "scan config: %s [%s → %s, step %s], %.1fs/step, mode=%s",
+                            self.scan_config.device_var,
+                            self.scan_config.start,
+                            self.scan_config.end,
+                            self.scan_config.step,
+                            self.scan_config.wait_time,
+                            self.scan_config.scan_mode.value,
+                        )
+                    else:
+                        logger.info(
+                            "scan config: NOSCAN, %.1fs acquisition",
+                            self.scan_config.wait_time,
+                        )
                 self.pre_logging_setup()
 
                 if self.scan_config:
