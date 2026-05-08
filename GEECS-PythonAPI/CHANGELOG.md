@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] — 2026-05-08
+
+### Fixed
+- `GeecsDevice._execute()`: when `is_valid()` is False (device not connected),
+  now raises `GeecsDeviceInstantiationError` instead of silently returning
+  `None`. Callers (`set()`, `get()`) could previously receive `None` and pass
+  it through, masking the disconnected-device error.
+- `UdpServer.__init__()`: added `SO_REUSEADDR` before `bind()`. On macOS and
+  Windows, rapid open/close cycles between scans caused `OSError: [Errno 48]
+  Address already in use` (Windows: WinError 10048) because the previous
+  socket's port hadn't been released yet.
+
+### Added
+- Hardware integration test suite in
+  `tests/geecs_python_api/controls/test_geecs_device_hardware.py`.
+  Targets `U_S1H` (power supply). Run with `poetry run pytest --hardware`.
+  Includes regression tests that reproduced both bugs before the fixes.
+- `tests/conftest.py`: `--hardware` CLI flag and `geecs_exp_info` session
+  fixture for database-backed hardware tests.
+- `[tool.pytest.ini_options]` in `pyproject.toml` with `hardware` marker and
+  `testpaths = ["tests"]`.
+
+### Changed
+- `pyproject.toml`: removed stale `{include = "labview_interface"}` package
+  entry (module was deleted in 0.4.0).
+
 ## [0.4.0] — 2026-05-08
 
 ### Removed

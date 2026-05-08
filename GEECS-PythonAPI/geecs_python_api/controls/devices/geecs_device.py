@@ -428,8 +428,13 @@ class GeecsDevice:
             cmd_label = f"get({variable})"
 
         if not self.is_valid():
-            logger.warning('failed to execute "%s": device not connected', cmd_label)
-            return None
+            from geecs_python_api.controls.interface.geecs_errors import (
+                GeecsDeviceInstantiationError,
+            )
+
+            raise GeecsDeviceInstantiationError(
+                f'cannot execute "{cmd_label}": device "{self.get_name()}" is not connected'
+            )
 
         stamp = re.sub(r"[\s.:]", "-", dtime.now().__str__())
         cmd_label += f" @ {stamp}"

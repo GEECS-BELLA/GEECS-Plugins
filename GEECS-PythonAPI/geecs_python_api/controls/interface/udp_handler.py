@@ -163,6 +163,7 @@ class UdpServer:
             self.sock = socket.socket(
                 socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
             )
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.sock.settimeout(5.0)
             self.sock.bind(("", self.port))
             self.bounded = True
