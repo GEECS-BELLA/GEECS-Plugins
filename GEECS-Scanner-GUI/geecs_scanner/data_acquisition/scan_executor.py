@@ -70,12 +70,12 @@ class ScanStepExecutor:
         self.scan_steps = []
         self.on_device_error = None
 
-        logger.info("Constructing the scan step executor")
+        logger.debug("Constructing the scan step executor")
 
     def execute_scan_loop(self, scan_steps: List[Dict[str, Any]]) -> None:
         """Iterate through *scan_steps*, executing each until stopped externally."""
         self.scan_steps = scan_steps
-        logger.info("Attempting to start scan loop with steps: %s", scan_steps)
+        logger.debug("Attempting to start scan loop with steps: %s", scan_steps)
         step_index = 0
 
         while step_index < len(self.scan_steps):
@@ -84,7 +84,7 @@ class ScanStepExecutor:
                 break
 
             scan_step = self.scan_steps[step_index]
-            logger.info("Executing scan step: %s", scan_step)
+            logger.debug("Executing scan step: %s", scan_step)
             self.execute_step(scan_step, step_index)
             step_index += 1
 
@@ -92,13 +92,13 @@ class ScanStepExecutor:
 
     def execute_step(self, step: Dict[str, Any], index: int) -> None:
         """Prepare → move devices → acquire → (evaluate + generate next if optimizing)."""
-        logger.info("Preparing scan step: %s", step)
+        logger.debug("Preparing scan step: %s", step)
         self.prepare_for_step()
 
-        logger.info("Moving devices for step: %s", step["variables"])
+        logger.debug("Moving devices for step: %s", step["variables"])
         self.move_devices_parallel_by_device(step["variables"], step["is_composite"])
 
-        logger.info("Waiting for acquisition: %s", step)
+        logger.debug("Waiting for acquisition: %s", step)
         self.wait_for_acquisition(step["wait_time"])
 
         if self.optimizer:
@@ -111,13 +111,13 @@ class ScanStepExecutor:
 
     def prepare_for_step(self) -> None:
         """Increment bin counter, update virtual variable value, turn trigger off."""
-        logger.info("Pausing logging. Turning trigger off before moving devices.")
+        logger.debug("Pausing logging. Turning trigger off before moving devices.")
 
         if self.data_logger.virtual_variable_name is not None:
             self.data_logger.virtual_variable_value = (
                 self.data_logger.virtual_variable_list[self.data_logger.bin_num]
             )
-            logger.info(
+            logger.debug(
                 "updating virtual value in data_logger from scan_manager to: %s.",
                 self.data_logger.virtual_variable_value,
             )
@@ -160,7 +160,7 @@ class ScanStepExecutor:
         if self.device_manager.is_statistic_noscan(component_vars):
             return
         if not component_vars:
-            logger.info("No variables to move for this scan step.")
+            logger.debug("No variables to move for this scan step.")
             return
 
         vars_by_device: dict[str, list] = defaultdict(list)
@@ -182,7 +182,7 @@ class ScanStepExecutor:
                 logger.warning("[%s] Device not found in device manager.", device_name)
                 return
 
-            logger.info("[%s] Setting vars: %s", device_name, var_list)
+            logger.debug("[%s] Setting vars: %s", device_name, var_list)
             for var_name, set_val in var_list:
                 tol = _get_tolerance(device, device_name, var_name)
 
@@ -209,7 +209,7 @@ class ScanStepExecutor:
                     ) from exc
 
                 if ret_val - tol <= set_val <= ret_val + tol:
-                    logger.info(
+                    logger.debug(
                         "[%s] %s=%s within tolerance %s",
                         device_name,
                         var_name,
@@ -269,7 +269,7 @@ class ScanStepExecutor:
             self.data_logger.idle_time = (
                 self.scan_step_start_time - self.scan_step_end_time + self.pause_time
             )
-            logger.info("idle time between scan steps: %s", self.data_logger.idle_time)
+            logger.debug("idle time between scan steps: %s", self.data_logger.idle_time)
 
         current_time = 0
         start_time = time.time()
@@ -285,7 +285,7 @@ class ScanStepExecutor:
                 self.trigger_off()
                 self.data_logger.data_recording = False
                 t0 = time.time()
-                logger.info("Scan is paused, waiting to resume...")
+                logger.debug("Scan is paused, waiting to resume...")
                 self.pause_scan_event.wait()
                 self.pause_time = time.time() - t0
                 self.trigger_on()
@@ -330,7 +330,7 @@ class ScanStepExecutor:
 
         try:
             self.optimizer.evaluate(inputs=self.scan_steps[index]["variables"])
-            logger.info("Successfully evaluated data for scan step %s", index)
+            logger.debug("Successfully evaluated data for scan step %s", index)
         except Exception:
             logger.exception("Error evaluating data for scan step %s", index)
 
@@ -376,19 +376,19 @@ class ScanStepExecutor:
 
         try:
             if next_index <= num_initialization_steps:
-                logger.info("Running optimizer initialization")
+                logger.debug("Running optimizer initialization")
                 next_variables = self.optimizer.vocs.random_inputs(1)[0]
                 logger.debug(
                     "Initializer generated random variables: %s", next_variables
                 )
             else:
-                logger.info("Running advanced optimizer")
+                logger.debug("Running advanced optimizer")
                 next_variables = self.optimizer.generate(1)[0]
                 logger.debug(
                     "Optimizer generated optimized variables: %s", next_variables
                 )
 
-            logger.info(
+            logger.debug(
                 "Next experimental step generated using optimizer: %s", next_variables
             )
         except Exception:
@@ -396,7 +396,7 @@ class ScanStepExecutor:
             return
 
         self.scan_steps[next_index].update({"variables": next_variables})
-        logger.info(
+        logger.debug(
             "Updated scan step %s with new configuration: %s",
             next_index,
             self.scan_steps[next_index],
@@ -414,5 +414,5 @@ class ScanStepExecutor:
 
     def save_hiatus(self, duration: float) -> None:
         """Sleep *duration* seconds before the next data save."""
-        logger.info("Hiatus: Waiting for %s seconds before saving data.", duration)
+        logger.debug("Hiatus: Waiting for %s seconds before saving data.", duration)
         time.sleep(duration)
