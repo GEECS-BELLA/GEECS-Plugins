@@ -112,13 +112,13 @@ class DeviceManager:
 
     def load_from_dictionary(self, config_dictionary):
         """Validate *config_dictionary* via SaveDeviceConfig and initialize subscriptions."""
-        logger.info("config dict is %s", config_dictionary)
+        logger.debug("config dict is %s", config_dictionary)
         try:
             validated: SaveDeviceConfig = SaveDeviceConfig(**config_dictionary)
         except ValidationError as e:
             logger.error("Invalid save device configuration: %s", e)
             return
-        logger.info("validated SaveDeviceConfig is %s", validated)
+        logger.debug("validated SaveDeviceConfig is %s", validated)
 
         # note: there is a bit of mess with all these configs...
         if config_dictionary.get("scan_info", None):
@@ -135,12 +135,12 @@ class DeviceManager:
         self._initialize_subscribers(
             self.event_driven_observables + self.async_observables, clear_devices=False
         )
-        logger.info("Loaded scan info: %s", self.scan_base_description)
+        logger.debug("Loaded scan info: %s", self.scan_base_description)
 
     def _load_devices_from_config(self, devices: dict[str, DeviceConfig]):
         """Categorize devices as sync/async and register their observables."""
         for device_name, device_config in devices.items():
-            logger.info(
+            logger.debug(
                 "%s: Synchronous = %s, Save_Non_Scalar = %s",
                 device_name,
                 device_config.synchronous,
@@ -213,7 +213,7 @@ class DeviceManager:
                 )
             )
 
-            logger.info(
+            logger.debug(
                 "Added setup and closeout actions for %s: %s (setup=%s, closeout=%s)",
                 device_name,
                 analysis_type,
@@ -249,10 +249,10 @@ class DeviceManager:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def _disconnect(device_name, device):
-            logger.info("Attempting to unsubscribe from %s...", device_name)
+            logger.debug("Attempting to unsubscribe from %s...", device_name)
             device.unsubscribe_var_values()
             device.close()
-            logger.info("Successfully unsubscribed from %s.", device_name)
+            logger.debug("Successfully unsubscribed from %s.", device_name)
 
         devices_snapshot = dict(self.devices)
         if devices_snapshot:
@@ -297,16 +297,16 @@ class DeviceManager:
         self.async_observables.clear()
         self.non_scalar_saving_devices.clear()
 
-        logger.info(
+        logger.debug(
             "synchronous variables after reset: %s", self.event_driven_observables
         )
-        logger.info("asynchronous variables after reset: %s", self.async_observables)
-        logger.info(
+        logger.debug("asynchronous variables after reset: %s", self.async_observables)
+        logger.debug(
             "non_scalar_saving_devices devices after reset: %s",
             self.non_scalar_saving_devices,
         )
-        logger.info("devices devices after reset: %s", self.devices)
-        logger.info(
+        logger.debug("devices devices after reset: %s", self.devices)
+        logger.debug(
             "DeviceManager instance has been reset and is ready for reinitialization."
         )
         self.is_reset = True
@@ -357,7 +357,7 @@ class DeviceManager:
         - Consider removing logic related to `non_scalar_saving_devices` if unused.
         """
         if device_name not in self.devices:
-            logger.info(
+            logger.debug(
                 "Adding new scan device: %s with default settings.", device_name
             )
             self._subscribe_device(device_name, var_list=variable_list)
@@ -377,10 +377,10 @@ class DeviceManager:
                 self.async_observables.extend(
                     [f"{device_name}:{var}" for var in (variable_list or [])]
                 )
-            logger.info("Scan device %s added to async_observables.", device_name)
+            logger.debug("Scan device %s added to async_observables.", device_name)
 
         else:
-            logger.info(
+            logger.debug(
                 "Device %s already exists. Adding new variables: %s",
                 device_name,
                 variable_list,
@@ -396,7 +396,7 @@ class DeviceManager:
                     if f"{device_name}:{var}" not in self.async_observables
                 ]
             )
-            logger.info(
+            logger.debug(
                 "Updated async_observables with new variables for %s: %s",
                 device_name,
                 variable_list,
@@ -404,33 +404,33 @@ class DeviceManager:
 
     def handle_scan_variables(self, scan_config: ScanConfig):
         """Register the scan variable from *scan_config* unless mode is NOSCAN or OPTIMIZATION."""
-        logger.info("Handling scan variables with mode: %s", scan_config.scan_mode)
+        logger.debug("Handling scan variables with mode: %s", scan_config.scan_mode)
 
         if scan_config.scan_mode == ScanMode.NOSCAN:
-            logger.info("NOSCAN mode: no scan variables to set.")
+            logger.debug("NOSCAN mode: no scan variables to set.")
             return
 
         if scan_config.scan_mode == ScanMode.OPTIMIZATION:
-            logger.info("OPTIMIZATION mode: assume devices will be set dynamically.")
+            logger.debug("OPTIMIZATION mode: assume devices will be set dynamically.")
             return
 
         device_var = scan_config.device_var
-        logger.info("Processing scan device_var: %s", device_var)
+        logger.debug("Processing scan device_var: %s", device_var)
 
         self._check_then_add_variable(device_var=device_var)
 
     def _check_then_add_variable(self, device_var: str):
         """Add *device_var* to subscriptions, handling composite vs. standard format."""
         if self.is_composite_variable(device_var):
-            logger.info("%s is a composite variable.", device_var)
+            logger.debug("%s is a composite variable.", device_var)
             device_name = device_var
-            logger.info(
+            logger.debug(
                 "Trying to add composite device variable %s to self.devices.",
                 device_var,
             )
             self.add_scan_device(device_name)
         else:
-            logger.info("%s is a normal variable.", device_var)
+            logger.debug("%s is a normal variable.", device_var)
             device_name, var_name = device_var.split(":", 1)
-            logger.info("Trying to add %s:%s to self.devices.", device_name, var_name)
+            logger.debug("Trying to add %s:%s to self.devices.", device_name, var_name)
             self.add_scan_device(device_name, [var_name])
