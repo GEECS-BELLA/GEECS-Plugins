@@ -278,7 +278,7 @@ class ScanStepExecutor:
 
         while current_time < wait_time:
             if self.stop_scanning_thread_event.is_set():
-                logger.info("Scanning has been stopped externally.")
+                logger.debug("Scanning has been stopped externally.")
                 break
 
             if not self.pause_scan_event.is_set():

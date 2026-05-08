@@ -318,7 +318,7 @@ class ScanManager:
                     variable=variable,
                 ) from exc
 
-        logger.info("Trigger state → %s", state)
+        logger.debug("Trigger state → %s", state)
         return results
 
     def trigger_off(self):
