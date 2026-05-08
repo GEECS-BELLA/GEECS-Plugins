@@ -16,6 +16,7 @@ from geecs_scanner.data_acquisition.dialog_request import (
     escalate_device_error,
 )
 from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.data_acquisition.trigger_controller import TriggerController
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import DeviceCommandError
 from geecs_scanner.utils.retry import retry
@@ -26,9 +27,7 @@ logger = logging.getLogger(__name__)
 class ScanStepExecutor:
     """Execute scan steps: move devices, acquire data, drive the optimizer.
 
-    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`,
-    which injects callbacks (``trigger_on_fn``, ``trigger_off_fn``,
-    ``on_device_error``) after construction.
+    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`.
 
     Attributes
     ----------
@@ -36,7 +35,7 @@ class ScanStepExecutor:
     data_logger : DataLogger
     scan_data_manager : ScanDataManager
     optimizer : BaseOptimizer or None
-    shot_control : ShotControl or None
+    trigger_controller : TriggerController or None
     options : ScanOptions
     stop_scanning_thread_event : threading.Event
     pause_scan_event : threading.Event
@@ -49,17 +48,18 @@ class ScanStepExecutor:
         device_manager,
         data_logger,
         scan_data_manager,
-        shot_control,
         options: ScanOptions,
         stop_scanning_thread_event,
         pause_scan_event,
+        shot_control=None,
         optimizer: Optional[BaseOptimizer] = None,
+        trigger_controller: Optional[TriggerController] = None,
     ):
         self.device_manager = device_manager
         self.data_logger = data_logger
         self.scan_data_manager = scan_data_manager
         self.optimizer = optimizer
-        self.shot_control = shot_control
+        self.trigger_controller = trigger_controller
         self.options = options
         self.stop_scanning_thread_event = stop_scanning_thread_event
         self.pause_scan_event = pause_scan_event
@@ -394,11 +394,11 @@ class ScanStepExecutor:
         )
 
     def trigger_on(self) -> None:
-        """Call ``trigger_on_fn`` if injected."""
-        if hasattr(self, "trigger_on_fn"):
-            self.trigger_on_fn()
+        """Delegate to trigger_controller if available."""
+        if self.trigger_controller is not None:
+            self.trigger_controller.trigger_on()
 
     def trigger_off(self) -> None:
-        """Call ``trigger_off_fn`` if injected."""
-        if hasattr(self, "trigger_off_fn"):
-            self.trigger_off_fn()
+        """Delegate to trigger_controller if available."""
+        if self.trigger_controller is not None:
+            self.trigger_controller.trigger_off()

@@ -37,8 +37,6 @@ class ActionManager:
 
     Attributes
     ----------
-    instantiated_devices : dict
-        Cache of ScanDevice instances; avoids repeated TCP connections.
     actions : dict[str, ActionSequence]
     actions_file_path : Path
     on_user_prompt : callable or None
@@ -48,7 +46,6 @@ class ActionManager:
     """
 
     def __init__(self, experiment_dir: str):
-        self.instantiated_devices: Dict[str, ScanDevice] = {}
         self.actions: Dict[str, ActionSequence] = {}
 
         # Injected by ScanManager after construction — same pattern as executor callbacks.
@@ -111,6 +108,9 @@ class ActionManager:
     def execute_action(self, action_name: str):
         """Run all steps of *action_name* sequentially.
 
+        Devices are opened fresh at the start of the action and closed in a
+        ``finally`` block regardless of success or failure.
+
         Raises
         ------
         ActionError
@@ -125,58 +125,72 @@ class ActionManager:
         action = self.actions[action_name]
         steps = action.steps
 
+        device_names = {
+            step.device for step in steps if isinstance(step, (SetStep, GetStep))
+        }
+        open_devices: Dict[str, ScanDevice] = {}
         try:
-            self.ping_devices_in_action_list(action_steps=steps)
-        except Exception:
-            logger.exception(
-                "Device connectivity check failed for action %s", action_name
-            )
-            raise ActionError("Device connectivity error in action %s", action_name)
+            for name in device_names:
+                open_devices[name] = ScanDevice(name)
+                if not open_devices[name].state.get(
+                    "Device alive on instantiation", False
+                ):
+                    raise ActionError(
+                        f"Device {name} failed connectivity check before action {action_name}"
+                    )
+                logger.debug("Device %s ready for action %s", name, action_name)
 
-        for step_index, step in enumerate(steps, 1):
-            logger.debug(
-                "Executing step %s/%s in action %s", step_index, len(steps), action_name
-            )
-
-            try:
-                match step:
-                    case WaitStep():
-                        logger.debug("Waiting for %s seconds", step.wait)
-                        self._wait(step.wait)
-                    case ExecuteStep():
-                        logger.debug("Executing nested action: %s", step.action_name)
-                        self.execute_action(step.action_name)
-                    case SetStep():
-                        device = self._get_or_create_device(step.device)
-                        self._set_device(
-                            device,
-                            step.variable,
-                            step.value,
-                            sync=step.wait_for_execution,
-                        )
-                    case GetStep():
-                        device = self._get_or_create_device(step.device)
-                        self._get_device(device, step.variable, step.expected_value)
-                    case _:
-                        raise ActionError(
-                            f"Unrecognized action step type: {type(step)}"
-                        )
-
-            except Exception:
-                logger.exception(
-                    "Error executing step %s in action %s", step_index, action_name
+            for step_index, step in enumerate(steps, 1):
+                logger.debug(
+                    "Executing step %s/%s in action %s",
+                    step_index,
+                    len(steps),
+                    action_name,
                 )
-                raise ActionError(f"Step execution failed in action {action_name}")
+                try:
+                    match step:
+                        case WaitStep():
+                            logger.debug("Waiting for %s seconds", step.wait)
+                            self._wait(step.wait)
+                        case ExecuteStep():
+                            logger.debug(
+                                "Executing nested action: %s", step.action_name
+                            )
+                            self.execute_action(step.action_name)
+                        case SetStep():
+                            self._set_device(
+                                open_devices[step.device],
+                                step.variable,
+                                step.value,
+                                sync=step.wait_for_execution,
+                            )
+                        case GetStep():
+                            self._get_device(
+                                open_devices[step.device],
+                                step.variable,
+                                step.expected_value,
+                            )
+                        case _:
+                            raise ActionError(
+                                f"Unrecognized action step type: {type(step)}"
+                            )
+                except Exception:
+                    logger.exception(
+                        "Error executing step %s in action %s", step_index, action_name
+                    )
+                    raise ActionError(f"Step execution failed in action {action_name}")
+
+        finally:
+            for name, device in open_devices.items():
+                try:
+                    device.close()
+                except Exception:
+                    logger.warning("Failed to close device %s after action", name)
 
         logger.debug("Successfully completed action sequence: %s", action_name)
 
-    def _get_or_create_device(self, device_name: str) -> ScanDevice:
-        if device_name not in self.instantiated_devices:
-            self.instantiated_devices[device_name] = ScanDevice(device_name)
-        return self.instantiated_devices[device_name]
-
     def ping_devices_in_action_list(self, action_steps: List[ActionStep]):
-        """Instantiate each device in *action_steps* and verify its alive flag."""
+        """Open each device in *action_steps* briefly and verify its alive flag."""
         devices = {
             step.device for step in action_steps if isinstance(step, (SetStep, GetStep))
         }
@@ -186,8 +200,8 @@ class ActionManager:
         )
 
         for device_name in devices:
+            device = ScanDevice(device_name)
             try:
-                device = self._get_or_create_device(device_name)
                 if not device.state.get("Device alive on instantiation", False):
                     raise Exception(
                         f"Device {device_name} failed instantiation connectivity test"
@@ -198,6 +212,11 @@ class ActionManager:
                     "Device instantiation check failed for %s", device_name
                 )
                 raise
+            finally:
+                try:
+                    device.close()
+                except Exception:
+                    logger.warning("Failed to close device %s after ping", device_name)
 
     def clear_action(self, action_name: str):
         """Remove *action_name* from the in-memory library."""
@@ -258,11 +277,16 @@ class ActionManager:
 
     def return_value(self, device_name: str, variable: str):
         """Return the current value of *variable* on *device_name*."""
-        if device_name not in self.instantiated_devices:
-            self.instantiated_devices[device_name] = ScanDevice(device_name)
-
-        device: ScanDevice = self.instantiated_devices[device_name]
-        return device.get(variable)
+        device = ScanDevice(device_name)
+        try:
+            return device.get(variable)
+        finally:
+            try:
+                device.close()
+            except Exception:
+                logger.warning(
+                    "Failed to close device %s after return_value", device_name
+                )
 
     @staticmethod
     def _wait(seconds: float):

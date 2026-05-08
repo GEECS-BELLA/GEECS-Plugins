@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] — 2026-05-07
+
+### Added
+- `geecs_scanner.data_acquisition.trigger_controller.TriggerController` —
+  encapsulates all shot-trigger interactions (`trigger_on`, `trigger_off`,
+  `set_standby`, `singleshot`) previously spread across `ScanManager`.
+  `ScanStepExecutor` now receives a `TriggerController` via constructor
+  injection instead of dynamically-injected `trigger_on_fn`/`trigger_off_fn`
+  callable attributes.
+
+### Changed
+- `ScanStepExecutor.__init__`: removed `shot_control` positional parameter;
+  added `trigger_controller: Optional[TriggerController] = None`. The
+  `hasattr` guard pattern for `trigger_on_fn`/`trigger_off_fn` is replaced
+  with a typed `if self.trigger_controller is not None` check.
+- `ScanManager`: `_set_trigger`, `trigger_on`, and `trigger_off` methods
+  are now thin delegations to `self.trigger_controller`; `SINGLESHOT` and
+  `STANDBY` states use `trigger_controller.singleshot()` and
+  `trigger_controller.set_standby()`.
+- `ActionManager`: removed `instantiated_devices` persistent device cache.
+  Devices are now opened fresh at the start of each `execute_action` call
+  (and `ping_devices_in_action_list` / `return_value`) and closed in a
+  `finally` block regardless of success or failure.  This prevents stale
+  TCP connections surviving across actions and removes the hidden cache that
+  could hold devices open indefinitely.
+
 ## [0.10.0] — 2026-05-07
 
 ### Added

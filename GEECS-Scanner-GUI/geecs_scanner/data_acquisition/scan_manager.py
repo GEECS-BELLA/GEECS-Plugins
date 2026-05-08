@@ -27,6 +27,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
 from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.data_acquisition.trigger_controller import TriggerController
 from geecs_scanner.data_acquisition.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
@@ -40,7 +41,6 @@ from geecs_scanner.utils.exceptions import (
     ScanAbortedError,
     TriggerError,
 )
-from geecs_scanner.utils.retry import retry
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,11 @@ class ScanManager:
             self.shot_control = ScanDevice(shot_control_information["device"])
             self.shot_control_variables = shot_control_information["variables"]
 
+        self.trigger_controller = TriggerController(
+            shot_control=self.shot_control,
+            shot_control_variables=self.shot_control_variables,
+        )
+
         self.results = {}
 
         self.stop_scanning_thread_event = threading.Event()
@@ -147,13 +152,11 @@ class ScanManager:
             data_logger=self.data_logger,
             scan_data_manager=self.scan_data_manager,
             optimizer=self.optimizer,
-            shot_control=self.shot_control,
             options=self.options,
             stop_scanning_thread_event=self.stop_scanning_thread_event,
             pause_scan_event=self.pause_scan_event,
+            trigger_controller=self.trigger_controller,
         )
-        self.executor.trigger_on_fn = self.trigger_on
-        self.executor.trigger_off_fn = self.trigger_off
         self.executor.on_device_error = self.request_user_dialog
         self.action_manager.on_user_prompt = self.request_user_dialog
         self.scan_data_manager.on_device_error = self.request_user_dialog
@@ -263,71 +266,13 @@ class ScanManager:
         self.initialization_success = True
         return self.initialization_success
 
-    def _set_trigger(self, state: str) -> list:
-        """Set the trigger device to *state* for all shot-control variables.
-
-        Parameters
-        ----------
-        state : str
-            One of ``'OFF'``, ``'SCAN'``, ``'STANDBY'``, ``'SINGLESHOT'``.
-
-        Returns
-        -------
-        list
-            Return values from each ``shot_control.set()`` call.
-
-        Raises
-        ------
-        TriggerError
-            If any trigger variable fails after retries.  Trigger failures are
-            always scan-fatal — do not catch and continue.
-        """
-        if self.shot_control is None or self.shot_control_variables is None:
-            logger.debug("No shot control device, skipping 'set state %s'", state)
-            return []
-
-        valid_states = ["OFF", "SCAN", "STANDBY", "SINGLESHOT"]
-        if state not in valid_states:
-            logger.error("Invalid trigger state: %s", state)
-            return []
-
-        device_name = self.shot_control.get_name()
-        results = []
-        for variable, variable_settings in self.shot_control_variables.items():
-            set_value = variable_settings.get(state, "")
-            if not set_value:
-                continue
-            try:
-                result = retry(
-                    lambda v=variable, sv=set_value: self.shot_control.set(
-                        v, sv, exec_timeout=0.5
-                    ),
-                    attempts=2,
-                    delay=0.25,
-                    catch=DEVICE_COMMAND_ERRORS,
-                    on_retry=lambda exc, n, var=variable: logger.debug(
-                        "Trigger variable '%s' retry %d: %s", var, n, exc
-                    ),
-                )
-                results.append(result)
-                logger.debug("Trigger: set %s → %s", variable, set_value)
-            except DEVICE_COMMAND_ERRORS as exc:
-                raise TriggerError(
-                    device_name,
-                    f"set trigger state '{state}' on variable '{variable}'",
-                    variable=variable,
-                ) from exc
-
-        logger.debug("Trigger state → %s", state)
-        return results
-
     def trigger_off(self):
         """Set trigger state to OFF."""
-        self._set_trigger("OFF")
+        self.trigger_controller.trigger_off()
 
     def trigger_on(self):
         """Set trigger state to SCAN."""
-        self._set_trigger("SCAN")
+        self.trigger_controller.trigger_on()
 
     def is_scanning_active(self):
         """Return True if the scan thread is currently alive."""
@@ -540,7 +485,7 @@ class ScanManager:
             if self.data_logger.all_devices_in_standby:
                 logger.debug("Sending single-shot trigger to synchronize devices.")
 
-                res = self._set_trigger("SINGLESHOT")
+                res = self.trigger_controller.singleshot()
                 logger.debug("Result of single shot command: %s", res)
                 # wait 3.5 seconds after the test fire to allow time for shot to execute and for devices to respond
                 time.sleep(3.5)
@@ -611,7 +556,7 @@ class ScanManager:
         log_df = pd.DataFrame()
 
         # Step 1: Trigger to standby — no new shots from here on.
-        self._set_trigger("STANDBY")
+        self.trigger_controller.set_standby()
 
         # Step 2: Seal self.results and write scalar files before any device
         # interaction that could fail (restore, closeout).
