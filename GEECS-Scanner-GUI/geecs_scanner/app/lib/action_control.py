@@ -1,7 +1,7 @@
 """Simpler RunControl that performs actions via ActionManager without full scan support."""
 
 from typing import Any
-from geecs_scanner.engine import ActionManager
+from geecs_scanner.engine import ActionManager, DeviceCommandExecutor
 from geecs_scanner.engine.models.actions import ActionSequence
 from pydantic import ValidationError
 import logging
@@ -26,6 +26,9 @@ class ActionControl:
         :param experiment_name: Name of the experiment, used to find the right config files and connect to devices
         """
         self.action_manager = ActionManager(experiment_dir=experiment_name)
+        self.action_manager.cmd_executor = DeviceCommandExecutor(
+            on_escalate=self._on_device_error
+        )
 
     def perform_action(self, action_list: dict[str, list]):
         """Perform the given list of actions using the currently-connected ActionManager.
