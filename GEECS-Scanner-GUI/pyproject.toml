@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "geecs_scanner"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.11"
+python = ">=3.10,<3.12"
 PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
 pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
