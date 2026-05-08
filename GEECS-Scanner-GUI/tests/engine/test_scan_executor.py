@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceCommandFailed
 
-from tests.data_acquisition.conftest import FakeScanDevice
+from tests.engine.conftest import FakeScanDevice
 
 
 # ---------------------------------------------------------------------------
@@ -91,25 +91,36 @@ class TestMoveDevicesHappyPath:
 
 
 class TestRetry:
-    def test_retries_on_transient_failure(self, make_executor):
-        """A failure on the 1st call should be retried; 2nd call succeeds."""
-        device = FakeScanDevice("Dev", fail_after=1)
+    def test_retries_on_rejected(self, make_executor):
+        """GeecsDeviceCommandRejected is the only error that triggers retry."""
+        device = FakeScanDevice("Dev", reject_after=1)
         executor = make_executor(
             devices={"Dev": device},
             exp_info_devices=_exp_info_for("Dev", "V"),
         )
-        # max_retries=3 default — second attempt should succeed
+        # max_retries=3 default — second attempt succeeds
         executor.move_devices_parallel_by_device({"Dev:V": 1.0}, False)
         assert device._set_call_count == 2
 
-    def test_retries_on_transient_timeout(self, make_executor):
+    def test_timeout_escalates_immediately_no_retry(self, make_executor):
+        """GeecsDeviceExeTimeout escalates immediately — only one set() call is made."""
         device = FakeScanDevice("Dev", timeout_after=1)
         executor = make_executor(
             devices={"Dev": device},
             exp_info_devices=_exp_info_for("Dev", "V"),
         )
         executor.move_devices_parallel_by_device({"Dev:V": 1.0}, False)
-        assert device._set_call_count == 2
+        assert device._set_call_count == 1  # no retry — escalated on first failure
+
+    def test_hardware_failure_escalates_immediately_no_retry(self, make_executor):
+        """GeecsDeviceCommandFailed escalates immediately — only one set() call is made."""
+        device = FakeScanDevice("Dev", fail_after=1)
+        executor = make_executor(
+            devices={"Dev": device},
+            exp_info_devices=_exp_info_for("Dev", "V"),
+        )
+        executor.move_devices_parallel_by_device({"Dev:V": 1.0}, False)
+        assert device._set_call_count == 1  # no retry — escalated on first failure
 
 
 # ---------------------------------------------------------------------------
@@ -130,30 +141,22 @@ class TestRetryExhaustion:
 
         return _AlwaysFail("BadDev")
 
-    def test_stop_event_set_on_exhaustion(self, make_executor):
+    def test_escalation_with_no_callback_does_not_raise(self, make_executor):
         device = self._always_failing_device()
         executor = make_executor(
             devices={"BadDev": device},
             exp_info_devices=_exp_info_for("BadDev", "V"),
         )
-        # on_device_error=None → escalate_device_error returns False (no abort)
-        # but stop event must still be managed; exhaust retries silently
-        executor.move_devices_parallel_by_device(
-            {"BadDev:V": 1.0}, False, max_retries=2, retry_delay=0.0
-        )
-        # After 2 retries, executor returns without raising to the test; the
-        # stop event may or may not be set depending on on_device_error result.
-        # The key assertion: no unhandled exception propagated.
+        # on_escalate=None → logs warning, returns False — no exception propagates
+        executor.move_devices_parallel_by_device({"BadDev:V": 1.0}, False)
+        assert device._set_call_count == 1  # immediate escalation, no retry
 
-    def test_stop_event_set_when_on_device_error_returns_true(self, make_executor):
+    def test_stop_event_set_when_escalation_returns_abort(self, make_executor):
         device = self._always_failing_device()
         executor = make_executor(
             devices={"BadDev": device},
             exp_info_devices=_exp_info_for("BadDev", "V"),
         )
-        # Inject an on_device_error that signals abort (escalate_device_error passes context= kwarg)
-        executor.on_device_error = lambda exc, **_: True
-        executor.move_devices_parallel_by_device(
-            {"BadDev:V": 1.0}, False, max_retries=1, retry_delay=0.0
-        )
+        executor.cmd_executor.on_escalate = lambda exc, ctx: True
+        executor.move_devices_parallel_by_device({"BadDev:V": 1.0}, False)
         assert executor.stop_scanning_thread_event.is_set()

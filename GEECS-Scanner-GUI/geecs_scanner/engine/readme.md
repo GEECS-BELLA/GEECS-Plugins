@@ -16,20 +16,20 @@ This submodule is part of the geecs_python_api. It is intended to provide a flex
 
 ## Overview
 
-The `data_acquisition` module can be used to manage the acquisition of data from GEECS devices. It achieves data synchronicity through a slightly different approach to Master Control. Rather than shot-based acquisition, it relies on time-based acquisition. In particular, a GEECS devicetype driver must have a variable added called 'timestamp'. The timestamp can either be read directly from the hardware (e.g. from an NiImaq image object). Or, if not availble, systemtime from the computer defined in the aquire state of the driver can be used. 
+The `data_acquisition` module can be used to manage the acquisition of data from GEECS devices. It achieves data synchronicity through a slightly different approach to Master Control. Rather than shot-based acquisition, it relies on time-based acquisition. In particular, a GEECS devicetype driver must have a variable added called 'timestamp'. The timestamp can either be read directly from the hardware (e.g. from an NiImaq image object). Or, if not availble, systemtime from the computer defined in the aquire state of the driver can be used.
 
 An additional requirement is a GEECS device that can be used turn off/on the trigger to triggered devices. By turning off the trigger, devices can be put into a 'standby mode' in which the timestamp on the GEECS device becomes frozen. Once the trigger is re-enabled, the net timestamp for each device becomes the t0 which is subsequently used to establish relative timing between all synchronous devices.
 
 In contrast to a Master Control scan, the naming of saved non-scalar data (e.g. images) does not natively follow the "shotnumber" naming convention. At the outset, saved images are arbitrarily named. The DataInterface class is used to read an s-file, extract the timestamp for each device, then it uses that information to find the corresponding saved file associated with that scan. The saved file must have the same timestamp embedded in the meta information and a method must be provided to extract that timestamp. See currently supported devices above. This information is collected and the saved files are renamed according the standard Master Control protocol. Not, due to some features of this general approach, a device which is not selected to be saving synchronously but is selected to be saving non-scalar data can produce "extra" images that don't have corresponding entries in the s-file.
 
-Some neat features: 
+Some neat features:
 - Composite or virtual variables can easily be scanned by defining them in the individual experiments' composite_variable.yaml file. A numerical relation between any set of variables can be defined in using normal numpy form.
 - Predefined configuration files are used to select specifically which devices, variables and contents should be saved on each scan. Allows efficient way to add/remove which devices are saving (reduces data clutter)
 - Serialized lists of actions can be defined in a the actions.yaml. These can be used as a prescan setup_action. For example, shutter the laser, insert a plunger, move a stage, then start a scan
 
-A GUI has been developed to provide an easy to use interface for running scans in a similar fashion to Master Control. 
+A GUI has been developed to provide an easy to use interface for running scans in a similar fashion to Master Control.
 
-Much of the code is meant to be easily applicable across arbitrary BELLA Center labs. However, it has been developed while only testing on HTU. As such, some aspects may still be preferentially coded with HTU in mind. 
+Much of the code is meant to be easily applicable across arbitrary BELLA Center labs. However, it has been developed while only testing on HTU. As such, some aspects may still be preferentially coded with HTU in mind.
 
 Currently fully supported GEECS device types:
 - Point Grey Camera
@@ -48,9 +48,9 @@ Devices to add:
 - etc.
 
 ## Dependencies
-This was primarily developed using the Xopt-GEECS anaconda environment (which exists in this repo). This is also uses the ImageAnalysis module in this same repo. ImageAnalysis is a depency of Xopt-GEECS but I find it useful to install it in editable mode (using pip install -e ImageAnalysis), which is not the default for the Xopt-GEECS env. 
+This was primarily developed using the Xopt-GEECS anaconda environment (which exists in this repo). This is also uses the ImageAnalysis module in this same repo. ImageAnalysis is a depency of Xopt-GEECS but I find it useful to install it in editable mode (using pip install -e ImageAnalysis), which is not the default for the Xopt-GEECS env.
 
-The only additional dependency that is potentially needed is simpleaudio (pip install simpleaudio, not available via conda). This module is used for sound generation on Mac/Linux platforms. 
+The only additional dependency that is potentially needed is simpleaudio (pip install simpleaudio, not available via conda). This module is used for sound generation on Mac/Linux platforms.
 
 ## Core Classes
 
@@ -79,7 +79,7 @@ The `DataInterface` class provides some basic tools to interface with generated 
 
 **Key Features:**
 - provides quick interface to data
-- renames saved images and other to match the previously defined naming convention 
+- renames saved images and other to match the previously defined naming convention
 
 
 ### DeviceManager
@@ -147,7 +147,7 @@ this could contain quite lot of things
 - **Enhanced Error Handling**: Improve exception handling for edge cases during device communication. In particular, enable more obvious warnings/errors when synchronous devices are not reporting regularly
 - **Integrate optimization**: Some of the initial impetus for this was to improve optimization workflows
 - **Develop framework for automating basic procedure**: For example, basic start up of HTU e-beam currently involves executing and analyzing a few basic jet position scans, picking optimal positions, then steering the beam to the center of a phosphor screen. Could be automated (or done through optimization)
-- **Lots of small/specific code improvements**: 
+- **Lots of small/specific code improvements**:
 - *** UC_Rad2 analysis class: crop image by something (other saved camera, velmex position, etc.)
 - *** migrate relevant scan_analysis methods out to image_analysis. Maybe generalize better to not rely on "analysis_settings"
 - *** send post analysis to it's own thread (or, maybe just use livepostproccessing?)

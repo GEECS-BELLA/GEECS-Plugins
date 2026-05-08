@@ -28,10 +28,13 @@ from geecs_log_triage.schemas import (
 from geecs_log_triage.fingerprint import fingerprint_for, normalize_message
 from geecs_log_triage.classifier import classify
 from geecs_log_triage.harvester import (
+    day_folder_for,
     harvest_date,
     harvest_date_range,
+    harvest_scan,
     harvest_scan_folder,
 )
+from geecs_log_triage.render import render_markdown
 
 __all__ = [
     # re-exports from data-utils
@@ -48,7 +51,10 @@ __all__ = [
     "fingerprint_for",
     "normalize_message",
     "classify",
+    "day_folder_for",
     "harvest_date",
     "harvest_date_range",
+    "harvest_scan",
     "harvest_scan_folder",
+    "render_markdown",
 ]

@@ -5,7 +5,7 @@ Usage
 ::
 
     from geecs_scanner.utils.retry import retry
-    from geecs_scanner.data_acquisition.dialog_request import DEVICE_COMMAND_ERRORS
+    from geecs_scanner.engine.dialog_request import DEVICE_COMMAND_ERRORS
 
     result = retry(
         lambda: device.set(var, value),

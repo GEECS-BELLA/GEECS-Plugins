@@ -29,7 +29,7 @@ Examples
 
 See Also
 --------
-geecs_scanner.data_acquisition.action_manager : Action execution management
+geecs_scanner.engine.action_manager : Action execution management
 """
 
 from typing import List, Union, Literal, Optional, Annotated

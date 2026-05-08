@@ -15,9 +15,11 @@ import pytest
 
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandFailed,
+    GeecsDeviceCommandRejected,
     GeecsDeviceExeTimeout,
 )
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.models.scan_options import ScanOptions
 
 
 # ---------------------------------------------------------------------------
@@ -51,12 +53,14 @@ class FakeScanDevice:
         is_composite: bool = False,
         fail_after: Optional[int] = None,
         timeout_after: Optional[int] = None,
+        reject_after: Optional[int] = None,
         set_returns: Optional[float] = None,
     ):
         self.name = name
         self.is_composite = is_composite
         self._fail_after = fail_after
         self._timeout_after = timeout_after
+        self._reject_after = reject_after
         self._set_returns = set_returns
         self._set_call_count = 0
 
@@ -72,6 +76,11 @@ class FakeScanDevice:
             and self._set_call_count == self._timeout_after
         ):
             raise GeecsDeviceExeTimeout(self.name, f"set {variable}", timeout=5.0)
+        if (
+            self._reject_after is not None
+            and self._set_call_count == self._reject_after
+        ):
+            raise GeecsDeviceCommandRejected(self.name, f"set {variable}")
         return self._set_returns if self._set_returns is not None else value
 
 
@@ -127,7 +136,7 @@ def make_executor(monkeypatch):
             executor = make_executor({"Dev": device})
             executor.move_devices_parallel_by_device({"Dev:Var1": 5.0}, False)
     """
-    from geecs_scanner.data_acquisition.scan_executor import ScanStepExecutor
+    from geecs_scanner.engine.scan_executor import ScanStepExecutor
 
     def _factory(
         devices: Optional[Dict[str, FakeScanDevice]] = None,
@@ -151,13 +160,14 @@ def make_executor(monkeypatch):
             stop_scanning_thread_event=stop_event,
             pause_scan_event=pause_event,
         )
+        executor.cmd_executor = DeviceCommandExecutor(stop_event=stop_event)
 
         # Patch GeecsDevice.exp_info so tolerance lookups succeed without a DB
         fake_exp_info: Dict = {"devices": {}}
         if exp_info_devices:
             fake_exp_info["devices"].update(exp_info_devices)
         monkeypatch.setattr(
-            "geecs_scanner.data_acquisition.scan_executor.GeecsDevice.exp_info",
+            "geecs_scanner.engine.scan_executor.GeecsDevice.exp_info",
             fake_exp_info,
         )
         return executor

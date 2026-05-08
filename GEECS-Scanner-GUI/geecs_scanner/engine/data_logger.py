@@ -23,7 +23,7 @@ from geecs_scanner.logging_setup import update_context
 from geecs_scanner.utils import SoundPlayer
 from geecs_scanner.utils.exceptions import DataFileError
 from geecs_scanner.utils.retry import retry
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.models.scan_options import ScanOptions
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 
@@ -102,7 +102,7 @@ class FileMover:
         self.scan_number: Optional[int] = (
             None  # TODO Should have a `set` function instead of editing externally
         )
-        logger.debug("FileMover worker started.")
+        logger.info("FileMover worker started.")
 
     def _worker_func(self) -> None:
         """Drain the task queue until stopped."""
@@ -123,7 +123,7 @@ class FileMover:
                 logger.exception("Error processing task")
             finally:
                 self.task_queue.task_done()
-        logger.debug("FileMover worker stopped.")
+        logger.info("FileMover worker stopped.")
 
     def _process_task(self, task: FileMoveTask) -> None:
         """Locate the file matching *task*'s timestamp and move it to the target dir."""
@@ -366,7 +366,7 @@ class FileMover:
         self, log_df: pd.DataFrame, device_save_paths_mapping: dict
     ) -> None:
         """Match unprocessed files on disk against log timestamps and re-queue them."""
-        logger.debug("looking to handle orphaned data files")
+        logger.info("looking to handle orphaned data files")
         tolerance = 0.0011
         for device_name, device_info in device_save_paths_mapping.items():
             source_dir = Path(device_info["source_dir"])
@@ -942,6 +942,7 @@ class DataLogger:
                 # This ensures both sync and async devices use the same shot number
                 self.shot_index += 1
                 update_context({"shot_id": str(self.shot_index)})
+                logger.info("shot %s", self.shot_index)
 
                 self._update_async_observables(
                     self.device_manager.async_observables, elapsed_time
@@ -1028,7 +1029,7 @@ class DataLogger:
                 )
                 return False
             current_timestamps[device_name] = timestamp
-            logger.debug("Device %s current timestamp: %s", device_name, timestamp)
+            logger.info("Device %s current timestamp: %s", device_name, timestamp)
 
         if self._timestamps_within_tolerance(current_timestamps):
             self.initial_timestamps = current_timestamps.copy()
@@ -1040,10 +1041,10 @@ class DataLogger:
             )
             return True
         else:
-            logger.debug(
+            logger.info(
                 "Device timestamps not within tolerance. Falling back to timeout method."
             )
-            logger.debug("Timestamps were: %s", current_timestamps)
+            logger.info("Timestamps were: %s", current_timestamps)
             return False
 
     def _get_current_device_timestamp(self, device_name: str) -> Optional[float]:

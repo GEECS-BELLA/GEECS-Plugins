@@ -8,7 +8,7 @@ performing a full scan and saving data.
 import pytest
 import time
 from pathlib import Path
-from geecs_scanner.data_acquisition.data_logger import DataLogger, FileMoveTask, FileMover
+from geecs_scanner.engine.data_logger import DataLogger, FileMoveTask, FileMover
 
 
 TEST_DEVICE_NAME = "TEST_DEVICE"  # Update if not valid in your test setup
@@ -27,13 +27,23 @@ def test_file_mover_functionality():
 
     # Create the test file
     test_filename = f"{TEST_DEVICE_NAME}_{TEST_FLOAT:.3f}.txt"
-    test_filepath = Path(__file__).parent / "data_test_bin" / "start" / TEST_DEVICE_NAME / test_filename
+    test_filepath = (
+        Path(__file__).parent
+        / "data_test_bin"
+        / "start"
+        / TEST_DEVICE_NAME
+        / test_filename
+    )
     test_filepath.parent.mkdir(parents=True, exist_ok=True)
     test_filepath.touch()
 
     # Generate the filename for the expected resulting file (scan number is never set, so it is `None`)
-    expected_file = (test_filepath.parents[2] / "end" / TEST_DEVICE_NAME /
-                     f"ScanNone_{TEST_DEVICE_NAME}_{TEST_SHOT_NUMBER:03d}.txt")
+    expected_file = (
+        test_filepath.parents[2]
+        / "end"
+        / TEST_DEVICE_NAME
+        / f"ScanNone_{TEST_DEVICE_NAME}_{TEST_SHOT_NUMBER:03d}.txt"
+    )
 
     # Assert that we've created the test file and that the expected file does not exist yet
     assert test_filepath.exists() is True
@@ -57,7 +67,9 @@ def test_file_mover_functionality():
         time.sleep(0.01)
         tries += 1
         if tries > 20:
-            raise AssertionError("Maximum waiting time occurred, File Mover test failed")
+            raise AssertionError(
+                "Maximum waiting time occurred, File Mover test failed"
+            )
         pass
 
     # Assert that the new file exists and the file mover has completed its task

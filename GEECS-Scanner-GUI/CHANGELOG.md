@@ -3,6 +3,65 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] — 2026-05-08
+
+### Changed
+- Restored 14 log lines from DEBUG back to INFO across `action_manager`,
+  `scan_data_manager`, `device_manager`, `scan_manager`, and `data_logger`.
+  These were demoted in 0.9.1 to reduce terminal noise, but with the
+  log-triage tooling in place the richer log signal is more valuable than
+  the brevity. Restored lines: action sequence start/complete, pre-scan and
+  closeout action attempts, configure-save-paths per device, scan-info file
+  written, scan-info loaded, device unsubscribe lifecycle, orphan-file sweep
+  start, FileMover worker started/stopped, per-device acq_timestamp during
+  global time sync, and timestamp-tolerance-failed fallback message.
+
+## [0.12.0] — 2026-05-08
+
+### Added
+- `DeviceCommandExecutor` — single policy object for all `device.set()` /
+  `device.get()` calls during a scan.  Enforces a per-error-type retry
+  policy: `GeecsDeviceCommandRejected` retries up to `max_retries` times;
+  `GeecsDeviceExeTimeout` and `GeecsDeviceCommandFailed` escalate immediately
+  (no retry, since retrying a hung or hardware-failed device makes it worse).
+  The `escalate()` method routes failures to the operator dialog callback and
+  sets the scan `stop_event` when the user chooses Abort.
+- Exported from `geecs_scanner.engine` package.
+
+### Changed
+- `ScanStepExecutor`: replaced scattered `retry()` + `escalate_device_error()`
+  calls in `move_devices_parallel_by_device` with `cmd_executor.set()` /
+  `cmd_executor.escalate()`.  `max_retries` / `retry_delay` parameters removed
+  from `move_devices_parallel_by_device` (now configured on the executor).
+- `ScanDataManager.configure_device_save_paths`: fixed bug where the return
+  value of the escalation callback was ignored, so an Abort choice never
+  stopped the device-configuration loop.  Now correctly returns early on
+  Abort and skips the failed device on Continue.
+- `ActionManager._set_device`: routes device failures through
+  `cmd_executor.set()` / `cmd_executor.escalate()`; re-raises on Abort so
+  the enclosing action sequence fails cleanly.
+- `ScanManager`: creates a `DeviceCommandExecutor` instance in `__init__` and
+  injects it into `ScanStepExecutor`, `ScanDataManager`, and `ActionManager`.
+  Also re-injects into the new `ScanDataManager` created during `reinitialize()`.
+
+### Fixed
+- `ActionControl`: `cmd_executor` was never wired into its standalone
+  `ActionManager`, causing `AttributeError` on any action execution outside a
+  scan.  Now creates a `DeviceCommandExecutor` at construction time.
+- `ScanStepExecutor.move_devices_parallel_by_device`: `device.set()` can return
+  `None` when the device raises `GeecsDeviceCommandFailed` in the UDP listener
+  thread rather than the calling thread.  `None` is now treated as a command
+  failure and raises `DeviceCommandError` so the normal escalation dialog fires
+  instead of crashing with `TypeError` at the tolerance check.
+- Scan log now includes scan config summary (device, range, step, wait, mode)
+  at INFO level immediately after scan start — triage agent no longer needs to
+  read the `.ini` file for context.
+- Per-variable hardware set commands restored to INFO level in scan log
+  (`[DeviceName] setting Var → value`); quieted previously by the async/file-mover
+  noise reduction pass.
+- Per-shot heartbeat (`shot N`) logged at INFO from `DataLogger` so acquisition
+  progress is visible in the scan log during long wait-time steps.
+
 ## [0.11.0] — 2026-05-07
 
 ### Added

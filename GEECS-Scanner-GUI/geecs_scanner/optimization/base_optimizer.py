@@ -20,8 +20,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, List, Any, Dict
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
-    from geecs_scanner.data_acquisition.data_logger import DataLogger
+    from geecs_scanner.engine.scan_data_manager import ScanDataManager
+    from geecs_scanner.engine.data_logger import DataLogger
 
 from xopt import Xopt, VOCS
 

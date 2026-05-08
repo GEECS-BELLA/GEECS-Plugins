@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_scanner.data_acquisition.dialog_request import DEVICE_COMMAND_ERRORS
+from geecs_scanner.engine.dialog_request import DEVICE_COMMAND_ERRORS
 from geecs_scanner.utils.exceptions import TriggerError
 from geecs_scanner.utils.retry import retry
 

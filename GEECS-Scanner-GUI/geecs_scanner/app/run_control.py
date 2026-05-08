@@ -4,12 +4,10 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from geecs_data_utils import ScanConfig
-
 from geecs_scanner.app.lib.action_control import ActionControl
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
-from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
+from geecs_scanner.engine.scan_manager import ScanManager, get_database_dict
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
@@ -76,34 +74,24 @@ class RunControl:
             self.action_control = ActionControl(experiment_name=experiment_name_refresh)
         return self.action_control
 
-    def submit_run(
-        self,
-        config_dictionary: dict,
-        scan_config: ScanConfig,
-        options: Optional[ScanOptions] = None,
-    ) -> bool:
+    def submit_run(self, exec_config: ScanExecutionConfig) -> bool:
         """Submit a scan request to Scan Manager after reinitializing it.
 
         Parameters
         ----------
-        config_dictionary : dict
-            Dictionary of devices to be saved and actions to take.
-        scan_config : ScanConfig
-            Scan parameters for a 1D scan or no-scan.
-        options : ScanOptions, optional
-            Engine execution options. Defaults to ``ScanOptions()`` if not provided.
+        exec_config : ScanExecutionConfig
+            Fully validated scan execution config produced by the GUI.
+
+        Returns
+        -------
+        bool
+            True if device reinitialization succeeded.
         """
-        if options is not None:
-            config_dictionary["options"] = options
         success = False
         if self.scan_manager is not None:
             self.is_in_setup = True
-
-            success = self.scan_manager.reinitialize(
-                config_path=None, config_dictionary=config_dictionary
-            )
-            self.scan_manager.start_scan_thread(scan_config=scan_config)
-
+            success = self.scan_manager.reinitialize(exec_config=exec_config)
+            self.scan_manager.start_scan_thread()
             self.is_in_setup = False
         return success
 

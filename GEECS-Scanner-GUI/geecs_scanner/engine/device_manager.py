@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.schemas.save_devices import (
+    from geecs_scanner.engine.models.save_devices import (
         DeviceConfig,
         SaveDeviceConfig,
     )
@@ -22,9 +22,9 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
 
-from .schemas.save_devices import DeviceConfig, SaveDeviceConfig
-from .utils import get_full_config_path
-from geecs_scanner.data_acquisition.schemas.actions import (
+from .models.save_devices import DeviceConfig, SaveDeviceConfig
+from ..utils.config_utils import get_full_config_path
+from geecs_scanner.engine.models.actions import (
     ActionSequence,
     SetStep,
 )
@@ -135,7 +135,7 @@ class DeviceManager:
         self._initialize_subscribers(
             self.event_driven_observables + self.async_observables, clear_devices=False
         )
-        logger.debug("Loaded scan info: %s", self.scan_base_description)
+        logger.info("Loaded scan info: %s", self.scan_base_description)
 
     def _load_devices_from_config(self, devices: dict[str, DeviceConfig]):
         """Categorize devices as sync/async and register their observables."""
@@ -249,10 +249,10 @@ class DeviceManager:
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         def _disconnect(device_name, device):
-            logger.debug("Attempting to unsubscribe from %s...", device_name)
+            logger.info("Attempting to unsubscribe from %s...", device_name)
             device.unsubscribe_var_values()
             device.close()
-            logger.debug("Successfully unsubscribed from %s.", device_name)
+            logger.info("Successfully unsubscribed from %s.", device_name)
 
         devices_snapshot = dict(self.devices)
         if devices_snapshot:

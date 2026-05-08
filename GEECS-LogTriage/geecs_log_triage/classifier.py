@@ -58,6 +58,7 @@ CLASSIFICATION_MAP: dict[str, Classification] = {
     "ImportError": Classification.BUG_CANDIDATE,
     "ModuleNotFoundError": Classification.BUG_CANDIDATE,
     # Network / OS failures without a GEECS wrapper yet.
+    "OSError": Classification.HARDWARE_ISSUE,  # covers WinError 10048 stale-socket
     "ConnectionRefusedError": Classification.HARDWARE_ISSUE,
     "ConnectionResetError": Classification.HARDWARE_ISSUE,
     "ConnectionAbortedError": Classification.HARDWARE_ISSUE,
@@ -81,6 +82,8 @@ _MESSAGE_HINTS: list[tuple[str, Classification]] = [
     ("Uncaught exception", Classification.BUG_CANDIDATE),
     ("owner.handle_response raised", Classification.BUG_CANDIDATE),
     # Hardware / device communication — seen in real logs
+    ("listen called with no socket bound", Classification.HARDWARE_ISSUE),
+    ("WinError 10048", Classification.HARDWARE_ISSUE),
     ("subscription failed", Classification.HARDWARE_ISSUE),
     ("device not responding", Classification.HARDWARE_ISSUE),
     ("command timed out", Classification.HARDWARE_ISSUE),

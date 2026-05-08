@@ -65,6 +65,7 @@ import yaml
 
 from geecs_scanner.utils.application_paths import ApplicationPaths
 
+
 def get_full_config_path(experiment: str, config_type: str, config_file: str) -> Path:
     """
     Resolve the full filesystem path to a specific configuration file within the GEECS experimental setup.
@@ -132,7 +133,6 @@ def get_full_config_path(experiment: str, config_type: str, config_file: str) ->
         raise FileNotFoundError(f"The config file {config_path} does not exist.")
 
     return config_path
-
 
 
 def visa_config_generator(visa_key: str, diagnostic_type: str) -> Path:

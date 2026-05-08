@@ -26,9 +26,11 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
-from geecs_scanner.data_acquisition.trigger_controller import TriggerController
-from geecs_scanner.data_acquisition.dialog_request import (
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
+from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.trigger_controller import TriggerController
+from geecs_scanner.engine.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
 )
@@ -147,6 +149,11 @@ class ScanManager:
 
         self.scan_config: ScanConfig
 
+        self.cmd_executor = DeviceCommandExecutor(
+            on_escalate=self.request_user_dialog,
+            stop_event=self.stop_scanning_thread_event,
+        )
+
         self.executor = ScanStepExecutor(
             device_manager=self.device_manager,
             data_logger=self.data_logger,
@@ -157,9 +164,9 @@ class ScanManager:
             pause_scan_event=self.pause_scan_event,
             trigger_controller=self.trigger_controller,
         )
-        self.executor.on_device_error = self.request_user_dialog
-        self.action_manager.on_user_prompt = self.request_user_dialog
-        self.scan_data_manager.on_device_error = self.request_user_dialog
+        self.executor.cmd_executor = self.cmd_executor
+        self.action_manager.cmd_executor = self.cmd_executor
+        self.scan_data_manager.cmd_executor = self.cmd_executor
 
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
@@ -204,7 +211,11 @@ class ScanManager:
             logger.info("Scanning resumed.")
 
     def reinitialize(
-        self, config_path=None, config_dictionary=None, scan_data=None
+        self,
+        config_path=None,
+        config_dictionary=None,
+        scan_data=None,
+        exec_config: Optional[ScanExecutionConfig] = None,
     ) -> bool:
         """Reset and reload device configuration.
 
@@ -214,6 +225,9 @@ class ScanManager:
         config_dictionary : dict, optional
         scan_data : ScanData, optional
             If given, scan_data_manager will use an alternative scan folder.
+        exec_config : ScanExecutionConfig, optional
+            When provided, supersedes *config_path* / *config_dictionary*.
+            Options and scan_config are extracted from it directly.
 
         Returns
         -------
@@ -230,6 +244,10 @@ class ScanManager:
         self.optimizer: Optional[BaseOptimizer] = None
         self.executor.optimizer: Optional[BaseOptimizer] = None
 
+        if exec_config is not None:
+            self._exec_config = exec_config
+            config_dictionary = exec_config.to_device_manager_dict()
+
         try:
             self.device_manager.reinitialize(
                 config_path=config_path, config_dictionary=config_dictionary
@@ -245,11 +263,17 @@ class ScanManager:
         self.scan_data_manager = ScanDataManager(
             self.device_manager, scan_data, database_dict
         )
+        self.scan_data_manager.cmd_executor = self.cmd_executor
 
-        logger.debug("config dictionary in reinitialize: %s", config_dictionary)
+        if exec_config is not None:
+            options = exec_config.options
+        elif config_dictionary is not None and "options" in config_dictionary:
+            options = config_dictionary["options"]
+        else:
+            options = None
 
-        if config_dictionary is not None and "options" in config_dictionary:
-            self.options = config_dictionary["options"]
+        if options is not None:
+            self.options = options
             self.executor.options = self.options
             self.save_local = not self.options.save_direct_on_network
 
@@ -278,13 +302,16 @@ class ScanManager:
         """Return True if the scan thread is currently alive."""
         return bool(self.scanning_thread and self.scanning_thread.is_alive())
 
-    def start_scan_thread(self, scan_config: Union[ScanConfig, dict] = None) -> None:
+    def start_scan_thread(
+        self, scan_config: Union[ScanConfig, dict, None] = None
+    ) -> None:
         """Start the scan in a background thread.
 
         Parameters
         ----------
-        scan_config : ScanConfig or dict
-            Passing a dict is deprecated — use :class:`~geecs_data_utils.ScanConfig` directly.
+        scan_config : ScanConfig or dict, optional
+            When omitted, ``scan_config`` is read from the ``ScanExecutionConfig``
+            that was passed to :meth:`reinitialize`.  Passing a dict is deprecated.
         """
         if not self.initialization_success:
             logger.error("Initialization unsuccessful, cannot start a new scan session")
@@ -295,6 +322,14 @@ class ScanManager:
                 "Scanning is already active, cannot start a new scan session."
             )
             return
+
+        # Resolve scan_config: explicit arg > exec_config > None
+        if (
+            scan_config is None
+            and hasattr(self, "_exec_config")
+            and self._exec_config is not None
+        ):
+            scan_config = self._exec_config.scan_config
 
         # Backward compatibility: allow dict input, with warning
         if isinstance(scan_config, dict):
@@ -379,6 +414,22 @@ class ScanManager:
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
             try:
                 logger.info("scan %s: starting (dir=%s)", scan_id, scan_dir)
+                if self.scan_config:
+                    if self.scan_config.device_var:
+                        logger.info(
+                            "scan config: %s [%s → %s, step %s], %.1fs/step, mode=%s",
+                            self.scan_config.device_var,
+                            self.scan_config.start,
+                            self.scan_config.end,
+                            self.scan_config.step,
+                            self.scan_config.wait_time,
+                            self.scan_config.scan_mode.value,
+                        )
+                    else:
+                        logger.info(
+                            "scan config: NOSCAN, %.1fs acquisition",
+                            self.scan_config.wait_time,
+                        )
                 self.pre_logging_setup()
 
                 if self.scan_config:
@@ -623,7 +674,7 @@ class ScanManager:
         # (e.g. GeecsDeviceCommandRejected) cannot prevent data already
         # written above from being preserved.
         if self.device_manager.scan_closeout_action is not None:
-            logger.debug("Attempting to execute closeout actions.")
+            logger.info("Attempting to execute closeout actions.")
             logger.debug("Action list %s", self.device_manager.scan_closeout_action)
             try:
                 self.action_manager.add_action(
@@ -701,7 +752,7 @@ class ScanManager:
                             "Error resetting save state for %s", futures[future]
                         )
 
-        logger.debug("scanning has stopped for all devices.")
+        logger.info("scanning has stopped for all devices.")
 
     def pre_logging_setup(self):
         """Configure devices and files for data acquisition.
@@ -773,7 +824,7 @@ class ScanManager:
             raise ScanAbortedError("Stop requested during prelogging")
 
         if self.device_manager.scan_setup_action is not None:
-            logger.debug("Attempting to execute pre-scan actions.")
+            logger.info("Attempting to execute pre-scan actions.")
             logger.debug("Action list %s", self.device_manager.scan_setup_action)
 
             self.action_manager.add_action(

@@ -11,15 +11,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_scanner.data_acquisition.dialog_request import (
-    DEVICE_COMMAND_ERRORS,
-    escalate_device_error,
-)
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
-from geecs_scanner.data_acquisition.trigger_controller import TriggerController
+from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.trigger_controller import TriggerController
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import DeviceCommandError
-from geecs_scanner.utils.retry import retry
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +23,7 @@ logger = logging.getLogger(__name__)
 class ScanStepExecutor:
     """Execute scan steps: move devices, acquire data, drive the optimizer.
 
-    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`.
+    Owned by :class:`~geecs_scanner.engine.scan_manager.ScanManager`.
 
     Attributes
     ----------
@@ -69,6 +65,7 @@ class ScanStepExecutor:
         self.results = None
         self.scan_steps = []
         self.on_device_error = None
+        self.cmd_executor: Optional[DeviceCommandExecutor] = None
 
         logger.debug("Constructing the scan step executor")
 
@@ -129,18 +126,14 @@ class ScanStepExecutor:
         self,
         component_vars: Dict[str, Any],
         is_composite: bool,
-        max_retries: int = 3,
-        retry_delay: float = 0.5,
     ) -> None:
         """Set device variables in parallel, grouped by device.
 
         One thread is launched per device; variables for the same device are
         set sequentially within that thread to avoid conflicts.  Hardware
-        communication is retried up to *max_retries* times via
-        :func:`~geecs_scanner.utils.retry.retry`.  On exhaustion a
-        :class:`~geecs_scanner.utils.exceptions.DeviceCommandError` is raised
-        (with exception chaining to the root hardware error) and the user is
-        prompted to continue or abort.
+        communication is retried and escalated via ``self.cmd_executor``.
+        On exhaustion a :class:`~geecs_scanner.utils.exceptions.DeviceCommandError`
+        is raised and the user is prompted to continue or abort.
 
         Tolerance failures (device accepted the command but the readback
         is out of spec) are logged as WARNING and do not trigger a retry —
@@ -152,10 +145,6 @@ class ScanStepExecutor:
             ``"device_name:variable_name"`` → target value.
         is_composite : bool
             True when the variables belong to a composite device configuration.
-        max_retries : int
-            Hardware-exception retry limit per variable.  Default 3.
-        retry_delay : float
-            Seconds between retries.  Default 0.5.
         """
         if self.device_manager.is_statistic_noscan(component_vars):
             return
@@ -182,31 +171,17 @@ class ScanStepExecutor:
                 logger.warning("[%s] Device not found in device manager.", device_name)
                 return
 
-            logger.debug("[%s] Setting vars: %s", device_name, var_list)
             for var_name, set_val in var_list:
+                logger.info("[%s] setting %s → %s", device_name, var_name, set_val)
                 tol = _get_tolerance(device, device_name, var_name)
+                ret_val = self.cmd_executor.set(device, var_name, set_val)
 
-                try:
-                    ret_val = retry(
-                        lambda vn=var_name, sv=set_val: device.set(vn, sv),
-                        attempts=max_retries,
-                        delay=retry_delay,
-                        catch=DEVICE_COMMAND_ERRORS,
-                        on_retry=lambda exc, n, vn=var_name: logger.debug(
-                            "[%s] hardware error (attempt %d/%d) setting %s: %s",
-                            device_name,
-                            n,
-                            max_retries,
-                            vn,
-                            exc,
-                        ),
-                    )
-                except DEVICE_COMMAND_ERRORS as exc:
+                # device.set() returns None when the device rejected the command
+                # via the UDP listener thread (exception raised there, not here).
+                if ret_val is None:
                     raise DeviceCommandError(
-                        device_name,
-                        f"set {var_name}",
-                        variable=var_name,
-                    ) from exc
+                        device_name, f"set {var_name}", variable=var_name
+                    )
 
                 if ret_val - tol <= set_val <= ret_val + tol:
                     logger.debug(
@@ -249,8 +224,7 @@ class ScanStepExecutor:
                         exc
                     ):
                         context += f"\n\nRoot cause: {type(exc.__cause__).__name__}"
-                    if escalate_device_error(exc, self.on_device_error, context):
-                        self.stop_scanning_thread_event.set()
+                    self.cmd_executor.escalate(exc, context)
                     return
 
     def wait_for_acquisition(self, wait_time: float) -> None:
