@@ -1,8 +1,8 @@
 """Simpler RunControl that performs actions via ActionManager without full scan support."""
 
 from typing import Any
-from geecs_scanner.data_acquisition import ActionManager
-from geecs_scanner.data_acquisition.schemas.actions import ActionSequence
+from geecs_scanner.engine import ActionManager
+from geecs_scanner.engine.models.actions import ActionSequence
 from pydantic import ValidationError
 import logging
 import sys

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceCommandFailed
 
-from tests.data_acquisition.conftest import FakeScanDevice
+from tests.engine.conftest import FakeScanDevice
 
 
 # ---------------------------------------------------------------------------

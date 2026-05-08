@@ -31,15 +31,15 @@ Examples
 
 See Also
 --------
-geecs_scanner.data_acquisition.device_manager : Device management system
-geecs_scanner.data_acquisition.schemas.actions : Action sequence definitions
+geecs_scanner.engine.device_manager : Device management system
+geecs_scanner.engine.models.actions : Action sequence definitions
 """
 
 from __future__ import annotations
 from typing import Optional, List, Dict
 from pydantic import BaseModel, Field
 
-from geecs_scanner.data_acquisition.schemas.actions import ActionSequence
+from geecs_scanner.engine.models.actions import ActionSequence
 
 
 class DeviceConfig(BaseModel):
@@ -164,7 +164,7 @@ class SaveDeviceConfig(BaseModel):
     --------
     DeviceConfig : Individual device configuration
     ActionSequence : Define pre/post-scan action sequences
-    geecs_scanner.data_acquisition.device_manager : Device management system
+    geecs_scanner.engine.device_manager : Device management system
     """
 
     Devices: Optional[Dict[str, DeviceConfig]] = Field(

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.schemas.save_devices import (
+    from geecs_scanner.engine.models.save_devices import (
         DeviceConfig,
         SaveDeviceConfig,
     )
@@ -22,9 +22,9 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
 
-from .schemas.save_devices import DeviceConfig, SaveDeviceConfig
-from .utils import get_full_config_path
-from geecs_scanner.data_acquisition.schemas.actions import (
+from .models.save_devices import DeviceConfig, SaveDeviceConfig
+from ..utils.config_utils import get_full_config_path
+from geecs_scanner.engine.models.actions import (
     ActionSequence,
     SetStep,
 )

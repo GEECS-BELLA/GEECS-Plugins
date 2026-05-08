@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator, ConfigD
 from xopt import VOCS
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.schemas.save_devices import SaveDeviceConfig
+    from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
 
 
 class ImageAnalyzerConfig(BaseModel):
@@ -297,7 +297,7 @@ class BaseOptimizerConfig(BaseModel):
         """
         # Load save_devices from file if specified
         if self.save_devices is None and self.save_devices_file is not None:
-            from geecs_scanner.data_acquisition.schemas.save_devices import (
+            from geecs_scanner.engine.models.save_devices import (
                 SaveDeviceConfig,
             )
 
@@ -355,7 +355,7 @@ class BaseOptimizerConfig(BaseModel):
 # before it can validate BaseOptimizerConfig, so rebuild here once all classes
 # are defined.
 def _rebuild() -> None:
-    from geecs_scanner.data_acquisition.schemas.save_devices import (
+    from geecs_scanner.engine.models.save_devices import (
         SaveDeviceConfig as _SDC,
     )
 

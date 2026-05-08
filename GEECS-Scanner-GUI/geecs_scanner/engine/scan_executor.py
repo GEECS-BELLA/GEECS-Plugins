@@ -11,12 +11,12 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
-from geecs_scanner.data_acquisition.dialog_request import (
+from geecs_scanner.engine.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
-from geecs_scanner.data_acquisition.trigger_controller import TriggerController
+from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.trigger_controller import TriggerController
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import DeviceCommandError
 from geecs_scanner.utils.retry import retry
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class ScanStepExecutor:
     """Execute scan steps: move devices, acquire data, drive the optimizer.
 
-    Owned by :class:`~geecs_scanner.data_acquisition.scan_manager.ScanManager`.
+    Owned by :class:`~geecs_scanner.engine.scan_manager.ScanManager`.
 
     Attributes
     ----------

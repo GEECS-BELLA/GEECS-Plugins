@@ -23,7 +23,7 @@ from geecs_scanner.logging_setup import update_context
 from geecs_scanner.utils import SoundPlayer
 from geecs_scanner.utils.exceptions import DataFileError
 from geecs_scanner.utils.retry import retry
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.models.scan_options import ScanOptions
 
 DeviceSavePaths = Dict[str, Dict[str, Union[Path, str]]]
 

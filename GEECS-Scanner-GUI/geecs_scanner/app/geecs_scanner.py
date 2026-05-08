@@ -56,8 +56,8 @@ from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
-from geecs_scanner.data_acquisition import DatabaseDictLookup
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine import DatabaseDictLookup
+from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 

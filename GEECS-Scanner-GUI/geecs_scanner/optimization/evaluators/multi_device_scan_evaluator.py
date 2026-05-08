@@ -29,8 +29,8 @@ import logging
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.data_logger import DataLogger
-    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.engine.data_logger import DataLogger
+    from geecs_scanner.engine.scan_data_manager import ScanDataManager
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.optimization.config_models import (

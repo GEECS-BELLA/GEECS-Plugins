@@ -26,9 +26,9 @@ from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
-from geecs_scanner.data_acquisition.trigger_controller import TriggerController
-from geecs_scanner.data_acquisition.dialog_request import (
+from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.trigger_controller import TriggerController
+from geecs_scanner.engine.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     DialogRequest,
 )

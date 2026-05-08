@@ -17,7 +17,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandFailed,
     GeecsDeviceExeTimeout,
 )
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.models.scan_options import ScanOptions
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +127,7 @@ def make_executor(monkeypatch):
             executor = make_executor({"Dev": device})
             executor.move_devices_parallel_by_device({"Dev:Var1": 5.0}, False)
     """
-    from geecs_scanner.data_acquisition.scan_executor import ScanStepExecutor
+    from geecs_scanner.engine.scan_executor import ScanStepExecutor
 
     def _factory(
         devices: Optional[Dict[str, FakeScanDevice]] = None,
@@ -157,7 +157,7 @@ def make_executor(monkeypatch):
         if exp_info_devices:
             fake_exp_info["devices"].update(exp_info_devices)
         monkeypatch.setattr(
-            "geecs_scanner.data_acquisition.scan_executor.GeecsDevice.exp_info",
+            "geecs_scanner.engine.scan_executor.GeecsDevice.exp_info",
             fake_exp_info,
         )
         return executor

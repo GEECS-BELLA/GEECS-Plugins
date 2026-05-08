@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.models.scan_options import ScanOptions
 
 
 class TestScanOptionsDefaults:

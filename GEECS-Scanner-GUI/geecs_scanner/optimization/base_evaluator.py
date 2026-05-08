@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
-    from geecs_scanner.data_acquisition.data_logger import DataLogger
-    from geecs_scanner.data_acquisition.scan_data_manager import ScanDataManager
+    from geecs_scanner.engine.data_logger import DataLogger
+    from geecs_scanner.engine.scan_data_manager import ScanDataManager
 
 import logging
 

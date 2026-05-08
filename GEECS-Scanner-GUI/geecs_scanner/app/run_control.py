@@ -8,8 +8,8 @@ from geecs_data_utils import ScanConfig
 
 from geecs_scanner.app.lib.action_control import ActionControl
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
-from geecs_scanner.data_acquisition.scan_manager import ScanManager, get_database_dict
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine.scan_manager import ScanManager, get_database_dict
+from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )

@@ -14,7 +14,7 @@ from nptdms import ChannelObject, TdmsWriter
 from . import DatabaseDictLookup, DeviceManager
 from geecs_data_utils import ScanConfig, ScanPaths
 from geecs_python_api.controls.interface import GeecsDatabase
-from geecs_scanner.data_acquisition.dialog_request import (
+from geecs_scanner.engine.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )

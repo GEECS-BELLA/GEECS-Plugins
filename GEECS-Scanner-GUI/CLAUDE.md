@@ -28,7 +28,7 @@ geecs_scanner/
     multi_scanner.py          # Dialog: batch scan queue
     gui/                      # Qt Designer *_ui.py files (auto-generated)
     lib/                      # Menu bar, UI utilities, action control helpers
-  data_acquisition/
+  engine/
     scan_manager.py           # Central scan orchestrator (runs in a thread)
     device_manager.py         # Device subscriptions + config loading
     data_logger.py            # Per-shot data polling + file management
@@ -36,8 +36,10 @@ geecs_scanner/
     action_manager.py         # Automated action execution
     scan_data_manager.py      # Processed scan data handling
     database_dict_lookup.py   # GEECS device database query interface
-    schemas/                  # Pydantic models for YAML-backed configs
-    utils.py                  # Config path resolution, VISA helpers
+    models/                   # Pydantic models for YAML-backed configs
+    trigger_controller.py     # Timing/trigger management
+    default_scan_manager.py   # Default ScanManager implementation
+    dialog_request.py         # Dialog request types
   optimization/
     base_optimizer.py         # Xopt wrapper
     base_evaluator.py         # Objective function base class
@@ -119,7 +121,7 @@ All configs live in `~/.local/share/geecs_scanner/<Experiment>/` (or
 ```
 
 These are user-local and **not** checked into this repo. Changes persist between
-sessions. Validate with Pydantic schemas in `data_acquisition/schemas/`.
+sessions. Validate with Pydantic schemas in `engine/models/`.
 
 ## Key Dialogs
 
@@ -174,7 +176,13 @@ for Bayesian and genetic optimization loops.
 
 1. `main.py` — logging init + Qt app launch
 2. `geecs_scanner/app/geecs_scanner.py` — main window signal wiring
-3. `geecs_scanner/data_acquisition/scan_manager.py` — scan orchestrator
+3. `geecs_scanner/engine/scan_manager.py` — scan orchestrator
 4. `geecs_scanner/app/run_control.py` — GUI ↔ ScanManager bridge
-5. `geecs_scanner/data_acquisition/data_logger.py` — real-time data acquisition
+5. `geecs_scanner/engine/data_logger.py` — real-time data acquisition
 6. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
+
+## Utility Functions Relocation
+
+The `utils.py` file has been moved to `geecs_scanner/utils/config_utils.py` to consolidate
+configuration utilities. Key functions like `get_full_config_path()` and `visa_config_generator()`
+are re-exported from `geecs_scanner.engine` for backwards compatibility.

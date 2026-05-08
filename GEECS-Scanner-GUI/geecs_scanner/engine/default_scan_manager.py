@@ -11,8 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 import yaml
 
-from geecs_scanner.data_acquisition import ScanManager
-from geecs_scanner.data_acquisition.scan_options import ScanOptions
+from geecs_scanner.engine import ScanManager
+from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.utils import ApplicationPaths
 
 

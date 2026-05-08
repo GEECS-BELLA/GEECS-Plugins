@@ -2,7 +2,7 @@
 
 This module must only be imported from the Qt main thread (or from modules
 that are themselves only imported on the main thread).  The worker-thread side
-is limited to :mod:`geecs_scanner.data_acquisition.gui_dialogs`, which has no
+is limited to :mod:`geecs_scanner.engine.gui_dialogs`, which has no
 Qt dependency.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from geecs_scanner.data_acquisition.dialog_request import DialogRequest
+from geecs_scanner.engine.dialog_request import DialogRequest
 
 logger = logging.getLogger(__name__)
 

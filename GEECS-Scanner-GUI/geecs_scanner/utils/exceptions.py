@@ -25,9 +25,9 @@ The three geecs_python_api hardware exceptions
 (``GeecsDeviceExeTimeout``, ``GeecsDeviceCommandRejected``,
 ``GeecsDeviceCommandFailed``) are wrapped as :class:`DeviceCommandError`
 via Python exception chaining (``raise DeviceCommandError(...) from original``).
-Call sites in :mod:`geecs_scanner.data_acquisition` should never import those
+Call sites in :mod:`geecs_scanner.engine` should never import those
 API-internal types directly; use :data:`DEVICE_COMMAND_ERRORS` from
-:mod:`geecs_scanner.data_acquisition.dialog_request` to catch them at the
+:mod:`geecs_scanner.engine.dialog_request` to catch them at the
 boundary, then re-raise as the appropriate scanner-level exception.
 """
 

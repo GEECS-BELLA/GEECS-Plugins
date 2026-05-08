@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 import shutil
 
-from geecs_scanner.data_acquisition.default_scan_manager import get_default_scan_manager
+from geecs_scanner.engine.default_scan_manager import get_default_scan_manager
 
 
 def test_noscan_from_default_scan_manager():

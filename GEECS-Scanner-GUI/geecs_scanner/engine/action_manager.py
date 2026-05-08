@@ -9,11 +9,11 @@ from typing import Any, Dict
 import yaml
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
-from geecs_scanner.data_acquisition.dialog_request import (
+from geecs_scanner.engine.dialog_request import (
     DEVICE_COMMAND_ERRORS,
     escalate_device_error,
 )
-from geecs_scanner.data_acquisition.schemas.actions import (
+from geecs_scanner.engine.models.actions import (
     ActionLibrary,
     ActionSequence,
     ExecuteStep,
@@ -23,7 +23,7 @@ from geecs_scanner.data_acquisition.schemas.actions import (
 )
 
 from ..utils.exceptions import ActionError
-from .utils import get_full_config_path
+from ..utils.config_utils import get_full_config_path
 
 logger = logging.getLogger(__name__)
 
