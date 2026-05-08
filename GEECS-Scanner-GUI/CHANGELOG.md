@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] — 2026-05-07
+
+### Changed
+- Log level rationalization across all six `data_acquisition/` modules
+  (`data_logger`, `device_manager`, `scan_manager`, `scan_executor`,
+  `scan_data_manager`, `action_manager`).  Per-shot ticker events (standby
+  checks, timestamp comparisons, async variable updates, file iteration,
+  orphan retries, per-step device moves, optimizer chatter) demoted from INFO
+  to DEBUG.  Two cases promoted to WARNING: file not found after all retries
+  (orphaned to post-scan sweep), and missing `acq_timestamp` column during
+  orphan sweep.  Lifecycle milestones (scan start/end/abort, device subscribed,
+  config loaded, files written, devices synchronized) remain at INFO.
+- Docstring purge in `data_acquisition/`: removed boilerplate NumPy-style
+  docstrings from methods whose signatures and names are self-explanatory,
+  leaving only non-obvious `Parameters`/`Returns`/`Raises` blocks and
+  single-line summaries where warranted.
+
 ## [0.9.0] — 2026-05-07
 
 ### Added
