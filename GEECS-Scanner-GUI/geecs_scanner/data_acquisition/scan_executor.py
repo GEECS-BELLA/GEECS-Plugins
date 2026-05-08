@@ -299,15 +299,6 @@ class ScanStepExecutor:
                     log_df = self.scan_data_manager.convert_to_dataframe(self.results)
                     self.scan_data_manager.dataframe_to_tdms(log_df)
 
-            try:
-                hiatus = float(self.options_dict.get("Save Hiatus Period (s)", ""))
-            except ValueError:
-                hiatus = ""
-
-            if hiatus and self.data_logger.shot_save_event.is_set():
-                self.save_hiatus(hiatus)
-                self.data_logger.shot_save_event.clear()
-
         self.trigger_off()
 
         self.scan_step_end_time = time.time()
@@ -411,8 +402,3 @@ class ScanStepExecutor:
         """Call ``trigger_off_fn`` if injected."""
         if hasattr(self, "trigger_off_fn"):
             self.trigger_off_fn()
-
-    def save_hiatus(self, duration: float) -> None:
-        """Sleep *duration* seconds before the next data save."""
-        logger.debug("Hiatus: Waiting for %s seconds before saving data.", duration)
-        time.sleep(duration)

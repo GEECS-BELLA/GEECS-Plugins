@@ -499,8 +499,6 @@ class DataLogger:
     idle_time : float
     lock : threading.Lock
     stop_event : threading.Event
-    shot_save_event : threading.Event
-        Set whenever a new shot is logged; cleared by ScanStepExecutor.
     warning_timeout_sync : float
     warning_timeout_async_factor : float
     last_log_time_sync : dict
@@ -553,8 +551,6 @@ class DataLogger:
         self.lock = threading.Lock()
 
         self.repetition_rate = 1.0
-
-        self.shot_save_event = threading.Event()
 
         self.last_timestamps: Dict[str, float] = {}
         self.initial_timestamps: Dict[str, Optional[float]] = {}
@@ -952,7 +948,6 @@ class DataLogger:
 
                 # TODO move the on-shot tdms writer functionality from scan manager to here
 
-                self.shot_save_event.set()
                 self.sound_player.play_beep()
 
             self.log_entries[elapsed_time].update(

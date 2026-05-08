@@ -758,27 +758,6 @@ class ScanManager:
 
         logger.debug("scanning has stopped for all devices.")
 
-    def save_hiatus(self, hiatus_period: float):
-        """Disable saving on all non-scalar devices, wait *hiatus_period* seconds, then re-enable."""
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                logger.debug("Setting save to off for %s", device_name)
-                device.set("save", "off", sync=False)
-            else:
-                logger.warning("Device %s not found in DeviceManager.", device_name)
-
-        logger.debug("All devices with Save OFF for %s s", hiatus_period)
-        time.sleep(hiatus_period)
-
-        for device_name in self.device_manager.non_scalar_saving_devices:
-            device = self.device_manager.devices.get(device_name)
-            if device:
-                logger.debug("Setting save to on for %s", device_name)
-                device.set("save", "on", sync=False)
-            else:
-                logger.warning("Device %s not found in DeviceManager.", device_name)
-
     def pre_logging_setup(self):
         """Configure devices and files for data acquisition.
 

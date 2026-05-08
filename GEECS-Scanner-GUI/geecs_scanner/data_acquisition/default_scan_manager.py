@@ -22,7 +22,6 @@ def get_default_scan_manager(experiment: str) -> ScanManager:
             "shot_control_config": "HTU-Normal.yaml",
             "options": {
                 "rep_rate_hz": 1,
-                "Save Hiatus Period (s)": "",
                 "On-Shot TDMS": False,
                 "Master Control IP": "192.168.7.203",
             },
