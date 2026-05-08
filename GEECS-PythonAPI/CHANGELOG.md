@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.2] — 2026-05-08
+
+### Removed
+- `api_defs.py`: dropped deprecated `ScanTag` backward-compat stub and its
+  unconditional module-level `warnings.warn()` (fired on every import). No
+  external callers found — `ScanTag` now lives exclusively in `geecs_data_utils`.
+- `api_defs.py`: removed dead `exec_async()` helper and unused `dateutil` import.
+- `controls/__init__.py`: removed `__getattr__` shim that re-exported `ScanTag`;
+  no callers found across the monorepo.
+
 ## [0.4.1] — 2026-05-08
 
 ### Fixed
