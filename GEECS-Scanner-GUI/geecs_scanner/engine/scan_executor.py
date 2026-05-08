@@ -176,6 +176,13 @@ class ScanStepExecutor:
                 tol = _get_tolerance(device, device_name, var_name)
                 ret_val = self.cmd_executor.set(device, var_name, set_val)
 
+                # device.set() returns None when the device rejected the command
+                # via the UDP listener thread (exception raised there, not here).
+                if ret_val is None:
+                    raise DeviceCommandError(
+                        device_name, f"set {var_name}", variable=var_name
+                    )
+
                 if ret_val - tol <= set_val <= ret_val + tol:
                     logger.debug(
                         "[%s] %s=%s within tolerance %s",
