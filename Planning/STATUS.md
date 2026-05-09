@@ -7,37 +7,18 @@
 
 ## Remaining blocks (in order)
 
-### Block 5 — State machine  `[ ]`
-Replace `_scanning_active`, `_pause_event`, `_stop_event` boolean flags in
-`scan_manager.py` with guarded `ScanState` transitions. Add `PAUSED_ON_ERROR`
-as a reachable state. Remove dead `save_hiatus` code path.
-
-**First action:** grep `_scanning_active` in `scan_manager.py` — understand
-every read and write site before changing anything.
-
-**Done when:** `ScanManager` has no boolean-flag state; all state reads go
-through a single `self._state: ScanState` property; invalid transitions raise
-or emit `ScanErrorEvent`.
-
-**Branch:** `worktree-block-5-state-machine` (not yet created)
+### Block 5 — State machine  `[✓]` — merged in `worktree-scanner-finish-line`
+Added `_state: ScanState`, `_state_lock`, `_set_state()`, `current_state` property.
+All lifecycle transitions go through `_set_state()`. `PAUSED_ON_ERROR` added and wired
+through `request_user_dialog()`. 4 new unit tests in `test_event_emission.py`. Bumped to 0.14.0.
 
 ---
 
-### Block 7 — GUI event wiring + operator intervention  `[ ]`
-Wire the GUI to consume the `ScanEvent` stream. Delete the 200ms `QTimer` and
-replace with event subscription. Delete `dialog_queue`, `restore_failures`.
-Add non-modal operator intervention panel for device errors.
-
-**First action:** Find the `QTimer` in `geecs_scanner/app/geecs_scanner.py`
-and map every method it calls — these are the state reads that become event
-handlers.
-
-**Done when:** `QTimer` is removed; `dialog_queue` is removed; `restore_failures`
-is removed; device-error failures surface as a non-modal panel in the GUI.
-
-**Depends on:** Block 5 (needs `PAUSED_ON_ERROR` state for intervention flow).
-
-**Branch:** `worktree-block-7-gui-events` (not yet created)
+### Block 7 — GUI event wiring + operator intervention  `[✓]` — merged in `worktree-scanner-finish-line`
+`GEECSScannerWindow` now consumes `ScanEvent` stream via `pyqtSignal(object)` bridge.
+`_handle_scan_event` dispatches to per-type handlers. `dialog_queue`, `restore_failures`,
+`is_in_setup`, `is_busy()`, `is_stopping()`, `_was_scanning` all removed.
+`RunControl` accepts `on_event` callback. Bumped to 0.14.0.
 
 ---
 
@@ -85,6 +66,8 @@ has no scan-execution types; import paths updated across all packages.
 | PR #366 | Engine reorganisation, `ScanExecutionConfig`, `TriggerController` | #366 |
 | 6 | `DeviceCommandExecutor` — single command policy | #367 |
 | 3 | Typed `ScanEvent` stream, `ScanState` enum | #370 |
+| 5 | State machine: `_set_state`, `PAUSED_ON_ERROR` | scanner-finish-line |
+| 7 | Event-driven GUI: `pyqtSignal` bridge, remove polling | scanner-finish-line |
 
 ---
 

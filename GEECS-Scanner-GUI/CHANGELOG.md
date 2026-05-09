@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.0] — 2026-05-08
+
+### Added
+- Block 5: explicit state machine in `ScanManager`.  Added `_state: ScanState`,
+  `_state_lock: threading.Lock`, `_set_state()`, and `current_state` property.
+  All lifecycle transitions now go through `_set_state()`, which atomically
+  updates `_state` and emits a `ScanLifecycleEvent`.
+- `ScanState.PAUSED_ON_ERROR` — new state entered when `request_user_dialog()`
+  blocks waiting for the operator's abort/continue decision.  The engine
+  transitions to `STOPPING` (abort) or `RUNNING` (continue) after the dialog
+  is dismissed.
+- Block 7: event-driven GUI.  `GEECSScannerWindow` now subscribes to the scan
+  event stream via a `pyqtSignal(object)` bridge; per-event handlers update
+  status indicator colour, progress bar, button states, and restore-failure
+  warnings instead of the 200 ms polling timer.
+- `RunControl.__init__` accepts an `on_event` callback and passes it through
+  to `ScanManager`.
+
+### Removed
+- `ScanManager.dialog_queue` — device-error dialogs are now delivered via
+  `ScanDialogEvent` through the `on_event` callback / `pyqtSignal` bridge.
+- `ScanManager.restore_failures` list — restore failures are now emitted as
+  `ScanRestoreFailedEvent` s and accumulated by the GUI event handler.
+- `RunControl.is_in_setup`, `is_busy()`, `is_in_stopping`, `is_stopping()`,
+  `clear_stop_state()`, `get_progress()`, `is_active()` — all replaced by
+  event-driven state tracking in `GEECSScannerWindow`.
+- `GEECSScannerWindow._was_scanning` flag — no longer needed; the DONE/ABORTED
+  lifecycle event is the authoritative transition signal.
+- `import queue` from `scan_manager.py` and `geecs_scanner.py` — no longer
+  used after `dialog_queue` removal.
+
 ## [0.13.0] — 2026-05-08
 
 ### Added

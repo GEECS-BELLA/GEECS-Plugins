@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import queue
 import threading
 import time
 import warnings
@@ -74,11 +73,6 @@ class ScanManager:
     optimizer : BaseOptimizer or None
     initialization_success : bool
     scan_config : ScanConfig
-    dialog_queue : queue.Queue[DialogRequest]
-        Worker threads post dialog requests here; the main-thread 200 ms timer drains it.
-    restore_failures : list[str]
-        Collected by restore_initial_state(); shown once by the main thread after the
-        scan thread exits (blocking in the scan thread would deadlock with join()).
     last_reinit_error : str or None
         Device name from the most recent GeecsDeviceInstantiationError, for the GUI dialog.
     """
@@ -123,16 +117,6 @@ class ScanManager:
         self.results = {}
 
         self.stop_scanning_thread_event = threading.Event()
-
-        # Queue for worker threads to request GUI dialogs on the main thread.
-        # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
-        self.dialog_queue: queue.Queue[DialogRequest] = queue.Queue()
-
-        # Failures collected by restore_initial_state() after the scan ends.
-        # Cannot show a blocking dialog there (scan thread would deadlock with
-        # stop_scanning_thread().join()).  The main thread reads this list once
-        # is_active() transitions to False and shows a one-shot warning.
-        self.restore_failures: list[str] = []
 
         # Set by reinitialize() when a GeecsDeviceInstantiationError occurs so
         # the GUI can include the device name in the error dialog.
@@ -217,9 +201,10 @@ class ScanManager:
     ) -> bool:
         """Submit a device-error dialog request and block until the user responds.
 
-        Called from worker threads.  Puts a :class:`DialogRequest` on
-        ``self.dialog_queue`` and blocks until the main-thread GUI timer
-        drains it and the user clicks Continue or Abort.
+        Called from worker threads.  Emits a :class:`ScanDialogEvent` carrying
+        the :class:`DialogRequest`; the GUI's ``_on_dialog_event`` handler runs
+        the blocking dialog on the main thread and sets
+        ``request.response_event`` so this call can return.
 
         Parameters
         ----------
@@ -236,7 +221,6 @@ class ScanManager:
         request = DialogRequest(exc=exc, context=context)
         self._set_state(ScanState.PAUSED_ON_ERROR)
         self._emit(ScanDialogEvent(request=request))
-        self.dialog_queue.put(request)
         request.response_event.wait()
         if request.abort[0]:
             self._set_state(ScanState.STOPPING)
@@ -1096,12 +1080,9 @@ class ScanManager:
     def restore_initial_state(self, initial_state):
         """Restore each device variable in *initial_state* to its pre-scan value.
 
-        Failures are collected into ``self.restore_failures`` rather than shown
-        immediately — blocking a dialog here would deadlock with
-        ``stop_scanning_thread().join()`` on the main thread.
+        Restore failures are emitted as :class:`ScanRestoreFailedEvent` s so the
+        GUI can accumulate them and show a summary on the DONE/ABORTED transition.
         """
-        self.restore_failures = []
-
         for device_var, value in initial_state.items():
             device_name, variable_name = device_var.split(":", 1)
 
@@ -1120,14 +1101,9 @@ class ScanManager:
                         value,
                         type(e).__name__,
                     )
-                    # Cannot block here — we're in the scan thread, and
-                    # stop_scanning_thread().join() on the main thread would
-                    # deadlock.  Collect the failure; the main thread will
-                    # show a summary once the scan thread has exited.
                     msg = (
                         f"{device_name}:{variable_name} → {value} ({type(e).__name__})"
                     )
-                    self.restore_failures.append(f"  • {msg}")
                     self._emit(ScanRestoreFailedEvent(device=device_name, message=msg))
                 except Exception:
                     logger.exception(

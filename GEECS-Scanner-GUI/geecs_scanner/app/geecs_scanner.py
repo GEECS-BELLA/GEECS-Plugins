@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 import sys
 import os
-import queue
 from pathlib import Path
 import threading
 import importlib
@@ -36,7 +35,7 @@ import logging
 from importlib.metadata import version
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QMessageBox
-from PyQt5.QtCore import QEvent, QTimer, QUrl
+from PyQt5.QtCore import QEvent, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
@@ -59,6 +58,13 @@ from geecs_data_utils import ScanConfig, ScanMode
 from geecs_scanner.engine import DatabaseDictLookup
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.scan_events import (
+    ScanDialogEvent,
+    ScanLifecycleEvent,
+    ScanRestoreFailedEvent,
+    ScanState,
+    ScanStepEvent,
+)
 from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
@@ -105,6 +111,9 @@ class GEECSScannerWindow(QMainWindow):
     The constructor wires up UI events, attempts to read configuration on
     non-test runs, and starts periodic timers that update the GUI status.
     """
+
+    # Thread-safe bridge: scan thread emits events → main-thread slot handles them.
+    _scan_event_received = pyqtSignal(object)
 
     def __init__(self):
         super().__init__()
@@ -309,10 +318,10 @@ class GEECSScannerWindow(QMainWindow):
 
         # Start/Stop
         self.is_starting = False
-        # Tracks whether a scan was active on the previous timer tick so we
-        # can detect the active→inactive transition and show a restore-failure
-        # summary (which cannot be shown from the scan worker thread).
-        self._was_scanning = False
+        self._scan_active = False  # True while scan thread is RUNNING/PAUSED_ON_ERROR
+        self._total_shots = 0  # Cached from ScanLifecycleEvent(INITIALIZING)
+        self._restore_failure_messages: list[str] = []
+        self._scan_event_received.connect(self._handle_scan_event)
         self.ui.startScanButton.clicked.connect(self.initialize_and_start_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
@@ -445,53 +454,83 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.listScanPresets.clear()
 
     def update_gui_status(self):
-        """
-        Update the GUI based on the current run status.
+        """Update GUI for multiscan and action-library modes.
 
         Notes
         -----
-        - Disables editing when scans are running.
-        - Updates progress bar, status color, and button states.
-        - Handles Multiscanner and Action Library states.
-        - Drains the ScanManager dialog queue so device-error dialogs are
-          shown on this (main) thread rather than from the scan worker thread.
+        Scan lifecycle state (running, stopping, progress) is now handled by
+        ``_handle_scan_event`` via the ``_scan_event_received`` signal.  This
+        method only covers states that are not driven by scan events: the
+        RunControl-not-initialized case and the multiscan / action-library modes.
         """
-        # Drain pending device-error dialogs from the scan worker thread.
-        # show_device_error_dialog() blocks until the user responds and sets
-        # request.response_event so the worker can unblock.
-        sm = getattr(self.RunControl, "scan_manager", None)
-        if sm is not None:
-            try:
-                while True:
-                    request = sm.dialog_queue.get_nowait()
-                    show_device_error_dialog(request)
-            except queue.Empty:
-                pass
-
         if self.RunControl is None:
             self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(False)
-        elif self.RunControl.is_active():
+            return
+
+        enable_buttons = True
+        if self.is_in_multiscan:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
+            self.ui.startScanButton.setEnabled(False)
+            enable_buttons = False
+        self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+
+        if self.is_in_action_library:
+            enable_buttons = False
+        self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
+
+        self.ui.experimentDisplay.setEnabled(enable_buttons)
+        self.ui.repititionRateDisplay.setEnabled(enable_buttons)
+        self.ui.lineTimingDevice.setEnabled(enable_buttons)
+        self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
+        self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
+
+    # ------------------------------------------------------------------ #
+    # Scan event handlers (driven by _scan_event_received signal)        #
+    # ------------------------------------------------------------------ #
+
+    def _handle_scan_event(self, event: object) -> None:
+        """Dispatch a scan event to the appropriate per-type handler."""
+        if isinstance(event, ScanLifecycleEvent):
+            self._on_lifecycle_event(event)
+        elif isinstance(event, ScanStepEvent):
+            self._on_step_event(event)
+        elif isinstance(event, ScanRestoreFailedEvent):
+            self._on_restore_failed_event(event)
+        elif isinstance(event, ScanDialogEvent):
+            self._on_dialog_event(event)
+
+    def _on_lifecycle_event(self, event: ScanLifecycleEvent) -> None:
+        state = event.state
+        if state == ScanState.INITIALIZING:
+            self.is_starting = False
+            self._total_shots = event.total_shots
+            self.ui.startScanButton.setText("Starting...")
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(False)
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: orange;")
+        elif state == ScanState.RUNNING:
+            self._scan_active = True
             self._set_scan_number_info(label="Current Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
-            self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
-            self.ui.progressBar.setValue(self.RunControl.get_progress())
-            self._was_scanning = True
-        else:
-            self._set_scan_number_info(label="Previous Scan:")
-            self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
+            self.ui.stopScanButton.setEnabled(True)
+        elif state == ScanState.PAUSED_ON_ERROR:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: yellow;")
+        elif state == ScanState.STOPPING:
             self.ui.stopScanButton.setEnabled(False)
-            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
-            self.RunControl.clear_stop_state()
-
-            # Show a one-shot warning if the scan thread reported restore failures.
-            # We check _was_scanning so we only fire on the first tick after the
-            # active→inactive transition (scan thread has exited by then).
-            if self._was_scanning and sm is not None and sm.restore_failures:
-                lines = "\n".join(sm.restore_failures)
+        elif state in (ScanState.DONE, ScanState.ABORTED):
+            self._scan_active = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.stopScanButton.setEnabled(False)
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
+            self.ui.progressBar.setValue(100 if state == ScanState.DONE else 0)
+            self._set_scan_number_info(label="Previous Scan:")
+            if self._restore_failure_messages:
+                lines = "\n".join(self._restore_failure_messages)
                 QMessageBox.warning(
                     self,
                     "Restore Failures",
@@ -499,33 +538,21 @@ class GEECSScannerWindow(QMainWindow):
                     f"after the scan ended.\n\nPlease verify and correct hardware manually:"
                     f"\n\n{lines}",
                 )
-                sm.restore_failures.clear()
-            self._was_scanning = False
+                self._restore_failure_messages.clear()
+        elif state == ScanState.IDLE:
+            pass
 
-        if self.RunControl is not None:
-            if self.is_starting:
-                self.ui.startScanButton.setText("Starting...")
-            else:
-                self.ui.startScanButton.setText("Start Scan")
+    def _on_step_event(self, event: ScanStepEvent) -> None:
+        if self._total_shots > 0:
+            pct = int(event.shots_completed / self._total_shots * 100)
+            self.ui.progressBar.setValue(min(pct, 100))
 
-            enable_buttons = True
-            if self.is_in_multiscan:
-                self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
-                self.ui.startScanButton.setEnabled(False)
-                enable_buttons = False
-            self.ui.buttonLaunchMultiScan.setEnabled(
-                self.ui.startScanButton.isEnabled()
-            )
+    def _on_restore_failed_event(self, event: ScanRestoreFailedEvent) -> None:
+        self._restore_failure_messages.append(f"  • {event.device}: {event.message}")
 
-            if self.is_in_action_library:
-                enable_buttons = False
-            self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
-
-            self.ui.experimentDisplay.setEnabled(enable_buttons)
-            self.ui.repititionRateDisplay.setEnabled(enable_buttons)
-            self.ui.lineTimingDevice.setEnabled(enable_buttons)
-            self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
-            self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
+    def _on_dialog_event(self, event: ScanDialogEvent) -> None:
+        if event.request is not None:
+            show_device_error_dialog(event.request)
 
     # ------------------------------------------------------------------ #
     # Experiment / RunControl / Config                                   #
@@ -590,6 +617,7 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl = run_control_class(
                 experiment_name=self.experiment,
                 shot_control_configuration=shot_control_path,
+                on_event=self._scan_event_received.emit,
             )
 
         except AttributeError:
@@ -1477,7 +1505,7 @@ class GEECSScannerWindow(QMainWindow):
                     and self.RunControl is not None
                 ):
                     # Can't perform get command if scan is ongoing
-                    if self.RunControl.is_active() or self.is_starting:
+                    if self._scan_active or self.is_starting:
                         self.ui.toolbuttonStepList.setToolTip("Check back after scan")
                         return
 
@@ -2131,7 +2159,7 @@ class GEECSScannerWindow(QMainWindow):
         if self.RunControl is None:
             return False
         else:
-            return not (self.RunControl.is_active() or self.is_starting)
+            return not (self._scan_active or self.is_starting)
 
     def stop_scan(self):
         """Request `RunControl` to stop the current scan and disable the button."""
