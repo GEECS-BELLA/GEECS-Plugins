@@ -125,14 +125,47 @@ Every package has a `CHANGELOG.md` following
 
 Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
 
-## Architectural Roadmap
+## Known debt we have deliberately deferred
 
-A full refactor roadmap lives in `ROADMAP.md` in separate branch. Read it before
-making major structural changes. Key points:
+Items below are *known* and *intentionally not being fixed right now*. If you
+look at them and think "this is bad, let me fix it" — please don't. The
+deferral is deliberate; the rationale is below. If you encounter a feature
+request whose natural scope overlaps one of these, that's the right time to
+revisit. Speculative cleanup is not.
 
-- The goal is a headless-capable scan engine with explicit state, a typed event
-  stream, and a single `DeviceCommandExecutor` owning all device interactions
-- `ScanManager` can already run headlessly — the GUI adds display and dialogs only
-- `device.set()` calls are currently scattered; consolidation is Block 6 of the
-  roadmap and requires earlier blocks to be in place first
-- Breaking changes are acceptable in the name of better organisation
+- **`GEECS-Scanner-GUI/geecs_scanner/app/app_controller.py` is a thin
+  pass-through layer.** It was extracted from the main window during the bold
+  refactor (PR landed May 2026) and ended up as a side struct that adds an
+  indirection without removing complexity. We considered reverting; the cost
+  of churn outweighs the benefit at this point. Leave it; it's harmless. Do
+  not invest in extending it.
+
+- **`GEECS-Scanner-GUI/geecs_scanner/engine/data_logger.py` and
+  `device_manager.py` lack behavioral tests for several internal paths.** The
+  code works in production; a future Bluesky-backed scan path may obsolete
+  significant parts of these modules. Adding deep tests now risks pinning
+  internals we don't intend to keep. If you need to *change* DataLogger or
+  DeviceManager, write tests for the specific behavior you're modifying as
+  part of that change.
+
+- **`ScanConfig` lives in `geecs_data_utils` rather than
+  `geecs_scanner.engine.models`.** This is logically backwards (engine config
+  in the data-utils package) but the migration touches many files across two
+  packages and has no forcing function. Defer until a feature naturally takes
+  you into that area.
+
+- **`GEECS-Scanner-GUI/geecs_scanner/app/geecs_scanner.py` is ~2200 lines and
+  mixes seven concerns** (save-element list management, scan variable
+  handling, presets, shot calculation, scan submission, optimization config,
+  toolbar/menu wiring). Adding a new scan mode currently touches six places.
+  Documented organizational debt; the fix is concern-cluster extraction (or a
+  base class for editor windows). Wait for a specific feature ("add a new
+  scan mode," "add a new editor") to drive the refactor with bounded scope.
+
+- **`GEECS-PythonAPI` is being refactored elsewhere.** Don't add features here
+  or restructure it. Other packages use it through `ScanDevice` and the
+  database dict lookup; treat that as the public surface.
+
+If you find yourself adding to this list, consider whether you're capturing
+real institutional knowledge or accumulating procrastination. Both are
+possible.
