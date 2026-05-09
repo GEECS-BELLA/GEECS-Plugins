@@ -39,6 +39,10 @@ nav:
       - Notes and Discussions:
           - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
 
+  - Skills:
+      - Overview: skills/overview.md
+      - Writing a Skill: skills/writing_a_skill.md
+
   - Image Analysis:
       - Overview: image_analysis/overview.md
       - Analyzer Index: image_analysis/analyzer_index.md

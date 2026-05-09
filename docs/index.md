@@ -10,6 +10,7 @@ A collection of Python tools for laser-plasma experiments at [Lawrence Berkeley 
 | **Add a device to a scan** | [Save Elements](geecs_scanner/save_elements.md) — the YAML format for what to record |
 | **Find your data on disk** | [Scan Output Structure](geecs_scanner/scan_output_structure.md) — what's in `Scan###/` and how to load each file |
 | **Diagnose why a scan failed** | [Troubleshooting](geecs_scanner/troubleshooting.md) — common errors and what they mean |
+| **Diagnose recurring scan failures with /triage** | [Skills — Overview](skills/overview.md) |
 | **Analyze images from a camera** | [Image Analysis — Basic Offline Analysis](image_analysis/examples/basic_offline_analysis.ipynb) |
 | **Find the right analyzer for your diagnostic** | [Analyzer Index](image_analysis/analyzer_index.md) — beam profile, FROG, magspec, ICT, HASO |
 | **Run analysis across a scan** | [Scan Analysis — Basic Usage](scan_analysis/examples/basic_usage.ipynb) |

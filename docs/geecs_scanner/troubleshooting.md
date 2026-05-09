@@ -2,7 +2,7 @@
 
 This page is a starter index for the failures you're most likely to encounter and what to do about each. It's organized by where the problem becomes visible — the GUI, a scan that aborts, missing data, etc.
 
-For a structured analysis of a specific scan's log, run the `triage` tool:
+For a structured analysis of a specific scan's log, run the [`/triage` skill](../skills/overview.md) from a Claude Code session, or call the underlying CLI directly:
 
 ```bash
 poetry run triage path/to/Scan042/Scan042.log
@@ -110,7 +110,7 @@ This used to happen when a worker thread blocked on a dialog that was supposed t
 
 In the meantime: from the terminal that launched the GUI, Ctrl+C will hit the engine. If the scan thread is stuck on hardware, you may need to kill the Python process and look at the device that wasn't responding.
 
-## When `triage` says it's a code bug
+## When [`/triage`](../skills/overview.md) says it's a code bug
 
 Open an issue with:
 
