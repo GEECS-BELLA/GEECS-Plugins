@@ -407,40 +407,45 @@ class ScanManager:
             logger.error("initialization unsuccessful, cannot start a new scan session")
             return pd.DataFrame()
 
-        log_df = pd.DataFrame()
+        if not self._phase1_pre_scan():
+            return pd.DataFrame()
 
-        # ------------------------------------------------------------------ #
-        # Phase 1: before scan paths exist                                    #
-        # Disable the trigger and create the scan directory.  Any failure     #
-        # here means nothing has been committed — abort cleanly.              #
-        # ------------------------------------------------------------------ #
-        logger.debug(
-            "scan config getting sent to pre logging is this: %s", self.scan_config
-        )
+        scan_id, scan_dir = self._resolve_scan_id()
+        log_df = self._phase2_acquire(scan_id, scan_dir)
+
+        self.scanning_thread = None
+        self._set_state(ScanState.IDLE)
+        return log_df
+
+    def _phase1_pre_scan(self) -> bool:
+        """Disable trigger and create scan directory; return False on any failure."""
+        logger.debug("scan config: %s", self.scan_config)
         try:
             logger.debug("Turning off the trigger.")
             self.trigger_off()
             self.scan_data_manager.initialize_scan_data_and_output_files()
         except Exception:
-            logger.exception("Pre-logging setup failed. Aborting scan.")
-            return pd.DataFrame()
+            logger.exception("Pre-scan setup failed. Aborting scan.")
+            return False
 
         if self.stop_scanning_thread_event.is_set():
             logger.info("Stop requested before scan directory was used; aborting.")
-            return pd.DataFrame()
+            return False
 
+        return True
+
+    def _resolve_scan_id(self) -> tuple:
+        """Derive the scan identifier and output directory from ScanDataManager."""
         scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
         scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
         if not scan_id:
             num = getattr(self.scan_data_manager, "scan_number_int", None)
             scan_id = f"Scan{int(num):03d}" if num is not None else "Scan-UNKNOWN"
+        return scan_id, scan_dir
 
-        # ------------------------------------------------------------------ #
-        # Phase 2: remaining prelogging + full scan lifecycle, all captured   #
-        # inside the per-scan log.  Aborts during setup are now visible in    #
-        # scan.log, not only in the global geecs_scanner.log.                 #
-        # stop_scan() is in the finally block so cleanup is always logged.    #
-        # ------------------------------------------------------------------ #
+    def _phase2_acquire(self, scan_id: str, scan_dir: str) -> pd.DataFrame:
+        """Run pre-logging, acquisition loop, and teardown inside the per-scan log."""
+        log_df = pd.DataFrame()
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
             _aborted = False
             try:
@@ -466,8 +471,7 @@ class ScanManager:
                 if self.scan_config:
                     self.estimate_acquisition_time()
                     logger.debug(
-                        "Estimated acquisition time based on scan config: %s seconds.",
-                        self.acquisition_time,
+                        "Estimated acquisition time: %s seconds.", self.acquisition_time
                     )
                 self._set_state(
                     ScanState.INITIALIZING,
@@ -543,8 +547,6 @@ class ScanManager:
                 self._set_state(ScanState.ABORTED if _aborted else ScanState.DONE)
                 logger.info("scan %s: finished", scan_id)
 
-        self.scanning_thread = None
-        self._set_state(ScanState.IDLE)
         return log_df
 
     def check_devices_in_standby_mode(self) -> bool:
