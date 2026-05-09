@@ -27,7 +27,7 @@ that is acceptable and expected.
 
 ## Decompose steps (in order)
 
-### D1 — Behavioral tests for DataLogger  `[ ]`
+### D1 — Behavioral tests for DataLogger  `[x]`
 
 `DataLogger` has zero test coverage and is the largest untested component.
 Writing behavioral tests before decomposing it is the safety net that makes D2
@@ -48,7 +48,7 @@ above without network access.
 
 ---
 
-### D2 — Extract FileMover out of DataLogger  `[ ]`
+### D2 — Extract FileMover out of DataLogger  `[x]`
 
 `FileMover` is ~400 lines of self-contained worker-thread + retry logic that
 has no business living inside `DataLogger`. The class boundary is already
@@ -71,7 +71,7 @@ existing tests still pass; `wc -l data_logger.py` is under 750.
 
 ---
 
-### D3 — Extract ScanLifecycleStateMachine  `[ ]`
+### D3 — Extract ScanLifecycleStateMachine  `[x]`
 
 `ScanManager._set_state()` and `current_state` already exist — extracting
 a `ScanLifecycleStateMachine` class is now mostly moving code to a new file.
@@ -99,7 +99,7 @@ point at `ScanLifecycleStateMachine` directly.
 
 ---
 
-### D4 — Make ScanManager._start_scan() readable as a recipe  `[ ]`
+### D4 — Make ScanManager._start_scan() readable as a recipe  `[x]`
 
 `_start_scan()` is ~150 lines mixing Phase 1 / Phase 2 orchestration,
 try/except/finally scaffolding, and inline bookkeeping. The goal is not
@@ -120,7 +120,7 @@ one-sentence purpose; exception handling is at phase boundaries, not inline.
 
 ---
 
-### D5 — Drop the 200ms polling timer  `[ ]`
+### D5 — Drop the 200ms polling timer  `[x]`
 
 Block 7 added event handlers but left the 200ms `QTimer` running. The timer
 currently only covers the `RunControl is None` guard and multiscan/action-library

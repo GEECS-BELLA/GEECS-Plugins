@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] — 2026-05-08
+
+### Changed — Decompose Phase (D1–D5)
+
+- **D1**: Added 18 behavioral tests for `DataLogger` in
+  `tests/engine/test_data_logger.py` — covers `_log_device_data`, shot indexing,
+  `FileMover` task queuing, and standby detection.
+- **D2**: Extracted `FileMoveTask` and `FileMover` (~430 lines) from
+  `data_logger.py` into `engine/file_mover.py`.  `ScanManager` now creates and
+  owns the `FileMover`; `DataLogger.start_logging(file_mover=...)` accepts it as
+  an injected dependency.  All `data_logger.file_mover.*` chains in `ScanManager`
+  replaced with direct `self.file_mover.*` access.
+- **D3**: Extracted `ScanLifecycleStateMachine` into `engine/lifecycle.py`.
+  `ScanManager._state` / `_state_lock` / `_set_state()` / `current_state` all
+  delegate to `self._lifecycle`.  Tests updated to test the state machine directly.
+- **D4**: Split `ScanManager._start_scan()` (145 lines) into three named phase
+  methods — `_phase1_pre_scan()`, `_resolve_scan_id()`, `_phase2_acquire()`.
+  `_start_scan()` is now 12 lines and reads as a plain recipe.
+- **D5**: Removed the 200 ms `QTimer` from `GEECSScannerWindow`.  Scan lifecycle
+  state is now driven purely by events.  Mode transitions (multiscan, action library)
+  and `RunControl` changes call `update_gui_status()` directly at the right moments.
+
 ## [0.14.0] — 2026-05-08
 
 ### Added
