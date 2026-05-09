@@ -36,6 +36,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.file_mover import FileMover
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
@@ -137,6 +138,7 @@ class ScanManager:
 
         self.initial_state = None
         self.scan_steps = []
+        self.file_mover: Optional[FileMover] = None
 
         self.pause_scan_event = threading.Event()
         self.pause_scan_event.set()  # Set to 'running' by default
@@ -479,7 +481,12 @@ class ScanManager:
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
 
-                self.results = self.data_logger.start_logging()
+                self.file_mover = FileMover()
+                self.file_mover.scan_number = self.data_logger.scan_number
+                self.file_mover.save_local = self.data_logger.save_local
+                self.results = self.data_logger.start_logging(
+                    file_mover=self.file_mover
+                )
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
@@ -632,7 +639,7 @@ class ScanManager:
             If the queue has not drained within *timeout* seconds.
         """
         join_thread = threading.Thread(
-            target=self.data_logger.file_mover.task_queue.join, daemon=True
+            target=self.file_mover.task_queue.join, daemon=True
         )
         join_thread.start()
         join_thread.join(timeout=timeout)
@@ -681,14 +688,14 @@ class ScanManager:
         )
         stop_saving_thread.start()
 
-        if self.data_logger.file_mover is not None:
+        if self.file_mover is not None:
             # Signal that the scan is no longer live so orphaned files
             # are no longer skipped during task processing.
-            self.data_logger.file_mover.scan_is_live = False
+            self.file_mover.scan_is_live = False
 
             # Re-queue tasks that failed during live acquisition (file may
             # not have been on disk yet when the worker first checked).
-            self.data_logger.file_mover._post_process_orphan_task()
+            self.file_mover._post_process_orphan_task()
             try:
                 self._join_file_mover_queue(timeout=30.0)
             except OrphanProcessingTimeout:
@@ -700,7 +707,7 @@ class ScanManager:
             if self.save_local:
                 # Sweep the filesystem for any remaining unmatched files
                 # and create new tasks for them based on the log DataFrame.
-                self.data_logger.file_mover._post_process_orphaned_files(
+                self.file_mover._post_process_orphaned_files(
                     log_df=log_df,
                     device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
                 )
@@ -712,8 +719,8 @@ class ScanManager:
                         "Some files may not have been moved — check the scan directory manually."
                     )
 
-            self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
-            self.data_logger.file_mover = None
+            self.file_mover.shutdown(wait=False)  # queue already drained
+            self.file_mover = None
         else:
             logger.debug("Logging never started; skipping file-mover cleanup.")
 
