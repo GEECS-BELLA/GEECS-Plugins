@@ -24,6 +24,8 @@ from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
     DeviceCommandEvent,
     ScanEvent,
+    ScanLifecycleEvent,
+    ScanState,
     ScanStepEvent,
 )
 from tests.engine.conftest import FakeScanDevice
@@ -354,3 +356,72 @@ class TestScanManagerTotalShots:
         # acquisition_time is ~7.5 s; at 10 Hz total shots should be ~75, not 7
         assert total_shots > 50
         assert total_shots != int(mgr.acquisition_time)
+
+
+# ---------------------------------------------------------------------------
+# ScanManager — Block 5 state machine
+# ---------------------------------------------------------------------------
+
+
+class TestScanManagerStateMachine:
+    """Verify _set_state, current_state, and PAUSED_ON_ERROR transitions.
+
+    Uses object.__new__ to bypass ScanManager.__init__ (network calls).
+    """
+
+    def _make_mgr(self) -> object:
+        from geecs_scanner.engine.scan_manager import ScanManager
+
+        mgr = object.__new__(ScanManager)
+        mgr._on_event = None
+        mgr._state = ScanState.IDLE
+        import threading
+
+        mgr._state_lock = threading.Lock()
+        return mgr
+
+    def test_set_state_updates_current_state(self):
+        mgr = self._make_mgr()
+        mgr._set_state(ScanState.RUNNING)
+        assert mgr.current_state == ScanState.RUNNING
+
+    def test_set_state_emits_lifecycle_event(self):
+        events: List[ScanEvent] = []
+        mgr = self._make_mgr()
+        mgr._on_event = events.append
+        mgr._set_state(ScanState.INITIALIZING, total_shots=42)
+
+        lifecycle = [e for e in events if isinstance(e, ScanLifecycleEvent)]
+        assert len(lifecycle) == 1
+        assert lifecycle[0].state == ScanState.INITIALIZING
+        assert lifecycle[0].total_shots == 42
+
+    def test_paused_on_error_state_reachable(self):
+        mgr = self._make_mgr()
+        mgr._set_state(ScanState.PAUSED_ON_ERROR)
+        assert mgr.current_state == ScanState.PAUSED_ON_ERROR
+
+    def test_full_transition_sequence(self):
+        events: List[ScanEvent] = []
+        mgr = self._make_mgr()
+        mgr._on_event = events.append
+
+        for state in (
+            ScanState.INITIALIZING,
+            ScanState.RUNNING,
+            ScanState.PAUSED_ON_ERROR,
+            ScanState.RUNNING,
+            ScanState.DONE,
+            ScanState.IDLE,
+        ):
+            mgr._set_state(state)
+
+        emitted = [e.state for e in events if isinstance(e, ScanLifecycleEvent)]
+        assert emitted == [
+            ScanState.INITIALIZING,
+            ScanState.RUNNING,
+            ScanState.PAUSED_ON_ERROR,
+            ScanState.RUNNING,
+            ScanState.DONE,
+            ScanState.IDLE,
+        ]

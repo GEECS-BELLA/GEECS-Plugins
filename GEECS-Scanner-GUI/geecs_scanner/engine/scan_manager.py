@@ -143,6 +143,9 @@ class ScanManager:
 
         self.acquisition_time = 0
 
+        self._state: ScanState = ScanState.IDLE
+        self._state_lock: threading.Lock = threading.Lock()
+
         self.scanning_thread = None
 
         self.scan_step_start_time = 0
@@ -194,6 +197,17 @@ class ScanManager:
             except Exception:
                 logger.debug("on_event callback raised; ignoring", exc_info=True)
 
+    def _set_state(self, new_state: ScanState, total_shots: int = 0) -> None:
+        with self._state_lock:
+            self._state = new_state
+        self._emit(ScanLifecycleEvent(state=new_state, total_shots=total_shots))
+
+    @property
+    def current_state(self) -> ScanState:
+        """The current lifecycle state of the scan engine."""
+        with self._state_lock:
+            return self._state
+
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
     # ------------------------------------------------------------------
@@ -220,9 +234,14 @@ class ScanManager:
             ``True`` if the user chose Abort; ``False`` to continue.
         """
         request = DialogRequest(exc=exc, context=context)
+        self._set_state(ScanState.PAUSED_ON_ERROR)
         self._emit(ScanDialogEvent(request=request))
         self.dialog_queue.put(request)
         request.response_event.wait()
+        if request.abort[0]:
+            self._set_state(ScanState.STOPPING)
+        else:
+            self._set_state(ScanState.RUNNING)
         return request.abort[0]
 
     def pause_scan(self):
@@ -396,7 +415,7 @@ class ScanManager:
             return
 
         logger.info("Stopping the scanning thread...")
-        self._emit(ScanLifecycleEvent(state=ScanState.STOPPING))
+        self._set_state(ScanState.STOPPING)
         self.stop_scanning_thread_event.set()
 
     def _start_scan(self) -> pd.DataFrame:
@@ -467,13 +486,9 @@ class ScanManager:
                         "Estimated acquisition time based on scan config: %s seconds.",
                         self.acquisition_time,
                     )
-                self._emit(
-                    ScanLifecycleEvent(
-                        state=ScanState.INITIALIZING,
-                        total_shots=int(
-                            self.acquisition_time * self.options.rep_rate_hz
-                        ),
-                    )
+                self._set_state(
+                    ScanState.INITIALIZING,
+                    total_shots=int(self.acquisition_time * self.options.rep_rate_hz),
                 )
                 logger.debug("scan options: %s", self.options)
 
@@ -487,7 +502,7 @@ class ScanManager:
 
                 self.scan_data_manager.purge_all_local_save_dir()
 
-                self._emit(ScanLifecycleEvent(state=ScanState.RUNNING))
+                self._set_state(ScanState.RUNNING)
                 self.executor.execute_scan_loop(self.scan_steps)
 
                 logger.info("scan %s: completed normally", scan_id)
@@ -537,14 +552,11 @@ class ScanManager:
                         "Error during scan cleanup - attempting to continue"
                     )
 
-                self._emit(
-                    ScanLifecycleEvent(
-                        state=ScanState.ABORTED if _aborted else ScanState.DONE
-                    )
-                )
+                self._set_state(ScanState.ABORTED if _aborted else ScanState.DONE)
                 logger.info("scan %s: finished", scan_id)
 
         self.scanning_thread = None
+        self._set_state(ScanState.IDLE)
         return log_df
 
     def check_devices_in_standby_mode(self) -> bool:

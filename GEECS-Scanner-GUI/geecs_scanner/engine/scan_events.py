@@ -46,15 +46,12 @@ class ScanState(str, enum.Enum):
     """Lifecycle state of a scan.
 
     Inherits ``str`` so values serialise naturally to JSON / log messages.
-
-    ``PAUSED_ON_ERROR`` is reserved for Block 8 (operator intervention UI) and
-    intentionally absent here — adding it requires the UI that can respond to
-    it, and Block 6 is engine-only.
     """
 
     IDLE = "idle"
     INITIALIZING = "initializing"
     RUNNING = "running"
+    PAUSED_ON_ERROR = "paused_on_error"
     STOPPING = "stopping"
     DONE = "done"
     ABORTED = "aborted"
