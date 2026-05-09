@@ -1898,171 +1898,29 @@ class GEECSScannerWindow(QMainWindow):
         return False
 
     def initialize_and_start_scan(self):
-        """
-        Compile GUI settings into a run configuration and submit the scan.
+        """Compile GUI settings into a run configuration and submit the scan."""
+        if self.check_for_errors():
+            return
 
-        Notes
-        -----
-        - Builds `run_config` from selected devices and actions.
-        - Constructs a `ScanConfig` based on selected mode.
-        - Submits to `RunControl` and updates GUI state accordingly.
-        """
-        if not self.check_for_errors():
-            # From the information provided in the GUI, create a scan configuration file and submit `scan_manager.py`
-            self.is_starting = True
-            self.ui.startScanButton.setEnabled(False)
-            self.ui.experimentDisplay.setEnabled(False)
-            self.ui.repititionRateDisplay.setEnabled(False)
-            self.ui.lineTimingDevice.setEnabled(False)
-            self.ui.startScanButton.setText("Starting...")
-            QApplication.processEvents()
+        self.is_starting = True
+        self.ui.startScanButton.setEnabled(False)
+        self.ui.experimentDisplay.setEnabled(False)
+        self.ui.repititionRateDisplay.setEnabled(False)
+        self.ui.lineTimingDevice.setEnabled(False)
+        self.ui.startScanButton.setText("Starting...")
+        QApplication.processEvents()
 
-            # Resolve selected optimization config path (if optimization mode)
-            selected_opt_path = ""
-            if (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                try:
-                    selected_opt_path = (
-                        self.ui.comboOptimizationConfig.currentData() or ""
-                    )
-                except Exception:
-                    selected_opt_path = ""
+        config_data = self._collect_ui_scan_config()
+        if config_data is None:
+            self.is_starting = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.experimentDisplay.setEnabled(True)
+            self.ui.repititionRateDisplay.setEnabled(True)
+            self.ui.lineTimingDevice.setEnabled(True)
+            return
 
-            save_device_list = {}
-            list_of_setup_steps = []
-            list_of_closeout_steps = []
-            for i in range(self.ui.selectedDevices.count()):
-                filename = self.app_paths.save_devices() / (
-                    self.ui.selectedDevices.item(i).text() + ".yaml"
-                )
-                try:
-                    new_element = read_yaml_file_to_dict(filename)
-                    self.combine_elements(save_device_list, new_element["Devices"])
-
-                    if "setup_action" in new_element:
-                        setup_action = new_element["setup_action"]
-                        list_of_setup_steps.extend(setup_action["steps"])
-
-                    if "closeout_action" in new_element:
-                        setup_action = new_element["closeout_action"]
-                        list_of_closeout_steps.extend(setup_action["steps"])
-
-                except FileNotFoundError:
-                    logger.error("FileNotFound Error: %s", filename)
-                    QMessageBox.warning(
-                        self,
-                        "Conflicting Save Elements",
-                        f"FileNotFound Error: {filename}",
-                        QMessageBox.Ok,
-                    )
-                    self.is_starting = False
-                    return
-
-                except ConflictingScanElements as e:
-                    logger.error("%s", e.message)
-                    QMessageBox.warning(
-                        self, "Conflicting Save Elements", e.message, QMessageBox.Ok
-                    )
-                    self.is_starting = False
-                    return
-
-            scan_information = {
-                "experiment": self.experiment,
-                "description": self.ui.textEditScanInfo.toPlainText().replace(
-                    "\n", " "
-                ),
-            }
-            if (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                try:
-                    scan_information = {
-                        "experiment": self.experiment,
-                        "description": self.ui.textEditScanInfo.toPlainText().replace(
-                            "\n", " "
-                        ),
-                    }
-                    if selected_opt_path:
-                        scan_information["optimization_config"] = selected_opt_path
-                except Exception:
-                    scan_information["optimization_config"] = (
-                        self.ui.comboOptimizationConfig.currentData()
-                        if hasattr(self.ui, "comboOptimizationConfig")
-                        else ""
-                    )
-
-            if self.ui.scanRadioButton.isChecked():
-                scan_variable_tag = self.read_device_tag_from_nickname(
-                    self.scan_variable
-                )
-                scan_config = ScanConfig(
-                    device_var=scan_variable_tag,
-                    start=self.scan_start,
-                    end=self.scan_stop,
-                    step=self.scan_step_size,
-                    wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
-                    scan_mode=ScanMode.STANDARD,
-                )
-            elif (
-                self.ui.noscanRadioButton.isChecked()
-                or self.ui.backgroundRadioButton.isChecked()
-            ):
-                scan_config = ScanConfig(
-                    wait_time=(self.noscan_num + 0.5) / self.repetition_rate,
-                    scan_mode=ScanMode.NOSCAN,
-                )
-
-            elif (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                # Optimization run: provide a minimal ScanConfig; the backend should inspect 'optimization_config' in scan_info
-                logger.info("ScanMode: %s", ScanMode)
-                try:
-                    scan_mode_opt = getattr(ScanMode, "OPTIMIZATION", ScanMode.NOSCAN)
-                except Exception:
-                    scan_mode_opt = ScanMode.NOSCAN
-                scan_config = ScanConfig(
-                    start=self.scan_start,
-                    end=self.scan_stop,
-                    step=self.scan_step_size,
-                    wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
-                    scan_mode=scan_mode_opt,
-                    optimizer_config_path=selected_opt_path,  # <- use the resolved path
-                )
-
-                # Attach selected optimization config path into scan_information (created below)
-                try:
-                    selected_opt_path = (
-                        self.ui.comboOptimizationConfig.currentData() or ""
-                    )
-                except Exception:
-                    selected_opt_path = ""
-                # We'll add to scan_information after it's created
-
-            else:
-                scan_config = None
-
-        scan_config.background = self.ui.backgroundRadioButton.isChecked()
-
-        scan_options = self._collect_options()
-
-        run_config = {
-            "Devices": save_device_list,
-            "scan_info": scan_information,
-        }
-
-        if list_of_setup_steps:
-            run_config["setup_action"] = {"steps": list_of_setup_steps}
-        if list_of_closeout_steps:
-            run_config["closeout_action"] = {"steps": list_of_closeout_steps}
-
-        exec_config = ScanExecutionConfig.from_gui_dict(
-            run_config, scan_config, scan_options
-        )
+        exec_config = self._build_exec_config(config_data)
         success = self.RunControl.submit_run(exec_config=exec_config)
         if not success:
             sm = getattr(self.RunControl, "scan_manager", None)
@@ -2072,8 +1930,145 @@ class GEECSScannerWindow(QMainWindow):
                 "Device Error",
                 f"Device reinitialization failed.\n\n{detail}",
             )
-        self.is_starting = False
+            self.is_starting = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.experimentDisplay.setEnabled(True)
+            self.ui.repititionRateDisplay.setEnabled(True)
+            self.ui.lineTimingDevice.setEnabled(True)
+            return
+
         self.current_scan_number += 1
+
+    def _collect_ui_scan_config(self) -> Optional[dict]:
+        """Read all UI widget values and load save element YAMLs.
+
+        Returns
+        -------
+        dict or None
+            Structured config data ready for ``_build_exec_config``, or ``None``
+            if a save element file is missing or there is a device conflict
+            (an error dialog is shown before returning ``None``).
+        """
+        selected_opt_path = ""
+        if (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+        ):
+            try:
+                selected_opt_path = self.ui.comboOptimizationConfig.currentData() or ""
+            except Exception:
+                selected_opt_path = ""
+
+        save_device_list: dict = {}
+        list_of_setup_steps: list = []
+        list_of_closeout_steps: list = []
+        for i in range(self.ui.selectedDevices.count()):
+            filename = self.app_paths.save_devices() / (
+                self.ui.selectedDevices.item(i).text() + ".yaml"
+            )
+            try:
+                new_element = read_yaml_file_to_dict(filename)
+                self.combine_elements(save_device_list, new_element["Devices"])
+                if "setup_action" in new_element:
+                    list_of_setup_steps.extend(new_element["setup_action"]["steps"])
+                if "closeout_action" in new_element:
+                    list_of_closeout_steps.extend(
+                        new_element["closeout_action"]["steps"]
+                    )
+            except FileNotFoundError:
+                logger.error("FileNotFound Error: %s", filename)
+                QMessageBox.warning(
+                    self,
+                    "Conflicting Save Elements",
+                    f"FileNotFound Error: {filename}",
+                    QMessageBox.Ok,
+                )
+                return None
+            except ConflictingScanElements as e:
+                logger.error("%s", e.message)
+                QMessageBox.warning(
+                    self, "Conflicting Save Elements", e.message, QMessageBox.Ok
+                )
+                return None
+
+        description = self.ui.textEditScanInfo.toPlainText().replace("\n", " ")
+        scan_information: dict = {
+            "experiment": self.experiment,
+            "description": description,
+        }
+        if (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+            and selected_opt_path
+        ):
+            scan_information["optimization_config"] = selected_opt_path
+
+        if self.ui.scanRadioButton.isChecked():
+            scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
+            scan_config = ScanConfig(
+                device_var=scan_variable_tag,
+                start=self.scan_start,
+                end=self.scan_stop,
+                step=self.scan_step_size,
+                wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
+                scan_mode=ScanMode.STANDARD,
+            )
+        elif (
+            self.ui.noscanRadioButton.isChecked()
+            or self.ui.backgroundRadioButton.isChecked()
+        ):
+            scan_config = ScanConfig(
+                wait_time=(self.noscan_num + 0.5) / self.repetition_rate,
+                scan_mode=ScanMode.NOSCAN,
+            )
+        elif (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+        ):
+            logger.info("ScanMode: %s", ScanMode)
+            try:
+                scan_mode_opt = getattr(ScanMode, "OPTIMIZATION", ScanMode.NOSCAN)
+            except Exception:
+                scan_mode_opt = ScanMode.NOSCAN
+            scan_config = ScanConfig(
+                start=self.scan_start,
+                end=self.scan_stop,
+                step=self.scan_step_size,
+                wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
+                scan_mode=scan_mode_opt,
+                optimizer_config_path=selected_opt_path,
+            )
+        else:
+            scan_config = None
+
+        if scan_config is not None:
+            scan_config.background = self.ui.backgroundRadioButton.isChecked()
+
+        return {
+            "save_device_list": save_device_list,
+            "list_of_setup_steps": list_of_setup_steps,
+            "list_of_closeout_steps": list_of_closeout_steps,
+            "scan_information": scan_information,
+            "scan_config": scan_config,
+            "scan_options": self._collect_options(),
+        }
+
+    def _build_exec_config(self, config_data: dict) -> ScanExecutionConfig:
+        """Construct a ScanExecutionConfig from data collected by _collect_ui_scan_config."""
+        run_config = {
+            "Devices": config_data["save_device_list"],
+            "scan_info": config_data["scan_information"],
+        }
+        if config_data["list_of_setup_steps"]:
+            run_config["setup_action"] = {"steps": config_data["list_of_setup_steps"]}
+        if config_data["list_of_closeout_steps"]:
+            run_config["closeout_action"] = {
+                "steps": config_data["list_of_closeout_steps"]
+            }
+        return ScanExecutionConfig.from_gui_dict(
+            run_config, config_data["scan_config"], config_data["scan_options"]
+        )
 
     @staticmethod
     def combine_elements(dict_element1, dict_element2):
