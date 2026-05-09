@@ -1,3 +1,3 @@
 # Base Module
 
-::: ImageAnalysis.image_analysis.base
+::: image_analysis.base

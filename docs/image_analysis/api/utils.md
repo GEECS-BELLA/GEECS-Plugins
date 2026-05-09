@@ -1,3 +1,3 @@
 # Utils Module
 
-::: ImageAnalysis.image_analysis.utils
+::: image_analysis.utils

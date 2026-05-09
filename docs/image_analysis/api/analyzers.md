@@ -1,3 +1,3 @@
 # Analyzers Module
 
-::: ImageAnalysis.image_analysis.analyzers
+::: image_analysis.analyzers

@@ -1,3 +1,3 @@
 # Analysis Module
 
-::: GEECS-PythonAPI.geecs_python_api.analysis
+::: geecs_python_api.analysis

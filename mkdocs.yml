@@ -61,7 +61,6 @@ nav:
           - Live Watch: scan_analysis/examples/live_watch.ipynb
           - GDoc Upload: scan_analysis/examples/gdoc_upload.ipynb
           - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
-          - Variational Analysis: scan_analysis/examples/variational_analysis.ipynb
 
   - GEECS Python API:
       - Overview: geecs_python_api/overview.md

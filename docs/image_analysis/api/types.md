@@ -1,3 +1,3 @@
 # Types Module
 
-::: ImageAnalysis.image_analysis.types
+::: image_analysis.types

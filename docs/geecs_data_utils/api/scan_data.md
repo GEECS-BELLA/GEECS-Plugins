@@ -1,6 +1,6 @@
 # Scan Data Module
 
-::: GEECS-Data-Utils.geecs_data_utils.scan_data
+::: geecs_data_utils.scan_data
     options:
       show_source: true
       show_root_heading: true
@@ -10,7 +10,7 @@
       members: false
       filters: ["!^_"]
 
-::: GEECS-Data-Utils.geecs_data_utils.scan_data.ScanData
+::: geecs_data_utils.scan_data.ScanData
     options:
       show_source: true
       show_root_heading: true
