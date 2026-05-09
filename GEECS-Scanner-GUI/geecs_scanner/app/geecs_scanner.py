@@ -332,12 +332,8 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_number_timer.timeout.connect(self.forget_scan_number)
         self.scan_number_timer.start(10000)
 
-        # Periodic GUI updates
         self.ui.progressBar.setValue(0)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_gui_status)
         self.ui.scanStatusIndicator.setText("")
-        self.timer.start(200)
         self.update_gui_status()
 
         # Menu Bar: Open
@@ -571,6 +567,7 @@ class GEECSScannerWindow(QMainWindow):
             logger.warning("No experiment selected")
             self.RunControl = None
             self.app_paths = None
+            self.update_gui_status()
             return
 
         logger.info("Reinitialization of Run Control")
@@ -640,6 +637,8 @@ class GEECSScannerWindow(QMainWindow):
             self.RunControl = None
         finally:
             sys.path.pop(0)
+
+        self.update_gui_status()
 
     def load_config_settings(self):
         """
@@ -1086,6 +1085,7 @@ class GEECSScannerWindow(QMainWindow):
         """Exit Multiscan mode and clear the multiscanner reference."""
         self.is_in_multiscan = False
         self.multiscanner_window = None
+        self.update_gui_status()
 
     def open_action_library(self):
         """Open the Action Library window and enter its mode."""
@@ -1121,6 +1121,7 @@ class GEECSScannerWindow(QMainWindow):
         """Exit Action Library mode and clear its reference."""
         self.is_in_action_library = False
         self.action_library_window = None
+        self.update_gui_status()
 
     def open_scan_variable_editor(self):
         """Open the Scan Variable editor dialog."""
