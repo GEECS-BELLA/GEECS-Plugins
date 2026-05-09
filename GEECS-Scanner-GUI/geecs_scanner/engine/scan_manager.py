@@ -319,14 +319,6 @@ class ScanManager:
         self.initialization_success = True
         return self.initialization_success
 
-    def trigger_off(self):
-        """Set trigger state to OFF."""
-        self.trigger_controller.trigger_off()
-
-    def trigger_on(self):
-        """Set trigger state to SCAN."""
-        self.trigger_controller.trigger_on()
-
     def is_scanning_active(self):
         """Return True if the scan thread is currently alive."""
         return bool(self.scanning_thread and self.scanning_thread.is_alive())
@@ -422,7 +414,7 @@ class ScanManager:
         logger.debug("scan config: %s", self.scan_config)
         try:
             logger.debug("Turning off the trigger.")
-            self.trigger_off()
+            self.trigger_controller.trigger_off()
             self.scan_data_manager.initialize_scan_data_and_output_files()
         except Exception:
             logger.exception("Pre-scan setup failed. Aborting scan.")
@@ -1056,13 +1048,6 @@ class ScanManager:
 
         logger.debug("Estimated scan time: %s", total_time)
         self.acquisition_time = total_time
-
-    def estimate_current_completion(self):
-        """Return the fraction of the scan completed (0.0–1.0)."""
-        if self.acquisition_time == 0:
-            return 0
-        completion = self.data_logger.get_current_shot() / self.acquisition_time
-        return 1 if completion > 1 else completion
 
     def get_initial_state(self):
         """Return ``{device_var: current_value}`` for the scan variable before manipulation."""
