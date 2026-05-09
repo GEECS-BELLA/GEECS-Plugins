@@ -144,6 +144,29 @@ responds purely to events and to direct method calls at mode transitions.
 
 ---
 
+## Bold Refactor — Completed 2026-05-08
+
+### Phase 1 — Delete dead code and proxy methods `[x]`
+
+Deleted `estimate_current_completion()` (never called) and
+`trigger_off()` / `trigger_on()` (pure proxies to `TriggerController`) from
+`ScanManager`.  Single internal call site inlined.
+
+### Phase 2 — Split `initialize_and_start_scan()` `[x]`
+
+176-line method → `_collect_ui_scan_config()`, `_build_exec_config()`,
+~40-line orchestrator.  Fixed latent `NameError` bug.
+
+### Phase 3 — Create `AppController` `[x]`
+
+New `geecs_scanner/app/app_controller.py`.  Owns RunControl lifecycle, database
+access, scan control, and UI flags.  Window exposes `@property RunControl` for
+backward compatibility.  Config-file write logic extracted.
+
+**Next:** Lab verification (NOSCAN + 1D scan) before merging to master.
+
+---
+
 ## Deferred (lower priority, independent)
 
 ### Block 4 — Engine runs without Qt  `[ ]`

@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] — 2026-05-08
+
+### Changed — Bold Refactor: Delete and Extract
+
+- **Phase 1 (ScanManager cleanup)**: Deleted `estimate_current_completion()` (never
+  called anywhere) and the `trigger_off()` / `trigger_on()` proxy methods on
+  `ScanManager` (pure one-line delegates to `TriggerController`).  The single
+  internal call site in `_phase1_pre_scan()` was inlined.  Net: ~18 lines deleted.
+- **Phase 2 (split `initialize_and_start_scan`)**: The 176-line method that mixed
+  widget reads, YAML loading, config building, and scan submission was split into
+  three named parts: `_collect_ui_scan_config()` (widget reads + YAML loading),
+  `_build_exec_config()` (pure config construction), and a ~40-line orchestrator.
+  Also fixed a latent `NameError` bug where `scan_config` was accessed outside its
+  defining `if` block.
+- **Phase 3 (AppController extraction)**: New `geecs_scanner/app/app_controller.py`.
+  `AppController` owns the `RunControl` lifecycle (creation, all exception handling),
+  database access (with `DatabaseDictLookup` fallback), scan submission, stop, and
+  UI-coordination flags (`is_in_multiscan`, `is_in_action_library`, `is_starting`).
+  `GEECSScannerWindow` now holds `self.controller: AppController` and exposes
+  `@property RunControl` for backward-compatible read access.  Config-file write
+  logic extracted to module-level `_write_config_if_changed()` helper.
+
 ## [0.15.0] — 2026-05-08
 
 ### Changed — Decompose Phase (D1–D5)
