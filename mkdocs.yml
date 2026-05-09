@@ -67,8 +67,6 @@ nav:
       - Scripting Guide: geecs_python_api/scripting_guide.md
       - API Reference:
           - Controls: geecs_python_api/api/controls.md
-          - Analysis: geecs_python_api/api/analysis.md
-          - Tools: geecs_python_api/api/tools.md
 
   - Data Utils:
       - Overview: geecs_data_utils/overview.md

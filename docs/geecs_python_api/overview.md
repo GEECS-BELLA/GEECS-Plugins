@@ -10,13 +10,9 @@ If you're acquiring data through the [Scanner GUI](../geecs_scanner/overview.md)
 
 ## What it provides
 
-The package is split across three top-level subpackages.
+The package is `geecs_python_api.controls`: device classes, the database lookup, and the UDP/TCP transport layer. The two classes you'll touch most are `GeecsDevice` (for any GEECS device) and `ScanDevice` (a `GeecsDevice` subclass that adds support for composite scan variables). `GeecsDatabase` provides the experiment-info lookup that resolves device names to network endpoints.
 
-`geecs_python_api.controls` is the bulk of the package: device classes, the database lookup, and the UDP/TCP transport layer. The two classes you'll touch most are `GeecsDevice` (for any GEECS device) and `ScanDevice` (a `GeecsDevice` subclass that adds support for composite scan variables). `GeecsDatabase` provides the experiment-info lookup that resolves device names to network endpoints.
-
-`geecs_python_api.analysis` is a small grab-bag of utilities for loading and interpreting GEECS data — variable logs, scan metadata, and shot-level files. Most of this is being absorbed into [Data Utils](../geecs_data_utils/overview.md); reach for that package first when loading data.
-
-`geecs_python_api.tools` is helper functions for unit conversions, data formatting, and config file parsing. Niche; you'll rarely import from here directly.
+The previous `analysis` and `tools` subpackages were removed in v0.4.0. Data-loading utilities now live in [Data Utils](../geecs_data_utils/overview.md) — that's where to reach for `ScanPaths`, `ScanData`, and s-file loaders.
 
 ## Status
 
@@ -28,7 +24,5 @@ The intent is that long-term, the device transport layer either consolidates her
 
 - **[Scripting Guide](scripting_guide.md)** — for the most common use case ("I want to write a script that talks to a device"), this walks through the basics.
 - **[API Reference: Controls](api/controls.md)** — `GeecsDevice`, `ScanDevice`, `GeecsDatabase`, and the transport layer.
-- **[API Reference: Analysis](api/analysis.md)** — data-loading utilities (most of which now have better equivalents in Data Utils).
-- **[API Reference: Tools](api/tools.md)** — helper utilities.
 
 If you're not sure whether to start here or in [Data Utils](../geecs_data_utils/overview.md): if you want to **acquire** data live from devices, start here. If you want to **load** data that's already on disk, start in Data Utils.
