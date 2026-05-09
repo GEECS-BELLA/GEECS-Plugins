@@ -529,6 +529,7 @@ class GEECSScannerWindow(QMainWindow):
             self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
             self.ui.progressBar.setValue(100 if state == ScanState.DONE else 0)
             self._set_scan_number_info(label="Previous Scan:")
+            self.update_gui_status()
             if self._restore_failure_messages:
                 lines = "\n".join(self._restore_failure_messages)
                 QMessageBox.warning(
