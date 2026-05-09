@@ -359,53 +359,50 @@ class TestScanManagerTotalShots:
 
 
 # ---------------------------------------------------------------------------
-# ScanManager — Block 5 state machine
+# ScanLifecycleStateMachine — D3 direct tests
 # ---------------------------------------------------------------------------
 
 
-class TestScanManagerStateMachine:
-    """Verify _set_state, current_state, and PAUSED_ON_ERROR transitions.
+class TestScanLifecycleStateMachine:
+    """Test ScanLifecycleStateMachine directly — no ScanManager scaffold needed."""
 
-    Uses object.__new__ to bypass ScanManager.__init__ (network calls).
-    """
+    def test_initial_state_is_idle(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 
-    def _make_mgr(self) -> object:
-        from geecs_scanner.engine.scan_manager import ScanManager
-
-        mgr = object.__new__(ScanManager)
-        mgr._on_event = None
-        mgr._state = ScanState.IDLE
-        import threading
-
-        mgr._state_lock = threading.Lock()
-        return mgr
+        sm = ScanLifecycleStateMachine()
+        assert sm.current_state == ScanState.IDLE
 
     def test_set_state_updates_current_state(self):
-        mgr = self._make_mgr()
-        mgr._set_state(ScanState.RUNNING)
-        assert mgr.current_state == ScanState.RUNNING
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine()
+        sm.set_state(ScanState.RUNNING)
+        assert sm.current_state == ScanState.RUNNING
 
     def test_set_state_emits_lifecycle_event(self):
-        events: List[ScanEvent] = []
-        mgr = self._make_mgr()
-        mgr._on_event = events.append
-        mgr._set_state(ScanState.INITIALIZING, total_shots=42)
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 
-        lifecycle = [e for e in events if isinstance(e, ScanLifecycleEvent)]
-        assert len(lifecycle) == 1
-        assert lifecycle[0].state == ScanState.INITIALIZING
-        assert lifecycle[0].total_shots == 42
+        events: List[ScanEvent] = []
+        sm = ScanLifecycleStateMachine(on_event=events.append)
+        sm.set_state(ScanState.INITIALIZING, total_shots=42)
+
+        assert len(events) == 1
+        assert isinstance(events[0], ScanLifecycleEvent)
+        assert events[0].state == ScanState.INITIALIZING
+        assert events[0].total_shots == 42
 
     def test_paused_on_error_state_reachable(self):
-        mgr = self._make_mgr()
-        mgr._set_state(ScanState.PAUSED_ON_ERROR)
-        assert mgr.current_state == ScanState.PAUSED_ON_ERROR
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine()
+        sm.set_state(ScanState.PAUSED_ON_ERROR)
+        assert sm.current_state == ScanState.PAUSED_ON_ERROR
 
     def test_full_transition_sequence(self):
-        events: List[ScanEvent] = []
-        mgr = self._make_mgr()
-        mgr._on_event = events.append
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 
+        events: List[ScanEvent] = []
+        sm = ScanLifecycleStateMachine(on_event=events.append)
         for state in (
             ScanState.INITIALIZING,
             ScanState.RUNNING,
@@ -414,7 +411,7 @@ class TestScanManagerStateMachine:
             ScanState.DONE,
             ScanState.IDLE,
         ):
-            mgr._set_state(state)
+            sm.set_state(state)
 
         emitted = [e.state for e in events if isinstance(e, ScanLifecycleEvent)]
         assert emitted == [
@@ -425,3 +422,39 @@ class TestScanManagerStateMachine:
             ScanState.DONE,
             ScanState.IDLE,
         ]
+
+    def test_on_event_none_does_not_raise(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine(on_event=None)
+        sm.set_state(ScanState.RUNNING)  # must not raise
+
+
+class TestScanManagerDelegatesToLifecycle:
+    """ScanManager._set_state and current_state delegate to ScanLifecycleStateMachine."""
+
+    def _make_mgr(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+        from geecs_scanner.engine.scan_manager import ScanManager
+
+        mgr = object.__new__(ScanManager)
+        mgr._on_event = None
+        mgr._lifecycle = ScanLifecycleStateMachine()
+        return mgr
+
+    def test_set_state_delegates(self):
+        mgr = self._make_mgr()
+        mgr._set_state(ScanState.RUNNING)
+        assert mgr.current_state == ScanState.RUNNING
+
+    def test_set_state_emits_via_lifecycle(self):
+        events: List[ScanEvent] = []
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        mgr = self._make_mgr()
+        mgr._lifecycle = ScanLifecycleStateMachine(on_event=events.append)
+        mgr._set_state(ScanState.INITIALIZING, total_shots=10)
+
+        assert len(events) == 1
+        assert events[0].state == ScanState.INITIALIZING
+        assert events[0].total_shots == 10

@@ -25,7 +25,7 @@ from .scan_events import (
     ScanDialogEvent,
     ScanErrorEvent,
     ScanEvent,
-    ScanLifecycleEvent,
+    ScanLifecycleEvent,  # noqa: F401 — re-exported for convenience
     ScanRestoreFailedEvent,
     ScanState,
     ScanStepEvent,  # noqa: F401 — re-exported for convenience
@@ -37,6 +37,7 @@ from geecs_python_api.controls.interface.geecs_errors import (
 )
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
 from geecs_scanner.engine.file_mover import FileMover
+from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
@@ -128,8 +129,7 @@ class ScanManager:
 
         self.acquisition_time = 0
 
-        self._state: ScanState = ScanState.IDLE
-        self._state_lock: threading.Lock = threading.Lock()
+        self._lifecycle = ScanLifecycleStateMachine(on_event=on_event)
 
         self.scanning_thread = None
 
@@ -184,15 +184,12 @@ class ScanManager:
                 logger.debug("on_event callback raised; ignoring", exc_info=True)
 
     def _set_state(self, new_state: ScanState, total_shots: int = 0) -> None:
-        with self._state_lock:
-            self._state = new_state
-        self._emit(ScanLifecycleEvent(state=new_state, total_shots=total_shots))
+        self._lifecycle.set_state(new_state, total_shots)
 
     @property
     def current_state(self) -> ScanState:
         """The current lifecycle state of the scan engine."""
-        with self._state_lock:
-            return self._state
+        return self._lifecycle.current_state
 
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
