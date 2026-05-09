@@ -21,24 +21,29 @@ worth the cost of migration.
 
 ## Current Focus (as of May 2026)
 
-**Completed since last update:** GeecsAPI cleanup (PR #369), log-triage
-`/triage` Claude Code skill, and Block 3 — scan event model (PR #370).
+**Completed since last update:** Blocks 5 and 7 (state machine + event-driven GUI).
 
-**Blocks 1, 3, 6 and the API / log-triage prerequisites are all done.**
+**Blocks 1, 3, 5, 6, 7 and the API / log-triage prerequisites are all done.**
 
-**Next options (in rough dependency order):**
+**We are now in the Decompose Phase.** The support structures (event stream,
+`DeviceCommandExecutor`, state machine, `pyqtSignal` bridge) are in place.
+The next work is to use those structures to actually remove complexity:
 
-1. **Block 5 — Scan lifecycle state machine** — replace scattered boolean flags
-   with an explicit `ScanState` machine; prerequisite for the operator
-   intervention UI (Block 7).
-2. **Block 4 — Engine / GUI separation** — remove Qt imports from engine code
-   so the engine can run headlessly in tests and scripts; large structural
-   change, needs a clean window to do it without regressions.
-3. **Block 7 — Operator intervention UI** — non-modal panel for device
-   errors; requires Block 5 for the `PAUSED_ON_ERROR` state.
+1. **D1 — Behavioral tests for `DataLogger`** — safety net before touching
+   the largest untested component.
+2. **D2 — Extract `FileMover` from `DataLogger`** — low-risk, high-clarity;
+   FileMover is ~400 lines of self-contained worker-thread logic.
+3. **D3 — Extract `ScanLifecycleStateMachine`** — `_set_state()` already exists;
+   this is mostly moving code to a new file and updating callers.
+4. **D4 — Make `ScanManager._start_scan()` readable** — named phase methods,
+   no new classes required.
+5. **D5 — Drop the 200ms polling timer** — completes the Block 7 migration.
 
-Recommended order: Block 5 → Block 7 → Block 4 (structural separation can
-follow once the interaction model is settled).
+Block 4 (headless engine) and Block 2 (ScanConfig cleanup) follow naturally
+after D1–D5 and remain valid targets but are lower priority.
+
+See `Planning/STATUS.md` for the detailed entry point and done-criteria for
+each decompose step.
 
 ---
 
@@ -63,16 +68,20 @@ follow once the interaction model is settled).
 - 19 unit tests cover all Block 3 event-emission paths; hardware integration
   test skeleton ready for lab validation
 
-### Core structural problems (remaining)
-- `scan_manager.py` is a ~1100-line monolith mixing scan control, device
-  orchestration, file I/O, and state management
-- The scan's current state is still implicit — inferred from scattered boolean
-  flags (`_scanning_active`, `_pause_event`, `_stop_event`). Block 5 fixes this.
-- GUI code (`app/`) is entangled with engine code; the engine cannot run without
-  Qt. Block 4 fixes this.
-- `save_hiatus` is a deprecated, unused code path that adds noise
-- The GUI still polls `ScanManager` every 200ms instead of consuming the event
-  stream. Block 7 replaces the polling timer with event subscription.
+### Core structural problems (remaining after Blocks 5 + 7)
+- `ScanManager` is still ~1100 lines mixing orchestration, state management,
+  device lifecycle, scan math, and file I/O coordination — even though `_set_state()`
+  and `DeviceCommandExecutor` are now in place. Decompose steps D2–D4 address this.
+- `DataLogger` (~1100 lines) contains a complete `FileMover` subsystem as a nested
+  class — these have no business sharing a file. Decompose step D2.
+- `GEECSScannerWindow` is ~2200 lines; state is tracked in parallel via `_scan_active`,
+  `is_starting`, `current_scan_number`, and `_restore_failure_messages` — a
+  `ScanSessionModel` would consolidate these.
+- The 200ms polling `QTimer` still runs even though the event-driven path is wired.
+  The timer and the event handlers race. Decompose step D5.
+- `pause_scan_event` and `stop_scanning_thread_event` are internal `threading.Event`s
+  used for coordination but not reflected in `ScanState` — correct but confusing
+  to a new reader.
 
 ---
 
@@ -217,31 +226,29 @@ dependency.
 
 ---
 
-### Block 5 — Scan lifecycle state machine
+### Block 5 — Scan lifecycle state machine ✓ (branch: `worktree-scanner-finish-line`)
 
 **Goal:** The scan's state is explicit, inspectable, and transition-guarded.
 
-**What this includes:**
-- Define `ScanState` enum:
-  ```
-  IDLE → INITIALIZING → READY → RUNNING → PAUSED_ON_ERROR → STOPPING → DONE
-                                         ↘ ABORTED
-  ```
-- All engine methods that mutate state assert the current state is valid for the
-  requested transition; invalid transitions emit a fatal `ScanErrorEvent`
-- Replace scattered boolean flags (`_scanning_active`, `_pause_event`,
-  `_stop_event`) with state machine transitions
-- `PAUSED_ON_ERROR` state is reachable (stub — the UI for it comes in Block 7)
-- Remove `save_hiatus` entirely (deprecated, unused)
-- `TriggerController` — already extracted in PR #366 (`engine/trigger_controller.py`),
-  owning `OFF / STANDBY / SCAN / SINGLESHOT` transitions.  The state machine wires
-  trigger transitions to `ScanState` changes.
+**What was delivered:**
+- `_state: ScanState`, `_state_lock: threading.Lock`, `_set_state()`, and
+  `current_state` property added to `ScanManager`
+- All lifecycle transitions replaced with `_set_state()` — atomic update +
+  `ScanLifecycleEvent` emission in one call
+- `PAUSED_ON_ERROR` added to `ScanState`; `request_user_dialog()` transitions
+  through it while blocking, then emits STOPPING (abort) or RUNNING (continue)
+- `_set_state(IDLE)` fires at the end of `_start_scan()` so the engine settles
+  to a clean terminal state after DONE/ABORTED
+- 4 new unit tests in `test_event_emission.py` (43 total)
 
-**Why here:** The operator intervention flow (Block 7) *is* the
-`PAUSED_ON_ERROR → RUNNING` transition. You can't implement it without the state
-machine.
+**What was not done (deferred to Decompose Phase):**
+- `_state` was not moved to a dedicated `ScanLifecycleStateMachine` class — that
+  is Decompose step D3
+- Transition validation (asserting preconditions) was not added — deferred
+- `pause_scan_event` and `stop_scanning_thread_event` remain as separate threading
+  primitives alongside `_state`
 
-*Review gate: does the state diagram match how you think about scan lifecycle?*
+*Status: complete as a stepping stone. D3 extracts the machine into its own class.*
 
 ---
 
@@ -281,29 +288,29 @@ wired into `DeviceCommandExecutor.set()` / `.get()` in PR #370 (Block 3).*
 
 ---
 
-### Block 7 — Operator intervention UI
+### Block 7 — Operator intervention UI ✓ (branch: `worktree-scanner-finish-line`)
 
 **Goal:** When a device command fails, the operator sees exactly what failed and can
 choose to fix it manually and continue, or abort.
 
-**What this includes:**
-- `PAUSED_ON_ERROR → RUNNING` transition implemented in the GUI
-- Non-modal panel (or dialog) showing: device name, command, failure reason
-- Options: **Retry**, **Continue** (skip this command), **Abort**
-- Engine side: `ScanManager` blocks on a threading `Event`; the GUI sets it with the
-  operator's choice
-- This replaces the current `prompt_user_device_timeout` / `_prompt_user_quit_action`
-  Qt-from-worker-thread approach (which works in practice but is technically unsafe
-  — tracked as issue #312)
-- All three failure modes (`ExeTimeout`, `CommandRejected`, `CommandFailed`) surface
-  through the same UI
+**What was delivered:**
+- `GEECSScannerWindow` wired to the `ScanEvent` stream via `pyqtSignal(object)` bridge
+- `_handle_scan_event()` dispatcher + per-type handlers for lifecycle, step progress,
+  restore failures, and device-error dialogs
+- `RunControl.__init__` now accepts `on_event` callback; passed through to `ScanManager`
+- Removed from `ScanManager`: `dialog_queue`, `restore_failures` list, `import queue`
+- Removed from `RunControl`: `is_in_setup`, `is_busy()`, `is_in_stopping`, `is_stopping()`,
+  `clear_stop_state()`, `get_progress()`, `is_active()`
+- Removed from `GEECSScannerWindow`: `_was_scanning` flag, `queue.Empty` drain,
+  `is_active()` / `is_stopping()` polling in the 200ms timer callback
+- `PAUSED_ON_ERROR → RUNNING / STOPPING` transition surfaced via yellow status indicator
 
-**Why here:** The executor (Block 6) defines the escalation contract; the state
-machine (Block 5) provides the `PAUSED_ON_ERROR` state; the engine/GUI separation
-(Block 4) enables safe signal-based dialog display. This block is the visible end
-result but is the least code once the groundwork is in place.
+**What was not done (deferred to Decompose step D5):**
+- The 200ms `QTimer` still runs, now driving a stripped `update_gui_status()` that
+  only covers the multiscan/action-library modes. The timer is redundant and races
+  with the event handlers — D5 removes it.
 
-*Review gate: does the UX match what operators actually need in the lab?*
+*Status: substantial. D5 completes the migration by removing the timer.*
 
 ---
 
@@ -341,18 +348,35 @@ be added as the agent's requirements become clearer.
 
 ## Known Tech Debt
 
-Items surfaced during the Block 6 refactor that are safe to leave for now.
-
 ### Dead `on_device_error` attribute
 `ScanManager.__init__` still assigns `self.executor.on_device_error` and
-`self.scan_data_manager.on_device_error`.  Neither class reads this attribute
-internally — both now route through `cmd_executor`.  The assignment is harmless but
-confusing.  Remove in a follow-up PR alongside any other `ScanManager` cleanup.
+`self.scan_data_manager.on_device_error`.  Neither class reads this attribute —
+both now route through `cmd_executor`.  Remove during Decompose step D4.
 
-### `ScanManager` size (~1100 lines)
-The orchestrator still mixes scan lifecycle, state management, and threading
-bookkeeping.  Block 5 (state machine) is the planned decomposition.  Don't attempt
-to split it before the state machine is in place — the boundaries won't be clean.
+### `ScanManager` size (~1100 lines) — addressed by D3 + D4
+The orchestrator mixes state management, orchestration sequence, device lifecycle,
+and scan math.  `_set_state()` is in place (Block 5); the next step is to extract
+`ScanLifecycleStateMachine` (D3) and make `_start_scan()` readable (D4).
+
+### `DataLogger` size (~1100 lines) — addressed by D2
+`FileMover` (~400 lines of worker-thread logic) lives inside `DataLogger` and
+should be a standalone class in its own module. DataLogger has no unit tests —
+write them (D1) before extracting FileMover (D2).
+
+### `GEECSScannerWindow` size (~2200 lines)
+State scattered across `_scan_active`, `is_starting`, `_total_shots`,
+`current_scan_number`, `_restore_failure_messages`. A `ScanSessionModel` would
+consolidate these into one place. Not yet scheduled — lower priority than engine
+decomposition.
+
+### 200ms polling timer still running (D5)
+`update_gui_status()` is called every 200ms but now only covers multiscan and
+action-library mode. This races with the event handlers. Decompose step D5 removes
+the timer and makes those two mode changes event-driven via direct calls.
+
+### DEBUG log statement in geecs_scanner.py
+Line ~1647: `logger.info("DEBUG: Set button was clicked!")` — remove when
+touching that file.
 
 ### GeecsDevice API backlog
 Three issues rooted in the `geecs-python-api` device layer that affect scanner
