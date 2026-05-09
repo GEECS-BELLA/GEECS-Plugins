@@ -1,20 +1,9 @@
-# Scan Executor
+# Internal API
 
-::: geecs_scanner.data_acquisition.scan_executor
-    options:
-      show_source: true
-      show_root_heading: true
-      show_root_toc_entry: false
-      filters: ["!^_"]
+This page previously held auto-generated documentation for an internal scanner module. The module path changed (`data_acquisition` → `engine`) and the public API the scanner exposes is now documented at:
 
-::: geecs_scanner.data_acquisition.scan_executor.ScanStepExecutor
-    options:
-      show_source: true
-      show_root_heading: false
-      show_root_toc_entry: true
-      merge_init_into_class: true
-      heading_level: 3
-      filters: ["!^_"]
-      show_if_no_docstring: false
-      group_by_category: true
-      show_signature_annotations: true
+- [Architecture](../../architecture.md) — engine internals at the conceptual level
+- [Save Elements](../../save_elements.md) — the YAML schema and action steps
+- [Extending the Scanner](../../extending.md) — supported extension points
+
+For internal modules, read the source: `geecs_scanner.engine` in the GEECS-Scanner-GUI package.

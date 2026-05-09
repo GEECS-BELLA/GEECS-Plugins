@@ -1,3 +1,3 @@
-# ALine3 FWHM Evaluator
+# ALine3 FWHM Evaluator (removed)
 
-::: GEECS-Scanner-GUI.geecs_scanner.optimization.evaluators.ALine3_FWHM
+This evaluator was removed in v0.9.0. The `MultiDeviceScanEvaluator` pattern (with concrete subclasses like `BeamSizeEvaluator`) supersedes it. See the [Extending the Scanner](../../../extending.md) guide for writing your own evaluator.

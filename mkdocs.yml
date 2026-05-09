@@ -5,99 +5,76 @@ repo_name: GEECS-Plugins
 theme:
   name: material
   features:
-    # --- enable tabs across the top ---
     - navigation.tabs
-    # optional but recommended polish:
-    - navigation.sections        # section headings in sidebar
-    - navigation.indexes         # allow section index pages (index.md inside a folder)
-    - content.code.copy          # copy button on code blocks
+    - navigation.sections
+    - navigation.indexes
+    - content.code.copy
     - search.suggest
     - search.highlight
-    - toc.integrate              # integrate page ToC into sidebar
-  # Optional branding:
-  # logo: assets/logo.svg
-  # favicon: assets/favicon.png
-  # palette:
-  #   - scheme: default
-  #     toggle:
-  #       icon: material/weather-night
-  #       name: Switch to dark mode
-  #   - scheme: slate
-  #     toggle:
-  #       icon: material/weather-sunny
-  #       name: Switch to light mode
+    - toc.integrate
 
 nav:
   - Home: index.md
+
   - GEECS Scanner GUI:
       - Overview: geecs_scanner/overview.md
       - Installation & Setup: geecs_scanner/installation.md
-      - Tutorial: geecs_scanner/tutorial.md
+      - Tutorial — Your First Scan: geecs_scanner/tutorial.md
+      - Save Elements: geecs_scanner/save_elements.md
+      - Scan Output Structure: geecs_scanner/scan_output_structure.md
+      - Troubleshooting: geecs_scanner/troubleshooting.md
+      - Extending the Scanner: geecs_scanner/extending.md
+      - Architecture: geecs_scanner/architecture.md
       - API Reference:
-          - Data Acquisition:
-              - Scan Manager: geecs_scanner/api/data_acquisition/scan_manager.md
-              - Device Manager: geecs_scanner/api/data_acquisition/device_manager.md
-              - Data Logger: geecs_scanner/api/data_acquisition/data_logger.md
-              - Scan Executor: geecs_scanner/api/data_acquisition/scan_executor.md
-              - Action Manager: geecs_scanner/api/data_acquisition/action_manager.md
-              - Scan Data Manager: geecs_scanner/api/data_acquisition/scan_data_manager.md
-              - Configuration Schemas: geecs_scanner/api/data_acquisition/schemas.md
-              - Types & Utilities:
-                  - Type Definitions: geecs_scanner/api/data_acquisition/types.md
-                  - Utilities: geecs_scanner/api/data_acquisition/utils.md
-                  - Database Lookup: geecs_scanner/api/data_acquisition/database_dict_lookup.md
+          - Engine Configuration Models: geecs_scanner/api/engine_models.md
+          - Scan Events: geecs_scanner/api/scan_events.md
           - Optimization:
               - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
               - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
-              - Evaluators:
-                  - ALine3 FWHM Evaluator: geecs_scanner/api/optimization/evaluators/aline3_fwhm.md
-                  - HiRes MagCam Evaluator: geecs_scanner/api/optimization/evaluators/hiresmagcam.md
               - Generators:
                   - Generator Factory: geecs_scanner/api/optimization/generators/generator_factory.md
                   - Cheetah Generator: geecs_scanner/api/optimization/generators/cheetah_generator.md
-#          - Application Interface:
-#          - Utilities:
       - Examples:
-          - Optimization:
-              - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
+          - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
       - Notes and Discussions:
-          - Optimization:
-              - Developing e-beam brightness optimization on HTU: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
+          - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
 
   - Image Analysis:
       - Overview: image_analysis/overview.md
-#      - Installation & Setup: image_analysis/installation.md
+      - Analyzer Index: image_analysis/analyzer_index.md
       - API Reference:
           - Core Modules: image_analysis/api/core_modules.md
       - Examples:
-          - Basic Usage: image_analysis/examples/basic_offline_analysis.ipynb
-          - Basic Usage 1D: image_analysis/examples/basic_usage_1D_analyzer.ipynb
+          - Basic Offline Analysis: image_analysis/examples/basic_offline_analysis.ipynb
+          - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
           - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
-          - Haso Analysis: image_analysis/examples/HasoLift_analysis.ipynb
+          - HasoLift Analysis: image_analysis/examples/HasoLift_analysis.ipynb
+
   - Scan Analysis:
       - Overview: scan_analysis/overview.md
       - API Reference:
           - Core Modules: scan_analysis/api/base.md
       - Examples:
-          - Basic Usage with Array2DAnalysis: scan_analysis/examples/basic_usage.ipynb
-          - Basic Usage with Array1DAnalysis: scan_analysis/examples/basic_usage_1D.ipynb
-          - Variational analysis: scan_analysis/examples/variational_analysis.ipynb
+          - Basic Usage (2D): scan_analysis/examples/basic_usage.ipynb
+          - Basic Usage (1D): scan_analysis/examples/basic_usage_1D.ipynb
+          - Config-Based Workflow: scan_analysis/examples/config_based_scan_analysis.ipynb
+          - Live Watch: scan_analysis/examples/live_watch.ipynb
+          - GDoc Upload: scan_analysis/examples/gdoc_upload.ipynb
           - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
+          - Variational Analysis: scan_analysis/examples/variational_analysis.ipynb
+
   - GEECS Python API:
       - Overview: geecs_python_api/overview.md
+      - Scripting Guide: geecs_python_api/scripting_guide.md
       - API Reference:
-          - Analysis: geecs_python_api/api/analysis.md
           - Controls: geecs_python_api/api/controls.md
+          - Analysis: geecs_python_api/api/analysis.md
           - Tools: geecs_python_api/api/tools.md
+
   - Data Utils:
       - Overview: geecs_data_utils/overview.md
       - API Reference:
           - Core Modules: geecs_data_utils/api/core_modules.md
-#              - Scan Data: geecs_data_utils/api/scan_data.md
-#              - Scan Paths: geecs_data_utils/api/scan_paths.md
-#              - Utils: geecs_data_utils/api/utils.md
-#              - Type Definitions: geecs_data_utils/api/type_defs.md
-#              - GEECS Paths Config: geecs_data_utils/api/geecs_paths_config.md
       - Examples:
           - Basic Usage: geecs_data_utils/examples/basic_usage.ipynb
           - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
@@ -125,18 +102,22 @@ plugins:
             group_by_category: true
             heading_level: 2
             show_module_attributes: false
-            summary: true          # <- show only summary line
-            docstring_section_style: table  # keeps it compact
+            summary: true
+            docstring_section_style: table
   - mkdocs-jupyter:
-      execute: false   # use saved outputs; set to true to run cells at build time
-      include_source: true  # optional: show a “download .ipynb” link
+      execute: false
+      include_source: true
 
 markdown_extensions:
   - admonition
   - toc:
       permalink: true
-      toc_depth: 3        # <-- only show up to H3 in the left sidebar
+      toc_depth: 3
   - pymdownx.details
   - pymdownx.highlight
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - attr_list

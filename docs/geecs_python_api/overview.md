@@ -1,35 +1,34 @@
 # GEECS Python API
 
-The GEECS Python API is the low-level Python interface to the GEECS control system — the software that manages hardware devices, coordinates timing, and records experiment data at BELLA Center.
+`geecs-python-api` is the low-level Python interface to the GEECS control system. It speaks the GEECS wire protocol (UDP for command/response, TCP for live data subscription) and gives you Python objects that represent devices, variables, and the experiment database.
 
-Most users interact with this package **indirectly**, through the Scanner GUI or Scan Analysis packages. Direct use is most relevant when building new GUI components, writing custom device drivers, or scripting hardware control outside of the standard tools.
+If you're acquiring data through the [Scanner GUI](../geecs_scanner/overview.md), you're already using this package indirectly. The reasons to reach for it directly are:
 
----
+- **You want to script device interaction outside the GUI** — write your own one-off measurement, run a Jupyter notebook that talks to a device, or drive an experiment from a script. See the [Scripting Guide](scripting_guide.md).
+- **You're writing a custom GUI component or analyzer** that needs to read or set a device variable.
+- **You're integrating GEECS hardware with a non-GEECS framework** — a Bluesky plan, a custom acquisition loop, an external monitoring script.
 
-## What It Provides
+## What it provides
 
-**Controls** — Connect to GEECS devices, set and read device variables, handle timing and synchronization. This is the foundation for all hardware communication in the plugin suite.
+The package is split across three top-level subpackages.
 
-**Analysis** — Utilities for loading and interpreting data that GEECS records — device variable logs, scan metadata, and shot-level data files.
+`geecs_python_api.controls` is the bulk of the package: device classes, the database lookup, and the UDP/TCP transport layer. The two classes you'll touch most are `GeecsDevice` (for any GEECS device) and `ScanDevice` (a `GeecsDevice` subclass that adds support for composite scan variables). `GeecsDatabase` provides the experiment-info lookup that resolves device names to network endpoints.
 
-**Tools** — Helper functions for common tasks: unit conversions, data formatting, configuration file parsing, and interfacing with the broader GEECS ecosystem.
+`geecs_python_api.analysis` is a small grab-bag of utilities for loading and interpreting GEECS data — variable logs, scan metadata, and shot-level files. Most of this is being absorbed into [Data Utils](../geecs_data_utils/overview.md); reach for that package first when loading data.
 
----
+`geecs_python_api.tools` is helper functions for unit conversions, data formatting, and config file parsing. Niche; you'll rarely import from here directly.
 
-## Relationship to Other Packages
+## Status
 
-```
-GEECS Scanner GUI  ──┐
-                     ├──▶  GEECS Python API  ──▶  GEECS hardware / data files
-Scan Analysis      ──┘
-```
+**This package is being refactored.** Other packages in the suite (Scanner GUI, Data Utils, ScanAnalysis) use it primarily for `ScanDevice`, the database lookup, and the shared `config.ini`. New features should not be added to this package; if you find yourself wanting to extend it, raise the question of whether the new code belongs in the higher-level package that's calling into the API.
 
-If you are starting out with data analysis or scan automation, see [Scan Analysis](../scan_analysis/overview.md) or [Image Analysis](../image_analysis/overview.md) instead — they build on this package and provide higher-level workflows.
+The intent is that long-term, the device transport layer either consolidates here cleanly or migrates into a Bluesky-style architecture. Either way, the API surface above will become smaller and more focused.
 
----
+## Where to start
 
-## API Reference
+- **[Scripting Guide](scripting_guide.md)** — for the most common use case ("I want to write a script that talks to a device"), this walks through the basics.
+- **[API Reference: Controls](api/controls.md)** — `GeecsDevice`, `ScanDevice`, `GeecsDatabase`, and the transport layer.
+- **[API Reference: Analysis](api/analysis.md)** — data-loading utilities (most of which now have better equivalents in Data Utils).
+- **[API Reference: Tools](api/tools.md)** — helper utilities.
 
-- [Analysis](api/analysis.md)
-- [Controls](api/controls.md)
-- [Tools](api/tools.md)
+If you're not sure whether to start here or in [Data Utils](../geecs_data_utils/overview.md): if you want to **acquire** data live from devices, start here. If you want to **load** data that's already on disk, start in Data Utils.
