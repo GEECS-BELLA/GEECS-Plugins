@@ -509,7 +509,7 @@ class GEECSScannerWindow(QMainWindow):
             self._total_shots = event.total_shots
             self.ui.startScanButton.setText("Starting...")
             self.ui.startScanButton.setEnabled(False)
-            self.ui.stopScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: orange;")
         elif state == ScanState.RUNNING:
             self._scan_active = True
@@ -1861,6 +1861,7 @@ class GEECSScannerWindow(QMainWindow):
             return
 
         self.current_scan_number += 1
+        self.ui.stopScanButton.setEnabled(True)
 
     def _collect_ui_scan_config(self) -> Optional[dict]:
         """Read all UI widget values and load save element YAMLs.
