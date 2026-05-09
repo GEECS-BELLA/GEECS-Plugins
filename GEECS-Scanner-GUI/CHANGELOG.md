@@ -3,6 +3,81 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.16.0] — 2026-05-08
+
+### Changed — Bold Refactor: Delete and Extract
+
+- **Phase 1 (ScanManager cleanup)**: Deleted `estimate_current_completion()` (never
+  called anywhere) and the `trigger_off()` / `trigger_on()` proxy methods on
+  `ScanManager` (pure one-line delegates to `TriggerController`).  The single
+  internal call site in `_phase1_pre_scan()` was inlined.  Net: ~18 lines deleted.
+- **Phase 2 (split `initialize_and_start_scan`)**: The 176-line method that mixed
+  widget reads, YAML loading, config building, and scan submission was split into
+  three named parts: `_collect_ui_scan_config()` (widget reads + YAML loading),
+  `_build_exec_config()` (pure config construction), and a ~40-line orchestrator.
+  Also fixed a latent `NameError` bug where `scan_config` was accessed outside its
+  defining `if` block.
+- **Phase 3 (AppController extraction)**: New `geecs_scanner/app/app_controller.py`.
+  `AppController` owns the `RunControl` lifecycle (creation, all exception handling),
+  database access (with `DatabaseDictLookup` fallback), scan submission, stop, and
+  UI-coordination flags (`is_in_multiscan`, `is_in_action_library`, `is_starting`).
+  `GEECSScannerWindow` now holds `self.controller: AppController` and exposes
+  `@property RunControl` for backward-compatible read access.  Config-file write
+  logic extracted to module-level `_write_config_if_changed()` helper.
+
+## [0.15.0] — 2026-05-08
+
+### Changed — Decompose Phase (D1–D5)
+
+- **D1**: Added 18 behavioral tests for `DataLogger` in
+  `tests/engine/test_data_logger.py` — covers `_log_device_data`, shot indexing,
+  `FileMover` task queuing, and standby detection.
+- **D2**: Extracted `FileMoveTask` and `FileMover` (~430 lines) from
+  `data_logger.py` into `engine/file_mover.py`.  `ScanManager` now creates and
+  owns the `FileMover`; `DataLogger.start_logging(file_mover=...)` accepts it as
+  an injected dependency.  All `data_logger.file_mover.*` chains in `ScanManager`
+  replaced with direct `self.file_mover.*` access.
+- **D3**: Extracted `ScanLifecycleStateMachine` into `engine/lifecycle.py`.
+  `ScanManager._state` / `_state_lock` / `_set_state()` / `current_state` all
+  delegate to `self._lifecycle`.  Tests updated to test the state machine directly.
+- **D4**: Split `ScanManager._start_scan()` (145 lines) into three named phase
+  methods — `_phase1_pre_scan()`, `_resolve_scan_id()`, `_phase2_acquire()`.
+  `_start_scan()` is now 12 lines and reads as a plain recipe.
+- **D5**: Removed the 200 ms `QTimer` from `GEECSScannerWindow`.  Scan lifecycle
+  state is now driven purely by events.  Mode transitions (multiscan, action library)
+  and `RunControl` changes call `update_gui_status()` directly at the right moments.
+
+## [0.14.0] — 2026-05-08
+
+### Added
+- Block 5: explicit state machine in `ScanManager`.  Added `_state: ScanState`,
+  `_state_lock: threading.Lock`, `_set_state()`, and `current_state` property.
+  All lifecycle transitions now go through `_set_state()`, which atomically
+  updates `_state` and emits a `ScanLifecycleEvent`.
+- `ScanState.PAUSED_ON_ERROR` — new state entered when `request_user_dialog()`
+  blocks waiting for the operator's abort/continue decision.  The engine
+  transitions to `STOPPING` (abort) or `RUNNING` (continue) after the dialog
+  is dismissed.
+- Block 7: event-driven GUI.  `GEECSScannerWindow` now subscribes to the scan
+  event stream via a `pyqtSignal(object)` bridge; per-event handlers update
+  status indicator colour, progress bar, button states, and restore-failure
+  warnings instead of the 200 ms polling timer.
+- `RunControl.__init__` accepts an `on_event` callback and passes it through
+  to `ScanManager`.
+
+### Removed
+- `ScanManager.dialog_queue` — device-error dialogs are now delivered via
+  `ScanDialogEvent` through the `on_event` callback / `pyqtSignal` bridge.
+- `ScanManager.restore_failures` list — restore failures are now emitted as
+  `ScanRestoreFailedEvent` s and accumulated by the GUI event handler.
+- `RunControl.is_in_setup`, `is_busy()`, `is_in_stopping`, `is_stopping()`,
+  `clear_stop_state()`, `get_progress()`, `is_active()` — all replaced by
+  event-driven state tracking in `GEECSScannerWindow`.
+- `GEECSScannerWindow._was_scanning` flag — no longer needed; the DONE/ABORTED
+  lifecycle event is the authoritative transition signal.
+- `import queue` from `scan_manager.py` and `geecs_scanner.py` — no longer
+  used after `dialog_queue` removal.
+
 ## [0.13.0] — 2026-05-08
 
 ### Added

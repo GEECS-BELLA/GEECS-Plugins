@@ -24,6 +24,8 @@ from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
     DeviceCommandEvent,
     ScanEvent,
+    ScanLifecycleEvent,
+    ScanState,
     ScanStepEvent,
 )
 from tests.engine.conftest import FakeScanDevice
@@ -354,3 +356,105 @@ class TestScanManagerTotalShots:
         # acquisition_time is ~7.5 s; at 10 Hz total shots should be ~75, not 7
         assert total_shots > 50
         assert total_shots != int(mgr.acquisition_time)
+
+
+# ---------------------------------------------------------------------------
+# ScanLifecycleStateMachine — D3 direct tests
+# ---------------------------------------------------------------------------
+
+
+class TestScanLifecycleStateMachine:
+    """Test ScanLifecycleStateMachine directly — no ScanManager scaffold needed."""
+
+    def test_initial_state_is_idle(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine()
+        assert sm.current_state == ScanState.IDLE
+
+    def test_set_state_updates_current_state(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine()
+        sm.set_state(ScanState.RUNNING)
+        assert sm.current_state == ScanState.RUNNING
+
+    def test_set_state_emits_lifecycle_event(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        events: List[ScanEvent] = []
+        sm = ScanLifecycleStateMachine(on_event=events.append)
+        sm.set_state(ScanState.INITIALIZING, total_shots=42)
+
+        assert len(events) == 1
+        assert isinstance(events[0], ScanLifecycleEvent)
+        assert events[0].state == ScanState.INITIALIZING
+        assert events[0].total_shots == 42
+
+    def test_paused_on_error_state_reachable(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine()
+        sm.set_state(ScanState.PAUSED_ON_ERROR)
+        assert sm.current_state == ScanState.PAUSED_ON_ERROR
+
+    def test_full_transition_sequence(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        events: List[ScanEvent] = []
+        sm = ScanLifecycleStateMachine(on_event=events.append)
+        for state in (
+            ScanState.INITIALIZING,
+            ScanState.RUNNING,
+            ScanState.PAUSED_ON_ERROR,
+            ScanState.RUNNING,
+            ScanState.DONE,
+            ScanState.IDLE,
+        ):
+            sm.set_state(state)
+
+        emitted = [e.state for e in events if isinstance(e, ScanLifecycleEvent)]
+        assert emitted == [
+            ScanState.INITIALIZING,
+            ScanState.RUNNING,
+            ScanState.PAUSED_ON_ERROR,
+            ScanState.RUNNING,
+            ScanState.DONE,
+            ScanState.IDLE,
+        ]
+
+    def test_on_event_none_does_not_raise(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        sm = ScanLifecycleStateMachine(on_event=None)
+        sm.set_state(ScanState.RUNNING)  # must not raise
+
+
+class TestScanManagerDelegatesToLifecycle:
+    """ScanManager._set_state and current_state delegate to ScanLifecycleStateMachine."""
+
+    def _make_mgr(self):
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+        from geecs_scanner.engine.scan_manager import ScanManager
+
+        mgr = object.__new__(ScanManager)
+        mgr._on_event = None
+        mgr._lifecycle = ScanLifecycleStateMachine()
+        return mgr
+
+    def test_set_state_delegates(self):
+        mgr = self._make_mgr()
+        mgr._set_state(ScanState.RUNNING)
+        assert mgr.current_state == ScanState.RUNNING
+
+    def test_set_state_emits_via_lifecycle(self):
+        events: List[ScanEvent] = []
+        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
+
+        mgr = self._make_mgr()
+        mgr._lifecycle = ScanLifecycleStateMachine(on_event=events.append)
+        mgr._set_state(ScanState.INITIALIZING, total_shots=10)
+
+        assert len(events) == 1
+        assert events[0].state == ScanState.INITIALIZING
+        assert events[0].total_shots == 10

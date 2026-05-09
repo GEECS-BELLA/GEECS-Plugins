@@ -1,3 +1,3 @@
 # Controls Module
 
-::: GEECS-PythonAPI.geecs_python_api.controls
+::: geecs_python_api.controls

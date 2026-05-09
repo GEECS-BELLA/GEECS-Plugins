@@ -1,5 +1,5 @@
 ??? "ImageAnalyzer API"
-    ::: ImageAnalysis.image_analysis.base.ImageAnalyzer
+    ::: image_analysis.base.ImageAnalyzer
         options:
           show_source: true
           show_root_heading: true
@@ -14,7 +14,7 @@
           show_signature_annotations: true
 
 ??? "StandardAnalyzer API"
-    ::: ImageAnalysis.image_analysis.offline_analyzers.standard_analyzer.StandardAnalyzer
+    ::: image_analysis.offline_analyzers.standard_analyzer.StandardAnalyzer
         options:
           show_source: true
           show_root_heading: true

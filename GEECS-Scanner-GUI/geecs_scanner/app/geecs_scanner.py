@@ -27,7 +27,6 @@ if TYPE_CHECKING:
 
 import sys
 import os
-import queue
 from pathlib import Path
 import threading
 import importlib
@@ -36,7 +35,7 @@ import logging
 from importlib.metadata import version
 
 from PyQt5.QtWidgets import QApplication, QMainWindow, QInputDialog, QMessageBox
-from PyQt5.QtCore import QEvent, QTimer, QUrl
+from PyQt5.QtCore import QEvent, QTimer, QUrl, pyqtSignal
 from PyQt5.QtGui import QDesktopServices, QIcon
 from .gui.GEECSScanner_ui import Ui_MainWindow
 from .lib import MenuBarOption, MenuBarOptionBool, MenuBarOptionStr
@@ -56,9 +55,16 @@ from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
-from geecs_scanner.engine import DatabaseDictLookup
+from geecs_scanner.app.app_controller import AppController
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
+from geecs_scanner.engine.scan_events import (
+    ScanDialogEvent,
+    ScanLifecycleEvent,
+    ScanRestoreFailedEvent,
+    ScanState,
+    ScanStepEvent,
+)
 from geecs_scanner.app.gui_dialogs import show_device_error_dialog
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 
@@ -105,6 +111,14 @@ class GEECSScannerWindow(QMainWindow):
     The constructor wires up UI events, attempts to read configuration on
     non-test runs, and starts periodic timers that update the GUI status.
     """
+
+    # Thread-safe bridge: scan thread emits events → main-thread slot handles them.
+    _scan_event_received = pyqtSignal(object)
+
+    @property
+    def RunControl(self) -> Optional["RunControl"]:
+        """Delegate RunControl access to AppController."""
+        return self.controller.run_control
 
     def __init__(self):
         super().__init__()
@@ -196,9 +210,11 @@ class GEECSScannerWindow(QMainWindow):
             self.load_config_settings()
 
         # Initializes run control if possible (interface to scan_manager and data_acquisition)
-        self.RunControl: Optional[RunControl] = None
-        self.database_lookup = DatabaseDictLookup()
         self.app_paths: Optional[AppPaths] = None
+        self.controller = AppController(
+            on_scan_event=self._scan_event_received.emit,
+            unit_test_mode=self.unit_test_mode,
+        )
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -223,9 +239,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
 
         # Button to launch the multiscanner and action library widgets
-        self.is_in_multiscan = False
         self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
-        self.is_in_action_library = False
         self.ui.buttonActionLibrary.clicked.connect(self.open_action_library)
 
         # Line edit for the experiment display
@@ -308,11 +322,10 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         # Start/Stop
-        self.is_starting = False
-        # Tracks whether a scan was active on the previous timer tick so we
-        # can detect the active→inactive transition and show a restore-failure
-        # summary (which cannot be shown from the scan worker thread).
-        self._was_scanning = False
+        self._scan_active = False  # True while scan thread is RUNNING/PAUSED_ON_ERROR
+        self._total_shots = 0  # Cached from ScanLifecycleEvent(INITIALIZING)
+        self._restore_failure_messages: list[str] = []
+        self._scan_event_received.connect(self._handle_scan_event)
         self.ui.startScanButton.clicked.connect(self.initialize_and_start_scan)
         self.ui.stopScanButton.clicked.connect(self.stop_scan)
 
@@ -323,12 +336,8 @@ class GEECSScannerWindow(QMainWindow):
         self.scan_number_timer.timeout.connect(self.forget_scan_number)
         self.scan_number_timer.start(10000)
 
-        # Periodic GUI updates
         self.ui.progressBar.setValue(0)
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_gui_status)
         self.ui.scanStatusIndicator.setText("")
-        self.timer.start(200)
         self.update_gui_status()
 
         # Menu Bar: Open
@@ -445,53 +454,84 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.listScanPresets.clear()
 
     def update_gui_status(self):
-        """
-        Update the GUI based on the current run status.
+        """Update GUI for multiscan and action-library modes.
 
         Notes
         -----
-        - Disables editing when scans are running.
-        - Updates progress bar, status color, and button states.
-        - Handles Multiscanner and Action Library states.
-        - Drains the ScanManager dialog queue so device-error dialogs are
-          shown on this (main) thread rather than from the scan worker thread.
+        Scan lifecycle state (running, stopping, progress) is now handled by
+        ``_handle_scan_event`` via the ``_scan_event_received`` signal.  This
+        method only covers states that are not driven by scan events: the
+        RunControl-not-initialized case and the multiscan / action-library modes.
         """
-        # Drain pending device-error dialogs from the scan worker thread.
-        # show_device_error_dialog() blocks until the user responds and sets
-        # request.response_event so the worker can unblock.
-        sm = getattr(self.RunControl, "scan_manager", None)
-        if sm is not None:
-            try:
-                while True:
-                    request = sm.dialog_queue.get_nowait()
-                    show_device_error_dialog(request)
-            except queue.Empty:
-                pass
-
         if self.RunControl is None:
             self._set_scan_number_info(turn_off=True)
             self.ui.scanStatusIndicator.setStyleSheet("background-color: grey;")
             self.ui.startScanButton.setEnabled(False)
             self.ui.stopScanButton.setEnabled(False)
-        elif self.RunControl.is_active():
+            return
+
+        enable_buttons = True
+        if self.controller.is_in_multiscan:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
+            self.ui.startScanButton.setEnabled(False)
+            enable_buttons = False
+        self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
+
+        if self.controller.is_in_action_library:
+            enable_buttons = False
+        self.ui.buttonActionLibrary.setEnabled(not self.controller.is_in_action_library)
+
+        self.ui.experimentDisplay.setEnabled(enable_buttons)
+        self.ui.repititionRateDisplay.setEnabled(enable_buttons)
+        self.ui.lineTimingDevice.setEnabled(enable_buttons)
+        self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
+        self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
+
+    # ------------------------------------------------------------------ #
+    # Scan event handlers (driven by _scan_event_received signal)        #
+    # ------------------------------------------------------------------ #
+
+    def _handle_scan_event(self, event: object) -> None:
+        """Dispatch a scan event to the appropriate per-type handler."""
+        if isinstance(event, ScanLifecycleEvent):
+            self._on_lifecycle_event(event)
+        elif isinstance(event, ScanStepEvent):
+            self._on_step_event(event)
+        elif isinstance(event, ScanRestoreFailedEvent):
+            self._on_restore_failed_event(event)
+        elif isinstance(event, ScanDialogEvent):
+            self._on_dialog_event(event)
+
+    def _on_lifecycle_event(self, event: ScanLifecycleEvent) -> None:
+        state = event.state
+        if state == ScanState.INITIALIZING:
+            self.controller.is_starting = False
+            self._total_shots = event.total_shots
+            self.ui.startScanButton.setText("Starting...")
+            self.ui.startScanButton.setEnabled(False)
+            self.ui.stopScanButton.setEnabled(True)
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: orange;")
+        elif state == ScanState.RUNNING:
+            self._scan_active = True
             self._set_scan_number_info(label="Current Scan:")
             self.ui.scanStatusIndicator.setStyleSheet("background-color: red;")
             self.ui.startScanButton.setEnabled(False)
-            self.ui.stopScanButton.setEnabled(not self.RunControl.is_stopping())
-            self.ui.progressBar.setValue(self.RunControl.get_progress())
-            self._was_scanning = True
-        else:
-            self._set_scan_number_info(label="Previous Scan:")
-            self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
+            self.ui.stopScanButton.setEnabled(True)
+        elif state == ScanState.PAUSED_ON_ERROR:
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: yellow;")
+        elif state == ScanState.STOPPING:
             self.ui.stopScanButton.setEnabled(False)
-            self.ui.startScanButton.setEnabled(not self.RunControl.is_busy())
-            self.RunControl.clear_stop_state()
-
-            # Show a one-shot warning if the scan thread reported restore failures.
-            # We check _was_scanning so we only fire on the first tick after the
-            # active→inactive transition (scan thread has exited by then).
-            if self._was_scanning and sm is not None and sm.restore_failures:
-                lines = "\n".join(sm.restore_failures)
+        elif state in (ScanState.DONE, ScanState.ABORTED):
+            self._scan_active = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.stopScanButton.setEnabled(False)
+            self.ui.scanStatusIndicator.setStyleSheet("background-color: green;")
+            self.ui.progressBar.setValue(100 if state == ScanState.DONE else 0)
+            self._set_scan_number_info(label="Previous Scan:")
+            self.update_gui_status()
+            if self._restore_failure_messages:
+                lines = "\n".join(self._restore_failure_messages)
                 QMessageBox.warning(
                     self,
                     "Restore Failures",
@@ -499,119 +539,45 @@ class GEECSScannerWindow(QMainWindow):
                     f"after the scan ended.\n\nPlease verify and correct hardware manually:"
                     f"\n\n{lines}",
                 )
-                sm.restore_failures.clear()
-            self._was_scanning = False
+                self._restore_failure_messages.clear()
+        elif state == ScanState.IDLE:
+            pass
 
-        if self.RunControl is not None:
-            if self.is_starting:
-                self.ui.startScanButton.setText("Starting...")
-            else:
-                self.ui.startScanButton.setText("Start Scan")
+    def _on_step_event(self, event: ScanStepEvent) -> None:
+        if self._total_shots > 0:
+            pct = int(event.shots_completed / self._total_shots * 100)
+            self.ui.progressBar.setValue(min(pct, 100))
 
-            enable_buttons = True
-            if self.is_in_multiscan:
-                self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
-                self.ui.startScanButton.setEnabled(False)
-                enable_buttons = False
-            self.ui.buttonLaunchMultiScan.setEnabled(
-                self.ui.startScanButton.isEnabled()
-            )
+    def _on_restore_failed_event(self, event: ScanRestoreFailedEvent) -> None:
+        self._restore_failure_messages.append(f"  • {event.device}: {event.message}")
 
-            if self.is_in_action_library:
-                enable_buttons = False
-            self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
-
-            self.ui.experimentDisplay.setEnabled(enable_buttons)
-            self.ui.repititionRateDisplay.setEnabled(enable_buttons)
-            self.ui.lineTimingDevice.setEnabled(enable_buttons)
-            self.ui.buttonUpdateConfig.setEnabled(enable_buttons)
-            self.ui.buttonOpenTimingSetup.setEnabled(enable_buttons)
+    def _on_dialog_event(self, event: ScanDialogEvent) -> None:
+        if event.request is not None:
+            show_device_error_dialog(event.request)
 
     # ------------------------------------------------------------------ #
     # Experiment / RunControl / Config                                   #
     # ------------------------------------------------------------------ #
 
     def reinitialize_run_control(self):
-        """
-        Reinitialize `RunControl` when experiment or shot control changes.
-
-        Notes
-        -----
-        - Updates the user's config file if necessary (when not in test mode).
-        - Attempts to instantiate `RunControl`; logs errors on failure.
-        """
-        if self.experiment is None or self.experiment == "":
+        """Reinitialize RunControl when experiment or shot control changes."""
+        if not self.experiment:
             logger.warning("No experiment selected")
-            self.RunControl = None
             self.app_paths = None
+            self.controller.reinitialize_run_control("", "", None)
+            self.update_gui_status()
             return
 
         logger.info("Reinitialization of Run Control")
-
-        # Do not change application paths or write to config if in unit test mode
         if not self.unit_test_mode:
             self.app_paths = AppPaths(experiment=self.experiment)
 
-            # Before initializing, rewrite config file if experiment name or timing configuration changed
-            config = configparser.ConfigParser()
-            config.read(AppPaths.config_file())
-
-            do_write = False
-            if config["Experiment"]["expt"] != self.experiment:
-                logger.info("Experiment name changed, rewriting config file")
-                config.set("Experiment", "expt", self.experiment)
-                do_write = True
-
-            if (not config.has_option("Experiment", "timing_configuration")) or config[
-                "Experiment"
-            ]["timing_configuration"] != self.timing_configuration_name:
-                logger.info("Timing configuration changed, rewriting config file")
-                config.set(
-                    "Experiment", "timing_configuration", self.timing_configuration_name
-                )
-                do_write = True
-
-            if do_write:
-                with open(AppPaths.config_file(), "w") as file:
-                    config.write(file)
-
-        shot_control_path = self.app_paths.shot_control() / (
-            self.timing_configuration_name + ".yaml"
+        self.controller.reinitialize_run_control(
+            self.experiment,
+            self.timing_configuration_name,
+            self.app_paths,
         )
-        if not shot_control_path.exists():
-            shot_control_path = None
-
-        try:
-            module_path = Path(__file__).parent / "run_control.py"
-            sys.path.insert(0, str(module_path.parent))
-            run_control_class = getattr(
-                importlib.import_module("run_control"), "RunControl"
-            )
-            self.RunControl = run_control_class(
-                experiment_name=self.experiment,
-                shot_control_configuration=shot_control_path,
-            )
-
-        except AttributeError:
-            logger.error(
-                "AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database"
-            )
-            self.RunControl = None
-        except KeyError:
-            logger.error(
-                "KeyError at RunControl: presumably because no GEECS Database is connected to located devices"
-            )
-            self.RunControl = None
-        except ValueError:
-            logger.error(
-                "ValueError at RunControl: presumably because no experiment name or shot control given"
-            )
-            self.RunControl = None
-        except (ConnectionError, ConnectionRefusedError) as e:
-            logger.error("%s at RunControl: %s", type(e), e)
-            self.RunControl = None
-        finally:
-            sys.path.pop(0)
+        self.update_gui_status()
 
     def load_config_settings(self):
         """
@@ -779,25 +745,8 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_preset_list()
 
     def find_database_dict(self) -> dict:
-        """
-        Retrieve the device/variable database dictionary for the experiment.
-
-        Returns
-        -------
-        dict
-            A mapping of devices to available variables.
-        """
-        if self.RunControl is not None:
-            return self.RunControl.get_database_dict()
-        else:
-            try:
-                self.database_lookup.reload(experiment_name=self.experiment)
-                return self.database_lookup.get_database()
-            except Exception as e:  # broad, per original
-                logger.warning(
-                    "Error occurred when retrieving database dictionary: %s", e
-                )
-                return {}
+        """Retrieve the device/variable database dictionary for the experiment."""
+        return self.controller.get_database_dict(self.experiment)
 
     def update_repetition_rate(self):
         """
@@ -1051,13 +1000,14 @@ class GEECSScannerWindow(QMainWindow):
         self.multiscanner_window = MultiScanner(self, preset_folder)
         self.multiscanner_window.show()
 
-        self.is_in_multiscan = True
+        self.controller.is_in_multiscan = True
         self.update_gui_status()
 
     def exit_multiscan_mode(self):
         """Exit Multiscan mode and clear the multiscanner reference."""
-        self.is_in_multiscan = False
+        self.controller.is_in_multiscan = False
         self.multiscanner_window = None
+        self.update_gui_status()
 
     def open_action_library(self):
         """Open the Action Library window and enter its mode."""
@@ -1070,7 +1020,7 @@ class GEECSScannerWindow(QMainWindow):
         )
         self.action_library_window.show()
 
-        self.is_in_action_library = True
+        self.controller.is_in_action_library = True
         self.update_gui_status()
 
     def refresh_action_control(self) -> Optional[ActionControl]:
@@ -1091,8 +1041,9 @@ class GEECSScannerWindow(QMainWindow):
 
     def exit_action_library(self):
         """Exit Action Library mode and clear its reference."""
-        self.is_in_action_library = False
+        self.controller.is_in_action_library = False
         self.action_library_window = None
+        self.update_gui_status()
 
     def open_scan_variable_editor(self):
         """Open the Scan Variable editor dialog."""
@@ -1477,7 +1428,7 @@ class GEECSScannerWindow(QMainWindow):
                     and self.RunControl is not None
                 ):
                     # Can't perform get command if scan is ongoing
-                    if self.RunControl.is_active() or self.is_starting:
+                    if self._scan_active or self.controller.is_starting:
                         self.ui.toolbuttonStepList.setToolTip("Check back after scan")
                         return
 
@@ -1869,172 +1820,30 @@ class GEECSScannerWindow(QMainWindow):
         return False
 
     def initialize_and_start_scan(self):
-        """
-        Compile GUI settings into a run configuration and submit the scan.
+        """Compile GUI settings into a run configuration and submit the scan."""
+        if self.check_for_errors():
+            return
 
-        Notes
-        -----
-        - Builds `run_config` from selected devices and actions.
-        - Constructs a `ScanConfig` based on selected mode.
-        - Submits to `RunControl` and updates GUI state accordingly.
-        """
-        if not self.check_for_errors():
-            # From the information provided in the GUI, create a scan configuration file and submit `scan_manager.py`
-            self.is_starting = True
-            self.ui.startScanButton.setEnabled(False)
-            self.ui.experimentDisplay.setEnabled(False)
-            self.ui.repititionRateDisplay.setEnabled(False)
-            self.ui.lineTimingDevice.setEnabled(False)
-            self.ui.startScanButton.setText("Starting...")
-            QApplication.processEvents()
+        self.controller.is_starting = True
+        self.ui.startScanButton.setEnabled(False)
+        self.ui.experimentDisplay.setEnabled(False)
+        self.ui.repititionRateDisplay.setEnabled(False)
+        self.ui.lineTimingDevice.setEnabled(False)
+        self.ui.startScanButton.setText("Starting...")
+        QApplication.processEvents()
 
-            # Resolve selected optimization config path (if optimization mode)
-            selected_opt_path = ""
-            if (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                try:
-                    selected_opt_path = (
-                        self.ui.comboOptimizationConfig.currentData() or ""
-                    )
-                except Exception:
-                    selected_opt_path = ""
+        config_data = self._collect_ui_scan_config()
+        if config_data is None:
+            self.controller.is_starting = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.experimentDisplay.setEnabled(True)
+            self.ui.repititionRateDisplay.setEnabled(True)
+            self.ui.lineTimingDevice.setEnabled(True)
+            return
 
-            save_device_list = {}
-            list_of_setup_steps = []
-            list_of_closeout_steps = []
-            for i in range(self.ui.selectedDevices.count()):
-                filename = self.app_paths.save_devices() / (
-                    self.ui.selectedDevices.item(i).text() + ".yaml"
-                )
-                try:
-                    new_element = read_yaml_file_to_dict(filename)
-                    self.combine_elements(save_device_list, new_element["Devices"])
-
-                    if "setup_action" in new_element:
-                        setup_action = new_element["setup_action"]
-                        list_of_setup_steps.extend(setup_action["steps"])
-
-                    if "closeout_action" in new_element:
-                        setup_action = new_element["closeout_action"]
-                        list_of_closeout_steps.extend(setup_action["steps"])
-
-                except FileNotFoundError:
-                    logger.error("FileNotFound Error: %s", filename)
-                    QMessageBox.warning(
-                        self,
-                        "Conflicting Save Elements",
-                        f"FileNotFound Error: {filename}",
-                        QMessageBox.Ok,
-                    )
-                    self.is_starting = False
-                    return
-
-                except ConflictingScanElements as e:
-                    logger.error("%s", e.message)
-                    QMessageBox.warning(
-                        self, "Conflicting Save Elements", e.message, QMessageBox.Ok
-                    )
-                    self.is_starting = False
-                    return
-
-            scan_information = {
-                "experiment": self.experiment,
-                "description": self.ui.textEditScanInfo.toPlainText().replace(
-                    "\n", " "
-                ),
-            }
-            if (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                try:
-                    scan_information = {
-                        "experiment": self.experiment,
-                        "description": self.ui.textEditScanInfo.toPlainText().replace(
-                            "\n", " "
-                        ),
-                    }
-                    if selected_opt_path:
-                        scan_information["optimization_config"] = selected_opt_path
-                except Exception:
-                    scan_information["optimization_config"] = (
-                        self.ui.comboOptimizationConfig.currentData()
-                        if hasattr(self.ui, "comboOptimizationConfig")
-                        else ""
-                    )
-
-            if self.ui.scanRadioButton.isChecked():
-                scan_variable_tag = self.read_device_tag_from_nickname(
-                    self.scan_variable
-                )
-                scan_config = ScanConfig(
-                    device_var=scan_variable_tag,
-                    start=self.scan_start,
-                    end=self.scan_stop,
-                    step=self.scan_step_size,
-                    wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
-                    scan_mode=ScanMode.STANDARD,
-                )
-            elif (
-                self.ui.noscanRadioButton.isChecked()
-                or self.ui.backgroundRadioButton.isChecked()
-            ):
-                scan_config = ScanConfig(
-                    wait_time=(self.noscan_num + 0.5) / self.repetition_rate,
-                    scan_mode=ScanMode.NOSCAN,
-                )
-
-            elif (
-                hasattr(self.ui, "optimizationRadioButton")
-                and self.ui.optimizationRadioButton.isChecked()
-            ):
-                # Optimization run: provide a minimal ScanConfig; the backend should inspect 'optimization_config' in scan_info
-                logger.info("ScanMode: %s", ScanMode)
-                try:
-                    scan_mode_opt = getattr(ScanMode, "OPTIMIZATION", ScanMode.NOSCAN)
-                except Exception:
-                    scan_mode_opt = ScanMode.NOSCAN
-                scan_config = ScanConfig(
-                    start=self.scan_start,
-                    end=self.scan_stop,
-                    step=self.scan_step_size,
-                    wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
-                    scan_mode=scan_mode_opt,
-                    optimizer_config_path=selected_opt_path,  # <- use the resolved path
-                )
-
-                # Attach selected optimization config path into scan_information (created below)
-                try:
-                    selected_opt_path = (
-                        self.ui.comboOptimizationConfig.currentData() or ""
-                    )
-                except Exception:
-                    selected_opt_path = ""
-                # We'll add to scan_information after it's created
-
-            else:
-                scan_config = None
-
-        scan_config.background = self.ui.backgroundRadioButton.isChecked()
-
-        scan_options = self._collect_options()
-
-        run_config = {
-            "Devices": save_device_list,
-            "scan_info": scan_information,
-        }
-
-        if list_of_setup_steps:
-            run_config["setup_action"] = {"steps": list_of_setup_steps}
-        if list_of_closeout_steps:
-            run_config["closeout_action"] = {"steps": list_of_closeout_steps}
-
-        exec_config = ScanExecutionConfig.from_gui_dict(
-            run_config, scan_config, scan_options
-        )
-        success = self.RunControl.submit_run(exec_config=exec_config)
+        exec_config = self._build_exec_config(config_data)
+        success = self.controller.submit_scan(exec_config)
         if not success:
             sm = getattr(self.RunControl, "scan_manager", None)
             detail = getattr(sm, "last_reinit_error", None) or "Check log for details."
@@ -2043,8 +1852,146 @@ class GEECSScannerWindow(QMainWindow):
                 "Device Error",
                 f"Device reinitialization failed.\n\n{detail}",
             )
-        self.is_starting = False
+            self.controller.is_starting = False
+            self.ui.startScanButton.setText("Start Scan")
+            self.ui.startScanButton.setEnabled(True)
+            self.ui.experimentDisplay.setEnabled(True)
+            self.ui.repititionRateDisplay.setEnabled(True)
+            self.ui.lineTimingDevice.setEnabled(True)
+            return
+
         self.current_scan_number += 1
+        self.ui.stopScanButton.setEnabled(True)
+
+    def _collect_ui_scan_config(self) -> Optional[dict]:
+        """Read all UI widget values and load save element YAMLs.
+
+        Returns
+        -------
+        dict or None
+            Structured config data ready for ``_build_exec_config``, or ``None``
+            if a save element file is missing or there is a device conflict
+            (an error dialog is shown before returning ``None``).
+        """
+        selected_opt_path = ""
+        if (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+        ):
+            try:
+                selected_opt_path = self.ui.comboOptimizationConfig.currentData() or ""
+            except Exception:
+                selected_opt_path = ""
+
+        save_device_list: dict = {}
+        list_of_setup_steps: list = []
+        list_of_closeout_steps: list = []
+        for i in range(self.ui.selectedDevices.count()):
+            filename = self.app_paths.save_devices() / (
+                self.ui.selectedDevices.item(i).text() + ".yaml"
+            )
+            try:
+                new_element = read_yaml_file_to_dict(filename)
+                self.combine_elements(save_device_list, new_element["Devices"])
+                if "setup_action" in new_element:
+                    list_of_setup_steps.extend(new_element["setup_action"]["steps"])
+                if "closeout_action" in new_element:
+                    list_of_closeout_steps.extend(
+                        new_element["closeout_action"]["steps"]
+                    )
+            except FileNotFoundError:
+                logger.error("FileNotFound Error: %s", filename)
+                QMessageBox.warning(
+                    self,
+                    "Conflicting Save Elements",
+                    f"FileNotFound Error: {filename}",
+                    QMessageBox.Ok,
+                )
+                return None
+            except ConflictingScanElements as e:
+                logger.error("%s", e.message)
+                QMessageBox.warning(
+                    self, "Conflicting Save Elements", e.message, QMessageBox.Ok
+                )
+                return None
+
+        description = self.ui.textEditScanInfo.toPlainText().replace("\n", " ")
+        scan_information: dict = {
+            "experiment": self.experiment,
+            "description": description,
+        }
+        if (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+            and selected_opt_path
+        ):
+            scan_information["optimization_config"] = selected_opt_path
+
+        if self.ui.scanRadioButton.isChecked():
+            scan_variable_tag = self.read_device_tag_from_nickname(self.scan_variable)
+            scan_config = ScanConfig(
+                device_var=scan_variable_tag,
+                start=self.scan_start,
+                end=self.scan_stop,
+                step=self.scan_step_size,
+                wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
+                scan_mode=ScanMode.STANDARD,
+            )
+        elif (
+            self.ui.noscanRadioButton.isChecked()
+            or self.ui.backgroundRadioButton.isChecked()
+        ):
+            scan_config = ScanConfig(
+                wait_time=(self.noscan_num + 0.5) / self.repetition_rate,
+                scan_mode=ScanMode.NOSCAN,
+            )
+        elif (
+            hasattr(self.ui, "optimizationRadioButton")
+            and self.ui.optimizationRadioButton.isChecked()
+        ):
+            logger.info("ScanMode: %s", ScanMode)
+            try:
+                scan_mode_opt = getattr(ScanMode, "OPTIMIZATION", ScanMode.NOSCAN)
+            except Exception:
+                scan_mode_opt = ScanMode.NOSCAN
+            scan_config = ScanConfig(
+                start=self.scan_start,
+                end=self.scan_stop,
+                step=self.scan_step_size,
+                wait_time=(self.scan_shot_per_step + 0.5) / self.repetition_rate,
+                scan_mode=scan_mode_opt,
+                optimizer_config_path=selected_opt_path,
+            )
+        else:
+            scan_config = None
+
+        if scan_config is not None:
+            scan_config.background = self.ui.backgroundRadioButton.isChecked()
+
+        return {
+            "save_device_list": save_device_list,
+            "list_of_setup_steps": list_of_setup_steps,
+            "list_of_closeout_steps": list_of_closeout_steps,
+            "scan_information": scan_information,
+            "scan_config": scan_config,
+            "scan_options": self._collect_options(),
+        }
+
+    def _build_exec_config(self, config_data: dict) -> ScanExecutionConfig:
+        """Construct a ScanExecutionConfig from data collected by _collect_ui_scan_config."""
+        run_config = {
+            "Devices": config_data["save_device_list"],
+            "scan_info": config_data["scan_information"],
+        }
+        if config_data["list_of_setup_steps"]:
+            run_config["setup_action"] = {"steps": config_data["list_of_setup_steps"]}
+        if config_data["list_of_closeout_steps"]:
+            run_config["closeout_action"] = {
+                "steps": config_data["list_of_closeout_steps"]
+            }
+        return ScanExecutionConfig.from_gui_dict(
+            run_config, config_data["scan_config"], config_data["scan_options"]
+        )
 
     @staticmethod
     def combine_elements(dict_element1, dict_element2):
@@ -2131,13 +2078,13 @@ class GEECSScannerWindow(QMainWindow):
         if self.RunControl is None:
             return False
         else:
-            return not (self.RunControl.is_active() or self.is_starting)
+            return not (self._scan_active or self.controller.is_starting)
 
     def stop_scan(self):
-        """Request `RunControl` to stop the current scan and disable the button."""
+        """Request the scan engine to stop and disable the stop button."""
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
-        self.RunControl.stop_scan()
+        self.controller.stop_scan()
 
     # ------------------------------------------------------------------ #
     # Toolbar actions                                                    #

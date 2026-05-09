@@ -278,16 +278,32 @@ guaranteed shot count.
 8. `geecs_scanner/engine/models/scan_execution_config.py` — validated scan config model
 9. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
 
+## Current Direction: Decompose Phase
+
+The event stream, `DeviceCommandExecutor`, state machine, and `pyqtSignal` bridge
+are now in place.  The next work is to **remove complexity** using those structures,
+not add more.  See `Planning/STATUS.md` (in the repo root) for the ordered steps.
+
+Success criterion: every class can be described in one sentence without the word "and".
+
+The five decompose steps in order:
+1. **D1** — Behavioral tests for `DataLogger` (safety net before touching it)
+2. **D2** — Extract `FileMover` into its own module (`engine/file_mover.py`)
+3. **D3** — Extract `ScanLifecycleStateMachine` into `engine/lifecycle.py`
+4. **D4** — Make `ScanManager._start_scan()` readable via named phase methods
+5. **D5** — Remove the 200ms polling `QTimer` from `GEECSScannerWindow`
+
 ## Known Tech Debt
 
-- `on_device_error` attribute still exists on `ScanStepExecutor` and
-  `ScanDataManager` and is set by `ScanManager.__init__`, but is no longer
-  used internally — both classes now go through `cmd_executor`.  Safe to
-  remove in a follow-up cleanup.
-- `ScanManager` is still the largest single file (~1100 lines) and mixes
-  orchestration, state management, and lifecycle bookkeeping.  See ROADMAP.md
-  Block 5 for the planned state machine decomposition.
-- The `GeecsDevice` UDP listener raises `GeecsDeviceCommandFailed` in a
-  separate thread, so `device.set()` can silently return `None` on hardware
-  rejection.  Guarded in `scan_executor.py` with a `None` check, but the
-  root fix requires GeecsDevice API changes (see ROADMAP.md — API cleanup).
+- **Dead `on_device_error`**: `ScanManager.__init__` assigns it on `ScanStepExecutor`
+  and `ScanDataManager`; neither reads it (both use `cmd_executor`).  Remove during D4.
+- **`DataLogger` contains `FileMover`**: ~400 lines of worker-thread logic that
+  has no business living inside the logger.  Addressed by D2.
+- **`ScanManager` is still ~1100 lines**: mixes orchestration, state management,
+  device lifecycle, and scan math.  D3 extracts the state machine; D4 phases `_start_scan()`.
+- **200ms `QTimer` races with event handlers**: `update_gui_status()` still fires every
+  200ms even though events now drive the scan state.  Addressed by D5.
+- **DEBUG `logger.info` in `geecs_scanner.py`**: line ~1647 — remove when touching that file.
+- **`GeecsDevice` `None` return on hardware rejection**: `device.set()` can return `None`
+  when `GeecsDeviceCommandFailed` is raised in the UDP listener thread.  Guarded in
+  `scan_executor.py` with a `None` check; root fix requires API changes.

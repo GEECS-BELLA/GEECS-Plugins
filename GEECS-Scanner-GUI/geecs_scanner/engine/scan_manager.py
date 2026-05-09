@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import queue
 import threading
 import time
 import warnings
@@ -26,7 +25,7 @@ from .scan_events import (
     ScanDialogEvent,
     ScanErrorEvent,
     ScanEvent,
-    ScanLifecycleEvent,
+    ScanLifecycleEvent,  # noqa: F401 — re-exported for convenience
     ScanRestoreFailedEvent,
     ScanState,
     ScanStepEvent,  # noqa: F401 — re-exported for convenience
@@ -37,6 +36,8 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceInstantiationError,
 )
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.file_mover import FileMover
+from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
@@ -74,11 +75,6 @@ class ScanManager:
     optimizer : BaseOptimizer or None
     initialization_success : bool
     scan_config : ScanConfig
-    dialog_queue : queue.Queue[DialogRequest]
-        Worker threads post dialog requests here; the main-thread 200 ms timer drains it.
-    restore_failures : list[str]
-        Collected by restore_initial_state(); shown once by the main thread after the
-        scan thread exits (blocking in the scan thread would deadlock with join()).
     last_reinit_error : str or None
         Device name from the most recent GeecsDeviceInstantiationError, for the GUI dialog.
     """
@@ -124,16 +120,6 @@ class ScanManager:
 
         self.stop_scanning_thread_event = threading.Event()
 
-        # Queue for worker threads to request GUI dialogs on the main thread.
-        # See gui_dialogs.py and GEECSScannerWindow.update_gui_status().
-        self.dialog_queue: queue.Queue[DialogRequest] = queue.Queue()
-
-        # Failures collected by restore_initial_state() after the scan ends.
-        # Cannot show a blocking dialog there (scan thread would deadlock with
-        # stop_scanning_thread().join()).  The main thread reads this list once
-        # is_active() transitions to False and shows a one-shot warning.
-        self.restore_failures: list[str] = []
-
         # Set by reinitialize() when a GeecsDeviceInstantiationError occurs so
         # the GUI can include the device name in the error dialog.
         self.last_reinit_error: Optional[str] = None
@@ -143,6 +129,8 @@ class ScanManager:
 
         self.acquisition_time = 0
 
+        self._lifecycle = ScanLifecycleStateMachine(on_event=on_event)
+
         self.scanning_thread = None
 
         self.scan_step_start_time = 0
@@ -150,6 +138,7 @@ class ScanManager:
 
         self.initial_state = None
         self.scan_steps = []
+        self.file_mover: Optional[FileMover] = None
 
         self.pause_scan_event = threading.Event()
         self.pause_scan_event.set()  # Set to 'running' by default
@@ -194,6 +183,14 @@ class ScanManager:
             except Exception:
                 logger.debug("on_event callback raised; ignoring", exc_info=True)
 
+    def _set_state(self, new_state: ScanState, total_shots: int = 0) -> None:
+        self._lifecycle.set_state(new_state, total_shots)
+
+    @property
+    def current_state(self) -> ScanState:
+        """The current lifecycle state of the scan engine."""
+        return self._lifecycle.current_state
+
     # ------------------------------------------------------------------
     # Dialog bridge (worker → main thread)
     # ------------------------------------------------------------------
@@ -203,9 +200,10 @@ class ScanManager:
     ) -> bool:
         """Submit a device-error dialog request and block until the user responds.
 
-        Called from worker threads.  Puts a :class:`DialogRequest` on
-        ``self.dialog_queue`` and blocks until the main-thread GUI timer
-        drains it and the user clicks Continue or Abort.
+        Called from worker threads.  Emits a :class:`ScanDialogEvent` carrying
+        the :class:`DialogRequest`; the GUI's ``_on_dialog_event`` handler runs
+        the blocking dialog on the main thread and sets
+        ``request.response_event`` so this call can return.
 
         Parameters
         ----------
@@ -220,9 +218,13 @@ class ScanManager:
             ``True`` if the user chose Abort; ``False`` to continue.
         """
         request = DialogRequest(exc=exc, context=context)
+        self._set_state(ScanState.PAUSED_ON_ERROR)
         self._emit(ScanDialogEvent(request=request))
-        self.dialog_queue.put(request)
         request.response_event.wait()
+        if request.abort[0]:
+            self._set_state(ScanState.STOPPING)
+        else:
+            self._set_state(ScanState.RUNNING)
         return request.abort[0]
 
     def pause_scan(self):
@@ -317,14 +319,6 @@ class ScanManager:
         self.initialization_success = True
         return self.initialization_success
 
-    def trigger_off(self):
-        """Set trigger state to OFF."""
-        self.trigger_controller.trigger_off()
-
-    def trigger_on(self):
-        """Set trigger state to SCAN."""
-        self.trigger_controller.trigger_on()
-
     def is_scanning_active(self):
         """Return True if the scan thread is currently alive."""
         return bool(self.scanning_thread and self.scanning_thread.is_alive())
@@ -396,7 +390,7 @@ class ScanManager:
             return
 
         logger.info("Stopping the scanning thread...")
-        self._emit(ScanLifecycleEvent(state=ScanState.STOPPING))
+        self._set_state(ScanState.STOPPING)
         self.stop_scanning_thread_event.set()
 
     def _start_scan(self) -> pd.DataFrame:
@@ -405,40 +399,45 @@ class ScanManager:
             logger.error("initialization unsuccessful, cannot start a new scan session")
             return pd.DataFrame()
 
-        log_df = pd.DataFrame()
+        if not self._phase1_pre_scan():
+            return pd.DataFrame()
 
-        # ------------------------------------------------------------------ #
-        # Phase 1: before scan paths exist                                    #
-        # Disable the trigger and create the scan directory.  Any failure     #
-        # here means nothing has been committed — abort cleanly.              #
-        # ------------------------------------------------------------------ #
-        logger.debug(
-            "scan config getting sent to pre logging is this: %s", self.scan_config
-        )
+        scan_id, scan_dir = self._resolve_scan_id()
+        log_df = self._phase2_acquire(scan_id, scan_dir)
+
+        self.scanning_thread = None
+        self._set_state(ScanState.IDLE)
+        return log_df
+
+    def _phase1_pre_scan(self) -> bool:
+        """Disable trigger and create scan directory; return False on any failure."""
+        logger.debug("scan config: %s", self.scan_config)
         try:
             logger.debug("Turning off the trigger.")
-            self.trigger_off()
+            self.trigger_controller.trigger_off()
             self.scan_data_manager.initialize_scan_data_and_output_files()
         except Exception:
-            logger.exception("Pre-logging setup failed. Aborting scan.")
-            return pd.DataFrame()
+            logger.exception("Pre-scan setup failed. Aborting scan.")
+            return False
 
         if self.stop_scanning_thread_event.is_set():
             logger.info("Stop requested before scan directory was used; aborting.")
-            return pd.DataFrame()
+            return False
 
+        return True
+
+    def _resolve_scan_id(self) -> tuple:
+        """Derive the scan identifier and output directory from ScanDataManager."""
         scan_dir = str(self.scan_data_manager.scan_paths.get_folder())
         scan_id = getattr(self.scan_data_manager, "parsed_scan_string", None)
         if not scan_id:
             num = getattr(self.scan_data_manager, "scan_number_int", None)
             scan_id = f"Scan{int(num):03d}" if num is not None else "Scan-UNKNOWN"
+        return scan_id, scan_dir
 
-        # ------------------------------------------------------------------ #
-        # Phase 2: remaining prelogging + full scan lifecycle, all captured   #
-        # inside the per-scan log.  Aborts during setup are now visible in    #
-        # scan.log, not only in the global geecs_scanner.log.                 #
-        # stop_scan() is in the finally block so cleanup is always logged.    #
-        # ------------------------------------------------------------------ #
+    def _phase2_acquire(self, scan_id: str, scan_dir: str) -> pd.DataFrame:
+        """Run pre-logging, acquisition loop, and teardown inside the per-scan log."""
+        log_df = pd.DataFrame()
         with scan_log(scan_id=scan_id, scan_dir=scan_dir):
             _aborted = False
             try:
@@ -464,30 +463,30 @@ class ScanManager:
                 if self.scan_config:
                     self.estimate_acquisition_time()
                     logger.debug(
-                        "Estimated acquisition time based on scan config: %s seconds.",
-                        self.acquisition_time,
+                        "Estimated acquisition time: %s seconds.", self.acquisition_time
                     )
-                self._emit(
-                    ScanLifecycleEvent(
-                        state=ScanState.INITIALIZING,
-                        total_shots=int(
-                            self.acquisition_time * self.options.rep_rate_hz
-                        ),
-                    )
+                self._set_state(
+                    ScanState.INITIALIZING,
+                    total_shots=int(self.acquisition_time * self.options.rep_rate_hz),
                 )
                 logger.debug("scan options: %s", self.options)
 
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
 
-                self.results = self.data_logger.start_logging()
+                self.file_mover = FileMover()
+                self.file_mover.scan_number = self.data_logger.scan_number
+                self.file_mover.save_local = self.data_logger.save_local
+                self.results = self.data_logger.start_logging(
+                    file_mover=self.file_mover
+                )
 
                 if self.shot_control is not None:
                     self.synchronize_devices()
 
                 self.scan_data_manager.purge_all_local_save_dir()
 
-                self._emit(ScanLifecycleEvent(state=ScanState.RUNNING))
+                self._set_state(ScanState.RUNNING)
                 self.executor.execute_scan_loop(self.scan_steps)
 
                 logger.info("scan %s: completed normally", scan_id)
@@ -537,14 +536,9 @@ class ScanManager:
                         "Error during scan cleanup - attempting to continue"
                     )
 
-                self._emit(
-                    ScanLifecycleEvent(
-                        state=ScanState.ABORTED if _aborted else ScanState.DONE
-                    )
-                )
+                self._set_state(ScanState.ABORTED if _aborted else ScanState.DONE)
                 logger.info("scan %s: finished", scan_id)
 
-        self.scanning_thread = None
         return log_df
 
     def check_devices_in_standby_mode(self) -> bool:
@@ -636,7 +630,7 @@ class ScanManager:
             If the queue has not drained within *timeout* seconds.
         """
         join_thread = threading.Thread(
-            target=self.data_logger.file_mover.task_queue.join, daemon=True
+            target=self.file_mover.task_queue.join, daemon=True
         )
         join_thread.start()
         join_thread.join(timeout=timeout)
@@ -685,14 +679,14 @@ class ScanManager:
         )
         stop_saving_thread.start()
 
-        if self.data_logger.file_mover is not None:
+        if self.file_mover is not None:
             # Signal that the scan is no longer live so orphaned files
             # are no longer skipped during task processing.
-            self.data_logger.file_mover.scan_is_live = False
+            self.file_mover.scan_is_live = False
 
             # Re-queue tasks that failed during live acquisition (file may
             # not have been on disk yet when the worker first checked).
-            self.data_logger.file_mover._post_process_orphan_task()
+            self.file_mover._post_process_orphan_task()
             try:
                 self._join_file_mover_queue(timeout=30.0)
             except OrphanProcessingTimeout:
@@ -704,7 +698,7 @@ class ScanManager:
             if self.save_local:
                 # Sweep the filesystem for any remaining unmatched files
                 # and create new tasks for them based on the log DataFrame.
-                self.data_logger.file_mover._post_process_orphaned_files(
+                self.file_mover._post_process_orphaned_files(
                     log_df=log_df,
                     device_save_paths_mapping=self.scan_data_manager.device_save_paths_mapping,
                 )
@@ -716,8 +710,8 @@ class ScanManager:
                         "Some files may not have been moved — check the scan directory manually."
                     )
 
-            self.data_logger.file_mover.shutdown(wait=False)  # queue already drained
-            self.data_logger.file_mover = None
+            self.file_mover.shutdown(wait=False)  # queue already drained
+            self.file_mover = None
         else:
             logger.debug("Logging never started; skipping file-mover cleanup.")
 
@@ -1055,13 +1049,6 @@ class ScanManager:
         logger.debug("Estimated scan time: %s", total_time)
         self.acquisition_time = total_time
 
-    def estimate_current_completion(self):
-        """Return the fraction of the scan completed (0.0–1.0)."""
-        if self.acquisition_time == 0:
-            return 0
-        completion = self.data_logger.get_current_shot() / self.acquisition_time
-        return 1 if completion > 1 else completion
-
     def get_initial_state(self):
         """Return ``{device_var: current_value}`` for the scan variable before manipulation."""
         device_var = self.scan_config.device_var
@@ -1084,12 +1071,9 @@ class ScanManager:
     def restore_initial_state(self, initial_state):
         """Restore each device variable in *initial_state* to its pre-scan value.
 
-        Failures are collected into ``self.restore_failures`` rather than shown
-        immediately — blocking a dialog here would deadlock with
-        ``stop_scanning_thread().join()`` on the main thread.
+        Restore failures are emitted as :class:`ScanRestoreFailedEvent` s so the
+        GUI can accumulate them and show a summary on the DONE/ABORTED transition.
         """
-        self.restore_failures = []
-
         for device_var, value in initial_state.items():
             device_name, variable_name = device_var.split(":", 1)
 
@@ -1108,14 +1092,9 @@ class ScanManager:
                         value,
                         type(e).__name__,
                     )
-                    # Cannot block here — we're in the scan thread, and
-                    # stop_scanning_thread().join() on the main thread would
-                    # deadlock.  Collect the failure; the main thread will
-                    # show a summary once the scan thread has exited.
                     msg = (
                         f"{device_name}:{variable_name} → {value} ({type(e).__name__})"
                     )
-                    self.restore_failures.append(f"  • {msg}")
                     self._emit(ScanRestoreFailedEvent(device=device_name, message=msg))
                 except Exception:
                     logger.exception(

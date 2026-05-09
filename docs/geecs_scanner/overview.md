@@ -1,57 +1,58 @@
 # GEECS Scanner GUI
 
-The GEECS Scanner GUI is a Python-based data acquisition module that provides a flexible alternative to Master Control for data collection. Built with PyQt5, it offers a modular interface for experiment control with enhanced customization options.
+GEECS Scanner is a PyQt5 application for running data-acquisition scans on a GEECS-controlled experiment. It connects to GEECS devices, coordinates them through a scan, records per-shot data and image files into a structured scan folder, and surfaces the lifecycle through a typed event stream that drives both the GUI and any other listener.
 
-## Overview
+If you're new here, the [Tutorial](tutorial.md) walks through your first scan end to end.
 
-While Master Control scans save everything but can crash or slow down when any device encounters an error, the GEECS Scanner operates on an "opt-in" framework. This approach provides several advantages:
+## What it does
 
-- **Python Flexibility**: Easy to extend with additional features and automation
+A scan in this system is a coordinated sequence: set a device variable to a value, wait for some number of shots while logging per-shot data from every device you've selected, set the variable to the next value, repeat. The Scanner GUI lets you configure that sequence — what to scan, what to record, how long to wait at each step — and then runs it on a background thread while the GUI shows progress and surfaces any device errors that come up.
 
-### Key Features
+The supported scan modes are NOSCAN (record N shots at a fixed configuration), 1D scan (sweep one device variable across a range), background (a NOSCAN tagged for use as a calibration reference), and optimization (Xopt drives the scan variable and uses scan results as objective values).
 
-- **Scan Management**: Many of the standard scan modes (e.g. 'no scan', 1D parameter scans) with additional support for multi scan execution and optimization 'scans'.
+## What it gives you
 
-- **Composite Variables**: Combine multiple device parameters into single scan variables using arbitrary mathematical relations.
+- **Save elements.** Lists of devices and the variables you want recorded for them, written as YAML files. You compose them at scan time — the scanner merges the lists, validates compatibility, and configures every selected device to publish its variables for the duration of the scan. See [Save Elements](save_elements.md).
+- **Composite scan variables.** Combine multiple device parameters into a single scan variable using arbitrary mathematical relations. The composite gets one entry in the GUI; under the hood the engine moves the underlying devices in lockstep.
+- **Pre/post-scan action sequences.** A YAML-defined sequence of steps (set variable, wait, run nested action) that runs before the scan starts and after it ends. Used for calibration, gating, and "leave it as you found it" closeouts. See [Save Elements — Action Sequences](save_elements.md#action-sequences).
+- **Multi-scanner.** Queue up several scans with different configurations and run them as a batch. Each one writes its own scan folder.
+- **Optimization.** An optimization scan replaces the fixed step list with an Xopt-driven generator. Each iteration takes the latest scan result, computes an objective via a registered evaluator, and proposes the next set of variable values. See the [Optimization Example](examples/optimization/optimization_example.ipynb).
+- **Scripted access.** The engine (`geecs_scanner.engine.ScanManager`) is independent of Qt; you can run a scan from a Python script without launching the GUI.
 
-- **Automated Actions**: Pre and post-scan automation sequences using user defined action sequences allow complex configuration changes before/after scans.
+## Where things live
 
-- **Timing and Synchronization**: Data synchronization handled through hardware timestamps rather than shot number.
+The package splits cleanly along the GUI/engine line:
 
-- **Configuration GUIs**: GUIs available to create the necessary config files (e.g. 'save devices', 'multi scan', etc.)
+- `geecs_scanner.app` — the PyQt5 layer: main window, save-element editor, multiscanner, action library editor. Imports Qt; depends on the engine through one adapter (`RunControl`).
+- `geecs_scanner.engine` — the headless scan execution core: `ScanManager`, `ScanStepExecutor`, `DataLogger`, `FileMover`, `TriggerController`, `DeviceCommandExecutor`, `ScanLifecycleStateMachine`. No Qt imports.
+- `geecs_scanner.engine.models` — Pydantic models for the GUI→engine contract: `ScanExecutionConfig`, `ScanOptions`, `SaveDeviceConfig`, action step types.
+- `geecs_scanner.engine.scan_events` — the typed `ScanEvent` hierarchy. The single contract between the engine and any consumer (GUI, remote monitor, log writer, test harness).
+- `geecs_scanner.utils` — shared exception hierarchy, retry helper, application paths.
 
-## Architecture
+The [Architecture page](architecture.md) goes into the lifecycle, event flow, and design rationale. It's worth reading once if you plan to extend the scanner; it's not required reading to use it.
 
-The GUI is organized into several core components:
+## Getting started
 
-- **Main Window** (`GEECSScanner.py`): Primary interface for scan configuration
-- **Run Control** (`RunControl.py`): Interface between GUI and backend scan management
-- **Element Editor**: Device and action configuration interface
-- **Multi-Scanner**: Batch scan execution interface
-- **Backend Integration**: Uses `geecs_python_api` for device communication
+1. **Install** — see [Installation & Setup](installation.md). Python 3.10, Poetry, and access to the GEECS database are the prerequisites.
+2. **Run your first scan** — the [Tutorial](tutorial.md) walks through configuring an experiment, building a save element, and running a NOSCAN and a 1D scan.
+3. **Understand the data layout** — the [Scan Output Structure](scan_output_structure.md) page documents what's in a scan folder and how to load each file.
 
-## Use Cases
+## When something goes wrong
 
-The GEECS Scanner GUI is ideal for:
+The [Troubleshooting](troubleshooting.md) page is a starter index for the errors you're likely to see and what they usually mean. The scanner emits structured logs that pair with the `geecs-log-triage` tool — `triage` parses scan logs into a markdown summary that classifies errors by source.
 
-- Reliable, automated scanning with minimal intervention
-- Coordinated control of multiple experimental parameters
-- Custom scan patterns and automated sequences
-- Python-based extensibility for custom features
-- Paramter optimization using [Xopt](https://xopt.xopt.org/)
+## Documentation map
 
-## Getting Started
-
-1. **Installation**: Follow the [Installation & Setup](installation.md) guide
-2. **Configuration**: Set up experiment configuration and timing
-3. **Tutorial**: Work through the [Tutorial](tutorial.md) for hands-on learning
-4. **Advanced Usage**: Explore multi-scanning and custom actions
-
-## Related Documentation
-
-- [Installation & Setup](installation.md) - Detailed setup instructions
-- [Tutorial](tutorial.md) - Step-by-step usage guide
+| If you're trying to... | Read |
+|---|---|
+| Run your first scan | [Installation](installation.md) → [Tutorial](tutorial.md) |
+| Add a new device to a scan | [Save Elements](save_elements.md) |
+| Find a recorded data file | [Scan Output Structure](scan_output_structure.md) |
+| Diagnose a failed scan | [Troubleshooting](troubleshooting.md) |
+| Write a custom evaluator or analyzer | [Extending the Scanner](extending.md) |
+| Understand the engine internals | [Architecture](architecture.md) |
+| Run an optimization scan | [Optimization Example](examples/optimization/optimization_example.ipynb) |
 
 ---
 
-*Originally developed for HTU but designed to be generally usable by any experiment using the GEECS/Master Control environment.*
+*Originally developed for the HTU experiment, now used across BELLA. Designed to be portable to any GEECS-based experiment with minimal configuration.*

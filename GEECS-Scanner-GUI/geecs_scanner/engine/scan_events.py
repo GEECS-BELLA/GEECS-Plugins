@@ -1,19 +1,7 @@
-"""Typed scan event hierarchy and ScanState enum (Block 6).
+"""Typed scan event hierarchy and ScanState enum.
 
 Every state transition and device command outcome in the scan engine emits one
 of these events via the ``on_event`` callback injected into :class:`ScanManager`.
-The GUI is not wired yet — Block 7 replaces the 200 ms polling timer with
-event consumption.
-
-Contract for Block 7
---------------------
-The full set of state the GUI currently polls from the engine every 200 ms:
-
-- ``is_scanning_active()``       → :class:`ScanLifecycleEvent` (RUNNING / DONE / ABORTED)
-- ``is_stopping()``              → :class:`ScanLifecycleEvent` (STOPPING)
-- ``estimate_current_completion()`` → :class:`ScanStepEvent` (shots_completed / total_shots)
-- ``sm.restore_failures``        → :class:`ScanRestoreFailedEvent` accumulated until DONE
-- ``sm.dialog_queue``            → :class:`ScanDialogEvent` replaces the queue in Block 7
 
 The event sequence for a successful 1D scan looks like::
 
@@ -46,15 +34,12 @@ class ScanState(str, enum.Enum):
     """Lifecycle state of a scan.
 
     Inherits ``str`` so values serialise naturally to JSON / log messages.
-
-    ``PAUSED_ON_ERROR`` is reserved for Block 8 (operator intervention UI) and
-    intentionally absent here — adding it requires the UI that can respond to
-    it, and Block 6 is engine-only.
     """
 
     IDLE = "idle"
     INITIALIZING = "initializing"
     RUNNING = "running"
+    PAUSED_ON_ERROR = "paused_on_error"
     STOPPING = "stopping"
     DONE = "done"
     ABORTED = "aborted"
