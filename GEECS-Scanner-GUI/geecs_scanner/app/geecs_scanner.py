@@ -55,7 +55,7 @@ from ..utils import ApplicationPaths as AppPaths, module_open_folder as of
 from ..utils.exceptions import ConflictingScanElements, ActionError
 from geecs_data_utils import ScanConfig, ScanMode
 
-from geecs_scanner.app.app_controller import AppController
+from geecs_scanner.engine import DatabaseDictLookup
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
@@ -114,11 +114,6 @@ class GEECSScannerWindow(QMainWindow):
 
     # Thread-safe bridge: scan thread emits events → main-thread slot handles them.
     _scan_event_received = pyqtSignal(object)
-
-    @property
-    def RunControl(self) -> Optional["RunControl"]:
-        """Delegate RunControl access to AppController."""
-        return self.controller.run_control
 
     def __init__(self):
         super().__init__()
@@ -210,11 +205,9 @@ class GEECSScannerWindow(QMainWindow):
             self.load_config_settings()
 
         # Initializes run control if possible (interface to scan_manager and data_acquisition)
+        self.RunControl: Optional[RunControl] = None
+        self.database_lookup = DatabaseDictLookup()
         self.app_paths: Optional[AppPaths] = None
-        self.controller = AppController(
-            on_scan_event=self._scan_event_received.emit,
-            unit_test_mode=self.unit_test_mode,
-        )
         self.reinitialize_run_control()
 
         # Default values for the line edits
@@ -239,7 +232,9 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.buttonUpdateConfig.clicked.connect(self.reset_config_file)
 
         # Button to launch the multiscanner and action library widgets
+        self.is_in_multiscan = False
         self.ui.buttonLaunchMultiScan.clicked.connect(self.open_multiscanner)
+        self.is_in_action_library = False
         self.ui.buttonActionLibrary.clicked.connect(self.open_action_library)
 
         # Line edit for the experiment display
@@ -322,6 +317,7 @@ class GEECSScannerWindow(QMainWindow):
         self.ui.presetDeleteButton.clicked.connect(self.delete_selected_preset)
 
         # Start/Stop
+        self.is_starting = False
         self._scan_active = False  # True while scan thread is RUNNING/PAUSED_ON_ERROR
         self._total_shots = 0  # Cached from ScanLifecycleEvent(INITIALIZING)
         self._restore_failure_messages: list[str] = []
@@ -471,15 +467,15 @@ class GEECSScannerWindow(QMainWindow):
             return
 
         enable_buttons = True
-        if self.controller.is_in_multiscan:
+        if self.is_in_multiscan:
             self.ui.scanStatusIndicator.setStyleSheet("background-color: blue;")
             self.ui.startScanButton.setEnabled(False)
             enable_buttons = False
         self.ui.buttonLaunchMultiScan.setEnabled(self.ui.startScanButton.isEnabled())
 
-        if self.controller.is_in_action_library:
+        if self.is_in_action_library:
             enable_buttons = False
-        self.ui.buttonActionLibrary.setEnabled(not self.controller.is_in_action_library)
+        self.ui.buttonActionLibrary.setEnabled(not self.is_in_action_library)
 
         self.ui.experimentDisplay.setEnabled(enable_buttons)
         self.ui.repititionRateDisplay.setEnabled(enable_buttons)
@@ -505,7 +501,7 @@ class GEECSScannerWindow(QMainWindow):
     def _on_lifecycle_event(self, event: ScanLifecycleEvent) -> None:
         state = event.state
         if state == ScanState.INITIALIZING:
-            self.controller.is_starting = False
+            self.is_starting = False
             self._total_shots = event.total_shots
             self.ui.startScanButton.setText("Starting...")
             self.ui.startScanButton.setEnabled(False)
@@ -560,23 +556,89 @@ class GEECSScannerWindow(QMainWindow):
     # ------------------------------------------------------------------ #
 
     def reinitialize_run_control(self):
-        """Reinitialize RunControl when experiment or shot control changes."""
-        if not self.experiment:
+        """
+        Reinitialize `RunControl` when experiment or shot control changes.
+
+        Notes
+        -----
+        - Updates the user's config file if necessary (when not in test mode).
+        - Attempts to instantiate `RunControl`; logs errors on failure.
+        """
+        if self.experiment is None or self.experiment == "":
             logger.warning("No experiment selected")
+            self.RunControl = None
             self.app_paths = None
-            self.controller.reinitialize_run_control("", "", None)
             self.update_gui_status()
             return
 
         logger.info("Reinitialization of Run Control")
+
+        # Do not change application paths or write to config if in unit test mode
         if not self.unit_test_mode:
             self.app_paths = AppPaths(experiment=self.experiment)
 
-        self.controller.reinitialize_run_control(
-            self.experiment,
-            self.timing_configuration_name,
-            self.app_paths,
+            # Before initializing, rewrite config file if experiment name or timing configuration changed
+            config = configparser.ConfigParser()
+            config.read(AppPaths.config_file())
+
+            do_write = False
+            if config["Experiment"]["expt"] != self.experiment:
+                logger.info("Experiment name changed, rewriting config file")
+                config.set("Experiment", "expt", self.experiment)
+                do_write = True
+
+            if (not config.has_option("Experiment", "timing_configuration")) or config[
+                "Experiment"
+            ]["timing_configuration"] != self.timing_configuration_name:
+                logger.info("Timing configuration changed, rewriting config file")
+                config.set(
+                    "Experiment", "timing_configuration", self.timing_configuration_name
+                )
+                do_write = True
+
+            if do_write:
+                with open(AppPaths.config_file(), "w") as file:
+                    config.write(file)
+
+        shot_control_path = self.app_paths.shot_control() / (
+            self.timing_configuration_name + ".yaml"
         )
+        if not shot_control_path.exists():
+            shot_control_path = None
+
+        try:
+            module_path = Path(__file__).parent / "run_control.py"
+            sys.path.insert(0, str(module_path.parent))
+            run_control_class = getattr(
+                importlib.import_module("run_control"), "RunControl"
+            )
+            self.RunControl = run_control_class(
+                experiment_name=self.experiment,
+                shot_control_configuration=shot_control_path,
+                on_event=self._scan_event_received.emit,
+            )
+
+        except AttributeError:
+            logger.error(
+                "AttributeError at RunControl: presumably because the entered experiment is not in the GEECS database"
+            )
+            self.RunControl = None
+        except KeyError:
+            logger.error(
+                "KeyError at RunControl: presumably because no GEECS Database is connected to located devices"
+            )
+            self.RunControl = None
+        except ValueError:
+            logger.error(
+                "ValueError at RunControl: presumably because no experiment name or shot control given"
+            )
+            self.RunControl = None
+        except (ConnectionError, ConnectionRefusedError) as e:
+            logger.error("%s at RunControl: %s", type(e), e)
+            self.RunControl = None
+        finally:
+            sys.path.pop(0)
+
         self.update_gui_status()
 
     def load_config_settings(self):
@@ -745,8 +807,25 @@ class GEECSScannerWindow(QMainWindow):
             self.populate_preset_list()
 
     def find_database_dict(self) -> dict:
-        """Retrieve the device/variable database dictionary for the experiment."""
-        return self.controller.get_database_dict(self.experiment)
+        """
+        Retrieve the device/variable database dictionary for the experiment.
+
+        Returns
+        -------
+        dict
+            A mapping of devices to available variables.
+        """
+        if self.RunControl is not None:
+            return self.RunControl.get_database_dict()
+        else:
+            try:
+                self.database_lookup.reload(experiment_name=self.experiment)
+                return self.database_lookup.get_database()
+            except Exception as e:  # broad, per original
+                logger.warning(
+                    "Error occurred when retrieving database dictionary: %s", e
+                )
+                return {}
 
     def update_repetition_rate(self):
         """
@@ -1000,12 +1079,12 @@ class GEECSScannerWindow(QMainWindow):
         self.multiscanner_window = MultiScanner(self, preset_folder)
         self.multiscanner_window.show()
 
-        self.controller.is_in_multiscan = True
+        self.is_in_multiscan = True
         self.update_gui_status()
 
     def exit_multiscan_mode(self):
         """Exit Multiscan mode and clear the multiscanner reference."""
-        self.controller.is_in_multiscan = False
+        self.is_in_multiscan = False
         self.multiscanner_window = None
         self.update_gui_status()
 
@@ -1020,7 +1099,7 @@ class GEECSScannerWindow(QMainWindow):
         )
         self.action_library_window.show()
 
-        self.controller.is_in_action_library = True
+        self.is_in_action_library = True
         self.update_gui_status()
 
     def refresh_action_control(self) -> Optional[ActionControl]:
@@ -1041,7 +1120,7 @@ class GEECSScannerWindow(QMainWindow):
 
     def exit_action_library(self):
         """Exit Action Library mode and clear its reference."""
-        self.controller.is_in_action_library = False
+        self.is_in_action_library = False
         self.action_library_window = None
         self.update_gui_status()
 
@@ -1428,7 +1507,7 @@ class GEECSScannerWindow(QMainWindow):
                     and self.RunControl is not None
                 ):
                     # Can't perform get command if scan is ongoing
-                    if self._scan_active or self.controller.is_starting:
+                    if self._scan_active or self.is_starting:
                         self.ui.toolbuttonStepList.setToolTip("Check back after scan")
                         return
 
@@ -1824,7 +1903,7 @@ class GEECSScannerWindow(QMainWindow):
         if self.check_for_errors():
             return
 
-        self.controller.is_starting = True
+        self.is_starting = True
         self.ui.startScanButton.setEnabled(False)
         self.ui.experimentDisplay.setEnabled(False)
         self.ui.repititionRateDisplay.setEnabled(False)
@@ -1834,7 +1913,7 @@ class GEECSScannerWindow(QMainWindow):
 
         config_data = self._collect_ui_scan_config()
         if config_data is None:
-            self.controller.is_starting = False
+            self.is_starting = False
             self.ui.startScanButton.setText("Start Scan")
             self.ui.startScanButton.setEnabled(True)
             self.ui.experimentDisplay.setEnabled(True)
@@ -1843,7 +1922,7 @@ class GEECSScannerWindow(QMainWindow):
             return
 
         exec_config = self._build_exec_config(config_data)
-        success = self.controller.submit_scan(exec_config)
+        success = self.RunControl.submit_run(exec_config=exec_config)
         if not success:
             sm = getattr(self.RunControl, "scan_manager", None)
             detail = getattr(sm, "last_reinit_error", None) or "Check log for details."
@@ -1852,7 +1931,7 @@ class GEECSScannerWindow(QMainWindow):
                 "Device Error",
                 f"Device reinitialization failed.\n\n{detail}",
             )
-            self.controller.is_starting = False
+            self.is_starting = False
             self.ui.startScanButton.setText("Start Scan")
             self.ui.startScanButton.setEnabled(True)
             self.ui.experimentDisplay.setEnabled(True)
@@ -2078,13 +2157,13 @@ class GEECSScannerWindow(QMainWindow):
         if self.RunControl is None:
             return False
         else:
-            return not (self._scan_active or self.controller.is_starting)
+            return not (self._scan_active or self.is_starting)
 
     def stop_scan(self):
-        """Request the scan engine to stop and disable the stop button."""
+        """Request `RunControl` to stop the current scan and disable the button."""
         self.ui.stopScanButton.setEnabled(False)
         QApplication.processEvents()
-        self.controller.stop_scan()
+        self.RunControl.stop_scan()
 
     # ------------------------------------------------------------------ #
     # Toolbar actions                                                    #
