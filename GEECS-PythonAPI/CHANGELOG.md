@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] — 2026-05-11
+
+### Fixed
+- `GeecsDatabase._get_db()`: added `use_pure=True` to `mysql.connector.connect()`.
+  The `mysql-connector-python` 9.x C extension DLL crashes silently on Windows,
+  killing the process before any Python exception can be raised. The pure Python
+  connector is functionally identical for all queries this codebase makes and is
+  safe on all platforms.
+
 ## [0.5.0] — 2026-05-11
 
 ### Changed
