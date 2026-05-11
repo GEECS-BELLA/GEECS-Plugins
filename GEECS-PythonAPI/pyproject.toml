@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-pythonapi"
-version = "0.4.2"
+version = "0.4.3"
 description = "Python interface to GEECS control system"
 authors = ["Guillaume Plateau <guillaume.plateau@tausystems.com>", "Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -29,7 +29,7 @@ screeninfo = "^0.8.1"
 # other
 python-dotenv = "^1.0.0"
 progressbar2 = "^4.2.0"
-mysql-connector-python = "^8.2.0"
+mysql-connector-python = "^9.7.0"
 
 # internal libraries
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }

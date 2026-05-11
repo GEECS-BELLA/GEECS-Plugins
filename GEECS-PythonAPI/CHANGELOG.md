@@ -3,6 +3,12 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.3] — 2026-05-11
+
+### Changed
+- `pyproject.toml`: bump `mysql-connector-python` from `^8.2.0` to `^9.7.0` to
+  align with `GeecsBluesky` and make the full monorepo co-installable.
+
 ## [0.4.2] — 2026-05-08
 
 ### Removed
