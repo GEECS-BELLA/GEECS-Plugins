@@ -313,7 +313,7 @@ class ConfigEditorWindow(QMainWindow):
         edit_menu.addAction(self._validate_action)
 
         # --- View menu ---
-        view_menu = menubar.addMenu("&View")
+        view_menu = menubar.addMenu("&Tools")
 
         self._toggle_yaml_action = QAction("Toggle YAML &Preview", self)
         self._toggle_yaml_action.setCheckable(True)

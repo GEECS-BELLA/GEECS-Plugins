@@ -15,6 +15,8 @@ from typing import Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
     QAction,
+    QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -24,7 +26,6 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
-    QComboBox,
     QVBoxLayout,
     QWidget,
 )
@@ -58,10 +59,14 @@ class FileListPanel(QWidget):
         Emitted with the full path when a config file is selected.
     configCreated(Path)
         Emitted when a new config file is created.
+    directoryChanged(Path)
+        Emitted when the config directory changes (via *Browse…* or
+        :meth:`set_config_dir`).
     """
 
     configSelected = pyqtSignal(Path)
     configCreated = pyqtSignal(Path)
+    directoryChanged = pyqtSignal(Path)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -81,11 +86,16 @@ class FileListPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        # Directory label
+        # Top row: Browse button + path label
+        top_row = QHBoxLayout()
+        self._browse_btn = QPushButton("Browse...")
+        top_row.addWidget(self._browse_btn)
+
         self._dir_label = QLabel("No directory selected")
         self._dir_label.setWordWrap(True)
         self._dir_label.setStyleSheet("color: gray; font-size: 11px;")
-        layout.addWidget(self._dir_label)
+        top_row.addWidget(self._dir_label, stretch=1)
+        layout.addLayout(top_row)
 
         # Category selector for Scan Analysis mode
         self._category_selector = QComboBox()
@@ -122,6 +132,7 @@ class FileListPanel(QWidget):
 
     def _connect_signals(self) -> None:
         """Wire up internal signals and slots."""
+        self._browse_btn.clicked.connect(self._on_browse_clicked)
         self._filter_edit.textChanged.connect(self._on_filter_changed)
         self._list_widget.currentItemChanged.connect(self._on_item_selected)
         self._list_widget.customContextMenuRequested.connect(self._on_context_menu)
@@ -158,15 +169,9 @@ class FileListPanel(QWidget):
             Directory containing YAML configuration files.
         """
         self._config_dir = dir_path
-
-        # Truncate long paths for display
-        dir_str = str(dir_path)
-        if len(dir_str) > 50:
-            dir_str = "..." + dir_str[-47:]
-        self._dir_label.setText(dir_str)
-        self._dir_label.setToolTip(str(dir_path))
-
+        self._update_path_label()
         self.refresh()
+        self.directoryChanged.emit(dir_path)
 
     def refresh(self) -> None:
         """Reload the file list from the current directory.
@@ -253,8 +258,36 @@ class FileListPanel(QWidget):
         return self._config_dir
 
     # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _update_path_label(self) -> None:
+        """Refresh the directory label text and tooltip."""
+        if self._config_dir is None:
+            self._dir_label.setText("No directory selected")
+            self._dir_label.setToolTip("")
+            return
+
+        dir_str = str(self._config_dir)
+        if len(dir_str) > 50:
+            dir_str = "..." + dir_str[-47:]
+        self._dir_label.setText(dir_str)
+        self._dir_label.setToolTip(str(self._config_dir))
+
+    # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _on_browse_clicked(self) -> None:
+        """Open a directory picker and set the selected config directory."""
+        start_dir = str(self._config_dir) if self._config_dir else ""
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Select device config directory",
+            start_dir,
+        )
+        if chosen:
+            self.set_config_dir(Path(chosen))
 
     def _on_item_selected(
         self, current: QListWidgetItem, _previous: QListWidgetItem

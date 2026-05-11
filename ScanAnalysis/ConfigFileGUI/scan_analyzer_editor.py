@@ -337,6 +337,9 @@ class ScanAnalyzerEditorPanel(QWidget):
         # id
         self._id_edit = QLineEdit()
         self._id_edit.setPlaceholderText("Unique analyzer identifier")
+        self._id_edit.setToolTip(
+            "Should match the YAML filename (without .yaml extension)"
+        )
         self._id_edit.textChanged.connect(self._emit_changed)
         form.addRow("id:", self._id_edit)
 
@@ -532,8 +535,6 @@ class ScanAnalyzerEditorPanel(QWidget):
         # --- General ---
         if self._id_edit is not None:
             self._id_edit.setText(str(data.get("id", "")))
-            self._id_edit.setReadOnly(True)
-            self._id_edit.setStyleSheet("background-color: #f0f0f0;")
 
         if self._device_name_edit is not None:
             self._device_name_edit.setText(str(data.get("device_name", "")))
@@ -699,8 +700,6 @@ class ScanAnalyzerEditorPanel(QWidget):
     def set_new_mode(self, is_new: bool) -> None:
         """Set whether the editor is in new-config or edit-existing mode.
 
-        When *is_new* is ``False``, the ``id`` field becomes read-only.
-
         Parameters
         ----------
         is_new : bool
@@ -708,12 +707,6 @@ class ScanAnalyzerEditorPanel(QWidget):
             existing file.
         """
         self._is_new = is_new
-        if self._id_edit is not None:
-            self._id_edit.setReadOnly(not is_new)
-            if is_new:
-                self._id_edit.setStyleSheet("")
-            else:
-                self._id_edit.setStyleSheet("background-color: #f0f0f0;")
 
     def clear(self) -> None:
         """Reset all fields to their default values."""
@@ -724,8 +717,6 @@ class ScanAnalyzerEditorPanel(QWidget):
 
         if self._id_edit is not None:
             self._id_edit.clear()
-            self._id_edit.setReadOnly(False)
-            self._id_edit.setStyleSheet("")
 
         if self._device_name_edit is not None:
             self._device_name_edit.clear()
