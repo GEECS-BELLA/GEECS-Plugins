@@ -337,7 +337,9 @@ class ScanAnalyzerEditorPanel(QWidget):
         # id
         self._id_edit = QLineEdit()
         self._id_edit.setPlaceholderText("Unique analyzer identifier")
-        self._id_edit.setToolTip("Should match the filename (without extension)")
+        self._id_edit.setToolTip(
+            "Should match the YAML filename (without .yaml extension)"
+        )
         self._id_edit.textChanged.connect(self._emit_changed)
         form.addRow("id:", self._id_edit)
 

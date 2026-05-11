@@ -25,6 +25,7 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QMessageBox,
@@ -41,6 +42,8 @@ from .scan_config_io import (
     get_groups_file,
     list_analyzer_configs,
     list_experiment_configs,
+    load_analyzer_yaml,
+    save_analyzer_yaml,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,10 +108,15 @@ class ScanTreePanel(QWidget):
         self._tree.setColumnCount(1)
         layout.addWidget(self._tree, stretch=1)
 
-        # Bottom row: Refresh + New Config buttons
+        # Bottom row: Refresh + Rename + New Config buttons
         bottom_row = QHBoxLayout()
         self._refresh_btn = QPushButton("Refresh")
         bottom_row.addWidget(self._refresh_btn)
+
+        self._rename_btn = QPushButton("Rename…")
+        self._rename_btn.setToolTip("Rename the selected config file")
+        self._rename_btn.setEnabled(False)
+        bottom_row.addWidget(self._rename_btn)
 
         self._new_config_btn = QPushButton("New Config…")
         self._new_config_btn.setToolTip(
@@ -122,8 +130,10 @@ class ScanTreePanel(QWidget):
         """Wire up internal signals and slots."""
         self._browse_btn.clicked.connect(self._on_browse_clicked)
         self._refresh_btn.clicked.connect(self.refresh)
+        self._rename_btn.clicked.connect(self._on_rename_clicked)
         self._new_config_btn.clicked.connect(self._on_new_config_clicked)
         self._tree.itemClicked.connect(self._on_item_clicked)
+        self._tree.currentItemChanged.connect(self._on_current_item_changed)
 
     # ------------------------------------------------------------------
     # Public API
@@ -262,6 +272,105 @@ class ScanTreePanel(QWidget):
         file_path = Path(path_str)
         logger.debug("Tree item selected: %s (%s)", file_path, config_type)
         self.file_selected.emit(file_path, config_type)
+
+    def _on_current_item_changed(
+        self,
+        current: Optional[QTreeWidgetItem],
+        _previous: Optional[QTreeWidgetItem],
+    ) -> None:
+        """Enable or disable the Rename button based on the selected item.
+
+        The button is enabled only when a leaf item (file) is selected
+        and the file is *not* ``groups.yaml``.
+
+        Parameters
+        ----------
+        current : QTreeWidgetItem or None
+            The newly selected item, or ``None`` if the selection was
+            cleared.
+        _previous : QTreeWidgetItem or None
+            The previously selected item (unused).
+        """
+        if current is None:
+            self._rename_btn.setEnabled(False)
+            return
+
+        config_type = current.data(0, Qt.UserRole + 1)
+        # Enable only for analyzer or experiment leaf items
+        self._rename_btn.setEnabled(config_type in ("analyzer", "experiment"))
+
+    def _on_rename_clicked(self) -> None:
+        """Rename the currently selected config file.
+
+        Shows a text input dialog pre-populated with the current
+        filename stem.  On accept the file is renamed on disk, and for
+        analyzer configs the internal ``id`` field is updated to match.
+        """
+        item = self._tree.currentItem()
+        if item is None:
+            return
+
+        path_str = item.data(0, Qt.UserRole)
+        config_type = item.data(0, Qt.UserRole + 1)
+
+        if path_str is None or config_type not in ("analyzer", "experiment"):
+            return
+
+        old_path = Path(path_str)
+        old_stem = old_path.stem
+
+        new_stem, ok = QInputDialog.getText(
+            self,
+            "Rename Config",
+            "New filename (without .yaml):",
+            QLineEdit.Normal,
+            old_stem,
+        )
+        if not ok or not new_stem.strip():
+            return
+
+        new_stem = new_stem.strip()
+
+        # Prevent no-op rename
+        if new_stem == old_stem:
+            return
+
+        new_path = old_path.parent / f"{new_stem}.yaml"
+
+        # Check for existing file
+        if new_path.exists():
+            QMessageBox.warning(
+                self,
+                "File Exists",
+                f"A file named '{new_path.name}' already exists in\n{old_path.parent}",
+            )
+            return
+
+        # Perform the rename
+        try:
+            old_path.rename(new_path)
+        except OSError as exc:
+            QMessageBox.critical(
+                self,
+                "Rename Error",
+                f"Failed to rename file:\n{exc}",
+            )
+            return
+
+        # For analyzer configs, update the internal id field
+        if config_type == "analyzer":
+            try:
+                data = load_analyzer_yaml(new_path)
+                data["id"] = new_stem
+                save_analyzer_yaml(new_path, data)
+            except Exception as exc:
+                logger.warning("Renamed file but failed to update internal id: %s", exc)
+
+        logger.info("Renamed %s → %s", old_path.name, new_path.name)
+
+        # Refresh tree and emit selection for the renamed file
+        self._build_tree()
+        self.file_selected.emit(new_path, config_type)
 
     # ------------------------------------------------------------------
     # Helpers
