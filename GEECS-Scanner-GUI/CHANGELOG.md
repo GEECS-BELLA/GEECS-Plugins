@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] — 2026-05-11
+
+### Changed
+- **Python 3.11 now required.** `GeecsBluesky` (a hard dependency) requires
+  `>=3.11` via `ophyd-async`; the `pyproject.toml` constraint is updated to
+  reflect this. Users on 3.10 must upgrade before installing.
+
 ## [0.16.0] — 2026-05-08
 
 ### Changed — Bold Refactor: Delete and Extract

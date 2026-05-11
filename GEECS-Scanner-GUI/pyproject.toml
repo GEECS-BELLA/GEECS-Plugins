@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "geecs-scanner-gui"
-version = "0.16.0"
+version = "0.17.0"
 description = ""
 authors = ["Christopher Doss <CEDoss@lbl.gov>"]
 readme = "README.md"
 packages = [{include = "geecs_scanner"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.12"
+python = ">=3.11,<3.12"
 PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
 pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
