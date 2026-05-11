@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] — 2026-05-11
+
+### Fixed
+- `scan_device.py`: removed module-level `GeecsDatabase.collect_exp_info()` call
+  that opened a live MySQL connection at import time. On Windows lab machines this
+  caused a silent C-level crash in `mysql.connector` before the GUI could display.
+  `GeecsDevice.exp_info` is populated on demand by `DatabaseDictLookup.reload()`
+  before any `ScanDevice` is instantiated, so eager loading was redundant.
+- `scan_device.py`: removed now-unused `load_config` import.
+
 ## [0.5.0] — 2026-05-11
 
 ### Changed

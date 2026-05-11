@@ -8,20 +8,9 @@ from typing import Optional, Any, Dict, Union
 import time
 import numexpr as ne
 
-from geecs_python_api.controls.interface.geecs_database import (
-    GeecsDatabase,
-    load_config,
-)
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 logger = logging.getLogger(__name__)
-
-# Load experiment info globally
-try:
-    expt = load_config().get("Experiment", "expt")
-    GeecsDevice.exp_info = GeecsDatabase.collect_exp_info(expt)
-except AttributeError:
-    logger.exception("Could not load experiment info due to error in config.ini file")
 
 
 class CompositeDeviceError(Exception):
