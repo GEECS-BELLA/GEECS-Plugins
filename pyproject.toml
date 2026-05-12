@@ -44,6 +44,7 @@ markers = [
     "integration: requires external resources (data or hardware) — skipped in CI",
     "data: requires network-mounted GEECS data (combine with integration)",
     "hardware: requires live GEECS devices (combine with integration)",
+    "gui: requires a display and Qt — skipped in headless CI",
 ]
 # Exclude pre-existing test stubs that require optional/unavailable deps
 norecursedirs = [

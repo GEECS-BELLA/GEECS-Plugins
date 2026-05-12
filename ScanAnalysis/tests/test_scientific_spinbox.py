@@ -2,6 +2,7 @@
 
 Requires a QApplication (provided by the session-scoped ``qapp`` fixture
 in conftest.py).  Tests run headlessly via QT_QPA_PLATFORM=offscreen.
+Marked ``gui`` so they are skipped in headless CI environments without Qt.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ import pytest
 from PyQt5.QtGui import QValidator
 
 from ConfigFileGUI.field_widgets import ScientificDoubleSpinBox
+
+pytestmark = pytest.mark.gui
 
 
 @pytest.fixture
