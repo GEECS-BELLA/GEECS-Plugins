@@ -611,16 +611,29 @@ class ScanPaths:
 
         return ecs_file if ecs_file.exists() else None
 
-    def build_device_file_map(self, device: str, file_tail: str) -> dict[int, Path]:
+    def build_device_file_map(
+        self,
+        device: str,
+        file_tail: str,
+        *,
+        device_file_stem: Optional[str] = None,
+    ) -> dict[int, Path]:
         """
         Build a mapping from shot number to file path for a given device.
 
         Parameters
         ----------
         device : str
-            Device name (subfolder of scan directory).
+            Device name; also the subfolder of the scan directory containing
+            the files.
         file_tail : str
             Suffix and extension, e.g., '.png', '_avg.h5'.
+        device_file_stem : str, optional
+            Token used in the filename between ``Scan<NNN>_`` and ``_<shot>``.
+            Defaults to ``device``. Use this when the folder name and the
+            in-filename stem differ — for example, folder
+            ``U_BCaveMagSpec-interpSpec`` containing files named
+            ``Scan042_U_BCaveMagSpec_001.csv``.
 
         Returns
         -------
@@ -636,8 +649,9 @@ class ScanPaths:
             logger.warning(f"Device folder missing: {device_folder}")
             return {}
 
+        stem = device_file_stem if device_file_stem is not None else device
         pattern = re.compile(
-            rf"Scan\d{{3,}}_{re.escape(device)}_(\d{{3,}}){re.escape(file_tail)}$"
+            rf"Scan\d{{3,}}_{re.escape(stem)}_(\d{{3,}}){re.escape(file_tail)}$"
         )
 
         file_map = {}
@@ -737,21 +751,62 @@ class ScanPaths:
 
     @staticmethod
     def build_asset_filename(
-        *, scan: int, shot: int, device: str, ext: str, variant: Optional[str] = None
+        *,
+        scan: int,
+        shot: int,
+        device: str,
+        ext: str,
+        variant: Optional[str] = None,
+        device_file_stem: Optional[str] = None,
     ) -> str:
-        """Build canonical expected file naming."""
+        """Build canonical expected file naming.
+
+        Parameters
+        ----------
+        scan, shot
+            Scan and shot numbers.
+        device : str
+            Device name (also the in-filename stem unless overridden).
+        ext : str
+            File extension (with or without leading dot).
+        variant : str, optional
+            Variant segment appended after the shot index.
+        device_file_stem : str, optional
+            Token to use in the filename between ``Scan<NNN>_`` and
+            ``_<shot>``. Defaults to ``device``. Use this when the folder
+            name and the in-filename stem differ — for example, folder
+            ``U_BCaveMagSpec-interpSpec`` containing files named
+            ``Scan042_U_BCaveMagSpec_001.csv``.
+        """
         ext = ext.lstrip(".").lower()
         shot_str = ScanPaths._shot_str(shot)
         variant_seg = "" if not variant else f"{variant}"
-        return f"Scan{scan:03d}_{device}_{shot_str}{variant_seg}.{ext}"
+        stem = device_file_stem if device_file_stem is not None else device
+        return f"Scan{scan:03d}_{stem}_{shot_str}{variant_seg}.{ext}"
 
     def build_asset_path(
-        self, *, shot: int, device: str, ext: str, variant: Optional[str] = None
+        self,
+        *,
+        shot: int,
+        device: str,
+        ext: str,
+        variant: Optional[str] = None,
+        device_file_stem: Optional[str] = None,
     ) -> Path:
-        """Full expected path for one asset."""
+        """Full expected path for one asset.
+
+        ``device`` is the subfolder name. ``device_file_stem`` overrides the
+        in-filename token if it differs from the folder name (defaults to
+        ``device``). See :meth:`build_asset_filename` for details.
+        """
         tag = self.get_tag()
         fname = self.build_asset_filename(
-            scan=tag.number, shot=shot, device=device, ext=ext, variant=variant
+            scan=tag.number,
+            shot=shot,
+            device=device,
+            ext=ext,
+            variant=variant,
+            device_file_stem=device_file_stem,
         )
         return self.device_folder(device) / fname
 
