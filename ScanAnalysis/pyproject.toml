@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.3.0"
+version = "1.3.1"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
