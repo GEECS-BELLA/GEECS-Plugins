@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QCompleter,
     QDialog,
@@ -364,7 +364,14 @@ class AnalysisPreviewDialog(QDialog):
         ] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(parent=None)  # No parent → independent window
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         self._config_dir = config_dir
         self._get_current_config = get_current_config
         self._worker: Optional[AnalysisWorker] = None

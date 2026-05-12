@@ -810,6 +810,7 @@ class ConfigEditorWindow(QMainWindow):
             get_current_config=self.get_current_config_info,
             parent=self,
         )
+        self._preview_dialog = dlg  # prevent GC while open
         dlg.show()
 
     def closeEvent(self, event) -> None:
@@ -821,6 +822,8 @@ class ConfigEditorWindow(QMainWindow):
             The close event.
         """
         if self._check_unsaved_changes():
+            if hasattr(self, "_preview_dialog") and self._preview_dialog is not None:
+                self._preview_dialog.close()
             event.accept()
         else:
             event.ignore()
