@@ -10,9 +10,12 @@ from __future__ import annotations
 import math
 
 import pytest
-from PyQt5.QtGui import QValidator
 
-from ConfigFileGUI.field_widgets import ScientificDoubleSpinBox
+pytest.importorskip("PyQt5", reason="PyQt5 not installed — skipping gui tests")
+
+from PyQt5.QtGui import QValidator  # noqa: E402
+
+from ConfigFileGUI.field_widgets import ScientificDoubleSpinBox  # noqa: E402
 
 pytestmark = pytest.mark.gui
 
