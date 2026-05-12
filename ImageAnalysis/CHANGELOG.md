@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.4] — 2026-05-12
+
+### Changed
+- `data_1d_utils._read_csv` (and `_read_tsv` via delegation) now use
+  `numpy.loadtxt` instead of `numpy.genfromtxt`. NumPy 1.23+ ships a C-coded
+  parser for `loadtxt` that is ~10–20× faster on clean numeric tables.
+  Profiling against `Standard1DAnalyzer` / `LineAnalyzer` showed ~90% of
+  per-shot wallclock was inside `genfromtxt`; this swap removes that
+  bottleneck for multi-scan processing of 1D text-format data (notably
+  interpolated-spectrum files).
+
+  **Behavior note:** `loadtxt` is stricter on malformed rows — it raises
+  `ValueError` rather than substituting NaN. For clean processed spectra
+  this is the desired behavior; loud failures are preferred over silent
+  NaNs. Files with intentionally missing/non-numeric values that previously
+  parsed via `genfromtxt`'s coercion will now fail to load.
+
 ## [1.1.3] — 2026-05-06
 
 ### Fixed
