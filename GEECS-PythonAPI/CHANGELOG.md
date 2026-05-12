@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.2] — 2026-05-11
+
+### Fixed
+- `EventHandler.unregister` no longer warns when called on a known event with
+  an empty subscriber dict. The check `if not subs` was treating an empty `{}`
+  the same as a missing event; corrected to `if event_name not in self.events`
+  so the silent no-op matches the documented behaviour.
+
 ## [0.5.1] — 2026-05-11
 
 ### Fixed

@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.2] — 2026-05-11
+
+### Changed
+- `ActionManager.add_action` no longer emits a WARNING when overwriting an
+  existing action — this fires on every scan after the first and is expected
+  behaviour. Downgraded to INFO so it remains visible in scan logs.
+
 ## [0.17.1] — 2026-05-11
 
 ### Changed
