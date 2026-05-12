@@ -26,6 +26,32 @@ from geecs_scanner.utils.retry import retry
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class FileSavePolicy:
+    """File-saving behaviour for a device type."""
+
+    expected_files: int = 1
+    exact_name_match: bool = False
+    variant_suffixes: tuple[str, ...] = ()
+
+
+_DEFAULT_POLICY = FileSavePolicy()
+
+_DEVICE_TYPE_POLICY: dict[str, FileSavePolicy] = {
+    "FROG": FileSavePolicy(expected_files=2),
+    "PicoscopeV2": FileSavePolicy(expected_files=2),
+    "Thorlabs CCS175 Spectrometer": FileSavePolicy(expected_files=2),
+    "RohdeSchwarz_RTA4000": FileSavePolicy(expected_files=2),
+    "ThorlabsWFS": FileSavePolicy(expected_files=2),
+    "MagSpecCamera": FileSavePolicy(
+        exact_name_match=True, variant_suffixes=("-interp", "-interpSpec", "-interpDiv")
+    ),
+    "MagSpecStitcher": FileSavePolicy(
+        exact_name_match=True, variant_suffixes=("-interp", "-interpSpec", "-interpDiv")
+    ),
+}
+
+
 @dataclass
 class FileMoveTask:
     """Task definition for moving and renaming a device file after acquisition."""
@@ -125,9 +151,10 @@ class FileMover:
         shot_index = task.shot_index
 
         home_dir = source_dir.parent
+        policy = _DEVICE_TYPE_POLICY.get(device_type or "", _DEFAULT_POLICY)
 
         try:
-            if device_type in ["MagSpecStitcher", "MagSpecCamera"]:
+            if policy.exact_name_match:
                 variant_dirs = [
                     d
                     for d in home_dir.iterdir()
@@ -144,18 +171,7 @@ class FileMover:
                 f"Cannot read source directory {home_dir} for device {device_name}"
             ) from exc
 
-        if device_type in [
-            "PicoscopeV2",
-            "FROG",
-            "Thorlabs CCS175 Spectrometer",
-            "RohdeSchwarz_RTA4000",
-            "ThorlabsWFS",
-        ]:
-            expected_file_count = 2
-        elif device_type in ["MagSpecStitcher", "MagSpecCamera"]:
-            expected_file_count = 1
-        else:
-            expected_file_count = 1
+        expected_file_count = policy.expected_files
 
         if not self.save_local:
             time.sleep(0.1)
@@ -205,12 +221,8 @@ class FileMover:
 
                     self._move_file(task, file, variant.name)
 
-                    if device_type in ["MagSpecStitcher", "MagSpecCamera"]:
-                        task.suffix = "-interp"
-                        self._process_variant_file(task)
-                        task.suffix = "-interpSpec"
-                        self._process_variant_file(task)
-                        task.suffix = "-interpDiv"
+                    for suffix in policy.variant_suffixes:
+                        task.suffix = suffix
                         self._process_variant_file(task)
 
                     if task.files_found_so_far >= expected_file_count:
