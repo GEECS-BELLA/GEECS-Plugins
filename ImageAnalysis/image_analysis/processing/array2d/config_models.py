@@ -116,14 +116,18 @@ class BackgroundConfig(BaseModel):
         ),
     )
 
-    @field_validator("file_path")
-    def validate_file_path(cls, v, info):
-        """Validate file path when method is from_file."""
-        if hasattr(info, "data"):
-            method = info.data.get("method")
-            if method == BackgroundMethod.FROM_FILE and v is None:
-                raise ValueError('file_path required when method is "from_file"')
-        return v
+    @model_validator(mode="after")
+    def validate_background_source(self) -> "BackgroundConfig":
+        """Require file_path or background_scan_number when method is from_file."""
+        if (
+            self.method == BackgroundMethod.FROM_FILE
+            and self.file_path is None
+            and self.background_scan_number is None
+        ):
+            raise ValueError(
+                'file_path or background_scan_number required when method is "from_file"'
+            )
+        return self
 
 
 class CrosshairConfig(BaseModel):

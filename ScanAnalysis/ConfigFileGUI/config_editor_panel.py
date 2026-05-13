@@ -286,10 +286,12 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (read-only, derived from filename)
-        name_edit = QLineEdit(self._file_path.stem if self._file_path else "")
-        name_edit.setReadOnly(True)
-        name_edit.setStyleSheet("background-color: #f0f0f0;")
+        # Name (device/camera identifier — used as metric key prefix in results)
+        name_edit = QLineEdit(getattr(config, "name", "") or "")
+        name_edit.setPlaceholderText(
+            "Camera/device identifier (used as metric key prefix)"
+        )
+        name_edit.textChanged.connect(self._on_value_changed)
         top_layout.addRow("Name:", name_edit)
         self._top_widgets["name"] = name_edit
 
@@ -414,10 +416,12 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (read-only)
-        name_edit = QLineEdit(self._file_path.stem if self._file_path else "")
-        name_edit.setReadOnly(True)
-        name_edit.setStyleSheet("background-color: #f0f0f0;")
+        # Name (device/signal identifier — used as metric key prefix in results)
+        name_edit = QLineEdit(getattr(config, "name", "") or "")
+        name_edit.setPlaceholderText(
+            "Signal/device identifier (used as metric key prefix)"
+        )
+        name_edit.textChanged.connect(self._on_value_changed)
         top_layout.addRow("Name:", name_edit)
         self._top_widgets["name"] = name_edit
 

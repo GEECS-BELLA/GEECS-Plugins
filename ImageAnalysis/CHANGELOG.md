@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.4] — 2026-05-12
+
+### Fixed
+- `BackgroundConfig` now accepts `method="from_file"` with `background_scan_number`
+  set and no explicit `file_path`.  Previously the `@field_validator("file_path")`
+  ran before `background_scan_number` was validated (Pydantic processes fields
+  top-to-bottom), so it always raised an error when only a scan number was given.
+  Replaced with a `@model_validator(mode="after")` that checks both fields after
+  full model construction.
+
 ## [1.1.3] — 2026-05-06
 
 ### Fixed
