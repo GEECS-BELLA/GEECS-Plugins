@@ -70,11 +70,9 @@ class EventHandler:
 
     def unregister(self, event_name: str, subscriber_name: str) -> None:
         """Unregister a subscriber from an event (no-op if absent)."""
-        subs = self.events.get(event_name)
-        if not subs:
-            logger.warning("attempted to unregister from unknown event %s", event_name)
+        if event_name not in self.events:
             return
-        subs.pop(subscriber_name, None)
+        self.events[event_name].pop(subscriber_name, None)
         logger.debug('unregistered "%s" from event %s', subscriber_name, event_name)
 
     def unregister_all(self) -> None:

@@ -79,6 +79,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   delegates to `load_xopt_dump` from the new inspection module instead of inlining
   the parse logic.
 
+## [0.17.2] — 2026-05-11
+
+### Changed
+- `ActionManager.add_action` no longer emits a WARNING when overwriting an
+  existing action — this fires on every scan after the first and is expected
+  behaviour. Downgraded to INFO so it remains visible in scan logs.
+
+## [0.17.1] — 2026-05-11
+
+### Changed
+- **Improved scan log context**: shot control name/variables, full device list
+  (sync / non-scalar / async), estimated acquisition time, and scan options are
+  now logged at INFO level at the start of every scan log, making post-hoc
+  troubleshooting easier without changing the log file's INFO threshold.
+- **Clearer ECS dump messaging**: `generate_live_ECS_dump` now logs an INFO
+  line before attempting the MC command and a descriptive WARNING (naming the
+  MC IP) when the command goes unacknowledged, replacing the generic debug/warning
+  messages that gave no indication of what was failing or why.
+
 ## [0.17.0] — 2026-05-11
 
 ### Changed
