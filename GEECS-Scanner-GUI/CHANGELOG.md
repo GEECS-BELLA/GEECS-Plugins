@@ -3,6 +3,54 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] — 2026-05-13
+
+### Added
+
+- **`bayes_ucb_explore` generator** — UCB preset with default ``beta=10.0``.
+  As β grows, UCB's acquisition is dominated by predictive σ, so this
+  configuration approximates pure exploration on single-objective problems
+  (the surrogate-building workflow). xopt's own `BayesianExplorationGenerator`
+  does **not** support single-objective VOCS — it's for constraint /
+  observable exploration only — so a high-β UCB preset is the practical
+  alternative.
+- **`bayes_ucb` and `bayes_turbo_ucb` generators in `PREDEFINED_GENERATORS`.**
+  Upper Confidence Bound (`UpperConfidenceBoundGenerator`) wired into the
+  generator factory in two flavours: bare UCB and UCB inside a TuRBO trust
+  region. The `beta` parameter is overridable via the standard config dict
+  for both — `{"name": "bayes_ucb", "beta": 4.0}` for more exploration in
+  noisy regimes where EI flattens. Default `beta=2.0`. UCB stays peaked
+  under high observation noise where EI's improvement formulation goes
+  flat (because expected improvement collapses when σ_noise is comparable
+  to the objective signal range), making both UCB variants useful for
+  comparing acquisition behaviour on the same model and data.
+- **Inspection helpers promoted into `optimization/inspection`.**  The
+  visualization, slicing, and GP-introspection helpers that previously lived
+  inline in the example notebooks (`xopt_run_inspection.ipynb`,
+  `xopt_from_scans.ipynb`) are now first-class modules:
+  - `surfaces.evaluate_model_on_grid` — posterior mean/σ over a 2D slice of
+    an N-D model.
+  - `surfaces.acquisition_surface` — generator-specific acquisition surface
+    over the same 2D slice.
+  - `candidates.next_candidate` / `next_candidate_xy` — ask a generator for
+    its proposed next point, optionally projected to two named variables.
+  - `slicing.pick_top_varied_pair` / `best_observed_point` /
+    `resolve_slice_and_fixed` / `print_slice_summary` — choose which two
+    variables to slice over and how to pin the rest.
+  - `column_match.match_vocs_to_sfile_column` — alias-tolerant VOCS-to-s-file
+    column resolution.
+  - `hypers.gp_hypers` / `gp_summary` — read GP noise / lengthscale /
+    output-scale from any fitted xopt generator (handles `ModelListGP`).
+  All are re-exported from `geecs_scanner.optimization.inspection` so each
+  notebook collapses to a single import block.
+
+### Changed
+
+- **Inspection notebooks now import from the module.**  The three notebooks
+  under `docs/geecs_scanner/examples/optimization/` (xopt_run_inspection,
+  xopt_from_scans, magspec_objective_tuning) drop their inline copies of the
+  promoted helpers in favour of the module imports.
+
 ## [0.18.0] — 2026-05-13
 
 ### Added
