@@ -456,18 +456,39 @@ class ScanManager:
                             "scan config: NOSCAN, %.1fs acquisition",
                             self.scan_config.wait_time,
                         )
+                if self.shot_control is not None:
+                    logger.info(
+                        "shot control: %s, variables: %s",
+                        self.shot_control.name,
+                        self.shot_control_variables,
+                    )
+                else:
+                    logger.info("shot control: not configured")
+                all_devices = list(self.device_manager.devices.keys())
+                logger.info(
+                    "save devices (%d total): sync=%s, non-scalar=%s, async=%s",
+                    len(all_devices),
+                    self.device_manager.event_driven_observables,
+                    self.device_manager.non_scalar_saving_devices,
+                    [
+                        d
+                        for d in all_devices
+                        if d not in self.device_manager.event_driven_observables
+                        and d not in self.device_manager.non_scalar_saving_devices
+                    ],
+                )
                 self.pre_logging_setup()
 
                 if self.scan_config:
                     self.estimate_acquisition_time()
-                    logger.debug(
+                    logger.info(
                         "Estimated acquisition time: %s seconds.", self.acquisition_time
                     )
                 self._set_state(
                     ScanState.INITIALIZING,
                     total_shots=int(self.acquisition_time * self.options.rep_rate_hz),
                 )
-                logger.debug("scan options: %s", self.options)
+                logger.info("scan options: %s", self.options)
 
                 if self.stop_scanning_thread_event.is_set():
                     raise ScanAbortedError("Stop requested after prelogging")
@@ -920,7 +941,9 @@ class ScanManager:
         if self.shot_control is None:
             logger.error("Cannot enable live ECS dump without shot control device")
             return
-        logger.debug("sending comands to MC to generate ECS live dump")
+        logger.info(
+            "Sending ECS configuration dump command to Master Control at %s", client_ip
+        )
 
         steps = ["Save Live Expt Devices Configuration>>ScanStart"]
 
@@ -928,7 +951,12 @@ class ScanManager:
             success = self.shot_control.dev_udp.send_scan_cmd(step, client_ip=client_ip)
             time.sleep(0.5)
             if not success:
-                logger.warning("Failed to generate an ECS live dump")
+                logger.warning(
+                    "Master Control at %s did not acknowledge ECS dump command — "
+                    "MC may be offline or unavailable. Scan will continue without "
+                    "an ECS configuration dump.",
+                    client_ip,
+                )
                 break
 
     def _generate_scan_steps(self) -> List[Dict[str, Any]]:
