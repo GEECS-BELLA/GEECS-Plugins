@@ -41,13 +41,11 @@ from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
-from geecs_scanner.engine.dialog_request import (
-    DEVICE_COMMAND_ERRORS,
-    DialogRequest,
-)
+from geecs_scanner.engine.dialog_request import DialogRequest
 from geecs_scanner.logging_setup import scan_log
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import (
+    DeviceCommandError,
     DeviceSynchronizationError,
     DeviceSynchronizationTimeout,
     OrphanProcessingTimeout,
@@ -1106,14 +1104,14 @@ class ScanManager:
 
             device = self.device_manager.devices[device_name]
             try:
-                device.set(variable_name, value)
+                self.cmd_executor.set(device, variable_name, value)
                 logger.debug(
                     "move_to_best_on_finish: set %s:%s → %s.",
                     device_name,
                     variable_name,
                     value,
                 )
-            except DEVICE_COMMAND_ERRORS as e:
+            except DeviceCommandError as e:
                 logger.error(
                     "move_to_best_on_finish: failed to set %s:%s → %s (%s)",
                     device_name,
@@ -1143,11 +1141,11 @@ class ScanManager:
             if device_name in self.device_manager.devices:
                 device = self.device_manager.devices[device_name]
                 try:
-                    device.set(variable_name, value)
+                    self.cmd_executor.set(device, variable_name, value)
                     logger.debug(
                         "Restored %s:%s to %s.", device_name, variable_name, value
                     )
-                except DEVICE_COMMAND_ERRORS as e:
+                except DeviceCommandError as e:
                     logger.error(
                         "Failed to restore %s:%s to %s (%s)",
                         device_name,
