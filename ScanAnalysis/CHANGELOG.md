@@ -25,5 +25,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Integration tests for `ScatterPlotterAnalysis` and the factory round-trip
   against Undulator 2026-05-05 Scan018 (`@pytest.mark.integration`).
 
+## [1.3.1] — 2026-05-12
+
+### Fixed
+- **ConfigFileGUI**: `Name` field in the General Settings panel is now editable.
+  Previously it was frozen to the YAML filename stem, making it impossible to set
+  a `name` that differs from the config file name. The field is now populated from
+  the loaded config's `name` value and saved back normally.
+- **ConfigFileGUI**: Float fields now support scientific notation (e.g. `1e-13`).
+  `QDoubleSpinBox` with `decimals=6` silently rounded sub-micro values to zero.
+  Replaced with `ScientificDoubleSpinBox`, a thin subclass that overrides
+  `validate` / `valueFromText` / `textFromValue` to accept and display scientific
+  notation, with precision set to 15 significant digits.
+
+### Added
+- Unit tests for `ScientificDoubleSpinBox` (validate, text↔value conversion,
+  parametrized round-trip).
+- Round-trip tests for `config_io` save/load cycle covering `name` field
+  independence from filename and survival of scientific-notation floats.
+
 ## [1.1.1] — current
 <!-- Add entries here when changes are made -->
