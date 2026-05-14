@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] — 2026-05-13
+
+### Added
+
+- **`move_to_best_on_finish` option for optimization scans.**
+  `BaseOptimizerConfig` gains a `move_to_best_on_finish: bool` field (default
+  `False`).  When `True`, at scan end — whether the scan completed normally or
+  was stopped early via the GUI — `ScanManager.stop_scan()` calls
+  `BaseOptimizer.best_observed_setpoint()` and sets each control device to that
+  row's values instead of restoring the pre-scan state.  Useful for leaving the
+  beamline at the empirically-best configuration the run found.  Falls back to
+  initial-state restoration (with a warning log) if `X.data` is empty, not yet
+  initialized, or all rows are errored / have a NaN objective.  Device-set
+  failures are logged and emitted as `ScanRestoreFailedEvent` (same pattern as
+  `restore_initial_state`), so the GUI accumulates them without aborting cleanup.
+- **`BaseOptimizer.best_observed_setpoint()`** — returns
+  `{variable_name: float}` for the best row in `X.data` (filtered for errors
+  and NaN objective), or `None` if no usable rows exist.  Objective direction
+  (`MAXIMIZE` / `MINIMIZE`) is respected.
+
 ## [0.19.0] — 2026-05-13
 
 ### Added
