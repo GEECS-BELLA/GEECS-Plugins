@@ -47,7 +47,7 @@ _DEVICE_TYPE_POLICY: dict[str, FileSavePolicy] = {
         exact_name_match=True, variant_suffixes=("-interp", "-interpSpec", "-interpDiv")
     ),
     "MagSpecStitcher": FileSavePolicy(
-        exact_name_match=True, variant_suffixes=("-interp", "-interpSpec", "-interpDiv")
+        exact_name_match=True, variant_suffixes=("-interpSpec", "-interpDiv")
     ),
 }
 
