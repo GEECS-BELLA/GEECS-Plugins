@@ -367,7 +367,7 @@ class ScanStepExecutor:
         Uses random inputs for the first two steps (initialization), then
         the optimizer's generation strategy thereafter.
         """
-        num_initialization_steps = 2
+        num_initialization_steps = max(0, 2 - self.optimizer.n_seeded)
 
         try:
             if next_index <= num_initialization_steps:

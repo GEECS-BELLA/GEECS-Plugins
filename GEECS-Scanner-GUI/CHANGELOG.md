@@ -3,6 +3,34 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.0] — 2026-05-13
+
+### Added
+
+- **Warm-start optimization from prior dump files.**  `BaseOptimizerConfig` gains an
+  optional `seed_dump_files` field (list of paths, resolved relative to the config
+  YAML).  When set, `BaseOptimizer` loads each file's evaluated data, checks VOCS
+  compatibility (hard error on variable or objective mismatch; warning on differing
+  bounds), filters error and NaN-objective rows, then injects the combined history
+  into `Xopt` via `add_data` before the scan loop begins.  The generator (e.g., a
+  Bayesian GP) is pre-trained on this data so exploration starts informed rather than
+  cold.  Multiple dump files are accepted; pairwise bound consistency is logged.
+  Duplicate input rows that appear more than five times trigger a warning.
+- **`optimization/inspection` sub-package.**  New
+  `geecs_scanner.optimization.inspection` module containing:
+  - `load_xopt_dump(path)` — parse an Xopt YAML dump into `(VOCS, DataFrame)`;
+    used by both `BaseOptimizer.seed_from_dumps` and the inspection notebook.
+  - `check_vocs_compatible(target, source, source_path)` — hard/soft VOCS
+    compatibility checks with structured error messages.
+  - `check_cross_dump_consistency(dump_vocs)` — pairwise bound-drift logging
+    across multiple seed files.
+- **Seed-aware initialization in `ScanStepExecutor`.**  `num_initialization_steps`
+  is now `max(0, 2 - optimizer.n_seeded)`: runs seeded with ≥ 2 prior points skip
+  random warm-up entirely and use the GP from step one.
+- **`xopt_run_inspection.ipynb` updated.**  Cell 5 (dump load + Xopt rebuild) now
+  delegates to `load_xopt_dump` from the new inspection module instead of inlining
+  the parse logic.
+
 ## [0.17.0] — 2026-05-11
 
 ### Changed
