@@ -11,6 +11,7 @@ sections from Pydantic sub-models.
 from __future__ import annotations
 
 import logging
+import re
 import typing
 from enum import Enum
 from pathlib import Path
@@ -20,6 +21,7 @@ import yaml
 from pydantic import BaseModel
 from pydantic.fields import FieldInfo
 from PyQt5.QtCore import pyqtSignal
+from PyQt5.QtGui import QValidator
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -308,14 +310,74 @@ class IntFieldWidget(BaseFieldWidget):
 
 
 # ---------------------------------------------------------------------------
+# Scientific-notation-aware spin box
+# ---------------------------------------------------------------------------
+
+# Matches a complete valid float literal including optional scientific notation.
+_FLOAT_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
+# Matches an in-progress scientific-notation entry whose exponent isn't finished.
+_PARTIAL_SCI_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)[eE][+-]?$")
+# Matches a bare sign or a decimal point still being typed (e.g. "1.", "-").
+_PARTIAL_DEC_RE = re.compile(r"^[+-]?(\d+\.)?$")
+
+
+class ScientificDoubleSpinBox(QDoubleSpinBox):
+    """``QDoubleSpinBox`` subclass with full scientific-notation support.
+
+    Overrides the three Qt hooks that control text ↔ value conversion so
+    that values like ``1e-13`` can be typed and displayed correctly.
+    ``setDecimals(15)`` is called at construction to prevent internal
+    rounding of small exponents.
+    """
+
+    def validate(self, text: str, pos: int):
+        """Accept complete floats; treat partial scientific notation as intermediate."""
+        t = text.strip()
+        if not t or re.fullmatch(r"[+-]?", t):
+            return (QValidator.Intermediate, text, pos)
+        try:
+            float(t)
+            return (QValidator.Acceptable, text, pos)
+        except ValueError:
+            if _PARTIAL_SCI_RE.match(t) or _PARTIAL_DEC_RE.match(t):
+                return (QValidator.Intermediate, text, pos)
+            return (QValidator.Invalid, text, pos)
+
+    def valueFromText(self, text: str) -> float:
+        """Parse standard and scientific-notation text to float."""
+        try:
+            return float(text.strip())
+        except ValueError:
+            return self.value()
+
+    def textFromValue(self, value: float) -> str:
+        """Use scientific notation for very small or very large magnitudes."""
+        if value == 0.0:
+            return "0"
+        abs_val = abs(value)
+        if 1e-4 <= abs_val < 1e6:
+            return f"{value:.10g}"
+        return f"{value:.6g}"
+
+    def fixup(self, text: str) -> str:
+        """Replace an unfinished entry with the last valid value on focus loss."""
+        try:
+            float(text.strip())
+            return text
+        except ValueError:
+            return self.textFromValue(self.value())
+
+
+# ---------------------------------------------------------------------------
 # Concrete widget: float
 # ---------------------------------------------------------------------------
 
 
 class FloatFieldWidget(BaseFieldWidget):
-    """Widget for ``float`` fields using a ``QDoubleSpinBox``.
+    """Widget for ``float`` fields using a :class:`ScientificDoubleSpinBox`.
 
-    Min/max are derived from Pydantic constraints; decimals default to 6.
+    Min/max are derived from Pydantic constraints; precision is set to 15
+    significant digits so that values like ``1e-13`` are not rounded away.
     Default range is -1e12 to 1e12 when no constraints are present.
 
     Parameters
@@ -335,8 +397,8 @@ class FloatFieldWidget(BaseFieldWidget):
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(field_name, field_info, parent)
-        self._spin = QDoubleSpinBox()
-        self._spin.setDecimals(6)
+        self._spin = ScientificDoubleSpinBox()
+        self._spin.setDecimals(15)
 
         constraints = extract_constraints(field_info)
         min_val = -1e12
