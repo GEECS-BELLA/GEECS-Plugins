@@ -41,13 +41,11 @@ from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
-from geecs_scanner.engine.dialog_request import (
-    DEVICE_COMMAND_ERRORS,
-    DialogRequest,
-)
+from geecs_scanner.engine.dialog_request import DialogRequest
 from geecs_scanner.logging_setup import scan_log
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 from geecs_scanner.utils.exceptions import (
+    DeviceCommandError,
     DeviceSynchronizationError,
     DeviceSynchronizationTimeout,
     OrphanProcessingTimeout,
@@ -741,8 +739,11 @@ class ScanManager:
         stop_saving_thread.join()
         logger.debug("Non-scalar device save states reset.")
 
-        # Step 5: Restore the initial state of devices.
-        if self.initial_state is not None:
+        # Step 5: Restore the initial state of devices, or move to best-observed
+        # setpoint when the optimizer is configured to do so.
+        if self.optimizer is not None and self.optimizer.move_to_best_on_finish:
+            self._move_to_best_observed()
+        elif self.initial_state is not None:
             self.restore_initial_state(self.initial_state)
 
         # Step 6: Execute closeout actions.  Wrapped so that a device error
@@ -1096,6 +1097,66 @@ class ScanManager:
         logger.debug("Initial scan variable state: %s", initial_state)
         return initial_state
 
+    def _move_to_best_observed(self) -> None:
+        """Set devices to the best-observed setpoint from the optimizer's history.
+
+        Falls back to initial-state restoration if ``best_observed_setpoint()``
+        returns None (empty data, all rows errored, or all objective values NaN).
+        Mirrors the error-handling pattern of :meth:`restore_initial_state`.
+        """
+        target = self.optimizer.best_observed_setpoint()
+
+        if target is None:
+            logger.warning(
+                "move_to_best_on_finish: no usable rows in X.data; "
+                "falling back to initial-state restoration."
+            )
+            if self.initial_state is not None:
+                self.restore_initial_state(self.initial_state)
+            return
+
+        logger.info(
+            "move_to_best_on_finish: moving devices to best-observed setpoint: %s",
+            target,
+        )
+        for device_var, value in target.items():
+            device_name, variable_name = device_var.split(":", 1)
+
+            if device_name not in self.device_manager.devices:
+                logger.warning(
+                    "move_to_best_on_finish: device %s not found; skipping %s.",
+                    device_name,
+                    device_var,
+                )
+                continue
+
+            device = self.device_manager.devices[device_name]
+            try:
+                self.cmd_executor.set(device, variable_name, value)
+                logger.debug(
+                    "move_to_best_on_finish: set %s:%s → %s.",
+                    device_name,
+                    variable_name,
+                    value,
+                )
+            except DeviceCommandError as e:
+                logger.error(
+                    "move_to_best_on_finish: failed to set %s:%s → %s (%s)",
+                    device_name,
+                    variable_name,
+                    value,
+                    type(e).__name__,
+                )
+                msg = f"{device_name}:{variable_name} → {value} ({type(e).__name__})"
+                self._emit(ScanRestoreFailedEvent(device=device_name, message=msg))
+            except Exception:
+                logger.exception(
+                    "move_to_best_on_finish: failed to set %s:%s → %s",
+                    device_name,
+                    variable_name,
+                    value,
+                )
+
     def restore_initial_state(self, initial_state):
         """Restore each device variable in *initial_state* to its pre-scan value.
 
@@ -1108,11 +1169,11 @@ class ScanManager:
             if device_name in self.device_manager.devices:
                 device = self.device_manager.devices[device_name]
                 try:
-                    device.set(variable_name, value)
+                    self.cmd_executor.set(device, variable_name, value)
                     logger.debug(
                         "Restored %s:%s to %s.", device_name, variable_name, value
                     )
-                except DEVICE_COMMAND_ERRORS as e:
+                except DeviceCommandError as e:
                     logger.error(
                         "Failed to restore %s:%s to %s (%s)",
                         device_name,
