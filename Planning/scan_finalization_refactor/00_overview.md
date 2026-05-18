@@ -12,24 +12,44 @@ Each numbered doc covers one piece.
 
 ## Thesis: "runtime minimum, post-scan async"
 
-The scan engine currently does a lot of synchronous work during the scan
-itself — building a complete shot-keyed row out of incoming TCP events,
-deciding when a row is "done," moving files into the per-scan directory,
-and (in some configurations) waiting on slow per-device save operations.
+The scan engine's current shot-table assembly is correct, but it is
+coupled to the hot path: DataLogger builds a shot-keyed in-memory table
+as TCP events arrive, and downstream code reads that table on scan
+completion. That coupling is what we want to relax — not because it's
+broken, but because decoupling unlocks two things we don't have today:
 
-This forces a fragile invariant: the engine has to know, at runtime, which
-device events belong to which shot, and it has to make blocking decisions
-that can stall the next shot trigger.
+1. **Concurrent readers.** A live-plot consumer can tail an append-only
+   log without coordinating with the writer.
+2. **Post-scan aggregation with whole-scan context.** Reshaping into the
+   shot-keyed table, joining file paths, merging TDMS — all easier when
+   you can see the whole scan at once and don't have to make decisions
+   row-by-row at acquisition time.
 
-The refactor inverts that posture:
+The refactor's posture:
 
-1. **At runtime:** write everything you observe, with a timestamp, in the
-   simplest possible append-only form. Don't decide what's "complete."
-   Don't make the scan wait for slow IO.
-2. **After the scan:** a separate process — running in the
-   ScanAnalysis task queue — has the luxury of seeing the whole scan at
-   once, quantizing events into shots, reshaping into the final
-   shot-keyed table, and producing the artifacts downstream code expects.
+1. **At runtime:** write each observed event as a single long-format row
+   to an append-only TSV. No in-memory shot table, no shot-completion
+   bookkeeping in the hot path. Sync devices report `acq_timestamp`;
+   async devices are snapshot-polled when a new shot bucket is created
+   so they don't flood the log at their native update rate.
+2. **After the scan:** a ScanAnalysis task reshapes the long-format TSV
+   into the canonical shot-keyed s-file, joins per-device file paths,
+   and merges TDMS columns — producing the artifact downstream code
+   already expects.
+
+The long-format schema is:
+
+```
+elapsed_time	shot	bin	device	variable	value
+```
+
+`shot = int(elapsed_time * rep_rate)`, where `rep_rate` is a user-set
+scalar declaring the experiment's actual repetition rate. Range
+supported by this design: ≤ 1 Hz, defaulting to 1 Hz. (The rep_rate
+declares the rate, it does not set it — the experiment's actual rate is
+controlled by shot control.) The `bin` column is the scan-step index,
+supplied by ScanManager and stamped onto each row when DataLogger opens
+a new shot bucket.
 
 The four pieces below each implement part of this thesis. They can be
 shipped independently in roughly the order presented, but only piece 4

@@ -51,39 +51,51 @@ flow makes shot-number naming awkward.
 
 ### 3b. Timestamp fallback in ScanData/ScanPaths (in geecs-data-utils)
 
-`build_device_file_map` learns to match by timestamp when shot-number
-matching produces gaps:
+`build_device_file_map` learns to match a device's per-shot file by
+joining on **`acq_timestamp`**, when the shot-number filename pattern
+doesn't apply.
 
-1. **Primary path (unchanged):** look for files matching the shot
-   pattern. If all shots find a file, done.
-2. **Fallback:** for shots with no file under the shot pattern, search
-   for files in the per-device folder whose embedded timestamp falls
-   inside the shot's time window (computed from the s-file's
-   `elapsed_time` column ± a tolerance).
-3. **Report:** any shots that still have no file are logged; behavior
-   is unchanged (empty path entry in the dataframe).
+The key insight: the device's TCP `acq_timestamp` (which lands in the
+DataLogger log) and the device's filename timestamp **come from the
+same source**. They should be equal modulo ms-level rounding noise from
+truncating in both representations. So the fallback isn't fuzzy timing
+matching for shot membership — it's exact join on `acq_timestamp` with
+a small tolerance for rounding.
+
+1. **Primary path (unchanged):** match by shot number embedded in the
+   filename. If all shots resolve, done.
+2. **Fallback:** for each log entry the primary path missed, look in
+   the device folder for a file whose embedded timestamp is within
+   ±~10 ms of that entry's `acq_timestamp`.
+3. **Report:** entries that still have no file are logged; the
+   resulting dataframe path entry is empty, same as today.
+
+The per-shot association comes for free: the log already has
+shot ↔ acq_timestamp per device, so once we resolve acq_timestamp →
+path, we have shot → path.
 
 This is strictly additive: scans that already work continue to work.
-Only the previously-empty-path shots are affected, and only positively.
+Only the previously-empty-path entries are affected, and only
+positively.
 
 ### Sketch of the fallback
 
 ```python
-def _fallback_match_by_timestamp(
+def _fallback_match_by_acq_timestamp(
     device_dir: Path,
-    unmatched_shots: list[ShotRow],
+    log_entries: pd.DataFrame,        # has columns: shot, acq_timestamp
     *,
-    tolerance_s: float = 0.5,
+    tolerance_s: float = 0.010,       # ~10 ms — covers ms-truncation noise
 ) -> dict[int, Path]:
-    """For shots without a shot-pattern match, look for files in
-    device_dir whose embedded timestamp falls within ±tolerance of
-    the shot's elapsed_time."""
-    candidates = _scan_dir_for_timestamped_files(device_dir)
+    """For each log entry, find the file in device_dir whose embedded
+    timestamp matches the entry's acq_timestamp within ±tolerance.
+    Returns shot → path."""
+    candidates = _scan_dir_for_timestamped_files(device_dir)  # [(ts, path), ...]
     matches = {}
-    for shot in unmatched_shots:
+    for _, entry in log_entries.iterrows():
         for ts, path in candidates:
-            if abs(ts - shot.elapsed_time) <= tolerance_s:
-                matches[shot.shot] = path
+            if abs(ts - entry.acq_timestamp) <= tolerance_s:
+                matches[entry.shot] = path
                 break
     return matches
 ```
@@ -116,17 +128,24 @@ validate against real scans before turning it on by default.
    convention or a regex. Recommend `_t{seconds:.4f}_` or a trailing
    `_{epoch_seconds:.4f}.{ext}` and a configurable regex on
    `build_device_file_map`. Decide before 3b's PR.
-2. **Tolerance.** Default 0.5 s? Could be aggressive. Defer to a tested
-   default based on the spread of inter-shot intervals we see in the
-   field.
-3. **Should the s-file's `elapsed_time` reference frame match the
-   device's filename timestamp reference frame?** Today they don't
-   necessarily. This is the actual hard problem hiding inside 3b. The
-   fallback function should accept an explicit offset kwarg and the
-   tests should cover the offset case.
-4. **Can 3a and 3b ship separately?** Yes. 3b is the more valuable of
+2. **Can 3a and 3b ship separately?** Yes. 3b is the more valuable of
    the two (fixes existing scans). 3a is convenience for new flows.
    Recommend splitting if 3a's scope grows.
+
+Notes that are *not* open questions, just for the record:
+
+- **Tolerance is ~10 ms, not a tunable.** Both the log's `acq_timestamp`
+  and the filename's embedded timestamp truncate at ms level. ~10 ms
+  catches rounding noise and nothing else. There's no shot-window
+  ambiguity to worry about because this is an exact join, not a
+  time-bucket search.
+- **Reference-frame question is moot.** The log's `acq_timestamp` and
+  the file's embedded timestamp come from the same source on the same
+  device, so they're in the same frame by construction. (The per-device
+  `t0` recorded at scan setup — see piece 1 — is what relates each
+  device's `acq_timestamp` to `elapsed_time`; the matcher operates on
+  `acq_timestamp` directly, before that transform, so `t0` is not
+  involved.)
 
 ---
 
