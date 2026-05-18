@@ -95,6 +95,10 @@ class BaseOptimizer:
         loaded into the optimizer before the scan begins.  VOCS must be
         compatible (same variable and objective names); differing bounds
         produce warnings only.
+    move_to_best_on_finish : bool, default False
+        If True, ``best_observed_setpoint()`` is called at scan end so the
+        engine can move devices to the empirically best configuration.
+        Falls back to initial-state restoration if no usable rows exist.
 
     Attributes
     ----------
@@ -145,6 +149,7 @@ class BaseOptimizer:
         scan_data_manager: Optional["ScanDataManager"] = None,
         data_logger: Optional["DataLogger"] = None,
         seed_dump_files: Optional[List[Path]] = None,
+        move_to_best_on_finish: bool = False,
     ):
         self.vocs = vocs
         self.evaluate_function = evaluate_function
@@ -155,6 +160,7 @@ class BaseOptimizer:
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
         self._n_seeded: int = 0
+        self.move_to_best_on_finish: bool = move_to_best_on_finish
 
         self.xopt_config_overrides: dict[str, Any] = dict(xopt_config_overrides or {})
         self._setup_xopt(self.xopt_config_overrides)
@@ -166,6 +172,34 @@ class BaseOptimizer:
     def n_seeded(self) -> int:
         """Number of evaluations loaded from dump files before the scan started."""
         return self._n_seeded
+
+    def best_observed_setpoint(self) -> Optional[Dict[str, float]]:
+        """Return the VOCS-variable values of the best-observed row in X.data.
+
+        Returns
+        -------
+        dict or None
+            ``{variable_name: value}`` for the row with the best objective.
+            None if X.data is empty, uninitialized, or all rows are errored /
+            have a NaN objective.
+        """
+        if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
+            return None
+
+        df = self.xopt.data.copy()
+        obj = self.vocs.objective_names[0]
+
+        if "xopt_error" in df.columns:
+            df = df[df["xopt_error"] != True]  # noqa: E712
+        df = df[df[obj].notna()]
+
+        if len(df) == 0:
+            return None
+
+        direction = str(self.vocs.objectives[obj]).upper()
+        idx = df[obj].idxmax() if direction == "MAXIMIZE" else df[obj].idxmin()
+
+        return {name: float(df.loc[idx, name]) for name in self.vocs.variable_names}
 
     def _setup_xopt(self, overrides: dict[str, Any]):
         generator_config: dict[str, Any] = {"name": self.generator_name}
@@ -501,4 +535,5 @@ class BaseOptimizer:
             scan_data_manager=scan_data_manager,
             data_logger=data_logger,
             seed_dump_files=resolved_seed_paths,
+            move_to_best_on_finish=config.move_to_best_on_finish,
         )

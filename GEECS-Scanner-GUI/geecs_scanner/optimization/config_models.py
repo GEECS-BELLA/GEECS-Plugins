@@ -254,6 +254,7 @@ class BaseOptimizerConfig(BaseModel):
     save_devices_file: Optional[Union[str, Path]] = None
 
     seed_dump_files: Optional[List[Union[str, Path]]] = None
+    move_to_best_on_finish: bool = False
 
     name: Optional[str] = None
     description: Optional[str] = None
