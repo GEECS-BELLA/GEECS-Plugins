@@ -253,6 +253,8 @@ class BaseOptimizerConfig(BaseModel):
     save_devices: Optional[SaveDeviceConfig] = None
     save_devices_file: Optional[Union[str, Path]] = None
 
+    seed_dump_files: Optional[List[Union[str, Path]]] = None
+
     name: Optional[str] = None
     description: Optional[str] = None
 

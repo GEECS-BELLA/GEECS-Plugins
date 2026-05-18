@@ -245,6 +245,7 @@ class ScanData:
         load_scalars: bool = True,
         source: Literal["sfile", "tdms"] = "sfile",
         append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> "ScanData":
         """Construct a :class:`ScanData` from date/number.
 
@@ -260,6 +261,12 @@ class ScanData:
             ``"sfile"`` (default) or ``"tdms"`` for scalar source.
         append_paths
             If true, ad device/shot paths to df.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`load_scalars`. Use when a device's folder name differs
+            from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
 
         Returns
         -------
@@ -269,7 +276,11 @@ class ScanData:
         paths = ScanPaths(tag=tag, base_directory=base_directory)
         sd = cls(paths=paths)
         if load_scalars:
-            sd.load_scalars(source=source, append_paths=append_paths)
+            sd.load_scalars(
+                source=source,
+                append_paths=append_paths,
+                stem_override=stem_override,
+            )
         return sd
 
     @classmethod
@@ -321,7 +332,11 @@ class ScanData:
     # ------------------------------ Scalars I/O --------------------------------
 
     def load_scalars(
-        self, *, source: Literal["sfile", "tdms"] = "sfile", append_paths: bool = True
+        self,
+        *,
+        source: Literal["sfile", "tdms"] = "sfile",
+        append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> None:
         """Load the scalar DataFrame (s-file or TDMS converted).
 
@@ -332,6 +347,12 @@ class ScanData:
             read ``ScanNNN.tdms`` and convert to a DataFrame if possible.
         append_paths
             If true, add device/shot paths to dataframe.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`set_data_frame`. Use when a device's folder name differs
+            from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
 
         Raises
         ------
@@ -344,7 +365,9 @@ class ScanData:
             if not sfile.exists():
                 raise FileNotFoundError(f"No sfile for scan {tag}")
             df = pd.read_csv(sfile, delimiter="\t")
-            self.set_data_frame(df, append_paths=append_paths)
+            self.set_data_frame(
+                df, append_paths=append_paths, stem_override=stem_override
+            )
 
         elif source == "tdms":
             tag = self.paths.get_tag()
@@ -355,12 +378,20 @@ class ScanData:
             if not dct:
                 raise ValueError(f"TDMS file could not be parsed: {tdms_path}")
             df = geecs_tdms_dict_to_panda(dct)
-            self.set_data_frame(df, append_paths=append_paths)
+            self.set_data_frame(
+                df, append_paths=append_paths, stem_override=stem_override
+            )
 
         else:
             raise ValueError(f"Unsupported source: {source!r}")
 
-    def set_data_frame(self, df: pd.DataFrame, *, append_paths: bool = True) -> None:
+    def set_data_frame(
+        self,
+        df: pd.DataFrame,
+        *,
+        append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
+    ) -> None:
         """Attach a scalar DataFrame and invalidate dependent caches.
 
         Parameters
@@ -369,9 +400,15 @@ class ScanData:
             Scalar table for the scan (typically from s-file).
         append_paths
             If true, add device shot paths to dataframe.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`_append_expected_asset_columns`. Use when a device's folder
+            name differs from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
         """
         if append_paths:
-            df = self._append_expected_asset_columns(df)
+            df = self._append_expected_asset_columns(df, stem_override=stem_override)
         self.data_frame = df
         self._df_version += 1
         self._binned_cache = None
@@ -914,6 +951,7 @@ class ScanData:
         *,
         ext_override: Optional[dict[str, str]] = None,
         variants_override: Optional[dict[str, list[Optional[str]]]] = None,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> pd.DataFrame:
         """
         Add wide columns of expected paths for each device (and optional variant).
@@ -938,6 +976,13 @@ class ScanData:
         variants_override
             Optional mapping ``{device: [variant1, variant2, None, ...]}`` to
             control which variant-specific columns are created.
+        stem_override
+            Optional mapping ``{device: in_filename_stem}`` for devices whose
+            data folder name differs from the token used in the per-shot
+            filename — e.g., ``{"U_BCaveMagSpec-interpSpec": "U_BCaveMagSpec"}``
+            for files named ``Scan042_U_BCaveMagSpec_001.csv`` inside the
+            ``U_BCaveMagSpec-interpSpec`` folder. Devices not in the mapping
+            keep the default ``stem == device`` behavior.
 
         Returns
         -------
@@ -958,16 +1003,19 @@ class ScanData:
         # Resolve per-device ext and variants
         ext_map: dict[str, str] = {}
         var_map: dict[str, list[Optional[str]]] = {}
+        stem_map: dict[str, Optional[str]] = {}
         for dev in devs:
             ext_map[dev] = (ext_override or {}).get(dev) or self.paths.infer_device_ext(
                 dev
             )
             var_map[dev] = (variants_override or {}).get(dev, [None])
+            stem_map[dev] = (stem_override or {}).get(dev)
 
         # Build and attach columns
         out = df.copy()
         for dev in devs:
             ext = ext_map[dev]
+            stem = stem_map[dev]
             for variant in var_map[dev]:
                 col = (
                     f"{dev}_expected_path"
@@ -978,7 +1026,11 @@ class ScanData:
                 paths = [
                     str(
                         self.paths.build_asset_path(
-                            shot=s, device=dev, ext=ext, variant=variant
+                            shot=s,
+                            device=dev,
+                            ext=ext,
+                            variant=variant,
+                            device_file_stem=stem,
                         )
                     )
                     for s in shots

@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-05-12
+
+### Added
+- `ScanPaths.build_device_file_map`, `ScanPaths.build_asset_filename`, and
+  `ScanPaths.build_asset_path` accept an optional `device_file_stem` kwarg
+  (default `None` → falls back to `device`). Use this when a device's data
+  folder name differs from the token used inside per-shot filenames — e.g.,
+  folder `U_BCaveMagSpec-interpSpec` containing files named
+  `Scan042_U_BCaveMagSpec_001.csv`.
+- `ScanData._append_expected_asset_columns`, `ScanData.set_data_frame`,
+  `ScanData.load_scalars`, and `ScanData.from_date` accept an optional
+  `stem_override: dict[str, str]` kwarg, mirroring the existing
+  `ext_override` pattern. Maps device folder names to their in-filename
+  stems so the `<device>_expected_path` DataFrame columns resolve to real
+  files for affected devices. Without the override, those columns
+  previously contained nonexistent paths for any device where the folder
+  name and filename stem differ.
+
 ## [0.5.0] — 2026-05-08
 
 ### Added
