@@ -39,8 +39,9 @@ class GeecsPathsConfig:
     ----------
     base_path : Path
         The base directory for storing GEECS data locally.
-    experiment : str
-        The default experiment name.
+    experiment : str, optional
+        The default experiment name. May be None on analysis-only machines where
+        the experiment is always supplied at runtime (e.g. via LiveWatch GUI).
     image_analysis_configs_path : Path
         path to directory containing image analysis configs
     scan_analysis_configs_path : Path
@@ -87,13 +88,7 @@ class GeecsPathsConfig:
             base_path = Path(set_base_path)
         experiment = default_experiment
 
-        # See if the server address can be extracted from the experiment name without loading config file
-        if experiment is not None and base_path is None:
-            base_path = self._validate_path(
-                self._get_default_server_address(experiment)
-            )
-
-        # If either was not set in arguments, then open up the config file and read its contents
+        # If base path or experiment not yet resolved, read the config file
         if experiment is None or base_path is None:
             config = ConfigParser()
             if config_path.exists():
@@ -104,18 +99,19 @@ class GeecsPathsConfig:
                     if experiment is None:
                         experiment = config["Experiment"].get("expt")
 
-                    # Then, if no base path specified first try the default server path for the given experiment
+                    # Prefer the locally configured base path over the server default
+                    if base_path is None:
+                        local_path_str = config["Paths"].get(
+                            "GEECS_DATA_LOCAL_BASE_PATH", None
+                        )
+                        if local_path_str is not None:
+                            base_path = self._validate_path(Path(local_path_str))
+
+                    # Fall back to the experiment-specific server address
                     if base_path is None:
                         base_path = self._validate_path(
                             self._get_default_server_address(experiment)
                         )
-
-                    # If not connected to server path, then default to the local base path defined in the config file
-                    if base_path is None:
-                        local_path = Path(
-                            config["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH", None)
-                        )
-                        base_path = self._validate_path(local_path)
 
                     if image_analysis_configs_path is None:
                         local_path = Path(
@@ -136,9 +132,12 @@ class GeecsPathsConfig:
                     f"Config file {config_path} not found. Using default paths."
                 )
 
-        if experiment is None or base_path is None:
+        # Experiment is optional — base_path alone is sufficient for path-only usage.
+        # Callers that need the experiment (e.g. GDoc integration) supply it via ScanTag.
+        if base_path is None:
             raise ConfigurationError(
-                f"Could not set experiment name and base path. Check config file {config_path}"
+                f"Could not determine base data path. "
+                f"Set GEECS_DATA_LOCAL_BASE_PATH in {config_path} or connect to the data server."
             )
 
         self.base_path = base_path  # .resolve()
@@ -183,7 +182,7 @@ class GeecsPathsConfig:
         return self.base_path == default_path
 
     @staticmethod
-    def _get_default_server_address(experiment_name: str) -> Optional[Path]:
+    def _get_default_server_address(experiment_name: Optional[str]) -> Optional[Path]:
         """
         Get the default server path for a given experiment.
 

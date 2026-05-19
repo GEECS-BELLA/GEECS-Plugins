@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.1] — 2026-05-19
+
+### Changed
+- `GeecsPathsConfig`: `GEECS_DATA_LOCAL_BASE_PATH` from `config.ini` is now
+  tried **before** the experiment-to-server-address dict (`EXPERIMENT_TO_SERVER_DICT`),
+  which becomes a fallback. This means analysis-only machines that define a
+  local data root are no longer overridden by the `Z:/data` server default.
+- `GeecsPathsConfig`: `experiment` is now optional — a `ConfigurationError` is
+  only raised when `base_path` cannot be determined. Callers that need the
+  experiment name (e.g. LiveWatch, GDoc integration) supply it at runtime via
+  `ScanTag`; it no longer needs to be defined in `config.ini`.
+- `_get_default_server_address` signature updated to accept `Optional[str]`.
+
 ## [0.6.0] — 2026-05-12
 
 ### Added
