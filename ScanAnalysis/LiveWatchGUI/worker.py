@@ -87,7 +87,9 @@ class LiveWatchConfig:
             month=self.month,
             day=self.day,
             number=self.start_scan_number,
-            experiment=self.experiment or self.analyzer_group,
+            experiment=self.experiment
+            if self.experiment and self.experiment != "(none)"
+            else None,
         )
 
 

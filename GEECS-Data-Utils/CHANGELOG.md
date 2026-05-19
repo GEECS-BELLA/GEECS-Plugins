@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.2] — 2026-05-19
+
+### Fixed
+- `ScanPaths.get_daily_scan_folder`: skips the experiment path segment when
+  `tag.experiment` is `None`, producing `{base}/Y{YYYY}/...` instead of
+  crashing.
+
 ## [0.6.1] — 2026-05-19
 
 ### Changed

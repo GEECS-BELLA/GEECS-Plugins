@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.2] — 2026-05-19
+
+### Fixed
+- LiveWatch GUI: added `(none)` facility option for data roots with no
+  experiment subdirectory (e.g. `N:\data\Y2026\...` instead of
+  `N:\data\Undulator\Y2026\...`).
+- `LiveWatchConfig.to_scan_tag()`: no longer falls back to `analyzer_group`
+  as the path experiment when facility is unset — passes `None` instead, so
+  the path builder can omit the experiment segment cleanly.
+
 ## [1.3.0] — 2026-05-06
 
 ### Added
