@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.4] — 2026-05-20
+
+### Fixed
+- `SingleDeviceScanAnalyzer.__init__` now initializes `self.stateful_results
+  = {}`. Previously it was only set in `cleanup()` or after a successful
+  `analyze_image_batch()` call. When `_run_batch_analysis` silently swallowed
+  an exception from the underlying ImageAnalyzer (e.g. a `BeamAnalyzer` whose
+  `camera_config.background` is null, leading to a `NoneType` access on its
+  background manager), `_prepare_per_shot_units` would then raise
+  `AttributeError: ... has no attribute 'stateful_results'`.
+
 ## [1.3.3] — 2026-05-19
 
 ### Changed

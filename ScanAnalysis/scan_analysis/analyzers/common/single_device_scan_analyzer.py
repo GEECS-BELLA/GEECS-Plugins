@@ -113,6 +113,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.saved_avg_data_paths: Dict[int, Path] = {}
         self.data_device_name: str = data_device_name or device_name
         self.results: dict = {}
+        # Set here (not just in cleanup) so that downstream consumers like
+        # _prepare_per_shot_units still work if _run_batch_analysis silently
+        # fails before populating this dict.
+        self.stateful_results: dict = {}
 
         # Define flags
         self.flag_save_data = flag_save_data
