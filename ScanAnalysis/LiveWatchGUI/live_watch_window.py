@@ -572,7 +572,8 @@ class LiveWatchWindow(QMainWindow):
     def _build_config(self) -> LiveWatchConfig:
         """Read current widget values and return a :class:`LiveWatchConfig`."""
         qdate = self.date_edit.date()
-        facility = self.combo_facility.currentText().strip()
+        facility_text = self.combo_facility.currentText().strip()
+        facility = None if facility_text == "(none)" else (facility_text or None)
         analyzer_group = self.combo_experiment.currentText().strip()
 
         scan_config_text = self.line_scan_config.text().strip()

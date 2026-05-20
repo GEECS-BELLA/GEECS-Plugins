@@ -78,9 +78,8 @@ TDMS file. Prefer `sfile` for speed unless you need waveform data.
 
 Resolves the GEECS data root and experiment name. Reading order:
 1. Explicit `set_base_path` argument
-2. Experiment-specific default server path
-3. `~/.config/geecs_python_api/config.ini`
-4. Raises `ConfigurationError`
+2. `GEECS_DATA_LOCAL_BASE_PATH` under `[Paths]` in `~/.config/geecs_python_api/config.ini`
+3. Raises `ConfigurationError` — no implicit server defaults; base path must be explicit
 
 Also provides optional paths for config repos and FROG DLL.
 

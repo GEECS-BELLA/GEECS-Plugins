@@ -68,7 +68,7 @@ class LiveWatchConfig:
     month: int
     day: int
     start_scan_number: int = 0
-    experiment: str = ""
+    experiment: Optional[str] = None
     gdoc_enabled: bool = False
     document_id: Optional[str] = None
     config_dir: Optional[Path] = None
@@ -87,9 +87,7 @@ class LiveWatchConfig:
             month=self.month,
             day=self.day,
             number=self.start_scan_number,
-            experiment=self.experiment
-            if self.experiment and self.experiment != "(none)"
-            else None,
+            experiment=self.experiment,
         )
 
 

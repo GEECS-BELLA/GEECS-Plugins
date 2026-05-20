@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.3] — 2026-05-19
+
+### Removed
+- `EXPERIMENT_TO_SERVER_DICT` and the associated `_get_default_server_address` /
+  `_is_default_server_address` helpers removed from `GeecsPathsConfig`. The dict
+  was an implicit, hard-coded mapping of experiment names to server paths that
+  silently overrode explicit config, caused confusion when paths differed between
+  sites, and is now fully superseded by `GEECS_DATA_LOCAL_BASE_PATH` in
+  `config.ini`. Any machine previously relying on the implicit `Z:/data` default
+  should add `GEECS_DATA_LOCAL_BASE_PATH = Z:/data` to its config.
+
+### Changed
+- `ScanData.from_date` and `ScanData.latest`: `experiment` parameter is now
+  `Optional[str]` (was `str`). Callers that pass `None` propagate to
+  `ScanPaths.get_scan_tag`, which already handles `None` by falling back to
+  `paths_config.experiment`; flat-layout sites can omit the experiment entirely.
+
 ## [0.6.2] — 2026-05-19
 
 ### Fixed

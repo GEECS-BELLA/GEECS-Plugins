@@ -23,14 +23,6 @@ logger.addHandler(logging.NullHandler())
 logger.propagate = False
 
 
-EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
-    "Undulator": Path("Z:/data"),
-    "Thomson": Path("Z:/data"),
-    "DataLogging": Path("N:/data/PWlaserData"),
-    "PWlaserData": Path("N:/data"),
-}
-
-
 class GeecsPathsConfig:
     """
     Manages configuration for GEECS-related paths and experiment settings.
@@ -99,19 +91,12 @@ class GeecsPathsConfig:
                     if experiment is None:
                         experiment = config["Experiment"].get("expt")
 
-                    # Prefer the locally configured base path over the server default
                     if base_path is None:
                         local_path_str = config["Paths"].get(
                             "GEECS_DATA_LOCAL_BASE_PATH", None
                         )
                         if local_path_str is not None:
                             base_path = self._validate_path(Path(local_path_str))
-
-                    # Fall back to the experiment-specific server address
-                    if base_path is None:
-                        base_path = self._validate_path(
-                            self._get_default_server_address(experiment)
-                        )
 
                     if image_analysis_configs_path is None:
                         local_path = Path(
@@ -137,7 +122,7 @@ class GeecsPathsConfig:
         if base_path is None:
             raise ConfigurationError(
                 f"Could not determine base data path. "
-                f"Set GEECS_DATA_LOCAL_BASE_PATH in {config_path} or connect to the data server."
+                f"Set GEECS_DATA_LOCAL_BASE_PATH = <path> under [Paths] in {config_path}."
             )
 
         self.base_path = base_path  # .resolve()
@@ -168,36 +153,6 @@ class GeecsPathsConfig:
                     )
             except Exception as e:
                 logger.debug(f"Could not read tool paths from config: {e}")
-
-    def _is_default_server_address(self) -> bool:
-        """
-        Check if base directory matches the default server address.
-
-        Returns
-        -------
-        bool
-            True if the base directory is equivalent to the default server address
-        """
-        default_path = self._get_default_server_address(self.experiment)  # .resolve()
-        return self.base_path == default_path
-
-    @staticmethod
-    def _get_default_server_address(experiment_name: Optional[str]) -> Optional[Path]:
-        """
-        Get the default server path for a given experiment.
-
-        Parameters
-        ----------
-        experiment_name : str
-            Name of the experiment
-
-        Returns
-        -------
-        Optional[Path]
-            The corresponding base path on the server for the given experiment,
-            None if experiment is unknown
-        """
-        return EXPERIMENT_TO_SERVER_DICT.get(experiment_name, None)
 
     @staticmethod
     def _validate_path(input_path) -> Optional[Path]:

@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.3] — 2026-05-19
+
+### Changed
+- `LiveWatchConfig.experiment` is now `Optional[str]` (was `str = ""`).
+  The `"(none)"` → `None` translation moved from `to_scan_tag()` into
+  `_build_config()` in `live_watch_window.py`, so the dataclass always holds
+  a clean `None` rather than a sentinel string.
+
 ## [1.3.2] — 2026-05-19
 
 ### Fixed
