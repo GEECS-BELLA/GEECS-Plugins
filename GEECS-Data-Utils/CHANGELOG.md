@@ -3,6 +3,43 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.3] — 2026-05-19
+
+### Removed
+- `EXPERIMENT_TO_SERVER_DICT` and the associated `_get_default_server_address` /
+  `_is_default_server_address` helpers removed from `GeecsPathsConfig`. The dict
+  was an implicit, hard-coded mapping of experiment names to server paths that
+  silently overrode explicit config, caused confusion when paths differed between
+  sites, and is now fully superseded by `GEECS_DATA_LOCAL_BASE_PATH` in
+  `config.ini`. Any machine previously relying on the implicit `Z:/data` default
+  should add `GEECS_DATA_LOCAL_BASE_PATH = Z:/data` to its config.
+
+### Changed
+- `ScanData.from_date` and `ScanData.latest`: `experiment` parameter is now
+  `Optional[str]` (was `str`). Callers that pass `None` propagate to
+  `ScanPaths.get_scan_tag`, which already handles `None` by falling back to
+  `paths_config.experiment`; flat-layout sites can omit the experiment entirely.
+
+## [0.6.2] — 2026-05-19
+
+### Fixed
+- `ScanPaths.get_daily_scan_folder`: skips the experiment path segment when
+  `tag.experiment` is `None`, producing `{base}/Y{YYYY}/...` instead of
+  crashing.
+
+## [0.6.1] — 2026-05-19
+
+### Changed
+- `GeecsPathsConfig`: `GEECS_DATA_LOCAL_BASE_PATH` from `config.ini` is now
+  tried **before** the experiment-to-server-address dict (`EXPERIMENT_TO_SERVER_DICT`),
+  which becomes a fallback. This means analysis-only machines that define a
+  local data root are no longer overridden by the `Z:/data` server default.
+- `GeecsPathsConfig`: `experiment` is now optional — a `ConfigurationError` is
+  only raised when `base_path` cannot be determined. Callers that need the
+  experiment name (e.g. LiveWatch, GDoc integration) supply it at runtime via
+  `ScanTag`; it no longer needs to be defined in `config.ini`.
+- `_get_default_server_address` signature updated to accept `Optional[str]`.
+
 ## [0.6.0] — 2026-05-12
 
 ### Added

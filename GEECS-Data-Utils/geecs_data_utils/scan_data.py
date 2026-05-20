@@ -240,7 +240,7 @@ class ScanData:
         month: int,
         day: int,
         number: int,
-        experiment: str,
+        experiment: Optional[str] = None,
         base_directory: Optional[Path] = None,
         load_scalars: bool = True,
         source: Literal["sfile", "tdms"] = "sfile",
@@ -286,7 +286,7 @@ class ScanData:
     @classmethod
     def latest(
         cls,
-        experiment: str,
+        experiment: Optional[str] = None,
         *,
         year: Optional[int] = None,
         month: Optional[int] = None,

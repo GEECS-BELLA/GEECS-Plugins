@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.1.5] — 2026-05-19
+
+### Added
+- `FrogRetrievalResult.tw_per_joule` property — peak power per unit energy
+  (TW/J), computed as `1000 / (sum(temporal_intensity) * dt)` with `dt` in
+  femtoseconds. Matches the LabVIEW Grenouille analysis scalar.
+- `GrenouilleAnalyzer` now emits `{camera_name}_tw_per_joule` in its scalar
+  results.
+
 ## [1.1.4] — 2026-05-12
 
 ### Changed
