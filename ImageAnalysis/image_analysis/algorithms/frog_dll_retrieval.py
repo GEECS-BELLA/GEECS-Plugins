@@ -165,6 +165,19 @@ class FrogRetrievalResult:
         """E-field intensity |E(t)|^2."""
         return np.square(self.amplitude)
 
+    @property
+    def tw_per_joule(self) -> float:
+        """Peak power per unit energy (TW/J).
+
+        Computed as ``1000 / (sum(temporal_intensity) * dt)`` with ``dt`` in
+        femtoseconds, matching the LabVIEW Grenouille analysis. The factor of
+        1000 converts 1/fs (10^15 1/s) to TW/J (10^12 1/s). Assumes
+        ``temporal_intensity`` is peak-normalized to 1, which is the FROG.dll
+        convention.
+        """
+        dt = self.time[1] - self.time[0]
+        return 1000.0 / (np.sum(self.temporal_intensity) * dt)
+
 
 class FrogDllRetrieval:
     """High-level interface to the FROG DLL pulse retrieval algorithm.
