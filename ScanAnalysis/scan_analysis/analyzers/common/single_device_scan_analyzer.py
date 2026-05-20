@@ -22,7 +22,6 @@ from __future__ import annotations
 # --- Standard Library ---
 import logging
 import re
-import traceback
 import pickle
 from abc import ABC
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
@@ -41,8 +40,6 @@ if TYPE_CHECKING:
     from image_analysis.types import ImageAnalyzerResult
     from image_analysis.base import ImageAnalyzer
     from scan_analysis.analyzers.renderers import BaseRenderer
-
-PRINT_TRACEBACK = True
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +176,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         Returns
         -------
-        list[str | pathlib.Path] or None
-            Paths to generated artifacts to display, or None on failure.
+        list[str | pathlib.Path]
+            Paths to generated artifacts to display.
+
+        Raises
+        ------
+        DataUnavailableWarning
+            If the device data directory is missing or empty. Callers are
+            expected to log this as a non-error skip.
+        Exception
+            Any unhandled error from the analysis pipeline propagates so the
+            task queue marks the task as ``failed`` (with a captured error
+            message) rather than silently writing ``done`` with no artifacts.
         """
         try:
             self.renderer.display_contents = []
@@ -211,11 +218,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         except DataUnavailableWarning as e:
             logger.warning(str(e))
             raise
-        except Exception as e:
-            if PRINT_TRACEBACK:
-                print(traceback.format_exc())
-            logger.warning(f"Warning: Data analysis failed due to: {e}")
-            return None
 
     def _process_all_shots(self):
         """Load data files, run batch analysis (optional), then mode-based analysis."""

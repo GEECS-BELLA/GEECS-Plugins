@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.5] — 2026-05-20
+
+### Fixed
+- `SingleDeviceScanAnalyzer._run_analysis_core` no longer swallows
+  unexpected exceptions. Previously the outer `except Exception` printed
+  a local traceback, logged a warning, and returned `None`. Because
+  `task_queue.run_worklist` treats a `None` return as "no display
+  files" and unconditionally writes `state="done"`, real analysis
+  failures were being marked as completed successfully. Exceptions now
+  propagate to `run_worklist`, which catches them and writes
+  `state="failed"` with the error message (matching the existing
+  `DataUnavailableWarning` → `state="no_data"` handling). The unused
+  `PRINT_TRACEBACK` module-level flag and `traceback` import are removed.
+
 ## [1.3.4] — 2026-05-20
 
 ### Fixed
