@@ -98,7 +98,9 @@ def apply_line_processing_pipeline(
 
         elif step == PipelineStepType.BACKGROUND:
             if config.background is not None:
-                background = compute_background(processed, config.background)
+                background = compute_background(
+                    processed, config.background, config.data_loading
+                )
                 processed = subtract_background(processed, background)
                 if return_intermediate:
                     intermediate["background"] = processed.copy()

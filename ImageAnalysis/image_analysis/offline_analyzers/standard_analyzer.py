@@ -168,8 +168,11 @@ class StandardAnalyzer(ImageAnalyzer):
             Original images and empty stateful results dict
         """
         # Generate dynamic background if configured
-        # This computes and saves the background but doesn't apply it
-        self.background_manager.generate_dynamic_background(images)
+        # This computes and saves the background but doesn't apply it.
+        # background_manager is None when camera_config has no background section
+        # at all, in which case there is nothing to compute.
+        if self.background_manager is not None:
+            self.background_manager.generate_dynamic_background(images)
 
         # Return ORIGINAL images (not processed)
         # Processing happens in analyze_image() for each image

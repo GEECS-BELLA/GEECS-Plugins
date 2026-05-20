@@ -42,6 +42,10 @@ class TestLineAnalyzerInstantiation:
         analyzer = LineAnalyzer(_make_line_config(), metric_suffix="v2")
         assert analyzer.metric_suffix == "v2"
 
+    def test_accepts_metric_prefix(self):
+        analyzer = LineAnalyzer(_make_line_config(), metric_prefix="MyStitcher")
+        assert analyzer.metric_prefix == "MyStitcher"
+
 
 class TestLineAnalyzerScalars:
     """Scalar presence and finiteness."""
@@ -118,3 +122,9 @@ class TestLineAnalyzerResult:
         analyzer = LineAnalyzer(_make_line_config("line"), metric_suffix="cal")
         result = analyzer.analyze_image(_make_data())
         assert "line_CoM_cal" in result.scalars
+
+    def test_metric_prefix_overrides_line_name(self):
+        analyzer = LineAnalyzer(_make_line_config("line"), metric_prefix="stitched")
+        result = analyzer.analyze_image(_make_data())
+        assert "stitched_CoM" in result.scalars
+        assert "line_CoM" not in result.scalars

@@ -37,6 +37,11 @@ class LineStitcher(LineAnalyzer):
         Device names to load in addition to the master. Order determines
         how ties are broken when energies overlap, but the data is always
         sorted by x after concatenation.
+    name : str
+        Identifier for this stitcher instance. Used as the metric prefix
+        (so scalars are named ``<name>_CoM``, ``<name>_fwhm``, etc.), as
+        the subdirectory under the scan folder where stitched lineouts
+        are saved, and as the label embedded in the output filename.
     metric_suffix : str, optional
         Passed through to LineAnalyzer for metric naming.
     """
@@ -45,14 +50,16 @@ class LineStitcher(LineAnalyzer):
         self,
         line_config_name: str,
         sibling_devices: List[str],
+        name: str,
         metric_suffix: Optional[str] = None,
-        output_folder: str = "stitched_files",
-        output_label: str = "stitched_data",
     ):
-        super().__init__(line_config_name, metric_suffix)
+        super().__init__(
+            line_config_name,
+            metric_suffix=metric_suffix,
+            metric_prefix=name,
+        )
         self.sibling_devices = sibling_devices
-        self.output_folder = output_folder
-        self.output_label = output_label
+        self.name = name
         self._device_in_filename: Optional[str] = None
 
     def load_image(self, file_path: Path) -> Array1D:
@@ -161,9 +168,9 @@ class LineStitcher(LineAnalyzer):
 
         scan_dir = file_path.parent.parent
         shot_num = file_path.stem.rsplit("_", 1)[-1]
-        new_stem = f"{scan_dir.name}_{self.output_label}_{shot_num}"
+        new_stem = f"{scan_dir.name}_{self.name}_{shot_num}"
 
-        output_dir = scan_dir / self.output_folder
+        output_dir = scan_dir / self.name
         output_dir.mkdir(parents=True, exist_ok=True)
 
         metadata = result.metadata or {}
