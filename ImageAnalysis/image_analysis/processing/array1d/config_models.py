@@ -155,7 +155,12 @@ class BackgroundConfig(BaseModel):
         default=None, description="Constant value to subtract from y-values"
     )
     background_file: Optional[Path] = Field(
-        default=None, description="Path to background file (NPY or NPZ format)"
+        default=None,
+        description=(
+            "Path to background file. Loaded via the same 1D reader as the "
+            "line data, so any supported data_type (npy, csv, tsv, "
+            "tek_scope_hdf5, tdms_scope) is accepted."
+        ),
     )
 
     @field_validator("constant_value")

@@ -3,6 +3,35 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] — 2026-05-20
+
+### Added
+- `LineAnalyzer` now accepts a `metric_prefix` constructor arg that overrides
+  the `line_config.name`-derived prefix on scalar metric keys. Lets one
+  `Line1DConfig` be reused across multiple analyzer instances that report
+  under different names — e.g. a stitcher that loads from a per-device
+  config but emits metrics under a composite name.
+- 1D background subtraction `FROM_FILE` now supports every format the line
+  loader understands (npy, csv, tsv, tek_scope_hdf5, tdms_scope). The
+  background file is read via `read_1d_data` using the same `data_loading`
+  config the line itself uses. Previously only `.npy` / `.npz` were
+  accepted.
+
+### Fixed
+- `StandardAnalyzer.analyze_image_batch` no longer raises `AttributeError`
+  when the camera config has no `background:` section (in which case
+  `background_manager` is `None`).
+
+### Changed (breaking — internal/config-level)
+- `LineStitcher` constructor: `output_folder` and `output_label` kwargs are
+  replaced by a single `name` kwarg that drives the metric prefix, the
+  output subdirectory, and the output filename label. Existing YAML configs
+  must update from `output_folder`/`output_label` to `name`.
+- `compute_background` (in `processing/array1d/background.py`) now accepts
+  a `data_loading: Optional[Data1DConfig]` argument, required for the
+  `FROM_FILE` method. Pipeline callers already pass it through; direct
+  callers of this helper must update.
+
 ## [1.1.5] — 2026-05-19
 
 ### Added
