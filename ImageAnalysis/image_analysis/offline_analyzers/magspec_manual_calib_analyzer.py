@@ -18,6 +18,24 @@ Supported YAML config format (under ``analysis:``):
         lanex_calibration_file: "magspec_code/calibrations/250101lanexCalib.txt"
         camera_number: 1
         magnetic_field_t: 0.2005
+        magnetic_field_aux_key: "HTT-MagTeslameter-DTM141 Field"
+
+BELLA ESM calibration example:
+
+.. code-block:: yaml
+
+    analysis:
+      energy_range: [4000, 22000]
+      num_energy_points: 500
+      calibration:
+        kind: bella_axis
+        camera_calibration_file: "data/ESM-MagSpec-Calibrations/251205camCalib.txt"
+        trajectory_calibration_file: "data/ESM-MagSpec-Calibrations/200301trjCalib400A0.txt"
+        lanex_calibration_file: "data/ESM-MagSpec-Calibrations/200301lanexCalib.txt"
+        camera_number: 1
+        screen_side: front
+        magnetic_field_t: 0.670
+        magnetic_field_aux_key: "HALLPROBE-TEA-MAGSPEC Field"
 
 Polynomial calibration example:
 
@@ -171,6 +189,7 @@ class DnnAxisCalibration(EnergyCalibration, BaseModel):
     trajectory_calibration_file: str
     camera_number: int = Field(..., ge=1, le=4)
     magnetic_field_t: float = 1.0
+    magnetic_field_aux_key: Optional[str] = "HTT-MagTeslameter-DTM141 Field"
     lanex_calibration_file: Optional[str] = None
 
     # Populated during model_post_init
@@ -323,9 +342,202 @@ class DnnAxisCalibration(EnergyCalibration, BaseModel):
         return self._charge_factor
 
 
+class BellaAxisCalibration(EnergyCalibration, BaseModel):
+    """BELLA ESM magspec calibration (ESMCalib camera + trajectory files).
+
+    Uses the same two-file approach as :class:`DnnAxisCalibration` but with
+    format differences specific to the BELLA Energy Spectrometer for Multi-GeV
+    (ESM):
+
+    - Camera calibration file uses ``setN`` column (not ``set``); no ``screen``
+      column (screen type is always front/fast LANEX throughout the ESM).
+    - Trajectory file has side rows first (``side logic == 1``), then front rows
+      (``side logic == 0``) — opposite of DNN convention.
+    - Front-camera x-axis increases from ``leftPos``; side-camera decreases.
+    - LANEX screen factor is always 1.98 (front screen) for all ESM cameras.
+
+    YAML example::
+
+        calibration:
+          kind: bella_axis
+          camera_calibration_file: "data/ESM-MagSpec-Calibrations/251205camCalib.txt"
+          trajectory_calibration_file: "data/ESM-MagSpec-Calibrations/200301trjCalib400A0.txt"
+          lanex_calibration_file: "data/ESM-MagSpec-Calibrations/200301lanexCalib.txt"
+          camera_number: 1
+          screen_side: front
+          magnetic_field_t: 0.670
+          magnetic_field_aux_key: "HALLPROBE-TEA-MAGSPEC Field"
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    kind: Literal["bella_axis"] = "bella_axis"
+    camera_calibration_file: str
+    trajectory_calibration_file: str
+    camera_number: int = Field(..., ge=1)
+    screen_side: Literal["front", "side"] = "front"
+    magnetic_field_t: float = 1.0
+    magnetic_field_aux_key: Optional[str] = None
+    lanex_calibration_file: Optional[str] = None
+
+    # Populated during model_post_init
+    _fov_mm: float = 0.0
+    _roi_width_px: int = 0
+    _left_edge_mm: float = 0.0
+    _x_start_px: int = 0
+    _x_end_px: int = 0
+    _traj_screen_mm: np.ndarray = np.empty(0)
+    _traj_momentum: np.ndarray = np.empty(0)
+    _charge_factor: Optional[float] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        """Load BELLA ESM calibration data from text files after Pydantic validation."""
+        cam_rows = _read_tab_delimited_rows(self.camera_calibration_file)
+        trj_rows = _read_tab_delimited_rows(self.trajectory_calibration_file)
+
+        # Find camera row by camera number
+        cam_row = None
+        for row in cam_rows:
+            if int(float(row["cam number"])) == self.camera_number:
+                cam_row = row
+                break
+        if cam_row is None:
+            raise ValueError(
+                f"Camera number {self.camera_number} not found in "
+                f"'{self.camera_calibration_file}'"
+            )
+
+        self._fov_mm = float(cam_row["FOV [mm]"])
+        self._roi_width_px = int(float(cam_row["ROI width"]))
+        self._left_edge_mm = float(cam_row["Left edge [mm]"])
+        self._x_start_px = int(float(cam_row["X Start"]))
+        self._x_end_px = int(float(cam_row["X End"]))
+
+        if self._roi_width_px <= 0:
+            raise ValueError("ROI width must be > 0")
+        if self._x_start_px < 1 or self._x_end_px < self._x_start_px:
+            raise ValueError("X Start / X End must be 1-based with X End >= X Start")
+        if self._x_end_px > self._roi_width_px:
+            raise ValueError(
+                f"X End ({self._x_end_px}) exceeds ROI width ({self._roi_width_px})"
+            )
+
+        # BELLA trajectory: side rows come first (side logic == 1), then front (== 0).
+        # This is the opposite of DNN convention.
+        split_idx = None
+        for i, row in enumerate(trj_rows):
+            if float(row["side logic"]) == 0.0:
+                split_idx = i
+                break
+        if split_idx is None:
+            raise ValueError("No front rows (side logic == 0) found in trajectory file")
+
+        if self.screen_side == "front":
+            trj_subset = trj_rows[split_idx:]
+            screen_col = "front screen [m]"
+        else:
+            trj_subset = trj_rows[:split_idx]
+            screen_col = "side screen [m]"
+
+        self._traj_screen_mm = 1000.0 * np.array(
+            [float(r[screen_col]) for r in trj_subset], dtype=float
+        )
+        self._traj_momentum = np.array(
+            [float(r["momentum [MeV/c]"]) for r in trj_subset], dtype=float
+        )
+
+        if self.lanex_calibration_file is not None:
+            self._charge_factor = self._compute_charge_factor(cam_row)
+
+    def _compute_charge_factor(self, cam_row: Dict[str, str]) -> float:
+        """Compute counts-to-fC factor using BELLA ESMCalib lanex table.
+
+        ESM always uses front/fast LANEX screens so the screen factor is
+        fixed at 1.98 (vs. 1.0 for LFB/back screens in DNN).
+        """
+        lanex_rows = _read_tab_delimited_rows(self.lanex_calibration_file)
+
+        set_n = int(float(cam_row["setN"]))
+        cam_fov = float(cam_row["FOV [mm]"])
+        sensitivity = float(cam_row.get("sensitivity", 1.0))
+        if sensitivity == 0.0:
+            raise ValueError("Camera sensitivity cannot be zero")
+
+        lanex_row = None
+        for row in lanex_rows:
+            if "setting number" in row and int(float(row["setting number"])) == set_n:
+                lanex_row = row
+                break
+        if lanex_row is None:
+            idx = set_n - 1
+            if idx < 0 or idx >= len(lanex_rows):
+                raise ValueError(f"LANEX set {set_n} not available")
+            lanex_row = lanex_rows[idx]
+
+        fov_slope = float(lanex_row["FOV slope"])
+        fov_offset = float(lanex_row["FOV offset"])
+        sense2 = float(lanex_row["sensitivity 2"])
+        sense1 = float(lanex_row["sensitivity 1"])
+        sense0 = float(lanex_row["sensitivity 0"])
+
+        z = (cam_fov - fov_offset) / fov_slope
+        als_ratio = sense2 * z**2 + sense1 * z + sense0
+        c2c = 1.98 * als_ratio / 146.0
+        c2c /= sensitivity
+        return c2c
+
+    def build_axis(self, image_width: int) -> np.ndarray:
+        """Build BELLA ESM energy axis for the current image width."""
+        expected_width = self._x_end_px - self._x_start_px + 1
+        if expected_width != image_width:
+            raise ValueError(
+                f"BELLA calibration ROI width ({expected_width}) doesn't match "
+                f"image width ({image_width}). Check camera YAML roi vs X Start/X End."
+            )
+
+        # Front cameras: x increases from leftPos; side cameras: x decreases.
+        sign = 1.0 if self.screen_side == "front" else -1.0
+        x_mm_full = np.linspace(
+            self._left_edge_mm,
+            self._left_edge_mm + sign * self._fov_mm,
+            self._roi_width_px,
+        )
+        x_mm = x_mm_full[self._x_start_px - 1 : self._x_end_px]
+
+        order = np.argsort(self._traj_screen_mm)
+        spline = CubicSpline(
+            self._traj_screen_mm[order],
+            self._traj_momentum[order],
+            extrapolate=False,
+        )
+        momentum = spline(x_mm)
+
+        if np.any(~np.isfinite(momentum)):
+            raise ValueError(
+                "BELLA calibration interpolation produced non-finite momentum values. "
+                "Check that camera x_mm range overlaps trajectory screen positions."
+            )
+
+        return self.magnetic_field_t * momentum
+
+    @property
+    def expected_image_width(self) -> int:
+        """Expected image width based on X Start / X End from camera calibration."""
+        return self._x_end_px - self._x_start_px + 1
+
+    def get_charge_factor(self) -> Optional[float]:
+        """Return counts-to-fC conversion factor, or None if no lanex file."""
+        return self._charge_factor
+
+
 # Discriminated union of calibration types
 CalibrationSpec = Annotated[
-    Union[PolynomialCalibration, ArrayCalibration, DnnAxisCalibration],
+    Union[
+        PolynomialCalibration,
+        ArrayCalibration,
+        DnnAxisCalibration,
+        BellaAxisCalibration,
+    ],
     Field(discriminator="kind"),
 ]
 
@@ -430,19 +642,18 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         cal = self.magspec_config.calibration
 
-        # check if magnetic field is being passed through analyze_image,
-        # overriding the config value in the DNN calibration (if present)
-        BField_key = "HTT-MagTeslameter-DTM141 Field"
-        aux_mag_field = auxiliary_data.get(BField_key, None) if auxiliary_data else None
-
-        if isinstance(cal, DnnAxisCalibration) and aux_mag_field is not None:
-            logger.info(
-                "Overriding DNN calibration magnetic field with auxiliary value: "
-                "config=%s T, auxiliary=%s T",
-                cal.magnetic_field_t,
-                aux_mag_field,
-            )
-            cal.magnetic_field_t = aux_mag_field
+        # Override magnetic field from auxiliary data if the calibration has a key configured.
+        aux_key = getattr(cal, "magnetic_field_aux_key", None)
+        if aux_key and auxiliary_data:
+            aux_field = auxiliary_data.get(aux_key)
+            if aux_field is not None:
+                logger.info(
+                    "Overriding calibration magnetic field with auxiliary value: "
+                    "config=%s T, auxiliary=%s T",
+                    cal.magnetic_field_t,
+                    aux_field,
+                )
+                cal.magnetic_field_t = aux_field
 
         # Charge calibration (if available)
         charge_factor = cal.get_charge_factor()

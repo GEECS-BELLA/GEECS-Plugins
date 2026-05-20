@@ -1,0 +1,75 @@
+# Test configuration for BELLA ESM Camera 1 (front screen, highest-energy camera)
+# Device name on DAQ: CAM-TEA-MagSpec1 (or similar — confirm with DAQ)
+#
+# Calibration files sourced from N:/data/Calibrations/ESMCalib/:
+#   251205camCalib.txt   — camera geometry/sensitivity (2025-12-05)
+#   200301trjCalib400A0.txt — trajectory at 400 A, 0 deg tilt (2020-03-01)
+#   200301lanexCalib.txt — LANEX sensitivity/vignette table (2020-03-01)
+#
+# ROI note: x_min/x_max correspond to X Start=400, X End=692 (1-indexed) from
+# the camera calibration file (0-indexed exclusive upper bound in YAML).
+# The bella_axis calibration validates that image_width == X End - X Start + 1 = 293.
+
+name: "CAM-TEA-MagSpec1"
+description: "BELLA ESM front-screen camera 1 — test config"
+bit_depth: 12
+
+background:
+  enabled: true
+  method: from_file
+  additional_constant: 0.0
+
+roi:
+  x_min: 399   # X Start - 1 (0-indexed)
+  x_max: 692   # X End (exclusive upper bound → width = 293 px)
+  y_min: 26    # Y Start - 1
+  y_max: 131   # Y End
+
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: 3
+
+thresholding:
+  enabled: true
+  method: "constant"
+  value: 0.0
+  mode: "to_zero"
+  invert: false
+
+transforms:
+  rotation_angle: 0.5   # rot [deg] from camCalib
+  flip_horizontal: false
+  flip_vertical: false
+
+# Vignette coefficients from ESMCalib lanexCalib.txt, setting 9
+# (setN=9 for cameras 1-10 in 251205camCalib.txt)
+# full_width/height are the full sensor dimensions for that lanex setting.
+vignette:
+  enabled: true
+  method: radial_polynomial
+  full_width: 692
+  full_height: 516
+  vgnt4: 2.4738080e-12
+  vgnt2: -2.5248120e-06
+  vgnt0: 1.0
+  x_offset: 0    # ROI X offset from camCalib
+  y_offset: 158  # ROI Y offset from camCalib
+  min_model_value: 1.0e-9
+
+analysis:
+  # Energy range in MeV at nominal field ~0.67 T.
+  # Camera 1 covers ~7.0–15.1 GeV (from build_axis at 0.670 T).
+  # Widen if the actual field differs significantly.
+  energy_range: [6000, 16000]
+  num_energy_points: 500
+  calibration:
+    kind: bella_axis
+    camera_calibration_file: "data/ESM-MagSpec-Calibrations/251205camCalib.txt"
+    trajectory_calibration_file: "data/ESM-MagSpec-Calibrations/200301trjCalib400A0.txt"
+    lanex_calibration_file: "data/ESM-MagSpec-Calibrations/200301lanexCalib.txt"
+    camera_number: 1
+    screen_side: front
+    magnetic_field_t: 0.670
+    # Key for the hall-probe reading in the scan s-file / auxiliary_data dict.
+    # Update to match the actual GEECS device variable name.
+    magnetic_field_aux_key: "HALLPROBE-TEA-MAGSPEC Field"
