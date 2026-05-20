@@ -310,16 +310,11 @@ def _read_csv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
         pass
 
     try:
-        # np.loadtxt uses a C parser (since NumPy 1.23) and is ~10-20x faster
-        # than np.genfromtxt for clean numeric tables. Stricter on malformed
-        # rows: raises ValueError instead of substituting NaN. Acceptable for
-        # processed spectra; clean failures are preferred over silent NaNs.
-        data = np.loadtxt(
+        data = np.genfromtxt(
             file_path,
             delimiter=delimiter,
-            skiprows=1,  # Skip header row
-            comments="#",
         )
+
     except Exception as e:
         raise RuntimeError(f"Failed to load CSV file {file_path}: {e}") from e
 

@@ -282,7 +282,7 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        folder = Path(base) / tag.experiment
+        folder = Path(base) / tag.experiment if tag.experiment else Path(base)
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
