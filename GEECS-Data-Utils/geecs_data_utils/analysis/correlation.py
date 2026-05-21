@@ -7,6 +7,7 @@ with NaN in the target, then correlate every numeric column with that target.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Sequence
 
@@ -126,7 +127,9 @@ class CorrelationReport:
         )
 
         if exclude_terms:
-            pattern = "|".join(exclude_terms)
+            # Escape each term so a user passing 'U_BCaveICT (charge)' or
+            # 'mag.spec' doesn't accidentally enable regex metacharacters.
+            pattern = "|".join(re.escape(term) for term in exclude_terms)
             mask = ~corr_series.index.str.contains(pattern, case=False)
             corr_series = corr_series[mask]
 

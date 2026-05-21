@@ -57,3 +57,27 @@ class TestCorrelationReport:
         """Non-existent target raises ValueError."""
         with pytest.raises(ValueError, match="not numeric or not present"):
             CorrelationReport.from_dataframe(sample_df, target="nonexistent")
+
+    def test_exclude_terms_are_regex_escaped(self):
+        """Regex metacharacters in exclude_terms are treated as literals."""
+        import numpy as np
+        import pandas as pd
+
+        # Column names with regex metacharacters that, if not escaped,
+        # would match unintended siblings (`.` matches any character).
+        rng = np.random.RandomState(0)
+        df = pd.DataFrame(
+            {
+                "mag.spec": rng.randn(20),
+                "magXspec": rng.randn(20),  # would match `mag.spec` as regex
+                "charge": rng.randn(20),
+            }
+        )
+        report = CorrelationReport.from_dataframe(
+            df, target="charge", exclude_terms=["mag.spec"]
+        )
+        # Only the literal match should be removed; the regex-meta sibling
+        # must still appear in the ranking.
+        ranked = report.ranked_features
+        assert "mag.spec" not in ranked
+        assert "magXspec" in ranked
