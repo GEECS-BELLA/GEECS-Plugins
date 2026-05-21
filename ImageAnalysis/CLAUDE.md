@@ -244,3 +244,40 @@ Same pattern but inherit from `Standard1DAnalyzer` and use `self.line_config.ana
   variants in one scan (e.g., two ROI regions). Keeps scalar keys unique.
 - **Nx2 convention for 1D data** — Column 0 is always x (independent), column 1
   is always y (dependent). `read_1d_data()` enforces this.
+
+## Filesystem invariants for offline_analyzers that write inside `scans/ScanNNN/`
+
+Some analyzers (`LineStitcher`, `MagSpecManualCalibAnalyzer`,
+`HASOHimgHasProcessor`, `GrenouilleAnalyzer`) save derived per-shot outputs
+into a subfolder of the source scan dir — e.g. `<scan_dir>/<device>-interp/`.
+This is intentional and mirrors notebook workflows. **But analysis code never
+creates the scan folder itself.** See
+[Cross-package invariants](../CLAUDE.md#cross-package-invariants) in the root
+for the full background and the production incident that motivated this rule.
+
+When you write a new analyzer that emits files inside the scan dir:
+
+1. Compute `scan_dir` (typically `file_path.parent.parent`).
+2. **Guard before any `mkdir`:**
+   ```python
+   if not scan_dir.is_dir():
+       raise FileNotFoundError(
+           f"Scan folder {scan_dir} is not visible; refusing to create "
+           f"output subfolder. ..."
+       )
+   ```
+3. Create the output subfolder with `mkdir(exist_ok=True)` only — **never**
+   `parents=True` on a path that traverses through `scans/`. If `scan_dir` is
+   real but the subfolder is missing, that's the one and only level you may
+   create.
+
+If your analyzer's save logic instead lives in a utility like
+`save_background_to_file`, the utility must require its parent dir to exist
+(raise `FileNotFoundError` otherwise) — the caller is responsible for the
+guard above. `image_analysis.processing.array1d.background.save_background_to_file`
+is the canonical example.
+
+Invariant is pinned by tests:
+- `tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
+- `tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
+- `tests/processing/test_array1d_background.py`

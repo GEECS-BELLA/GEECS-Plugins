@@ -198,6 +198,30 @@ analyzers:
 - **`camera_config_name`** — Points to a YAML in the configs repo. The name
   (without extension) is used for lookup.
 
+## Filesystem invariants
+
+**ScanAnalysis never creates `scans/ScanNNN/`.** It is a consumer of scan
+folders that the scanner already wrote. This rule is load-bearing — see
+[Cross-package invariants](../CLAUDE.md#cross-package-invariants) in the root
+for the full background and the production incident that motivated it.
+
+In practice:
+
+- All `ScanPaths(...)` calls in this package use the default `read_mode=True`
+  (which raises on a missing folder). Never pass `read_mode=False` from
+  analysis code.
+- `task_queue.init_status_for_scan` and `task_queue.update_status` verify
+  `scan_folder.is_dir()` and bail with an `ERROR` log if it's missing — they
+  do **not** auto-create. The polling loop retries on the next tick.
+- `analysis_status/` is the only directory ever auto-created by this package,
+  and only via `mkdir(exist_ok=True)` — no `parents=True`.
+- Analyzers write their outputs to `<date>/analysis/Scan<NNN>/...`, the
+  *sibling* of `scans/Scan<NNN>/`. Never write back into the scans tree.
+
+When writing a new analyzer, **do not** use `Path.mkdir(parents=True, ...)` on
+any path that could traverse through a `scans/` folder. The invariant is
+pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
+
 ## Adding a New Scan Analyzer
 
 1. Create (or reuse) an `ImageAnalyzer` subclass in `ImageAnalysis`

@@ -196,8 +196,17 @@ def save_background_to_file(background: np.ndarray, file_path: Path) -> None:
     file_path = Path(file_path)
     suffix = file_path.suffix.lower()
 
-    # Create parent directory if it doesn't exist
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+    # Caller is responsible for ensuring the parent directory exists. This
+    # function previously did ``file_path.parent.mkdir(parents=True,
+    # exist_ok=True)``, but ``parents=True`` could silently re-create a
+    # missing scan folder if the caller's path resolved into ``scans/ScanXXX/``
+    # — masking transient SMB visibility blips as permanent data loss.
+    if not file_path.parent.is_dir():
+        raise FileNotFoundError(
+            f"Parent directory {file_path.parent} does not exist. "
+            f"save_background_to_file does not create scan folders; the caller "
+            f"must ensure the destination directory exists before calling."
+        )
 
     if suffix == ".npy":
         np.save(file_path, background)

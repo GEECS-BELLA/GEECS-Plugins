@@ -3,6 +3,23 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.6] — 2026-05-21
+
+### Fixed
+- `task_queue.init_status_for_scan` and `task_queue.update_status` now refuse
+  to create a missing scan folder. The previous `mkdir(parents=True,
+  exist_ok=True)` would silently bring `ScanNNN/` into existence with only
+  `analysis_status/` inside it. Under normal conditions this was harmless,
+  but on a new NetApp/domain it allowed a transient SMB visibility blip
+  (triggered, in one reported incident, by an Explorer double-click during
+  a scan write) to be converted into permanent data loss: the analysis stack
+  planted an empty `Scan015/` directory over the real one during the window
+  that the real folder was briefly invisible. Both functions now log an
+  error and return early when `scan_folder` is not a visible directory; the
+  polling loop retries on the next tick. The `parents=True` flag is dropped
+  everywhere — only `analysis_status/` is ever auto-created. Invariant pinned
+  by new tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
+
 ## [1.3.5] — 2026-05-20
 
 ### Fixed
