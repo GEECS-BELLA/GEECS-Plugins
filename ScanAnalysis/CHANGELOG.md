@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.6] — 2026-05-20
+
+### Changed
+- `Array1DScanAnalyzer._postprocess_scan` now bypasses scan-parameter
+  binning and falls through to `_postprocess_noscan` when
+  `waterfall_sort_key` is set in `renderer_kwargs`. Previously the sort
+  key only took effect on noscan data; for parameter scans the waterfall
+  was always binned by the scan parameter, so the kwarg had no observable
+  effect. With this change you can render every shot of a parameter scan
+  as a waterfall row ordered by any s-file column (e.g. a downstream
+  diagnostic) — at the cost of the per-bin averaged spectra, which are
+  not produced in this mode. Behavior with no sort key is unchanged.
+
 ## [1.3.5] — 2026-05-20
 
 ### Fixed

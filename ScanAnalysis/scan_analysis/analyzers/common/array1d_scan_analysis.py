@@ -330,9 +330,29 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         For 1D line/spectrum data with a scanned parameter, this creates:
         - Individual averaged spectra per bin
         - A waterfall plot showing all bins sorted by scan parameter
+
+        When ``waterfall_sort_key`` is set in ``renderer_kwargs``, the
+        binning step is bypassed entirely and rendering falls through to
+        :meth:`_postprocess_noscan`, which produces a per-shot waterfall
+        sorted by the chosen s-file column. Use this when you want to see
+        every shot ordered by a different observable than the scan
+        parameter (e.g. a downstream diagnostic) — the per-bin averaged
+        spectra are not generated in this mode.
         """
         from scan_analysis.analyzers.renderers.config import RenderContext
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # When a sort key is provided, treat the scan as if it were a
+        # noscan for rendering purposes: every shot becomes a waterfall
+        # row ordered by the chosen s-file column rather than by bin.
+        if self.renderer_kwargs.get("waterfall_sort_key"):
+            logger.info(
+                "waterfall_sort_key=%r set; bypassing binning and rendering "
+                "per-shot waterfall via _postprocess_noscan",
+                self.renderer_kwargs["waterfall_sort_key"],
+            )
+            self._postprocess_noscan()
+            return
 
         # Get binned data (handles both per_shot and per_bin modes)
         binned_data = self.get_binned_data()
