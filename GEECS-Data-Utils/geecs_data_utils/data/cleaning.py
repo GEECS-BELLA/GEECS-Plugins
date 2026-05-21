@@ -150,7 +150,7 @@ def _iter_outlier_bounds(
 
 def sigma_clip_frame(
     df: pd.DataFrame,
-    sigma: float = 6.0,
+    sigma: float = 5.0,
     columns: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Remove rows where any selected column lies outside a sigma band.
@@ -174,6 +174,18 @@ def sigma_clip_frame(
     pandas.DataFrame
         Filtered copy with outlier rows removed.
 
+    Notes
+    -----
+    Behavioral subtleties to be aware of:
+
+    * **Order-dependent.** Bounds are recomputed against the *already-clipped*
+      frame after each column. Iterating columns in a different order can
+      yield different results once the band is tight.
+    * **Drops NaN rows as a side effect.** ``np.nan >= lower`` and
+      ``np.nan <= upper`` are both ``False``, so any row with NaN in a clipped
+      column is removed. If you want to preserve rows and mask only the
+      outlier *values*, use :func:`sigma_nan_frame` instead.
+
     See Also
     --------
     sigma_nan_frame : mask outliers with ``NaN`` instead of dropping rows.
@@ -186,7 +198,7 @@ def sigma_clip_frame(
 
 def sigma_nan_frame(
     df: pd.DataFrame,
-    sigma: float = 6.0,
+    sigma: float = 5.0,
     columns: Optional[Sequence[str]] = None,
 ) -> pd.DataFrame:
     """Replace values outside a sigma band with ``NaN``.
@@ -207,6 +219,13 @@ def sigma_nan_frame(
     -------
     pandas.DataFrame
         Copy with outlier values set to ``NaN``.
+
+    Notes
+    -----
+    Unlike :func:`sigma_clip_frame`, this function is **order-independent**:
+    each column's bounds are computed against the original frame, and the
+    only side effect is to set outlier cells to ``NaN``. Pre-existing ``NaN``
+    values are preserved (they don't satisfy ``< lower`` or ``> upper``).
 
     See Also
     --------
