@@ -277,8 +277,13 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                         row = self.auxiliary_data.loc[
                             self.auxiliary_data["Shotnumber"] == shot_num, sort_column
                         ]
+                        # Use NaN as the sentinel for "no value"; the filter
+                        # below drops any shot whose sort value isn't finite.
+                        # Falling back to float(shot_num) would mix scales
+                        # (shot indices vs. real sort-key values), which
+                        # breaks mean/std-based outlier filtering.
                         ctx.parameter_value = (
-                            float(row.iloc[0]) if not row.empty else float(shot_num)
+                            float(row.iloc[0]) if not row.empty else float("nan")
                         )
                         ctx.scan_parameter = sort_column
                     else:
@@ -287,6 +292,24 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                     contexts.append(ctx)
 
             if sort_column is not None:
+                # Drop shots whose sort-key value is missing or non-finite.
+                # Without this, even a single NaN poisons mean()/std() and
+                # the outlier filter rejects every shot.
+                n_before = len(contexts)
+                contexts = [c for c in contexts if np.isfinite(c.parameter_value)]
+                n_invalid = n_before - len(contexts)
+                if n_invalid:
+                    logger.warning(
+                        f"Waterfall sort: dropped {n_invalid} shot(s) with "
+                        f"non-finite {sort_column!r} values."
+                    )
+                if not contexts:
+                    logger.warning(
+                        f"Waterfall sort: no shots have a valid {sort_column!r} "
+                        "value; skipping summary figure."
+                    )
+                    return
+
                 sort_bounds = self.renderer_kwargs.get("waterfall_sort_bounds")
                 sort_sigma = self.renderer_kwargs.get("waterfall_sort_sigma", 3.0)
                 n_before = len(contexts)
