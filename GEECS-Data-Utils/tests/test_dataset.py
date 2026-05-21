@@ -72,47 +72,47 @@ class TestFromDataframe:
                 target_column="charge",
             )
 
-    def test_exclude_specs_drops_matching_features(self, sample_df):
-        """exclude_specs removes columns whose names contain the substring."""
+    def test_exclude_terms_drops_matching_features(self, sample_df):
+        """exclude_terms removes columns whose names contain the substring."""
         # sample_df has feature_a / feature_b / feature_c; auto-select picks
-        # all three, exclude_specs="_c" should drop feature_c.
+        # all three, exclude_terms="_c" should drop feature_c.
         ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             target_column="charge",
-            exclude_specs=["_c"],
+            exclude_terms=["_c"],
         )
         assert "feature_c" not in ds.feature_columns
         assert "feature_a" in ds.feature_columns
         assert "feature_b" in ds.feature_columns
 
-    def test_exclude_specs_applies_to_explicit_features(self, sample_df):
-        """exclude_specs works even with an explicit feature_columns list."""
+    def test_exclude_terms_applies_to_explicit_features(self, sample_df):
+        """exclude_terms works even with an explicit feature_columns list."""
         ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             feature_columns=["feature_a", "feature_b", "feature_c"],
             target_column="charge",
-            exclude_specs=["_b"],
+            exclude_terms=["_b"],
         )
         assert ds.feature_columns == ["feature_a", "feature_c"]
 
-    def test_exclude_specs_never_drops_target(self, sample_df):
+    def test_exclude_terms_never_drops_target(self, sample_df):
         """A spec that would match the target leaves the target intact."""
         ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             target_column="charge",
-            exclude_specs=["charge"],
+            exclude_terms=["charge"],
         )
         assert ds.target_column == "charge"
         assert "charge" not in ds.feature_columns  # target is never a feature
 
-    def test_exclude_specs_removing_everything_raises(self, sample_df):
-        """exclude_specs that wipes the candidate set raises a clear error."""
+    def test_exclude_terms_removing_everything_raises(self, sample_df):
+        """exclude_terms that wipes the candidate set raises a clear error."""
         with pytest.raises(ValueError, match="removed every candidate feature"):
             MLDatasetBuilder.from_dataframe(
                 sample_df,
                 feature_columns=["feature_a", "feature_b"],
                 target_column="charge",
-                exclude_specs=["feature"],
+                exclude_terms=["feature"],
             )
 
     def test_no_dropna(self, sample_df):

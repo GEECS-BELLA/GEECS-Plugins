@@ -22,7 +22,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - New optional `geecs_data_utils.modeling.ml` subpackage (install with the
   `ml` extra):
   - `MLDatasetBuilder` / `DatasetResult`: select target + features from a
-    DataFrame for modeling, with optional `exclude_specs`.
+    DataFrame for modeling, with optional `exclude_terms` for substring-
+    based feature pruning (matching `CorrelationReport.exclude_terms`).
   - `RegressionTrainer` / `ModelArtifact`: linear / ridge / elastic-net
     fits with standard preprocessing, metrics, and optional CV scores.
   - `save_model_artifact` / `load_model_artifact`: joblib + JSON
