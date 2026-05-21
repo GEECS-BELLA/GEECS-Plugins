@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import pandas as pd
 
 from geecs_data_utils.data.cleaning import OutlierConfig, RowFilterSpec
+from geecs_data_utils.data.columns import find_cols
 from geecs_data_utils.data.dataset import DatasetBuilder
 
 
@@ -86,6 +87,7 @@ class MLDatasetBuilder:
         df: pd.DataFrame,
         *,
         feature_columns: Optional[Sequence[str]] = None,
+        exclude_specs: Optional[Sequence[str]] = None,
         target_column: str,
         filters: Optional[List[RowFilterSpec]] = None,
         outlier_config: Optional[OutlierConfig] = None,
@@ -100,6 +102,14 @@ class MLDatasetBuilder:
         feature_columns : sequence of str, optional
             Exact predictor names; if omitted, all numeric columns except
             ``target_column`` are used.
+        exclude_specs : sequence of str, optional
+            Substring patterns matched (case-insensitive, via
+            :func:`~geecs_data_utils.data.columns.find_cols`) against the
+            initial feature set to remove unwanted predictors. Applied
+            whether ``feature_columns`` is explicit or auto-selected.
+            Easier than re-typing a long ``feature_columns`` list when
+            iteratively pruning diagnostics. ``target_column`` is never
+            excluded even if a spec would match it.
         target_column : str
             Exact response column name.
         filters : list, optional
@@ -116,7 +126,8 @@ class MLDatasetBuilder:
         Raises
         ------
         ValueError
-            If any selected column is missing from ``df``.
+            If any selected column is missing from ``df``, or if
+            ``exclude_specs`` removes every candidate feature.
         """
         assembled = DatasetBuilder.from_dataframe(
             df,
@@ -135,6 +146,21 @@ class MLDatasetBuilder:
                 for c in out.select_dtypes(include="number").columns
                 if c != target_column
             ]
+
+        if exclude_specs:
+            # find_cols expects a DataFrame; restrict the search to the
+            # current feature candidates so excludes can never remove the
+            # target or non-feature columns.
+            feature_frame = out[[c for c in features if c in out.columns]]
+            to_drop: set[str] = set()
+            for spec in exclude_specs:
+                to_drop.update(find_cols(feature_frame, spec))
+            features = [c for c in features if c not in to_drop]
+            if not features:
+                raise ValueError(
+                    f"exclude_specs={list(exclude_specs)!r} removed every "
+                    f"candidate feature; nothing left to model."
+                )
 
         selected = features + [target_column]
         missing = [c for c in selected if c not in out.columns]
