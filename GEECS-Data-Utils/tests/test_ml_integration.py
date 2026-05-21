@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 
+from geecs_data_utils.analysis import CorrelationReport
 from geecs_data_utils.data import OutlierConfig
 from geecs_data_utils.modeling.ml import (
     MLDatasetBuilder,
-    CorrelationReport,
     ModelArtifact,
     RegressionTrainer,
     load_model_artifact,

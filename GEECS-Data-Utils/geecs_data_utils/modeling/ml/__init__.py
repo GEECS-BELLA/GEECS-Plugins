@@ -16,10 +16,9 @@ Typical workflow:
 4. :func:`~geecs_data_utils.modeling.ml.persistence.load_model_artifact` and
    :func:`~geecs_data_utils.modeling.ml.inference.predict_from_scan` — deploy.
 
-:class:`~geecs_data_utils.analysis.correlation.CorrelationReport` is implemented
-in ``analysis`` and re-exported here for convenience. Prefer
-``from geecs_data_utils.analysis import CorrelationReport`` when imports should
-stay explicitly non-ML.
+For correlation ranking (non-ML), import from
+:mod:`geecs_data_utils.analysis` directly — there's no re-export here, so the
+analysis path stays free of sklearn weight.
 
 See Also
 --------
@@ -27,11 +26,9 @@ geecs_data_utils.data : Shared dataset assembly and column resolution.
 geecs_data_utils.analysis : Correlation and other analysis helpers.
 """
 
-from geecs_data_utils.analysis import CorrelationReport
-
 from geecs_data_utils.modeling.ml.dataset import (
-    MLDatasetBuilder,
     DatasetResult,
+    MLDatasetBuilder,
 )
 from geecs_data_utils.modeling.ml.inference import predict_from_scan
 from geecs_data_utils.modeling.ml.models import ModelArtifact, RegressionTrainer
@@ -46,10 +43,9 @@ from geecs_data_utils.modeling.ml.schemas import (
 )
 
 __all__ = [
-    "MLDatasetBuilder",
-    "CorrelationReport",
     "DatasetResult",
     "FeatureSchema",
+    "MLDatasetBuilder",
     "ModelArtifact",
     "ModelMetadata",
     "RegressionTrainer",
