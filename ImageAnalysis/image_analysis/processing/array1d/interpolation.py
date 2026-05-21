@@ -73,8 +73,8 @@ def apply_interpolation(data: np.ndarray, config: InterpolationConfig) -> np.nda
         # Create uniform x-axis
         uniform_x = np.linspace(x_min, x_max, config.num_points)
 
-        # Interpolate y-values onto uniform grid
-        interpolated_y = np.interp(uniform_x, x_values, y_values)
+        # Interpolate y-values onto uniform grid (zero-pad outside data range)
+        interpolated_y = np.interp(uniform_x, x_values, y_values, left=0.0, right=0.0)
 
         # Combine into Nx2 array
         result = np.column_stack([uniform_x, interpolated_y])

@@ -1,6 +1,6 @@
 # Data Acquisition Module
 
-This is a GUI wrapper for the Python-based data acquisition module in 
+This is a GUI wrapper for the Python-based data acquisition module in
 `./geecs_scanner/data_acquisition/` that utilizes `GEECS-PythonAPI`.  It was originally
 developed for HTU, but it is designed to be generally usable by any
 experiment using the GEECS/Master Control environment.
@@ -20,13 +20,15 @@ While Master Control scans save everything, will crash or slowdown at any device
 
 ## Installation
 
-Requires GEECS-Plugins installed somewhere, Python 3.10, and Poetry.  Can be run off of the Z: drive version, but it is not recommended to edit this version directly.  Beyond basic usage, we recommend cloning your own copy of the repo with `Github Desktop`.
+Requires GEECS-Plugins installed somewhere, **Python 3.11**, and Poetry.  Can be run off of the Z: drive version, but it is not recommended to edit this version directly.  Beyond basic usage, we recommend cloning your own copy of the repo with `Github Desktop`.
 
-Python 3.10 can be installed from the following link:
-```link
-https://www.python.org/downloads/release/python-31011/
+Python 3.11 can be installed from the following link:
 ```
-Can download and use the `Windows installer (64-bit)` link.  Remember to select the "Add to Path" checkbox at the bottom of the installation window.
+https://www.python.org/downloads/release/python-31113/
+```
+Download and run the `Windows installer (64-bit)`.  Remember to check **"Add Python to PATH"** at the bottom of the installation window.
+
+> **Upgrading from Python 3.10?** See the [Migrating from Python 3.10](#migrating-from-python-310) section below.
 
 For Poetry, install using their official command-line
 ```link
@@ -49,7 +51,7 @@ For the `GEECS user data location` information, you will need to copy the existi
 
 Alternatively, you can use the included bash script `GEECS_Scanner.sh` to launch the version of the GUI on the Z drive.  This can be modified if needed.
 
-Note:  this may not work if your default python version is not 3.10.  You can see what python version your system defaults to by typing `python --verison`.  If you are experiencing troubles with poetry here, might need to manually specify which python version to use in these two commands.
+Note:  this may not work if your default python version is not 3.11.  You can see what python version your system defaults to by typing `python --version`.  If you are experiencing troubles with poetry here, you may need to manually specify the Python version — see [Migrating from Python 3.10](#migrating-from-python-310) below.
 
 ### Setting up the environment for development
 
@@ -57,11 +59,11 @@ Open a terminal.  Change directory to this folder (the one with `pyproject.toml`
 ```commandline
 poetry install
 ```
-If this doesn't work, you have too many python versions installed on your computer.  To specify, go to `Edit the system environment variables` in your Windows search bar and look up where Python 3.10 lives in your Path variable.  Copy the entire path to the `python.exe` file and use that with poetry.
+If this doesn't work, you have too many python versions installed on your computer.  To specify, go to `Edit the system environment variables` in your Windows search bar and look up where Python 3.11 lives in your Path variable.  Copy the entire path to the `python.exe` file and use that with poetry.
 
-For example, if my Python 3.10 executable is in `C:\Users\loasis.LOASIS\AppData\Local\Programs\Python\Python310\python.exe` then I run the commands
+For example, if my Python 3.11 executable is in `C:\Users\loasis.LOASIS\AppData\Local\Programs\Python\Python311\python.exe` then I run the commands
 ```commandline
-poetry env use C:\Users\loasis.LOASIS\AppData\Local\Programs\Python\Python310\python.exe
+poetry env use C:\Users\loasis.LOASIS\AppData\Local\Programs\Python\Python311\python.exe
 poetry install
 ```
 
@@ -88,7 +90,7 @@ The gui's themselves are developed using `pyqt5`, which is a python package for 
 
 ## Tutorial
 
-This section serves as a guide to running the software once you are able to successfully launch it.  
+This section serves as a guide to running the software once you are able to successfully launch it.
 
 ### Experiment Config
 
@@ -131,7 +133,7 @@ You have the option to save and load presets for scans.  When you have configure
 
 As with Master Control, `Start` will start the scan, `Stop` will stop it.  If a scan is stopped partway through, the data that was saved is still accessible through the data folder.
 
-Notes:  Things seem to crash if you immediately try to stop a scan after starting one.  Also starting a scan with no save elements also seems to cause issues.  
+Notes:  Things seem to crash if you immediately try to stop a scan after starting one.  Also starting a scan with no save elements also seems to cause issues.
 
 ### Multiscanner
 
@@ -145,7 +147,7 @@ To add more functionality, you can enable the `Scan Commands` checkbox to enable
 
 ## Core Classes
 
-TODO, right now files are separated by GUI window and each python file contains all functionality.  `RunControl.py` is the interface between the main window GUI `GEECSScanner.py` and the backend managed by `geecs_python_api/controls/data_acquisition/scan_manager.py`.  
+TODO, right now files are separated by GUI window and each python file contains all functionality.  `RunControl.py` is the interface between the main window GUI `GEECSScanner.py` and the backend managed by `geecs_python_api/controls/data_acquisition/scan_manager.py`.
 
 ## Future Improvements
 
@@ -159,6 +161,33 @@ Current improvements on the wishlist:
 * GUI for viewing/editing the actions defined in `actions.yaml`, as well as executing actions without running a scan
 * Checkbox to toggle if scan variables return to original position after the scan or not
 * Long-term goal, implement an "optimization" scan with Xopt
+
+## Migrating from Python 3.10
+
+As of v0.17.0, **Python 3.11 is required**.  If you previously had a working
+environment on Python 3.10, follow these steps:
+
+1. **Install Python 3.11** from:
+   ```
+   https://www.python.org/downloads/release/python-31113/
+   ```
+   Use the `Windows installer (64-bit)`.  Check **"Add Python to PATH"** during install.
+
+2. **Remove your old Poetry environment** (from this folder):
+   ```commandline
+   poetry env remove --all
+   ```
+
+3. **Point Poetry at Python 3.11 and reinstall:**
+   ```commandline
+   poetry env use python3.11
+   poetry install
+   ```
+   If `python3.11` isn't found, use the full path instead:
+   ```commandline
+   poetry env use C:\Users\<yourname>\AppData\Local\Programs\Python\Python311\python.exe
+   poetry install
+   ```
 
 ## Known Bugs
 

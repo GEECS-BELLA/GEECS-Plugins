@@ -313,9 +313,8 @@ def _read_csv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
         data = np.genfromtxt(
             file_path,
             delimiter=delimiter,
-            skip_header=1,  # Skip header row
-            comments="#",
         )
+
     except Exception as e:
         raise RuntimeError(f"Failed to load CSV file {file_path}: {e}") from e
 

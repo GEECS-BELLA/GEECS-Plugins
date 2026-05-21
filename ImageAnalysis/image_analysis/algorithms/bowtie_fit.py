@@ -14,8 +14,6 @@ import warnings
 from typing import Tuple, Optional, Callable
 from dataclasses import dataclass
 from scipy.optimize import curve_fit, OptimizeWarning
-from lcls_tools.common.data.fit.methods import GaussianModel
-from lcls_tools.common.data.fit.projection import ProjectionFit
 
 logger = logging.getLogger(__name__)
 
@@ -102,9 +100,29 @@ class BowtieFitAlgorithm:
     @staticmethod
     def gaussian_fit_beam_size(col: np.ndarray) -> float:
         """Estimate column size via a Gaussian fit and return the fitted sigma."""
-        projection_fit = ProjectionFit(model=GaussianModel())
-        result = projection_fit.fit_projection(col)
-        return result["sigma"]
+        y = np.arange(len(col))
+        total = col.sum()
+        if total <= 0:
+            return np.nan
+        mu0 = float(np.average(y, weights=col))
+        sigma0 = float(np.sqrt(np.average((y - mu0) ** 2, weights=col)))
+
+        def _gaussian(
+            x: np.ndarray, amplitude: float, mu: float, sigma: float, offset: float
+        ) -> np.ndarray:
+            return amplitude * np.exp(-((x - mu) ** 2) / (2 * sigma**2)) + offset
+
+        try:
+            popt, _ = curve_fit(
+                _gaussian,
+                y,
+                col.astype(float),
+                p0=[float(col.max()), mu0, sigma0, 0.0],
+                maxfev=2000,
+            )
+            return abs(popt[2])
+        except Exception:
+            return np.nan
 
     def _default_beam_size_func(self, y: np.ndarray) -> Callable[[np.ndarray], float]:
         """Return a weighted RMS size estimator over a fixed vertical axis."""

@@ -1,5 +1,5 @@
 ??? "ScanPaths API"
-    ::: GEECS-Data-Utils.geecs_data_utils.scan_paths.ScanPaths
+    ::: geecs_data_utils.scan_paths.ScanPaths
         options:
           show_source: true
           show_root_heading: true
@@ -14,7 +14,7 @@
           show_signature_annotations: true
 
 ??? "ScanData API"
-    ::: GEECS-Data-Utils.geecs_data_utils.scan_data.ScanData
+    ::: geecs_data_utils.scan_data.ScanData
         options:
           show_source: true
           show_root_heading: true

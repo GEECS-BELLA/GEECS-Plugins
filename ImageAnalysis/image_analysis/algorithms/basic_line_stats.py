@@ -20,7 +20,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Core computation functions (copied from basic_beam_stats.py)
 def compute_center_of_mass(profile: np.ndarray) -> float:
     """Compute the center of mass of a 1‑D profile."""
     profile = np.asarray(profile, dtype=float)
@@ -58,7 +57,7 @@ def compute_fwhm(profile: np.ndarray) -> float:
         )
         return np.nan
 
-    profile -= profile.min()
+    profile = profile - profile.min()
     max_val = profile.max()
     if max_val <= 0:
         logger.warning(
@@ -174,7 +173,7 @@ class LineBasicStats(BaseModel):
             self._compute()
 
     def _compute(self):
-        """Compute all statistics from line_data using existing basic_beam_stats functions."""
+        """Compute all statistics from line_data."""
         x = self.line_data[:, 0]
         y = self.line_data[:, 1]
 

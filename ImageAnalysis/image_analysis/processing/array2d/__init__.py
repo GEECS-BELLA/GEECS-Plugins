@@ -19,9 +19,11 @@ from .config_models import (
     TransformConfig,
     ThresholdingConfig,
     CircularMaskConfig,
+    VignetteConfig,
     BackgroundMethod,
     ThresholdMethod,
     ThresholdMode,
+    VignetteMethod,
 )
 
 # backgroudn operations
@@ -61,6 +63,14 @@ from .transforms import (
 # Thresholding operations
 from .thresholding import apply_threshold
 
+# Vignette operations
+from .vignette import (
+    build_radial_vignette_map,
+    load_vignette_map_from_file,
+    apply_vignette_map,
+    apply_vignette_config,
+)
+
 # Pipeline
 from .pipeline import (
     apply_camera_processing_pipeline,
@@ -71,6 +81,7 @@ from .pipeline import (
 # Registry for dynamic function lookup
 PROCESSING_FUNCTIONS = {
     "crosshair_masking": apply_crosshair_masking,
+    "vignette": apply_vignette_config,
     "roi_cropping": apply_roi_cropping,
     "circular_masking": apply_circular_mask,
     "gaussian_filter": apply_gaussian_filter,
@@ -100,6 +111,11 @@ __all__ = [
     "apply_transform_config",
     # Thresholding operations
     "apply_threshold",
+    # Vignette operations
+    "build_radial_vignette_map",
+    "load_vignette_map_from_file",
+    "apply_vignette_map",
+    "apply_vignette_config",
     # Unified processing pipeline
     "apply_camera_processing_pipeline",
     "create_background_manager_from_config",
@@ -113,9 +129,11 @@ __all__ = [
     "TransformConfig",
     "ThresholdingConfig",
     "CircularMaskConfig",
+    "VignetteConfig",
     "BackgroundMethod",
     "ThresholdMethod",
     "ThresholdMode",
+    "VignetteMethod",
     # Function registry
     "PROCESSING_FUNCTIONS",
 ]

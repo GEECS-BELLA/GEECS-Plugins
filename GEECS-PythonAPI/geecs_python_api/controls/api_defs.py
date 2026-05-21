@@ -1,10 +1,12 @@
-# from __future__ import annotations
+"""Type aliases and lightweight primitives shared across the geecs_python_api package."""
+
+from __future__ import annotations
+
 from os import PathLike
 from pathlib import Path
-from dateutil.parser import parse as dateparse
-from threading import Thread, Event
-from typing import Optional, Any, Union, NamedTuple
-# if TYPE_CHECKING:
+from threading import Event, Thread
+from typing import Any, Optional, Union
+
 VarDict = dict[str, dict[str, Any]]
 ExpDict = dict[str, dict[str, dict[str, Any]]]
 SysPath = Union[str, bytes, PathLike, Path]
@@ -12,24 +14,7 @@ ThreadInfo = tuple[Optional[Thread], Optional[Event]]
 AsyncResult = tuple[bool, str, ThreadInfo]
 
 
-def exec_async(fct, args=(), kwargs=None) -> AsyncResult:
-    if kwargs is None:
-        kwargs = {}
-    return fct(*args, **kwargs, sync=False)
-
 class VarAlias(str):
-    pass
+    """Typed string used as a device variable alias key in state dicts."""
 
-import warnings
-from geecs_data_utils import ScanTag as _ScanTag
-
-warnings.warn(
-    "geecs_python_api.controls.api_defs.ScanTag has moved to "
-    "geecs_data_utils.utils; please update your imports.",
-    DeprecationWarning,
-    stacklevel=2,
-)
-
-class ScanTag(_ScanTag):
-    """Stub for backward compatibility."""
     pass

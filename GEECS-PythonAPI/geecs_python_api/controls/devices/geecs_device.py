@@ -72,7 +72,7 @@ class GeecsDevice:
         self.var_spans: dict[VarAlias, tuple[Optional[float], Optional[float]]] = {}
         self.var_names_by_index: dict[int, tuple[str, VarAlias]] = {}
         self.var_aliases_by_name: dict[str, tuple[VarAlias, int]] = {}
-        self.use_alias_in_TCP_subscription: bool = True
+        self.use_alias_in_TCP_subscription: bool = False
 
         self.setpoints: dict[VarAlias, Any] = {}
         self.state: dict[VarAlias, Any] = {
@@ -386,7 +386,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 120.0,
+        exec_timeout: Optional[float] = 60.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Any:
@@ -409,7 +409,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 10.0,
+        exec_timeout: Optional[float] = 60.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Optional["AsyncResult"]:
@@ -428,8 +428,13 @@ class GeecsDevice:
             cmd_label = f"get({variable})"
 
         if not self.is_valid():
-            logger.warning('failed to execute "%s": device not connected', cmd_label)
-            return None
+            from geecs_python_api.controls.interface.geecs_errors import (
+                GeecsDeviceInstantiationError,
+            )
+
+            raise GeecsDeviceInstantiationError(
+                f'cannot execute "{cmd_label}": device "{self.get_name()}" is not connected'
+            )
 
         stamp = re.sub(r"[\s.:]", "-", dtime.now().__str__())
         cmd_label += f" @ {stamp}"
@@ -440,7 +445,7 @@ class GeecsDevice:
         self._cleanup_threads()
 
         if sync:
-            self.wait_for_all_cmds(timeout=120.0)
+            self.wait_for_all_cmds(timeout=exec_timeout or 10.0)
             with GeecsDevice.threads_lock:
                 self._process_command(
                     cmd_str,
@@ -449,9 +454,22 @@ class GeecsDevice:
                     attempts_max=attempts_max,
                 )
                 assert self.dev_udp is not None
-                self.dev_udp.cmd_checker.wait_for_exe(
-                    cmd_tag=cmd_label, timeout=exec_timeout, sync=sync
+                # Drain any stale response from a previous timed-out command
+                # before listening for this command's exe response.
+                self.dev_udp.cmd_checker.drain()
+                exe_response = self.dev_udp.cmd_checker.listen(
+                    cmd_tag=cmd_label, timeout=exec_timeout
                 )
+                if not exe_response:
+                    from geecs_python_api.controls.interface.geecs_errors import (
+                        GeecsDeviceExeTimeout,
+                    )
+
+                    raise GeecsDeviceExeTimeout(
+                        device_name=self.get_name(),
+                        command=cmd_str,
+                        timeout=exec_timeout or 0.0,
+                    )
         elif exec_timeout and exec_timeout > 0:
             with GeecsDevice.threads_lock:
                 assert self.dev_udp is not None
@@ -652,6 +670,10 @@ class GeecsDevice:
     # ---- Command queueing ---------------------------------------------------
     def dequeue_command(self) -> None:
         """Process all queued commands sequentially."""
+        from geecs_python_api.controls.interface.geecs_errors import (
+            GeecsDeviceCommandRejected,
+        )
+
         self._cleanup_threads()
         with GeecsDevice.threads_lock:
             while not self.queue_cmds.empty():
@@ -668,6 +690,18 @@ class GeecsDevice:
                     time.sleep(0.5)
                 except queue.Empty:
                     break
+                except GeecsDeviceCommandRejected:
+                    logger.warning(
+                        'command rejected during dequeue for "%s:%s"; continuing',
+                        self.get_name(),
+                        cmd_label,
+                    )
+                except Exception:
+                    logger.exception(
+                        'unexpected error during dequeue for "%s:%s"',
+                        self.get_name(),
+                        cmd_label,
+                    )
 
     def _process_command(
         self,
@@ -677,15 +711,24 @@ class GeecsDevice:
         attempts_max: int = 5,
     ) -> None:
         """Send command and optionally start its listener thread upon ack."""
+        if self.dev_udp is None:
+            logger.debug(
+                'UDP handler closed before "%s" could be processed; skipping', cmd_label
+            )
+            return
         accepted = False
         try:
             for attempt in range(attempts_max):
-                assert self.dev_udp is not None
+                if self.dev_udp is None:
+                    logger.debug(
+                        'UDP handler closed mid-retry for "%s"; aborting', cmd_label
+                    )
+                    return
                 sent = self.dev_udp.send_cmd(
                     ipv4=(self.dev_ip, self.dev_port), msg=cmd_str
                 )
                 if sent:
-                    accepted = self.dev_udp.ack_cmd(timeout=5.0)
+                    accepted = self.dev_udp.ack_cmd(timeout=1.5)
                 else:
                     time.sleep(0.1)
                     continue

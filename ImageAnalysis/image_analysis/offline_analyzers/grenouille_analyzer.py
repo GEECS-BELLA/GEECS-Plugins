@@ -1,31 +1,32 @@
-"""Beam Profile Analyzer using the StandardAnalyzer framework.
+"""Grenouille (FROG) Analyzer using the StandardAnalyzer framework.
 
-This module provides a specialized analyzer for beam profile analysis that inherits
-from StandardAnalyzer. It adds beam-specific capabilities:
-- Beam statistics calculation (centroid, width, height, FWHM)
-- Gaussian fitting parameters
-- Beam quality metrics
-- Specialized beam rendering with overlays
-- Lineout generation and analysis
+This module provides a specialized analyzer for FROG pulse retrieval that
+inherits from StandardAnalyzer. It adds Grenouille-specific capabilities:
+- Pulse retrieval via FROG DLL
+- Temporal and spectral FWHM extraction
+- Retrieved trace and lineout export
 
-The BeamAnalyzer focuses purely on beam-specific analysis while leveraging
-the StandardAnalyzer for all image processing pipeline functionality.
+The GrenouilleAnalyzer focuses purely on FROG-specific analysis while
+leveraging the StandardAnalyzer for all image processing pipeline
+functionality.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Optional, Dict
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
-from image_analysis.algorithms.frog_dll_retrieval import FrogDllRetrieval
+from image_analysis.algorithms.frog_dll_retrieval import (
+    FrogDllRetrieval,
+    FrogRetrievalConfig,
+)
 
 from image_analysis.types import ImageAnalyzerResult
 
@@ -45,6 +46,8 @@ class GrenouilleAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config_name: str,
+        name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the beam analyzer with external configuration.
 
@@ -54,26 +57,18 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
         """
         # Initialize parent class
-        super().__init__(camera_config_name)
+        super().__init__(
+            camera_config_name=camera_config_name,
+            name_suffix=name_suffix,
+            metric_suffix=metric_suffix,
+        )
 
         self.retrieval = FrogDllRetrieval.from_config()
 
-        # Read grenouille-specific params from the config's extras, with defaults
-        # that match the algorithm function signature.
-        extras = self.camera_config.model_extra or {}
-        grenouille_params = extras.get("grenouille_analysis_params", {})
-
-        self.delt: float = grenouille_params.get("delt", 0.85)  # [fs]
-        self.dellam: float = grenouille_params.get(
-            "dellam", -0.085
-        )  # [nm], negative for Grenouille convention
-        self.lam0: float = grenouille_params.get("lam0", 400.0)
-        self.N: int = grenouille_params.get(
-            "N", 512
-        )  # acceptable values: 512, 256, 128, 64
-        self.target_error: float = grenouille_params.get("target_error", 0.001)
-        self.max_time_seconds: float = grenouille_params.get("max_time_seconds", 5)
-        self.max_iterations: float = grenouille_params.get("max_iterations", 1000000000)
+        # Validate analysis config (if present) into a typed model
+        self.analysis_config = FrogRetrievalConfig.model_validate(
+            self.camera_config.analysis or {}
+        )
 
         logger.info(
             "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
@@ -108,19 +103,23 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
         result = self.retrieval.retrieve_pulse(
             processed_image,
-            delt=self.delt,
-            dellam=self.dellam,
-            lam0=self.lam0,
-            N=self.N,
-            target_error=self.target_error,
-            max_time_seconds=self.max_time_seconds,
-            max_iterations = self.max_iterations,
+            delt=self.analysis_config.delt,
+            dellam=self.analysis_config.dellam,
+            lam0=self.analysis_config.lam0,
+            N=self.analysis_config.N,
+            target_error=self.analysis_config.target_error,
+            max_time_seconds=self.analysis_config.max_time_seconds,
+            max_iterations=self.analysis_config.max_iterations,
+            noise_subtype=self.analysis_config.noise_subtype,
+            noise_rad=self.analysis_config.noise_rad,
         )
 
         scalar_results = {
             f"{self.camera_name}_temporal_fwhm": result.temporal_fwhm,
             f"{self.camera_name}_spectral_fwhm": result.spectral_fwhm,
             f"{self.camera_name}_frog_error": result.frog_error,
+            f"{self.camera_name}_frog_iterations": result.num_iterations,
+            f"{self.camera_name}_tw_per_joule": result.tw_per_joule,
         }
 
         # Pad shorter array with NaN to match lengths
@@ -159,7 +158,9 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             }
         )
 
-        file_path = auxiliary_data.get("file_path", None)
+        file_path = (
+            auxiliary_data.get("file_path") if auxiliary_data is not None else None
+        )
         if file_path is not None:
             # Generate output filename
             file_stem = Path(file_path).stem
@@ -186,75 +187,8 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "vertical_projection": processed_image.sum(axis=1),
             }
 
+        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
+        if getattr(result, "scalars", None):
+            result.scalars = self.apply_metric_suffix(result.scalars)
+
         return result
-
-    @staticmethod
-    def render_image(
-        result: ImageAnalyzerResult,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: str = "plasma",
-        figsize: Tuple[float, float] = (4, 4),
-        dpi: int = 150,
-        ax: Optional[plt.Axes] = None,
-    ) -> Tuple[plt.Figure, plt.Axes]:
-        """Render beam image with beam-specific overlays.
-
-        This method provides specialized rendering for beam analysis including
-        XY projection lineouts and beam centroid markers using composable
-        overlay functions.
-        """
-        from image_analysis.tools.rendering import (
-            base_render_image,
-            add_xy_projections,
-            add_marker,
-        )
-
-        # Base rendering
-        fig, ax = base_render_image(
-            result=result,
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-            figsize=figsize,
-            dpi=dpi,
-            ax=ax,
-        )
-
-        # Add beam-specific overlays
-        add_xy_projections(ax, result)
-        add_marker(ax, (100, 100), size=1, color="blue")
-
-        return fig, ax
-
-    def visualize(
-        self,
-        results: ImageAnalyzerResult,
-        *,
-        show: bool = True,
-        close: bool = True,
-        ax: Optional[plt.Axes] = None,
-        vmin: Optional[float] = None,
-        vmax: Optional[float] = None,
-        cmap: str = "plasma",
-    ) -> Tuple[plt.Figure, plt.Axes]:
-        """Render a visualization of the analyzed image with beam overlays.
-
-        This is a simple convenience wrapper that calls :meth:`render_image`
-        and optionally shows or closes the figure.
-        """
-        # Call render_image with all parameters
-        fig, ax = self.render_image(
-            result=results,
-            vmin=vmin,
-            vmax=vmax,
-            cmap=cmap,
-            ax=ax,
-        )
-
-        if show:
-            plt.show()
-        if close:
-            plt.close(fig)
-
-        return fig, ax

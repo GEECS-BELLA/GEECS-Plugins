@@ -22,27 +22,24 @@ from __future__ import annotations
 # --- Standard Library ---
 import logging
 import re
-import traceback
 import pickle
 from abc import ABC
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal
+from typing import TYPE_CHECKING, Optional, TypedDict, Dict, Literal, Iterable
 
 # --- Third-Party Libraries ---
 import pandas as pd
 import numpy as np
 
 # --- Local / Project Imports ---
-from scan_analysis.base import ScanAnalyzer
+from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
     from image_analysis.types import ImageAnalyzerResult
     from image_analysis.base import ImageAnalyzer
     from scan_analysis.analyzers.renderers import BaseRenderer
-
-PRINT_TRACEBACK = True
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +95,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         skip_plt_show: bool = True,
         flag_save_data: bool = True,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
+        data_device_name: Optional[str] = None,
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -110,6 +108,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         self.max_workers = 16
         self.saved_avg_data_paths: Dict[int, Path] = {}
+        self.data_device_name: str = data_device_name or device_name
+        self.results: dict = {}
+        # Set here (not just in cleanup) so that downstream consumers like
+        # _prepare_per_shot_units still work if _run_batch_analysis silently
+        # fails before populating this dict.
+        self.stateful_results: dict = {}
 
         # Define flags
         self.flag_save_data = flag_save_data
@@ -136,7 +140,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         # Organize various paths for location of saved data
         self.path_dict = {
-            "data": Path(self.scan_directory) / f"{self.device_name}",
+            "data": Path(self.scan_directory) / f"{self.data_device_name}",
             "save": (
                 self.scan_directory.parents[1]
                 / "analysis"
@@ -146,17 +150,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             ),
         }
 
-        # Check if data directory exists and is not empty
-        if not self.path_dict["data"].exists() or not any(
-            self.path_dict["data"].iterdir()
-        ):
-            logger.warning(
-                f"Data directory '{self.path_dict['data']}' does not exist or is empty. Skipping"
+        # Raise a clean sentinel if the data directory is missing or empty so
+        # _run_analysis_core can skip gracefully without printing a full traceback.
+        data_dir = self.path_dict["data"]
+        if not data_dir.exists() or not any(data_dir.iterdir()):
+            raise DataUnavailableWarning(
+                f"Data directory '{data_dir}' does not exist or is empty for "
+                f"device '{self.device_name}'. Skipping analysis."
             )
-
-        if self.path_dict["data"] is None or self.auxiliary_data is None:
-            logger.info("Skipping analysis due to missing data or auxiliary file.")
-            return
 
     def _run_analysis_core(self):
         """
@@ -175,15 +176,26 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         Returns
         -------
-        list[str | pathlib.Path] or None
-            Paths to generated artifacts to display, or None on failure.
+        list[str | pathlib.Path]
+            Paths to generated artifacts to display.
+
+        Raises
+        ------
+        DataUnavailableWarning
+            If the device data directory is missing or empty. Callers are
+            expected to log this as a non-error skip.
+        Exception
+            Any unhandled error from the analysis pipeline propagates so the
+            task queue marks the task as ``failed`` (with a captured error
+            message) rather than silently writing ``done`` with no artifacts.
         """
-        self._establish_additional_paths()
-
-        if self.flag_save_data and not self.path_dict["save"].exists():
-            self.path_dict["save"].mkdir(parents=True)
-
         try:
+            self.renderer.display_contents = []
+            self._establish_additional_paths()
+
+            if self.flag_save_data and not self.path_dict["save"].exists():
+                self.path_dict["save"].mkdir(parents=True)
+
             # Run the data analyzer on every shot
             self._process_all_shots()
 
@@ -203,11 +215,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 self._pending_aux_updates = []
             return self.renderer.display_contents
 
-        except Exception as e:
-            if PRINT_TRACEBACK:
-                print(traceback.format_exc())
-            logger.warning(f"Warning: Data analysis failed due to: {e}")
-            return
+        except DataUnavailableWarning as e:
+            logger.warning(str(e))
+            raise
 
     def _process_all_shots(self):
         """Load data files, run batch analysis (optional), then mode-based analysis."""
@@ -404,6 +414,125 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.dynamic_computation.auto_save_path = Path(resolved)
             logger.info(f"Resolved background auto_save_path: {resolved}")
 
+        # Handle scan-number-based background (takes precedence over file_path)
+        if bg_config.background_scan_number is not None:
+            self._generate_scan_background(bg_config)
+
+    def _generate_scan_background(self, bg_config) -> None:
+        """Load and average all images from a background scan, cache as .npy.
+
+        Resolves the background scan's device folder using the same date and
+        experiment as the current scan. The averaged background is saved to the
+        background scan's own analysis directory so it can be reused by any
+        subsequent scan that references the same background scan number.
+
+        Parameters
+        ----------
+        bg_config : BackgroundConfig
+            The analyzer's background configuration. ``file_path`` and ``method``
+            are mutated in-place to point at the cached .npy file so that the
+            normal BackgroundManager FROM_FILE path takes over from here.
+        """
+        from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag
+        from image_analysis.processing.array2d.config_models import BackgroundMethod
+
+        bg_number = bg_config.background_scan_number
+
+        bg_tag = GeecsDataScanTag(
+            year=self.scan_tag.year,
+            month=self.scan_tag.month,
+            day=self.scan_tag.day,
+            number=bg_number,
+            experiment=self.scan_tag.experiment,
+        )
+        bg_scan_paths = ScanPaths(tag=bg_tag, read_mode=True)
+        bg_device_dir = bg_scan_paths.get_folder() / self.device_name
+
+        # Cache lives in the background scan's own analysis folder so any scan
+        # referencing the same background scan number shares the result.
+        cache_dir = bg_scan_paths.get_analysis_folder() / self.device_name
+        cache_path = cache_dir / f"{self.device_name}_background_avg.npy"
+
+        if cache_path.exists():
+            logger.info("Using cached scan background: %s", cache_path)
+        else:
+            image_files = sorted(bg_device_dir.glob(f"*{self.file_tail}"))
+            if not image_files:
+                raise FileNotFoundError(
+                    f"No background images found in {bg_device_dir}"
+                )
+
+            images = []
+            for f in image_files:
+                try:
+                    images.append(self.image_analyzer.load_image(f))
+                except Exception as e:
+                    logger.warning("Skipping background file %s: %s", f, e)
+
+            if not images:
+                raise ValueError(
+                    f"No valid images could be loaded from background scan {bg_number}"
+                )
+
+            avg = np.mean(np.stack(images), axis=0)
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            np.save(cache_path, avg)
+            logger.info(
+                "Averaged %d images from scan %d, saved background to %s",
+                len(images),
+                bg_number,
+                cache_path,
+            )
+
+        bg_config.file_path = cache_path
+        bg_config.method = BackgroundMethod.FROM_FILE
+
+    @staticmethod
+    def _normalize_aux_value(value):
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
+
+    def _aux_row_for_shot(self, shot_num: int) -> dict:
+        if self.auxiliary_data is None:
+            return {}
+        if "Shotnumber" not in self.auxiliary_data.columns:
+            return {}
+
+        row = self.auxiliary_data.loc[self.auxiliary_data["Shotnumber"] == shot_num]
+        if row.empty:
+            return {}
+
+        row_dict = row.iloc[0].to_dict()
+        return {k: self._normalize_aux_value(v) for k, v in row_dict.items()}
+
+    def _aux_mean_for_shots(self, shot_nums: Iterable[int]) -> dict:
+        if self.auxiliary_data is None:
+            return {}
+        if "Shotnumber" not in self.auxiliary_data.columns:
+            return {}
+
+        shot_list = list(shot_nums)
+        if not shot_list:
+            return {}
+
+        rows = self.auxiliary_data[self.auxiliary_data["Shotnumber"].isin(shot_list)]
+        if rows.empty:
+            return {}
+
+        numeric = rows.select_dtypes(include=[np.number])
+        if numeric.empty:
+            return {}
+
+        drop_cols = [col for col in ("Shotnumber", "Bin #") if col in numeric.columns]
+        if drop_cols:
+            numeric = numeric.drop(columns=drop_cols)
+        if numeric.empty:
+            return {}
+
+        means = numeric.mean(numeric_only=True).to_dict()
+        return {k: self._normalize_aux_value(v) for k, v in means.items()}
+
     def _prepare_per_shot_units(self) -> dict:
         """
         Prepare per-shot analysis units (current behavior).
@@ -419,7 +548,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         return {
             shot_num: {
                 "image": data,
-                "auxiliary": {"file_path": path, **self.stateful_results},
+                "auxiliary": {
+                    **self._aux_row_for_shot(shot_num),
+                    "file_path": path,
+                    **self.stateful_results,
+                },
                 "sfile_keys": [shot_num],
             }
             for shot_num, (data, path) in self.raw_data.items()
@@ -444,7 +577,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return {
                 0: {
                     "image": self.average_data(all_images),
-                    "auxiliary": self.stateful_results,
+                    "auxiliary": {
+                        **self._aux_mean_for_shots(all_shots),
+                        **self.stateful_results,
+                    },
                     "sfile_keys": all_shots,
                 }
             }
@@ -464,7 +600,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if images:
                 units[int(bin_num)] = {
                     "image": self.average_data(images),
-                    "auxiliary": self.stateful_results,
+                    "auxiliary": {
+                        **self._aux_mean_for_shots(bin_shots),
+                        **self.stateful_results,
+                    },
                     "sfile_keys": bin_shots.tolist(),
                 }
 
@@ -748,6 +887,30 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             }
 
         return binned_data
+
+    def cleanup(self) -> None:
+        """
+        Free memory held by loaded and analyzed data after analysis is complete.
+
+        Clears per-scan attributes that may hold large numpy arrays or result objects:
+
+        - ``raw_data`` — loaded shot images
+        - ``results`` — per-shot/bin ImageAnalyzerResult objects
+        - ``_data_file_map`` — shot-to-path mapping
+        - ``stateful_results`` — batch-analysis state dict
+        - ``_pending_aux_updates`` — queued s-file row updates
+
+        Also delegates to ``renderer.cleanup()``.
+        """
+        self.raw_data = {}
+        self.results = {}
+        self._data_file_map = {}
+        self.stateful_results = {}
+        self._pending_aux_updates = []
+
+        self.renderer.cleanup()
+
+        logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")
 
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:

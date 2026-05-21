@@ -20,6 +20,7 @@ from .filtering import apply_filtering_config
 from .transforms import apply_transform_config
 from .thresholding import apply_threshold
 from .normalization import apply_normalization
+from .vignette import apply_vignette_config
 from ...utils import ensure_float64_processing
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,13 @@ def _apply_roi_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
     """Apply ROI cropping if configured."""
     if camera_config.roi:
         return apply_roi_cropping(image, camera_config.roi)
+    return image
+
+
+def _apply_vignette_step(image: Array2D, camera_config: CameraConfig) -> Array2D:
+    """Apply vignette correction if configured."""
+    if camera_config.vignette and camera_config.vignette.enabled:
+        return apply_vignette_config(image, camera_config.vignette)
     return image
 
 
@@ -84,6 +92,7 @@ def _apply_normalization_step(image: Array2D, camera_config: CameraConfig) -> Ar
 # Step registry mapping step types to their execution functions
 STEP_REGISTRY: Dict[ProcessingStepType, Callable[[Array2D, CameraConfig], Array2D]] = {
     ProcessingStepType.CROSSHAIR_MASKING: _apply_crosshair_step,
+    ProcessingStepType.VIGNETTE: _apply_vignette_step,
     ProcessingStepType.ROI: _apply_roi_step,
     ProcessingStepType.CIRCULAR_MASK: _apply_circular_mask_step,
     ProcessingStepType.THRESHOLDING: _apply_thresholding_step,

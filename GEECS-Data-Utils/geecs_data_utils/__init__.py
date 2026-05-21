@@ -18,13 +18,26 @@ Examples
 
 from geecs_data_utils.scan_data import ScanData
 from geecs_data_utils.scan_paths import ScanPaths
-from geecs_data_utils.utils import ConfigurationError, SysPath
+from geecs_data_utils.utils import (
+    ConfigurationError,
+    SysPath,
+    timestamp_from_string,
+    timestamp_from_filename,
+)
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
 from geecs_data_utils.type_defs import ScanMode, ScanConfig, ScanTag
 from geecs_data_utils.config_base import ConfigDirManager
 from geecs_data_utils.config_roots import (
     image_analysis_config,
     scan_analysis_config,
+)
+from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
+from geecs_data_utils.scan_log_loader import (
+    LogEntry,
+    Severity,
+    load_scan_log,
+    parse_lines,
+    parse_scan_log,
 )
 
 __all__ = [
@@ -33,10 +46,20 @@ __all__ = [
     "ScanTag",
     "ConfigurationError",
     "SysPath",
+    "timestamp_from_string",
+    "timestamp_from_filename",
     "GeecsPathsConfig",
     "ScanMode",
     "ScanConfig",
     "ConfigDirManager",
     "image_analysis_config",
     "scan_analysis_config",
+    "DocIDLookup",
+    "EXPERIMENT_FILE_IDS",
+    # scan log loader
+    "LogEntry",
+    "Severity",
+    "load_scan_log",
+    "parse_lines",
+    "parse_scan_log",
 ]

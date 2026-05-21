@@ -1,18 +1,13 @@
 """
-Example evaluator for maximizing total counts using MultiDeviceScanEvaluator.
+Evaluator for maximizing total counts using MultiDeviceScanEvaluator.
 
 Classes
 -------
 MaxCountsEvaluator
-    Evaluator for maximizing beam total counts on any camera device.
+    Maximize beam total counts on any camera device.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    pass
 
 from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
     MultiDeviceScanEvaluator,
@@ -20,28 +15,22 @@ from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
 
 
 class MaxCountsEvaluator(MultiDeviceScanEvaluator):
-    """Maximize total counts."""
+    """Maximize total counts (returns negative for minimization)."""
 
-    def __init__(self, calibration: float = 24.4e-3, **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.calibration = calibration
-        self.device_name = self.analyzer_configs[0].device_name
-        self.objective_tag = "TotalCounts"  # shows up as "Objective:TotalCounts"
+        self.objective_tag = "TotalCounts"
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
         """Compute objective."""
-        total = self.get_scalar(self.device_name, "image_total", scalar_results)
-        return -total
+        return -self.get_scalar(self.primary_device, "image_total", scalar_results)
 
-    def compute_observables(
-        self, scalar_results: dict, bin_number: int
-    ) -> dict[str, float]:
+    def compute_observables(self, scalar_results: dict, bin_number: int) -> dict:
         """Compute observables."""
-        # Optional: more visibility in logs
-        x_CoM = self.get_scalar(self.device_name, "x_CoM", scalar_results)
-        y_CoM = self.get_scalar(self.device_name, "y_CoM", scalar_results)
-        peak_value = self.get_scalar(
-            self.device_name, "image_peak_value", scalar_results
-        )
-
-        return {"x_CoM": x_CoM, "y_CoM": y_CoM, "image_peak_value": peak_value}
+        return {
+            "x_CoM": self.get_scalar(self.primary_device, "x_CoM", scalar_results),
+            "y_CoM": self.get_scalar(self.primary_device, "y_CoM", scalar_results),
+            "image_peak_value": self.get_scalar(
+                self.primary_device, "image_peak_value", scalar_results
+            ),
+        }

@@ -36,6 +36,8 @@ except ModuleNotFoundError as e:
 from image_analysis.base import ImageAnalyzer
 from image_analysis.types import ImageAnalyzerResult
 
+logger = logging.getLogger(__name__)
+
 
 class SlopesMask(NamedTuple):
     """Axis-aligned rectangular mask for HASO pupil (inclusive, image coordinates)."""
@@ -164,8 +166,6 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         # Use default filter parameters
         self.filter_params = HASOHimgHasProcessor.default_filter_params
 
-        self.flag_logging = True
-
         # Slopes state
         self.raw_slopes: Optional[wkpy.HasoSlopes] = None
         self.processed_slopes: Optional[wkpy.HasoSlopes] = None
@@ -175,16 +175,6 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         self.image_file_path: Optional[Path] = None
 
         self.wavekit_resources_instantiated = False
-
-    def _log_info(self, message: str, *args, **kwargs):
-        """Log an info message if logging is enabled."""
-        if self.flag_logging:
-            logging.info(message, *args, **kwargs)
-
-    def _log_warning(self, message: str, *args, **kwargs):
-        """Log a warning message if logging is enabled."""
-        if self.flag_logging:
-            logging.warning(message, *args, **kwargs)
 
     def instantiate_wavekit_resources(self, config_file_path: Path):
         """Instantiate WaveKit engine and post-processing resources.
@@ -199,11 +189,11 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         Exception
             If WaveKit cannot be initialized (e.g., missing installation or license).
         """
-        logging.info(
+        logger.info(
             f"self.wavekit_resources_instantiated {self.wavekit_resources_instantiated}"
         )
         if not self.wavekit_resources_instantiated:
-            self._log_info("instantiating wavekit resources: HasoEngine etc.")
+            logger.info("instantiating wavekit resources: HasoEngine etc.")
 
             try:
                 # Create the necessary Wavekit objects.
@@ -229,9 +219,9 @@ class HASOHimgHasProcessor(ImageAnalyzer):
                 self.post_processor = wkpy.SlopesPostProcessor()
 
                 self.wavekit_resources_instantiated = True
-                logging.info("setting wavekit_resources_instantiated to True")
+                logger.info("setting wavekit_resources_instantiated to True")
             except Exception:
-                self._log_warning(
+                logger.warning(
                     "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file"
                 )
                 raise
@@ -262,14 +252,14 @@ class HASOHimgHasProcessor(ImageAnalyzer):
 
         self.image_file_path = file_path
         ext = file_path.suffix.lower()
-        self._log_info(f"extension is {ext}")
+        logger.info(f"extension is {ext}")
         if ext == ".himg":
             self.raw_slopes = self.create_slopes_object_from_himg(file_path)
         elif ext == ".has":
             self.raw_slopes = self.load_slopes_from_has_file(file_path)
         else:
             msg = f"Unsupported file extension '{ext}'. Supported file types are .himg and .has."
-            logging.error(msg)
+            logger.error(msg)
             raise ValueError(msg)
 
         self.post_process_slopes()
@@ -346,14 +336,14 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         Exception
             If WaveKit is unavailable or cannot process the image.
         """
-        self._log_info(f"Creating slopes file for image: {image_file_path}")
+        logger.info(f"Creating slopes file for image: {image_file_path}")
         image_file_str = str(image_file_path)
 
         try:
             # Create the necessary Wavekit objects.
             image = wkpy.Image(image_file_path=image_file_str)
         except Exception:
-            self._log_warning(
+            logger.warning(
                 "Not able to create necessary Wavekit objects, likely a result of Wavekit not being installed or missing/incorrect license file"
             )
             raise
@@ -472,7 +462,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
         """Save raw/processed slopes, phases, and intensity to sidecar files."""
         base_file_path = self.image_file_path.parent
         file_stem = self.image_file_path.stem
-        logging.info(f"base file path is {base_file_path}")
+        logger.info(f"base file path is {base_file_path}")
         # Unpack the returned tuple.
         raw_slopes, processed_slopes, raw_phase, processed_phase, intensity = result
 

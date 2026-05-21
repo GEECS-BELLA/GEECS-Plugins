@@ -6,14 +6,16 @@ Single-app assumptions:
 - Per-scan status files stored under `<scan_folder>/analysis_status/<analyzer_id>.yaml`.
 - Worklist sorted by (priority, scan_number).
 
-States: queued -> claimed -> done/failed.
+States: queued -> claimed -> done/failed/no_data.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import socket
+import tempfile
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -23,14 +25,24 @@ from typing import Dict, Iterable, List, Optional
 import yaml
 
 from geecs_data_utils import ScanPaths, ScanTag
+from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.analyzer_factory import create_analyzer
 from scan_analysis.config.config_loader import load_experiment_config
+from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
 
 STATUS_DIR_NAME = "analysis_status"
 HEARTBEAT_INTERVAL_SECONDS = 30
 CLAIM_STALE_AFTER_SECONDS = 180
+
+SFILE_REGEX = re.compile(r"^s(?P<num>\d+)\.txt$", re.IGNORECASE)
+
+
+def extract_scan_number(filename: str) -> Optional[int]:
+    """Return scan number from an s-file name like ``s123.txt``, or None."""
+    m = SFILE_REGEX.match(filename)
+    return int(m["num"]) if m else None
 
 
 @dataclass
@@ -44,6 +56,7 @@ class TaskStatus:
     claimed_by: Optional[str] = None
     claimed_at: Optional[str] = None
     last_heartbeat: Optional[str] = None
+    display_files: Optional[List[str]] = None
 
     def to_dict(self) -> Dict[str, object]:
         """Serialize this status to a dict for YAML storage."""
@@ -55,6 +68,7 @@ class TaskStatus:
             "claimed_by": self.claimed_by,
             "claimed_at": self.claimed_at,
             "last_heartbeat": self.last_heartbeat,
+            "display_files": self.display_files,
         }
 
     @staticmethod
@@ -69,6 +83,7 @@ class TaskStatus:
             claimed_by=data.get("claimed_by"),
             claimed_at=data.get("claimed_at"),
             last_heartbeat=data.get("last_heartbeat"),
+            display_files=data.get("display_files"),
         )
 
 
@@ -99,6 +114,34 @@ def _is_stale(status: TaskStatus, now: datetime) -> bool:
     if last is None:
         return True
     return (now - last).total_seconds() > CLAIM_STALE_AFTER_SECONDS
+
+
+def _write_atomic(path: Path, content: str) -> None:
+    """Write content to path, atomically where the OS supports it.
+
+    On POSIX, uses a temp file + os.replace() so readers always see either the
+    old or new file, never a partial write.
+
+    On Windows, writes directly instead: os.replace() requires DELETE permission
+    on the destination, which is typically restricted to the file's creator on
+    SMB shares. Direct writes only require WRITE permission, which is granted
+    more broadly, allowing multiple machines to update the same status file.
+    """
+    if os.name == "nt":
+        path.write_text(content, encoding="utf-8")
+        return
+    dir_ = path.parent
+    fd, tmp = tempfile.mkstemp(dir=dir_, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(content)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def init_status_for_scan(
@@ -135,7 +178,7 @@ def init_status_for_scan(
             priority=getattr(analyzer, "priority", 100),
             state="queued",
         )
-        path.write_text(yaml.safe_dump(ts.to_dict()))
+        _write_atomic(path, yaml.safe_dump(ts.to_dict()))
 
 
 def read_statuses(scan_folder: Path) -> List[TaskStatus]:
@@ -152,6 +195,74 @@ def read_statuses(scan_folder: Path) -> List[TaskStatus]:
     return statuses
 
 
+def read_day_statuses(
+    date_tag: ScanTag,
+    *,
+    base_directory: Optional[Path] = None,
+) -> Dict[int, Dict[str, "TaskStatus"]]:
+    """Return all task statuses for every scan discovered on a given day.
+
+    Scans are discovered by looking for s-files under the day's ``analysis/``
+    folder (the same folder that :class:`~scan_analysis.live_task_runner.LiveTaskRunner`
+    watches).
+
+    Parameters
+    ----------
+    date_tag : ScanTag
+        Identifies the experiment and date to inspect.  The ``number`` field
+        is ignored — all scans for the day are returned.
+    base_directory : Path, optional
+        Root data directory; ``None`` defers to the configured default.
+
+    Returns
+    -------
+    dict[int, dict[str, TaskStatus]]
+        ``{scan_number: {analyzer_id: TaskStatus}}`` sorted by scan number.
+    """
+    scan_map: Dict[int, Dict[str, TaskStatus]] = {}
+
+    try:
+        daily_scans = ScanPaths.get_daily_scan_folder(
+            tag=date_tag, base_directory=base_directory
+        )
+        scan_root = daily_scans.parent / "analysis"
+    except Exception as exc:
+        logger.warning("read_day_statuses: could not resolve scan root: %s", exc)
+        return scan_map
+
+    if not scan_root.exists():
+        return scan_map
+
+    for f in scan_root.iterdir():
+        if not f.is_file():
+            continue
+        num = extract_scan_number(f.name)
+        if num is None:
+            continue
+
+        tag = ScanTag(
+            year=date_tag.year,
+            month=date_tag.month,
+            day=date_tag.day,
+            number=num,
+            experiment=date_tag.experiment,
+        )
+        try:
+            scan_folder = ScanPaths.get_scan_folder_path(
+                tag=tag, base_directory=base_directory
+            )
+            statuses = read_statuses(scan_folder)
+        except Exception as exc:
+            logger.warning(
+                "read_day_statuses: could not read statuses for scan %d: %s", num, exc
+            )
+            statuses = []
+
+        scan_map[num] = {s.analyzer_id: s for s in statuses}
+
+    return dict(sorted(scan_map.items()))
+
+
 def update_status(
     scan_folder: Path,
     analyzer_id: str,
@@ -162,6 +273,7 @@ def update_status(
     claimed_by: Optional[str] = None,
     claimed_at: Optional[str] = None,
     last_heartbeat: Optional[str] = None,
+    display_files: Optional[List[str]] = None,
 ) -> None:
     """Update status file for a given analyzer in a scan folder."""
     status_dir = _status_dir(scan_folder)
@@ -184,9 +296,11 @@ def update_status(
     current.last_heartbeat = (
         last_heartbeat if last_heartbeat is not None else current.last_heartbeat
     )
+    current.display_files = (
+        display_files if display_files is not None else current.display_files
+    )
 
-    ts = current
-    path.write_text(yaml.safe_dump(ts.to_dict()))
+    _write_atomic(path, yaml.safe_dump(current.to_dict()))
 
 
 def reset_status_for_scan(
@@ -308,12 +422,31 @@ def run_worklist(
     *,
     base_directory: Optional[Path] = None,
     dry_run: bool = False,
+    gdoc_enabled: bool = False,
+    document_id: Optional[str] = None,
 ) -> None:
     """
     Run analyzers on the given worklist (single-app; no locking).
 
     Updates status files to claimed/done/failed.
     If dry_run=True, skip analyzer execution but update status as done.
+
+    Parameters
+    ----------
+    worklist : list of (priority, ScanTag, analyzer)
+        Tasks to execute, already sorted by priority.
+    base_directory : Path, optional
+        Root for scan data; defaults to configured base path.
+    dry_run : bool
+        If True, skip analysis execution but still update status to done.
+    gdoc_enabled : bool
+        Master switch for all Google Doc uploads. When False (the default),
+        no uploads are attempted regardless of per-analyzer gdoc_slot settings.
+    document_id : str, optional
+        Google Doc ID for gdoc uploads. If None, the ID is read from the
+        experiment INI (the default live-running behaviour). Pass an explicit
+        ID to target a specific document (e.g., a historical log during
+        back-testing).
     """
     for priority, tag, analyzer in worklist:
         scan_folder = ScanPaths.get_scan_folder_path(
@@ -353,8 +486,15 @@ def run_worklist(
         )
         hb_thread.start()
         try:
+            display_files: Optional[List[str]] = None
             if not dry_run:
-                analyzer.run_analysis(tag)
+                raw = analyzer.run_analysis(tag)
+                if raw:
+                    display_files = [str(p) for p in raw]
+            # Stop heartbeat before writing final status to prevent a race where
+            # the heartbeat thread overwrites state="done" back to state="claimed".
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
             update_status(
                 scan_folder,
                 analyzer_id,
@@ -364,15 +504,50 @@ def run_worklist(
                 claimed_by=None,
                 claimed_at=None,
                 last_heartbeat=None,
+                display_files=display_files,
             )
             logger.info(
-                "run_worklist: completed scan=%s analyzer=%s priority=%s",
+                "run_worklist: completed scan=%s analyzer=%s priority=%s display_files=%s",
                 tag,
                 analyzer_id,
                 priority,
+                display_files,
             )
+            if not dry_run and display_files and gdoc_enabled:
+                gdoc_slot = getattr(analyzer, "gdoc_slot", None)
+                if gdoc_slot is not None:
+                    upload_summary_to_gdoc(
+                        scan_tag=tag,
+                        display_files=display_files,
+                        gdoc_slot=gdoc_slot,
+                        document_id=document_id,
+                    )
+                else:
+                    upload_links_to_gdoc(
+                        scan_tag=tag,
+                        analyzer_id=analyzer_id,
+                        display_files=display_files,
+                        document_id=document_id,
+                    )
+        except DataUnavailableWarning:
+            # Device did not record data for this scan — expected, not an error.
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            update_status(
+                scan_folder,
+                analyzer_id,
+                priority=priority,
+                state="no_data",
+                error=None,
+                claimed_by=None,
+                claimed_at=None,
+                last_heartbeat=None,
+            )
+            logger.info("run_worklist: no_data scan=%s analyzer=%s", tag, analyzer_id)
         except Exception as exc:  # pragma: no cover - log failure and continue
             logger.exception("Analyzer %s failed on %s: %s", analyzer_id, tag, exc)
+            stop_event.set()
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
             update_status(
                 scan_folder,
                 analyzer_id,
@@ -384,8 +559,9 @@ def run_worklist(
                 last_heartbeat=None,
             )
         finally:
-            stop_event.set()
-            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)
+            stop_event.set()  # idempotent safety net
+            hb_thread.join(timeout=HEARTBEAT_INTERVAL_SECONDS)  # safe to join twice
+            analyzer.cleanup()
 
 
 def load_analyzers_from_config(

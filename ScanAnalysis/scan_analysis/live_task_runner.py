@@ -9,15 +9,16 @@ the highest-priority queued tasks.
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 from queue import Queue
 from typing import Iterable, Optional
 
 from geecs_data_utils import ScanPaths, ScanTag
 from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
+from scan_analysis.gdoc_upload import resolve_document_id
 from scan_analysis.task_queue import (
     build_worklist,
+    extract_scan_number,
     init_status_for_scan,
     load_analyzers_from_config,
     reset_status_for_scan,
@@ -27,16 +28,6 @@ from watchdog.events import FileSystemEventHandler
 from watchdog.observers.polling import PollingObserver
 
 logger = logging.getLogger(__name__)
-
-SFILE_REGEX = re.compile(r"^s(?P<num>\d+)\.txt$", re.IGNORECASE)
-
-
-def extract_scan_number(filename: str) -> Optional[int]:
-    """Return scan number from an s-file name like s123.txt."""
-    m = SFILE_REGEX.match(filename)
-    if m:
-        return int(m["num"])
-    return None
 
 
 class AnalysisEventHandler(FileSystemEventHandler):
@@ -75,6 +66,8 @@ class LiveTaskRunner:
         *,
         config_dir: Optional[Path] = None,
         image_config_dir: Optional[Path] = None,
+        gdoc_enabled: bool = False,
+        document_id: Optional[str] = None,
     ):
         """Initialize runner with analyzer group, date, and optional config roots.
 
@@ -92,9 +85,37 @@ class LiveTaskRunner:
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
             Base dir for image analysis configs (if None, uses image_analysis_config.base_dir).
+        gdoc_enabled : bool
+            Master switch for all Google Doc uploads. Defaults to False — no uploads
+            occur unless explicitly enabled. Set to True when running live with a
+            configured experiment INI and active Google Doc log.
+        document_id : str, optional
+            Google Doc ID to use for gdoc uploads. If None (the default), the ID is
+            read from the experiment INI on each upload, which is the correct
+            behaviour for live running (the INI is updated each day). Pass an
+            explicit ID when targeting a specific historical document, e.g. during
+            back-testing, so you don't have to edit the INI file.
         """
         self.analyzer_group = analyzer_group
         self.date_tag = date_tag
+        self.gdoc_enabled = gdoc_enabled
+
+        if gdoc_enabled and document_id is None:
+            document_id = resolve_document_id(date_tag.experiment)
+            if document_id is None:
+                logger.warning(
+                    "gdoc_enabled=True but no LogID found for experiment '%s'; "
+                    "gdoc uploads will be skipped.",
+                    date_tag.experiment,
+                )
+                self.gdoc_enabled = False
+            else:
+                logger.info(
+                    "Resolved Google Doc ID for '%s': %s",
+                    date_tag.experiment,
+                    document_id,
+                )
+        self.document_id = document_id
         if config_dir:
             scan_analysis_config.set_base_dir(config_dir)
         if image_config_dir:
@@ -191,7 +212,11 @@ class LiveTaskRunner:
         )
         if work:
             run_worklist(
-                work[:max_items], base_directory=base_directory, dry_run=dry_run
+                work[:max_items],
+                base_directory=base_directory,
+                dry_run=dry_run,
+                gdoc_enabled=self.gdoc_enabled,
+                document_id=self.document_id,
             )
 
     def _discover_scan_tags(

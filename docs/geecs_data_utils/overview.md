@@ -1,30 +1,38 @@
-# GEECS Data Utils Overview
+# GEECS Data Utils
 
-The GEECS Data Utils package provides essential utilities for handling, processing, and managing experimental data from the GEECS laser facility. This package serves as the foundation for data operations across the GEECS ecosystem.
+GEECS Data Utils handles the basics of finding and loading GEECS experiment data: resolving scan folder paths from a date and scan number, loading s-files (the per-shot metadata TSV that GEECS records for every scan), and providing the common data structures that other packages in this suite build on.
 
-## Key Features
+This package is **typically used as a dependency** — Scan Analysis and the GEECS Python API pull it in automatically. You might use it directly when writing scripts to load and explore scan data outside of those frameworks.
 
-- **Scan Data Management**: Tools for loading, processing, and analyzing scan data
-- **Path Management**: Utilities for handling file paths and data organization
-- **Type Definitions**: Common data types and structures used throughout GEECS
-- **Configuration Management**: Tools for managing GEECS system paths and settings
+---
 
-## Getting Started
+## Core Functionality
 
-The Data Utils package is designed to be a lightweight, dependency-minimal foundation that other GEECS packages can build upon. It provides the core data structures and utilities needed for experimental data handling.
+**Path Resolution** — Given an experiment name, date, and scan number, resolve the correct data folder on disk. Handles the GEECS directory convention so you don't have to hard-code paths.
 
-## Package Structure
+```python
+from geecs_data_utils import ScanTag
+from geecs_data_utils.scan_paths import get_scan_folder
 
-- `scan_data.py` - Core classes and functions for scan data handling
-- `scan_paths.py` - Path management and file organization utilities
-- `utils.py` - General utility functions
-- `type_defs.py` - Common type definitions and data structures
-- `geecs_paths_config.py` - System path configuration and management
+tag = ScanTag(year=2024, month=6, day=15, number=42)
+folder = get_scan_folder(experiment="Undulator", scan_tag=tag)
+```
 
-## Installation
+**S-File Loading** — Load the s-file for a scan as a pandas DataFrame, with shot numbers, timestamps, and all recorded device variables.
 
-Please refer to the installation guide for detailed setup instructions.
+**Type Definitions** — Common types (`ScanTag`, path aliases, etc.) used consistently across the plugin suite.
 
-## Usage
+---
 
-This package is typically used as a dependency by other GEECS packages, but can also be used directly for data processing tasks and custom analysis workflows.
+## Examples
+
+| Notebook | What it covers |
+|---|---|
+| [Basic Usage](examples/basic_usage.ipynb) | Loading scan data, resolving paths, reading s-files |
+| [Scan Database Utils](examples/scans_database_utils.ipynb) | Querying and navigating the scan database |
+
+---
+
+## API Reference
+
+- [Core Modules](api/core_modules.md)

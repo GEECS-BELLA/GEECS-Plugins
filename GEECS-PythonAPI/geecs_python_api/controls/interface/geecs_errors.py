@@ -37,6 +37,30 @@ class GeecsDeviceCommandRejected(Exception):
         )
 
 
+class GeecsDeviceExeTimeout(Exception):
+    """Raised when a device accepts a command but no execution response arrives within timeout.
+
+    This is a communication-layer failure - the command was ACK'd but the device
+    never sent back an execution confirmation on the exe port.
+    Could indicate:
+    - Network packet loss on the exe response
+    - Device hung mid-execution
+    - UDP pipeline failure
+
+    This happens in _execute() when listen() returns empty after exec_timeout seconds.
+    See issue #312 for the planned GUI thread refactor.
+    """
+
+    def __init__(self, device_name: str, command: str, timeout: float):
+        self.device_name = device_name
+        self.command = command
+        self.timeout = timeout
+        super().__init__(
+            f"Device '{device_name}' command '{command}' timed out after {timeout:.1f}s "
+            f"waiting for execution response"
+        )
+
+
 class GeecsDeviceCommandFailed(Exception):
     """Raised when a device accepts a command but fails to execute it.
 

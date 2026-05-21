@@ -35,6 +35,16 @@ class DataLengthError(ValueError):
     pass
 
 
+class DataUnavailableWarning(Exception):
+    """Raised when a device's data directory is missing or empty for a scan.
+
+    This is an expected condition when an analyzer is configured for a device
+    that was not active during a particular scan.  It is caught separately from
+    unexpected errors so that a clean warning is logged without a traceback,
+    and the task queue records the state as ``no_data`` rather than ``failed``.
+    """
+
+
 class ScanParameter(NamedTuple):
     """Lightweight wrapper for scan parameter string with common renderings."""
 
@@ -137,6 +147,17 @@ class ScanAnalyzer:
         if self.auxiliary_data is None:
             return None
         return self._run_analysis_core()
+
+    def cleanup(self) -> None:
+        """Release per-scan memory after analysis completes.
+
+        Must be implemented by all subclasses. Called by the task runner
+        after each analyzer finishes so that loaded data and results do not
+        accumulate across scans. Failing to implement this will raise
+        NotImplementedError and halt the runner — intentionally, to prevent
+        unbounded memory growth.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} must implement cleanup()")
 
     def _run_analysis_core(self) -> Optional[list[Union[Path, str]]]:
         """Core analysis routine to be implemented by subclasses."""
@@ -505,6 +526,39 @@ class ScanAnalyzer:
             return None, None
         else:
             return None, None
+
+    def find_column_for_key(self, key: str) -> Optional[str]:
+        """Locate an auxiliary-data column that matches a user-supplied key string.
+
+        Tries the key as-is, with colons replaced by spaces, and with spaces
+        replaced by colons, performing a substring match against the portion of
+        each column name that precedes any ``' Alias:'`` suffix.
+
+        Parameters
+        ----------
+        key : str
+            User-supplied string, e.g. ``'Device:Variable'`` or ``'Device Variable'``.
+
+        Returns
+        -------
+        str or None
+            The first matching column name (full, including any alias suffix),
+            or ``None`` if no match is found.
+        """
+        if self.auxiliary_data is None:
+            logger.warning(
+                "find_column_for_key called but auxiliary_data is not loaded."
+            )
+            return None
+
+        candidates = {key, key.replace(":", " "), key.replace(" ", ":")}
+        for column in self.auxiliary_data.columns:
+            col_base = column.split(" Alias:")[0]
+            if any(c in col_base for c in candidates):
+                return column
+
+        logger.warning(f"Could not find auxiliary_data column matching key: '{key}'")
+        return None
 
 
 # %% executable

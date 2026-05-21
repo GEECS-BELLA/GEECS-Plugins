@@ -22,11 +22,42 @@ from typing import Optional, Tuple
 import logging
 
 import numpy as np
+from pydantic import BaseModel, Field
 from scipy.optimize import curve_fit
 
 from image_analysis.processing.array1d.filtering import apply_butterworth_filter
 
 logger = logging.getLogger(__name__)
+
+
+class ICTAnalysisConfig(BaseModel):
+    """Typed configuration for :class:`ICT1DAnalyzer`.
+
+    Validated from ``line_config.analysis`` at analyzer init time.
+    Default values match the algorithm function signature so that a
+    bare ``analysis: {}`` in the YAML config is equivalent to the
+    previous hard-coded defaults.
+
+    Attributes
+    ----------
+    butterworth_order : int
+        Butterworth low-pass filter order.
+    butterworth_crit_f : float
+        Normalised critical frequency for the Butterworth filter.
+    calibration_factor : float
+        Calibration factor in V·s/C.
+    dt : float or None
+        Time step override in seconds. ``None`` means derive from data.
+    """
+
+    butterworth_order: int = Field(1, description="Butterworth filter order")
+    butterworth_crit_f: float = Field(
+        0.125, description="Normalised critical frequency"
+    )
+    calibration_factor: float = Field(0.1, description="Calibration factor [V·s/C]")
+    dt: Optional[float] = Field(
+        None, description="Time step override [s]; None = derive from data"
+    )
 
 
 def identify_primary_valley(data: np.ndarray) -> np.ndarray:
@@ -189,8 +220,8 @@ def apply_ict_analysis(
     butterworth_order: int = 1,
     butterworth_crit_f: float = 0.125,
     calibration_factor: float = 0.1,
-) -> float:
-    """Complete ICT analysis pipeline returning charge in picocoulombs.
+) -> Tuple[float, float]:
+    """Complete ICT analysis pipeline returning charge and peak time.
 
     Implements the 8-step ICT signal processing pipeline:
     1. Apply Butterworth low-pass filter
@@ -219,8 +250,9 @@ def apply_ict_analysis(
 
     Returns
     -------
-    float
-        Charge in picocoulombs (pC)
+    tuple of (float, float)
+        - charge_pC: Charge in picocoulombs (pC)
+        - peak_time_us: Time of signal peak in microseconds (µs)
 
     Raises
     ------
@@ -262,19 +294,22 @@ def apply_ict_analysis(
         signal_region_indices_clean = identify_primary_valley(value)
         if len(signal_region_indices_clean) == 0:
             logger.warning("No signal region in cleaned data, returning 0 pC")
-            return 0.0
+            return 0.0, 0.0
 
         # Step 8: Integrate and calibrate
         signal_data = np.array(value[signal_region_indices_clean])
         integrated_signal = np.trapz(signal_data, x=None, dx=dt)
         charge_pC = integrated_signal * (-calibration_factor) * 1e12
 
+        # Calculate peak time in microseconds
+        peak_time_us = signal_location * dt * 1e6
+
         logger.debug(
             f"ICT Analysis: integrated_signal={integrated_signal:.6e}, "
-            f"charge={charge_pC:.2f} pC"
+            f"charge={charge_pC:.2f} pC, peak_time={peak_time_us:.3f} µs"
         )
 
-        return float(charge_pC)
+        return float(charge_pC), float(peak_time_us)
 
     except Exception as e:
         logger.error(f"ICT analysis failed: {e}")

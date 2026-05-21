@@ -18,10 +18,11 @@ analysis capabilities.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional, Union, List, Tuple
-from pydantic import BaseModel
+from typing import Any, Dict, List, Optional, Tuple, Union
 
+import matplotlib.pyplot as plt
 import numpy as np
+from pydantic import BaseModel
 
 # Import the new processing framework
 from image_analysis.config_loader import load_camera_config
@@ -58,23 +59,46 @@ class StandardAnalyzer(ImageAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str
-        Name of the camera configuration to load (e.g., "undulator_exit_cam")
+    camera_config_name : str or CameraConfig
+        Name of the camera configuration to load (e.g., "undulator_exit_cam"),
+        or a pre-constructed ``CameraConfig`` instance.  Passing a config
+        object bypasses YAML loading entirely — useful for testing or for
+        building configs programmatically at runtime.
+    name_suffix : str, optional
+        Suffix to append to camera name for scalar result prefixes.
+        Useful for distinguishing multiple analysis passes on the same camera.
+        For example, use "_variation" to distinguish variation analysis results
+        from standard analysis results.
+    metric_suffix : str, optional
+        Suffix to append to all metric names (underscore is auto-prepended).
+        For example, "curtis" becomes "_curtis" in the output keys.
+        Useful for tracking different analysis variations while keeping the
+        same camera name. (e.g., "camera_x_rms_curtis").
     """
 
     def __init__(
         self,
-        camera_config_name: str,
+        camera_config_name: Union[str, cfg_2d.CameraConfig],
+        name_suffix: Optional[str] = None,
+        metric_suffix: Optional[str] = None,
     ):
         """Initialize the standard analyzer with external configuration."""
-        # Load camera configuration
-        try:
-            self.camera_config = load_camera_config(camera_config_name)
-            logger.info("Loaded configuration for camera: %s", self.camera_config.name)
-        except Exception as e:
-            raise ValueError(
-                f"Failed to load camera configuration '{camera_config_name}': {e}"
-            )
+        # Accept a pre-built CameraConfig directly (bypasses YAML loading)
+        if isinstance(camera_config_name, cfg_2d.CameraConfig):
+            self.camera_config = camera_config_name
+            camera_config_name = self.camera_config.name
+            logger.info("Using provided CameraConfig: %s", self.camera_config.name)
+        else:
+            # Load camera configuration from YAML
+            try:
+                self.camera_config = load_camera_config(camera_config_name)
+                logger.info(
+                    "Loaded configuration for camera: %s", self.camera_config.name
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"Failed to load camera configuration '{camera_config_name}': {e}"
+                )
 
         # Create background manager if background processing is configured
         self.background_manager = create_background_manager_from_config(
@@ -84,6 +108,14 @@ class StandardAnalyzer(ImageAnalyzer):
         # Store analyzer state
         self.camera_config_name = camera_config_name
         self.run_analyze_image_asynchronously = True
+
+        # Store metric suffix for use in analyze_image
+        self.metric_suffix = metric_suffix
+
+        # Apply name suffix if provided
+        if name_suffix:
+            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
+            logger.info(f"Camera name set to: {self.camera_config.name}")
 
         # Initialize base class with the background manager
         super().__init__(background_manager=self.background_manager)
@@ -136,8 +168,11 @@ class StandardAnalyzer(ImageAnalyzer):
             Original images and empty stateful results dict
         """
         # Generate dynamic background if configured
-        # This computes and saves the background but doesn't apply it
-        self.background_manager.generate_dynamic_background(images)
+        # This computes and saves the background but doesn't apply it.
+        # background_manager is None when camera_config has no background section
+        # at all, in which case there is nothing to compute.
+        if self.background_manager is not None:
+            self.background_manager.generate_dynamic_background(images)
 
         # Return ORIGINAL images (not processed)
         # Processing happens in analyze_image() for each image
@@ -267,6 +302,13 @@ class StandardAnalyzer(ImageAnalyzer):
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
 
+    def apply_metric_suffix(self, scalars: dict) -> dict:
+        """Return a new dict with the metric suffix appended to each scalar key."""
+        # no-op if no suffix configured or no scalars present
+        if not self.metric_suffix or not scalars:
+            return scalars or {}
+        return {f"{k}{self.metric_suffix}": v for k, v in scalars.items()}
+
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
@@ -301,12 +343,119 @@ class StandardAnalyzer(ImageAnalyzer):
         # Build input parameters dictionary
         input_params = self._build_input_parameters()
 
+        # Ensure `scalars` exists (subclasses may add keys later)
+        scalars: Dict[str, Any] = {}
+
         # Build and return result
         result = ImageAnalyzerResult(
             data_type="2d",
             processed_image=final_image,
-            scalars={},  # No scalars by default, subclasses can add them
+            scalars=scalars,  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
 
         return result
+
+    # ------------------------------------------------------------------
+    # Visualization helpers (override in subclasses for custom overlays)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def render_image(
+        result: ImageAnalyzerResult,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "plasma",
+        figsize: Tuple[float, float] = (4, 4),
+        dpi: int = 150,
+        ax: Optional[plt.Axes] = None,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render the processed image from an analysis result.
+
+        Provides a baseline rendering that subclasses can extend by
+        overriding this method and adding domain-specific overlays.
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            The analysis result containing the processed image.
+        vmin, vmax : float, optional
+            Colour-scale limits.
+        cmap : str
+            Matplotlib colour-map name.
+        figsize : tuple of float
+            Figure size in inches ``(width, height)``.
+        dpi : int
+            Figure resolution.
+        ax : matplotlib Axes, optional
+            Existing axes to draw into.  A new figure is created when
+            *None*.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+        ax : matplotlib.axes.Axes
+        """
+        from image_analysis.tools.rendering import base_render_image
+
+        fig, ax = base_render_image(
+            result=result,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            figsize=figsize,
+            dpi=dpi,
+            ax=ax,
+        )
+        return fig, ax
+
+    def visualize(
+        self,
+        results: ImageAnalyzerResult,
+        *,
+        show: bool = True,
+        close: bool = True,
+        ax: Optional[plt.Axes] = None,
+        vmin: Optional[float] = None,
+        vmax: Optional[float] = None,
+        cmap: str = "plasma",
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render and optionally display a visualization of the result.
+
+        Convenience wrapper around :meth:`render_image` that handles
+        ``plt.show()`` / ``plt.close()`` lifecycle.
+
+        Parameters
+        ----------
+        results : ImageAnalyzerResult
+            Analysis result to visualize.
+        show : bool
+            Call ``plt.show()`` after rendering.
+        close : bool
+            Call ``plt.close(fig)`` after rendering.
+        ax : matplotlib Axes, optional
+            Existing axes to draw into.
+        vmin, vmax : float, optional
+            Colour-scale limits.
+        cmap : str
+            Matplotlib colour-map name.
+
+        Returns
+        -------
+        fig : matplotlib.figure.Figure
+        ax : matplotlib.axes.Axes
+        """
+        fig, ax = self.render_image(
+            result=results,
+            vmin=vmin,
+            vmax=vmax,
+            cmap=cmap,
+            ax=ax,
+        )
+
+        if show:
+            plt.show()
+        if close:
+            plt.close(fig)
+
+        return fig, ax

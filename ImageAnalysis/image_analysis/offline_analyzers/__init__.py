@@ -7,12 +7,14 @@ experimental setups.
 
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
+from image_analysis.offline_analyzers.line_stitcher import LineStitcher
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
 
 __all__ = [
     "BeamAnalyzer",
     "LineAnalyzer",
+    "LineStitcher",
     "Standard1DAnalyzer",
     "StandardAnalyzer",
 ]

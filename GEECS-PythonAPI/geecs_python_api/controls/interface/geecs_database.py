@@ -127,6 +127,7 @@ class GeecsDatabase:
             user=GeecsDatabase.username,
             password=GeecsDatabase.password,
             database=GeecsDatabase.name,
+            use_pure=True,  # C extension DLL crashes silently on Windows with 9.x
         )
         return db
 

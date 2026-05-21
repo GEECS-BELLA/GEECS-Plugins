@@ -6,7 +6,7 @@ authors = ["Sam Barber <sbarber@lbl.gov>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.11"
+python = ">=3.11,<3.12"
 mkdocs = "^1.5"
 mkdocs-material = "^9.5"
 mkdocstrings = { extras = ["python"], version = "^0.28.2" }
@@ -34,6 +34,24 @@ ipykernel = "^6.30.1"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+# -------------------------------
+# Pytest settings
+# -------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests"]
+markers = [
+    "integration: requires external resources (data or hardware) — skipped in CI",
+    "data: requires network-mounted GEECS data (combine with integration)",
+    "hardware: requires live GEECS devices (combine with integration)",
+    "gui: requires a display and Qt — skipped in headless CI",
+]
+# Exclude pre-existing test stubs that require optional/unavailable deps
+norecursedirs = [
+    "tests/ScannerTools",
+    ".git", ".venv", "dist", "build", "__pycache__",
+]
+
 # -------------------------------
 # Ruff settings
 # -------------------------------

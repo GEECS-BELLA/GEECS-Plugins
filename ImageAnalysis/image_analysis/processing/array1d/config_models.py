@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -155,7 +155,12 @@ class BackgroundConfig(BaseModel):
         default=None, description="Constant value to subtract from y-values"
     )
     background_file: Optional[Path] = Field(
-        default=None, description="Path to background file (NPY or NPZ format)"
+        default=None,
+        description=(
+            "Path to background file. Loaded via the same 1D reader as the "
+            "line data, so any supported data_type (npy, csv, tsv, "
+            "tek_scope_hdf5, tdms_scope) is accepted."
+        ),
     )
 
     @field_validator("constant_value")
@@ -431,6 +436,16 @@ class Line1DConfig(BaseModel):
     filtering: Optional[FilteringConfig] = None
     thresholding: Optional[ThresholdingConfig] = None
     pipeline: Optional[PipelineConfig] = Field(default_factory=PipelineConfig)
+
+    # Analyzer-specific configuration
+    analysis: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Analyzer-specific configuration dictionary. Each analyzer validates "
+            "this at init time using its own typed Pydantic model "
+            "(e.g., ICTAnalysisConfig)."
+        ),
+    )
 
     @field_validator("processing_dtype", "storage_dtype")
     @classmethod

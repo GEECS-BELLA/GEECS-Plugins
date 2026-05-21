@@ -390,20 +390,28 @@ class Line1DRenderer(BaseRenderer):
             ]
         )
 
-        # For y-axis, create edges between parameter values
-        y_edges = np.zeros(len(param_values) + 1)
-        y_edges[0] = (
-            param_values[0] - (param_values[1] - param_values[0]) / 2
-            if len(param_values) > 1
-            else param_values[0] - 0.5
-        )
-        y_edges[-1] = (
-            param_values[-1] + (param_values[-1] - param_values[-2]) / 2
-            if len(param_values) > 1
-            else param_values[-1] + 0.5
-        )
-        for i in range(1, len(param_values)):
-            y_edges[i] = (param_values[i - 1] + param_values[i]) / 2
+        # For y-axis, build edges either in physical value space or in uniform
+        # index space (when even spacing is requested)
+        n = len(param_values)
+        if config.waterfall_even_y_spacing:
+            # Each row gets equal visual height; labels show real values
+            y_edges = np.arange(n + 1) - 0.5
+            y_centers = np.arange(n)
+        else:
+            y_centers = np.array(param_values)
+            y_edges = np.zeros(n + 1)
+            y_edges[0] = (
+                param_values[0] - (param_values[1] - param_values[0]) / 2
+                if n > 1
+                else param_values[0] - 0.5
+            )
+            y_edges[-1] = (
+                param_values[-1] + (param_values[-1] - param_values[-2]) / 2
+                if n > 1
+                else param_values[-1] + 0.5
+            )
+            for i in range(1, n):
+                y_edges[i] = (param_values[i - 1] + param_values[i]) / 2
 
         im = ax.pcolormesh(
             x_edges,
@@ -415,17 +423,15 @@ class Line1DRenderer(BaseRenderer):
             shading="flat",
         )
 
-        # Set y-ticks to actual parameter values (downsample if too many)
+        # Set y-ticks; labels always show the real parameter values
         max_ticks = 40
-        if len(param_values) > max_ticks:
-            # Evenly spaced indices (always include first & last)
-            idx = np.linspace(0, len(param_values) - 1, max_ticks, dtype=int)
-            tick_positions = np.array(param_values)[idx]
+        if n > max_ticks:
+            idx = np.linspace(0, n - 1, max_ticks, dtype=int)
         else:
-            tick_positions = param_values
+            idx = np.arange(n)
 
-        ax.set_yticks(tick_positions)
-        ax.set_yticklabels([f"{val:.3f}" for val in tick_positions])
+        ax.set_yticks(y_centers[idx])
+        ax.set_yticklabels([f"{param_values[i]:.3f}" for i in idx])
 
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel(f"{scan_param}", fontsize=12)

@@ -1,9 +1,12 @@
 """Abstract base class for scan analysis renderers."""
 
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List
 from .config import RenderContext, BaseRendererConfig
+
+logger = logging.getLogger(__name__)
 
 
 class BaseRenderer(ABC):
@@ -113,3 +116,14 @@ class BaseRenderer(ABC):
             Path to the created animation file
         """
         pass
+
+    def cleanup(self) -> None:
+        """
+        Free memory held by the renderer after analysis is complete.
+
+        Resets ``display_contents`` so paths from a previous scan are not
+        accidentally returned on the next run.  Subclasses may override to
+        release additional cached state (e.g. large arrays held across calls).
+        """
+        self.display_contents = []
+        logger.debug(f"[{self.__class__.__name__}] cleanup() complete.")

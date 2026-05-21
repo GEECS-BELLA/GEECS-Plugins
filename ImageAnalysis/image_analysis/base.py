@@ -1,20 +1,15 @@
 """Base module for image analysis.
 
-Provides abstract base classes `ImageAnalyzer` and `LabviewImageAnalyzer` used throughout the
-ImageAnalysis package. These classes define the interface and common functionality for
-device‑specific analyzers and enable integration with LabVIEW adapters.
+Provides the `ImageAnalyzer` abstract base class used throughout the ImageAnalysis package.
 """
 
 from __future__ import annotations
 
-import configparser
-import numpy as np
-from numpy.typing import NDArray
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Any, Tuple
+from typing import TYPE_CHECKING, Optional, Union, Tuple
 
 if TYPE_CHECKING:
-    from .types import Array1D, Array2D, AnalyzerResultDict, ImageAnalyzerResult
+    from .types import Array1D, Array2D, ImageAnalyzerResult
 else:
     from .types import ImageAnalyzerResult
 
@@ -59,20 +54,28 @@ class ImageAnalyzer:
         pass
 
     def analyze_image(
-        self, image: Union[Array1D, Array2D], auxiliary_data: Optional[dict] = None
+        self,
+        image: Union[Array1D, Array2D, list[Array1D], list[Array2D]],
+        auxiliary_data: Optional[dict] = None,
     ) -> ImageAnalyzerResult:
-        """Calculate metrics from an image.
+        """Calculate metrics from an image or list of images.
 
         This function should be implemented by each device's ImageAnalyzer subclass,
         to run on an image from that device (obviously).
 
         Should take full-size (i.e. uncropped) image.
 
+        For multi-device analyzers (e.g. multi-camera diagnostics), a list of
+        arrays may be passed — one per device. The analyzer is responsible for
+        combining them as needed and returning a single result.
+
         Parameters
         ----------
-        image : 2d array (e.g. MxN) or standard y vs x data (eg. Nx2)
-        auxiliary_data : dict
-            Additional data used by the image image_analyzer for this image, such as
+        image : Union[Array1D, Array2D, list[Array1D], list[Array2D]]
+            A single 2D array (e.g. MxN), a single 1D dataset (e.g. Nx2),
+            or a list of such arrays for multi-device analysis.
+        auxiliary_data : dict, optional
+            Additional data used by the image analyzer for this image, such as
             image range.
 
         Returns
@@ -84,16 +87,23 @@ class ImageAnalyzer:
         raise NotImplementedError()
 
     def analyze_image_file(
-        self, image_filepath: Path, auxiliary_data: Optional[dict] = None
+        self,
+        image_filepath: Union[Path, list[Path]],
+        auxiliary_data: Optional[dict] = None,
     ) -> ImageAnalyzerResult:
         """
-        Method to enable the use of a file path rather than Array2D.
+        Method to enable the use of a file path (or list of paths) rather than arrays.
+
+        For multi-device analyzers, a list of file paths can be passed — one
+        per device. The paths are loaded via :meth:`load_image` and the
+        resulting array(s) are passed to :meth:`analyze_image`.
 
         Parameters
         ----------
-         image_filepath : Path
-         auxiliary_data : dict
-            Additional data used by the image image_analyzer for this image, such as
+        image_filepath : Union[Path, list[Path]]
+            A single file path or a list of file paths for multi-device analysis.
+        auxiliary_data : dict, optional
+            Additional data used by the image analyzer for this image, such as
             image range.
 
         Returns
@@ -106,23 +116,34 @@ class ImageAnalyzer:
 
         return self.analyze_image(image, auxiliary_data)
 
-    def load_image(self, file_path: Path) -> Union[Array1D, Array2D]:
+    def load_image(
+        self, file_path: Union[Path, list[Path]]
+    ) -> Union[Array1D, Array2D, list[Union[Array1D, Array2D]]]:
         """
-        Load an image from a path.
+        Load an image from a path, or multiple images from a list of paths.
 
-        By default, the read_imaq_png function is used.
-        For file types not directly supported by this method, e.g. .himg files from a
-        Haso device type, this method be implemented in that device's ImageAnalyzer
-        subclass.
+        When given a single path, loads and returns a single array using
+        :func:`read_imaq_image` (or subclass override).
+
+        When given a list of paths, recursively calls ``self.load_image`` on
+        each path and returns a list of arrays. This means subclasses that
+        override ``load_image`` for custom file formats (e.g. ``.himg``)
+        automatically get list support for free.
 
         Parameters
         ----------
-         file_path : Path
+        file_path : Union[Path, list[Path]]
+            A single file path or a list of file paths for multi-device loading.
 
         Returns
         -------
-         image : Union[Array1D,Array2D]
+        Union[Array1D, Array2D, list[Union[Array1D, Array2D]]]
+            A single array for a single path, or a list of arrays for a list
+            of paths.
         """
+        if isinstance(file_path, list):
+            return [self.load_image(p) for p in file_path]
+
         image = read_imaq_image(file_path)
 
         return image
@@ -148,254 +169,3 @@ class ImageAnalyzer:
             images (list of Union[Array1D,Array2D]):
         """
         return images, {}
-
-
-class LabviewImageAnalyzer(ImageAnalyzer):
-    """
-    Intermediate class for ImageAnalyzer for analyzers to be compatible with LabView.
-
-    This class maintains the legacy dict-based return format for LabVIEW compatibility.
-    The return signature differs from the base ImageAnalyzer class (returns dict instead
-    of ImageAnalyzerResult), which is acceptable for this legacy code path.
-
-    Derived classes should implement
-        - configure()
-        - __init__()
-    """
-
-    def __init__(self):
-        """Only initialize class variables used by the functions defined here for all LabviewImageAnalyzers.
-
-        Currently, only the roi and background settings.
-
-        TODO:  determine if self.roi can be a ROI instance, or if it has to be a list.
-        """
-        super().__init__()
-        self.roi = None
-        self.background = None
-
-    def apply_config(self, config_file):
-        """Load the config file and pass elements of 'settings' as keyword arguments to the configure function.
-
-        Parameters
-        ----------
-        config_file : str
-            file location of the .ini config file
-
-        """
-        parser = configparser.ConfigParser()
-        parser.read(config_file)
-        if "roi" in parser:
-            self.roi = self.read_roi(parser)
-        config = dict(parser["settings"])
-        self.configure(**config)
-        return self
-
-    @staticmethod
-    def read_roi(parser):
-        """Read the roi settings from the .ini config file.
-
-        Parameters
-        ----------
-        parser : ConfigParser
-            the config file containing roi information
-
-        Returns
-        -------
-        roi : 1d array
-            the roi bounds given by [top, bottom, left, right] pixel
-
-        """
-        roi_top = (int(parser.get("roi", "top")),)
-        roi_bottom = (int(parser.get("roi", "bottom")),)
-        roi_left = (int(parser.get("roi", "left")),)
-        roi_right = (int(parser.get("roi", "right")),)
-        return np.array([roi_top, roi_bottom, roi_left, roi_right]).reshape(-1)
-
-    def set_roi(self, roi):
-        """Set roi."""
-        self.roi = roi
-
-    def roi_image(self, image):
-        """Crop a given image with the image_analyzer's roi setting.
-
-        If roi is defined for the image_analyzer, this function applied that roi
-
-        Parameters
-        ----------
-        image : 2d array
-            the original image before any applied roi
-
-        Returns
-        -------
-        image : 2d array
-            either the input image if there is no roi on this image_analyzer, or the cropped image if roi is defined
-
-        """
-        if (self.roi is None) or (
-            isinstance(self.roi, list) and any(elem is None for elem in self.roi)
-        ):
-            return image
-        else:
-            return image[self.roi[0] : self.roi[1], self.roi[2] : self.roi[3]]
-
-    def apply_background(self, background):
-        """Set the background for the image_analyzer.
-
-        labview_adapters expects a background image from Labview, and so all ImageAnalyzers need to be able to accept
-        it.  However, it is up to the implementation of analyze_image to use this background.
-
-        Currently, no analyzers use this background...
-
-        Parameters
-        ----------
-        background : 2d array
-            A 2d array from Labview
-        """
-        self.background = background
-
-    def configure(self, **kwargs):
-        """Given a dictionary of keyword arguments, update environment variables for the image_analyzer.
-
-        This function also requires that the class variables were previously initialized to their proper type.
-        Furthermore, passing in a None for a given keyword argument will skip over resetting the variable.
-
-        Parameters
-        ----------
-        kwargs : dict
-            keyword arguments to configure the image_analyzer with
-        """
-        for key, value in kwargs.items():
-            if hasattr(self, key):
-                attr_type = type(getattr(self, key))
-                if value is not None:
-                    if attr_type is bool:
-                        if isinstance(value, str) and value.lower() == "false":
-                            value = False
-                    elif attr_type is list and isinstance(value, str):
-                        value = value.strip("[").strip("]").split(",")
-                    setattr(self, key, attr_type(value))
-                else:
-                    setattr(self, key, None)
-        return self
-
-    def analyze_image(
-        self, image: Union[Array1D, Array2D], auxiliary_data: Optional[dict] = None
-    ) -> AnalyzerResultDict:  # type: ignore[override]
-        """Calculate metrics from an image (LabVIEW-compatible dict return).
-
-        This method overrides the base class to return a dict instead of ImageAnalyzerResult
-        for LabVIEW compatibility. This is intentional and the type: ignore comment suppresses
-        the override warning.
-
-        Parameters
-        ----------
-        image : 2d array (e.g. MxN) or standard y vs x data (eg. Nx2)
-        auxiliary_data : dict
-            Additional data used by the image image_analyzer for this image, such as
-            image range.
-
-        Returns
-        -------
-        AnalyzerResultDict
-            Legacy dict format for LabVIEW compatibility.
-
-        """
-        raise NotImplementedError()
-
-    def build_return_dictionary(
-        self,
-        return_image: Optional[NDArray] = None,
-        return_scalars: Optional[dict[str, Union[int, float]]] = None,
-        return_lineouts: Optional[Union[NDArray, list[NDArray]]] = None,
-        input_parameters: Optional[dict[str, Any]] = None,
-        coerce_lineout_length: Optional[bool] = True,
-    ) -> AnalyzerResultDict:
-        """Build a return dictionary compatible with labview_adapters.py.
-
-        Parameters
-        ----------
-        return_image : NDArray
-            Image to be returned to labview.  Will be converted to UInt16
-        return_scalars : dict
-            Dictionary of scalars from python analysis.  To be passed back to labview correctly, the keys for each
-            entry need to match those given in labview_adapters.json for this image_analyzer class
-        return_lineouts : list(np.ndarray)
-            Lineouts to be returned to labview.  Need to be given as a list of 1d arrays (numpy or otherwise)
-            If not given, will return a 1x1 array of zeros.  If in an incorrect format, will return a 1x1 array of
-            zeros and print a reminder message.    Also, will be returned as a 'float64'
-        input_parameters : dict
-            Dictionary of the input parameters given to the image_analyzer.  If none is given, will call the class's
-            self.build_input_parameter_dictionary() function to generate one from the class variables.  This is not
-            returned to Labview, so it can contain anything one might find useful in post-analysis
-        coerce_lineout_length : bool
-            If the arrays in the list of return_linetours are of unequal length, all arrays get
-            padded with zeros to the size of the largest array if coerce_lineout_length is true. This is necessary
-            for analyzers used by labview
-
-        Returns
-        -------
-        return_dictionary : dict
-            Dictionary with the correctly formatted returns that labview adapters is expecting.
-            "analyzer_input_parameters": input_parameters
-            "analyzer_return_dictionary": return_scalars
-            "processed_image": return_image (with identical type as input argument)
-            "analyzer_return_lineouts": return_lineouts
-        """
-        return_dictionary: AnalyzerResultDict = {}
-
-        if return_scalars is None:
-            return_scalars = dict()
-        elif not isinstance(return_scalars, dict):
-            print("return_scalars must be passed as a dict!")
-            return_scalars = dict()
-        return_dictionary["analyzer_return_dictionary"] = return_scalars
-
-        if isinstance(return_lineouts, np.ndarray) and return_lineouts.ndim == 2:
-            return_lineouts = return_lineouts.astype(np.float64)
-        else:
-            if return_lineouts is not None:
-                if not isinstance(return_lineouts, list):
-                    print("return_lineouts must be passed as a list of 1d arrays!")
-                    return_lineouts = None
-                else:
-                    for lineout in return_lineouts:
-                        shape = np.shape(lineout)
-                        if len(shape) != 1 or shape[0] < 2:
-                            print(
-                                "return_lineouts must be passed as a list of 1d arrays!"
-                            )
-                            return_lineouts = None
-                            break
-            if return_lineouts is None:
-                return_lineouts = np.zeros((1, 1), dtype=np.float64)
-            else:
-                if coerce_lineout_length:
-                    max_length = max(map(len, return_lineouts))
-                    return_lineouts = [
-                        np.pad(lineout, (0, max_length - len(lineout)), mode="constant")
-                        for lineout in return_lineouts
-                    ]
-                    return_lineouts = np.vstack(return_lineouts).astype(np.float64)
-        return_dictionary["analyzer_return_lineouts"] = return_lineouts
-
-        if input_parameters is None:
-            input_parameters = self.build_input_parameter_dictionary()
-        return_dictionary["analyzer_input_parameters"] = input_parameters
-
-        return_dictionary["processed_image"] = return_image
-
-        return return_dictionary
-
-    def build_input_parameter_dictionary(self) -> dict:
-        """Compile list of class variables into a dictionary.
-
-        Can be overwritten by implementing classes if you prefer more control over the return dictionary.
-        For example, adding units into the key names.
-
-        Returns
-        -------
-        dict
-            A compiled dictionary containing all class variables
-        """
-        return self.__dict__
