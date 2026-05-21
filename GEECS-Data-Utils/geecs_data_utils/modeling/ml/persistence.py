@@ -17,17 +17,24 @@ geecs_data_utils.modeling.ml.models.ModelArtifact
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Union
 
 import joblib
+import numpy
+import sklearn
 
 from geecs_data_utils.modeling.ml.models import ModelArtifact
 from geecs_data_utils.modeling.ml.schemas import (
+    ARTIFACT_VERSION,
     FeatureSchema,
     ModelMetadata,
     TrainingMetrics,
+    _python_runtime_version,
 )
+
+logger = logging.getLogger(__name__)
 
 _MODEL_FILE = "model.joblib"
 _METADATA_FILE = "metadata.json"
@@ -88,12 +95,50 @@ def load_model_artifact(path: Union[str, Path]) -> ModelArtifact:
     schema = FeatureSchema.from_dict(_read_json(root / _SCHEMA_FILE))
     metrics = TrainingMetrics.from_dict(_read_json(root / _METRICS_FILE))
 
+    _warn_on_runtime_drift(metadata, root)
+
     return ModelArtifact(
         pipeline=pipeline,
         feature_schema=schema,
         metadata=metadata,
         metrics=metrics,
     )
+
+
+def _warn_on_runtime_drift(metadata: ModelMetadata, path: Path) -> None:
+    """Emit a warning when the artifact was saved under different runtimes.
+
+    Compares the four version fields on ``metadata`` against the live
+    ``sklearn`` / ``joblib`` / ``numpy`` / Python versions. Fields with the
+    sentinel value ``"unknown"`` (artifacts saved before version capture)
+    are skipped without warning — there's nothing to compare. Also surfaces
+    a mismatched ``artifact_version`` so future on-disk layout changes can
+    be detected without parsing the sidecars manually.
+    """
+    drift = []
+    if metadata.artifact_version not in ("", "unknown") and (
+        metadata.artifact_version != ARTIFACT_VERSION
+    ):
+        drift.append(
+            f"artifact_version {metadata.artifact_version} → {ARTIFACT_VERSION}"
+        )
+    checks = (
+        ("sklearn", metadata.sklearn_version, sklearn.__version__),
+        ("joblib", metadata.joblib_version, joblib.__version__),
+        ("numpy", metadata.numpy_version, numpy.__version__),
+        ("python", metadata.python_version, _python_runtime_version()),
+    )
+    for name, saved, current in checks:
+        if saved and saved != "unknown" and saved != current:
+            drift.append(f"{name} {saved} → {current}")
+
+    if drift:
+        logger.warning(
+            "Model artifact at %s was saved under different runtime "
+            "versions; predictions may differ silently. Drift: %s",
+            path,
+            "; ".join(drift),
+        )
 
 
 def _write_json(path: Path, data: dict) -> None:

@@ -116,3 +116,96 @@ class TestPersistence:
         """Loading from a nonexistent directory raises FileNotFoundError."""
         with pytest.raises(FileNotFoundError, match="Artifact directory not found"):
             load_model_artifact(tmp_path / "nonexistent")
+
+    def test_runtime_versions_captured(self, sample_df, feature_columns, tmp_path):
+        """New artifacts record sklearn / joblib / numpy / python versions."""
+        import joblib
+        import numpy
+        import sklearn
+
+        from geecs_data_utils.modeling.ml.schemas import (
+            ARTIFACT_VERSION,
+            _python_runtime_version,
+        )
+
+        trainer = RegressionTrainer(model="ridge")
+        artifact = trainer.fit(
+            sample_df[feature_columns],
+            sample_df["charge"],
+            target_name="charge",
+        )
+
+        artifact_dir = tmp_path / "test_model"
+        save_model_artifact(artifact, artifact_dir)
+        loaded = load_model_artifact(artifact_dir)
+
+        assert loaded.metadata.artifact_version == ARTIFACT_VERSION
+        assert loaded.metadata.sklearn_version == sklearn.__version__
+        assert loaded.metadata.joblib_version == joblib.__version__
+        assert loaded.metadata.numpy_version == numpy.__version__
+        assert loaded.metadata.python_version == _python_runtime_version()
+
+    def test_load_old_artifact_without_versions(
+        self, sample_df, feature_columns, tmp_path, caplog
+    ):
+        """Artifacts saved before version capture load with 'unknown' sentinels."""
+        # Manually write an artifact whose metadata.json omits the version
+        # fields, simulating an artifact saved by a pre-0.7.0 build.
+        trainer = RegressionTrainer(model="ridge")
+        artifact = trainer.fit(
+            sample_df[feature_columns],
+            sample_df["charge"],
+            target_name="charge",
+        )
+
+        artifact_dir = tmp_path / "old_model"
+        save_model_artifact(artifact, artifact_dir)
+
+        # Strip the version fields from the metadata file.
+        meta_path = artifact_dir / "metadata.json"
+        data = json.loads(meta_path.read_text())
+        for key in (
+            "artifact_version",
+            "sklearn_version",
+            "joblib_version",
+            "numpy_version",
+            "python_version",
+        ):
+            data.pop(key, None)
+        meta_path.write_text(json.dumps(data))
+
+        loaded = load_model_artifact(artifact_dir)
+
+        # Missing version fields are reported as "unknown" — not the
+        # current runtime versions, so callers can tell what happened.
+        assert loaded.metadata.sklearn_version == "unknown"
+        assert loaded.metadata.joblib_version == "unknown"
+        assert loaded.metadata.numpy_version == "unknown"
+        assert loaded.metadata.python_version == "unknown"
+        assert loaded.metadata.artifact_version == "unknown"
+
+    def test_load_warns_on_version_drift(
+        self, sample_df, feature_columns, tmp_path, caplog
+    ):
+        """Version mismatch on load emits a warning naming the drifted packages."""
+        trainer = RegressionTrainer(model="ridge")
+        artifact = trainer.fit(
+            sample_df[feature_columns],
+            sample_df["charge"],
+            target_name="charge",
+        )
+
+        artifact_dir = tmp_path / "drifted_model"
+        save_model_artifact(artifact, artifact_dir)
+
+        # Rewrite metadata with a fake older sklearn version.
+        meta_path = artifact_dir / "metadata.json"
+        data = json.loads(meta_path.read_text())
+        data["sklearn_version"] = "0.0.0-fake"
+        meta_path.write_text(json.dumps(data))
+
+        with caplog.at_level("WARNING"):
+            load_model_artifact(artifact_dir)
+
+        warnings = [r.message for r in caplog.records if r.levelname == "WARNING"]
+        assert any("sklearn 0.0.0-fake" in m for m in warnings), warnings
