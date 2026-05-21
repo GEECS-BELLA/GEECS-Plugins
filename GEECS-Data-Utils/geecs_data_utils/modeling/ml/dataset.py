@@ -34,7 +34,7 @@ from geecs_data_utils.data.dataset import DatasetBuilder
 
 @dataclass
 class DatasetResult:
-    """Container returned by :class:`BeamPredictionDatasetBuilder`.
+    """Container returned by :class:`MLDatasetBuilder`.
 
     ``frame`` contains exactly the predictor columns plus the target, ordered for
     ``X`` / ``y`` extraction.
@@ -63,7 +63,7 @@ class DatasetResult:
     rows_final: int = 0
 
 
-class BeamPredictionDatasetBuilder:
+class MLDatasetBuilder:
     """Build :class:`DatasetResult` from scans or from an existing DataFrame.
 
     ``from_scan`` and ``from_scans`` delegate to ``DatasetBuilder``, then apply
@@ -133,7 +133,7 @@ class BeamPredictionDatasetBuilder:
             outlier_config=outlier_config,
             dropna=False,
         )
-        return BeamPredictionDatasetBuilder._build_model_columns(
+        return MLDatasetBuilder._build_model_columns(
             assembled.frame,
             rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,
@@ -173,7 +173,7 @@ class BeamPredictionDatasetBuilder:
             outlier_config=outlier_config,
             dropna=False,
         )
-        return BeamPredictionDatasetBuilder._build_model_columns(
+        return MLDatasetBuilder._build_model_columns(
             assembled.frame,
             rows_raw=assembled.rows_raw,
             feature_specs=feature_specs,

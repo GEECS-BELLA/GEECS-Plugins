@@ -87,9 +87,9 @@ class DatasetBuilder:
     :class:`~geecs_data_utils.ScanData` is the usual type. Heavy lifting uses
     :meth:`prepare_frame` (outliers → row filters → optional ``dropna``).
 
-    :class:`~geecs_data_utils.modeling.ml.dataset.BeamPredictionDatasetBuilder` calls these
-    entry points with ``dropna=False``, then applies ML-specific column selection
-    and drops NaNs only on the chosen columns.
+    :class:`~geecs_data_utils.modeling.ml.dataset.MLDatasetBuilder` calls
+    these entry points with ``dropna=False``, then applies ML-specific column
+    selection and drops NaNs only on the chosen columns.
 
     ``ScanData`` is imported inside load helpers so this module stays importable
     without pulling scan IO unless those paths are used.

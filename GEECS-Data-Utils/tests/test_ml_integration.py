@@ -5,7 +5,7 @@ import pytest
 
 from geecs_data_utils.data import OutlierConfig
 from geecs_data_utils.modeling.ml import (
-    BeamPredictionDatasetBuilder,
+    MLDatasetBuilder,
     CorrelationReport,
     ModelArtifact,
     RegressionTrainer,
@@ -20,7 +20,7 @@ class TestEndToEnd:
     def test_full_workflow(self, sample_df, tmp_path):
         """Complete ML pipeline from raw data to loaded predictions."""
         # Step 1: Build dataset
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             feature_columns=["feature_a", "feature_b", "feature_c"],
             target_column="charge",

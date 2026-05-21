@@ -7,7 +7,7 @@ Notes
 -----
 Typical workflow:
 
-1. :class:`~geecs_data_utils.modeling.ml.dataset.BeamPredictionDatasetBuilder`
+1. :class:`~geecs_data_utils.modeling.ml.dataset.MLDatasetBuilder`
    — build ``X``/``y`` tabular data.
 2. :class:`~geecs_data_utils.modeling.ml.models.RegressionTrainer` →
    :class:`~geecs_data_utils.modeling.ml.models.ModelArtifact` — fit.
@@ -30,7 +30,7 @@ geecs_data_utils.analysis : Correlation and other analysis helpers.
 from geecs_data_utils.analysis import CorrelationReport
 
 from geecs_data_utils.modeling.ml.dataset import (
-    BeamPredictionDatasetBuilder,
+    MLDatasetBuilder,
     DatasetResult,
 )
 from geecs_data_utils.modeling.ml.inference import predict_from_scan
@@ -46,7 +46,7 @@ from geecs_data_utils.modeling.ml.schemas import (
 )
 
 __all__ = [
-    "BeamPredictionDatasetBuilder",
+    "MLDatasetBuilder",
     "CorrelationReport",
     "DatasetResult",
     "FeatureSchema",

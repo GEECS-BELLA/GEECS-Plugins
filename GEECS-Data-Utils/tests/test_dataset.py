@@ -1,18 +1,18 @@
-"""Tests for BeamPredictionDatasetBuilder."""
+"""Tests for MLDatasetBuilder."""
 
 import numpy as np
 import pytest
 
-from geecs_data_utils.modeling.ml.dataset import BeamPredictionDatasetBuilder
+from geecs_data_utils.modeling.ml.dataset import MLDatasetBuilder
 from geecs_data_utils.data import OutlierConfig
 
 
 class TestFromDataframe:
-    """Tests for BeamPredictionDatasetBuilder.from_dataframe."""
+    """Tests for MLDatasetBuilder.from_dataframe."""
 
     def test_basic_build(self, sample_df):
         """Builds a dataset with explicit columns."""
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             feature_columns=["feature_a", "feature_b"],
             target_column="charge",
@@ -24,9 +24,7 @@ class TestFromDataframe:
 
     def test_auto_features(self, sample_df):
         """Without feature_columns, all numeric cols except target are used."""
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
-            sample_df, target_column="charge"
-        )
+        ds = MLDatasetBuilder.from_dataframe(sample_df, target_column="charge")
         assert "charge" not in ds.feature_columns
         assert len(ds.feature_columns) > 0
 
@@ -34,7 +32,7 @@ class TestFromDataframe:
         """Outlier config with nan method works."""
         df = sample_df.copy()
         df.loc[0, "feature_a"] = 1000.0
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             df,
             feature_columns=["feature_a", "feature_b"],
             target_column="charge",
@@ -47,7 +45,7 @@ class TestFromDataframe:
         """Outlier config with clip method works."""
         df = sample_df.copy()
         df.loc[0, "feature_a"] = 1000.0
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             df,
             feature_columns=["feature_a", "feature_b"],
             target_column="charge",
@@ -57,7 +55,7 @@ class TestFromDataframe:
 
     def test_row_filters(self, sample_df):
         """Row filters reduce the dataset."""
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             sample_df,
             feature_columns=["feature_a"],
             target_column="charge",
@@ -68,7 +66,7 @@ class TestFromDataframe:
     def test_missing_column_raises(self, sample_df):
         """Referencing a missing column raises ValueError."""
         with pytest.raises(ValueError, match="Columns not found"):
-            BeamPredictionDatasetBuilder.from_dataframe(
+            MLDatasetBuilder.from_dataframe(
                 sample_df,
                 feature_columns=["nonexistent"],
                 target_column="charge",
@@ -78,7 +76,7 @@ class TestFromDataframe:
         """With dropna=False, NaN rows are kept."""
         df = sample_df.copy()
         df.loc[0, "feature_a"] = np.nan
-        ds = BeamPredictionDatasetBuilder.from_dataframe(
+        ds = MLDatasetBuilder.from_dataframe(
             df,
             feature_columns=["feature_a", "feature_b"],
             target_column="charge",
