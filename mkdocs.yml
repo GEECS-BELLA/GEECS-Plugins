@@ -78,6 +78,7 @@ nav:
           - Core Modules: geecs_data_utils/api/core_modules.md
       - Examples:
           - Basic Usage: geecs_data_utils/examples/basic_usage.ipynb
+          - Correlation Analysis: geecs_data_utils/examples/correlation_analysis.ipynb
           - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
 
 

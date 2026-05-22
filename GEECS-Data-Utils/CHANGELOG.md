@@ -3,6 +3,45 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] — 2026-05-20
+
+### Added
+- New `geecs_data_utils.data` subpackage: shared tabular utilities used by
+  both analysis and modeling layers.
+  - `data.columns`: `find_cols`, `resolve_col`, `resolve_col_detailed`,
+    `flatten_columns`, `ColumnMatchMode`, `ResolveColResult`.
+  - `data.cleaning`: `RowFilterSpec`, `apply_row_filters`, `OutlierConfig`,
+    `apply_outlier_config`, `sigma_clip_frame`, `sigma_nan_frame`.
+  - `data.dataset`: `DatasetBuilder`, `DatasetFrame`, `LoadScansReport`
+    for multi-scan scalar dataset assembly with filters / outliers /
+    `dropna` and a visibility report for skipped scans.
+- New `geecs_data_utils.analysis` subpackage:
+  - `analysis.correlation`: `CorrelationReport` for target-vs-numeric
+    correlation ranking (Pearson / Spearman / Kendall) with row filters,
+    substring exclusions, and `top_n`.
+- New optional `geecs_data_utils.modeling.ml` subpackage (install with the
+  `ml` extra):
+  - `MLDatasetBuilder` / `DatasetResult`: select target + features from a
+    DataFrame for modeling, with optional `exclude_terms` for substring-
+    based feature pruning (matching `CorrelationReport.exclude_terms`).
+  - `RegressionTrainer` / `ModelArtifact`: linear / ridge / elastic-net
+    fits with standard preprocessing, metrics, and optional CV scores.
+  - `save_model_artifact` / `load_model_artifact`: joblib + JSON
+    sidecars (`FeatureSchema`, `ModelMetadata`, `TrainingMetrics`).
+    Metadata captures `sklearn_version`, `joblib_version`, `numpy_version`,
+    `python_version`, and an `artifact_version` so loaders can warn on
+    runtime mismatches.
+  - `predict_from_scan`: inference helper that expects scan columns to
+    match the training feature schema exactly.
+
+### Changed
+- `ScanData.find_cols` / `resolve_col` now delegate to
+  `geecs_data_utils.data.columns` so single-scan and multi-scan code paths
+  share semantics. Behavior is preserved.
+
+### Removed
+- Unused `ScanPaths.data_dict`, `ScanPaths.data_frame`, and
+  `ScanPaths.get_device_data()`. No external callers within the monorepo.
 ## [0.6.4] — 2026-05-21
 
 ### Changed
