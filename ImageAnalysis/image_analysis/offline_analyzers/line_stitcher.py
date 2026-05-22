@@ -167,11 +167,22 @@ class LineStitcher(LineAnalyzer):
             return
 
         scan_dir = file_path.parent.parent
+        if not scan_dir.is_dir():
+            # The scan folder is the user's data; analysis code must never
+            # create it. A missing scan_dir here means the input file path
+            # is stale or the share has briefly delisted the folder (an
+            # observed SMB/NetApp failure mode). Auto-creating it would
+            # plant an empty directory entry over real data — refuse loudly.
+            raise FileNotFoundError(
+                f"Scan folder {scan_dir} is not visible; refusing to create "
+                f"output subfolder. This indicates the scan never wrote, has "
+                f"been removed, or is temporarily invisible on the share."
+            )
         shot_num = file_path.stem.rsplit("_", 1)[-1]
         new_stem = f"{scan_dir.name}_{self.name}_{shot_num}"
 
         output_dir = scan_dir / self.name
-        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(exist_ok=True)
 
         metadata = result.metadata or {}
         x_label = metadata.get("x_label", "X")

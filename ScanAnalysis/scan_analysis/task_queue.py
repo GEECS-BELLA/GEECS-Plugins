@@ -95,6 +95,26 @@ def _status_path(scan_folder: Path, analyzer_id: str) -> Path:
     return _status_dir(scan_folder) / f"{analyzer_id}.yaml"
 
 
+def _require_scan_folder(scan_folder: Path) -> bool:
+    """Return True iff ``scan_folder`` is a visible directory.
+
+    The analysis stack is a consumer of scan folders, never a producer. If the
+    folder isn't visible we log loudly and bail — *never* auto-create it.
+    Silent creation here masks two real failure modes: an upstream timing bug
+    where the scanner hasn't written the folder yet, and an SMB/NetApp
+    visibility blip that — if we plant an empty directory entry during the
+    window — converts a recoverable transient into permanent data loss.
+    """
+    if not scan_folder.is_dir():
+        logger.error(
+            "Scan folder %s is not visible; analysis code will not create it. "
+            "Skipping write. The next poll cycle will retry if visibility returns.",
+            scan_folder,
+        )
+        return False
+    return True
+
+
 def _parse_ts(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -158,8 +178,10 @@ def init_status_for_scan(
     scan_folder = ScanPaths.get_scan_folder_path(
         tag=scan_tag, base_directory=base_directory
     )
+    if not _require_scan_folder(scan_folder):
+        return
     status_dir = _status_dir(scan_folder)
-    status_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(exist_ok=True)
 
     for analyzer in analyzers:
         analyzer_id = getattr(
@@ -276,8 +298,10 @@ def update_status(
     display_files: Optional[List[str]] = None,
 ) -> None:
     """Update status file for a given analyzer in a scan folder."""
+    if not _require_scan_folder(scan_folder):
+        return
     status_dir = _status_dir(scan_folder)
-    status_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(exist_ok=True)
     path = _status_path(scan_folder, analyzer_id)
     if path.exists():
         current = TaskStatus.from_file(path)

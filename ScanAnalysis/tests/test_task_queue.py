@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from typing import List
 
 import yaml
+from geecs_data_utils import ScanTag
 
 from scan_analysis.task_queue import (
     CLAIM_STALE_AFTER_SECONDS,
@@ -19,6 +20,7 @@ from scan_analysis.task_queue import (
     _is_stale,
     build_worklist,
     extract_scan_number,
+    init_status_for_scan,
     read_statuses,
     update_status,
 )
@@ -408,3 +410,109 @@ class TestBuildWorklist:
         # high-priority analyzer should come before low-priority for same scan
         ids = [item[2].id for item in worklist]
         assert ids.index("hi") < ids.index("lo")
+
+
+# ---------------------------------------------------------------------------
+# Scan-folder-creation invariant
+#
+# The analysis stack is a consumer of scan folders, never a producer.
+# init_status_for_scan and update_status must refuse to create a missing scan
+# folder. Pinning this prevents a regression where a transient SMB/NetApp
+# visibility blip caused the task queue to plant an empty Scan015/ over the
+# real one and permanently lose data.
+# ---------------------------------------------------------------------------
+
+
+class TestScanFolderCreationInvariant:
+    """Verify task_queue never auto-creates a missing scan folder."""
+
+    def _patch_scan_paths(self, monkeypatch, scan_folder: Path) -> ScanTag:
+        import scan_analysis.task_queue as tq
+
+        monkeypatch.setattr(
+            tq.ScanPaths,
+            "get_scan_folder_path",
+            staticmethod(lambda tag, base_directory=None: scan_folder),
+        )
+        return ScanTag(year=2025, month=1, day=1, number=15, experiment="Test")
+
+    def test_init_status_does_not_create_missing_scan_folder(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        missing_scan = tmp_path / "Scan015"
+        # Sanity: parent exists, scan folder does not — same state as a
+        # transient SMB visibility blip on the LiveWatch client.
+        assert tmp_path.is_dir()
+        assert not missing_scan.exists()
+
+        tag = self._patch_scan_paths(monkeypatch, missing_scan)
+        analyzer = _make_analyzer("cam_a", priority=10)
+
+        with caplog.at_level("ERROR", logger="scan_analysis.task_queue"):
+            init_status_for_scan(tag, [analyzer])
+
+        assert not missing_scan.exists(), (
+            "init_status_for_scan must not create the scan folder; "
+            f"found {missing_scan} after call."
+        )
+        assert any("is not visible" in rec.message for rec in caplog.records), (
+            "expected an ERROR log explaining the refusal to create"
+        )
+
+    def test_update_status_does_not_create_missing_scan_folder(self, tmp_path, caplog):
+        missing_scan = tmp_path / "Scan015"
+        assert not missing_scan.exists()
+
+        with caplog.at_level("ERROR", logger="scan_analysis.task_queue"):
+            update_status(missing_scan, "cam_a", state="claimed", priority=10)
+
+        assert not missing_scan.exists(), (
+            "update_status must not create the scan folder; "
+            f"found {missing_scan} after call."
+        )
+        assert any("is not visible" in rec.message for rec in caplog.records)
+
+    def test_init_status_creates_analysis_status_when_scan_folder_exists(
+        self, tmp_path, monkeypatch
+    ):
+        """Happy path: scan folder exists, analysis_status/ is created inside."""
+        scan_folder = tmp_path / "Scan015"
+        scan_folder.mkdir()
+
+        tag = self._patch_scan_paths(monkeypatch, scan_folder)
+        analyzer = _make_analyzer("cam_a", priority=10)
+
+        init_status_for_scan(tag, [analyzer])
+
+        assert (scan_folder / STATUS_DIR_NAME).is_dir()
+        assert (scan_folder / STATUS_DIR_NAME / "cam_a.yaml").is_file()
+
+    def test_update_status_works_when_scan_folder_exists(self, tmp_path):
+        """Happy path: existing scan folder is updated normally."""
+        scan_folder = tmp_path / "Scan015"
+        scan_folder.mkdir()
+
+        update_status(scan_folder, "cam_a", state="claimed", priority=10)
+
+        yaml_path = scan_folder / STATUS_DIR_NAME / "cam_a.yaml"
+        assert yaml_path.is_file()
+        loaded = TaskStatus.from_file(yaml_path)
+        assert loaded.state == "claimed"
+
+    def test_init_does_not_create_intermediate_parents(self, tmp_path, monkeypatch):
+        """Even if every intermediate ancestor is missing, refuse to create.
+
+        Guards against any future regression that brings ``parents=True`` back.
+        """
+        deep_missing = tmp_path / "Y2025" / "01-Jan" / "25_0101" / "scans" / "Scan015"
+        assert not deep_missing.exists()
+        assert not deep_missing.parent.exists()
+
+        tag = self._patch_scan_paths(monkeypatch, deep_missing)
+        analyzer = _make_analyzer("cam_a", priority=10)
+
+        init_status_for_scan(tag, [analyzer])
+
+        # Nothing on the path should have been brought into existence.
+        assert not deep_missing.exists()
+        assert not deep_missing.parent.exists()

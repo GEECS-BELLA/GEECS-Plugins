@@ -75,7 +75,16 @@ class ScanPaths:
             The base path for the data, e/g/ "Z:/data/"
             If not given, will default to the path located by GeecsPathsConfig
         read_mode: bool
-            Flag that determines if ScanData should create the directory if it does not exist
+            If True (the default), raise if the scan folder does not exist.
+            If False, silently create the folder (including any missing parents).
+
+            ``read_mode=False`` is for *scanner-side* callers only — the GEECS
+            scanner and BlueskyScanner, which legitimately bring new scan folders
+            into existence. Analysis code (ScanAnalysis, ImageAnalysis, anything
+            that consumes existing scans) must always leave this at the default.
+            Silent creation from the consumer side has caused data loss: a
+            transient SMB/NetApp visibility blip looks like a missing folder, and
+            auto-creating it plants an empty directory over the real one.
         """
         self.scan_info: dict[str, str] = {}
 
