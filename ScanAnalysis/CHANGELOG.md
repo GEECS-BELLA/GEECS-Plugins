@@ -3,7 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.8.0] — 2026-05-27
+## [1.8.2] — 2026-05-28
+
+Companion to ImageAnalysis 1.6.0 (FROG spectral phase analyzer). Hardens
+the 1D averaging path against inhomogeneous per-shot lineouts that
+analyzer-specific ROI/weight masking can produce.
+
+### Fixed
+- `SingleDeviceScanAnalyzer.average_data` no longer raises `ValueError`
+  when per-shot lineouts have inhomogeneous shapes. It detects the
+  mismatch, logs a warning, and returns `None`.
+  `Array1DScanAnalyzer._postprocess_noscan` skips the averaged-line
+  figure on `None` while still saving per-shot scalars and the
+  waterfall summary. This unblocks 1D analyzers whose per-shot
+  ROI/weight masking yields variable sample counts — most
+  immediately `FrogSpectralPhaseAnalyzer`, where each shot's valid
+  retrieved-spectrum window differs.
+
+## [1.8.1] — 2026-05-28
 
 ConfigFileGUI rewrite against the PR-E unified-diagnostic surface
 (PR-F), plus LiveWatchGUI hardening, plus a single-source-of-truth
