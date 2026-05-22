@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.0] — 2026-05-22
+
+### Added
+- `algorithms.polynomial_fit` provides reusable weighted polynomial fitting
+  with finite-value filtering, optional threshold masking, and sign
+  canonicalization.
+- `Data1DConfig.auxiliary_columns` loads named sidecar columns for derived
+  1D analyzers while preserving the primary `Nx2` line-data contract.
+  `Standard1DAnalyzer` applies ROI masks to these columns and rejects
+  interpolation until auxiliary-column interpolation is explicitly supported.
+- `FrogSpectralPhaseAnalyzer` fits retrieved FROG spectral phase lineouts and
+  reports physical dispersion terms (`GD`, `GDD`, `TOD`, etc.) when fitting
+  phase versus angular-frequency detuning.
+- `docs/image_analysis/examples/pulse_duration_jitter_analysis.ipynb` now
+  demonstrates ScanPaths/ScanData-based loading of Scan010 retrieved FROG
+  lineouts and the new spectral phase analyzer.
+
+### Fixed
+- `data_1d_utils` now skips a detected CSV/TSV header row after parsing column
+  metadata, allowing `read_1d_data` to load Grenouille retrieved lineout TSVs
+  written with named columns.
+
 ## [1.2.1] — 2026-05-21
 
 ### Fixed

@@ -23,8 +23,12 @@ import matplotlib.pyplot as plt
 from image_analysis.base import ImageAnalyzer
 from image_analysis.config_loader import load_line_config
 from image_analysis.data_1d_utils import read_1d_data
+from image_analysis.processing.array1d.config_models import (
+    Line1DConfig,
+    PipelineStepType,
+)
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
-from image_analysis.processing.array1d.config_models import Line1DConfig
+from image_analysis.processing.array1d.roi import build_roi_mask_1d
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -81,6 +85,25 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         # Storage for metadata from read_1d_data
         self.data_metadata: Optional[Dict[str, str]] = None
+        self._loaded_auxiliary_column_data: Dict[str, np.ndarray] = {}
+        self._use_loaded_auxiliary_columns = False
+
+    def analyze_image_file(
+        self,
+        image_filepath: Union[Path, list[Path]],
+        auxiliary_data: Optional[Dict] = None,
+    ) -> ImageAnalyzerResult:
+        """Analyze a 1D file and preserve loaded auxiliary columns."""
+        image = self.load_image(image_filepath)
+        aux = dict(auxiliary_data or {})
+        if not isinstance(image_filepath, list):
+            aux.setdefault("file_path", Path(image_filepath))
+
+        self._use_loaded_auxiliary_columns = True
+        try:
+            return self.analyze_image(image, aux)
+        finally:
+            self._use_loaded_auxiliary_columns = False
 
     def load_image(self, file_path: Path) -> Array1D:
         """Load 1D data from file using configured data loader.
@@ -112,6 +135,10 @@ class Standard1DAnalyzer(ImageAnalyzer):
             "x_label": result.x_label,
             "y_label": result.y_label,
         }
+        self._loaded_auxiliary_column_data = {
+            name: np.asarray(values, dtype=float).copy()
+            for name, values in result.auxiliary_column_data.items()
+        }
 
         logger.info(
             "Loaded 1D data from %s (type: %s, shape: %s)",
@@ -135,8 +162,15 @@ class Standard1DAnalyzer(ImageAnalyzer):
         np.ndarray
             Processed Nx2 array with optional axis scaling applied
         """
-        # Apply scale factors first (before other processing)
-        # This way all downstream processing uses the scaled values
+        processed, _ = self._preprocess_line_data(data)
+        return processed
+
+    def _preprocess_line_data(
+        self,
+        data: np.ndarray,
+        auxiliary_column_data: Optional[Dict[str, np.ndarray]] = None,
+    ) -> tuple[np.ndarray, Dict[str, np.ndarray]]:
+        """Preprocess primary line data and row-aligned auxiliary columns."""
         scaled_data = data.copy()
 
         if self.line_config.x_scale_factor is not None:
@@ -145,8 +179,30 @@ class Standard1DAnalyzer(ImageAnalyzer):
         if self.line_config.y_scale_factor is not None:
             scaled_data[:, 1] *= self.line_config.y_scale_factor
 
-        # Then apply the rest of the processing pipeline
-        return apply_line_processing_pipeline(scaled_data, self.line_config)
+        auxiliary_columns = _validate_auxiliary_column_data(
+            auxiliary_column_data or {}, expected_length=scaled_data.shape[0]
+        )
+        steps = _pipeline_steps(self.line_config)
+
+        if auxiliary_columns and _interpolation_enabled(self.line_config, steps):
+            raise ValueError(
+                "1D auxiliary columns do not support interpolation yet; "
+                "disable interpolation or omit auxiliary_columns"
+            )
+
+        if (
+            auxiliary_columns
+            and self.line_config.roi is not None
+            and PipelineStepType.ROI in steps
+        ):
+            roi_mask = build_roi_mask_1d(scaled_data[:, 0], self.line_config.roi)
+            auxiliary_columns = {
+                name: values[roi_mask].copy()
+                for name, values in auxiliary_columns.items()
+            }
+
+        processed = apply_line_processing_pipeline(scaled_data, self.line_config)
+        return processed, auxiliary_columns
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
@@ -168,16 +224,24 @@ class Standard1DAnalyzer(ImageAnalyzer):
         ImageAnalyzerResult
             Structured result containing processed 1D data and metadata
         """
-        # If metadata not already cached AND file_path is available, load it
+        raw_auxiliary_columns: Dict[str, np.ndarray] = {}
+        loaded_for_metadata = False
         if (
             self.data_metadata is None
             and auxiliary_data
             and "file_path" in auxiliary_data
         ):
             self.load_image(auxiliary_data["file_path"])  # Populates self.data_metadata
+            loaded_for_metadata = True
+
+        if self._use_loaded_auxiliary_columns or loaded_for_metadata:
+            raw_auxiliary_columns = self._loaded_auxiliary_column_data
 
         # Apply processing pipeline
-        processed = self.preprocess_data(image)
+        processed, line_auxiliary_column_data = self._preprocess_line_data(
+            image,
+            auxiliary_column_data=raw_auxiliary_columns,
+        )
 
         # Build input parameters
         input_params = self._build_input_parameters(auxiliary_data)
@@ -186,6 +250,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
         result = ImageAnalyzerResult(
             data_type="1d",
             line_data=processed,  # Nx2 array
+            line_auxiliary_column_data=line_auxiliary_column_data,
             scalars={},  # No scalars by default, subclasses can add them
             metadata=input_params,
         )
@@ -433,3 +498,49 @@ class Standard1DAnalyzer(ImageAnalyzer):
             The line configuration name
         """
         return self.line_config.name
+
+
+def _validate_auxiliary_column_data(
+    auxiliary_column_data: Dict[str, np.ndarray],
+    expected_length: int,
+) -> Dict[str, np.ndarray]:
+    """Return validated copies of named auxiliary column arrays."""
+    validated: Dict[str, np.ndarray] = {}
+    for name, values in auxiliary_column_data.items():
+        if not name.strip():
+            raise ValueError("auxiliary column names must be non-empty")
+
+        array = np.asarray(values, dtype=float).reshape(-1)
+        if array.shape[0] != expected_length:
+            raise ValueError(
+                f"auxiliary column '{name}' has {array.shape[0]} samples, "
+                f"expected {expected_length}"
+            )
+        validated[name] = array.copy()
+    return validated
+
+
+def _pipeline_steps(config: Line1DConfig) -> list[PipelineStepType]:
+    """Return configured pipeline steps, including the default order."""
+    if config.pipeline is not None:
+        return list(config.pipeline.steps)
+
+    return [
+        PipelineStepType.ROI,
+        PipelineStepType.BACKGROUND,
+        PipelineStepType.FILTERING,
+        PipelineStepType.THRESHOLDING,
+        PipelineStepType.INTERPOLATION,
+    ]
+
+
+def _interpolation_enabled(
+    config: Line1DConfig,
+    steps: list[PipelineStepType],
+) -> bool:
+    """Return whether interpolation will modify the primary line grid."""
+    return (
+        PipelineStepType.INTERPOLATION in steps
+        and config.interpolation is not None
+        and config.interpolation.enabled
+    )
