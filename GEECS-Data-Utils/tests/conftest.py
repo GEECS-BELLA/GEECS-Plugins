@@ -17,14 +17,16 @@ def sample_df():
     # target is a linear combination
     y = 3.0 * x1 - 2.0 * x2 + 0.5 * x3 + noise
 
-    return pd.DataFrame({
-        "feature_a": x1,
-        "feature_b": x2,
-        "feature_c": x3,
-        "charge": y,
-        "timestamp": rng.rand(n) * 1e9,
-        "shotnumber": np.arange(n),
-    })
+    return pd.DataFrame(
+        {
+            "feature_a": x1,
+            "feature_b": x2,
+            "feature_c": x3,
+            "charge": y,
+            "timestamp": rng.rand(n) * 1e9,
+            "shotnumber": np.arange(n),
+        }
+    )
 
 
 @pytest.fixture

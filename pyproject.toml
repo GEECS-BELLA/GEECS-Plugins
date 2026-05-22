@@ -40,6 +40,11 @@ build-backend = "poetry.core.masonry.api"
 # -------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests"]
+# importlib import mode avoids collisions between identically-named test
+# directories across subpackages (e.g. ImageAnalysis/tests/conftest.py and
+# GEECS-Data-Utils/tests/conftest.py both being imported as
+# `tests.conftest` under pytest's default rootdir-prepend mode).
+addopts = "--import-mode=importlib"
 markers = [
     "integration: requires external resources (data or hardware) — skipped in CI",
     "data: requires network-mounted GEECS data (combine with integration)",
