@@ -3,6 +3,34 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.1] — 2026-05-21
+
+### Fixed
+- Offline analyzers that write output subfolders inside `scans/ScanNNN/` no
+  longer auto-create the scan folder itself. Affected sites:
+  `LineStitcher._save_stitched_output` (creates `<scan_dir>/<self.name>/`)
+  and `MagSpecManualCalibAnalyzer._save_calibrated_outputs` (creates
+  `<scan_dir>/<camera>-interp/` and `<scan_dir>/<camera>-interpSpec/`). All
+  three previously used `mkdir(parents=True, exist_ok=True)`, which silently
+  re-created the scan folder if it was briefly invisible on the share. On a
+  new NetApp/domain this masked transient SMB visibility blips as permanent
+  data loss: the analyzer planted an empty `ScanNNN/` directory entry over
+  the real scan contents. Each site now verifies the scan folder is visible
+  before creating its output subfolder; if it isn't, it raises
+  `FileNotFoundError`. The task queue logs the failure and records
+  `state="failed"` when the scan folder/status directory is still writable.
+  If the entire scan folder is absent, status writes are skipped rather than
+  recreating the folder; the user can rerun/relaunch once the share recovers.
+  This pairs with the
+  `scan_analysis` 1.3.6 fix for the same anti-pattern in `task_queue`.
+- `processing.array1d.background.save_background_to_file` no longer creates
+  parent directories. Same anti-pattern: `mkdir(parents=True, exist_ok=True)`
+  could silently materialise a scan folder if a caller passed a destination
+  inside `scans/ScanNNN/`. Callers must ensure the parent directory exists
+  before calling; otherwise the function now raises `FileNotFoundError`.
+  (The function isn't currently called from anywhere in the codebase; this
+  is a defensive consistency fix to prevent future regressions.)
+
 ## [1.2.0] — 2026-05-20
 
 ### Added

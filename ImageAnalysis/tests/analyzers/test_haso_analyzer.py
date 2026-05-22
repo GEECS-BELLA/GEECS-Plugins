@@ -20,7 +20,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from geecs_data_utils import GeecsPathsConfig
+from geecs_data_utils import GeecsPathsConfig, ScanPaths, ScanTag
 
 # Skip the whole module if the WaveKit SDK is unavailable.
 pytest.importorskip("image_analysis.third_party_sdks.wavekit_43.wavekit_py")
@@ -34,10 +34,19 @@ try:
 except Exception:
     WAVEKIT_CONFIG = None
 
-DATA_FILE = Path(
-    "Z:/data/Undulator/Y2026/03-Mar/26_0310/scans/Scan012"
-    "/U_HasoLift/Scan012_U_HasoLift_001.himg"
-)
+# Resolve via ScanPaths so the path adapts to the user's config.ini
+# (Windows Z:/, macOS /Volumes/..., etc.). Falls back to a sentinel that
+# won't .exists() if the data isn't accessible; fixtures then skip cleanly.
+try:
+    DATA_FILE = (
+        ScanPaths(
+            tag=ScanTag(year=2026, month=3, day=10, number=12, experiment="Undulator")
+        ).get_folder()
+        / "U_HasoLift"
+        / "Scan012_U_HasoLift_001.himg"
+    )
+except Exception:
+    DATA_FILE = Path("__data_not_available__")
 
 MASK_KWARGS = dict(mask_top=200, mask_bottom=500, mask_left=10, mask_right=680)
 

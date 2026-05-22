@@ -76,12 +76,17 @@ not errors.
 ## GEECS Data Folder Convention
 
 ```
-{base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans/Scan{NNN}/
-  └── Scan{NNN}.tdms
-  └── ScanData_scan.txt          (scalar summary / s-file)
-  └── scan_info.ini              (scan metadata)
-  └── analysis/                  (created by ScanAnalysis)
-      └── analysis_status/       (task queue YAML files)
+{base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/
+  ├── scans/
+  │   └── Scan{NNN}/
+  │       ├── Scan{NNN}.tdms
+  │       ├── ScanDataScan{NNN}.txt    (scanner-written scalar summary)
+  │       ├── ScanInfoScan{NNN}.ini    (scan metadata)
+  │       ├── <device>/...             (raw per-shot data)
+  │       └── analysis_status/         (ScanAnalysis task queue YAML files)
+  └── analysis/
+      ├── s{NNN}.txt                   (watched s-file copy)
+      └── Scan{NNN}/...                (analysis output tree)
 ```
 
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
@@ -124,6 +129,51 @@ Every package has a `CHANGELOG.md` following
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`.
 
 Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
+
+## Cross-package invariants
+
+These are load-bearing rules that hold across multiple packages. Violating them
+has caused real production incidents; the consequences aren't abstract.
+
+### Analysis code is a consumer of scan folders, never a producer
+
+Only the **scanner side** (GEECS-Scanner-GUI's `ScanDataManager`, BlueskyScanner)
+brings new `scans/ScanNNN/` folders into existence. Everything else — all of
+ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
+must treat the scan folder as preexisting and refuse to auto-create it.
+
+Concretely, this means analysis-side code must **not**:
+
+- Call `ScanPaths(read_mode=False)` — the create-if-missing path is reserved
+  for scanner-side callers
+- Use `Path.mkdir(parents=True, ...)` on any path that traverses up through
+  `scans/ScanNNN/`. Output subdirectories inside an existing scan folder
+  should use `mkdir(exist_ok=True)` only (no `parents=True`)
+- Recover from a missing scan folder by creating it — log loudly and skip
+  or raise, so the absence is surfaced rather than papered over. Do not try
+  to force a `failed` / `no_data` task status into `scans/ScanNNN/analysis_status/`
+  when the scan folder itself is absent; that status location lives inside the
+  folder analysis code must not create.
+
+**Why this matters:** silently creating a scan folder that *appears* missing —
+when really it's just briefly invisible due to an SMB visibility blip, a
+permissions glitch, or a snapshot/AV operation on the share — plants an empty
+directory entry at the scan path. When the transient resolves, the underlying
+data has been orphaned: there is now a different `ScanNNN/` at that path, and
+the recovery operation that would have restored the original contents either
+silently fails or overwrites the wrong target. We've shipped this failure mode
+in production. Don't reintroduce it.
+
+The rule is pinned by tests:
+
+- `ScanAnalysis/tests/test_task_queue.py::TestScanFolderCreationInvariant`
+- `ImageAnalysis/tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
+- `ImageAnalysis/tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
+- `ImageAnalysis/tests/processing/test_array1d_background.py`
+- `GEECS-Data-Utils/tests/test_scan_paths_create_invariant.py`
+
+Each package's CLAUDE.md restates this rule with package-specific guidance for
+adding new analyzers/writers.
 
 ## Known debt we have deliberately deferred
 

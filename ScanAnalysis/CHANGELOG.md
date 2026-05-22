@@ -3,6 +3,49 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.6] — 2026-05-21
+
+### Fixed
+- `task_queue.init_status_for_scan` and `task_queue.update_status` now refuse
+  to create a missing scan folder. The previous `mkdir(parents=True,
+  exist_ok=True)` would silently bring `ScanNNN/` into existence with only
+  `analysis_status/` inside it. Under normal conditions this was harmless,
+  but on a new NetApp/domain it allowed a transient SMB visibility blip
+  (triggered, in one reported incident, by an Explorer double-click during
+  a scan write) to be converted into permanent data loss: the analysis stack
+  planted an empty `Scan015/` directory over the real one during the window
+  that the real folder was briefly invisible. Both functions now log an
+  error and return early when `scan_folder` is not a visible directory; the
+  LiveWatch loop continues processing other work and can pick the scan up on
+  a later pass or after relaunch if the folder reappears. The `parents=True`
+  flag is dropped everywhere — only `analysis_status/` is ever auto-created,
+  and only inside an already-visible scan folder. Invariant pinned by new
+  tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
+## [1.3.6] — 2026-05-20
+
+### Changed
+- `Array1DScanAnalyzer._postprocess_scan` now bypasses scan-parameter
+  binning and falls through to `_postprocess_noscan` when
+  `waterfall_sort_key` is set in `renderer_kwargs`. Previously the sort
+  key only took effect on noscan data; for parameter scans the waterfall
+  was always binned by the scan parameter, so the kwarg had no observable
+  effect. With this change you can render every shot of a parameter scan
+  as a waterfall row ordered by any s-file column (e.g. a downstream
+  diagnostic) — at the cost of the per-bin averaged spectra, which are
+  not produced in this mode. Behavior with no sort key is unchanged.
+
+### Fixed
+- Waterfall sort-key filtering in `_postprocess_noscan` is now
+  NaN-aware. Previously a single missing or NaN value in the chosen
+  auxiliary column poisoned `mean()` / `std()`, making the
+  sigma-based outlier filter reject every shot ("kept 0 of N"). Now
+  shots with a non-finite sort value are dropped up front with a
+  warning; if none remain, rendering is skipped with a clear log line
+  instead of producing an empty figure. Also drops the
+  `else float(shot_num)` fallback in the lookup: mixing shot indices
+  with real sort-key values would silently corrupt the same
+  mean/std-based filter on partially-populated columns.
+
 ## [1.3.5] — 2026-05-20
 
 ### Fixed

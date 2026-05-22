@@ -543,11 +543,21 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         energy_axis = np.asarray(result.render_data["energy_axis"], dtype=float)
 
         output_dir = file_path.parent.parent
+        if not output_dir.is_dir():
+            # ``output_dir`` is the scan folder. Analysis code must never
+            # create it — a missing folder here means the input is stale or
+            # the share has briefly delisted the folder. Auto-creating it
+            # would plant an empty directory entry over real data.
+            raise FileNotFoundError(
+                f"Scan folder {output_dir} is not visible; refusing to create "
+                f"calibration output subfolders. This indicates the scan never "
+                f"wrote, has been removed, or is temporarily invisible on the share."
+            )
         file_stem = file_path.stem
 
         # --- interp: 16-bit PNG with units atto_C/MeV per pixel ---
         interp_dir = output_dir / f"{self.camera_name}-interp"
-        interp_dir.mkdir(parents=True, exist_ok=True)
+        interp_dir.mkdir(exist_ok=True)
         # scale image by 1000 to convert fC/MeV to aC/MeV, then clip and convert to uint16 for PNG
         image_uint16 = np.clip(image * 1000, 0, 65535).astype(np.uint16)
         with open(interp_dir / f"{file_stem}.png", "wb") as f:
@@ -561,7 +571,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         # --- interpSpec: energy / charge-density TSV ---
         spec_dir = output_dir / f"{self.camera_name}-interpSpec"
-        spec_dir.mkdir(parents=True, exist_ok=True)
+        spec_dir.mkdir(exist_ok=True)
         spectrum_pC_per_MeV = np.sum(image, axis=0) / 1000.0
         data = np.column_stack([energy_axis, spectrum_pC_per_MeV])
         np.savetxt(

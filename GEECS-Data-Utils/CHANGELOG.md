@@ -42,6 +42,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Removed
 - Unused `ScanPaths.data_dict`, `ScanPaths.data_frame`, and
   `ScanPaths.get_device_data()`. No external callers within the monorepo.
+## [0.6.4] — 2026-05-21
+
+### Changed
+- `ScanPaths` `read_mode` docstring tightened to document that
+  `read_mode=False` (silent folder creation) is for scanner-side callers
+  only — the GEECS scanner and BlueskyScanner, which legitimately bring new
+  scan folders into existence. Analysis-side callers (ScanAnalysis,
+  ImageAnalysis) must use the default `read_mode=True`. Behaviour is
+  unchanged; the contract is now pinned by
+  `tests/test_scan_paths_create_invariant.py`. Context: a sibling fix in
+  `scan_analysis` 1.3.6 removed an analysis-side silent-create that
+  converted transient SMB visibility blips into data loss.
 
 ## [0.6.3] — 2026-05-19
 
