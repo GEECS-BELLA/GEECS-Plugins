@@ -39,7 +39,6 @@ class InterlockServer:
         self.server_running = False
         self._server_thread = None
         self._monitor_threads: List[threading.Thread] = []
-        self._interlocks: List[BaseInterlock] = []
 
     def set_interlock(self, name: str, is_active: bool):
         """Set the state of an interlock flag and log status transitions.
@@ -64,31 +63,17 @@ class InterlockServer:
     def register_interlock(self, interlock: BaseInterlock) -> None:
         """Register a :class:`BaseInterlock` instance.
 
-        The server manages the interlock's lifecycle: it calls
-        :meth:`BaseInterlock.connect` once before the monitor loop
-        starts, then polls :meth:`BaseInterlock.check` at the
-        interlock's ``poll_interval``.  ``last_check_time`` is stamped
-        after every successful check.
-
-        On uncaught exceptions from ``connect`` or ``check`` the flag is
-        forced to active (unsafe) — same policy as
+        The server polls :meth:`BaseInterlock.check` at the interlock's
+        ``poll_interval``.  On uncaught exceptions from ``check`` the
+        flag is forced to active (unsafe) — same policy as
         :meth:`register_monitor`.
         """
-        self._interlocks.append(interlock)
 
         def monitor_loop():
-            try:
-                interlock.connect()
-            except Exception as e:
-                logger.error(f"Error connecting interlock '{interlock.name}': {e}")
-                self.set_interlock(interlock.name, True)
-                return
-
             self.set_interlock(interlock.name, False)
             while self.server_running:
                 try:
                     result = interlock.check()
-                    interlock.last_check_time = time.time()
                     self.set_interlock(interlock.name, result)
                 except Exception as e:
                     logger.error(f"Error in interlock '{interlock.name}': {e}")
