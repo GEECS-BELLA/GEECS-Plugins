@@ -45,6 +45,8 @@ class GeecsPathsConfig:
         path to directory containing image analysis configs
     scan_analysis_configs_path : Path
         path to directory containing scan analysis configs
+    interlock_configs_path : Path
+        path to directory containing interlock server configs
     """
 
     def __init__(
@@ -54,6 +56,7 @@ class GeecsPathsConfig:
         set_base_path: Optional[Union[Path, str]] = None,
         image_analysis_configs_path: Optional[Union[Path, str]] = None,
         scan_analysis_configs_path: Optional[Union[Path, str]] = None,
+        interlock_configs_path: Optional[Union[Path, str]] = None,
     ):
         """
         Initialize GEECS paths configuration.
@@ -74,6 +77,8 @@ class GeecsPathsConfig:
             default path to folder containing image_analysis_configs
         scan_analysis_configs_path : Path, optional
             default path to folder containing scan_analysis_configs
+        interlock_configs_path : Path, optional
+            default path to folder containing interlock_configs
 
         Raises
         ------
@@ -129,6 +134,11 @@ class GeecsPathsConfig:
                         )
                         scan_analysis_configs_path = self._validate_path(local_path)
 
+                    if interlock_configs_path is None:
+                        raw = config["Paths"].get("interlock_configs_path", None)
+                        if raw is not None:
+                            interlock_configs_path = self._validate_path(Path(raw))
+
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")
             else:
@@ -145,6 +155,7 @@ class GeecsPathsConfig:
         self.experiment = experiment
         self.image_analysis_configs_path = image_analysis_configs_path
         self.scan_analysis_configs_path = scan_analysis_configs_path
+        self.interlock_configs_path = interlock_configs_path
 
         # Optional FROG DLL paths (for Grenouille pulse retrieval)
         self.frog_dll_path: Optional[Path] = None

@@ -1,72 +1,113 @@
 """InterlockServer: TCP server that broadcasts interlock status flags to clients."""
 
 import logging
+import signal
 import socket
+import struct
 import threading
 import time
-from typing import Dict, Callable
-import struct
+from typing import Callable, Dict, List
+
+from .base_interlock import BaseInterlock
 
 logger = logging.getLogger(__name__)
 
 
 class InterlockServer:
+    """TCP server that broadcasts interlock status flags to clients.
+
+    Two registration paths are supported.  Prefer ``register_interlock``
+    for new code:
+
+    >>> server = InterlockServer(host="0.0.0.0", port=9999)
+    >>> server.register_interlock(
+    ...     CameraThresholdInterlock("CAM-PL1-LC_Film", "MeanCounts", 2.0)
+    ... )
+    >>> server.run_forever()
+
+    The older callable-based path is kept for back-compat with the
+    original example notebook:
+
+    >>> server.register_monitor("Camera MaxCounts Check", my_check_fn)
     """
-    TCP server that broadcasts interlock status flags to clients.
 
-    Usage:
-        server = InterlockServer(host="IP ADDRESS", port="PORT")
-        server.set_interlock("device1", True)
-        server.set_interlock("device2", False)
-
-        # or register some custom device monitoring functions
-        server.register_monitor("device1", my_custom_check, interval=0.5)
-    """
-
-    def __init__(self, host="0.0.0.0", port=9999):
+    def __init__(self, host: str = "0.0.0.0", port: int = 9999):
         self.host = host
         self.port = port
         self.interlock_flags: Dict[str, bool] = {}
         self.flags_lock = threading.Lock()
         self.server_running = False
         self._server_thread = None
-        self._monitor_threads = []
+        self._monitor_threads: List[threading.Thread] = []
 
     def set_interlock(self, name: str, is_active: bool):
-        """Set the state of an interlock flag and print status.
+        """Set the state of an interlock flag and log status transitions.
 
-        Use this to manually set interlock states or from within registered monitor functions.
-        This is thread-safe and can be called from any monitor function or other part of the code.
+        Thread-safe; callable from monitor threads or external code.
 
-        Args:
-        ----
-            name: indentifier for the interlock
-            is_active: boolean indicating if the interlock is active.
+        Parameters
+        ----------
+        name : str
+            Identifier for the interlock.
+        is_active : bool
+            True if the interlock condition is unsafe (consumer should
+            hold off), False if safe.
         """
         with self.flags_lock:
-            # Get old state, default to False since we need to initialize.
             old_state = self.interlock_flags.get(name, False)
-            self.interlock_flags[name] = is_active  # Set new state
+            self.interlock_flags[name] = is_active
             if is_active != old_state:
-                # Use more descriptive status for logging
                 status = "ACTIVE" if is_active else "NOT ACTIVE"
                 logger.info(f"[{name}] Interlock {status}")
+
+    def register_interlock(self, interlock: BaseInterlock) -> None:
+        """Register a :class:`BaseInterlock` instance.
+
+        The server polls :meth:`BaseInterlock.check` at the interlock's
+        ``poll_interval``.  On uncaught exceptions from ``check`` the
+        flag is forced to active (unsafe) — same policy as
+        :meth:`register_monitor`.
+        """
+
+        def monitor_loop():
+            self.set_interlock(interlock.name, False)
+            while self.server_running:
+                try:
+                    result = interlock.check()
+                    self.set_interlock(interlock.name, result)
+                except Exception as e:
+                    logger.error(f"Error in interlock '{interlock.name}': {e}")
+                    self.set_interlock(interlock.name, True)
+                time.sleep(interlock.poll_interval)
+
+        thread = threading.Thread(
+            target=monitor_loop, daemon=True, name=f"interlock-{interlock.name}"
+        )
+        self._monitor_threads.append(thread)
+        if self.server_running:
+            thread.start()
 
     def register_monitor(
         self, name: str, check_func: Callable[[], bool], interval: float = 0.5
     ):
-        """
-        Register a monitoring function that will automatically update an interlock flag based on its return value. The function should return True if the interlock should be active (i.e., conditions not met).
+        """Register a plain callable as an interlock check (legacy path).
 
-        Args:
-        ----
-            name: identifier for the interlock
-            check_func: returns True if interlock should trigger
-            interval: acquisition interval (sec)
+        Kept for backward compatibility with the original example
+        notebook.  New code should subclass :class:`BaseInterlock` and
+        use :meth:`register_interlock` instead — it gives YAML-driven
+        configuration and freshness tracking for free.
+
+        Parameters
+        ----------
+        name : str
+            Identifier for the interlock.
+        check_func : Callable[[], bool]
+            Returns True when the interlock should trip (unsafe).
+        interval : float, optional
+            Seconds between checks (default 0.5).
         """
 
         def monitor_loop():
-            # Initialize as False until first check runs
             self.set_interlock(name, False)
             while self.server_running:
                 try:
@@ -74,7 +115,6 @@ class InterlockServer:
                     self.set_interlock(name, result)
                 except Exception as e:
                     logger.error(f"Error in monitor '{name}': {e}")
-                    # Set interlock active on error (check w Tony)
                     self.set_interlock(name, True)
                 time.sleep(interval)
 
@@ -93,7 +133,7 @@ class InterlockServer:
         with self.flags_lock:
             return self.interlock_flags.copy()
 
-    ### TCP Server Code Below - No need to modify unless you want to change the protocol or add authentication, etc.-- boilerplate ###
+    # ----- TCP server internals (wire protocol intentionally unchanged) -----
 
     def _handle_client(self, conn, addr):
         """Handle a connected client and send status updates."""
@@ -113,14 +153,11 @@ class InterlockServer:
                         else "No monitors active"
                     )
 
-                # encode the message
                 message_bytes = message.encode("utf-8")
-
-                # send length as 4-byte integer followed by message
                 length_prefix = struct.pack(">I", len(message_bytes))
                 conn.sendall(length_prefix + message_bytes)
 
-                time.sleep(0.5)  # Adjust the sending interval as needed
+                time.sleep(0.5)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
@@ -150,21 +187,18 @@ class InterlockServer:
                         logger.error(f"Server error: {e}")
 
     def start(self):
-        """Start the interlock server."""
+        """Start the interlock server and monitor threads (non-blocking)."""
         if self.server_running:
             logger.warning("Server is already running")
             return
 
         self.server_running = True
 
-        # Start all registered monitor threads
         for thread in self._monitor_threads:
             thread.start()
 
-        # Start server thread
         self._server_thread = threading.Thread(target=self._server_loop, daemon=True)
         self._server_thread.start()
-        # print(f"Interlock server started with {len(self.interlock_flags)} monitor(s)")
 
     def stop(self):
         """Stop the interlock server."""
@@ -173,3 +207,35 @@ class InterlockServer:
         if self._server_thread:
             self._server_thread.join(timeout=2)
         logger.info("Interlock server stopped")
+
+    def run_forever(self) -> None:
+        """Start the server and block until SIGINT or SIGTERM.
+
+        Convenience wrapper for CLI / script use — replaces the
+        ``while True: time.sleep(1)`` dance after :meth:`start`.  Falls
+        back to ``KeyboardInterrupt`` handling on platforms where
+        ``signal.signal`` is not available from the calling thread
+        (e.g. inside a Jupyter cell).
+        """
+        stop_event = threading.Event()
+
+        def _on_signal(signum, _frame):
+            logger.info(f"Received signal {signum}; shutting down")
+            stop_event.set()
+
+        try:
+            signal.signal(signal.SIGINT, _on_signal)
+            signal.signal(signal.SIGTERM, _on_signal)
+        except ValueError:
+            # signal.signal only works from the main thread of the main
+            # interpreter; fall back to KeyboardInterrupt below.
+            pass
+
+        self.start()
+        try:
+            while not stop_event.is_set():
+                time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.stop()
