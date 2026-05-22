@@ -18,6 +18,25 @@ tooling. Each subdirectory is an independent Python package with its own
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
+## Agent & Worktree Policy
+
+`CLAUDE.md` files are the canonical agent/developer instructions for this
+repository. `AGENTS.md` exists only as a Codex compatibility shim that points
+Codex to the root and package-level `CLAUDE.md` files. Do not duplicate policy
+between `AGENTS.md` and `CLAUDE.md`; update the relevant `CLAUDE.md` instead.
+
+Worktrees should live outside the repository checkout, as siblings of the main
+clone, and should use stable names that describe the intended feature or fix.
+For example, keep the main checkout at `GEECS-Plugins/` and create worktrees
+such as `GEECS-Plugins-pulse-duration-jitter/`,
+`GEECS-Plugins-interlock-suggestions/`, or
+`GEECS-Plugins-bluesky-detectors/` next to it.
+
+Do not create worktrees inside the repository root, inside subpackages, or
+under tool-generated paths such as `.claude/worktrees/`. Remove worktrees after
+their PR is merged unless they are intentionally long-lived for a distinct
+development stream.
+
 ## Python & Tooling
 
 - **Python:** `>=3.10, <3.12` across all packages (Scanner GUI is `<3.11`)
