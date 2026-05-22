@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, Literal, Optional, List
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
 
 
 class Data1DType(str, Enum):
@@ -51,6 +51,10 @@ class Data1DConfig(BaseModel):
         Column index for x values in delimited files
     y_column : int, default=1
         Column index for y values in delimited files
+    auxiliary_columns : dict[str, int]
+        Named auxiliary dependent-variable columns to load alongside the
+        primary ``x``/``y`` data. These columns are row-aligned with the
+        primary data but are not processed as the primary signal.
     """
 
     data_type: Data1DType
@@ -67,6 +71,28 @@ class Data1DConfig(BaseModel):
     )
     x_column: int = Field(default=0, ge=0, description="Column index for x values")
     y_column: int = Field(default=1, ge=0, description="Column index for y values")
+    auxiliary_columns: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Named auxiliary column indices for derived analyzers",
+    )
+
+    @model_validator(mode="after")
+    def validate_auxiliary_columns(self) -> "Data1DConfig":
+        """Validate named auxiliary column definitions."""
+        seen_indices: set[int] = set()
+        for name, column in self.auxiliary_columns.items():
+            if not name.strip():
+                raise ValueError("auxiliary column names must be non-empty")
+            if column < 0:
+                raise ValueError("auxiliary column indices must be non-negative")
+            if column in {self.x_column, self.y_column}:
+                raise ValueError(
+                    "auxiliary column indices must differ from x_column and y_column"
+                )
+            if column in seen_indices:
+                raise ValueError("auxiliary column indices must be unique")
+            seen_indices.add(column)
+        return self
 
 
 class BackgroundMethod(str, Enum):

@@ -18,7 +18,7 @@ from typing import (
     Literal,
     List,
 )
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 import logging
 
 # exception to handle python 3.7
@@ -140,6 +140,8 @@ class ImageAnalyzerResult(BaseModel):
         Processed 2D image data. Required when data_type="2d".
     line_data : NDArray, optional
         Processed 1D data as Nx2 array [x, y]. Required when data_type="1d".
+    line_auxiliary_column_data : Dict[str, NDArray]
+        Named auxiliary 1D columns row-aligned with ``line_data``.
     scalars : Dict[str, float]
         Scalar analysis results (beam stats, peak positions, etc.).
     metadata : Dict[str, Any]
@@ -156,6 +158,7 @@ class ImageAnalyzerResult(BaseModel):
     # PRIMARY DATA (optional based on data_type)
     processed_image: Optional[NDArray] = None
     line_data: Optional[NDArray] = None
+    line_auxiliary_column_data: Dict[str, NDArray] = Field(default_factory=dict)
 
     # ANALYSIS OUTPUTS
     scalars: Dict[str, float] = Field(default_factory=dict)
@@ -195,6 +198,41 @@ class ImageAnalyzerResult(BaseModel):
         if info.data.get("data_type") == "1d" and v is None:
             raise ValueError("line_data required when data_type='1d'")
         return v
+
+    @field_validator("line_auxiliary_column_data")
+    @classmethod
+    def validate_line_auxiliary_column_data(cls, v):
+        """Ensure auxiliary column data uses named 1D arrays."""
+        for name, values in v.items():
+            if not name.strip():
+                raise ValueError("auxiliary column names must be non-empty")
+            array = np.asarray(values)
+            if array.ndim != 1:
+                raise ValueError(
+                    f"auxiliary column '{name}' must be 1D, got shape {array.shape}"
+                )
+        return v
+
+    @model_validator(mode="after")
+    def validate_line_auxiliary_column_lengths(self) -> "ImageAnalyzerResult":
+        """Ensure auxiliary columns remain row-aligned with line data."""
+        if not self.line_auxiliary_column_data:
+            return self
+
+        if self.data_type != "1d":
+            raise ValueError("line_auxiliary_column_data is only valid for 1d results")
+
+        if self.line_data is None:
+            return self
+
+        expected_length = self.line_data.shape[0]
+        for name, values in self.line_auxiliary_column_data.items():
+            if np.asarray(values).shape[0] != expected_length:
+                raise ValueError(
+                    f"auxiliary column '{name}' has {np.asarray(values).shape[0]} "
+                    f"samples, expected {expected_length}"
+                )
+        return self
 
     # === HELPER METHODS ===
     def get_primary_data(self) -> Optional[NDArray]:

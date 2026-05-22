@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] — 2026-05-28
+
+Add the `FrogSpectralPhaseAnalyzer` and the auxiliary-column loading
+support it needed. Originally branched before PR-E; rebased onto the
+post-PR-E surface and simplified to fit the atomic load+analyze
+contract.
+
+### Added
+- `algorithms.polynomial_fit` provides reusable weighted polynomial
+  fitting with finite-value filtering, optional threshold masking, and
+  sign canonicalization.
+- `Data1DConfig.auxiliary_columns: Dict[str, int]` — declarative
+  mapping from name → column index for sidecar columns loaded
+  alongside the primary `x` / `y` data. Row-aligned with the primary
+  Nx2 line data.
+- `Data1DResult.auxiliary_column_data: dict[str, np.ndarray]` —
+  loader output carrying the named aux columns. Lives at the loader
+  boundary; consumed by the analyzer and discarded.
+- `analyzers.frog_spectral_phase_analyzer.FrogSpectralPhaseAnalyzer`
+  fits retrieved FROG spectral phase lineouts and reports physical
+  dispersion terms (`GD`, `GDD`, `TOD`, ...). Uses the `weights`
+  aux column for intensity-weighted polynomial fitting when configured.
+- `docs/image_analysis/examples/pulse_duration_jitter_analysis.ipynb`
+  demonstrates loading a Scan010 retrieved FROG lineout and running
+  the new analyzer.
+
+### Fixed
+- `data_1d_utils` now skips a detected CSV/TSV header row after
+  parsing column metadata, allowing `read_1d_data` to load Grenouille
+  retrieved lineout TSVs written with named column headers.
+
 ## [1.5.0] — 2026-05-27
 
 Loader API consolidation (PR-E). Companion to ScanAnalysis 1.7.0.

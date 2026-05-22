@@ -13,6 +13,21 @@ from image_analysis.config.array1d_processing import ROI1DConfig
 logger = logging.getLogger(__name__)
 
 
+def build_roi_mask_1d(x_data: NDArray, roi_config: ROI1DConfig) -> NDArray:
+    """Build a boolean mask for x-values inside the configured ROI."""
+    mask = np.ones(len(x_data), dtype=bool)
+
+    if roi_config.x_min is not None:
+        mask &= x_data >= roi_config.x_min
+        logger.debug(f"Applied x_min={roi_config.x_min}, {mask.sum()} points remain")
+
+    if roi_config.x_max is not None:
+        mask &= x_data <= roi_config.x_max
+        logger.debug(f"Applied x_max={roi_config.x_max}, {mask.sum()} points remain")
+
+    return mask
+
+
 def apply_roi_1d(data: NDArray, roi_config: ROI1DConfig) -> NDArray:
     """Apply ROI to 1D data based on x-axis values.
 
@@ -58,18 +73,7 @@ def apply_roi_1d(data: NDArray, roi_config: ROI1DConfig) -> NDArray:
     # Extract x-values
     x_data = data[:, 0]
 
-    # Create boolean mask
-    mask = np.ones(len(x_data), dtype=bool)
-
-    # Apply lower bound if specified
-    if roi_config.x_min is not None:
-        mask &= x_data >= roi_config.x_min
-        logger.debug(f"Applied x_min={roi_config.x_min}, {mask.sum()} points remain")
-
-    # Apply upper bound if specified
-    if roi_config.x_max is not None:
-        mask &= x_data <= roi_config.x_max
-        logger.debug(f"Applied x_max={roi_config.x_max}, {mask.sum()} points remain")
+    mask = build_roi_mask_1d(x_data, roi_config)
 
     # Filter data
     filtered_data = data[mask]
