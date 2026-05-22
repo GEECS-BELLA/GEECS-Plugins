@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.7] — 2026-05-22
+
+### Fixed
+- `SingleDeviceScanAnalyzer.average_data` no longer raises `ValueError` when
+  per-shot lineouts have inhomogeneous shapes. It detects the mismatch,
+  logs a warning, and returns `None`. `Array1DScanAnalyzer._postprocess_noscan`
+  now skips the averaged-line figure on `None` while still saving per-shot
+  scalars and the waterfall summary. This unblocks 1D analyzers whose
+  per-shot ROI/weight masking yields variable sample counts — most
+  immediately `FrogSpectralPhaseAnalyzer`, where each shot's valid
+  retrieved-spectrum window differs.
+
 ## [1.3.6] — 2026-05-21
 
 ### Fixed

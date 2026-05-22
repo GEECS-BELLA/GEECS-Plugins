@@ -914,8 +914,25 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     @staticmethod
     def average_data(data_list: list[np.ndarray]) -> Optional[np.ndarray]:
-        """Return the element-wise mean of a list of data arrays."""
+        """Return the element-wise mean of a list of data arrays.
+
+        Returns ``None`` for an empty list, or when the arrays have
+        inhomogeneous shapes (which numpy cannot stack into a single mean).
+        The latter happens for 1D analyzers whose per-shot lineouts depend
+        on ROI/threshold masking — e.g. FROG spectral phase, where each
+        shot's valid wavelength coverage differs.
+        """
         if len(data_list) == 0:
+            return None
+
+        shapes = {arr.shape for arr in data_list}
+        if len(shapes) > 1:
+            logger.warning(
+                "Cannot average %d arrays with inhomogeneous shapes %s; "
+                "returning None so the caller can skip the averaged figure.",
+                len(data_list),
+                sorted(shapes),
+            )
             return None
 
         return np.mean(data_list, axis=0)
