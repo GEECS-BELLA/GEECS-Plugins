@@ -16,9 +16,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   new NetApp/domain this masked transient SMB visibility blips as permanent
   data loss: the analyzer planted an empty `ScanNNN/` directory entry over
   the real scan contents. Each site now verifies the scan folder is visible
-  before creating its output subfolder; if it isn't, raises
-  `FileNotFoundError` so the task queue marks the analysis as failed and the
-  user can rerun once the share recovers. This pairs with the
+  before creating its output subfolder; if it isn't, it raises
+  `FileNotFoundError`. The task queue logs the failure and records
+  `state="failed"` when the scan folder/status directory is still writable.
+  If the entire scan folder is absent, status writes are skipped rather than
+  recreating the folder; the user can rerun/relaunch once the share recovers.
+  This pairs with the
   `scan_analysis` 1.3.6 fix for the same anti-pattern in `task_queue`.
 - `processing.array1d.background.save_background_to_file` no longer creates
   parent directories. Same anti-pattern: `mkdir(parents=True, exist_ok=True)`

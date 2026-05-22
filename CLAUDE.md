@@ -76,12 +76,17 @@ not errors.
 ## GEECS Data Folder Convention
 
 ```
-{base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/scans/Scan{NNN}/
-  └── Scan{NNN}.tdms
-  └── ScanData_scan.txt          (scalar summary / s-file)
-  └── scan_info.ini              (scan metadata)
-  └── analysis/                  (created by ScanAnalysis)
-      └── analysis_status/       (task queue YAML files)
+{base_path}/{experiment}/Y{YYYY}/{MM-Month}/{YY_MMDD}/
+  ├── scans/
+  │   └── Scan{NNN}/
+  │       ├── Scan{NNN}.tdms
+  │       ├── ScanDataScan{NNN}.txt    (scanner-written scalar summary)
+  │       ├── ScanInfoScan{NNN}.ini    (scan metadata)
+  │       ├── <device>/...             (raw per-shot data)
+  │       └── analysis_status/         (ScanAnalysis task queue YAML files)
+  └── analysis/
+      ├── s{NNN}.txt                   (watched s-file copy)
+      └── Scan{NNN}/...                (analysis output tree)
 ```
 
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
@@ -145,7 +150,10 @@ Concretely, this means analysis-side code must **not**:
   `scans/ScanNNN/`. Output subdirectories inside an existing scan folder
   should use `mkdir(exist_ok=True)` only (no `parents=True`)
 - Recover from a missing scan folder by creating it — log loudly and skip
-  or raise, so the absence is surfaced rather than papered over
+  or raise, so the absence is surfaced rather than papered over. Do not try
+  to force a `failed` / `no_data` task status into `scans/ScanNNN/analysis_status/`
+  when the scan folder itself is absent; that status location lives inside the
+  folder analysis code must not create.
 
 **Why this matters:** silently creating a scan folder that *appears* missing —
 when really it's just briefly invisible due to an SMB visibility blip, a

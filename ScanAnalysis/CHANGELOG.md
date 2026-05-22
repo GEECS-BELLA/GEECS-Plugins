@@ -16,9 +16,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   planted an empty `Scan015/` directory over the real one during the window
   that the real folder was briefly invisible. Both functions now log an
   error and return early when `scan_folder` is not a visible directory; the
-  polling loop retries on the next tick. The `parents=True` flag is dropped
-  everywhere — only `analysis_status/` is ever auto-created. Invariant pinned
-  by new tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
+  LiveWatch loop continues processing other work and can pick the scan up on
+  a later pass or after relaunch if the folder reappears. The `parents=True`
+  flag is dropped everywhere — only `analysis_status/` is ever auto-created,
+  and only inside an already-visible scan folder. Invariant pinned by new
+  tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
 
 ## [1.3.5] — 2026-05-20
 

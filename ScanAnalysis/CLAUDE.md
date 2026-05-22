@@ -212,11 +212,18 @@ In practice:
   analysis code.
 - `task_queue.init_status_for_scan` and `task_queue.update_status` verify
   `scan_folder.is_dir()` and bail with an `ERROR` log if it's missing — they
-  do **not** auto-create. The polling loop retries on the next tick.
+  do **not** auto-create. LiveWatch keeps running other work; if the scan
+  folder later reappears, discovery can pick it up on a later processing pass
+  or after relaunch.
 - `analysis_status/` is the only directory ever auto-created by this package,
   and only via `mkdir(exist_ok=True)` — no `parents=True`.
 - Analyzers write their outputs to `<date>/analysis/Scan<NNN>/...`, the
   *sibling* of `scans/Scan<NNN>/`. Never write back into the scans tree.
+
+Do not treat a missing entire scan folder as `no_data`. `no_data` means the
+scan exists but a specific device/analyzer has no usable data. If the scan
+folder itself is absent, `analysis_status/` is unavailable because it lives
+inside that folder; logging and skipping is the safe behavior.
 
 When writing a new analyzer, **do not** use `Path.mkdir(parents=True, ...)` on
 any path that could traverse through a `scans/` folder. The invariant is
