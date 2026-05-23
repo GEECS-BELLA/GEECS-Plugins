@@ -8,7 +8,7 @@ All functions take images as input and return processed images.
 
 import numpy as np
 import logging
-from typing import List, Union
+from typing import Callable, List, Optional, Union
 from pathlib import Path
 from ...types import Array2D
 from image_analysis.utils import read_imaq_image
@@ -291,3 +291,116 @@ def save_background_to_file(
 
     except Exception as e:
         raise ValueError(f"Failed to save background to {file_path}: {e}")
+
+
+def compute_and_cache_scan_background(
+    *,
+    image_dir: Path,
+    file_tail: str,
+    image_loader: Callable[[Path], Array2D],
+    output_path: Path,
+    method: str = "median",
+    percentile: Optional[float] = None,
+) -> Path:
+    """Aggregate every image in a directory into a single background and cache it.
+
+    Used by scan-analyzers to produce the ``.npy`` backing a
+    ``BackgroundMethod.FROM_FILE`` background. Idempotent: if
+    ``output_path`` already exists the function returns it without
+    recomputing, which is how multiple consumers in the same scan
+    share one background compute.
+
+    Operates on file paths only — no scan / experiment / date
+    concepts. The caller (a scan-analyzer) supplies the input
+    directory and output path; this function never has to know about
+    scan numbers, experiments, or analysis-tree layout.
+
+    Parameters
+    ----------
+    image_dir : Path
+        Directory holding the source images (typically a scan's device
+        subfolder).
+    file_tail : str
+        Filename suffix used to select images (``".png"``, ``".himg"``,
+        etc.). Files are matched with ``image_dir.glob(f"*{file_tail}")``.
+    image_loader : Callable[[Path], Array2D]
+        Function that loads one file into a 2D image array. The
+        analyzer's own ``load_image`` is normally passed here.
+    output_path : Path
+        Where to write the ``.npy`` cache. The parent directory is
+        created if absent (analysis-tree creation is permitted).
+    method : {"mean", "median", "percentile"}
+        Aggregation across the image stack. Defaults to ``median``.
+    percentile : float, optional
+        Required when ``method='percentile'``. Value in [0, 100].
+
+    Returns
+    -------
+    Path
+        ``output_path`` (whether freshly written or already present).
+
+    Raises
+    ------
+    FileNotFoundError
+        If no files match ``file_tail`` under ``image_dir``.
+    ValueError
+        If no files load successfully, or if ``method`` is unknown,
+        or if ``percentile`` is missing/invalid for the percentile
+        method.
+    """
+    if output_path.exists():
+        logger.info("Using cached scan background: %s", output_path)
+        return output_path
+
+    image_files = sorted(image_dir.glob(f"*{file_tail}"))
+    if not image_files:
+        raise FileNotFoundError(
+            f"No background source images found in {image_dir} matching *{file_tail}"
+        )
+
+    images: List[Array2D] = []
+    for f in image_files:
+        try:
+            images.append(image_loader(f))
+        except Exception as exc:
+            logger.warning("Skipping background source %s: %s", f, exc)
+
+    if not images:
+        raise ValueError(
+            f"No usable images loaded from {image_dir}; cannot compute a background."
+        )
+
+    bg = _aggregate_image_stack(images, method=method, percentile=percentile)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(output_path, bg)
+    logger.info(
+        "Saved scan background to %s (aggregated %d images via %s)",
+        output_path,
+        len(images),
+        method,
+    )
+    return output_path
+
+
+def _aggregate_image_stack(
+    images: List[Array2D],
+    *,
+    method: str,
+    percentile: Optional[float],
+) -> Array2D:
+    """Collapse a list of images to one image via the named aggregation."""
+    if method == "mean":
+        return np.mean(np.stack(images), axis=0)
+    if method == "median":
+        return _compute_median_background(images)
+    if method == "percentile":
+        if percentile is None:
+            raise ValueError("percentile aggregation requires a percentile value")
+        if not 0.0 <= percentile <= 100.0:
+            raise ValueError(f"percentile must be in [0, 100]; got {percentile}")
+        return _compute_percentile_background(images, percentile)
+    raise ValueError(
+        f"Unknown background aggregation method '{method}'; expected one of "
+        f"'mean', 'median', 'percentile'."
+    )
