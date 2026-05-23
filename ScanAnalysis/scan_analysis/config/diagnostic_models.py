@@ -199,3 +199,37 @@ class AnalysisGroupConfig(BaseModel):
             else:
                 out.append(entry)
         return out
+
+
+class ResolvedDiagnosticConfig(BaseModel):
+    """A diagnostic loaded from disk and resolved against a group reference.
+
+    Produced by the analysis-group loader: pairs the on-disk
+    :class:`DiagnosticAnalysisConfig` with its filename-derived ID and
+    any per-group overrides (``enabled``, effective ``priority``). This
+    is what the factory consumes to build a runnable scan analyzer.
+
+    Attributes
+    ----------
+    id : str
+        Filename stem of the diagnostic YAML (without ``.yaml``). Used
+        by the task queue for status tracking. Unique within a resolved
+        group.
+    enabled : bool
+        Whether to execute this diagnostic for the group. Group entries
+        can set ``enabled: false`` to keep a reference present but skip
+        it at run time.
+    priority : int
+        Effective execution priority — the group's override if one was
+        supplied, otherwise the diagnostic's own ``scan.priority``.
+        The loader sorts the resolved list ascending by this value.
+    diagnostic : DiagnosticAnalysisConfig
+        The validated on-disk diagnostic config.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    enabled: bool = True
+    priority: int = Field(ge=0)
+    diagnostic: DiagnosticAnalysisConfig
