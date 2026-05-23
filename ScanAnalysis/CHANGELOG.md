@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] — 2026-05-22
+
+### Removed
+- `SingleDeviceScanAnalyzer._run_batch_analysis` and the
+  `stateful_results` plumbing through `_prepare_per_*_units` are gone.
+  These were the call sites for `ImageAnalyzer.analyze_image_batch`,
+  whose only real consumer was the now-deleted dynamic-background
+  subsystem. The load-all path itself is still in place pending the
+  per-shot fusion (commit 3 of the shot-by-shot refactor).
+
+### Changed
+- `_resolve_background_paths` is now called once at the start of
+  `_process_all_shots` rather than from inside the deleted
+  `_run_batch_analysis`. Behavior for the preserved
+  `background_scan_number` ("scan-as-background") feature is unchanged
+  — that path was always orthogonal to the load-all pipeline.
+- `_resolve_background_paths` simplified: dropped the
+  `dynamic_computation.auto_save_path` placeholder-resolution branch
+  (no longer applicable).
+
 ## [1.3.6] — 2026-05-21
 
 ### Fixed

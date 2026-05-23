@@ -63,7 +63,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
     The ImageAnalyzer must implement:
     - ``load_image(path) -> np.ndarray`` (or compatible array type)
     - ``analyze_image(image, auxiliary_data: dict|None) -> AnalyzerResultDict``
-    - Optionally ``analyze_image_batch(images: list) -> (list, dict)``
 
     Parameters
     ----------
@@ -110,10 +109,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.saved_avg_data_paths: Dict[int, Path] = {}
         self.data_device_name: str = data_device_name or device_name
         self.results: dict = {}
-        # Set here (not just in cleanup) so that downstream consumers like
-        # _prepare_per_shot_units still work if _run_batch_analysis silently
-        # fails before populating this dict.
-        self.stateful_results: dict = {}
 
         # Define flags
         self.flag_save_data = flag_save_data
@@ -166,8 +161,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         Workflow
         --------
         1. Establish paths and create the output directory (if saving is enabled).
-        2. Load all data files in parallel (threaded/process).
-        3. Optionally run batch-level preprocessing via ``analyze_image_batch``.
+        2. Resolve background paths (and bake a `background_scan_number`
+           cache if configured) — one-time pre-pass.
+        3. Load all data files in parallel (threaded/process).
         4. Run per-shot ``analyze_image`` in parallel and collect results.
         5. Post-process:
            - If ``noscan``: average + animation.
@@ -220,9 +216,14 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             raise
 
     def _process_all_shots(self):
-        """Load data files, run batch analysis (optional), then mode-based analysis."""
+        """Resolve background paths, load data files, then run mode-based analysis."""
+        # One-time pre-pass: resolve {scan_dir} placeholders and bake a
+        # `background_scan_number` cache if configured. Mutates
+        # `image_analyzer.camera_config.background` in-place so the
+        # downstream per-shot pipeline picks up a static FROM_FILE bg.
+        self._resolve_background_paths()
+
         self._load_all_data()
-        self._run_batch_analysis()
 
         # Prepare analysis units based on mode
         if self.analysis_mode == "per_shot":
@@ -325,67 +326,22 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 except Exception as e:
                     logger.error(f"Error loading data for shot {shot_num}: {e}")
 
-    def _run_batch_analysis(self) -> None:
-        """
-        Optionally run batch-level preprocessing across all loaded images.
-
-        Calls the ImageAnalyzer's ``analyze_image_batch`` method with the list of raw images.
-        If it returns a list of processed images and a state dict, those processed
-        images replace the originals for subsequent per-shot analysis.
-
-        Raises
-        ------
-        RuntimeError
-            If no data has been loaded yet.
-        ValueError
-            If the returned number of processed images does not match the input.
-        """
-        if not hasattr(self, "raw_data") or not self.raw_data:
-            raise RuntimeError("No data loaded. Run _load_all_data first.")
-
-        # Resolve {scan_dir} placeholders in background config BEFORE batch processing
-        self._resolve_background_paths()
-
-        try:
-            # Extract keys and separate data + path tuples
-            shot_nums = list(self.raw_data.keys())
-            data_path_tuples = list(self.raw_data.values())
-            data_list = [data for data, _ in data_path_tuples]
-            file_paths = [path for _, path in data_path_tuples]
-
-            # Run batch analysis
-            processed_data, stateful_results = self.image_analyzer.analyze_image_batch(
-                data_list
-            )
-            self.stateful_results = stateful_results
-            logger.info(
-                "Finished batch processing with %s stateful results", stateful_results
-            )
-
-            if processed_data is None:
-                logger.warning("analyze_image_batch() returned None. Skipping.")
-                self.raw_data = {}
-                return
-
-            if len(processed_data) != len(shot_nums):
-                raise ValueError(
-                    f"analyze_image_batch() returned {len(processed_data)} items, "
-                    f"but {len(shot_nums)} were expected."
-                )
-
-            self.raw_data = dict(zip(shot_nums, zip(processed_data, file_paths)))
-
-        except Exception as e:
-            logger.warning(f"Batch analysis skipped or failed: {e}")
-
     def _resolve_background_paths(self) -> None:
         """
-        Resolve {scan_dir} placeholders in ImageAnalyzer's background configuration.
+        Resolve background placeholders and bake a scan-as-background cache.
 
-        This is called once before batch processing, ensuring all subsequent
-        parallel workers use concrete paths.
+        Run once before the per-shot pipeline starts. Mutates
+        ``image_analyzer.camera_config.background`` in place:
+
+        - replaces ``{scan_dir}`` placeholders in ``file_path``
+        - if ``background_scan_number`` is set, calls
+          :meth:`_generate_scan_background` to load that scan's images,
+          average them, cache the result as ``.npy``, and rewrite the
+          config to point at the cache with ``BackgroundMethod.FROM_FILE``
+
+        No-op when the image_analyzer has no ``camera_config.background``
+        (e.g. 1D analyzers).
         """
-        # Check if analyzer has camera_config with background settings
         if not hasattr(self.image_analyzer, "camera_config"):
             return
 
@@ -396,25 +352,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         scan_dir = self.path_dict["data"]
 
-        # Resolve file_path
         if bg_config.file_path and "{scan_dir}" in str(bg_config.file_path):
             resolved = str(bg_config.file_path).replace("{scan_dir}", str(scan_dir))
             bg_config.file_path = Path(resolved)
             logger.info(f"Resolved background file_path: {resolved}")
 
-        # Resolve auto_save_path in dynamic_computation
-        if (
-            bg_config.dynamic_computation
-            and bg_config.dynamic_computation.auto_save_path
-            and "{scan_dir}" in str(bg_config.dynamic_computation.auto_save_path)
-        ):
-            resolved = str(bg_config.dynamic_computation.auto_save_path).replace(
-                "{scan_dir}", str(scan_dir)
-            )
-            bg_config.dynamic_computation.auto_save_path = Path(resolved)
-            logger.info(f"Resolved background auto_save_path: {resolved}")
-
-        # Handle scan-number-based background (takes precedence over file_path)
+        # Scan-as-background takes precedence over file_path.
         if bg_config.background_scan_number is not None:
             self._generate_scan_background(bg_config)
 
@@ -551,7 +494,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 "auxiliary": {
                     **self._aux_row_for_shot(shot_num),
                     "file_path": path,
-                    **self.stateful_results,
                 },
                 "sfile_keys": [shot_num],
             }
@@ -577,10 +519,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return {
                 0: {
                     "image": self.average_data(all_images),
-                    "auxiliary": {
-                        **self._aux_mean_for_shots(all_shots),
-                        **self.stateful_results,
-                    },
+                    "auxiliary": self._aux_mean_for_shots(all_shots),
                     "sfile_keys": all_shots,
                 }
             }
@@ -600,10 +539,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if images:
                 units[int(bin_num)] = {
                     "image": self.average_data(images),
-                    "auxiliary": {
-                        **self._aux_mean_for_shots(bin_shots),
-                        **self.stateful_results,
-                    },
+                    "auxiliary": self._aux_mean_for_shots(bin_shots),
                     "sfile_keys": bin_shots.tolist(),
                 }
 
@@ -897,7 +833,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         - ``raw_data`` — loaded shot images
         - ``results`` — per-shot/bin ImageAnalyzerResult objects
         - ``_data_file_map`` — shot-to-path mapping
-        - ``stateful_results`` — batch-analysis state dict
         - ``_pending_aux_updates`` — queued s-file row updates
 
         Also delegates to ``renderer.cleanup()``.
@@ -905,7 +840,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.raw_data = {}
         self.results = {}
         self._data_file_map = {}
-        self.stateful_results = {}
         self._pending_aux_updates = []
 
         self.renderer.cleanup()

@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.1] — 2026-05-22
+
+### Removed
+- `ImageAnalyzer.analyze_image_batch` default removed from the base
+  class. The only override (`StandardAnalyzer.analyze_image_batch`) was
+  deleted in 1.3.0 along with the dynamic-background subsystem, and the
+  only call site (`SingleDeviceScanAnalyzer._run_batch_analysis`) is
+  deleted in the companion ScanAnalysis 1.4.0 release. No analyzers
+  outside of the deleted `StandardAnalyzer` override implemented this
+  hook.
+
 ## [1.3.0] — 2026-05-22
 
 ### Removed
