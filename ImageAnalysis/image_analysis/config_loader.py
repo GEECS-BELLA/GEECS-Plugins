@@ -160,7 +160,56 @@ def _load_camera_config_dict(
     if data is None:
         data = {}
 
+    data = _unwrap_diagnostic_image_section(data)
+
     return _apply_nested_overrides(data, overrides)
+
+
+def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:
+    r"""Return the ``image:`` subdict of a unified diagnostic YAML.
+
+    A unified diagnostic config (per the schema in issue #400) lives in
+    one file with both ImageAnalysis-side and ScanAnalysis-side
+    sections. ImageAnalysis only consumes the ``image:`` body; the
+    top-level ``name`` is injected as ``image.name`` so the embedded
+    config validates the same way a standalone camera/line config
+    would.
+
+    Flat configs (no ``image:`` key) pass through unchanged so legacy
+    standalone files in ``image_analysis_configs/`` keep working
+    without modification.
+
+    Parameters
+    ----------
+    data : dict
+        Raw YAML-loaded dict.
+
+    Returns
+    -------
+    dict
+        Either the unwrapped image section (when ``image:`` is present)
+        or the original dict (when it is not).
+
+    Raises
+    ------
+    ValueError
+        If ``image`` is present but is not a mapping.
+    """
+    if not isinstance(data, dict) or "image" not in data:
+        return data
+
+    image = data.get("image") or {}
+    if not isinstance(image, dict):
+        raise ValueError(
+            f"Diagnostic config 'image' section must be a mapping, "
+            f"got {type(image).__name__}"
+        )
+
+    image = dict(image)
+    name = data.get("name")
+    if name and "name" not in image:
+        image["name"] = name
+    return image
 
 
 # ----------------------------------------------------------------------
