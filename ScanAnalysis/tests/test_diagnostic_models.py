@@ -15,7 +15,9 @@ from scan_analysis.config.aliases import (
 from scan_analysis.config.diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
+    BackgroundSource,
     DiagnosticAnalysisConfig,
+    FromCurrentScanSpec,
     ScanRuntimeConfig,
 )
 
@@ -192,6 +194,87 @@ class TestDiagnosticAnalysisConfig:
             DiagnosticAnalysisConfig(
                 name="x", image_analyzer="beam", unknown_field="oops"
             )
+
+
+class TestFromCurrentScanSpec:
+    """method requires the right percentile pairing; defaults to median."""
+
+    def test_default_is_median_no_percentile(self):
+        spec = FromCurrentScanSpec()
+        assert spec.method == "median"
+        assert spec.percentile is None
+
+    def test_percentile_method_requires_value(self):
+        with pytest.raises(ValidationError, match="percentile is required"):
+            FromCurrentScanSpec(method="percentile")
+
+    def test_percentile_with_method_percentile_validates(self):
+        spec = FromCurrentScanSpec(method="percentile", percentile=5)
+        assert spec.percentile == 5
+
+    def test_percentile_with_median_method_rejected(self):
+        with pytest.raises(
+            ValidationError, match="must not be set when method='median'"
+        ):
+            FromCurrentScanSpec(method="median", percentile=5)
+
+    def test_percentile_out_of_range_rejected(self):
+        with pytest.raises(ValidationError):
+            FromCurrentScanSpec(method="percentile", percentile=101)
+        with pytest.raises(ValidationError):
+            FromCurrentScanSpec(method="percentile", percentile=-1)
+
+
+class TestBackgroundSource:
+    """Exactly one of scan_number / from_current_scan must be set."""
+
+    def test_scan_number_only(self):
+        src = BackgroundSource(scan_number=5)
+        assert src.scan_number == 5
+        assert src.from_current_scan is None
+
+    def test_from_current_scan_only(self):
+        src = BackgroundSource(from_current_scan={"method": "median"})
+        assert src.scan_number is None
+        assert src.from_current_scan.method == "median"
+
+    def test_neither_set_rejected(self):
+        with pytest.raises(ValidationError, match="must specify exactly one source"):
+            BackgroundSource()
+
+    def test_both_set_rejected(self):
+        with pytest.raises(ValidationError, match="must specify exactly one source"):
+            BackgroundSource(scan_number=5, from_current_scan={"method": "median"})
+
+    def test_extra_fields_rejected(self):
+        with pytest.raises(ValidationError):
+            BackgroundSource(scan_number=5, file_path="/x/y.npy")
+
+    def test_scan_number_must_be_non_negative(self):
+        with pytest.raises(ValidationError):
+            BackgroundSource(scan_number=-1)
+
+
+class TestScanRuntimeConfigBackgroundSource:
+    """background_source is optional and validates through to the model."""
+
+    def test_default_is_none(self):
+        cfg = ScanRuntimeConfig()
+        assert cfg.background_source is None
+
+    def test_accepts_scan_number_directive(self):
+        cfg = ScanRuntimeConfig(background_source={"scan_number": 1})
+        assert cfg.background_source.scan_number == 1
+
+    def test_accepts_from_current_scan_directive(self):
+        cfg = ScanRuntimeConfig(
+            background_source={"from_current_scan": {"method": "median"}}
+        )
+        assert cfg.background_source.from_current_scan.method == "median"
+
+    def test_invalid_directive_rejected_at_scan_level(self):
+        with pytest.raises(ValidationError):
+            ScanRuntimeConfig(background_source={})
 
 
 class TestAnalysisGroupConfig:

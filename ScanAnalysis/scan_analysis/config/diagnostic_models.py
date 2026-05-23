@@ -23,9 +23,111 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .aliases import ImageAnalyzerSpec, resolve_image_analyzer_value
+
+
+class FromCurrentScanSpec(BaseModel):
+    """How to compute a background from the current scan's own images.
+
+    Used inside :class:`BackgroundSource.from_current_scan`. The
+    aggregation method is applied across the image stack to produce a
+    single background image, which is then cached as ``.npy`` and
+    subtracted from each shot via the standard ``FROM_FILE``
+    background path.
+
+    Attributes
+    ----------
+    method : {"median", "percentile"}
+        How to collapse the stack. ``median`` is the safe default for
+        scans with real shot-to-shot variation (laser jitter, deliberate
+        parameter sweep). ``percentile`` is for cases where the
+        background sits below the signal at a known fraction of pixels.
+    percentile : float, optional
+        Required when ``method=percentile``. Value in [0, 100]. Common
+        choice: 5 — "use the 5th-percentile value at each pixel."
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["median", "percentile"] = "median"
+    percentile: Optional[float] = Field(default=None, ge=0.0, le=100.0)
+
+    @model_validator(mode="after")
+    def _percentile_required_when_method_is_percentile(self) -> "FromCurrentScanSpec":
+        """Pair ``method=percentile`` with an explicit percentile value."""
+        if self.method == "percentile" and self.percentile is None:
+            raise ValueError(
+                "from_current_scan.percentile is required when method='percentile'"
+            )
+        if self.method == "median" and self.percentile is not None:
+            raise ValueError(
+                "from_current_scan.percentile must not be set when method='median'"
+            )
+        return self
+
+
+class BackgroundSource(BaseModel):
+    """ScanAnalysis-side directive for resolving a background source.
+
+    Set on ``scan.background_source`` when the diagnostic needs a
+    background that depends on scan context — a different scan's data,
+    or an aggregate computed from the current scan's own shots.
+    Exactly one source must be specified.
+
+    The resolver runs once per scan-analyzer execution. It produces a
+    cached ``.npy`` and mutates the embedded
+    ``image.background.file_path`` to point at the cache, then sets
+    ``image.background.method`` to ``from_file``. The downstream
+    per-shot pipeline sees a static ``from_file`` background and is
+    unaware of the source-selection logic.
+
+    Use the existing ``image.background.file_path`` field directly for
+    explicit static paths; this directive is only for sources that
+    require scan context.
+
+    Attributes
+    ----------
+    scan_number : int, optional
+        Use this previously-acquired scan's images as the background.
+        The scan analyzer loads the device's images from that scan,
+        averages them, and caches the result in that scan's analysis
+        folder. Any scan that references the same ``scan_number``
+        reuses the cache. Replaces the legacy
+        ``BackgroundConfig.background_scan_number`` field.
+    from_current_scan : FromCurrentScanSpec, optional
+        Compute a background from the current scan's own images. First
+        consumer triggers the compute; subsequent consumers in the
+        same scan hit the cache. **Risky when shot-to-shot variation
+        is small** (the bg can swallow the signal); not appropriate
+        inside an optimizer evaluation loop, where good states have
+        nearly identical shots.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    scan_number: Optional[int] = Field(default=None, ge=0)
+    from_current_scan: Optional[FromCurrentScanSpec] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> "BackgroundSource":
+        """Require exactly one of the source variants to be set."""
+        sources = [
+            ("scan_number", self.scan_number is not None),
+            ("from_current_scan", self.from_current_scan is not None),
+        ]
+        set_sources = [name for name, is_set in sources if is_set]
+        if len(set_sources) == 0:
+            raise ValueError(
+                "background_source must specify exactly one source: "
+                "'scan_number' or 'from_current_scan'"
+            )
+        if len(set_sources) > 1:
+            raise ValueError(
+                f"background_source must specify exactly one source; got {set_sources}"
+            )
+        return self
 
 
 class ScanRuntimeConfig(BaseModel):
@@ -69,6 +171,15 @@ class ScanRuntimeConfig(BaseModel):
     renderer_kwargs : dict
         Extra options forwarded to the dimension-specific renderer
         (colormap mode, waterfall sort key, etc.).
+    background_source : BackgroundSource, optional
+        Scan-context-dependent background source. When set, the scan
+        analyzer resolves the source to a cached ``.npy`` path and
+        writes it into ``image.background.file_path`` before per-shot
+        analysis. Used for cross-scan dark backgrounds
+        (``scan_number``) and for dynamic backgrounds computed from
+        the current scan's own images (``from_current_scan``).
+        Explicit static paths go directly on
+        ``image.background.file_path`` and do not need this directive.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -80,6 +191,7 @@ class ScanRuntimeConfig(BaseModel):
     device: Optional[str] = None
     file_tail: Optional[str] = None
     renderer_kwargs: Dict[str, Any] = Field(default_factory=dict)
+    background_source: Optional[BackgroundSource] = None
 
 
 class DiagnosticAnalysisConfig(BaseModel):
