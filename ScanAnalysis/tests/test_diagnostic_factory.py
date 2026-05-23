@@ -156,3 +156,37 @@ class TestScanRuntimeAttachment:
     def test_file_tail_passed_through_when_set(self):
         analyzer = create_diagnostic_analyzer(_resolved(scan={"file_tail": ".himg"}))
         assert analyzer.file_tail == ".himg"
+
+
+class TestBackgroundSourceAttachment:
+    """The scan.background_source directive is attached to the wrapper."""
+
+    def test_default_is_none(self):
+        analyzer = create_diagnostic_analyzer(_resolved())
+        assert analyzer.background_source is None
+
+    def test_scan_number_directive_attached(self):
+        analyzer = create_diagnostic_analyzer(
+            _resolved(scan={"background_source": {"scan_number": 5}})
+        )
+        assert analyzer.background_source is not None
+        assert analyzer.background_source.scan_number == 5
+        assert analyzer.background_source.from_current_scan is None
+
+    def test_from_current_scan_directive_attached(self):
+        analyzer = create_diagnostic_analyzer(
+            _resolved(
+                scan={
+                    "background_source": {
+                        "from_current_scan": {
+                            "method": "percentile",
+                            "percentile": 5,
+                        }
+                    }
+                }
+            )
+        )
+        assert analyzer.background_source is not None
+        assert analyzer.background_source.scan_number is None
+        assert analyzer.background_source.from_current_scan.method == "percentile"
+        assert analyzer.background_source.from_current_scan.percentile == 5

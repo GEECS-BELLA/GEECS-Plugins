@@ -225,5 +225,11 @@ def _wrap_in_scan_analyzer(
     analyzer.id = resolved.id
     analyzer.priority = resolved.priority
     analyzer.gdoc_slot = scan_cfg.gdoc_slot
+    # The directive is consumed at run time inside
+    # SingleDeviceScanAnalyzer._resolve_background_paths. ``None`` is the
+    # common case (no scan-context bg needed); the runtime check is
+    # ``getattr(analyzer, "background_source", None)`` so analyzers built
+    # via the legacy factory remain unaffected.
+    analyzer.background_source = scan_cfg.background_source
 
     return analyzer
