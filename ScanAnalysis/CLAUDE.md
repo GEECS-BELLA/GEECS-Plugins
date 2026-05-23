@@ -80,12 +80,36 @@ figures) that the task queue stores and optionally uploads to GDocs.
 ### `SingleDeviceScanAnalyzer`
 
 - Holds an `ImageAnalyzer` instance
-- `_run_analysis_core()` → fetches device data files, runs per-shot analysis
-  via `ImageAnalyzer.analyze_image()`, then calls `_postprocess_noscan()` or
-  `_postprocess_scan()` depending on scan mode
+- `_run_analysis_core()` → resolves the device data folder, then dispatches
+  to one of two streaming pipelines based on `analysis_mode`:
+  - **`per_shot`** (default): fused per-shot tasks call
+    `ImageAnalyzer.analyze_image_file(path, aux)` atomically. One image
+    is loaded and analyzed per task; per-shot data never has to shuttle
+    between separate load and analyze phases through analyzer-instance
+    state. This is the correctness property enforced after the shot-by-shot
+    refactor (1.5.0) — it eliminates a whole class of bugs (aux-columns
+    regression, stale `data_metadata`, etc.).
+  - **`per_bin`**: streams bin-by-bin. For each bin, parallel-load that
+    bin's files, average, run `analyze_image` once on the averaged image,
+    store result, release. Memory bounded by one bin's image count. Use
+    this for analyzers where running on the bin-average is scientifically
+    distinct from per-shot + post-hoc result averaging (nonlinear measures,
+    threshold-based metrics, etc.).
+- Both pipelines call `_postprocess_noscan()` or `_postprocess_scan()` once
+  the per-task work is done.
 - `DataUnavailableWarning` — raised when device data dir is missing or empty;
   caught with `logger.warning()` only (no traceback). Separate from real errors
   which still log with traceback.
+
+#### Adding a new analyzer
+
+Implement `analyze_image_file(path, aux)` if your analyzer needs to
+coordinate load and analyze (rare). Otherwise, just implement
+`analyze_image(image, aux)` and `load_image(path)` and rely on the base
+class composition. **Do not** rely on instance state being preserved
+between a separate `load_image` call and a later `analyze_image` call —
+the per-shot pipeline runs them inside one atomic task per shot, but
+shared instance state across tasks is undefined under parallelism.
 
 ### `Array2DScanAnalyzer`
 

@@ -55,16 +55,15 @@ class ImageAnalyzer:
     def load_image(self, file_path: Path) -> Array1D | Array2D:
         # Default: read_imaq_image() — override for custom formats (TDMS, HDF5, CSV)
 
-    def analyze_image_batch(self, images: list) -> tuple[list, dict]:
-        # Optional batch-level hook (e.g., dynamic background computation)
-        # Returns (original_images, metadata_dict)
-        # Called once per scan before per-shot analysis
-
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
         # Must implement — the main per-shot analysis method
 
     def analyze_image_file(self, file_path, auxiliary_data=None) -> ImageAnalyzerResult:
-        # Convenience: load_image() then analyze_image()
+        # Canonical entry point for scan-level pipelines:
+        # load_image() then analyze_image() — atomically, in one task.
+        # Override only if your analyzer needs to thread state between
+        # load and analyze (rare; the base composition is correct for
+        # almost all cases).
 ```
 
 ### `ImageAnalyzerResult` (types.py)
@@ -108,7 +107,7 @@ class CameraConfig(BaseModel):
     bit_depth: int = 16          # 8, 10, 12, 14, 16, 32
 
     roi: Optional[ROIConfig]                    # x_min, x_max, y_min, y_max (pixels)
-    background: Optional[BackgroundConfig]      # method, file_path, constant_level, dynamic_computation
+    background: Optional[BackgroundConfig]      # method, file_path, constant_level, background_scan_number
     crosshair_masking: Optional[CrosshairMaskingConfig]
     circular_mask: Optional[CircularMaskConfig]
     vignette: Optional[VignetteConfig]          # radial_polynomial or map_file method
@@ -121,7 +120,11 @@ class CameraConfig(BaseModel):
 ```
 
 `BackgroundConfig.method` options: `constant`, `percentile_dataset`, `from_file`, `median`
-`BackgroundConfig.dynamic_computation` — for batch background computed per scan.
+`BackgroundConfig.background_scan_number` — use a separate previously-acquired
+"dark" scan as the background; the scan analyzer averages its images once and
+caches the result. Dynamic per-scan background computation was removed in
+1.3.0 (it required the load-all pipeline now deleted from ScanAnalysis 1.5.0
+— see that package's CHANGELOG).
 
 ### 1D Line Configs (`Line1DConfig`)
 
@@ -164,8 +167,8 @@ analyzer = StandardAnalyzer(
 
 Key methods:
 - `preprocess_image(image) -> np.ndarray` — applies full processing pipeline
-- `analyze_image_batch(images)` — computes dynamic background if configured
 - `analyze_image(image, auxiliary_data) -> ImageAnalyzerResult` — data_type="2d"
+- `analyze_image_file(path, auxiliary_data)` — canonical scan-pipeline entry
 - `render_image(result, vmin, vmax, cmap, ...) -> (Figure, Axes)` — static method
 
 ### `Standard1DAnalyzer` (1D foundation)
