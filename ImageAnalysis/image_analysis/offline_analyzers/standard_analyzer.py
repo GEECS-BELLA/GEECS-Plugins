@@ -18,7 +18,7 @@ analysis capabilities.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -146,37 +146,6 @@ class StandardAnalyzer(ImageAnalyzer):
         )
 
         return processed_image
-
-    def analyze_image_batch(
-        self, images: List[np.ndarray]
-    ) -> Tuple[List[np.ndarray], Dict[str, Union[int, float, bool, str]]]:
-        """
-        Process a batch of images for scan analysis.
-
-        This method generates dynamic backgrounds (if configured) but returns
-        the ORIGINAL images. The actual background application happens in
-        analyze_image() which is called for each image by the parallel workers.
-
-        Parameters
-        ----------
-        images : List[np.ndarray]
-            List of images from the scan
-
-        Returns
-        -------
-        Tuple[List[np.ndarray], Dict]
-            Original images and empty stateful results dict
-        """
-        # Generate dynamic background if configured
-        # This computes and saves the background but doesn't apply it.
-        # background_manager is None when camera_config has no background section
-        # at all, in which case there is nothing to compute.
-        if self.background_manager is not None:
-            self.background_manager.generate_dynamic_background(images)
-
-        # Return ORIGINAL images (not processed)
-        # Processing happens in analyze_image() for each image
-        return images, {}
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""

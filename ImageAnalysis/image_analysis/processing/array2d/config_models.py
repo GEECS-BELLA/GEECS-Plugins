@@ -21,45 +21,6 @@ class BackgroundMethod(str, Enum):
     MEDIAN = "median"  # Alias for temporal_median
 
 
-class DynamicComputationConfig(BaseModel):
-    """
-    Configuration for dynamic background computation from image batches.
-
-    This is used by Array2DScanAnalyzer to compute backgrounds from
-    all images in a scan directory.
-
-    Attributes
-    ----------
-    enabled : bool
-        Whether dynamic background computation is enabled.
-    method : BackgroundMethod
-        Method to use for background computation.
-    percentile : float
-        Percentile value for percentile_dataset method (0-100).
-    auto_save_path : Optional[Union[str, Path]]
-        Path to save the computed background. Supports {scan_dir} placeholder.
-    """
-
-    enabled: bool = Field(True, description="Enable dynamic background computation")
-    method: BackgroundMethod = Field(
-        BackgroundMethod.PERCENTILE_DATASET, description="Background computation method"
-    )
-    percentile: float = Field(
-        5.0, ge=0.0, le=100.0, description="Percentile for dataset background"
-    )
-
-    auto_save_path: Optional[Union[str, Path]] = Field(
-        None, description="Path to save computed background (supports {scan_dir})"
-    )
-
-    @field_validator("percentile")
-    def validate_percentile_range(cls, v):
-        """Ensure percentile is in valid range."""
-        if not 0.0 <= v <= 100.0:
-            raise ValueError("percentile must be between 0 and 100")
-        return v
-
-
 class BackgroundConfig(BaseModel):
     """
     Simplified configuration for background subtraction.
@@ -67,7 +28,6 @@ class BackgroundConfig(BaseModel):
     This configuration supports a two-stage workflow:
     1. Primary background source (from_file, constant, or None)
     2. Additional constant offset applied after primary background
-    3. Optional dynamic computation (for batch processing only)
 
     Attributes
     ----------
@@ -81,8 +41,6 @@ class BackgroundConfig(BaseModel):
         Constant background level (for constant method, or fallback if file not found).
     additional_constant : float
         Additional constant to subtract AFTER primary background (default 0).
-    dynamic_computation : Optional[DynamicComputationConfig]
-        Configuration for dynamic background computation (batch processing only).
     background_scan_number : int, optional
         Scan number to use as background source. The scan analyzer will load
         and average all images from that scan's device folder, cache the result
@@ -102,9 +60,6 @@ class BackgroundConfig(BaseModel):
     )
     additional_constant: float = Field(
         0.0, description="Additional constant offset applied after primary background"
-    )
-    dynamic_computation: Optional[DynamicComputationConfig] = Field(
-        None, description="Dynamic background computation config (batch processing)"
     )
     background_scan_number: Optional[int] = Field(
         None,
