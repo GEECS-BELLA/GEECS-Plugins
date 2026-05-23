@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] — 2026-05-22
+
+### Removed
+- `ConfigFileGUI`: removed the `_connect_dynamic_computation_defaults`
+  auto-population helper. The widget set it wired up no longer exists
+  in `BackgroundConfig` (deleted in ImageAnalysis 1.3.0). Updated
+  docstring example in `SectionWidget.show_errors` accordingly.
+
 ## [1.5.0] — 2026-05-22
 
 ### Changed
