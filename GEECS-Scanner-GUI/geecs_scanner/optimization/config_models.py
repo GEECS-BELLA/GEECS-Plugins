@@ -11,49 +11,27 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
+from scan_analysis.config.aliases import (
+    ImageAnalyzerSpec,
+    resolve_image_analyzer_value,
+)
+
 if TYPE_CHECKING:
     from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
-
-
-class ImageAnalyzerConfig(BaseModel):
-    """
-    Configuration for dynamically creating an ImageAnalyzer instance.
-
-    This model specifies the module and class to import for an ImageAnalyzer,
-    along with any keyword arguments to be passed to the class initializer.
-    Most ImageAnalyzers auto-configure from device name and config files,
-    so kwargs are typically empty.
-
-    Attributes
-    ----------
-    module : str
-        Import path to the ImageAnalyzer module (e.g.,
-        ``image_analysis.offline_analyzers.beam_analyzer``).
-    class_ : str
-        Name of the ImageAnalyzer class within the module.
-    kwargs : dict of str, Any
-        Dictionary of keyword arguments to pass to the ImageAnalyzer constructor.
-        Often empty as analyzers auto-configure from device name.
-
-    Notes
-    -----
-    The field `class_` is aliased as `class` in YAML/JSON configuration files.
-    """
-
-    module: str
-    class_: str = Field(..., alias="class")
-    kwargs: Dict[str, Any] = Field(default_factory=dict)
-
-    model_config = ConfigDict(populate_by_name=True)
 
 
 class SingleDeviceScanAnalyzerConfig(BaseModel):
     """
     Configuration for creating a SingleDeviceScanAnalyzer instance.
 
-    This model specifies all parameters needed to instantiate either an
-    Array1DScanAnalyzer or Array2DScanAnalyzer, including the device name,
-    analyzer type, file pattern, and the ImageAnalyzer to use for processing.
+    Distinct from the disk-loaded
+    :class:`scan_analysis.config.diagnostic_models.DiagnosticAnalysisConfig`
+    in that this model describes a runtime-instantiated analyzer inside
+    an Xopt evaluator: no embedded ``image:`` section (the ImageAnalyzer
+    loads its own config by name at construction), no priority, no
+    gdoc_slot. The shared piece is the alias-driven
+    :class:`ImageAnalyzerSpec` on the ``image_analyzer`` field — same
+    surface forms as on diagnostic configs, same registry.
 
     Attributes
     ----------
@@ -65,11 +43,18 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
         for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
-        Type of scan analyzer to instantiate. Choose based on data dimensionality.
+        Which scan-analyzer wrapper to instantiate. Redundant with
+        ``image_analyzer.scan_type``; kept for explicitness in optimizer
+        YAMLs and to make the YAML readable without an alias-registry
+        lookup.
     file_tail : str, default=".png"
         File extension/suffix used to match data files for this device.
-    image_analyzer : ImageAnalyzerConfig
-        Configuration for the ImageAnalyzer instance to use for processing.
+    image_analyzer : ImageAnalyzerSpec
+        Alias-driven spec for the ImageAnalyzer class. Accepts a string
+        alias (``"beam"``), an alias-with-kwargs dict
+        (``{"alias": "line_stitcher", "kwargs": {...}}``), or the verbose
+        ``{"class": "...", "image_kind": "...", "scan_type": "...",
+        "kwargs": {...}}`` escape hatch.
     analysis_mode : {"per_shot", "per_bin"}, default="per_bin"
         Analysis mode for the scan analyzer. "per_bin" is recommended for
         optimization as it leverages built-in averaging.
@@ -84,8 +69,14 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     data_device_name: Optional[str] = None
     analyzer_type: Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]
     file_tail: str = ".png"
-    image_analyzer: ImageAnalyzerConfig
+    image_analyzer: ImageAnalyzerSpec
     analysis_mode: Literal["per_shot", "per_bin"] = "per_bin"
+
+    @field_validator("image_analyzer", mode="before")
+    @classmethod
+    def _normalise_image_analyzer(cls, value: Any) -> Any:
+        """Accept the alias / verbose surface forms used in optimizer YAMLs."""
+        return resolve_image_analyzer_value(value)
 
     def to_device_requirement(self) -> dict:
         """
