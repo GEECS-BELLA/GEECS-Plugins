@@ -53,29 +53,32 @@ _LEVEL_COLOURS = {
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
-def _try_list_experiments(config_dir: Optional[Path] = None) -> list[str]:
-    """Return available experiment config names, or an empty list on failure.
+def _try_list_groups(config_dir: Optional[Path] = None) -> list[str]:
+    """Return available analysis-group names, or an empty list on failure.
+
+    Walks ``<config_dir>/groups`` and returns the index keys produced
+    by :func:`scan_analysis.config.discover_groups`. Both stem-only
+    (``"frog_only"``) and path-like (``"PW/frog_only"``) keys are
+    included; either form is acceptable input to
+    :func:`scan_analysis.config.load_analysis_group`.
 
     Parameters
     ----------
     config_dir : Path, optional
-        Explicit scan analysis config directory to search.  When *None*,
+        Explicit scan analysis config directory to search. When *None*,
         falls back to the globally configured base directory.
     """
     try:
-        from scan_analysis.config.config_loader import list_available_configs
+        from scan_analysis.config import discover_groups
+        from geecs_data_utils import ScanPaths
 
-        configs = list_available_configs(config_dir=config_dir)
-        # Filter to experiment-level configs (those under experiments/ dir)
-        names = []
-        for name, paths in configs.items():
-            for p in paths:
-                if "experiments" in p.parts or "experiment" in p.parts:
-                    names.append(name)
-                    break
-        return sorted(set(names), key=str.lower)
+        base_dir = config_dir or ScanPaths.paths_config.scan_analysis_configs_path
+        if base_dir is None:
+            return []
+        groups = discover_groups(Path(base_dir))
+        return sorted(groups.keys(), key=str.lower)
     except Exception as exc:
-        logger.warning("Could not list experiment configs: %s", exc)
+        logger.warning("Could not list analysis-group configs: %s", exc)
         return []
 
 
@@ -154,8 +157,8 @@ class LiveWatchWindow(QMainWindow):
         # Pre-fill config paths first (so analyzer groups can use the config directory)
         self._populate_default_paths()
 
-        # Then populate experiment dropdown using the now-available config directory
-        self._populate_experiments()
+        # Then populate analyzer-group dropdown using the now-available config directory
+        self._populate_groups()
 
         # Install log handler
         self._install_log_handler()
@@ -418,34 +421,35 @@ class LiveWatchWindow(QMainWindow):
     # Initialization helpers
     # ------------------------------------------------------------------
 
-    def _populate_experiments(self, config_dir: Optional[Path] = None) -> None:
-        """Fill the experiment combo box from available configs.
+    def _populate_groups(self, config_dir: Optional[Path] = None) -> None:
+        """Fill the analyzer-group combo box from available group YAMLs.
 
         Parameters
         ----------
         config_dir : Path, optional
-            Explicit scan analysis config directory.  When *None*, uses the
-            path currently entered in the Scan Config Dir field (if any),
-            falling back to the globally configured default.
+            Explicit scan analysis config directory. When *None*, uses
+            the path currently entered in the Scan Config Dir field (if
+            any), falling back to the globally configured default.
         """
         if config_dir is None:
             text = self.line_scan_config.text().strip()
             if text:
                 config_dir = Path(text)
 
-        experiments = _try_list_experiments(config_dir=config_dir)
+        groups = _try_list_groups(config_dir=config_dir)
         previous = self.combo_experiment.currentText()
         self.combo_experiment.clear()
-        if experiments:
-            self.combo_experiment.addItems(experiments)
+        if groups:
+            self.combo_experiment.addItems(groups)
             # Restore previous selection if still available
             idx = self.combo_experiment.findText(previous)
             if idx >= 0:
                 self.combo_experiment.setCurrentIndex(idx)
-            logger.info("Loaded %d experiment config(s).", len(experiments))
+            logger.info("Loaded %d analyzer-group config(s).", len(groups))
         else:
-            self.combo_experiment.addItem("Undulator")
-            logger.info("No experiment configs found; added default 'Undulator'.")
+            logger.info(
+                "No analyzer-group configs found under %s.", config_dir or "<default>"
+            )
 
     def _populate_default_paths(self) -> None:
         """Pre-fill config path fields from ScanPaths defaults."""
@@ -787,8 +791,8 @@ class LiveWatchWindow(QMainWindow):
         )
         if chosen:
             self.line_scan_config.setText(chosen)
-            # Auto-refresh experiments when the scan config dir changes
-            self._populate_experiments(config_dir=Path(chosen))
+            # Auto-refresh analyzer groups when the scan config dir changes
+            self._populate_groups(config_dir=Path(chosen))
 
     def _on_browse_image_config(self) -> None:
         """Open a directory picker for the image analysis config directory."""
@@ -801,8 +805,8 @@ class LiveWatchWindow(QMainWindow):
             self.line_image_config.setText(chosen)
 
     def _on_refresh_experiments(self) -> None:
-        """Reload the experiment list from the current scan config directory."""
-        self._populate_experiments()
+        """Reload the analyzer-group list from the current scan config directory."""
+        self._populate_groups()
 
     # ------------------------------------------------------------------
     # UI state management

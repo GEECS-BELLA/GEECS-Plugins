@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] — 2026-05-24
+
+Companion release to the ScanAnalysis 1.6.0 unified-configs cutover.
+Optimizer YAMLs that embed a `SingleDeviceScanAnalyzer` now use the
+unified `ImageAnalyzerSpec` shape (string alias / alias-dict / verbose
+`class_path` form) instead of the old separate `{module, class}` pair.
+
+### Changed
+- `SingleDeviceScanAnalyzerConfig.image_analyzer` now accepts the
+  unified `ImageAnalyzerSpec` shape, with a `resolve_image_analyzer_value`
+  field validator. The optimizer-side `_create_scan_analyzer` path uses
+  the resolved `spec.class_path` / `spec.kwargs` directly — it doesn't
+  go through the disk-loaded diagnostic factory, because optimizer YAMLs
+  don't carry an embedded `image:` section.
+
+### Removed
+- The duplicate `ImageAnalyzerConfig` model in
+  `optimization.config_models`. The single source of truth is now
+  `scan_analysis.config.aliases.ImageAnalyzerSpec`.
+
+### Breaking
+- Optimizer YAMLs that embed `image_analyzer: {module: ..., class: ...}`
+  must migrate to one of the unified forms — e.g.
+  `image_analyzer: beam` (alias) or
+  `image_analyzer: {class_path: image_analysis.analyzers.beam.BeamAnalyzer, kwargs: {...}}`.
+
 ## [0.20.0] — 2026-05-13
 
 ### Added

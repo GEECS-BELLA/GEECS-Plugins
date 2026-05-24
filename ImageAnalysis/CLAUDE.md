@@ -107,7 +107,7 @@ class CameraConfig(BaseModel):
     bit_depth: int = 16          # 8, 10, 12, 14, 16, 32
 
     roi: Optional[ROIConfig]                    # x_min, x_max, y_min, y_max (pixels)
-    background: Optional[BackgroundConfig]      # method, file_path, constant_level, background_scan_number
+    background: Optional[BackgroundConfig]      # method, file_path, constant_level, additional_constant
     crosshair_masking: Optional[CrosshairMaskingConfig]
     circular_mask: Optional[CircularMaskConfig]
     vignette: Optional[VignetteConfig]          # radial_polynomial or map_file method
@@ -119,12 +119,13 @@ class CameraConfig(BaseModel):
     analysis: Optional[Dict[str, Any]]          # Analyzer-specific (validated per-analyzer)
 ```
 
-`BackgroundConfig.method` options: `constant`, `percentile_dataset`, `from_file`, `median`
-`BackgroundConfig.background_scan_number` — use a separate previously-acquired
-"dark" scan as the background; the scan analyzer averages its images once and
-caches the result. Dynamic per-scan background computation was removed in
-1.3.0 (it required the load-all pipeline now deleted from ScanAnalysis 1.5.0
-— see that package's CHANGELOG).
+`BackgroundConfig.method` options: `constant`, `from_file`. Scan-context
+backgrounds (cross-scan dark via `scan.background_source.scan_number`, or
+dynamic from-current-scan via `scan.background_source.from_current_scan`)
+are expressed at the diagnostic config layer in ScanAnalysis. The scan
+analyzer computes / caches the resulting `.npy`, then rewrites this
+config to a static `FROM_FILE` background pointing at the cache before
+the per-shot pipeline runs.
 
 ### 1D Line Configs (`Line1DConfig`)
 
