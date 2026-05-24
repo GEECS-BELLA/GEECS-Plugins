@@ -98,17 +98,18 @@ class GeecsPathsConfig:
                         if local_path_str is not None:
                             base_path = self._validate_path(Path(local_path_str))
 
-                    if image_analysis_configs_path is None:
-                        local_path = Path(
-                            config["Paths"].get("image_analysis_configs_path", None)
-                        )
-                        image_analysis_configs_path = self._validate_path(local_path)
-
+                    # Resolve scan_analysis_configs_path FIRST so the
+                    # image-side path can derive from it.
                     if scan_analysis_configs_path is None:
                         local_path = Path(
                             config["Paths"].get("scan_analysis_configs_path", None)
                         )
                         scan_analysis_configs_path = self._validate_path(local_path)
+
+                    if image_analysis_configs_path is None:
+                        image_analysis_configs_path = self._resolve_image_path(
+                            config, scan_analysis_configs_path
+                        )
 
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")
@@ -173,6 +174,56 @@ class GeecsPathsConfig:
             return input_path
         else:
             logger.warning("%s path was not found", input_path)
+        return None
+
+    @classmethod
+    def _resolve_image_path(
+        cls, config: ConfigParser, scan_analysis_configs_path: Optional[Path]
+    ) -> Optional[Path]:
+        """Resolve the image-analysis config path with unified-configs awareness.
+
+        After the unified-configs migration, image and scan analysis
+        share one config tree: the per-diagnostic YAMLs under
+        ``scan_analysis_configs_path/analyzers`` carry both an
+        ``image:`` section and a ``scan:`` section. ImageAnalysis
+        searches that subtree recursively to find a camera or line
+        config by name.
+
+        The legacy ``image_analysis_configs_path`` key in ``config.ini``
+        is honoured (with a deprecation warning) for users who haven't
+        yet updated their config file. When the legacy key is absent,
+        the image path derives from ``scan_analysis_configs_path /
+        "analyzers"``.
+
+        Parameters
+        ----------
+        config : ConfigParser
+            Loaded ``config.ini``.
+        scan_analysis_configs_path : Path, optional
+            Already-resolved scan-analysis configs root.
+
+        Returns
+        -------
+        Path or None
+            Resolved image-analysis configs path, or ``None`` if neither
+            the legacy key nor the derived path exists.
+        """
+        legacy = config["Paths"].get("image_analysis_configs_path", None)
+        if legacy is not None:
+            logger.warning(
+                "image_analysis_configs_path in config.ini is deprecated. "
+                "After the unified-configs migration, ImageAnalysis reads "
+                "from scan_analysis_configs_path/analyzers (which holds "
+                "the embedded image: section of each diagnostic). Remove "
+                "the line from config.ini to use auto-derivation."
+            )
+            resolved = cls._validate_path(Path(legacy))
+            if resolved is not None:
+                return resolved
+
+        if scan_analysis_configs_path is not None:
+            return cls._validate_path(Path(scan_analysis_configs_path) / "analyzers")
+
         return None
 
 
