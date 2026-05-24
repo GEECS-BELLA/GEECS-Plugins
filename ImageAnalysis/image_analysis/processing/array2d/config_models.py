@@ -16,9 +16,7 @@ class BackgroundMethod(str, Enum):
     """Supported background computation methods."""
 
     CONSTANT = "constant"
-    PERCENTILE_DATASET = "percentile_dataset"
     FROM_FILE = "from_file"
-    MEDIAN = "median"  # Alias for temporal_median
 
 
 class BackgroundConfig(BaseModel):

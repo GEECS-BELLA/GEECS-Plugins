@@ -26,9 +26,8 @@ from .config_models import (
     VignetteMethod,
 )
 
-# backgroudn operations
+# Background operations
 from .background import (
-    compute_background,
     subtract_background,
     load_background_from_file,
     save_background_to_file,
@@ -91,7 +90,6 @@ PROCESSING_FUNCTIONS = {
 
 __all__ = [
     # Background processing
-    "compute_background",
     "subtract_background",
     "load_background_from_file",
     "save_background_to_file",

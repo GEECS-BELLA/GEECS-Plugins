@@ -12,61 +12,8 @@ from typing import Callable, List, Optional, Union
 from pathlib import Path
 from ...types import Array2D
 from image_analysis.utils import read_imaq_image
-from .config_models import BackgroundConfig, BackgroundMethod
 
 logger = logging.getLogger(__name__)
-
-
-def compute_background(images: List[Array2D], config: BackgroundConfig) -> Array2D:
-    """
-    Compute background image from dataset using specified method.
-
-    Parameters
-    ----------
-    images : List[Array2D]
-        List of images to compute background from. All images must have the same shape.
-        Not used when method is 'from_file'.
-    config : BackgroundConfig
-        Configuration specifying background computation method and parameters.
-
-    Returns
-    -------
-    Array2D
-        Computed background image with same shape as input images.
-
-    Raises
-    ------
-    ValueError
-        If background method is not supported, insufficient images provided,
-        or images have inconsistent shapes.
-
-
-    """
-    if config.method == BackgroundMethod.FROM_FILE:
-        return load_background_from_file(config.file_path)
-
-    if not images:
-        raise ValueError("At least one image required for background computation")
-
-    # Validate image shapes
-    reference_shape = images[0].shape
-    for i, img in enumerate(images):
-        if img.shape != reference_shape:
-            raise ValueError(
-                f"Image {i} has shape {img.shape}, expected {reference_shape}"
-            )
-
-    if config.method == BackgroundMethod.CONSTANT:
-        return _compute_constant_background(images[0].shape, config.level)
-
-    elif config.method == BackgroundMethod.PERCENTILE_DATASET:
-        return _compute_percentile_background(images, config.percentile)
-
-    elif config.method in [BackgroundMethod.MEDIAN]:
-        return _compute_median_background(images)
-
-    else:
-        raise ValueError(f"Unsupported background method: {config.method}")
 
 
 def subtract_background(image: Array2D, background: Array2D) -> Array2D:
@@ -101,25 +48,6 @@ def subtract_background(image: Array2D, background: Array2D) -> Array2D:
     # Clip negative values to zero if desired (could be configurable)
     # For now, preserve negative values as they may be meaningful
     return result.astype(image.dtype)
-
-
-def _compute_constant_background(shape: tuple, level: float) -> Array2D:
-    """
-    Create constant background array.
-
-    Parameters
-    ----------
-    shape : tuple
-        Shape of the background array to create.
-    level : float
-        Constant background level.
-
-    Returns
-    -------
-    Array2D
-        Constant background array.
-    """
-    return np.full(shape, level, dtype=np.float64)
 
 
 def _compute_percentile_background(images: List[Array2D], percentile: float) -> Array2D:
