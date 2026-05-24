@@ -26,8 +26,8 @@ import yaml
 
 from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.base import DataUnavailableWarning
-from scan_analysis.config.analyzer_factory import create_analyzer
-from scan_analysis.config.config_loader import load_experiment_config
+from scan_analysis.config.analysis_group_loader import load_analysis_group
+from scan_analysis.config.diagnostic_factory import create_diagnostic_analyzer
 from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
@@ -589,11 +589,28 @@ def run_worklist(
 
 
 def load_analyzers_from_config(
-    experiment: str, *, config_dir: Optional[Path] = None
+    group_name: str, *, config_dir: Optional[Path] = None
 ) -> List[object]:
-    """Load analyzers (sorted by priority) for an experiment config."""
-    cfg = load_experiment_config(experiment, config_dir=config_dir)
-    return [create_analyzer(a) for a in cfg.get_analyzers_by_priority()]
+    """Load and instantiate analyzers for an analysis group, sorted by priority.
+
+    Parameters
+    ----------
+    group_name : str
+        Group name from ``scan_analysis_configs/groups/<namespace>/``.
+        Either the stem (``"baseline"``) or path-like form
+        (``"HTU/baseline"``) when the stem is ambiguous across
+        namespaces.
+    config_dir : Path, optional
+        Root of the scan-analysis configs tree. Falls back to the
+        ``scan_analysis_config`` manager's resolved base directory.
+
+    Returns
+    -------
+    list
+        Runnable :class:`ScanAnalyzer` instances in execution order.
+    """
+    group = load_analysis_group(group_name, config_dir=config_dir)
+    return [create_diagnostic_analyzer(r) for r in group.analyzers]
 
 
 def _heartbeat_updater(
