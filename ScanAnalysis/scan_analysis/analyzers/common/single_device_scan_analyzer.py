@@ -227,8 +227,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         per-shot data never has to shuttle through analyzer-instance state
         between separate pipeline phases.
         """
-        # One-time pre-pass: resolve {scan_dir} placeholders and bake a
-        # `background_scan_number` cache if configured. Mutates
+        # One-time pre-pass: resolve {scan_dir} placeholders and apply
+        # any scan.background_source directive. Mutates
         # `image_analyzer.camera_config.background` in-place so the
         # downstream per-shot pipeline picks up a static FROM_FILE bg.
         self._resolve_background_paths()
@@ -303,15 +303,16 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         Resolve background placeholders and any scan-context background source.
 
         Run once before the per-shot pipeline starts. Mutates
-        ``image_analyzer.camera_config.background`` in place. Resolution
-        order, highest precedence first:
+        ``image_analyzer.camera_config.background`` in place. Two
+        operations happen here:
 
-        1. ``self.background_source`` directive (set by the new
-           diagnostic factory from ``scan.background_source``) — either
-           a cross-scan dark via ``scan_number`` or a current-scan
-           dynamic background via ``from_current_scan``.
-        2. Legacy ``BackgroundConfig.background_scan_number`` field.
-        3. ``{scan_dir}`` placeholder substitution in ``file_path``.
+        1. Substitute ``{scan_dir}`` in ``file_path`` with the current
+           scan's data directory.
+        2. If the diagnostic config carried a ``scan.background_source``
+           directive (cross-scan dark via ``scan_number`` or current-scan
+           dynamic via ``from_current_scan``), compute-and-cache that
+           background and rewrite ``bg_config`` to a static ``FROM_FILE``
+           pointing at the cache.
 
         No-op when the image_analyzer has no ``camera_config.background``
         (e.g. 1D analyzers).
@@ -331,15 +332,9 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.file_path = Path(resolved)
             logger.info(f"Resolved background file_path: {resolved}")
 
-        # The new directive wins when present.
         directive = getattr(self, "background_source", None)
         if directive is not None:
             self._apply_background_source(directive, bg_config)
-            return
-
-        # Legacy path for analyzers loaded via the old config schema.
-        if bg_config.background_scan_number is not None:
-            self._generate_scan_background(bg_config)
 
     def _apply_background_source(self, directive, bg_config) -> None:
         """Apply a ``scan.background_source`` directive to ``bg_config``.
@@ -398,55 +393,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             raise ValueError(
                 f"background_source directive has no source variant set: {directive}"
             )
-
-        bg_config.file_path = cache_path
-        bg_config.method = BackgroundMethod.FROM_FILE
-
-    def _generate_scan_background(self, bg_config) -> None:
-        """Resolve ``background_scan_number`` to a cached ``.npy`` path.
-
-        Loads every device image from the named background scan, averages
-        them into a single image, caches the result inside that scan's
-        own analysis folder, and rewrites ``bg_config`` to point at the
-        cache via the ``FROM_FILE`` method. Subsequent scans that
-        reference the same background scan number reuse the cache.
-
-        Parameters
-        ----------
-        bg_config : BackgroundConfig
-            The analyzer's background configuration. ``file_path`` and
-            ``method`` are mutated in place so the normal
-            ``BackgroundManager`` ``FROM_FILE`` path takes over from
-            here.
-        """
-        from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag
-        from image_analysis.processing.array2d.background import (
-            compute_and_cache_scan_background,
-        )
-        from image_analysis.processing.array2d.config_models import BackgroundMethod
-
-        bg_number = bg_config.background_scan_number
-
-        bg_tag = GeecsDataScanTag(
-            year=self.scan_tag.year,
-            month=self.scan_tag.month,
-            day=self.scan_tag.day,
-            number=bg_number,
-            experiment=self.scan_tag.experiment,
-        )
-        bg_scan_paths = ScanPaths(tag=bg_tag, read_mode=True)
-
-        cache_path = compute_and_cache_scan_background(
-            image_dir=bg_scan_paths.get_folder() / self.device_name,
-            file_tail=self.file_tail,
-            image_loader=self.image_analyzer.load_image,
-            output_path=(
-                bg_scan_paths.get_analysis_folder()
-                / self.device_name
-                / f"{self.device_name}_background_avg.npy"
-            ),
-            method="mean",
-        )
 
         bg_config.file_path = cache_path
         bg_config.method = BackgroundMethod.FROM_FILE

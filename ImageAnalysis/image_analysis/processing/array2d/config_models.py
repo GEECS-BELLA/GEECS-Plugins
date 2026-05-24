@@ -23,11 +23,17 @@ class BackgroundMethod(str, Enum):
 
 class BackgroundConfig(BaseModel):
     """
-    Simplified configuration for background subtraction.
+    Configuration for background subtraction.
 
     This configuration supports a two-stage workflow:
     1. Primary background source (from_file, constant, or None)
     2. Additional constant offset applied after primary background
+
+    For scan-context background sources (cross-scan dark frames or dynamic
+    backgrounds computed from the current scan), use the
+    ``scan.background_source`` directive on the diagnostic config: the
+    scan analyzer computes and caches the result, then rewrites this
+    config to a ``FROM_FILE`` background pointing at the cache.
 
     Attributes
     ----------
@@ -41,11 +47,6 @@ class BackgroundConfig(BaseModel):
         Constant background level (for constant method, or fallback if file not found).
     additional_constant : float
         Additional constant to subtract AFTER primary background (default 0).
-    background_scan_number : int, optional
-        Scan number to use as background source. The scan analyzer will load
-        and average all images from that scan's device folder, cache the result
-        as a .npy file, and use it as a FROM_FILE background. Takes precedence
-        over file_path when set.
     """
 
     enabled: bool = Field(True, description="Enable background processing")
@@ -61,27 +62,12 @@ class BackgroundConfig(BaseModel):
     additional_constant: float = Field(
         0.0, description="Additional constant offset applied after primary background"
     )
-    background_scan_number: Optional[int] = Field(
-        None,
-        description=(
-            "Scan number whose images are averaged to form the background. "
-            "Handled by the scan analyzer: images from that scan's device folder "
-            "are loaded, averaged, and cached as a .npy file. Takes precedence "
-            "over file_path when set."
-        ),
-    )
 
     @model_validator(mode="after")
     def validate_background_source(self) -> "BackgroundConfig":
-        """Require file_path or background_scan_number when method is from_file."""
-        if (
-            self.method == BackgroundMethod.FROM_FILE
-            and self.file_path is None
-            and self.background_scan_number is None
-        ):
-            raise ValueError(
-                'file_path or background_scan_number required when method is "from_file"'
-            )
+        """Require ``file_path`` when ``method`` is ``from_file``."""
+        if self.method == BackgroundMethod.FROM_FILE and self.file_path is None:
+            raise ValueError('file_path required when method is "from_file"')
         return self
 
 
