@@ -64,6 +64,7 @@ from .analysis_group_loader import (
     discover_analyzers,
     discover_groups,
     load_analysis_group,
+    load_diagnostic,
     resolve_group,
 )
 from .diagnostic_factory import create_diagnostic_analyzer
@@ -89,6 +90,7 @@ __all__ = [
     "resolve_image_analyzer_value",
     # Loader
     "load_analysis_group",
+    "load_diagnostic",
     "discover_analyzers",
     "discover_groups",
     "resolve_group",
