@@ -25,10 +25,15 @@ import importlib
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Type
 
+from image_analysis.config import (
+    DiagnosticAnalysisConfig,
+    ImageAnalyzerSpec,
+    ImageKind,
+    ScanType,
+)
 from image_analysis.config_loader import load_camera_config, load_line_config
 
-from .aliases import ImageAnalyzerSpec, ImageKind, ScanType
-from .diagnostic_models import DiagnosticAnalysisConfig, ResolvedDiagnosticConfig
+from .diagnostic_models import ResolvedDiagnosticConfig, ScanRuntimeConfig
 
 if TYPE_CHECKING:
     from scan_analysis.base import ScanAnalyzer
@@ -181,7 +186,10 @@ def _wrap_in_scan_analyzer(
     """
     diag = resolved.diagnostic
     spec = diag.image_analyzer
-    scan_cfg = diag.scan
+    # ``diag.scan`` is weakly typed at the ImageAnalysis layer; validate
+    # against the scan-side runtime model here. Empty / missing scan
+    # block falls back to ScanRuntimeConfig's defaults.
+    scan_cfg = ScanRuntimeConfig.model_validate(diag.scan or {})
 
     if spec.scan_type == ScanType.ARRAY2D:
         from scan_analysis.analyzers.common.array2D_scan_analysis import (

@@ -5,8 +5,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from scan_analysis.config.aliases import (
+from image_analysis.config import (
     ALIAS_REGISTRY,
+    DiagnosticAnalysisConfig,
     ImageAnalyzerSpec,
     ImageKind,
     ScanType,
@@ -16,7 +17,6 @@ from scan_analysis.config.diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
     BackgroundSource,
-    DiagnosticAnalysisConfig,
     FromCurrentScanSpec,
     ScanRuntimeConfig,
 )
@@ -148,7 +148,12 @@ class TestDiagnosticAnalysisConfig:
         assert cfg.name == "UC_GaiaMode"
         assert cfg.image_analyzer.class_path.endswith("BeamAnalyzer")
         assert cfg.image is None
-        assert cfg.scan.priority == 100
+        # ``scan`` is weakly typed at the ImageAnalysis layer; omitted
+        # → ``None``. Scan-side validation happens via
+        # ``ScanRuntimeConfig.model_validate(cfg.scan or {})``.
+        assert cfg.scan is None
+        scan_cfg = ScanRuntimeConfig.model_validate(cfg.scan or {})
+        assert scan_cfg.priority == 100
 
     def test_full_shape_validates(self):
         cfg = DiagnosticAnalysisConfig(
@@ -158,9 +163,18 @@ class TestDiagnosticAnalysisConfig:
             scan={"priority": 45, "save": False, "mode": "per_shot", "gdoc_slot": 0},
         )
         assert cfg.image == {"bit_depth": 16, "background": {"method": "constant"}}
-        assert cfg.scan.priority == 45
-        assert cfg.scan.save is False
-        assert cfg.scan.gdoc_slot == 0
+        # ``scan`` is a raw dict at this layer
+        assert cfg.scan == {
+            "priority": 45,
+            "save": False,
+            "mode": "per_shot",
+            "gdoc_slot": 0,
+        }
+        # Scan-side validation produces the typed view
+        scan_cfg = ScanRuntimeConfig.model_validate(cfg.scan)
+        assert scan_cfg.priority == 45
+        assert scan_cfg.save is False
+        assert scan_cfg.gdoc_slot == 0
 
     def test_verbose_image_analyzer_form_validates(self):
         cfg = DiagnosticAnalysisConfig(

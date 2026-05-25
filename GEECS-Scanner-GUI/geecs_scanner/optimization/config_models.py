@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
-from scan_analysis.config.aliases import (
+from image_analysis.config import (
     ImageAnalyzerSpec,
     resolve_image_analyzer_value,
 )

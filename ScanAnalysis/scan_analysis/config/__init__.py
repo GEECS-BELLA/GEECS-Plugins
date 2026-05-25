@@ -40,9 +40,12 @@ ImageAnalysis derives its own search root as
 ``<scan_analysis_configs_path>/analyzers`` automatically.
 """
 
-# Unified diagnostic schema
-from .aliases import (
+# Unified diagnostic schema — the top-level model lives in ImageAnalysis
+# (it owns the image_analyzer + image: shape), re-exported here for
+# back-compat with callers used to importing from scan_analysis.config.
+from image_analysis.config import (
     ALIAS_REGISTRY,
+    DiagnosticAnalysisConfig,
     ImageAnalyzerSpec,
     ImageKind,
     ScanType,
@@ -52,7 +55,6 @@ from .diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
     BackgroundSource,
-    DiagnosticAnalysisConfig,
     FromCurrentScanSpec,
     ResolvedDiagnosticConfig,
     ScanRuntimeConfig,

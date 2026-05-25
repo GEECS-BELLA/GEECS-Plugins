@@ -34,10 +34,12 @@ from typing import Dict, Iterable, List, Optional, Union
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from image_analysis.config import DiagnosticAnalysisConfig
+
 from .diagnostic_models import (
     AnalysisGroupConfig,
-    DiagnosticAnalysisConfig,
     ResolvedDiagnosticConfig,
+    ScanRuntimeConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -246,10 +248,12 @@ def resolve_group(
         seen[ref] = 1
 
         diagnostic = _load_diagnostic_file(analyzer_index[ref])
+        # diagnostic.scan is weakly typed at the ImageAnalysis layer;
+        # validate to read the priority field. ``or {}`` covers the
+        # legitimate "no scan block in the YAML" case.
+        scan_cfg = ScanRuntimeConfig.model_validate(diagnostic.scan or {})
         effective_priority = (
-            ref_entry.priority
-            if ref_entry.priority is not None
-            else diagnostic.scan.priority
+            ref_entry.priority if ref_entry.priority is not None else scan_cfg.priority
         )
 
         if not ref_entry.enabled:
@@ -429,10 +433,11 @@ def load_diagnostic(
         diag_path = index[name_or_path]
 
     diag = _load_diagnostic_file(diag_path)
+    scan_cfg = ScanRuntimeConfig.model_validate(diag.scan or {})
     return ResolvedDiagnosticConfig(
         id=diag_path.stem,
         enabled=True,
-        priority=diag.scan.priority,
+        priority=scan_cfg.priority,
         diagnostic=diag,
     )
 
