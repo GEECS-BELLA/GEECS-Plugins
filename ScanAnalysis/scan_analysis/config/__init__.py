@@ -17,19 +17,23 @@ Quick start
 
 Load a group, instantiate its analyzers, run::
 
-    >>> from scan_analysis.config import load_analysis_group, create_diagnostic_analyzer
+    >>> from scan_analysis.config import load_analysis_group, create_scan_analyzer
     >>>
     >>> group = load_analysis_group("baseline", config_dir=<scan_analysis_configs>)
-    >>> analyzers = [create_diagnostic_analyzer(r) for r in group.analyzers]
+    >>> analyzers = [
+    ...     create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+    ...     for r in group.analyzers
+    ... ]
     >>> for a in analyzers:
     ...     a.run_analysis(scan_tag)
 
-Or build a single diagnostic directly from its YAML path::
+Or build a single diagnostic directly::
 
-    >>> from scan_analysis.config import DiagnosticAnalysisConfig
-    >>> import yaml
-    >>> with open("analyzers/HTU/GaiaMode.yaml") as f:
-    ...     cfg = DiagnosticAnalysisConfig.model_validate(yaml.safe_load(f))
+    >>> from image_analysis.config import load_diagnostic
+    >>> from scan_analysis.config import create_scan_analyzer
+    >>> diag = load_diagnostic("UC_VisaEBeam1")
+    >>> diag.image.roi.x_max = 200    # optional notebook tweak
+    >>> analyzer = create_scan_analyzer(diag)
 
 Environment
 -----------
@@ -66,10 +70,9 @@ from .analysis_group_loader import (
     discover_analyzers,
     discover_groups,
     load_analysis_group,
-    load_diagnostic,
     resolve_group,
 )
-from .diagnostic_factory import create_diagnostic_analyzer
+from .diagnostic_factory import create_scan_analyzer
 
 # Scatter analyzers (separate path; not unified)
 from .analyzer_config_models import PlotParameterConfig, ScatterAnalyzerConfig
@@ -92,13 +95,12 @@ __all__ = [
     "resolve_image_analyzer_value",
     # Loader
     "load_analysis_group",
-    "load_diagnostic",
     "discover_analyzers",
     "discover_groups",
     "resolve_group",
     "LoadedAnalysisGroup",
     # Factory
-    "create_diagnostic_analyzer",
+    "create_scan_analyzer",
     # Scatter (legacy non-unified path)
     "ScatterAnalyzerConfig",
     "PlotParameterConfig",

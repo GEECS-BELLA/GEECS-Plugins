@@ -50,7 +50,7 @@ def create_analyzer(config: ScatterAnalyzerConfig) -> "ScanAnalyzer":
     if not isinstance(config, ScatterAnalyzerConfig):
         raise ValueError(
             f"create_analyzer accepts only ScatterAnalyzerConfig; got "
-            f"{type(config).__name__}. Use create_diagnostic_analyzer "
+            f"{type(config).__name__}. Use create_scan_analyzer "
             f"from scan_analysis.config.diagnostic_factory for unified "
             f"image-analyzer-driven scan analyzers."
         )

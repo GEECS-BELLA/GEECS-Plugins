@@ -12,7 +12,6 @@ from scan_analysis.config.analysis_group_loader import (
     discover_analyzers,
     discover_groups,
     load_analysis_group,
-    load_diagnostic,
     resolve_group,
 )
 from scan_analysis.config.diagnostic_models import (
@@ -220,29 +219,6 @@ class TestLoadAnalysisGroup:
             load_analysis_group("nope", config_dir=configs_tree)
 
 
-class TestLoadDiagnostic:
-    """``load_diagnostic`` — single-diagnostic convenience for notebooks."""
-
-    def test_load_by_stem_returns_resolved_config(self, configs_tree):
-        resolved = load_diagnostic("OAPin2", config_dir=configs_tree)
-
-        assert resolved.id == "OAPin2"
-        assert resolved.enabled is True
-        # priority comes straight from diagnostic.scan.priority (no
-        # group-level override)
-        assert resolved.priority == 50
-        assert resolved.diagnostic.name == "UC_OAPin2"
-
-    def test_load_by_absolute_path(self, configs_tree):
-        path = configs_tree / "analyzers" / "PW" / "FROG.yaml"
-        resolved = load_diagnostic(path)
-        assert resolved.id == "FROG"
-        assert resolved.diagnostic.name == "PW_FROG"
-
-    def test_missing_name_raises_keyerror(self, configs_tree):
-        with pytest.raises(KeyError, match="not found"):
-            load_diagnostic("DoesNotExist", config_dir=configs_tree)
-
-    def test_missing_path_raises_filenotfound(self, tmp_path):
-        with pytest.raises(FileNotFoundError, match="not found"):
-            load_diagnostic(tmp_path / "missing.yaml")
+# NB: single-diagnostic loading moved to ``image_analysis.config.load_diagnostic``
+# (returns ``DiagnosticAnalysisConfig`` directly). See
+# ``ImageAnalysis/tests/test_config_factory.py::TestLoadDiagnostic``.

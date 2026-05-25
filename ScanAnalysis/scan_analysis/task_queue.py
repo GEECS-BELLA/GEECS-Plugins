@@ -27,7 +27,7 @@ import yaml
 from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.base import DataUnavailableWarning
 from scan_analysis.config.analysis_group_loader import load_analysis_group
-from scan_analysis.config.diagnostic_factory import create_diagnostic_analyzer
+from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
@@ -610,7 +610,10 @@ def load_analyzers_from_config(
         Runnable :class:`ScanAnalyzer` instances in execution order.
     """
     group = load_analysis_group(group_name, config_dir=config_dir)
-    return [create_diagnostic_analyzer(r) for r in group.analyzers]
+    return [
+        create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+        for r in group.analyzers
+    ]
 
 
 def _heartbeat_updater(
