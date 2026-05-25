@@ -16,8 +16,8 @@ concerns previously split across ``image_analysis_configs/`` and
   at scan-analyzer build time.
 
 A diagnostic also declares its ImageAnalyzer via ``image_analyzer``,
-either as an alias from :data:`aliases.ALIAS_REGISTRY` or as a verbose
-dict; both forms validate into :class:`ImageAnalyzerSpec`.
+either as a bare class-path string (defaults to camera + array2d) or
+as a verbose dict; both forms validate into :class:`ImageAnalyzerSpec`.
 """
 
 from __future__ import annotations
@@ -43,11 +43,10 @@ class DiagnosticAnalysisConfig(BaseModel):
         as the default metric prefix (i.e. injected into ``image.name``
         before ImageAnalysis validates the embedded image section).
     image_analyzer : ImageAnalyzerSpec
-        Identifies the ImageAnalyzer class. Accepts an alias string
-        (``"beam"``), an ``{alias, kwargs}`` dict for analyzers needing
-        per-instance kwargs (``"line_stitcher"``), or a verbose
-        ``{class, image_kind, scan_type, kwargs}`` dict for analyzers
-        without a registered alias.
+        Identifies the ImageAnalyzer class. Accepts a bare class-path
+        string (defaults to camera + array2d) or a verbose
+        ``{class_path, image_kind, scan_type, kwargs}`` dict for
+        analyzers that need different defaults or per-instance kwargs.
     image : dict, optional
         Raw embedded image config. Validated by ImageAnalysis's
         ``load_camera_config`` / ``load_line_config`` after ``name`` is

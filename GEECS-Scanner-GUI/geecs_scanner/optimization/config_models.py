@@ -45,16 +45,15 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
         Which scan-analyzer wrapper to instantiate. Redundant with
         ``image_analyzer.scan_type``; kept for explicitness in optimizer
-        YAMLs and to make the YAML readable without an alias-registry
-        lookup.
+        YAMLs.
     file_tail : str, default=".png"
         File extension/suffix used to match data files for this device.
     image_analyzer : ImageAnalyzerSpec
-        Alias-driven spec for the ImageAnalyzer class. Accepts a string
-        alias (``"beam"``), an alias-with-kwargs dict
-        (``{"alias": "line_stitcher", "kwargs": {...}}``), or the verbose
-        ``{"class": "...", "image_kind": "...", "scan_type": "...",
-        "kwargs": {...}}`` escape hatch.
+        Spec for the ImageAnalyzer class. Accepts a bare class-path
+        string (defaults to camera + array2d) or the verbose
+        ``{"class_path": "...", "image_kind": "...", "scan_type": "...",
+        "kwargs": {...}}`` form for analyzers that need different
+        defaults or per-instance kwargs.
     analysis_mode : {"per_shot", "per_bin"}, default="per_bin"
         Analysis mode for the scan analyzer. "per_bin" is recommended for
         optimization as it leverages built-in averaging.

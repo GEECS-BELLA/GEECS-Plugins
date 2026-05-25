@@ -17,6 +17,24 @@ from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 # ---------------------------------------------------------------------------
 
 
+# Pre-baked image_analyzer specs for the analyzers exercised in these
+# tests. Bare class-path strings default to camera + array2d; verbose
+# dicts override for 1D and the HASO no-image case.
+_BEAM = "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+_STANDARD_1D = {
+    "class_path": "image_analysis.offline_analyzers.standard_1d_analyzer.Standard1DAnalyzer",
+    "image_kind": "line",
+    "scan_type": "array1d",
+}
+_HASO = {
+    "class_path": "image_analysis.offline_analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
+    "image_kind": "none",
+    "scan_type": "array2d",
+}
+
+_SPECS_BY_ALIAS = {"beam": _BEAM, "standard_1d": _STANDARD_1D, "haso": _HASO}
+
+
 def _diag(
     *,
     name="UC_Test",
@@ -24,12 +42,17 @@ def _diag(
     image=None,
     scan=None,
 ) -> DiagnosticAnalysisConfig:
-    """Build a minimal DiagnosticAnalysisConfig for factory tests."""
+    """Build a minimal DiagnosticAnalysisConfig for factory tests.
+
+    ``alias`` here is a test-fixture shorthand for the
+    ``image_analyzer`` spec; it has nothing to do with the (now
+    deleted) on-disk alias registry.
+    """
     if image is None and alias != "haso":
         image = {"bit_depth": 16}
     return DiagnosticAnalysisConfig(
         name=name,
-        image_analyzer=alias,
+        image_analyzer=_SPECS_BY_ALIAS[alias],
         image=image,
         scan=scan or {},
     )

@@ -48,7 +48,6 @@ ImageAnalysis derives its own search root as
 # (it owns the image_analyzer + image: shape), re-exported here for
 # back-compat with callers used to importing from scan_analysis.config.
 from image_analysis.config import (
-    ALIAS_REGISTRY,
     DiagnosticAnalysisConfig,
     ImageAnalyzerSpec,
     ImageKind,
@@ -87,11 +86,10 @@ __all__ = [
     "AnalysisGroupConfig",
     "BackgroundSource",
     "FromCurrentScanSpec",
-    # Alias registry
+    # image_analyzer field model + helpers
     "ImageAnalyzerSpec",
     "ImageKind",
     "ScanType",
-    "ALIAS_REGISTRY",
     "resolve_image_analyzer_value",
     # Loader
     "load_analysis_group",
