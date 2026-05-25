@@ -18,6 +18,8 @@ Public API
 ----------
 - :class:`DiagnosticAnalysisConfig` — the unified YAML's top-level model
 - :class:`ImageAnalyzerSpec` — the resolved ``image_analyzer`` field
+- :func:`load_diagnostic` — load + validate a unified YAML by name/path
+- :func:`create_image_analyzer` — build an ``ImageAnalyzer`` from a config
 - :data:`ALIAS_REGISTRY` — short-name aliases for common analyzers
 - :func:`resolve_image_analyzer_value` — string / dict → spec dict
 """
@@ -30,6 +32,7 @@ from .aliases import (
     resolve_image_analyzer_value,
 )
 from .diagnostic_models import DiagnosticAnalysisConfig
+from .factory import create_image_analyzer, load_diagnostic
 
 __all__ = [
     "ALIAS_REGISTRY",
@@ -37,5 +40,7 @@ __all__ = [
     "ImageAnalyzerSpec",
     "ImageKind",
     "ScanType",
+    "create_image_analyzer",
+    "load_diagnostic",
     "resolve_image_analyzer_value",
 ]
