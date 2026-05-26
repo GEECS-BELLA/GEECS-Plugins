@@ -30,7 +30,7 @@ from matplotlib.axes import Axes
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from image_analysis.algorithms.beam_slopes import compute_beam_slopes
 

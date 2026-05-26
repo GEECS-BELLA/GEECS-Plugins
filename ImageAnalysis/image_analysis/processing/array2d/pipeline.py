@@ -13,7 +13,7 @@ import logging
 from typing import Optional, Dict, Callable
 
 from ...types import Array2D
-from .config_models import CameraConfig, ProcessingStepType
+from image_analysis.config.array2d_processing import CameraConfig, ProcessingStepType
 from .background import apply_background
 from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular_mask
 from .filtering import apply_filtering_config
@@ -134,7 +134,7 @@ def apply_camera_processing_pipeline(
     processed = ensure_float64_processing(image)
     logger.debug("Starting processing pipeline for camera: %s", camera_config.name)
 
-    from .config_models import PipelineConfig
+    from image_analysis.config.array2d_processing import PipelineConfig
 
     pipeline_config = camera_config.pipeline or PipelineConfig()
 

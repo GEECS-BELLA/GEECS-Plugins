@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.config.array2d_processing import (
     CameraConfig,
     PipelineConfig,
     ProcessingStepType,

@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from image_analysis.config import DiagnosticAnalysisConfig
-from image_analysis.processing.array1d.config_models import Line1DConfig
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array1d_processing import Line1DConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
 from scan_analysis.config.diagnostic_factory import create_scan_analyzer

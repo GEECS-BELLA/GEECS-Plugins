@@ -10,7 +10,7 @@ This module provides all processing operations for 2D image data, including:
 """
 
 # Config models
-from .config_models import (
+from image_analysis.config.array2d_processing import (
     CameraConfig,
     BackgroundConfig,
     FilteringConfig,

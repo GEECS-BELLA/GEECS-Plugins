@@ -44,7 +44,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator, ConfigD
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
 

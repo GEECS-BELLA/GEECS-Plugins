@@ -11,7 +11,7 @@ import logging
 from typing import Optional
 from scipy.ndimage import rotate
 from ...types import Array2D
-from .config_models import TransformConfig
+from image_analysis.config.array2d_processing import TransformConfig
 
 logger = logging.getLogger(__name__)
 

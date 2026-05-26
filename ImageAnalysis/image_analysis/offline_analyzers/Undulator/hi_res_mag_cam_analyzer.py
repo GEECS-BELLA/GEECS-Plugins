@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
 from image_analysis.types import ImageAnalyzerResult
 
@@ -46,7 +46,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         ----------
         camera_config : CameraConfig
             Validated camera configuration model. (Use
-            ``image_analysis.config_loader.load_camera_config("UC_HiResMagCam")``
+            ``image_analysis.config.loader.load_camera_config("UC_HiResMagCam")``
             to get the standard config.)
         n_beam_size_clearance : int, default=4
             Bowtie fit parameter: beam size clearance
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     geecs_plugins_dir = current_dir.parent.parent.parent
     image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
-    from image_analysis.config_loader import load_camera_config
+    from image_analysis.config.loader import load_camera_config
 
     image_analyzer = HiResMagCamAnalyzer(
         camera_config=load_camera_config("UC_HiResMagCam")

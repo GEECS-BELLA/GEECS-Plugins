@@ -22,7 +22,7 @@ from .background import (
     save_background_to_file,
     subtract_background,
 )
-from .config_models import (
+from image_analysis.config.array1d_processing import (
     BackgroundConfig,
     BackgroundMethod,
     Data1DConfig,

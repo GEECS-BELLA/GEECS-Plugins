@@ -16,7 +16,7 @@ import logging
 
 import numpy as np
 
-from .config_models import InterpolationConfig
+from image_analysis.config.array1d_processing import InterpolationConfig
 
 logger = logging.getLogger(__name__)
 

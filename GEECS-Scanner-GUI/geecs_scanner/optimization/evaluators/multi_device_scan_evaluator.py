@@ -114,7 +114,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         model to the analyzer constructor.
         """
         from image_analysis.config import ImageKind
-        from image_analysis.config_loader import (
+        from image_analysis.config.loader import (
             load_camera_config,
             load_line_config,
         )

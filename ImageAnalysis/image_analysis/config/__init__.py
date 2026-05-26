@@ -1,26 +1,28 @@
 """Public configuration API for ImageAnalysis.
 
-This subpackage owns the unified diagnostic config schema —
-:class:`DiagnosticAnalysisConfig` and its constituent models. The
-schema lives here (rather than in ScanAnalysis) because ImageAnalysis
-is the natural owner of "which ImageAnalyzer class + what image
-config" and the dependency direction is one-way (ScanAnalysis depends
-on ImageAnalysis, never the reverse).
+This subpackage owns every config-related concern:
+
+* :mod:`array2d_processing` — :class:`CameraConfig` and 2D processing
+  sub-models (ROI, background, crosshair, vignette, filtering, …).
+* :mod:`array1d_processing` — :class:`Line1DConfig` and 1D processing
+  sub-models.
+* :mod:`loader` — YAML loaders that return validated config models
+  (:func:`load_camera_config`, :func:`load_line_config`,
+  :func:`find_config_file`).
+* :mod:`aliases` — :class:`ImageAnalyzerSpec` (the field model for
+  ``image_analyzer`` on a diagnostic) plus the ``ImageKind`` /
+  ``ScanType`` enums.
+* :mod:`diagnostic` — :class:`DiagnosticAnalysisConfig`, the top-level
+  unified-YAML model.
+* :mod:`factory` — Mode-2 entry points (:func:`load_diagnostic`,
+  :func:`create_image_analyzer`).
 
 The ``scan:`` field on a unified diagnostic is weakly typed at this
-layer (``Optional[Dict[str, Any]]``) so ImageAnalysis can validate the
-whole YAML without needing to import scan-side runtime types.
-ScanAnalysis validates the scan dict against its own
+layer (``Optional[Dict[str, Any]]``) so ImageAnalysis can own the
+full diagnostic schema without depending on scan-side runtime types.
+ScanAnalysis validates the scan dict against
 :class:`scan_analysis.config.diagnostic_models.ScanRuntimeConfig` at
 build time.
-
-Public API
-----------
-- :class:`DiagnosticAnalysisConfig` — the unified YAML's top-level model
-- :class:`ImageAnalyzerSpec` — the resolved ``image_analyzer`` field
-- :func:`load_diagnostic` — load + validate a unified YAML by name/path
-- :func:`create_image_analyzer` — build an ``ImageAnalyzer`` from a config
-- :func:`resolve_image_analyzer_value` — string / dict → spec dict
 """
 
 from .aliases import (
@@ -29,15 +31,99 @@ from .aliases import (
     ScanType,
     resolve_image_analyzer_value,
 )
-from .diagnostic_models import DiagnosticAnalysisConfig
+from .array1d_processing import (
+    BackgroundConfig as Background1DConfig,
+)
+from .array1d_processing import (
+    Data1DConfig,
+    Data1DType,
+    FilteringConfig as Filtering1DConfig,
+    FilterMethod,
+    InterpolationConfig,
+    Line1DConfig,
+    PipelineConfig as Pipeline1DConfig,
+    PipelineStepType as PipelineStepType1D,
+    ROI1DConfig,
+    ThresholdingConfig as Thresholding1DConfig,
+)
+from .array2d_processing import (
+    BackgroundConfig,
+    BackgroundMethod,
+    CameraConfig,
+    CircularMaskConfig,
+    CrosshairConfig,
+    CrosshairMaskingConfig,
+    FilteringConfig,
+    NormalizationConfig,
+    NormalizationMethod,
+    PipelineConfig,
+    ProcessingStepType,
+    ROIConfig,
+    ThresholdingConfig,
+    ThresholdMethod,
+    ThresholdMode,
+    TransformConfig,
+    VignetteConfig,
+    VignetteMethod,
+)
+from .diagnostic import DiagnosticAnalysisConfig
 from .factory import create_image_analyzer, load_diagnostic
+from .loader import (
+    create_processing_configs,
+    find_config_file,
+    load_camera_config,
+    load_config_from_yaml,
+    load_line_config,
+    save_config_to_yaml,
+    validate_config_file,
+)
 
 __all__ = [
+    # ----- 2D processing models -----
+    "BackgroundConfig",
+    "BackgroundMethod",
+    "CameraConfig",
+    "CircularMaskConfig",
+    "CrosshairConfig",
+    "CrosshairMaskingConfig",
+    "FilteringConfig",
+    "NormalizationConfig",
+    "NormalizationMethod",
+    "PipelineConfig",
+    "ProcessingStepType",
+    "ROIConfig",
+    "ThresholdingConfig",
+    "ThresholdMethod",
+    "ThresholdMode",
+    "TransformConfig",
+    "VignetteConfig",
+    "VignetteMethod",
+    # ----- 1D processing models -----
+    "Background1DConfig",
+    "Data1DConfig",
+    "Data1DType",
+    "Filtering1DConfig",
+    "FilterMethod",
+    "InterpolationConfig",
+    "Line1DConfig",
+    "Pipeline1DConfig",
+    "PipelineStepType1D",
+    "ROI1DConfig",
+    "Thresholding1DConfig",
+    # ----- Loader -----
+    "create_processing_configs",
+    "find_config_file",
+    "load_camera_config",
+    "load_config_from_yaml",
+    "load_line_config",
+    "save_config_to_yaml",
+    "validate_config_file",
+    # ----- Diagnostic (unified) -----
     "DiagnosticAnalysisConfig",
     "ImageAnalyzerSpec",
     "ImageKind",
     "ScanType",
+    "resolve_image_analyzer_value",
     "create_image_analyzer",
     "load_diagnostic",
-    "resolve_image_analyzer_value",
 ]

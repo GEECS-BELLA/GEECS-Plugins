@@ -36,7 +36,7 @@ import yaml
 from pydantic import ValidationError
 
 from .aliases import ImageAnalyzerSpec, ImageKind
-from .diagnostic_models import DiagnosticAnalysisConfig
+from .diagnostic import DiagnosticAnalysisConfig
 
 logger = logging.getLogger(__name__)
 
@@ -215,9 +215,9 @@ def _validate_embedded_image_section(
     Returns the validated ``CameraConfig`` / ``Line1DConfig`` object,
     or ``None`` when the analyzer takes no embedded image config.
     """
-    # Lazy import: ``image_analysis.config_loader`` pulls in heavy
-    # processing modules; defer until we actually need it.
-    from image_analysis.config_loader import load_camera_config, load_line_config
+    # Lazy import: ``loader`` pulls in heavy processing modules;
+    # defer until we actually need it.
+    from .loader import load_camera_config, load_line_config
 
     if image_kind == ImageKind.NONE:
         if diag.image is not None:

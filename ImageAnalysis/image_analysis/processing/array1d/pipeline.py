@@ -16,7 +16,7 @@ import logging
 import numpy as np
 
 from .background import compute_background, subtract_background
-from .config_models import Line1DConfig, PipelineStepType
+from image_analysis.config.array1d_processing import Line1DConfig, PipelineStepType
 from .filtering import apply_filtering
 from .interpolation import apply_interpolation
 from .roi import apply_roi_1d

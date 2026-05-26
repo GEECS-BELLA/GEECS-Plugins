@@ -2,7 +2,7 @@
 
 Provides functions for listing, loading, saving, validating, and creating
 device configuration YAML files.  All heavy lifting is delegated to the
-existing ``image_analysis.config_loader`` module and the Pydantic config
+existing ``image_analysis.config.loader`` module and the Pydantic config
 models; this module adds convenience wrappers tailored to the GUI's needs.
 """
 
@@ -16,16 +16,16 @@ from typing import Any, List, Literal, Optional, Tuple, Union
 import yaml
 from pydantic import BaseModel
 
-from image_analysis.config_loader import (
+from image_analysis.config.loader import (
     load_camera_config,
     load_line_config,
 )
-from image_analysis.processing.array1d.config_models import (
+from image_analysis.config.array1d_processing import (
     Data1DConfig,
     Data1DType,
     Line1DConfig,
 )
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ def load_config(file_path: Path) -> Union[CameraConfig, Line1DConfig]:
 
     Uses :func:`detect_config_type` to determine whether the file is a 2D
     camera config or a 1D line config, then delegates to the appropriate
-    loader from ``image_analysis.config_loader``.
+    loader from ``image_analysis.config.loader``.
 
     Parameters
     ----------

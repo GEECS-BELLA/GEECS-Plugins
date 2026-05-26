@@ -8,7 +8,7 @@ import logging
 import numpy as np
 from numpy.typing import NDArray
 
-from image_analysis.processing.array1d.config_models import ROI1DConfig
+from image_analysis.config.array1d_processing import ROI1DConfig
 
 logger = logging.getLogger(__name__)
 

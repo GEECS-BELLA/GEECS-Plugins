@@ -16,7 +16,7 @@ DEV_NAME = "UC_Amp4_IR_input"
 
 def _make_beam_config(name: str):
     """Construct a minimal CameraConfig for beam analysis (no YAML required)."""
-    from image_analysis.processing.array2d.config_models import (
+    from image_analysis.config.array2d_processing import (
         BackgroundConfig,
         CameraConfig,
     )

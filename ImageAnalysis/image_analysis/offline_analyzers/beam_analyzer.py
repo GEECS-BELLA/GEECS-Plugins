@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
-import image_analysis.processing.array2d.config_models as cfg_2d
+import image_analysis.config.array2d_processing as cfg_2d
 
 # Import beam-specific tools
 from image_analysis.algorithms.basic_beam_stats import (
@@ -99,7 +99,7 @@ class BeamAnalyzer(StandardAnalyzer):
         ----------
         camera_config : CameraConfig
             Pre-validated camera configuration. Use
-            ``image_analysis.config_loader.load_camera_config(name)`` to
+            ``image_analysis.config.loader.load_camera_config(name)`` to
             load from disk by name.
         name_suffix : str, optional
             Suffix to append to camera name for scalar result prefixes.

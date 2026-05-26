@@ -19,7 +19,7 @@ from typing import Optional, Dict
 
 # Import the Standard1DAnalyzer parent class
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.processing.array1d.config_models import Line1DConfig
+from image_analysis.config.array1d_processing import Line1DConfig
 
 # Import line-specific tools
 from image_analysis.algorithms.basic_line_stats import LineBasicStats
@@ -70,7 +70,7 @@ class LineAnalyzer(Standard1DAnalyzer):
         ----------
         line_config : Line1DConfig
             Pre-validated line configuration. Use
-            ``image_analysis.config_loader.load_line_config(name)`` to
+            ``image_analysis.config.loader.load_line_config(name)`` to
             load from disk by name.
         metric_suffix : str, optional
             Suffix to append to all metric names (underscore is auto-prepended).

@@ -26,7 +26,7 @@ def test_array1d_ict_noscan_runs():
     Uses flag_save_data=False to avoid writing to the data directory.
     """
     from geecs_data_utils import ScanTag
-    from image_analysis.config_loader import load_line_config
+    from image_analysis.config.loader import load_line_config
     from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
@@ -47,7 +47,7 @@ def test_array1d_ict_noscan_runs():
 def test_array1d_ict_results_are_2d():
     """Each per-shot ICT result contains a valid Nx2 line_data array."""
     from geecs_data_utils import ScanTag
-    from image_analysis.config_loader import load_line_config
+    from image_analysis.config.loader import load_line_config
     from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
@@ -79,7 +79,7 @@ def test_array1d_magspec_noscan_runs():
     Uses flag_save_data=False to avoid writing to the data directory.
     """
     from geecs_data_utils import ScanTag
-    from image_analysis.config_loader import load_line_config
+    from image_analysis.config.loader import load_line_config
     from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
@@ -100,7 +100,7 @@ def test_array1d_magspec_noscan_runs():
 def test_array1d_magspec_results_have_com_scalar():
     """Each per-shot MagSpec result contains the CoM scalar from LineAnalyzer."""
     from geecs_data_utils import ScanTag
-    from image_analysis.config_loader import load_line_config
+    from image_analysis.config.loader import load_line_config
     from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 

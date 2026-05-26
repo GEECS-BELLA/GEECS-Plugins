@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
-from image_analysis.config_loader import (
+from image_analysis.config.loader import (
     _unwrap_diagnostic_image_section,
     load_camera_config,
     load_line_config,

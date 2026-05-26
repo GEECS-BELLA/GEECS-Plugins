@@ -20,7 +20,7 @@ import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 
 from image_analysis.offline_analyzers.grenouille_analyzer import GrenouilleAnalyzer
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
     FilteringConfig,

@@ -7,7 +7,7 @@ import pytest
 from image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer import (
     HiResMagCamAnalyzer,
 )
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
 )

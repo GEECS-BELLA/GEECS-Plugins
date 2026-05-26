@@ -427,13 +427,13 @@ class ConfigEditorWindow(QMainWindow):
 
         try:
             if self._current_config_type == "camera_2d":
-                from image_analysis.processing.array2d.config_models import (
+                from image_analysis.config.array2d_processing import (
                     CameraConfig,
                 )
 
                 validated = CameraConfig.model_validate(config_dict)
             elif self._current_config_type == "line_1d":
-                from image_analysis.processing.array1d.config_models import (
+                from image_analysis.config.array1d_processing import (
                     Line1DConfig,
                 )
 

@@ -29,7 +29,7 @@ from image_analysis.processing.array2d import apply_camera_processing_pipeline
 from image_analysis.types import Array2D, ImageAnalyzerResult
 
 # Import existing tools and base classes
-import image_analysis.processing.array2d.config_models as cfg_2d
+import image_analysis.config.array2d_processing as cfg_2d
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class StandardAnalyzer(ImageAnalyzer):
     ----------
     camera_config : CameraConfig
         Validated camera configuration model. Use
-        ``image_analysis.config_loader.load_camera_config(name)`` to load
+        ``image_analysis.config.loader.load_camera_config(name)`` to load
         from disk by name before constructing.
     name_suffix : str, optional
         Suffix to append to camera name for scalar result prefixes.
@@ -79,7 +79,7 @@ class StandardAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config_loader.load_camera_config(name)`` (or
+        ``image_analysis.config.loader.load_camera_config(name)`` (or
         ``image_analysis.config.load_image_analyzer(name)``) to get a
         ``CameraConfig`` first, then hand it here.
         """

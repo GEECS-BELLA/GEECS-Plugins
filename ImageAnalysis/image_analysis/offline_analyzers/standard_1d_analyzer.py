@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 from image_analysis.base import ImageAnalyzer
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
-from image_analysis.processing.array1d.config_models import Line1DConfig
+from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
-        ``image_analysis.config_loader.load_line_config(name)`` (or
+        ``image_analysis.config.loader.load_line_config(name)`` (or
         ``image_analysis.config.load_image_analyzer(name)``) to get a
         ``Line1DConfig`` first, then hand it here.
         """

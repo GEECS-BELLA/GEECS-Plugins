@@ -22,7 +22,7 @@ import pandas as pd
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 
 from image_analysis.algorithms.frog_dll_retrieval import (
     FrogDllRetrieval,

@@ -16,7 +16,7 @@ import logging
 
 import numpy as np
 
-from .config_models import ThresholdingConfig, ThresholdMethod
+from image_analysis.config.array1d_processing import ThresholdingConfig, ThresholdMethod
 
 logger = logging.getLogger(__name__)
 

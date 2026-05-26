@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import AnalyzerResultDict
 
 import logging
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     geecs_plugins_dir = current_dir.parent.parent.parent
     image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
-    from image_analysis.config_loader import load_camera_config
+    from image_analysis.config.loader import load_camera_config
 
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
         camera_config=load_camera_config("U_BCaveMagSpec"),

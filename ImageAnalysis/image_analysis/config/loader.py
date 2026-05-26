@@ -22,12 +22,12 @@ import numpy as np
 from pydantic import BaseModel, ValidationError
 
 # All config models in one namespace
-import image_analysis.processing.array2d.config_models as cfg_2d
-import image_analysis.processing.array1d.config_models as cfg_1d
+from . import array2d_processing as cfg_2d
+from . import array1d_processing as cfg_1d
 from geecs_data_utils.config_roots import image_analysis_config
 
 if TYPE_CHECKING:
-    from .types import Array2D
+    from ..types import Array2D
 
 logger = logging.getLogger(__name__)
 

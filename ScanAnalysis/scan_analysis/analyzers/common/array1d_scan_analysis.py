@@ -87,7 +87,7 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     With custom analyzer::
 
-        from image_analysis.config_loader import load_line_config
+        from image_analysis.config.loader import load_line_config
         from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 
         custom_analyzer = Standard1DAnalyzer(
