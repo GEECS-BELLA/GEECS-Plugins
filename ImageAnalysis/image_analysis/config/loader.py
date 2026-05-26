@@ -1,13 +1,25 @@
-"""
-Configuration loading utilities for image analysis.
+"""Loader functions: YAML file → typed config model.
 
-Single public entry point:
-    load_camera_config(...) -> cfg_2d.CameraConfig
+Three public entry points:
 
-This version uses a single, explicit base directory for YAML configs, set via
-environment variable ``IMAGE_ANALYSIS_CONFIG_DIR`` or passed per call.
+* :func:`load_camera_config` — bare camera YAML or unified diagnostic
+  YAML → :class:`CameraConfig`.
+* :func:`load_line_config` — bare line YAML or unified diagnostic YAML
+  → :class:`Line1DConfig`.
+* :func:`load_diagnostic` — unified diagnostic YAML (by stem or path) →
+  :class:`DiagnosticAnalysisConfig`.
 
-Supports recursive search in subdirectories for organized config structures.
+Plus the low-level :func:`find_config_file` for resolving a camera /
+line config name to its path on disk (used by the bare-name forms of
+``load_camera_config`` / ``load_line_config``).
+
+Lookup of standalone camera / line configs uses a single, explicit
+base directory set via the environment variable
+``IMAGE_ANALYSIS_CONFIG_DIR`` or passed per call. The base directory
+is searched recursively.
+
+For the typed-config → live-analyzer step, see
+:func:`image_analysis.config.factory.create_image_analyzer`.
 """
 
 from __future__ import annotations
@@ -21,6 +33,7 @@ from pydantic import ValidationError
 
 from . import array2d_processing as cfg_2d
 from . import array1d_processing as cfg_1d
+from .diagnostic import DiagnosticAnalysisConfig
 from geecs_data_utils.config_roots import image_analysis_config
 
 logger = logging.getLogger(__name__)
@@ -28,6 +41,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "find_config_file",
     "load_camera_config",
+    "load_diagnostic",
     "load_line_config",
 ]
 
@@ -233,3 +247,122 @@ def load_line_config(
         return cfg_1d.Line1DConfig.model_validate(data)
     except ValidationError as e:
         raise ValueError(f"Invalid line configuration: {e}") from e
+
+
+# ----------------------------------------------------------------------
+# Unified diagnostic loader
+# ----------------------------------------------------------------------
+
+
+def load_diagnostic(
+    name_or_path: Union[str, Path],
+    *,
+    config_dir: Optional[Path] = None,
+) -> DiagnosticAnalysisConfig:
+    """Load a unified diagnostic YAML by name or path.
+
+    Parameters
+    ----------
+    name_or_path : str or Path
+        Diagnostic ID (filename stem, e.g. ``"UC_VisaEBeam1"``) or an
+        absolute path to a unified diagnostic YAML. Filename stems must
+        be globally unique across the ``analyzers/`` tree, so the bare
+        stem suffices — no namespace prefix needed.
+    config_dir : Path, optional
+        Root of the scan-analysis configs tree (the parent of
+        ``analyzers/``). When ``None`` and ``name_or_path`` is a
+        string, falls back to
+        ``ScanPaths.paths_config.scan_analysis_configs_path`` — the
+        same default the task queue uses.
+
+    Returns
+    -------
+    DiagnosticAnalysisConfig
+        Validated top-level config. The discriminated
+        ``image:`` field has been routed to a typed :class:`CameraConfig`
+        or :class:`Line1DConfig`; the ``scan:`` field is left as a raw
+        dict at this layer (ScanAnalysis validates it against its own
+        ``ScanRuntimeConfig`` at build time).
+
+    Raises
+    ------
+    FileNotFoundError
+        If the diagnostic can't be located.
+    KeyError
+        If the named stem isn't present under ``analyzers/``.
+    ValueError
+        On invalid YAML, validation errors, or when ``config_dir`` is
+        needed but no default is available.
+    """
+    if isinstance(name_or_path, Path):
+        diag_path = name_or_path
+        if not diag_path.exists():
+            raise FileNotFoundError(f"Diagnostic config not found: {diag_path}")
+    else:
+        base_dir = _resolve_default_config_dir(config_dir)
+        index = _discover_analyzers(base_dir)
+        if name_or_path not in index:
+            raise KeyError(
+                f"Diagnostic '{name_or_path}' not found under "
+                f"{base_dir / 'analyzers'}. Known diagnostics: "
+                f"{sorted(set(index))}"
+            )
+        diag_path = index[name_or_path]
+
+    with open(diag_path, "r") as f:
+        data = yaml.safe_load(f) or {}
+
+    try:
+        return DiagnosticAnalysisConfig.model_validate(data)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
+
+
+def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:
+    """Return ``config_dir`` if set, else the globally configured root."""
+    if config_dir is not None:
+        return Path(config_dir)
+    try:
+        from geecs_data_utils import ScanPaths
+
+        root = ScanPaths.paths_config.scan_analysis_configs_path
+    except Exception as exc:
+        raise ValueError(
+            "config_dir was not provided and no default could be "
+            "resolved from ScanPaths.paths_config."
+        ) from exc
+    if root is None:
+        raise ValueError(
+            "config_dir was not provided and "
+            "ScanPaths.paths_config.scan_analysis_configs_path is unset."
+        )
+    return Path(root)
+
+
+def _discover_analyzers(base_dir: Path) -> Dict[str, Path]:
+    """Build a mapping from diagnostic stem to its YAML path.
+
+    Mirrors :func:`scan_analysis.config.analysis_group_loader.discover_analyzers`
+    but lives here so ImageAnalysis can load diagnostics without
+    importing from ScanAnalysis.
+    """
+    analyzers_dir = base_dir / "analyzers"
+    if not analyzers_dir.is_dir():
+        raise FileNotFoundError(
+            f"Analyzer directory not found: {analyzers_dir}. "
+            f"Expected the unified-configs layout under {base_dir}."
+        )
+
+    index: Dict[str, Path] = {}
+    for path in sorted(
+        list(analyzers_dir.rglob("*.yaml")) + list(analyzers_dir.rglob("*.yml"))
+    ):
+        stem = path.stem
+        if stem in index:
+            raise ValueError(
+                f"Duplicate diagnostic ID '{stem}' at {path} and "
+                f"{index[stem]}. Diagnostic file stems must be unique "
+                f"across the entire 'analyzers/' tree."
+            )
+        index[stem] = path
+    return index

@@ -1,20 +1,20 @@
 """Public configuration API for ImageAnalysis.
 
-This subpackage owns every config-related concern:
+This subpackage owns every config-related concern, organised into
+one concern per file:
 
 * :mod:`array2d_processing` — :class:`CameraConfig` and 2D processing
   sub-models (ROI, background, crosshair, vignette, filtering, …).
 * :mod:`array1d_processing` — :class:`Line1DConfig` and 1D processing
   sub-models.
-* :mod:`loader` — YAML loaders that return validated config models
-  (:func:`load_camera_config`, :func:`load_line_config`,
-  :func:`find_config_file`).
-* :mod:`aliases` — :class:`ImageAnalyzerSpec` (the field model for
-  ``image_analyzer`` on a diagnostic).
-* :mod:`diagnostic` — :class:`DiagnosticAnalysisConfig`, the top-level
-  unified-YAML model.
-* :mod:`factory` — Mode-2 entry points (:func:`load_diagnostic`,
-  :func:`create_image_analyzer`).
+* :mod:`diagnostic` — diagnostic-level Pydantic models:
+  :class:`DiagnosticAnalysisConfig` (the top-level unified-YAML model)
+  and :class:`ImageAnalyzerSpec` (the field model for ``image_analyzer``).
+* :mod:`loader` — YAML file → typed config:
+  :func:`load_camera_config`, :func:`load_line_config`,
+  :func:`load_diagnostic`, :func:`find_config_file`.
+* :mod:`factory` — typed config → live instance:
+  :func:`create_image_analyzer`.
 
 The ``scan:`` field on a unified diagnostic is weakly typed at this
 layer (``Optional[Dict[str, Any]]``) so ImageAnalysis can own the
@@ -24,10 +24,6 @@ ScanAnalysis validates the scan dict against
 build time.
 """
 
-from .aliases import (
-    ImageAnalyzerSpec,
-    resolve_image_analyzer_value,
-)
 from .array1d_processing import (
     BackgroundConfig as Background1DConfig,
 )
@@ -63,8 +59,13 @@ from .array2d_processing import (
     VignetteConfig,
     VignetteMethod,
 )
-from .diagnostic import DiagnosticAnalysisConfig
-from .factory import create_image_analyzer, load_diagnostic
+from .diagnostic import (
+    DiagnosticAnalysisConfig,
+    ImageAnalyzerSpec,
+    resolve_image_analyzer_value,
+)
+from .factory import create_image_analyzer
+from .loader import load_diagnostic
 from .loader import (
     find_config_file,
     load_camera_config,
