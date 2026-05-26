@@ -390,3 +390,240 @@ conflict. But PRs should land in order.
   `image_analyzer:` field format (alias → class path). The structure
   is the same.
 - **No performance work.**
+
+---
+
+# Outcome (post-implementation, written after the final commit)
+
+## What landed
+
+12 commits on `feat/loader-api-refactor` (GEECS-Plugins) plus 3 on
+`feat/loader-api-refactor` (GEECS-Plugins-Configs). The PR grew
+beyond the original scope as the review pass surfaced more cleanup
+opportunities — every dead-code audit ended up paying for itself.
+
+### GEECS-Plugins commit log (in order)
+
+| Commit | Summary |
+|---|---|
+| `12b14bf6` | Planning doc (this file, original) |
+| `ca044e40` | Relocate `DiagnosticAnalysisConfig` to `image_analysis.config` |
+| `47534315` | Add public `load_diagnostic` + `create_image_analyzer` (ImageAnalysis-side) |
+| `4f38eb95` | Rename `create_diagnostic_analyzer` → `create_scan_analyzer`, slim factory |
+| `b68af19b` | Kill the `image_analyzer` alias registry |
+| `7df36856` | Drop polymorphic `camera_config_name=` / `line_config_name=` kwargs on 12 analyzers |
+| `66453911` | Optimizer: load typed image config before instantiation |
+| `35b531f6` | Replace `BackgroundManager` (310 LoC class) with `apply_background()` function |
+| `1a1f2500` | Consolidate all config under `image_analysis.config/` (move array1d/2d models, loader, diagnostic) |
+| `42a62756` | Rename `offline_analyzers/` → `analyzers/` (historical holdover) |
+| `7e99c1fd` | Drop dead-code utilities from `config.loader` (8 functions, ~170 LoC) |
+| `277fc4dc` | Drop `ScatterAnalyzerConfig` + `create_analyzer` (dead config plumbing) |
+
+### GEECS-Plugins-Configs commit log
+
+| Commit | Summary |
+|---|---|
+| `33ffbda` | Emit `image_analyzer` as `class_path` (no aliases) — 38 YAMLs |
+| `5943572` | Drop alias-emission in migration script |
+| `f59df5f` | `image_analysis.offline_analyzers` → `image_analysis.analyzers` (49 files) |
+
+### LoC delta (vs. cutover branch tip)
+
+|  | Insertions | Deletions | Net |
+|---|---:|---:|---:|
+| All code + tests | 1745 | 2197 | **−452** |
+| Code only (excluding tests) | 1346 | 1855 | **−509** |
+| Configs repo | ~140 | ~58 | +82 |
+
+Net negative across the board, despite adding ~300 LoC of new public
+factory module + ~370 LoC of new test coverage. The deletion pile is
+real.
+
+## Final repo layout
+
+### ImageAnalysis
+
+```
+image_analysis/
+  config/                          ← single home for ALL config concerns
+    __init__.py                    (public re-exports)
+    aliases.py                     (ImageAnalyzerSpec + ImageKind/ScanType enums)
+    array2d_processing.py          (CameraConfig + 2D sub-models — moved from processing/)
+    array1d_processing.py          (Line1DConfig + 1D sub-models — moved from processing/)
+    diagnostic.py                  (DiagnosticAnalysisConfig — moved from scan_analysis)
+    factory.py                     (load_diagnostic, create_image_analyzer — NEW)
+    loader.py                      (load_camera_config, load_line_config — moved + slimmed)
+  analyzers/                       (was offline_analyzers/)
+    beam_analyzer.py
+    grenouille_analyzer.py
+    ict_1d_analyzer.py
+    line_analyzer.py
+    line_stitcher.py
+    standard_analyzer.py
+    standard_1d_analyzer.py
+    Undulator/
+      BCaveMagSpecStitcher.py
+      BCaveMagSpecStitcherOpt.py
+      hi_res_mag_cam_analyzer.py
+  processing/                      (processing functions only — no models)
+    array1d/
+      background.py, filtering.py, interpolation.py, pipeline.py, roi.py, thresholding.py
+    array2d/
+      background.py (now has apply_background fn — was BackgroundManager class)
+      filtering.py, masking.py, normalization.py, pipeline.py, thresholding.py,
+      transforms.py, vignette.py
+  types.py                         (Array1D, Array2D, ImageAnalyzerResult — left alone)
+  base.py
+```
+
+### ScanAnalysis
+
+```
+scan_analysis/
+  config/
+    __init__.py
+    analysis_group_loader.py       (discover_analyzers, discover_groups, load_analysis_group)
+    diagnostic_factory.py          (create_scan_analyzer)
+    diagnostic_models.py           (ScanRuntimeConfig, AnalyzerRef, BackgroundSource, …)
+  analyzers/
+    common/
+      single_device_scan_analyzer.py
+      array1d_scan_analysis.py
+      array2D_scan_analysis.py
+      scatter_plotter_analysis.py  (kept as standalone utility)
+    Undulator/                     (yaml-only items; audit deferred per user)
+```
+
+## Final public API surface
+
+Four functions plus the models. This is what notebooks should import.
+
+```python
+# ----- ImageAnalysis side -----
+from image_analysis.config import (
+    # Loading
+    load_diagnostic,            # name | path → DiagnosticAnalysisConfig
+    load_camera_config,         # name | path | dict → CameraConfig (Mode 1 disk-backed)
+    load_line_config,           # name | path | dict → Line1DConfig (Mode 1 disk-backed)
+
+    # Factory
+    create_image_analyzer,      # DiagnosticAnalysisConfig → ImageAnalyzer
+
+    # Models
+    DiagnosticAnalysisConfig,
+    CameraConfig, Line1DConfig,
+    ROIConfig, BackgroundConfig, CrosshairMaskingConfig, VignetteConfig, …
+    ImageAnalyzerSpec, ImageKind, ScanType,
+)
+
+# ----- ScanAnalysis side -----
+from scan_analysis.config import (
+    # Loading
+    load_analysis_group,        # group name → LoadedAnalysisGroup (production path)
+
+    # Factory
+    create_scan_analyzer,       # DiagnosticAnalysisConfig → ScanAnalyzer
+
+    # Models
+    ScanRuntimeConfig, AnalyzerRef, AnalysisGroupConfig,
+    ResolvedDiagnosticConfig, BackgroundSource, FromCurrentScanSpec,
+)
+```
+
+### Two usage modes, side by side
+
+```python
+# ----- Mode 1: direct construction (no YAML) -----
+from image_analysis.config import CameraConfig, ROIConfig
+from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
+
+cfg = CameraConfig(name="UC_MyCam", roi=ROIConfig(x_min=0, x_max=600))
+analyzer = BeamAnalyzer(camera_config=cfg)
+result = analyzer.analyze_image_file(some_path)
+
+# ----- Mode 2: config-driven (load from YAML) -----
+from image_analysis.config import load_diagnostic, create_image_analyzer
+from scan_analysis.config import create_scan_analyzer
+
+diag = load_diagnostic("UC_VisaEBeam1")
+diag.image.roi.x_max = 200          # optional tweak
+
+image_analyzer = create_image_analyzer(diag)        # just the ImageAnalyzer
+scan_analyzer  = create_scan_analyzer(diag)         # full ScanAnalyzer wrapper
+```
+
+## Side audits that paid off (not in the original plan)
+
+These came out of the consolidation pass at the end:
+
+1. **`BackgroundManager` (310 LoC class) → `apply_background()` function (~30 LoC).**
+   11 of 12 public methods were dead code from the deleted dynamic-background
+   era. The path-keyed cache moved from manager-instance state to an
+   analyzer-instance dict. Commit `35b531f6`. Net −275 LoC.
+
+2. **`config.loader` dead-code purge.**
+   `_apply_nested_overrides`, `create_processing_configs`,
+   `save_config_to_yaml`, `load_config_from_yaml`, `validate_config_file`,
+   `get_config_schema`, `convert_from_processing_dtype`,
+   `list_available_configs` — all zero external callers. Commit `7e99c1fd`.
+   Net −170 LoC.
+
+3. **Scatter config plumbing.**
+   `ScatterAnalyzerConfig`, `PlotParameterConfig`, `create_analyzer`
+   factory, dedicated test file — none referenced by production YAMLs;
+   only the test plumbed them. The `ScatterPlotterAnalysis` class itself
+   stays (real working code, used by `ICTPlotAnalysis`). Commit `277fc4dc`.
+   Net −395 LoC.
+
+## TODO before opening PRs
+
+1. **CHANGELOGs + version bumps** — three packages touched:
+   - ImageAnalysis: 1.4.0 → 1.5.0 (`config/` reorg, `analyzers/` rename, factory addition, BackgroundManager removal, polymorphic-kwarg removal)
+   - ScanAnalysis: 1.6.0 → 1.7.0 (`create_diagnostic_analyzer` → `create_scan_analyzer` rename, ScatterAnalyzerConfig removal)
+   - Scanner-GUI: 0.21.0 → 0.22.0 (optimizer load-then-pass fix)
+
+2. **Two new notebooks under `docs/api_patterns/`** — Mode 1 + Mode 2
+   demos. *User flagged earlier they want to do these hands-on for
+   themselves; defer to user.*
+
+3. **Open PRs** — none yet on this stack. Decision still pending on
+   whether to open as one mega-PR off master or stack four PRs
+   (shot-by-shot → unified-configs → cutover → loader-api-refactor).
+   Companion configs-repo PRs need to land atomically with PR-C and
+   PR-E.
+
+## Explicitly deferred items
+
+- **Array1D/Array2D processing pipeline simplification.** `pipeline.py`
+  has 8 three-line wrapper functions + a `STEP_REGISTRY` dict that
+  could collapse to an if/elif chain in the main loop (~100 LoC → ~30).
+  User acknowledged it's hokey but explicitly deferred to a separate
+  PR. Worth doing eventually.
+- **`scan_analysis/analyzers/Undulator/` audit.** User said "almost
+  100% delete-able" but doing it themselves.
+- **ConfigFileGUI rework.** Was PR-F all along. Still deferred. Will
+  land against this PR-E's final API surface as the stable target.
+- **`ScanAnalyzer` → `ScanOrchestrator` rename.** User noted the
+  naming feels off (it's an orchestration layer, not analysis), but
+  deferred to a dedicated rename PR with full repo sweep.
+- **Notebook updates beyond the two new Mode 1 / Mode 2 demos.** User
+  takes the rest.
+- **Scatter config integration into unified schema.** Explicitly
+  decided against. Scatter stays a standalone utility class —
+  occasional notebook use only.
+
+## Branch state
+
+```
+master (GEECS-Plugins)
+  └── feat/shot-by-shot-scan-analyzer        (5 commits, no PR)
+       └── feat/unified-diagnostic-configs   (+11, no PR)
+            └── feat/unified-diagnostic-configs-cutover  (+7, no PR)
+                 └── feat/loader-api-refactor (+12, no PR)  ← this branch
+
+master (GEECS-Plugins-Configs)
+  └── feat/unified-diagnostic-configs        (5 commits, no PR — PR-C content)
+       └── feat/loader-api-refactor          (+3 commits, no PR)
+```
+
+All branches pushed to origin. No PRs opened yet.
