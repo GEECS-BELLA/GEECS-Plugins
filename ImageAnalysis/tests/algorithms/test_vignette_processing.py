@@ -52,7 +52,7 @@ def test_pipeline_applies_vignette_step():
         pipeline=PipelineConfig(steps=[ProcessingStepType.VIGNETTE]),
     )
 
-    out = apply_camera_processing_pipeline(image, camera_cfg, background_manager=None)
+    out = apply_camera_processing_pipeline(image, camera_cfg, background_cache=None)
     np.testing.assert_allclose(out, 5.0 * np.ones_like(image))
 
 

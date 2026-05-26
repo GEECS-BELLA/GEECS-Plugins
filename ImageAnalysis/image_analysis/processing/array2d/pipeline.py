@@ -14,7 +14,7 @@ from typing import Optional, Dict, Callable
 
 from ...types import Array2D
 from .config_models import CameraConfig, ProcessingStepType
-from .background_manager import BackgroundManager
+from .background import apply_background
 from .masking import apply_crosshair_masking, apply_roi_cropping, apply_circular_mask
 from .filtering import apply_filtering_config
 from .transforms import apply_transform_config
@@ -105,47 +105,47 @@ STEP_REGISTRY: Dict[ProcessingStepType, Callable[[Array2D, CameraConfig], Array2
 def apply_camera_processing_pipeline(
     image: Array2D,
     camera_config: CameraConfig,
-    background_manager: Optional[BackgroundManager] = None,
+    background_cache: Optional[Dict[str, Array2D]] = None,
 ) -> Array2D:
-    """
-    Apply the complete camera processing pipeline using the Pydantic configuration model.
+    """Apply the complete camera processing pipeline.
 
-    The pipeline now supports configurable step ordering via the optional PipelineConfig.
-    If no pipeline configuration is provided, a default order matching the original
-    hardcoded sequence is used.
+    Steps run in the order declared by ``camera_config.pipeline.steps``
+    (defaulting to the canonical order when no pipeline config is set).
+    The background step calls :func:`apply_background` with
+    ``camera_config.background``; pass ``background_cache`` (a path-keyed
+    dict held by the analyzer instance) to avoid reloading the same
+    background file on every shot.
 
     Parameters
     ----------
     image : Array2D
-        Input image to process
+        Input image.
     camera_config : CameraConfig
-        Complete camera configuration including optional pipeline config
-    background_manager : Optional[BackgroundManager]
-        Background manager for background processing
+        Camera configuration (processing pipeline + per-step configs).
+    background_cache : dict, optional
+        Path-keyed cache forwarded to :func:`apply_background`.
+        Suppressed (no caching) when ``None``.
 
     Returns
     -------
     Array2D
-        Processed image
+        Processed image.
     """
-    # Ensure float64 processing dtype
     processed = ensure_float64_processing(image)
     logger.debug("Starting processing pipeline for camera: %s", camera_config.name)
 
-    # Get pipeline configuration (use default if not specified)
     from .config_models import PipelineConfig
 
     pipeline_config = camera_config.pipeline or PipelineConfig()
 
-    # Execute steps in configured order
     for step_type in pipeline_config.steps:
         if step_type == ProcessingStepType.BACKGROUND:
-            # Background step is handled specially via the background manager
-            if background_manager is not None:
-                processed = background_manager.process_single_image(processed)
+            if camera_config.background is not None:
+                processed = apply_background(
+                    processed, camera_config.background, cache=background_cache
+                )
                 logger.debug("Applied background processing")
         else:
-            # Get the step function from registry
             step_func = STEP_REGISTRY.get(step_type)
             if step_func:
                 processed = step_func(processed, camera_config)
@@ -158,11 +158,13 @@ def apply_camera_processing_pipeline(
 def apply_non_background_processing(
     image: Array2D, camera_config: CameraConfig
 ) -> Array2D:
-    """
-    Apply all processing steps except background processing.
+    """Apply all processing steps except background.
 
-    This function applies the configured pipeline without background processing,
-    useful when the image is already background-corrected.
+    Convenience wrapper over :func:`apply_camera_processing_pipeline`
+    with ``background_cache=None``; the background step is still
+    invoked, but only emits a no-op since the underlying function
+    is itself a no-op when ``config.enabled=False`` (use this when
+    the image is already background-corrected upstream).
 
     Parameters
     ----------
@@ -176,31 +178,4 @@ def apply_non_background_processing(
     Array2D
         Processed image.
     """
-    # Use the main pipeline but without background manager
-    return apply_camera_processing_pipeline(
-        image, camera_config, background_manager=None
-    )
-
-
-def create_background_manager_from_config(
-    camera_config: CameraConfig,
-) -> Optional[BackgroundManager]:
-    """
-    Create a BackgroundManager from the camera configuration.
-
-    This is a convenience function that creates a BackgroundManager if
-    background processing is configured in the camera config.
-
-    Parameters
-    ----------
-    camera_config : CameraConfig
-        Complete camera configuration Pydantic model
-
-    Returns
-    -------
-    Optional[BackgroundManager]
-        BackgroundManager instance if background is configured, None otherwise
-    """
-    if camera_config.background and camera_config.background.enabled:
-        return BackgroundManager(camera_config.background)
-    return None
+    return apply_camera_processing_pipeline(image, camera_config, background_cache=None)

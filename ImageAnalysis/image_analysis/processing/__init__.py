@@ -17,7 +17,7 @@ Import directly from there:
 
     from image_analysis.processing.array2d import apply_gaussian_filter
     from image_analysis.processing.array2d.config_models import CameraConfig
-    from image_analysis.processing.array2d import BackgroundManager
+    from image_analysis.processing.array2d import apply_background
 """
 
 __all__ = []

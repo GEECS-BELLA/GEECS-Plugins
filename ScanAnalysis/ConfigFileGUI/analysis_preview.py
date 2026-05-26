@@ -147,7 +147,6 @@ class AnalysisWorker(QThread):
         from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
         from image_analysis.processing.array2d.pipeline import (
             apply_camera_processing_pipeline,
-            create_background_manager_from_config,
         )
         from image_analysis.types import ImageAnalyzerResult
         from image_analysis.utils import read_imaq_image
@@ -159,10 +158,9 @@ class AnalysisWorker(QThread):
         # 2. Build validated CameraConfig from the dict
         camera_config = load_camera_config(self._config_dict)
 
-        # 3. Apply processing pipeline
-        bg_manager = create_background_manager_from_config(camera_config)
+        # 3. Apply processing pipeline (one-shot preview; no cache needed)
         processed_image = apply_camera_processing_pipeline(
-            raw_image, camera_config, bg_manager
+            raw_image, camera_config, background_cache=None
         )
 
         # 4. Beam statistics
