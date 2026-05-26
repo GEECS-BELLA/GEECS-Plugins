@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from image_analysis.offline_analyzers.Undulator.hi_res_mag_cam_analyzer import (
+from image_analysis.analyzers.Undulator.hi_res_mag_cam_analyzer import (
     HiResMagCamAnalyzer,
 )
 from image_analysis.config.array2d_processing import (

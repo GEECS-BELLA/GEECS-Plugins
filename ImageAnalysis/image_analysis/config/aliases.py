@@ -8,7 +8,7 @@ surface forms are accepted on the ``image_analyzer`` field:
   (``BeamAnalyzer``, ``StandardAnalyzer``, ``GrenouilleAnalyzer``,
   ``MagSpecManualCalibAnalyzer``, …)::
 
-      image_analyzer: image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer
+      image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
 
 * **Verbose dict** — class path plus explicit ``image_kind`` /
   ``scan_type`` / ``kwargs``. Required for 1D analyzers (line config
@@ -16,7 +16,7 @@ surface forms are accepted on the ``image_analyzer`` field:
   consume no embedded image config (HASO)::
 
       image_analyzer:
-        class_path: image_analysis.offline_analyzers.line_analyzer.LineAnalyzer
+        class_path: image_analysis.analyzers.line_analyzer.LineAnalyzer
         image_kind: line
         scan_type: array1d
         kwargs:
@@ -73,7 +73,7 @@ class ImageAnalyzerSpec(BaseModel):
     ----------
     class_path : str
         Fully qualified import path of the ImageAnalyzer class
-        (``"image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"``).
+        (``"image_analysis.analyzers.beam_analyzer.BeamAnalyzer"``).
     image_kind : ImageKind
         How the analyzer consumes the embedded ``image:`` config.
         Defaults to ``camera`` (the common case); the verbose form

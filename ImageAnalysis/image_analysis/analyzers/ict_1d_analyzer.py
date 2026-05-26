@@ -23,7 +23,7 @@ import logging
 from typing import Optional, Dict
 
 
-from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
 from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 from image_analysis.algorithms.ict_algorithms import (

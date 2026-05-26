@@ -106,7 +106,7 @@ class HASOHimgHasProcessor(ImageAnalyzer):
     YAML configuration for ScanAnalysis:
 
         image_analyzer:
-          analyzer_class: image_analysis.offline_analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
+          analyzer_class: image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
           kwargs:
             wavekit_config_file_path: "Z:/software/.../WFS_HASO4_LIFT_680_8244.dat"
             mask_top: 75

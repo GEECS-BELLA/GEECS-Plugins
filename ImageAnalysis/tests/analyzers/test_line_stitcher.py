@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from image_analysis.offline_analyzers.line_stitcher import LineStitcher
+from image_analysis.analyzers.line_stitcher import LineStitcher
 from image_analysis.types import ImageAnalyzerResult
 
 

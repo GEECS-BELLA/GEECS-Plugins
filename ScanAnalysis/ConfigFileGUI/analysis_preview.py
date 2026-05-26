@@ -144,7 +144,7 @@ class AnalysisWorker(QThread):
             flatten_beam_stats,
         )
         from image_analysis.config.loader import load_camera_config
-        from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+        from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
         from image_analysis.processing.array2d.pipeline import (
             apply_camera_processing_pipeline,
         )

@@ -5,7 +5,7 @@ and fits a weighted linear slope.  These metrics quantify how "straight" a
 beam is — lower slopes indicate less tilt or shear.
 
 This is an optional algorithm that can be composed into
-:class:`~image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer`
+:class:`~image_analysis.analyzers.beam_analyzer.BeamAnalyzer`
 via its ``BeamAnalysisConfig.compute_slopes`` flag.
 """
 

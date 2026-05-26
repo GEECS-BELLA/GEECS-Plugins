@@ -31,12 +31,10 @@ class TestResolveImageAnalyzerValue:
 
     def test_bare_class_path_string_resolves_with_defaults(self):
         out = resolve_image_analyzer_value(
-            "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+            "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
         )
         assert out == {
-            "class_path": (
-                "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
-            )
+            "class_path": ("image_analysis.analyzers.beam_analyzer.BeamAnalyzer")
         }
         # Model defaults fill in image_kind=camera, scan_type=array2d
         spec = ImageAnalyzerSpec.model_validate(out)
@@ -127,7 +125,7 @@ class TestScanRuntimeConfig:
 class TestDiagnosticAnalysisConfig:
     """Top-level diagnostic config validates the unified YAML shape."""
 
-    _BEAM_PATH = "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+    _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
     def test_minimal_bare_string_form(self):
         cfg = DiagnosticAnalysisConfig(

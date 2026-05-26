@@ -32,7 +32,7 @@ def _write_diagnostic(path: Path, name: str, *, priority: int = 100) -> None:
             {
                 "name": name,
                 "image_analyzer": (
-                    "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+                    "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
                 ),
                 "image": {"bit_depth": 16},
                 "scan": {"priority": priority},
@@ -166,7 +166,7 @@ class TestResolveGroup:
             yaml.safe_dump(
                 {
                     "image_analyzer": (
-                        "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+                        "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
                     )
                 }
             )

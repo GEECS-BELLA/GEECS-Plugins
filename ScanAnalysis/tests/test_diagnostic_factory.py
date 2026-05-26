@@ -20,14 +20,14 @@ from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 # Pre-baked image_analyzer specs for the analyzers exercised in these
 # tests. Bare class-path strings default to camera + array2d; verbose
 # dicts override for 1D and the HASO no-image case.
-_BEAM = "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+_BEAM = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 _STANDARD_1D = {
-    "class_path": "image_analysis.offline_analyzers.standard_1d_analyzer.Standard1DAnalyzer",
+    "class_path": "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer",
     "image_kind": "line",
     "scan_type": "array1d",
 }
 _HASO = {
-    "class_path": "image_analysis.offline_analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
+    "class_path": "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
     "image_kind": "none",
     "scan_type": "array2d",
 }

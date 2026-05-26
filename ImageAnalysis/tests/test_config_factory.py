@@ -24,14 +24,10 @@ from image_analysis.config import (
 # ---------------------------------------------------------------------------
 
 
-_BEAM_PATH = "image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
-_GRENOUILLE_PATH = (
-    "image_analysis.offline_analyzers.grenouille_analyzer.GrenouilleAnalyzer"
-)
-_LINE_PATH = "image_analysis.offline_analyzers.line_analyzer.LineAnalyzer"
-_HASO_PATH = (
-    "image_analysis.offline_analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
-)
+_BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
+_GRENOUILLE_PATH = "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer"
+_LINE_PATH = "image_analysis.analyzers.line_analyzer.LineAnalyzer"
+_HASO_PATH = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
 
 
 def _write_diagnostic(path: Path, name: str, *, image_analyzer=_BEAM_PATH) -> None:

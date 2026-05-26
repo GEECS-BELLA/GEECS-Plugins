@@ -8,7 +8,7 @@ import math
 
 import pytest
 
-from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,

@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from pydantic import BaseModel, Field
 
 # Import the StandardAnalyzer parent class
-from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
 import image_analysis.config.array2d_processing as cfg_2d
 
 # Import beam-specific tools

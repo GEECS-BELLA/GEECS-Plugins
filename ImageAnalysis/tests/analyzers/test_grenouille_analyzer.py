@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 
-from image_analysis.offline_analyzers.grenouille_analyzer import GrenouilleAnalyzer
+from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
 from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,

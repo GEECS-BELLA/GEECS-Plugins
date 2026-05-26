@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from image_analysis.offline_analyzers.magspec_manual_calib_analyzer import (
+from image_analysis.analyzers.magspec_manual_calib_analyzer import (
     ArrayCalibration,
     MagSpecAnalyzerConfig,
     MagSpecManualCalibAnalyzer,
