@@ -9,9 +9,6 @@ collected into analysis groups under
 ``scan_analysis_configs/groups/<namespace>/<group>.yaml``, which
 LiveWatch and the task queue consume directly.
 
-Scatter scan analyzers stay on a separate config shape because they
-do not consume images.
-
 Quick start
 -----------
 
@@ -73,10 +70,6 @@ from .analysis_group_loader import (
 )
 from .diagnostic_factory import create_scan_analyzer
 
-# Scatter analyzers (separate path; not unified)
-from .analyzer_config_models import PlotParameterConfig, ScatterAnalyzerConfig
-from .analyzer_factory import create_analyzer
-
 __all__ = [
     # Unified diagnostic models
     "DiagnosticAnalysisConfig",
@@ -99,8 +92,4 @@ __all__ = [
     "LoadedAnalysisGroup",
     # Factory
     "create_scan_analyzer",
-    # Scatter (legacy non-unified path)
-    "ScatterAnalyzerConfig",
-    "PlotParameterConfig",
-    "create_analyzer",
 ]
