@@ -22,6 +22,7 @@ import pandas as pd
 
 # Import the StandardAnalyzer parent class
 from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.processing.array2d.config_models import CameraConfig
 
 from image_analysis.algorithms.frog_dll_retrieval import (
     FrogDllRetrieval,
@@ -39,26 +40,20 @@ class GrenouilleAnalyzer(StandardAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str
-        Name of the camera configuration to load (e.g., "undulator_exit_cam")
+    camera_config : CameraConfig
+        Validated camera configuration model.
     """
 
     def __init__(
         self,
-        camera_config_name: str,
+        camera_config: CameraConfig,
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
-        """Initialize the beam analyzer with external configuration.
-
-        Parameters
-        ----------
-        camera_config_name : str
-            Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
-        """
+        """Initialize the FROG analyzer with a validated camera config."""
         # Initialize parent class
         super().__init__(
-            camera_config_name=camera_config_name,
+            camera_config=camera_config,
             name_suffix=name_suffix,
             metric_suffix=metric_suffix,
         )
@@ -71,7 +66,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         )
 
         logger.info(
-            "Initialized GrenouilleAnalyzer with config '%s'", camera_config_name
+            "Initialized GrenouilleAnalyzer with config '%s'", camera_config.name
         )
 
     def analyze_image(

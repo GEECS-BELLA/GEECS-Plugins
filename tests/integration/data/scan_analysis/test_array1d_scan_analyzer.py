@@ -26,10 +26,11 @@ def test_array1d_ict_noscan_runs():
     Uses flag_save_data=False to avoid writing to the data directory.
     """
     from geecs_data_utils import ScanTag
+    from image_analysis.config_loader import load_line_config
     from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = Standard1DAnalyzer(line_config_name=ICT_DEV)
+    image_analyzer = Standard1DAnalyzer(line_config=load_line_config(ICT_DEV))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=ICT_DEV,
@@ -46,10 +47,11 @@ def test_array1d_ict_noscan_runs():
 def test_array1d_ict_results_are_2d():
     """Each per-shot ICT result contains a valid Nx2 line_data array."""
     from geecs_data_utils import ScanTag
+    from image_analysis.config_loader import load_line_config
     from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = Standard1DAnalyzer(line_config_name=ICT_DEV)
+    image_analyzer = Standard1DAnalyzer(line_config=load_line_config(ICT_DEV))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=ICT_DEV,
@@ -77,10 +79,11 @@ def test_array1d_magspec_noscan_runs():
     Uses flag_save_data=False to avoid writing to the data directory.
     """
     from geecs_data_utils import ScanTag
+    from image_analysis.config_loader import load_line_config
     from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config_name=MAGSPEC_DEV)
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,
@@ -97,10 +100,11 @@ def test_array1d_magspec_noscan_runs():
 def test_array1d_magspec_results_have_com_scalar():
     """Each per-shot MagSpec result contains the CoM scalar from LineAnalyzer."""
     from geecs_data_utils import ScanTag
+    from image_analysis.config_loader import load_line_config
     from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config_name=MAGSPEC_DEV)
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,

@@ -9,6 +9,7 @@ import numpy as np
 
 # Import the Standard1DAnalyzer parent class
 from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.processing.array1d.config_models import Line1DConfig
 
 # Import line-specific tools
 from image_analysis.types import Array1D, ImageAnalyzerResult
@@ -71,22 +72,20 @@ class BCaveMagOpt(Standard1DAnalyzer):
 
     def __init__(
         self,
-        line_config_name: str,
+        line_config: Line1DConfig,
         metric_suffix: Optional[str] = None,
     ):
-        """Initialize the line analyzer with external configuration.
+        """Initialize the line analyzer with a validated line config.
 
         Parameters
         ----------
-        line_config_name : str
-            Name of the line configuration to load (e.g., "spectrometer_config")
+        line_config : Line1DConfig
+            Pre-validated line configuration.
         metric_suffix : str, optional
             Suffix to append to all metric names (underscore is auto-prepended).
-            For example, "calibrated" becomes "_calibrated" in the output keys.
-            Useful for distinguishing multiple analysis passes on the same line.
         """
         # Initialize parent class
-        super().__init__(line_config_name)
+        super().__init__(line_config)
 
         # Store metric suffix for use in analyze_image
         self.metric_suffix = metric_suffix

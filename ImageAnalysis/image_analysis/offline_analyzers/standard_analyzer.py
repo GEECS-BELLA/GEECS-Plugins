@@ -25,7 +25,6 @@ import numpy as np
 from pydantic import BaseModel
 
 # Import the new processing framework
-from image_analysis.config_loader import load_camera_config
 from image_analysis.processing.array2d import (
     apply_camera_processing_pipeline,
 )
@@ -59,11 +58,10 @@ class StandardAnalyzer(ImageAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str or CameraConfig
-        Name of the camera configuration to load (e.g., "undulator_exit_cam"),
-        or a pre-constructed ``CameraConfig`` instance.  Passing a config
-        object bypasses YAML loading entirely — useful for testing or for
-        building configs programmatically at runtime.
+    camera_config : CameraConfig
+        Validated camera configuration model. Use
+        ``image_analysis.config_loader.load_camera_config(name)`` to load
+        from disk by name before constructing.
     name_suffix : str, optional
         Suffix to append to camera name for scalar result prefixes.
         Useful for distinguishing multiple analysis passes on the same camera.
@@ -78,27 +76,23 @@ class StandardAnalyzer(ImageAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: Union[str, cfg_2d.CameraConfig],
+        camera_config: cfg_2d.CameraConfig,
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
-        """Initialize the standard analyzer with external configuration."""
-        # Accept a pre-built CameraConfig directly (bypasses YAML loading)
-        if isinstance(camera_config_name, cfg_2d.CameraConfig):
-            self.camera_config = camera_config_name
-            camera_config_name = self.camera_config.name
-            logger.info("Using provided CameraConfig: %s", self.camera_config.name)
-        else:
-            # Load camera configuration from YAML
-            try:
-                self.camera_config = load_camera_config(camera_config_name)
-                logger.info(
-                    "Loaded configuration for camera: %s", self.camera_config.name
-                )
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to load camera configuration '{camera_config_name}': {e}"
-                )
+        """Initialize the standard analyzer with a validated camera config.
+
+        The string-by-name convenience that this constructor used to
+        offer has moved to the loader layer — call
+        ``image_analysis.config_loader.load_camera_config(name)`` (or
+        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``CameraConfig`` first, then hand it here.
+        """
+        self.camera_config = camera_config
+        # Original config name preserved before any name_suffix mutation;
+        # used as scalar-dict key in analyze_image output.
+        self.camera_config_name = camera_config.name
+        logger.info("Using provided CameraConfig: %s", self.camera_config.name)
 
         # Create background manager if background processing is configured
         self.background_manager = create_background_manager_from_config(
@@ -106,7 +100,6 @@ class StandardAnalyzer(ImageAnalyzer):
         )
 
         # Store analyzer state
-        self.camera_config_name = camera_config_name
         self.run_analyze_image_asynchronously = True
 
         # Store metric suffix for use in analyze_image

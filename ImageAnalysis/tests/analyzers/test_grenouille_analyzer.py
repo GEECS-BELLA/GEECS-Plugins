@@ -84,7 +84,7 @@ def grenouille_result():
         pytest.skip(f"Data file not found: {DATA_FILE}")
 
     try:
-        analyzer = GrenouilleAnalyzer(camera_config_name=_make_config())
+        analyzer = GrenouilleAnalyzer(camera_config=_make_config())
     except Exception as exc:
         pytest.skip(f"Could not initialise GrenouilleAnalyzer: {exc}")
 

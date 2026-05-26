@@ -248,9 +248,9 @@ def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> A
     kwargs = dict(spec.kwargs)
 
     if spec.image_kind == ImageKind.CAMERA:
-        kwargs["camera_config_name"] = image_config
+        kwargs["camera_config"] = image_config
     elif spec.image_kind == ImageKind.LINE:
-        kwargs["line_config_name"] = image_config
+        kwargs["line_config"] = image_config
     # ImageKind.NONE: kwargs is exactly what the YAML supplied.
 
     logger.info(

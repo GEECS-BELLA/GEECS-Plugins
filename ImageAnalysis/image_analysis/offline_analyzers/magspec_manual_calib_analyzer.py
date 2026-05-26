@@ -44,6 +44,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator, ConfigD
 
 from image_analysis.tools.rendering import base_render_image
 from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.processing.array2d.config_models import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from image_analysis.algorithms.axis_interpolation import interpolate_image_axis
 
@@ -384,8 +385,8 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
     in a ``dnn_axis`` calibration block.
     """
 
-    def __init__(self, camera_config_name: str):
-        super().__init__(camera_config_name)
+    def __init__(self, camera_config: CameraConfig):
+        super().__init__(camera_config)
 
         analysis = self.camera_config.analysis
         if not analysis or "calibration" not in analysis:

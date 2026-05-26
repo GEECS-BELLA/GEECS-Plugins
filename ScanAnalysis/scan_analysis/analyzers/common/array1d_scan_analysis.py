@@ -87,9 +87,12 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     With custom analyzer::
 
+        from image_analysis.config_loader import load_line_config
         from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
 
-        custom_analyzer = Standard1DAnalyzer(line_config_name="my_scope_config")
+        custom_analyzer = Standard1DAnalyzer(
+            line_config=load_line_config("my_scope_config"),
+        )
         analyzer = Array1DScanAnalyzer(
             device_name="TekScope",
             image_analyzer=custom_analyzer,
