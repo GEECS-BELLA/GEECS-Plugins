@@ -113,7 +113,6 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         through the standard ImageAnalysis loader and hands the typed
         model to the analyzer constructor.
         """
-        from image_analysis.config import ImageKind
         from image_analysis.config.loader import (
             load_camera_config,
             load_line_config,
@@ -134,19 +133,19 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             "Array2DScanAnalyzer": Array2DScanAnalyzer,
         }[config.analyzer_type]
 
-        # Load the typed image config based on the spec's image_kind
-        # (``camera``, ``line``, or ``none``). Optimizer YAMLs can
-        # override the loaded name via kwargs; otherwise it defaults to
-        # ``device_name``.
+        # Load the typed image config based on the analyzer_type.
+        # Optimizer YAMLs can override the loaded name via kwargs;
+        # otherwise it defaults to ``device_name``. No-image analyzers
+        # (HASO-style) aren't supported through this evaluator path —
+        # they'd need a dedicated evaluator subclass.
         spec = config.image_analyzer
         kwargs = dict(spec.kwargs)
-        if spec.image_kind == ImageKind.CAMERA:
+        if config.analyzer_type == "Array2DScanAnalyzer":
             name = kwargs.pop("camera_config_name", config.device_name)
             kwargs["camera_config"] = load_camera_config(name)
-        elif spec.image_kind == ImageKind.LINE:
+        else:  # "Array1DScanAnalyzer"
             name = kwargs.pop("line_config_name", config.device_name)
             kwargs["line_config"] = load_line_config(name)
-        # ImageKind.NONE: pass kwargs straight through.
 
         module_path, class_name = spec.class_path.rsplit(".", 1)
         image_analyzer_module = importlib.import_module(module_path)

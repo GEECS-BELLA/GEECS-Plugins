@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
 from image_analysis.config import (
     DiagnosticAnalysisConfig,
-    ScanType,
+    Line1DConfig,
     create_image_analyzer,
 )
 
@@ -51,9 +51,10 @@ def create_scan_analyzer(
 
     Composition: ``create_image_analyzer(diag)`` builds the inner
     ``ImageAnalyzer``, then this function wraps it in the
-    dimension-specific scan-analyzer class (chosen by
-    ``diag.image_analyzer.scan_type``) and attaches the runtime
-    metadata the task queue needs.
+    dimension-specific scan-analyzer class (chosen by the type of
+    ``diag.image`` — :class:`Line1DConfig` → 1D wrapper, anything else
+    → 2D wrapper) and attaches the runtime metadata the task queue
+    needs.
 
     Parameters
     ----------
@@ -117,25 +118,25 @@ def _wrap_in_scan_analyzer(
     The 1D and 2D wrappers differ only in their save-flag kwarg name
     (``flag_save_data`` vs ``flag_save_images``). Everything else maps
     directly from the ``scan:`` section.
+
+    Dispatch is on the type of ``diag.image``:
+    :class:`Line1DConfig` → :class:`Array1DScanAnalyzer`; anything else
+    (including the ``image`` is None HASO case) → :class:`Array2DScanAnalyzer`.
     """
-    spec = diag.image_analyzer
-
-    if spec.scan_type == ScanType.ARRAY2D:
-        from scan_analysis.analyzers.common.array2D_scan_analysis import (
-            Array2DScanAnalyzer,
-        )
-
-        wrapper_class: Type["ScanAnalyzer"] = Array2DScanAnalyzer
-        save_kwarg = "flag_save_images"
-    elif spec.scan_type == ScanType.ARRAY1D:
+    if isinstance(diag.image, Line1DConfig):
         from scan_analysis.analyzers.common.array1d_scan_analysis import (
             Array1DScanAnalyzer,
         )
 
-        wrapper_class = Array1DScanAnalyzer
+        wrapper_class: Type["ScanAnalyzer"] = Array1DScanAnalyzer
         save_kwarg = "flag_save_data"
     else:
-        raise ValueError(f"Unknown scan_type: {spec.scan_type}")
+        from scan_analysis.analyzers.common.array2D_scan_analysis import (
+            Array2DScanAnalyzer,
+        )
+
+        wrapper_class = Array2DScanAnalyzer
+        save_kwarg = "flag_save_images"
 
     wrapper_kwargs: Dict[str, Any] = {
         "device_name": scan_cfg.device or diag.name,
@@ -151,8 +152,8 @@ def _wrap_in_scan_analyzer(
         analyzer = wrapper_class(**wrapper_kwargs)
     except TypeError as exc:
         raise TypeError(
-            f"Failed to wrap {spec.class_path} in {wrapper_class.__name__} "
-            f"for diagnostic '{diag.name}': {exc}"
+            f"Failed to wrap {diag.image_analyzer.class_path} in "
+            f"{wrapper_class.__name__} for diagnostic '{diag.name}': {exc}"
         ) from exc
 
     # Task-queue / scan-log metadata attached as instance attributes.

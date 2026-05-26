@@ -47,8 +47,6 @@ ImageAnalysis derives its own search root as
 from image_analysis.config import (
     DiagnosticAnalysisConfig,
     ImageAnalyzerSpec,
-    ImageKind,
-    ScanType,
     resolve_image_analyzer_value,
 )
 from .diagnostic_models import (
@@ -81,8 +79,6 @@ __all__ = [
     "FromCurrentScanSpec",
     # image_analyzer field model + helpers
     "ImageAnalyzerSpec",
-    "ImageKind",
-    "ScanType",
     "resolve_image_analyzer_value",
     # Loader
     "load_analysis_group",

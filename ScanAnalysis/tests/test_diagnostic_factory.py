@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from image_analysis.config import DiagnosticAnalysisConfig
 from image_analysis.config.array1d_processing import Line1DConfig
@@ -17,20 +16,12 @@ from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 # ---------------------------------------------------------------------------
 
 
-# Pre-baked image_analyzer specs for the analyzers exercised in these
-# tests. Bare class-path strings default to camera + array2d; verbose
-# dicts override for 1D and the HASO no-image case.
+# Bare class-path strings for the analyzers exercised in these tests.
+# The 2D-vs-1D dimension lives on the image: section's ``type`` field,
+# not on the analyzer spec, so all of these are bare strings.
 _BEAM = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-_STANDARD_1D = {
-    "class_path": "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer",
-    "image_kind": "line",
-    "scan_type": "array1d",
-}
-_HASO = {
-    "class_path": "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor",
-    "image_kind": "none",
-    "scan_type": "array2d",
-}
+_STANDARD_1D = "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
+_HASO = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
 
 _SPECS_BY_ALIAS = {"beam": _BEAM, "standard_1d": _STANDARD_1D, "haso": _HASO}
 
@@ -44,12 +35,16 @@ def _diag(
 ) -> DiagnosticAnalysisConfig:
     """Build a minimal DiagnosticAnalysisConfig for factory tests.
 
-    ``alias`` here is a test-fixture shorthand for the
-    ``image_analyzer`` spec; it has nothing to do with the (now
-    deleted) on-disk alias registry.
+    ``alias`` is a test-fixture shorthand for picking which class path
+    to use; it's not an on-disk alias registry (those were removed in
+    PR-E). The default ``image:`` section matches the alias: camera
+    for ``beam``, line for ``standard_1d``, omitted for ``haso``.
     """
-    if image is None and alias != "haso":
-        image = {"bit_depth": 16}
+    if image is None and alias == "beam":
+        image = {"type": "camera", "bit_depth": 16}
+    elif image is None and alias == "standard_1d":
+        image = {"type": "line", "data_loading": {"data_type": "csv"}}
+    # haso: no image section
     return DiagnosticAnalysisConfig(
         name=name,
         image_analyzer=_SPECS_BY_ALIAS[alias],
@@ -76,19 +71,15 @@ class TestEmbeddedImageSection:
     def test_line_alias_produces_validated_line_config(self):
         diag = _diag(
             alias="standard_1d",
-            image={"description": "test", "data_loading": {"data_type": "csv"}},
+            image={
+                "type": "line",
+                "description": "test",
+                "data_loading": {"data_type": "csv"},
+            },
         )
         analyzer = create_scan_analyzer(diag)
         assert isinstance(analyzer.image_analyzer.line_config, Line1DConfig)
         assert analyzer.image_analyzer.line_config.name == "UC_Test"
-
-    def test_haso_alias_with_image_section_raises(self):
-        diag = _diag(
-            alias="haso",
-            image={"bit_depth": 16},  # forbidden for image_kind=none
-        )
-        with pytest.raises(ValueError, match="image_kind='none'"):
-            create_scan_analyzer(diag)
 
 
 # ---------------------------------------------------------------------------
@@ -97,18 +88,14 @@ class TestEmbeddedImageSection:
 
 
 class TestScanWrapperSelection:
-    """scan_type=array2d wraps in Array2DScanAnalyzer; array1d in Array1DScanAnalyzer."""
+    """Wrapper class is picked from the type of ``diag.image``."""
 
-    def test_array2d_alias_produces_array2d_wrapper(self):
+    def test_camera_image_produces_array2d_wrapper(self):
         analyzer = create_scan_analyzer(_diag(alias="beam"))
         assert isinstance(analyzer, Array2DScanAnalyzer)
 
-    def test_array1d_alias_produces_array1d_wrapper(self):
-        diag = _diag(
-            alias="standard_1d",
-            image={"description": "x", "data_loading": {"data_type": "csv"}},
-        )
-        analyzer = create_scan_analyzer(diag)
+    def test_line_image_produces_array1d_wrapper(self):
+        analyzer = create_scan_analyzer(_diag(alias="standard_1d"))
         assert isinstance(analyzer, Array1DScanAnalyzer)
 
 
@@ -151,7 +138,11 @@ class TestScanRuntimeAttachment:
         assert off.flag_save_data is False
 
     def test_save_maps_to_flag_save_data_for_array1d(self):
-        line_image = {"description": "x", "data_loading": {"data_type": "csv"}}
+        line_image = {
+            "type": "line",
+            "description": "x",
+            "data_loading": {"data_type": "csv"},
+        }
         on = create_scan_analyzer(
             _diag(alias="standard_1d", image=line_image, scan={"save": True})
         )

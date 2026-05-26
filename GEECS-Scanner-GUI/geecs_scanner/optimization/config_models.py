@@ -43,17 +43,14 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
         for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
-        Which scan-analyzer wrapper to instantiate. Redundant with
-        ``image_analyzer.scan_type``; kept for explicitness in optimizer
-        YAMLs.
+        Which scan-analyzer wrapper to instantiate. Also drives which
+        image-config loader is called (camera for 2D, line for 1D).
     file_tail : str, default=".png"
         File extension/suffix used to match data files for this device.
     image_analyzer : ImageAnalyzerSpec
         Spec for the ImageAnalyzer class. Accepts a bare class-path
-        string (defaults to camera + array2d) or the verbose
-        ``{"class_path": "...", "image_kind": "...", "scan_type": "...",
-        "kwargs": {...}}`` form for analyzers that need different
-        defaults or per-instance kwargs.
+        string or the verbose ``{"class_path": "...", "kwargs": {...}}``
+        form for analyzers that need extra per-instance kwargs.
     analysis_mode : {"per_shot", "per_bin"}, default="per_bin"
         Analysis mode for the scan analyzer. "per_bin" is recommended for
         optimization as it leverages built-in averaging.

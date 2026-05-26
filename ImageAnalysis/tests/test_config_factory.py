@@ -27,7 +27,6 @@ from image_analysis.config import (
 _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 _GRENOUILLE_PATH = "image_analysis.analyzers.grenouille_analyzer.GrenouilleAnalyzer"
 _LINE_PATH = "image_analysis.analyzers.line_analyzer.LineAnalyzer"
-_HASO_PATH = "image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor"
 
 
 def _write_diagnostic(path: Path, name: str, *, image_analyzer=_BEAM_PATH) -> None:
@@ -43,7 +42,7 @@ def _write_diagnostic(path: Path, name: str, *, image_analyzer=_BEAM_PATH) -> No
             {
                 "name": name,
                 "image_analyzer": image_analyzer,
-                "image": {"bit_depth": 16},
+                "image": {"type": "camera", "bit_depth": 16},
                 "scan": {"priority": 100},
             }
         )
@@ -73,13 +72,19 @@ class TestLoadDiagnostic:
     """``load_diagnostic`` finds, parses, and validates a unified YAML."""
 
     def test_load_by_stem_returns_validated_config(self, configs_tree):
+        from image_analysis.config.array2d_processing import CameraConfig
+
         diag = load_diagnostic("UC_GaiaMode", config_dir=configs_tree)
         assert isinstance(diag, DiagnosticAnalysisConfig)
         assert diag.name == "UC_GaiaMode"
-        # image: stays a dict at this layer (validated by create_image_analyzer
-        # when it's actually consumed)
-        assert diag.image == {"bit_depth": 16}
-        # scan: also weakly typed at this layer
+        # image: is a typed CameraConfig at this layer — the top-level
+        # ``name`` is injected as the device identity for the embedded
+        # image section.
+        assert isinstance(diag.image, CameraConfig)
+        assert diag.image.bit_depth == 16
+        assert diag.image.name == "UC_GaiaMode"
+        # scan: stays weakly typed at this layer (ScanAnalysis validates
+        # it against its own ScanRuntimeConfig).
         assert diag.scan == {"priority": 100}
 
     def test_load_by_absolute_path(self, configs_tree):
@@ -127,7 +132,7 @@ class TestCreateImageAnalyzer:
         diag = DiagnosticAnalysisConfig(
             name="UC_TestBeam",
             image_analyzer=_BEAM_PATH,
-            image={"bit_depth": 16},
+            image={"type": "camera", "bit_depth": 16},
         )
         analyzer = create_image_analyzer(diag)
         # Sanity: the returned object is the right class, configured with
@@ -135,15 +140,14 @@ class TestCreateImageAnalyzer:
         assert analyzer.__class__.__name__ == "BeamAnalyzer"
         assert analyzer.camera_config.name == "UC_TestBeam"
 
-    def test_line_analyzer_built_from_verbose_form(self):
+    def test_line_analyzer_built_from_typed_image(self):
+        # 1D analyzers are picked by ``type: line`` on the image section,
+        # not by any sibling field on image_analyzer.
         diag = DiagnosticAnalysisConfig(
             name="UC_TestLine",
-            image_analyzer={
-                "class_path": _LINE_PATH,
-                "image_kind": "line",
-                "scan_type": "array1d",
-            },
+            image_analyzer=_LINE_PATH,
             image={
+                "type": "line",
                 "data_loading": {"data_type": "tsv"},
                 "background": {"method": "constant", "constant_value": 0.0},
             },
@@ -155,30 +159,26 @@ class TestCreateImageAnalyzer:
         diag = DiagnosticAnalysisConfig(
             name="UC_TestVerbose",
             image_analyzer={"class": _BEAM_PATH},
-            image={"bit_depth": 16},
+            image={"type": "camera", "bit_depth": 16},
         )
         analyzer = create_image_analyzer(diag)
         assert analyzer.__class__.__name__ == "BeamAnalyzer"
 
-    def test_image_kind_none_with_image_section_raises(self):
-        # HASO declares image_kind=none; providing image: is an error.
+    def test_diagnostic_without_image_section(self):
+        # No-image analyzers (HASO-style) just omit the ``image:`` section.
+        # ``diag.image`` ends up None; the factory passes only what
+        # ``image_analyzer.kwargs`` supplied to the analyzer constructor.
         diag = DiagnosticAnalysisConfig(
-            name="HasoLift",
-            image_analyzer={
-                "class_path": _HASO_PATH,
-                "image_kind": "none",
-                "scan_type": "array2d",
-            },
-            image={"bit_depth": 16},
+            name="UC_NoImage",
+            image_analyzer=_BEAM_PATH,
         )
-        with pytest.raises(ValueError, match="image_kind='none'"):
-            create_image_analyzer(diag)
+        assert diag.image is None
 
     def test_unknown_class_path_raises(self):
         diag = DiagnosticAnalysisConfig(
             name="UC_Bogus",
             image_analyzer={"class_path": "nonexistent.module.BogusAnalyzer"},
-            image={"bit_depth": 16},
+            image={"type": "camera", "bit_depth": 16},
         )
         with pytest.raises(ImportError):
             create_image_analyzer(diag)

@@ -35,7 +35,9 @@ from typing import Any, Dict, Optional, Type, Union
 import yaml
 from pydantic import ValidationError
 
-from .aliases import ImageAnalyzerSpec, ImageKind
+from .aliases import ImageAnalyzerSpec
+from .array1d_processing import Line1DConfig
+from .array2d_processing import CameraConfig
 from .diagnostic import DiagnosticAnalysisConfig
 
 logger = logging.getLogger(__name__)
@@ -171,18 +173,20 @@ def _discover_analyzers(base_dir: Path) -> Dict[str, Path]:
 def create_image_analyzer(diag: DiagnosticAnalysisConfig) -> Any:
     """Build a live ImageAnalyzer instance from a validated diagnostic config.
 
-    Imports the class named by ``diag.image_analyzer.class_path``,
-    validates the embedded ``image:`` section through ImageAnalysis's
-    typed loader (``load_camera_config`` for 2D, ``load_line_config``
-    for 1D), and instantiates the class with the right constructor
-    kwargs (``camera_config_name``, ``line_config_name``, or none —
-    determined by ``diag.image_analyzer.image_kind``).
+    Imports the class named by ``diag.image_analyzer.class_path`` and
+    instantiates it with the embedded image config plus any extra
+    constructor kwargs. The embedded ``image:`` section has already
+    been validated against the right Pydantic model
+    (:class:`CameraConfig` or :class:`Line1DConfig`) at
+    ``DiagnosticAnalysisConfig`` construction time — the discriminator
+    on the ``image:`` field picked the variant.
 
     Parameters
     ----------
     diag : DiagnosticAnalysisConfig
-        Validated diagnostic. The ``image_analyzer`` spec tells us
-        which class to import and how it consumes ``image``.
+        Validated diagnostic. The ``image_analyzer`` spec gives the
+        class to import and any extra constructor kwargs; the type of
+        ``diag.image`` decides which constructor kwarg name to use.
 
     Returns
     -------
@@ -192,66 +196,31 @@ def create_image_analyzer(diag: DiagnosticAnalysisConfig) -> Any:
 
     Raises
     ------
-    ValueError
-        If the embedded image section's shape doesn't match what the
-        alias expects (missing when required, present when forbidden,
-        or invalid against the ImageAnalysis config models).
     ImportError, AttributeError
         If ``class_path`` does not resolve to an importable class.
     TypeError
         If the resolved class can't be instantiated with the inferred
         kwargs.
     """
-    spec = diag.image_analyzer
-    image_config = _validate_embedded_image_section(diag, spec.image_kind)
-    return _instantiate_image_analyzer(spec, image_config)
-
-
-def _validate_embedded_image_section(
-    diag: DiagnosticAnalysisConfig, image_kind: ImageKind
-) -> Any:
-    """Validate ``diag.image`` through ImageAnalysis, or ensure absence.
-
-    Returns the validated ``CameraConfig`` / ``Line1DConfig`` object,
-    or ``None`` when the analyzer takes no embedded image config.
-    """
-    # Lazy import: ``loader`` pulls in heavy processing modules;
-    # defer until we actually need it.
-    from .loader import load_camera_config, load_line_config
-
-    if image_kind == ImageKind.NONE:
-        if diag.image is not None:
-            raise ValueError(
-                f"Diagnostic '{diag.name}': image_analyzer has "
-                f"image_kind='none' but the YAML provided an 'image:' "
-                f"section. Either remove the section or use an analyzer "
-                f"that consumes it."
-            )
-        return None
-
-    image_dict: Dict[str, Any] = dict(diag.image or {})
-    # Top-level diagnostic name is the default metric prefix / device
-    # identity. Explicit image.name (rare) takes precedence.
-    image_dict.setdefault("name", diag.name)
-
-    if image_kind == ImageKind.CAMERA:
-        return load_camera_config(image_dict)
-    if image_kind == ImageKind.LINE:
-        return load_line_config(image_dict)
-
-    raise ValueError(f"Unknown image_kind: {image_kind}")
+    return _instantiate_image_analyzer(diag.image_analyzer, diag.image)
 
 
 def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> Any:
-    """Import the class and instantiate with kwargs + image config."""
+    """Import the class and instantiate with kwargs + image config.
+
+    The kwarg name (``camera_config`` vs ``line_config``) is decided
+    by the type of the validated image config. When ``image_config`` is
+    ``None``, no image-config kwarg is injected — the analyzer takes
+    only what ``spec.kwargs`` provides (HASO-style).
+    """
     analyzer_class = _import_class(spec.class_path)
     kwargs = dict(spec.kwargs)
 
-    if spec.image_kind == ImageKind.CAMERA:
+    if isinstance(image_config, CameraConfig):
         kwargs["camera_config"] = image_config
-    elif spec.image_kind == ImageKind.LINE:
+    elif isinstance(image_config, Line1DConfig):
         kwargs["line_config"] = image_config
-    # ImageKind.NONE: kwargs is exactly what the YAML supplied.
+    # image_config is None: kwargs is exactly what the YAML supplied.
 
     logger.info(
         "Instantiating %s with kwargs %s",

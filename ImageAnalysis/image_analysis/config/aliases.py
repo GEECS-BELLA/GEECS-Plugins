@@ -3,62 +3,36 @@
 A diagnostic YAML names its ImageAnalyzer by full class path. Two
 surface forms are accepted on the ``image_analyzer`` field:
 
-* **Bare string** — the class path. Defaults the analyzer to a 2D
-  camera + ``Array2DScanAnalyzer`` wrapper. Right for the common case
+* **Bare string** — the class path. Right for the common case
   (``BeamAnalyzer``, ``StandardAnalyzer``, ``GrenouilleAnalyzer``,
   ``MagSpecManualCalibAnalyzer``, …)::
 
       image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
 
-* **Verbose dict** — class path plus explicit ``image_kind`` /
-  ``scan_type`` / ``kwargs``. Required for 1D analyzers (line config
-  inputs, ``Array1DScanAnalyzer`` wrapper) and for analyzers that
-  consume no embedded image config (HASO)::
+* **Verbose dict** — class path plus extra constructor kwargs.
+  Right for analyzers that take per-instance kwargs (HASO's
+  ``wavekit_config_file_path``, for example)::
 
       image_analyzer:
-        class_path: image_analysis.analyzers.line_analyzer.LineAnalyzer
-        image_kind: line
-        scan_type: array1d
+        class_path: image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
         kwargs:
-          some_extra_arg: 42
+          wavekit_config_file_path: /path/to/wfs.dat
+          mask_top: 125
 
 Both forms normalise to :class:`ImageAnalyzerSpec`.
 
-The alias registry that used to live here is gone — every analyzer's
-fully qualified class path is the identifier. Adding a new analyzer
-needs no registry update; just write the class path in the YAML.
+There is no ``image_kind`` / ``scan_type`` field anymore — those moved
+onto the ``image:`` section itself as a Pydantic discriminator on
+:class:`CameraConfig` / :class:`Line1DConfig`. The ScanAnalyzer
+wrapper (Array2D vs Array1D) is picked the same way at scan-build
+time, from the type of ``diag.image``.
 """
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Any, Dict, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field
-
-
-class ImageKind(str, Enum):
-    """How an ImageAnalyzer consumes the embedded ``image:`` config section.
-
-    The loader uses this to decide which ImageAnalysis Pydantic model
-    validates the ``image:`` body:
-
-    * ``camera`` — validate as :class:`CameraConfig` (2D).
-    * ``line`` — validate as :class:`Line1DConfig` (1D).
-    * ``none`` — analyzer has no embedded image config; the YAML must
-      omit the ``image:`` section entirely.
-    """
-
-    CAMERA = "camera"
-    LINE = "line"
-    NONE = "none"
-
-
-class ScanType(str, Enum):
-    """Which ScanAnalyzer wrapper class instantiates this analyzer."""
-
-    ARRAY2D = "array2d"
-    ARRAY1D = "array1d"
 
 
 class ImageAnalyzerSpec(BaseModel):
@@ -74,26 +48,16 @@ class ImageAnalyzerSpec(BaseModel):
     class_path : str
         Fully qualified import path of the ImageAnalyzer class
         (``"image_analysis.analyzers.beam_analyzer.BeamAnalyzer"``).
-    image_kind : ImageKind
-        How the analyzer consumes the embedded ``image:`` config.
-        Defaults to ``camera`` (the common case); the verbose form
-        must override for line/none analyzers.
-    scan_type : ScanType
-        Which scan-analyzer wrapper hosts this analyzer. Defaults to
-        ``array2d``; the verbose form must override for 1D analyzers.
     kwargs : dict
         Per-instance kwargs passed to the analyzer's constructor. The
         loader injects the resolved embedded image config under the
-        constructor's expected name (``camera_config_name`` or
-        ``line_config_name``) separately; do not put the image config
-        here.
+        constructor's expected name (``camera_config`` or
+        ``line_config``) separately; do not put the image config here.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     class_path: str = Field(min_length=1)
-    image_kind: ImageKind = ImageKind.CAMERA
-    scan_type: ScanType = ScanType.ARRAY2D
     kwargs: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -116,14 +80,12 @@ def resolve_image_analyzer_value(value: Any) -> Dict[str, Any]:
         Whatever the YAML deserialiser produced for the
         ``image_analyzer`` field — a bare class-path string or a dict
         with ``class_path`` (or YAML-friendly ``class``) plus optional
-        ``image_kind`` / ``scan_type`` / ``kwargs``.
+        ``kwargs``.
 
     Returns
     -------
     dict
         A dict matching :class:`ImageAnalyzerSpec`'s field layout.
-        Missing ``image_kind`` / ``scan_type`` fall through to the
-        model defaults (``camera`` / ``array2d``).
 
     Raises
     ------

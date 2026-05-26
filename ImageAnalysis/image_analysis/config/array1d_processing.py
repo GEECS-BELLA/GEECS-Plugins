@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Literal, Optional, List
 
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, ConfigDict
@@ -378,6 +378,11 @@ class Line1DConfig(BaseModel):
         use_enum_values=True,
         validate_assignment=True,
     )
+
+    # Discriminator for the unified-diagnostic Union[CameraConfig, Line1DConfig].
+    # Must be present (``type: line``) in unified diagnostic YAMLs so the
+    # discriminator routes here instead of defaulting to CameraConfig.
+    type: Literal["line"] = "line"
 
     name: str = Field(..., description="Configuration name/identifier")
     description: str = Field(

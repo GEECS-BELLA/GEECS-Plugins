@@ -10,8 +10,7 @@ This subpackage owns every config-related concern:
   (:func:`load_camera_config`, :func:`load_line_config`,
   :func:`find_config_file`).
 * :mod:`aliases` — :class:`ImageAnalyzerSpec` (the field model for
-  ``image_analyzer`` on a diagnostic) plus the ``ImageKind`` /
-  ``ScanType`` enums.
+  ``image_analyzer`` on a diagnostic).
 * :mod:`diagnostic` — :class:`DiagnosticAnalysisConfig`, the top-level
   unified-YAML model.
 * :mod:`factory` — Mode-2 entry points (:func:`load_diagnostic`,
@@ -27,8 +26,6 @@ build time.
 
 from .aliases import (
     ImageAnalyzerSpec,
-    ImageKind,
-    ScanType,
     resolve_image_analyzer_value,
 )
 from .array1d_processing import (
@@ -113,8 +110,6 @@ __all__ = [
     # ----- Diagnostic (unified) -----
     "DiagnosticAnalysisConfig",
     "ImageAnalyzerSpec",
-    "ImageKind",
-    "ScanType",
     "resolve_image_analyzer_value",
     "create_image_analyzer",
     "load_diagnostic",

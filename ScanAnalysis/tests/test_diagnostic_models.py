@@ -8,10 +8,10 @@ from pydantic import ValidationError
 from image_analysis.config import (
     DiagnosticAnalysisConfig,
     ImageAnalyzerSpec,
-    ImageKind,
-    ScanType,
     resolve_image_analyzer_value,
 )
+from image_analysis.config.array1d_processing import Line1DConfig
+from image_analysis.config.array2d_processing import CameraConfig
 from scan_analysis.config.diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
@@ -21,48 +21,40 @@ from scan_analysis.config.diagnostic_models import (
 )
 
 
-# The alias registry was removed in PR-E. ``image_analyzer`` now takes
-# either a bare class-path string (defaults to camera + array2d) or a
-# verbose dict with explicit image_kind / scan_type / kwargs.
+# ``image_analyzer`` now takes either a bare class-path string or a verbose
+# ``{class_path, kwargs}`` dict — the 2D-vs-1D dimension lives on the
+# ``image:`` section as a ``type: camera`` / ``type: line`` discriminator.
 
 
 class TestResolveImageAnalyzerValue:
     """Surface-form normalisation: bare class-path string or verbose dict."""
 
-    def test_bare_class_path_string_resolves_with_defaults(self):
+    def test_bare_class_path_string_resolves(self):
         out = resolve_image_analyzer_value(
             "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
         )
         assert out == {
             "class_path": ("image_analysis.analyzers.beam_analyzer.BeamAnalyzer")
         }
-        # Model defaults fill in image_kind=camera, scan_type=array2d
         spec = ImageAnalyzerSpec.model_validate(out)
-        assert spec.image_kind is ImageKind.CAMERA
-        assert spec.scan_type is ScanType.ARRAY2D
         assert spec.kwargs == {}
 
     def test_verbose_dict_with_class_path_passes_through(self):
         out = resolve_image_analyzer_value(
             {
                 "class_path": "my.module.MyAnalyzer",
-                "image_kind": "line",
-                "scan_type": "array1d",
                 "kwargs": {"x": 1},
             }
         )
         spec = ImageAnalyzerSpec.model_validate(out)
         assert spec.class_path == "my.module.MyAnalyzer"
-        assert spec.image_kind is ImageKind.LINE
-        assert spec.scan_type is ScanType.ARRAY1D
         assert spec.kwargs == {"x": 1}
 
     def test_verbose_dict_accepts_yaml_class_key(self):
         out = resolve_image_analyzer_value(
             {
                 "class": "my.module.MyAnalyzer",
-                "image_kind": "camera",
-                "scan_type": "array2d",
+                "kwargs": {"x": 1},
             }
         )
         assert out["class_path"] == "my.module.MyAnalyzer"
@@ -70,7 +62,7 @@ class TestResolveImageAnalyzerValue:
 
     def test_dict_without_class_path_rejected(self):
         with pytest.raises(ValueError, match="must contain 'class_path'"):
-            resolve_image_analyzer_value({"image_kind": "camera"})
+            resolve_image_analyzer_value({"kwargs": {"x": 1}})
 
     def test_non_string_non_mapping_rejected(self):
         with pytest.raises(ValueError, match="must be a class-path string"):
@@ -78,12 +70,11 @@ class TestResolveImageAnalyzerValue:
 
 
 class TestImageAnalyzerSpec:
-    """The canonical runtime form: forbids extras, validates enums."""
+    """The canonical runtime form: just class_path + kwargs, forbids extras."""
 
-    def test_defaults_to_camera_array2d(self):
+    def test_minimal_construction(self):
         spec = ImageAnalyzerSpec(class_path="x.Y")
-        assert spec.image_kind is ImageKind.CAMERA
-        assert spec.scan_type is ScanType.ARRAY2D
+        assert spec.class_path == "x.Y"
         assert spec.kwargs == {}
 
     def test_extra_fields_rejected(self):
@@ -96,6 +87,18 @@ class TestImageAnalyzerSpec:
     def test_empty_class_path_rejected(self):
         with pytest.raises(ValidationError):
             ImageAnalyzerSpec(class_path="")
+
+    def test_image_kind_field_rejected(self):
+        # ``image_kind`` moved to the ``type`` field on CameraConfig /
+        # Line1DConfig in PR-E. Should be a hard error if anyone tries
+        # to set it on the analyzer spec.
+        with pytest.raises(ValidationError):
+            ImageAnalyzerSpec(class_path="x.Y", image_kind="line")
+
+    def test_scan_type_field_rejected(self):
+        # ``scan_type`` also moved (decided from ``isinstance(diag.image, ...)``).
+        with pytest.raises(ValidationError):
+            ImageAnalyzerSpec(class_path="x.Y", scan_type="array1d")
 
 
 class TestScanRuntimeConfig:
@@ -133,9 +136,8 @@ class TestDiagnosticAnalysisConfig:
         )
         assert cfg.name == "UC_GaiaMode"
         assert cfg.image_analyzer.class_path == self._BEAM_PATH
-        # Bare-string form takes the model defaults
-        assert cfg.image_analyzer.image_kind is ImageKind.CAMERA
-        assert cfg.image_analyzer.scan_type is ScanType.ARRAY2D
+        # Omitted ``image:`` stays ``None``; callers that need a typed
+        # model to mutate should provide ``image: {}`` explicitly.
         assert cfg.image is None
         # ``scan`` is weakly typed at the ImageAnalysis layer; omitted
         # → ``None``. Scan-side validation happens via
@@ -144,15 +146,26 @@ class TestDiagnosticAnalysisConfig:
         scan_cfg = ScanRuntimeConfig.model_validate(cfg.scan or {})
         assert scan_cfg.priority == 100
 
-    def test_full_shape_validates(self):
+    def test_full_shape_validates_camera(self):
+        from image_analysis.config.array2d_processing import BackgroundMethod
+
         cfg = DiagnosticAnalysisConfig(
             name="UC_GaiaMode",
             image_analyzer=self._BEAM_PATH,
-            image={"bit_depth": 16, "background": {"method": "constant"}},
+            image={
+                "type": "camera",
+                "bit_depth": 16,
+                "background": {"method": "constant"},
+            },
             scan={"priority": 45, "save": False, "mode": "per_shot", "gdoc_slot": 0},
         )
-        assert cfg.image == {"bit_depth": 16, "background": {"method": "constant"}}
-        # ``scan`` is a raw dict at this layer
+        # ``type: camera`` routes the discriminator to CameraConfig.
+        assert isinstance(cfg.image, CameraConfig)
+        assert cfg.image.bit_depth == 16
+        assert cfg.image.background.method is BackgroundMethod.CONSTANT
+        # The top-level name is injected as ``image.name``.
+        assert cfg.image.name == "UC_GaiaMode"
+        # ``scan`` stays a raw dict at this layer
         assert cfg.scan == {
             "priority": 45,
             "save": False,
@@ -165,20 +178,29 @@ class TestDiagnosticAnalysisConfig:
         assert scan_cfg.save is False
         assert scan_cfg.gdoc_slot == 0
 
-    def test_verbose_image_analyzer_form_with_overrides(self):
+    def test_explicit_type_line_routes_to_line1d_config(self):
+        cfg = DiagnosticAnalysisConfig(
+            name="U_BCaveICT",
+            image_analyzer="image_analysis.analyzers.ict_1d_analyzer.ICT1DAnalyzer",
+            image={
+                "type": "line",
+                "data_loading": {"data_type": "tdms_scope"},
+            },
+        )
+        assert isinstance(cfg.image, Line1DConfig)
+        assert cfg.image.name == "U_BCaveICT"
+
+    def test_verbose_image_analyzer_form_with_kwargs(self):
         cfg = DiagnosticAnalysisConfig(
             name="UC_Custom",
             image_analyzer={
                 "class": "my.module.CustomAnalyzer",
-                "image_kind": "line",
-                "scan_type": "array1d",
                 "kwargs": {"extra": 1},
             },
         )
         assert cfg.image_analyzer.class_path == "my.module.CustomAnalyzer"
-        assert cfg.image_analyzer.image_kind is ImageKind.LINE
-        assert cfg.image_analyzer.scan_type is ScanType.ARRAY1D
         assert cfg.image_analyzer.kwargs == {"extra": 1}
+        assert cfg.image is None
 
     def test_missing_name_rejected(self):
         with pytest.raises(ValidationError):

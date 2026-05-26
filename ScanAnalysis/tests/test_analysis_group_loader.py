@@ -34,7 +34,7 @@ def _write_diagnostic(path: Path, name: str, *, priority: int = 100) -> None:
                 "image_analyzer": (
                     "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
                 ),
-                "image": {"bit_depth": 16},
+                "image": {"type": "camera", "bit_depth": 16},
                 "scan": {"priority": priority},
             }
         )
