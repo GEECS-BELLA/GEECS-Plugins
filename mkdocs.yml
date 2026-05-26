@@ -49,7 +49,7 @@ nav:
       - API Reference:
           - Core Modules: image_analysis/api/core_modules.md
       - Examples:
-          - Basic Offline Analysis: image_analysis/examples/basic_offline_analysis.ipynb
+          - Basic Offline Analysis: image_analysis/examples/basic_usage_image_analyzer.ipynb
           - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
           - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
           - HasoLift Analysis: image_analysis/examples/HasoLift_analysis.ipynb
@@ -61,7 +61,6 @@ nav:
       - Examples:
           - Basic Usage (2D): scan_analysis/examples/basic_usage.ipynb
           - Basic Usage (1D): scan_analysis/examples/basic_usage_1D.ipynb
-          - Config-Based Workflow: scan_analysis/examples/config_based_scan_analysis.ipynb
           - Live Watch: scan_analysis/examples/live_watch.ipynb
           - GDoc Upload: scan_analysis/examples/gdoc_upload.ipynb
           - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb

@@ -99,8 +99,6 @@ The base class handles scan folder location, s-file loading, and the overall exe
 
 There are two specialized base classes for common cases. `Array2DScanAnalyzer` wraps an `ImageAnalyzer` (from the [Image Analysis package](../image_analysis/overview.md)) and runs it across every shot in every bin, producing both per-bin summary plots and an updated s-file. `Array1DScanAnalyzer` is the equivalent for 1D data. If your analysis fits one of those patterns, inherit from the specialized class — you'll write much less code.
 
-For the full pattern with config-driven instantiation, see the [Config-Based Scan Analysis notebook](../scan_analysis/examples/config_based_scan_analysis.ipynb).
-
 ## Writing a custom action
 
 Most setup and closeout logic fits into the declarative `set` / `get` / `wait` / `execute` step types described in [Save Elements](save_elements.md#action-sequences). When it doesn't, the `run` step type imports a Python class:

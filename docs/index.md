@@ -11,10 +11,9 @@ A collection of Python tools for laser-plasma experiments at [Lawrence Berkeley 
 | **Find your data on disk** | [Scan Output Structure](geecs_scanner/scan_output_structure.md) — what's in `Scan###/` and how to load each file |
 | **Diagnose why a scan failed** | [Troubleshooting](geecs_scanner/troubleshooting.md) — common errors and what they mean |
 | **Diagnose recurring scan failures with /triage** | [Skills — Overview](skills/overview.md) |
-| **Analyze images from a camera** | [Image Analysis — Basic Offline Analysis](image_analysis/examples/basic_offline_analysis.ipynb) |
+| **Analyze images from a camera** | [Image Analysis — Basic Offline Analysis](image_analysis/examples/basic_usage_image_analyzer.ipynb) |
 | **Find the right analyzer for your diagnostic** | [Analyzer Index](image_analysis/analyzer_index.md) — beam profile, FROG, magspec, ICT, HASO |
 | **Run analysis across a scan** | [Scan Analysis — Basic Usage](scan_analysis/examples/basic_usage.ipynb) |
-| **Set up automated post-scan analysis** | [Scan Analysis — Config-Based Workflow](scan_analysis/examples/config_based_scan_analysis.ipynb) |
 | **Watch and process scans live** | [Scan Analysis — Live Watch](scan_analysis/examples/live_watch.ipynb) |
 | **Upload results to a Google Doc e-log** | [Scan Analysis — GDoc Upload](scan_analysis/examples/gdoc_upload.ipynb) |
 | **Run a parameter optimization scan** | [Scanner — Optimization Example](geecs_scanner/examples/optimization/optimization_example.ipynb) |
@@ -59,7 +58,7 @@ A typical workflow: the Scanner GUI runs a scan that writes a folder to the data
 
 If you're a **lab user running scans**, start with the [Scanner Installation](geecs_scanner/installation.md) and [Tutorial](geecs_scanner/tutorial.md).
 
-If you're a **student or scientist analyzing data**, the [Image Analysis Basic Usage](image_analysis/examples/basic_offline_analysis.ipynb) and [Scan Analysis Basic Usage](scan_analysis/examples/basic_usage.ipynb) notebooks are the right starting points; the [Analyzer Index](image_analysis/analyzer_index.md) helps you find the right tool for a specific diagnostic.
+If you're a **student or scientist analyzing data**, the [Image Analysis Basic Usage](image_analysis/examples/basic_usage_image_analyzer.ipynb) and [Scan Analysis Basic Usage](scan_analysis/examples/basic_usage.ipynb) notebooks are the right starting points; the [Analyzer Index](image_analysis/analyzer_index.md) helps you find the right tool for a specific diagnostic.
 
 If you're **scripting your own measurements**, start with the [Python API Scripting Guide](geecs_python_api/scripting_guide.md).
 
