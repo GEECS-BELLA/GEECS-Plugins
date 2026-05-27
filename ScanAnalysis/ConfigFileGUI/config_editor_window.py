@@ -33,55 +33,20 @@ from PyQt5.QtWidgets import (
 from .analysis_preview import AnalysisPreviewDialog
 from .config_editor_panel import ConfigEditorPanel
 from .config_io import detect_config_type, load_config, save_config
-from .experiment_editor import ExperimentEditorPanel
 from .file_list_panel import FileListPanel
-from .groups_editor import GroupsEditorPanel
+from .groups_editor import GroupEditorPanel
 from .scan_analyzer_editor import ScanAnalyzerEditorPanel
 from .scan_config_io import (
     list_all_analyzer_ids,
     load_analyzer_yaml,
-    load_experiment_yaml,
-    load_groups_yaml,
+    load_group_yaml,
     save_analyzer_yaml,
-    save_experiment_yaml,
-    save_groups_yaml,
+    save_group_yaml,
 )
 from .scan_tree_panel import ScanTreePanel
 from .yaml_preview import YamlPreviewPanel
 
 logger = logging.getLogger(__name__)
-
-
-def _groups_to_display_yaml(
-    groups_data: dict,
-) -> str:
-    """Convert internal groups data to the user-facing YAML format.
-
-    Transforms the ``{"id": str, "enabled": bool}`` internal representation
-    into the ``groups.yaml`` convention where enabled entries are plain list
-    items and disabled entries are commented-out lines.
-
-    Parameters
-    ----------
-    groups_data : dict
-        Mapping of group name to list of ``{"id": str, "enabled": bool}``.
-
-    Returns
-    -------
-    str
-        YAML-formatted text matching the on-disk ``groups.yaml`` format.
-    """
-    lines: list[str] = ["groups:"]
-    for group_name, members in groups_data.items():
-        lines.append(f"  {group_name}:")
-        for member in members:
-            analyzer_id = member["id"]
-            enabled = member.get("enabled", True)
-            if enabled:
-                lines.append(f"    - {analyzer_id}")
-            else:
-                lines.append(f"    # - {analyzer_id}")
-    return "\n".join(lines) + "\n"
 
 
 class ConfigEditorWindow(QMainWindow):
@@ -220,24 +185,26 @@ class ConfigEditorWindow(QMainWindow):
 
         self._scan_stack = QStackedWidget()
 
-        # Index 0: ScanAnalyzerEditorPanel
+        # Index 0: ScanAnalyzerEditorPanel (per-diagnostic YAMLs)
         self._scan_analyzer_editor = ScanAnalyzerEditorPanel(self)
         self._scan_stack.addWidget(self._scan_analyzer_editor)
 
-        # Index 1: GroupsEditorPanel
-        self._scan_groups_editor = GroupsEditorPanel(self)
+        # Index 1: GroupEditorPanel (per-group YAMLs).
+        # Pre-PR-E this was a multi-group editor against a single
+        # ``library/groups.yaml``; the new layout is one file per
+        # group, so the editor matches.
+        self._scan_groups_editor = GroupEditorPanel(self)
         self._scan_stack.addWidget(self._scan_groups_editor)
 
-        # Index 2: ExperimentEditorPanel
-        self._scan_experiment_editor = ExperimentEditorPanel(self)
-        self._scan_stack.addWidget(self._scan_experiment_editor)
-
-        # Index 3: Placeholder label (shown initially)
+        # Index 2: Placeholder label (shown initially).
+        # The pre-PR-E ExperimentEditorPanel sat between these two —
+        # gone since the unified schema no longer has a distinct
+        # experiment concept (groups cover that role).
         placeholder = QLabel("Select a config file from the tree on the left")
         placeholder.setAlignment(Qt.AlignCenter)
         placeholder.setStyleSheet("color: gray; font-size: 14px;")
         self._scan_stack.addWidget(placeholder)
-        self._scan_stack.setCurrentIndex(3)
+        self._scan_stack.setCurrentIndex(2)
 
         center_layout.addWidget(self._scan_stack, stretch=1)
 
@@ -265,10 +232,7 @@ class ConfigEditorWindow(QMainWindow):
         self._scan_analyzer_editor.config_changed.connect(
             self._on_scan_editor_changed,
         )
-        self._scan_groups_editor.groups_changed.connect(
-            self._on_scan_editor_changed,
-        )
-        self._scan_experiment_editor.config_changed.connect(
+        self._scan_groups_editor.config_changed.connect(
             self._on_scan_editor_changed,
         )
 
@@ -578,7 +542,7 @@ class ConfigEditorWindow(QMainWindow):
         file_path : Path
             Full path to the selected configuration file.
         config_type : str
-            One of ``"analyzer"``, ``"groups"``, or ``"experiment"``.
+            Either ``"analyzer"`` or ``"group"``.
         """
         try:
             if config_type == "analyzer":
@@ -586,27 +550,15 @@ class ConfigEditorWindow(QMainWindow):
                 self._scan_analyzer_editor.load_config(data)
                 self._scan_stack.setCurrentIndex(0)
 
-            elif config_type == "groups":
-                data = load_groups_yaml(file_path)
-                self._scan_groups_editor.load_groups(data)
+            elif config_type == "group":
+                data = load_group_yaml(file_path)
+                self._scan_groups_editor.load_config(data)
                 # Populate autocomplete with known analyzer IDs
                 root = self._scan_tree.get_root()
                 if root is not None:
                     ids = list_all_analyzer_ids(root)
                     self._scan_groups_editor.set_analyzer_ids(ids)
                 self._scan_stack.setCurrentIndex(1)
-
-            elif config_type == "experiment":
-                data = load_experiment_yaml(file_path)
-                self._scan_experiment_editor.load_config(data)
-                # Populate available groups and analyzer IDs
-                root = self._scan_tree.get_root()
-                if root is not None:
-                    ids = list_all_analyzer_ids(root)
-                    self._scan_experiment_editor.set_available_analyzers(ids)
-                    group_names = self._get_group_names_from_root(root)
-                    self._scan_experiment_editor.set_available_groups(group_names)
-                self._scan_stack.setCurrentIndex(2)
 
             else:
                 self._statusbar.showMessage(f"Unknown scan config type: {config_type}")
@@ -637,10 +589,6 @@ class ConfigEditorWindow(QMainWindow):
         try:
             ids = list_all_analyzer_ids(root)
             self._scan_groups_editor.set_analyzer_ids(ids)
-            self._scan_experiment_editor.set_available_analyzers(ids)
-
-            group_names = self._get_group_names_from_root(root)
-            self._scan_experiment_editor.set_available_groups(group_names)
         except Exception as exc:
             logger.warning("Error refreshing scan config data from root: %s", exc)
 
@@ -658,11 +606,7 @@ class ConfigEditorWindow(QMainWindow):
                 config_dict = self._scan_analyzer_editor.get_config_dict()
                 self._scan_yaml_preview.update_preview(config_dict)
             elif current_index == 1:
-                groups_data = self._scan_groups_editor.get_groups_data()
-                yaml_text = _groups_to_display_yaml(groups_data)
-                self._scan_yaml_preview.update_preview_raw(yaml_text)
-            elif current_index == 2:
-                config_dict = self._scan_experiment_editor.get_config_dict()
+                config_dict = self._scan_groups_editor.get_config_dict()
                 self._scan_yaml_preview.update_preview(config_dict)
             else:
                 # Placeholder is showing — clear the preview
@@ -682,13 +626,9 @@ class ConfigEditorWindow(QMainWindow):
                 data = self._scan_analyzer_editor.get_config_dict()
                 save_analyzer_yaml(self._scan_current_path, data)
 
-            elif self._scan_current_type == "groups":
-                data = self._scan_groups_editor.get_groups_data()
-                save_groups_yaml(self._scan_current_path, data)
-
-            elif self._scan_current_type == "experiment":
-                data = self._scan_experiment_editor.get_config_dict()
-                save_experiment_yaml(self._scan_current_path, data)
+            elif self._scan_current_type == "group":
+                data = self._scan_groups_editor.get_config_dict()
+                save_group_yaml(self._scan_current_path, data)
 
             else:
                 self._statusbar.showMessage(
@@ -702,35 +642,6 @@ class ConfigEditorWindow(QMainWindow):
             self._statusbar.showMessage(
                 f"Save error: {self._scan_current_path.name} — {exc}"
             )
-
-    # ------------------------------------------------------------------
-    # Scan Configs tab: helpers
-    # ------------------------------------------------------------------
-
-    def _get_group_names_from_root(self, root: Path) -> list:
-        """Load group names from the groups.yaml file under *root*.
-
-        Parameters
-        ----------
-        root : Path
-            Scan config root directory.
-
-        Returns
-        -------
-        list
-            Sorted list of group names, or empty list on error.
-        """
-        from .scan_config_io import get_groups_file
-
-        groups_path = get_groups_file(root)
-        if groups_path is None:
-            return []
-        try:
-            groups_data = load_groups_yaml(groups_path)
-            return sorted(groups_data.keys())
-        except Exception as exc:
-            logger.warning("Failed to load group names: %s", exc)
-            return []
 
     # ------------------------------------------------------------------
     # Window management
