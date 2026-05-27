@@ -1,0 +1,63 @@
+# Configuration for BELLA ESM Camera 7 (side/bottom screen)
+# Energy range at nominal field 0.670 T: ~171-307 MeV
+#
+# Calibration files:
+#   251205camCalib.txt / 200301trjCalib400A0.txt / 200301lanexCalib.txt
+
+name: "CAM-TEA-MagSpec7"
+description: "BELLA ESM side-screen camera 7 - test config"
+bit_depth: 12
+
+background:
+  enabled: true
+  background_scan_number: 1
+  method: from_file
+  additional_constant: 0.0
+
+roi:
+  x_min: 20   # X Start - 1 (0-indexed)
+  x_max: 692   # X End (exclusive upper bound, width = 672 px)
+  y_min: 19    # Y Start - 1
+  y_max: 130   # Y End
+
+filtering:
+  gaussian_sigma: null
+  median_kernel_size: 3
+
+thresholding:
+  enabled: true
+  method: "constant"
+  value: 0.0
+  mode: "to_zero"
+  invert: false
+
+transforms:
+  rotation_angle: -0.1
+  flip_horizontal: false
+  flip_vertical: false
+
+# Vignette coefficients from ESMCalib lanexCalib.txt, setting 9
+vignette:
+  enabled: true
+  method: radial_polynomial
+  full_width: 692
+  full_height: 516
+  vgnt4: 2.4738080e-12
+  vgnt2: -2.5248120e-06
+  vgnt0: 1.0
+  x_offset: 0
+  y_offset: 150
+  min_model_value: 1.0e-9
+
+analysis:
+  energy_range: [150, 330]
+  num_energy_points: 500
+  calibration:
+    kind: bella_axis
+    camera_calibration_file: "data/ESM-MagSpec-Calibrations/251205camCalib.txt"
+    trajectory_calibration_file: "data/ESM-MagSpec-Calibrations/200301trjCalib400A0.txt"
+    lanex_calibration_file: "data/ESM-MagSpec-Calibrations/200301lanexCalib.txt"
+    camera_number: 7
+    screen_side: side
+    magnetic_field_t: 0.670
+    magnetic_field_aux_key: "HALLPROBE-TEA-MAGSPEC Field"
