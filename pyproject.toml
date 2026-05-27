@@ -11,6 +11,7 @@ mkdocs = "^1.5"
 mkdocs-material = "^9.5"
 mkdocstrings = { extras = ["python"], version = "^0.28.2" }
 mkdocs-autorefs = "^1.4"
+mkdocs-git-revision-date-localized-plugin = "^1.2"  # "Last updated" footer per page
 nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
 tomli = "^2.2.1"
 

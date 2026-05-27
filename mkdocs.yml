@@ -1,6 +1,7 @@
 site_name: GEECS Plugin Suite
 repo_url: https://github.com/GEECS-BELLA/GEECS-Plugins
 repo_name: GEECS-Plugins
+edit_uri: edit/master/docs/
 
 theme:
   name: material
@@ -8,13 +9,39 @@ theme:
     - navigation.tabs
     - navigation.sections
     - navigation.indexes
+    - navigation.top
     - content.code.copy
+    - content.action.edit
     - search.suggest
     - search.highlight
     - toc.integrate
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    edit: material/pencil
+    repo: fontawesome/brands/github
 
 nav:
   - Home: index.md
+
+  - Apps:
+      - Overview: apps/index.md
+      - Tutorial — end-to-end: apps/tutorial.md
+      - ConfigFileGUI: apps/config_file_gui.md
+      - LiveWatch: apps/live_watch.md
 
   - GEECS Scanner GUI:
       - Overview: geecs_scanner/overview.md
@@ -38,10 +65,6 @@ nav:
           - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
       - Notes and Discussions:
           - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
-
-  - Skills:
-      - Overview: skills/overview.md
-      - Writing a Skill: skills/writing_a_skill.md
 
   - Image Analysis:
       - Overview: image_analysis/overview.md
@@ -80,9 +103,18 @@ nav:
           - Correlation Analysis: geecs_data_utils/examples/correlation_analysis.ipynb
           - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
 
+  # Skills is intentionally last — experimental (agentic tooling), not core suite.
+  - Skills:
+      - Overview: skills/overview.md
+      - Writing a Skill: skills/writing_a_skill.md
+
 
 plugins:
   - search
+  - git-revision-date-localized:
+      enable_creation_date: false
+      type: date
+      fallback_to_build_date: true
   - mkdocstrings:
       handlers:
         python:
@@ -121,4 +153,8 @@ markdown_extensions:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
   - attr_list
+  - md_in_html
