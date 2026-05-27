@@ -14,10 +14,26 @@ Python required.
 
 You should already have:
 
-- **`~/.config/geecs_python_api/config.ini`** set up (the Scanner GUI's
-  first-launch wizard creates it; copy from a working teammate if needed —
-  see [LiveWatch prerequisites](live_watch.md#prerequisites) for the
-  minimal contents).
+- **`~/.config/geecs_python_api/config.ini`** set up. The Scanner GUI's
+  first-launch wizard creates it; copy from a working teammate if needed.
+  Minimal contents look like:
+
+    ```ini
+    [Paths]
+    geecs_data = Z:\path\to\experiment\user data
+    scan_analysis_configs_path = Z:\path\to\GEECS-Plugins-Configs\scan_analysis_configs
+    image_analysis_configs_path = Z:\path\to\GEECS-Plugins-Configs\image_analysis_configs
+
+    [Experiment]
+    expt = Undulator
+    rep_rate_hz = 1
+    ```
+
+    LiveWatch resolves data paths from this file: `geecs_data` is the
+    experiment data root it walks looking for new scan folders, and
+    `scan_analysis_configs_path` is what its **Analyzer Group** dropdown
+    discovers groups from.
+
 - A **scan_analysis_configs/** directory checked out and writable. This
   usually lives in the sister `GEECS-Plugins-Configs` repo alongside this
   one.
@@ -61,9 +77,7 @@ The editor renders the typed form. The key sections:
   picks the `CameraConfig` schema; switching to `line` re-renders for a 1D
   signal. ROI, Background, Thresholding, etc. are individual processing
   steps; tick the header checkbox to include a step in the active
-  pipeline, leave it unchecked to omit. (See
-  [ConfigFileGUI — Editing an analyzer config](config_file_gui.md#editing-an-analyzer-config)
-  for the longer reference.)
+  pipeline, leave it unchecked to omit.
 - **Scan** section — controls how this analyzer is invoked at the scan
   orchestration level: priority, mode (`per_shot` vs aggregated), GDoc
   upload slot.

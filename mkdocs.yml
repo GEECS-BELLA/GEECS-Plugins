@@ -40,8 +40,6 @@ nav:
   - Apps:
       - Overview: apps/index.md
       - Tutorial — end-to-end: apps/tutorial.md
-      - ConfigFileGUI: apps/config_file_gui.md
-      - LiveWatch: apps/live_watch.md
 
   - GEECS Scanner GUI:
       - Overview: geecs_scanner/overview.md
@@ -108,6 +106,15 @@ nav:
       - Overview: skills/overview.md
       - Writing a Skill: skills/writing_a_skill.md
 
+
+# Files that live under docs/ but should NOT be published as pages.
+# CLAUDE.md is agent/developer instructions; the rest are internal notes
+# we want close to the docs source without surfacing them on the site.
+exclude_docs: |
+  CLAUDE.md
+  DOCSTRING_SETUP_README.md
+  development_guidelines.md
+  docstring_templates.md
 
 plugins:
   - search
