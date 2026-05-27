@@ -51,6 +51,14 @@ Do not create worktrees in the repository root itself, inside subpackages
 (e.g. `ImageAnalysis/.claude/worktrees/`), or in random tmp locations. The
 canonical location is `<repo-root>/.claude/worktrees/<feature-name>/`.
 
+**Always start Claude sessions with the repo root as the working directory.**
+When Claude Code is configured to spawn a session worktree, it places the
+worktree relative to wherever the session was launched from. Launching from
+`<repo-root>/ImageAnalysis/` produces a worktree at
+`ImageAnalysis/.claude/worktrees/<id>/`, not at `<repo-root>/.claude/worktrees/`.
+The `**/.claude/worktrees/` pattern in `.gitignore` is a safety net for this
+case, but the right fix is to launch from the repo root.
+
 Remove worktrees after their PR is merged unless they are intentionally
 long-lived for a distinct development stream (currently only
 `geecs-plugins-bluesky` qualifies, and it sits as a sibling because it
