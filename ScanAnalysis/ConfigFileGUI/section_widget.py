@@ -19,6 +19,7 @@ full configuration form.
 from __future__ import annotations
 
 import logging
+import typing
 from typing import Any, Dict, List, Optional, Tuple, Type, get_args, get_origin
 
 from pydantic import BaseModel, ValidationError
@@ -246,13 +247,30 @@ class SectionWidget(QWidget):
         When the model has an ``enabled: bool`` field, that field is
         **skipped** because the header checkbox already represents it.
         """
+        # Resolve forward-reference / future-annotations strings to real
+        # types. Plain ``__annotations__`` access returns strings when
+        # the model's module uses ``from __future__ import annotations``
+        # (which silently breaks ``create_field_widget``'s ``is``-based
+        # type dispatch — every field falls back to StringFieldWidget).
+        # ``typing.get_type_hints`` performs the resolution.
+        try:
+            resolved_hints = typing.get_type_hints(self._model_class)
+        except Exception as exc:
+            logger.warning(
+                "get_type_hints() failed on %s: %s. Falling back to raw "
+                "annotations; fields may be misrouted.",
+                self._model_class.__name__,
+                exc,
+            )
+            resolved_hints = self._model_class.__annotations__
+
         for field_name, field_info in self._model_class.model_fields.items():
             # Skip the ``enabled`` bool field — the header checkbox
             # already represents it.
             if field_name == "enabled" and self._has_enabled_field:
                 continue
 
-            field_type = self._model_class.__annotations__.get(field_name, str)
+            field_type = resolved_hints.get(field_name, str)
 
             if _is_basemodel_type(field_type):
                 # Nested sub-model → recursive SectionWidget
