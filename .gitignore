@@ -42,6 +42,9 @@ GEECS-Scanner-GUI/testing.ipynb
 # Claude Code
 # -----------------------------
 .claude/settings.local.json
+# Agent worktrees live here per the policy in CLAUDE.md → "Agent & Worktree
+# Policy". Each subdir is its own independent git worktree.
+.claude/worktrees/
 
 # -----------------------------
 # Editors / OS files
