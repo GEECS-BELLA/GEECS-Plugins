@@ -322,11 +322,15 @@ class TestAnalysisGroupConfigRoundtrip:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.gui
 class TestGroupEditorRoundtrip:
     """Round-trip a group YAML through the full editor (load + get).
 
     Uses the offscreen Qt platform so no display is required. Exercises
     the actual ``GroupEditorPanel`` form fields, not just the I/O.
+
+    Marked ``gui`` so headless CI (which runs ``pytest -m "not integration
+    and not gui"``) deselects them — PyQt5 is not installed in that env.
     """
 
     @pytest.fixture(autouse=True)
@@ -334,6 +338,7 @@ class TestGroupEditorRoundtrip:
         import os
 
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        pytest.importorskip("PyQt5")
         from PyQt5.QtWidgets import QApplication
 
         app = QApplication.instance() or QApplication([])
