@@ -7,8 +7,8 @@ This guide covers the complete installation and setup process for the GEECS Scan
 
 ### Required Software
 
-**Python 3.10**:
-The scanner requires Python 3.10 specifically. Download from: [Python 3.10.11](https://www.python.org/downloads/release/python-31011/). Use the "Windows installer (64-bit)" link. **Important**: Check "Add Python 3.10 to PATH" during installation.
+**Python 3.11**:
+The Scanner GUI requires Python 3.11 (it's pinned to `>=3.11,<3.12` in `pyproject.toml`). Download from: [Python 3.11](https://www.python.org/downloads/release/python-3119/) and use the "Windows installer (64-bit)" link. **Important**: Check "Add Python 3.11 to PATH" during installation.
 
 
 
@@ -27,7 +27,7 @@ Clone or ensure access to the GEECS Plugings and GEECS Plugins Configuration rep
 Check your Python installation:
 ```bash
 python --version
-# Should show: Python 3.10.11
+# Should show: Python 3.11.x
 ```
 
 Check your Poetry installation:
@@ -43,10 +43,10 @@ poetry --version
 ### Option 1: Basic Usage (Run Only)
 For users who only want to run the GUI:
 
- <!-- 1.  #### If you have multiple Python versions, specify Python 3.10 explicitly:
+ <!-- 1.  #### If you have multiple Python versions, specify Python 3.11 explicitly:
    ```bash
-   # Find your Python 3.10 path (example path shown)
-   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python310\python.exe
+   # Find your Python 3.11 path (example path shown)
+   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python311\python.exe
    poetry install
    ```
 
@@ -128,10 +128,10 @@ For users who only want to run the GUI:
 
 For users who want to run and develop/customize the GUI:
 
- 1.  #### If you have multiple Python versions, specify Python 3.10 explicitly:
+ 1.  #### If you have multiple Python versions, specify Python 3.11 explicitly:
    ```bash
-   # Find your Python 3.10 path (example path shown)
-   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python310\python.exe
+   # Find your Python 3.11 path (example path shown)
+   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python311\python.exe
    poetry install
    ```
 
@@ -239,10 +239,10 @@ For code development and customization:
    poetry install
    ```
 
-   **If you have multiple Python versions**, specify Python 3.10 explicitly:
+   **If you have multiple Python versions**, specify Python 3.11 explicitly:
    ```bash
-   # Find your Python 3.10 path (example path shown)
-   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python310\python.exe
+   # Find your Python 3.11 path (example path shown)
+   poetry env use C:\Users\username\AppData\Local\Programs\Python\Python311\python.exe
    poetry install
    ```
 
@@ -292,10 +292,10 @@ poetry add package_name
 ### Common Issues
 
 #### Python Version Problems
-**Error**: Poetry can't find Python 3.10
+**Error**: Poetry can't find Python 3.11
 **Solution**: Explicitly specify the Python path:
 ```bash
-poetry env use /path/to/python3.10/python.exe
+poetry env use /path/to/python3.11/python.exe
 ```
 
 #### First Launch Issues

@@ -6,7 +6,7 @@ This tutorial picks up where [Installation & Setup](installation.md) leaves off.
 
 You should already have:
 
-- Python 3.10 installed.
+- Python 3.11 installed.
 - The `GEECS-Plugins` and `GEECS-Plugins-Configs` repositories cloned or mapped from the network drive.
 - `poetry install` succeeded inside `GEECS-Scanner-GUI/`.
 - A working GEECS database connection — your GEECS Master Control or equivalent control system is running and your `~/.config/geecs_python_api/config.ini` points at the right experiment.
