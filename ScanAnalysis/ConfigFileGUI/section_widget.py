@@ -29,8 +29,6 @@ from PyQt5.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
-    QLabel,
-    QSizePolicy,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -164,9 +162,6 @@ class SectionWidget(QWidget):
         self._section_name = section_name
         self._model_class = model_class
 
-        # Detect whether the model has an ``enabled`` bool field.
-        self._has_enabled_field: bool = "enabled" in model_class.model_fields
-
         # Internal storage
         self._field_widgets: Dict[str, BaseFieldWidget] = {}
         self._nested_sections: Dict[str, SectionWidget] = {}
@@ -217,17 +212,15 @@ class SectionWidget(QWidget):
 
         title_text = _format_section_title(self._section_name)
 
-        if self._has_enabled_field:
-            # Checkbox doubles as the "enabled" control + section label
-            self._enabled_cb = QCheckBox(title_text, self._header)
-            self._enabled_cb.setChecked(True)
-            self._enabled_cb.toggled.connect(self._on_enabled_toggled)
-            header_layout.addWidget(self._enabled_cb)
-        else:
-            self._enabled_cb = None  # type: ignore[assignment]
-            title_label = QLabel(title_text, self._header)
-            title_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            header_layout.addWidget(title_label)
+        # Always render a checkbox in the header. The state is purely
+        # internal — not backed by an ``enabled`` field on the model.
+        # Parent panels (e.g. ``ConfigEditorPanel``) wire the toggle to
+        # whatever semantic they need (typically: "is this step in the
+        # processing pipeline?").
+        self._enabled_cb = QCheckBox(title_text, self._header)
+        self._enabled_cb.setChecked(True)
+        self._enabled_cb.toggled.connect(self._on_enabled_toggled)
+        header_layout.addWidget(self._enabled_cb)
 
         header_layout.addStretch()
         frame_layout.addWidget(self._header)
@@ -265,11 +258,6 @@ class SectionWidget(QWidget):
             resolved_hints = self._model_class.__annotations__
 
         for field_name, field_info in self._model_class.model_fields.items():
-            # Skip the ``enabled`` bool field — the header checkbox
-            # already represents it.
-            if field_name == "enabled" and self._has_enabled_field:
-                continue
-
             field_type = resolved_hints.get(field_name, str)
 
             if _is_basemodel_type(field_type):
@@ -322,32 +310,21 @@ class SectionWidget(QWidget):
     def get_values(self) -> Optional[Dict[str, Any]]:
         """Return the current field values as a dict, or ``None`` if disabled.
 
-        The returned dictionary is suitable for passing to
+        When the header checkbox is **unchecked**, returns ``None``
+        (the parent panel uses this signal to skip the section, e.g.
+        omit the corresponding step from the pipeline). When **checked**,
+        returns the field values as a dict ready for
         ``model_class.model_validate()``.
-
-        When the model has an ``enabled`` field and the header checkbox is
-        **unchecked**, ``None`` is returned.  For models without an
-        ``enabled`` field the section is always considered active and a
-        dict is always returned.
-
-        When the checkbox is **checked** and the model declares an
-        ``enabled`` field, ``"enabled": True`` is injected into the
-        returned dict.
 
         Returns
         -------
             Field values keyed by Pydantic field name, or ``None`` when
-            the section is disabled.
+            the section's checkbox is unchecked.
         """
-        if self._has_enabled_field and not self._enabled:
+        if not self._enabled:
             return None
 
         data: Dict[str, Any] = {}
-
-        # Inject ``"enabled": True`` when the model declares the field.
-        if self._has_enabled_field:
-            data["enabled"] = True
-
         for name, widget in self._field_widgets.items():
             data[name] = widget.get_value()
         for name, section in self._nested_sections.items():
@@ -360,24 +337,19 @@ class SectionWidget(QWidget):
         Parameters
         ----------
         data : dict or None
-            If ``None``, the section is unchecked (disabled).  Otherwise
-            each field widget is populated from the corresponding key.
-            For models with an ``enabled`` field, the checkbox checked
-            state is driven by ``data["enabled"]`` (defaulting to
-            ``True`` when the key is absent).
+            If ``None``, the section is unchecked (header checkbox off).
+            Otherwise the section is checked and each field widget is
+            populated from the corresponding key.
         """
         if data is None:
-            if self._has_enabled_field and self._enabled_cb is not None:
+            if self._enabled_cb is not None:
                 self._enabled_cb.setChecked(False)
             self._enabled = False
             return
 
-        if self._has_enabled_field and self._enabled_cb is not None:
-            enabled_val = bool(data.get("enabled", True))
-            self._enabled_cb.setChecked(enabled_val)
-            self._enabled = enabled_val
-        else:
-            self._enabled = True
+        if self._enabled_cb is not None:
+            self._enabled_cb.setChecked(True)
+        self._enabled = True
 
         for name, widget in self._field_widgets.items():
             if name in data:
@@ -404,10 +376,9 @@ class SectionWidget(QWidget):
         enabled : bool
             Whether to enable the section.
         """
-        if self._has_enabled_field and self._enabled_cb is not None:
+        if self._enabled_cb is not None:
             self._enabled_cb.setChecked(enabled)
-        else:
-            self._enabled = enabled
+        self._enabled = enabled
 
     def validate(self) -> List[Tuple[str, str]]:
         """Validate current values through Pydantic.

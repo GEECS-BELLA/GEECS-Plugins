@@ -47,14 +47,10 @@ def apply_interpolation(data: np.ndarray, config: InterpolationConfig) -> np.nda
 
     Notes
     -----
-    - If config.enabled is False, returns a copy of the original data
     - Uses linear interpolation via np.interp
     - Automatically determines x_min/x_max from data if not specified
     - Returns original data (with warning) if interpolation fails
     """
-    if not config.enabled:
-        return data.copy()
-
     if data.ndim != 2 or data.shape[1] != 2:
         raise ValueError(f"Expected Nx2 array, got shape {data.shape}")
 

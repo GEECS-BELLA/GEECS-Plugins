@@ -70,10 +70,7 @@ from .vignette import (
 )
 
 # Pipeline
-from .pipeline import (
-    apply_camera_processing_pipeline,
-    apply_non_background_processing,
-)
+from .pipeline import apply_camera_processing_pipeline
 
 # Registry for dynamic function lookup
 PROCESSING_FUNCTIONS = {
@@ -114,7 +111,6 @@ __all__ = [
     "apply_vignette_config",
     # Unified processing pipeline
     "apply_camera_processing_pipeline",
-    "apply_non_background_processing",
     # Configuration models
     "CameraConfig",
     "BackgroundConfig",

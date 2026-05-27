@@ -264,10 +264,8 @@ class InterpolationConfig(BaseModel):
 
     Attributes
     ----------
-    enabled : bool
-        If True, apply interpolation; if False, pass through original data
     num_points : int
-        Number of points in the interpolated x-axis
+        Number of points in the interpolated x-axis.
     x_min : float, optional
         Minimum x-value for interpolation. If None, uses data minimum.
     x_max : float, optional
@@ -275,23 +273,19 @@ class InterpolationConfig(BaseModel):
 
     Examples
     --------
-    Enable interpolation with auto-detected range::
+    Auto-detected range::
 
-        config = InterpolationConfig(enabled=True, num_points=1500)
+        config = InterpolationConfig(num_points=1500)
 
     Specify custom x-range for energy spectrum::
 
         config = InterpolationConfig(
-            enabled=True,
             num_points=1500,
             x_min=0.06,
-            x_max=0.3
+            x_max=0.3,
         )
     """
 
-    enabled: bool = Field(
-        default=False, description="Enable interpolation to uniform x-axis"
-    )
     num_points: int = Field(
         default=1500, ge=10, description="Number of points in interpolated axis"
     )
@@ -322,23 +316,23 @@ class InterpolationConfig(BaseModel):
 class PipelineConfig(BaseModel):
     """Configuration for the 1D processing pipeline.
 
+    The pipeline is the single source of truth for what runs and in
+    what order. A step executes if and only if it appears in ``steps``;
+    omission is the canonical way to skip a step.
+
     Attributes
     ----------
     steps : List[PipelineStepType]
-        Ordered list of processing steps to apply. Default includes all steps,
-        but steps are only executed if their corresponding config is provided
-        (e.g., ROI step only runs if config.roi is not None).
+        Ordered list of processing steps to apply. Empty list means
+        "no processing" (raw data flows through). Each step must have
+        a matching non-None sub-config on the parent
+        :class:`Line1DConfig`; otherwise the step is silently skipped
+        (with a debug log).
     """
 
     steps: List[PipelineStepType] = Field(
-        default_factory=lambda: [
-            PipelineStepType.BACKGROUND,
-            PipelineStepType.ROI,
-            PipelineStepType.FILTERING,
-            PipelineStepType.THRESHOLDING,
-            PipelineStepType.INTERPOLATION,
-        ],
-        description="Ordered list of processing steps",
+        default_factory=list,
+        description="Ordered list of processing steps (empty = no processing)",
     )
 
 
@@ -440,7 +434,10 @@ class Line1DConfig(BaseModel):
     background: Optional[BackgroundConfig] = None
     filtering: Optional[FilteringConfig] = None
     thresholding: Optional[ThresholdingConfig] = None
-    pipeline: Optional[PipelineConfig] = Field(default_factory=PipelineConfig)
+    pipeline: PipelineConfig = Field(
+        default_factory=PipelineConfig,
+        description="Processing pipeline (defaults to empty — nothing runs)",
+    )
 
     # Analyzer-specific configuration
     analysis: Optional[Dict[str, Any]] = Field(

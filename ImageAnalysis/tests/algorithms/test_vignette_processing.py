@@ -20,7 +20,6 @@ def test_radial_vignette_constant_model():
     """Radial vignette map should be uniform when only vgnt0 is used."""
     image = np.ones((4, 5), dtype=float)
     cfg = VignetteConfig(
-        enabled=True,
         method=VignetteMethod.RADIAL_POLYNOMIAL,
         full_width=5,
         full_height=4,
@@ -36,12 +35,11 @@ def test_radial_vignette_constant_model():
 
 
 def test_pipeline_applies_vignette_step():
-    """Pipeline should apply vignette when VIGNETTE step is enabled."""
+    """Pipeline runs the vignette step when VIGNETTE is in pipeline.steps."""
     image = np.full((3, 3), 10.0, dtype=float)
     camera_cfg = CameraConfig(
         name="test_cam",
         vignette=VignetteConfig(
-            enabled=True,
             method=VignetteMethod.RADIAL_POLYNOMIAL,
             full_width=3,
             full_height=3,

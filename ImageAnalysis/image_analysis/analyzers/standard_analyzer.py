@@ -181,7 +181,10 @@ class StandardAnalyzer(ImageAnalyzer):
             "config_file": self.camera_config_name,
             "background_enabled": (
                 self.camera_config.background is not None
-                and self.camera_config.background.enabled
+                and any(
+                    step.value == "background"
+                    for step in self.camera_config.pipeline.steps
+                )
             ),
         }
 
