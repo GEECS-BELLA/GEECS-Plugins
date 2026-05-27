@@ -1,22 +1,40 @@
-# Config File Editor GUI
+# Scan Config Editor GUI
 
-A PyQt5 GUI for viewing, modifying, and creating device configuration YAML files
-used by the GEECS image analysis system.
+A PyQt5 GUI for viewing, modifying, and creating the unified-diagnostic
+configuration YAMLs that drive ScanAnalysis (and LiveWatch) post-PR-E.
 
-> **Note:** This tool is under active development. Features are being added
-> incrementally — see [the plan](../../../plans/Config_File_GUI_Plan.md) for the
-> full roadmap.
+## What it edits
 
-## What It Does
+Everything under `scan_analysis_configs/`:
 
-- Browse and open device configuration YAML files from the
-  `image_analysis_configs/` directory
-- View and edit 2D camera configs (`CameraConfig`) and 1D line configs
-  (`Line1DConfig`)
-- Create new configuration files with sensible defaults
-- Validate configurations against the Pydantic schema before saving
+```
+scan_analysis_configs/
+├── analyzers/<facility>/<stem>.yaml   ← unified diagnostic (DiagnosticAnalysisConfig)
+└── groups/<facility>/<stem>.yaml      ← analyzer group (AnalysisGroupConfig)
+```
 
-## How to Run
+Each analyzer YAML bundles the per-device `image:` (CameraConfig or
+Line1DConfig — the discriminator is the `type:` field) and `scan:`
+(ScanRuntimeConfig) sections plus the `image_analyzer:` class path.
+Each group YAML lists a set of analyzer refs (with optional
+per-group `enabled` / `priority` overrides).
+
+## Features
+
+- Browse `analyzers/` and `groups/` trees, organised by facility namespace
+  (HTU / HTT / PW / UNCLASSIFIED).
+- Create new analyzer and group YAMLs from minimal templates.
+- Rename files (the on-disk stem is the canonical analyzer ID).
+- Edit the unified diagnostic shape: `name`, `image_analyzer`,
+  `image:` (typed CameraConfig / Line1DConfig with full sub-section
+  editors), and `scan:` (priority, mode, save flags, background_source, …).
+- Edit groups: name, description, upload-to-scanlog flag, plus a list
+  of analyzer refs with per-ref `enabled` / `priority` overrides.
+- Optional YAML preview pane (Tools → Toggle YAML Preview).
+- **Analysis Preview** (Tools → Analysis Preview…) — run a single-image
+  analysis test against the current diagnostic without leaving the GUI.
+
+## How to run
 
 From the `ScanAnalysis/` directory:
 
@@ -24,21 +42,21 @@ From the `ScanAnalysis/` directory:
 python -m ConfigFileGUI.main
 ```
 
-Or directly:
-
-```bash
-python ConfigFileGUI/main.py
-```
-
-## CLI Options
+## CLI options
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--log-level` | Console log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) | `INFO` |
-| `--config-dir` | Path to the `image_analysis_configs/` directory | `None` (select via GUI) |
+| `--scan-config-dir` | Path to the `scan_analysis_configs/` directory | None (open via File menu) |
 
 ### Example
 
 ```bash
-python -m ConfigFileGUI.main --config-dir ../../GEECS-Plugins-Configs/image_analysis_configs --log-level DEBUG
+python -m ConfigFileGUI.main --scan-config-dir ../../GEECS-Plugins-Configs/scan_analysis_configs --log-level DEBUG
 ```
+
+## Requirements
+
+- Python 3.10+
+- PyQt5
+- All ScanAnalysis dependencies (installed automatically via poetry)

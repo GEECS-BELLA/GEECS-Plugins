@@ -1,4 +1,4 @@
-"""Entry point for the Config File Editor GUI.
+"""Entry point for the Scan Config File Editor GUI.
 
 Run from a terminal::
 
@@ -8,8 +8,8 @@ Or directly::
 
     python ConfigFileGUI/main.py
 
-Optional CLI flags allow you to set the initial log level and specify
-the directory containing device configuration YAML files.
+Optional CLI flags set the log level and the initial
+``scan_analysis_configs/`` root directory.
 """
 
 from __future__ import annotations
@@ -22,14 +22,8 @@ from typing import Optional
 
 
 def _parse_args() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns
-    -------
-    argparse.Namespace
-        Parsed arguments including logging controls and config directory.
-    """
-    p = argparse.ArgumentParser(description="Launch the Config File Editor GUI")
+    """Parse command-line arguments."""
+    p = argparse.ArgumentParser(description="Launch the Scan Config Editor GUI")
     p.add_argument(
         "--log-level",
         default="INFO",
@@ -37,28 +31,19 @@ def _parse_args() -> argparse.Namespace:
         help="Initial console log level (default: INFO).",
     )
     p.add_argument(
-        "--config-dir",
-        type=str,
-        default=None,
-        help=(
-            "Path to the image_analysis_configs directory containing "
-            "device configuration YAML files."
-        ),
-    )
-    p.add_argument(
         "--scan-config-dir",
         type=str,
         default=None,
         help=(
-            "Path to the scan_analysis_configs directory containing "
-            "scan configuration YAML files (experiments, library, groups)."
+            "Path to the scan_analysis_configs/ root directory containing "
+            "the analyzers/ and groups/ subtrees."
         ),
     )
     return p.parse_args()
 
 
 def main() -> int:
-    """Launch the Config File Editor GUI application.
+    """Launch the Scan Config Editor GUI application.
 
     Returns
     -------
@@ -67,18 +52,11 @@ def main() -> int:
     """
     args = _parse_args()
 
-    # Configure root logging so messages reach the console
     logging.basicConfig(
         level=getattr(logging, args.log_level),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    # Resolve config directory if provided
-    config_dir: Optional[Path] = None
-    if args.config_dir is not None:
-        config_dir = Path(args.config_dir).resolve()
-
-    # Resolve scan config directory if provided
     scan_config_dir: Optional[Path] = None
     if args.scan_config_dir is not None:
         scan_config_dir = Path(args.scan_config_dir).resolve()
@@ -89,12 +67,9 @@ def main() -> int:
     from ConfigFileGUI.config_editor_window import ConfigEditorWindow
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Config File Editor")
+    app.setApplicationName("Scan Config Editor")
 
-    window = ConfigEditorWindow(
-        config_dir=config_dir,
-        scan_config_dir=scan_config_dir,
-    )
+    window = ConfigEditorWindow(scan_config_dir=scan_config_dir)
     window.show()
 
     return app.exec_()
