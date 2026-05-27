@@ -18,6 +18,12 @@ tooling. Each subdirectory is an independent Python package with its own
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
+The published mkdocs site lives under `docs/` and also has its own
+`CLAUDE.md` covering documentation conventions — content organisation,
+build commands, the headless-screenshot workflow for GUI pages, and
+notebook hygiene constraints. Read it whenever you touch anything under
+`docs/`.
+
 ## Agent & Worktree Policy
 
 `CLAUDE.md` files are the canonical agent/developer instructions for this
