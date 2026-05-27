@@ -350,14 +350,28 @@ class ScanAnalyzerEditorPanel(QWidget):
         """Build a CameraConfig/Line1DConfig from a raw dict.
 
         Strips the ``type`` discriminator before validation (the combo
-        is the source of truth). When ``payload`` is missing, falls
-        back to a minimal model.
+        is the source of truth). When ``payload`` is missing or
+        incomplete, seeds the minimum required fields for each model
+        class so an empty form is always constructible — this is what
+        gets shown when the user switches the type combo from one
+        kind to another.
+
+        Concretely:
+
+        * :class:`CameraConfig` only requires ``name``; an empty
+          payload validates with just that.
+        * :class:`Line1DConfig` also requires ``data_loading`` (with
+          a ``data_type`` selector); we seed ``{data_type: 'csv'}``
+          as a sensible starter that the user can change in the form.
         """
         clean = {k: v for k, v in (payload or {}).items() if k != "type"}
-        # CameraConfig and Line1DConfig both require ``name``; if it's
-        # missing in payload, fall back to a placeholder so the model
-        # validates. The user can edit it via the form.
         clean.setdefault("name", "")
+
+        # Per-model minimum required defaults so model_validate succeeds
+        # on a switch-to-empty.
+        if model_cls.__name__ == "Line1DConfig":
+            clean.setdefault("data_loading", {"data_type": "csv"})
+
         try:
             return model_cls.model_validate(clean)
         except Exception as exc:
@@ -367,6 +381,16 @@ class ScanAnalyzerEditorPanel(QWidget):
                 model_cls.__name__,
                 exc,
             )
+            # Last-resort fallback: build a model with just the required
+            # fields. Both branches must produce a valid model so the UI
+            # can show an empty form without crashing.
+            if model_cls.__name__ == "Line1DConfig":
+                from image_analysis.config.array1d_processing import Data1DConfig
+
+                return model_cls(
+                    name=clean.get("name", "unnamed"),
+                    data_loading=Data1DConfig(data_type="csv"),
+                )
             return model_cls(name=clean.get("name", "unnamed"))
 
     def _on_image_type_changed(self, new_kind: str) -> None:
