@@ -1,7 +1,7 @@
 """Generate documentation screenshots for ConfigFileGUI and LiveWatchGUI.
 
 Runs each app headlessly (QT_QPA_PLATFORM=offscreen) and grabs representative
-states to docs/apps/assets/. Designed to be re-run when the GUIs change.
+states to docs/tutorials/assets/. Designed to be re-run when the GUIs change.
 
 Requires the sister repo ``GEECS-Plugins-Configs`` checked out next to
 ``GEECS-Plugins-docs-sweep`` so the analyzer/group sample configs resolve.
@@ -20,7 +20,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 SAMPLE_CONFIGS = REPO.parent / "GEECS-Plugins-Configs" / "scan_analysis_configs"
-OUT = REPO / "docs/apps/assets"
+OUT = REPO / "docs/tutorials/assets"
 OUT.mkdir(parents=True, exist_ok=True)
 
 if not SAMPLE_CONFIGS.is_dir():

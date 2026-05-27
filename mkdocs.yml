@@ -37,9 +37,10 @@ theme:
 nav:
   - Home: index.md
 
-  - Apps:
-      - Overview: apps/index.md
-      - Tutorial — end-to-end: apps/tutorial.md
+  - Tutorials:
+      - Overview: tutorials/index.md
+      - Acquisition: tutorials/acquisition.md
+      - Analysis: tutorials/analysis.md
 
   - GEECS Scanner GUI:
       - Overview: geecs_scanner/overview.md

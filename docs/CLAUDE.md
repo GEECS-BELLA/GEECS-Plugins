@@ -8,21 +8,22 @@ The site is organised into top-level tabs in `mkdocs.yml`'s `nav:`. The
 canonical ordering is:
 
 ```
-Home → Apps → <per-package tabs> → Skills
+Home → Tutorials → <per-package tabs> → Skills
 ```
 
-The Apps tab is the cross-package, user-facing entry point (ConfigFileGUI,
-LiveWatch, the end-to-end tutorial). Each per-package tab is owned by the
-package it documents and follows roughly Diátaxis: Overview (explanation),
-Tutorial (when applicable), How-To pages, Examples (notebooks), API
-Reference (mkdocstrings-generated). Skills sits last because it's
-experimental tooling rather than core suite.
+The Tutorials tab is the cross-package, user-facing entry point — it holds
+the end-to-end walkthroughs (currently Analysis; Acquisition is stubbed
+and eventually replaces the existing `geecs_scanner/tutorial.md`). Each
+per-package tab is owned by the package it documents and follows roughly
+Diátaxis: Overview (explanation), Tutorial (when applicable), How-To
+pages, Examples (notebooks), API Reference (mkdocstrings-generated).
+Skills sits last because it's experimental tooling rather than core suite.
 
 ## When to put what where
 
 | Kind of content | Lives in |
 |---|---|
-| Cross-package user workflow (uses ≥2 packages) | `docs/apps/` |
+| Cross-package end-to-end tutorial | `docs/tutorials/` |
 | Single-package overview, how-to, or reference | `docs/<package>/` |
 | API reference auto-generated from docstrings | `docs/<package>/api/` (uses mkdocstrings) |
 | Hands-on example using real data | `docs/<package>/examples/*.ipynb` |
@@ -30,7 +31,7 @@ experimental tooling rather than core suite.
 
 If you find yourself wanting to document a workflow that spans two packages
 (say, "configure analysis in ConfigFileGUI then run via LiveWatch"), it
-belongs under `apps/`, not under either constituent package.
+belongs under `tutorials/`, not under either constituent package.
 
 ## Building & previewing locally
 
@@ -60,7 +61,7 @@ reproducible:
    (loading a sample config, toggling panels, picking a group), and
    captures each state via `widget.grab().save(path, "PNG")`.
 2. Output PNGs live under `docs/<tab>/assets/` — e.g.
-   `docs/apps/assets/configgui_02_analyzer_camera.png`.
+   `docs/tutorials/assets/configgui_02_analyzer_camera.png`.
 3. Naming convention: `<app>_NN_<state>.png` so screenshots are
    self-sorting and the state is greppable from the filename.
 4. Re-run the script whenever the GUIs change in a user-visible way:

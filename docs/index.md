@@ -36,8 +36,8 @@ follow that split; the bottom row is for navigation and troubleshooting.
     per-scan analysis via LiveWatch. Edit configs in ConfigFileGUI; run
     them headlessly or interactively via the Image/Scan Analysis APIs.
 
-    [:octicons-arrow-right-24: Analysis apps](apps/index.md) ·
-    [Tutorial](apps/tutorial.md)
+    [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·
+    [All tutorials](tutorials/index.md)
 
 -   :material-cube-outline:{ .lg .middle } **Browse by package**
 
@@ -137,7 +137,7 @@ different questions:
 
 If you're looking for something specific and you already know roughly where
 it lives, the left-hand navigation will get you there fastest. If you're new,
-the [Tutorial](apps/tutorial.md) is the right entry point.
+the [Tutorials](tutorials/index.md) tab is the right entry point.
 
 ---
 
