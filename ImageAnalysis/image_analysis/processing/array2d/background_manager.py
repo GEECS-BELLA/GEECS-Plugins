@@ -7,14 +7,13 @@ and providing a clean interface for background operations.
 """
 
 import logging
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, Dict, Any, Union
 from pathlib import Path
 import numpy as np
 
 from ...types import Array2D
 from .config_models import BackgroundConfig, BackgroundMethod
 from .background import (
-    compute_background,
     subtract_background,
     load_background_from_file,
     save_background_to_file,
@@ -57,53 +56,6 @@ class BackgroundManager:
         # File-based caching to avoid repeated disk I/O
         self._cached_file_path: Optional[str] = None
         self._cached_background: Optional[Array2D] = None
-
-    def generate_dynamic_background(self, images: List[Array2D]) -> None:
-        """
-        Generate dynamic background from image batch and save it.
-
-        This is called by Array2DScanAnalyzer during batch processing.
-        The generated background is saved to auto_save_path and stored
-        for later use.
-
-        Parameters
-        ----------
-        images : List[Array2D]
-            List of images to compute background from
-        """
-        if not (
-            self.config.dynamic_computation and self.config.dynamic_computation.enabled
-        ):
-            return
-
-        logger.info("Computing dynamic background from batch...")
-
-        # Compute background using dynamic computation config
-        dynamic_bg = compute_background(images, self.config.dynamic_computation)
-
-        # Save to auto_save_path (already resolved by Array2DScanAnalyzer)
-        if self.config.dynamic_computation.auto_save_path:
-            try:
-                save_background_to_file(
-                    dynamic_bg, self.config.dynamic_computation.auto_save_path
-                )
-                logger.info(
-                    f"Saved dynamic background to {self.config.dynamic_computation.auto_save_path}"
-                )
-            except Exception as e:
-                logger.warning(f"Failed to save dynamic background: {e}")
-
-        # Store in manager for immediate use
-        self._computed_background = dynamic_bg
-        self._background_metadata = {
-            "type": "dynamic",
-            "method": self.config.dynamic_computation.method.value,
-            "source": str(self.config.dynamic_computation.auto_save_path)
-            if self.config.dynamic_computation.auto_save_path
-            else "computed",
-            "num_images": len(images),
-            "shape": dynamic_bg.shape,
-        }
 
     def process_single_image(self, image: Array2D) -> Array2D:
         """
@@ -240,7 +192,6 @@ class BackgroundManager:
                 else None,
                 "constant_level": self.config.constant_level,
                 "additional_constant": self.config.additional_constant,
-                "has_dynamic_computation": self.config.dynamic_computation is not None,
             },
         }
 

@@ -6,7 +6,7 @@ Provides the `ImageAnalyzer` abstract base class used throughout the ImageAnalys
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union, Tuple
+from typing import TYPE_CHECKING, Optional, Union
 
 if TYPE_CHECKING:
     from .types import Array1D, Array2D, ImageAnalyzerResult
@@ -147,25 +147,3 @@ class ImageAnalyzer:
         image = read_imaq_image(file_path)
 
         return image
-
-    def analyze_image_batch(
-        self, images: list[Union[Array1D, Array2D]]
-    ) -> Tuple[list[Union[Array1D, Array2D]], dict[str, Union[int, float, bool, str]]]:
-        """
-        Perform optional batch-level analysis on a list of images.
-
-        By default, this does nothing and returns the passed image list.
-
-        As an example. this method can be used to dynamically find the
-        background and subtract it from the images. Any additional information
-        that is intended to be used in the subsequent individual analyze_image
-        method should be added as attributes of the instance and accessed that way
-
-        Args:
-            images (list of Union[Array1D,Array2D]): All images loaded for the scan.
-
-        Returns
-        -------
-            images (list of Union[Array1D,Array2D]):
-        """
-        return images, {}

@@ -53,7 +53,6 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     - ``load_image(path) -> np.ndarray`` (or compatible Array2D)
     - ``analyze_image(image, auxiliary_data: dict|None) -> AnalyzerResultDict``
-    - Optionally ``analyze_image_batch(images: list[np.ndarray]) -> (list[np.ndarray], dict)``
     - Optionally ``render_image(...) -> (Figure, Axes)`` (used for plots/GIFs)
 
     Parameters

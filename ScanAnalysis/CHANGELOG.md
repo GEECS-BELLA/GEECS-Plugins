@@ -3,6 +3,70 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.1] — 2026-05-22
+
+### Removed
+- `ConfigFileGUI`: removed the `_connect_dynamic_computation_defaults`
+  auto-population helper. The widget set it wired up no longer exists
+  in `BackgroundConfig` (deleted in ImageAnalysis 1.3.0). Updated
+  docstring example in `SectionWidget.show_errors` accordingly.
+
+## [1.5.0] — 2026-05-22
+
+### Changed
+- `SingleDeviceScanAnalyzer._process_all_shots` now dispatches to one of
+  two mode-specific pipelines:
+  - `per_shot` mode: fuses load+analyze into a single
+    `analyze_image_file(path, aux)` task per shot. Per-shot data never
+    travels through analyzer-instance state between separate pipeline
+    phases — this is the correctness property the refactor enforces.
+  - `per_bin` mode: streams bin-by-bin. For each bin, only that bin's
+    files are loaded (in parallel), averaged, analyzed, and released
+    before the next bin starts. Memory stays bounded by one bin's
+    image count.
+- The bin-grouping logic (previously embedded in
+  `_prepare_per_bin_units`) is now in `_group_files_by_bin`. The
+  shared post-task bookkeeping (store result, log scalars, queue
+  s-file updates) is in `_consume_result`.
+
+### Removed
+- `_load_all_data`: there is no longer a phase that materialises all
+  shots upfront. Both modes do their own loading inline.
+- `_prepare_per_shot_units` / `_prepare_per_bin_units` /
+  `_analyze_units`: replaced by `_analyze_per_shot` and
+  `_analyze_per_bin_streaming`, which embed the unit-construction logic
+  directly into the per-shot/per-bin loops.
+- `self.raw_data`: no longer populated anywhere; dropped from `cleanup`.
+
+### Behavior notes
+- `per_bin` mode used to process all bins in parallel (after a single
+  load-all). It now processes bins serially, parallelising only within
+  a bin. For typical scans (~20 bins of ~20–50 shots) this trades a
+  small wall-clock cost for bounded memory and no shared-state
+  contamination across bins. Public API is unchanged: callers still see
+  `analyzer.run_analysis(scan_tag)` returning a list of artifact paths
+  and `analyzer.results[shot_num|bin_num]` populated as before.
+
+## [1.4.0] — 2026-05-22
+
+### Removed
+- `SingleDeviceScanAnalyzer._run_batch_analysis` and the
+  `stateful_results` plumbing through `_prepare_per_*_units` are gone.
+  These were the call sites for `ImageAnalyzer.analyze_image_batch`,
+  whose only real consumer was the now-deleted dynamic-background
+  subsystem. The load-all path itself is still in place pending the
+  per-shot fusion (commit 3 of the shot-by-shot refactor).
+
+### Changed
+- `_resolve_background_paths` is now called once at the start of
+  `_process_all_shots` rather than from inside the deleted
+  `_run_batch_analysis`. Behavior for the preserved
+  `background_scan_number` ("scan-as-background") feature is unchanged
+  — that path was always orthogonal to the load-all pipeline.
+- `_resolve_background_paths` simplified: dropped the
+  `dynamic_computation.auto_save_path` placeholder-resolution branch
+  (no longer applicable).
+
 ## [1.3.6] — 2026-05-21
 
 ### Fixed

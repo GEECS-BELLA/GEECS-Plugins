@@ -3,6 +3,43 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.3.1] — 2026-05-22
+
+### Removed
+- `ImageAnalyzer.analyze_image_batch` default removed from the base
+  class. The only override (`StandardAnalyzer.analyze_image_batch`) was
+  deleted in 1.3.0 along with the dynamic-background subsystem, and the
+  only call site (`SingleDeviceScanAnalyzer._run_batch_analysis`) is
+  deleted in the companion ScanAnalysis 1.4.0 release. No analyzers
+  outside of the deleted `StandardAnalyzer` override implemented this
+  hook.
+
+## [1.3.0] — 2026-05-22
+
+### Removed
+- Dynamic background subsystem deleted from this package as part of the
+  shot-by-shot scan analyzer refactor. The motivation was that the
+  load-all-images-first pipeline this feature required forced an
+  organizational anti-pattern (shared analyzer-instance state shuttling
+  per-shot data between the load and analyze phases) that caused real bugs
+  (the FROG aux-columns regression in particular). Deletions:
+  - `StandardAnalyzer.analyze_image_batch` override (the dynamic-bg hook
+    consumed by `Array{1,2}DScanAnalyzer._run_batch_analysis`)
+  - `BackgroundManager.generate_dynamic_background` method
+  - `DynamicComputationConfig` Pydantic model
+  - `BackgroundConfig.dynamic_computation` field
+
+  Static background methods (`from_file`, `constant`, `none`) are
+  unchanged. The scan-as-background workflow (`background_scan_number`)
+  is preserved — it operates on a separate scan's data and caches a
+  `.npy` average, so it never coupled to the current scan's load-all
+  pipeline. A replacement `DynamicBackground` analyzer that uses the
+  per-scan analysis output tree will land in a follow-up PR.
+
+  Affected configs (in `GEECS-Plugins-Configs`): YAMLs that referenced
+  `dynamic_computation` need that key removed. `background_scan_number`
+  keys remain valid.
+
 ## [1.2.1] — 2026-05-21
 
 ### Fixed

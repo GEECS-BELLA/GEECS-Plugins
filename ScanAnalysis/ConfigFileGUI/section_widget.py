@@ -427,7 +427,7 @@ class SectionWidget(QWidget):
         errors : list of (str, str)
             Each tuple is ``(field_name, error_message)``.  The
             *field_name* may be a dotted path for nested sections
-            (e.g. ``"dynamic_computation.percentile"``).
+            (e.g. ``"background.file_path"``).
         """
         for field_path, message in errors:
             parts = field_path.split(".", 1)

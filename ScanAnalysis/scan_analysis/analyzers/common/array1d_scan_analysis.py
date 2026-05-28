@@ -50,7 +50,6 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     - ``load_image(path) -> np.ndarray`` returning Nx2 array (x, y pairs)
     - ``analyze_image(image, auxiliary_data: dict|None) -> AnalyzerResultDict``
-    - Optionally ``analyze_image_batch(images: list[np.ndarray]) -> (list[np.ndarray], dict)``
 
     Parameters
     ----------
