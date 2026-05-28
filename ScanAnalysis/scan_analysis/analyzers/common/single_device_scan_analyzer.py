@@ -300,16 +300,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     def _resolve_background_paths(self) -> None:
         """
-        Resolve background placeholders and bake a scan-as-background cache.
+        Resolve background placeholders and any scan-context background source.
 
         Run once before the per-shot pipeline starts. Mutates
-        ``image_analyzer.camera_config.background`` in place:
+        ``image_analyzer.camera_config.background`` in place. Resolution
+        order, highest precedence first:
 
-        - replaces ``{scan_dir}`` placeholders in ``file_path``
-        - if ``background_scan_number`` is set, calls
-          :meth:`_generate_scan_background` to load that scan's images,
-          average them, cache the result as ``.npy``, and rewrite the
-          config to point at the cache with ``BackgroundMethod.FROM_FILE``
+        1. ``self.background_source`` directive (set by the new
+           diagnostic factory from ``scan.background_source``) — either
+           a cross-scan dark via ``scan_number`` or a current-scan
+           dynamic background via ``from_current_scan``.
+        2. Legacy ``BackgroundConfig.background_scan_number`` field.
+        3. ``{scan_dir}`` placeholder substitution in ``file_path``.
 
         No-op when the image_analyzer has no ``camera_config.background``
         (e.g. 1D analyzers).
@@ -329,26 +331,98 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             bg_config.file_path = Path(resolved)
             logger.info(f"Resolved background file_path: {resolved}")
 
-        # Scan-as-background takes precedence over file_path.
+        # The new directive wins when present.
+        directive = getattr(self, "background_source", None)
+        if directive is not None:
+            self._apply_background_source(directive, bg_config)
+            return
+
+        # Legacy path for analyzers loaded via the old config schema.
         if bg_config.background_scan_number is not None:
             self._generate_scan_background(bg_config)
 
-    def _generate_scan_background(self, bg_config) -> None:
-        """Load and average all images from a background scan, cache as .npy.
+    def _apply_background_source(self, directive, bg_config) -> None:
+        """Apply a ``scan.background_source`` directive to ``bg_config``.
 
-        Resolves the background scan's device folder using the same date and
-        experiment as the current scan. The averaged background is saved to the
-        background scan's own analysis directory so it can be reused by any
-        subsequent scan that references the same background scan number.
+        Dispatches on which variant of the directive is set
+        (``scan_number`` or ``from_current_scan``), computes-and-caches
+        the corresponding background via the shared helper, then
+        rewrites ``bg_config`` to point at the cache via the
+        ``FROM_FILE`` method. The downstream per-shot pipeline sees a
+        static ``from_file`` background.
+        """
+        from image_analysis.processing.array2d.background import (
+            compute_and_cache_scan_background,
+        )
+        from image_analysis.processing.array2d.config_models import BackgroundMethod
+
+        if directive.scan_number is not None:
+            from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag
+
+            bg_tag = GeecsDataScanTag(
+                year=self.scan_tag.year,
+                month=self.scan_tag.month,
+                day=self.scan_tag.day,
+                number=directive.scan_number,
+                experiment=self.scan_tag.experiment,
+            )
+            bg_scan_paths = ScanPaths(tag=bg_tag, read_mode=True)
+            cache_path = compute_and_cache_scan_background(
+                image_dir=bg_scan_paths.get_folder() / self.device_name,
+                file_tail=self.file_tail,
+                image_loader=self.image_analyzer.load_image,
+                output_path=(
+                    bg_scan_paths.get_analysis_folder()
+                    / self.device_name
+                    / f"{self.device_name}_background_avg.npy"
+                ),
+                method="mean",
+            )
+        elif directive.from_current_scan is not None:
+            spec = directive.from_current_scan
+            cache_path = compute_and_cache_scan_background(
+                image_dir=self.scan_paths.get_folder() / self.device_name,
+                file_tail=self.file_tail,
+                image_loader=self.image_analyzer.load_image,
+                output_path=(
+                    self.scan_paths.get_analysis_folder()
+                    / self.device_name
+                    / "dynamic_background.npy"
+                ),
+                method=spec.method,
+                percentile=spec.percentile,
+            )
+        else:
+            # BackgroundSource's model validator requires exactly one
+            # source, so this should be unreachable.
+            raise ValueError(
+                f"background_source directive has no source variant set: {directive}"
+            )
+
+        bg_config.file_path = cache_path
+        bg_config.method = BackgroundMethod.FROM_FILE
+
+    def _generate_scan_background(self, bg_config) -> None:
+        """Resolve ``background_scan_number`` to a cached ``.npy`` path.
+
+        Loads every device image from the named background scan, averages
+        them into a single image, caches the result inside that scan's
+        own analysis folder, and rewrites ``bg_config`` to point at the
+        cache via the ``FROM_FILE`` method. Subsequent scans that
+        reference the same background scan number reuse the cache.
 
         Parameters
         ----------
         bg_config : BackgroundConfig
-            The analyzer's background configuration. ``file_path`` and ``method``
-            are mutated in-place to point at the cached .npy file so that the
-            normal BackgroundManager FROM_FILE path takes over from here.
+            The analyzer's background configuration. ``file_path`` and
+            ``method`` are mutated in place so the normal
+            ``BackgroundManager`` ``FROM_FILE`` path takes over from
+            here.
         """
         from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag
+        from image_analysis.processing.array2d.background import (
+            compute_and_cache_scan_background,
+        )
         from image_analysis.processing.array2d.config_models import BackgroundMethod
 
         bg_number = bg_config.background_scan_number
@@ -361,43 +435,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             experiment=self.scan_tag.experiment,
         )
         bg_scan_paths = ScanPaths(tag=bg_tag, read_mode=True)
-        bg_device_dir = bg_scan_paths.get_folder() / self.device_name
 
-        # Cache lives in the background scan's own analysis folder so any scan
-        # referencing the same background scan number shares the result.
-        cache_dir = bg_scan_paths.get_analysis_folder() / self.device_name
-        cache_path = cache_dir / f"{self.device_name}_background_avg.npy"
-
-        if cache_path.exists():
-            logger.info("Using cached scan background: %s", cache_path)
-        else:
-            image_files = sorted(bg_device_dir.glob(f"*{self.file_tail}"))
-            if not image_files:
-                raise FileNotFoundError(
-                    f"No background images found in {bg_device_dir}"
-                )
-
-            images = []
-            for f in image_files:
-                try:
-                    images.append(self.image_analyzer.load_image(f))
-                except Exception as e:
-                    logger.warning("Skipping background file %s: %s", f, e)
-
-            if not images:
-                raise ValueError(
-                    f"No valid images could be loaded from background scan {bg_number}"
-                )
-
-            avg = np.mean(np.stack(images), axis=0)
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            np.save(cache_path, avg)
-            logger.info(
-                "Averaged %d images from scan %d, saved background to %s",
-                len(images),
-                bg_number,
-                cache_path,
-            )
+        cache_path = compute_and_cache_scan_background(
+            image_dir=bg_scan_paths.get_folder() / self.device_name,
+            file_tail=self.file_tail,
+            image_loader=self.image_analyzer.load_image,
+            output_path=(
+                bg_scan_paths.get_analysis_folder()
+                / self.device_name
+                / f"{self.device_name}_background_avg.npy"
+            ),
+            method="mean",
+        )
 
         bg_config.file_path = cache_path
         bg_config.method = BackgroundMethod.FROM_FILE
