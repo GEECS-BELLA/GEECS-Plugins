@@ -3,6 +3,50 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] — 2026-05-27
+
+ConfigFileGUI rewrite against the PR-E unified-diagnostic surface
+(PR-F), plus LiveWatchGUI hardening, plus a single-source-of-truth
+refactor for what the per-shot pipeline runs.
+
+### Changed
+- **`pipeline.steps` is now the single source of truth for which
+  processing steps run.** The earlier behavior — "any sub-config
+  present implies its step is on" — is gone. If a step should run, it
+  must appear in `pipeline.steps`; if it should not, omit the step from
+  the list (the presence of a `BackgroundConfig` / `ROIConfig` /
+  similar no longer auto-enables it). Makes the on-disk config faithful
+  to what actually executes.
+- `ConfigFileGUI` collapsed to a single-surface scan-config editor.
+  The separate experiment editor is gone; the tree view, groups
+  editor, and `scan_analyzer_editor` are rewritten against
+  `DiagnosticAnalysisConfig`. `scan_config_io` rewritten for the
+  unified-diagnostic layout.
+
+### Added
+- `LiveWatchGUI`: group list dedups on insert (configs that cross
+  multiple namespaces no longer surface duplicate rows), with a new
+  namespace-filter dropdown to narrow the visible groups.
+- Extended round-trip tests for unified-diagnostic and group YAMLs
+  (`tests/test_config_gui_roundtrip.py`), marked `gui` for headless CI.
+
+### Fixed
+- `ConfigFileGUI`: no longer crashes when switching image type to
+  `"line"`.
+- `ConfigFileGUI`: absent sub-configs are no longer silently
+  pre-populated with defaults on load. Sections present on disk show
+  populated; sections absent on disk show empty. Saving back produces
+  a minimal diff.
+- `ConfigFileGUI`: the misleading `"Enabled"` label on
+  `OptionalFieldWidget` was removed. Presence-vs-absence is now
+  expressed by adding/removing the section, not by a checkbox inside
+  it.
+
+### Breaking
+- `pipeline.steps` semantics change: configs that previously relied on
+  auto-enable from sub-config presence must add explicit `steps:`
+  entries to keep those steps running.
+
 ## [1.7.0] — 2026-05-27
 
 Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and
