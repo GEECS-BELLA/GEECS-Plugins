@@ -1,18 +1,17 @@
-"""Pydantic models for the unified diagnostic config schema.
+"""Pydantic models for the ScanAnalysis-side of the unified diagnostic schema.
 
-A diagnostic config is one YAML file per device that bundles two
-concerns previously split across ``image_analysis_configs/`` and
-``scan_analysis_configs/library/analyzers/``:
+The top-level :class:`DiagnosticAnalysisConfig` lives in
+:mod:`image_analysis.config.diagnostic_models` (it owns the schema for
+``image_analyzer`` + ``image:`` + a weakly-typed ``scan:`` dict).
+This module owns the scan-side runtime model that validates the
+``scan:`` dict (:class:`ScanRuntimeConfig`), plus the group-config
+shapes (:class:`AnalysisGroupConfig`, :class:`AnalyzerRef`) and the
+group-loader runtime wrapper (:class:`ResolvedDiagnosticConfig`).
 
-* ``image:`` — the ImageAnalysis-owned section (camera config or 1D
-  line config, validated by ImageAnalysis). Kept as a raw dict here;
-  the ImageAnalysis loader validates it on the way through.
-* ``scan:`` — the ScanAnalysis-owned section (priority, mode, save
-  flags, gdoc slot, file tail, renderer kwargs).
+The scan-side build path is::
 
-A diagnostic also declares its ImageAnalyzer via ``image_analyzer``,
-either as an alias from :data:`aliases.ALIAS_REGISTRY` or as a verbose
-dict; both forms validate into :class:`ImageAnalyzerSpec`.
+    diag: DiagnosticAnalysisConfig = load_diagnostic(name)        # ImageAnalysis
+    scan_cfg: ScanRuntimeConfig = ScanRuntimeConfig.model_validate(diag.scan or {})
 
 Group configs collect diagnostic references — by file stem — into a
 runnable unit. References can be plain strings or dicts that override
@@ -25,7 +24,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .aliases import ImageAnalyzerSpec, resolve_image_analyzer_value
+from image_analysis.config import DiagnosticAnalysisConfig
 
 
 class FromCurrentScanSpec(BaseModel):
@@ -191,49 +190,6 @@ class ScanRuntimeConfig(BaseModel):
     file_tail: Optional[str] = None
     renderer_kwargs: Dict[str, Any] = Field(default_factory=dict)
     background_source: Optional[BackgroundSource] = None
-
-
-class DiagnosticAnalysisConfig(BaseModel):
-    """One device's diagnostic config: image and scan sections in one file.
-
-    The on-disk form lives at ``analyzers/<namespace>/<stem>.yaml``;
-    the filename stem becomes the analyzer ID used by the task queue
-    and referenced from group configs.
-
-    Attributes
-    ----------
-    name : str
-        Logical device name. Used as the default data folder name and
-        as the default metric prefix (i.e. injected into ``image.name``
-        before ImageAnalysis validates the embedded image section).
-    image_analyzer : ImageAnalyzerSpec
-        Identifies the ImageAnalyzer class. Accepts an alias string
-        (``"beam"``), an ``{alias, kwargs}`` dict for analyzers needing
-        per-instance kwargs (``"line_stitcher"``), or a verbose
-        ``{class, image_kind, scan_type, kwargs}`` dict for analyzers
-        without a registered alias.
-    image : dict, optional
-        Raw embedded image config. Validated by ImageAnalysis's
-        ``load_camera_config`` / ``load_line_config`` after ``name`` is
-        injected. Must be ``None`` (or omitted) when the analyzer's
-        ``image_kind`` is ``none``.
-    scan : ScanRuntimeConfig
-        ScanAnalysis-side runtime config. Defaults are reasonable for
-        most analyzers; the YAML can omit the section entirely.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str = Field(min_length=1)
-    image_analyzer: ImageAnalyzerSpec
-    image: Optional[Dict[str, Any]] = None
-    scan: ScanRuntimeConfig = Field(default_factory=ScanRuntimeConfig)
-
-    @field_validator("image_analyzer", mode="before")
-    @classmethod
-    def _normalise_image_analyzer(cls, value: Any) -> Any:
-        """Accept alias string, alias-with-kwargs dict, or verbose dict."""
-        return resolve_image_analyzer_value(value)
 
 
 class AnalyzerRef(BaseModel):

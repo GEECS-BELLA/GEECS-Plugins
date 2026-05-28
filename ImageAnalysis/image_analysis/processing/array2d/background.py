@@ -8,12 +8,79 @@ All functions take images as input and return processed images.
 
 import numpy as np
 import logging
-from typing import Callable, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Union
 from pathlib import Path
 from ...types import Array2D
 from image_analysis.utils import read_imaq_image
+from image_analysis.config.array2d_processing import BackgroundConfig, BackgroundMethod
 
 logger = logging.getLogger(__name__)
+
+
+def apply_background(
+    image: Array2D,
+    config: BackgroundConfig,
+    *,
+    cache: Optional[Dict[str, Array2D]] = None,
+) -> Array2D:
+    """Apply background subtraction per config; cache loaded files by path.
+
+    Two-stage workflow matching :class:`BackgroundConfig`:
+    1. Primary background — ``from_file`` (load + subtract) or
+       ``constant`` (uniform level).
+    2. Additional constant offset applied after primary background.
+
+    Parameters
+    ----------
+    image : Array2D
+        Input image.
+    config : BackgroundConfig
+        Background configuration. ``config.enabled=False`` or
+        ``config.method is None`` skip the primary background.
+    cache : dict, optional
+        Path-keyed cache for loaded background arrays. When provided,
+        ``from_file`` backgrounds are loaded once per unique path and
+        reused across calls — useful when the same analyzer instance
+        processes many shots. Pass ``None`` for one-shot use.
+
+    Returns
+    -------
+    Array2D
+        Background-processed image. Float64 dtype.
+    """
+    if not config.enabled:
+        return image
+
+    processed = image.astype(np.float64)
+
+    if config.method == BackgroundMethod.FROM_FILE and config.file_path is not None:
+        path_str = str(config.file_path)
+        bg: Optional[Array2D] = cache.get(path_str) if cache is not None else None
+        if bg is None:
+            try:
+                bg = load_background_from_file(config.file_path).astype(np.float64)
+                if cache is not None:
+                    cache[path_str] = bg
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load background from %s: %s. Falling back to "
+                    "constant_level=%s.",
+                    config.file_path,
+                    exc,
+                    config.constant_level,
+                )
+                processed = processed - config.constant_level
+                bg = None
+        if bg is not None:
+            processed = subtract_background(processed, bg)
+    elif config.method == BackgroundMethod.CONSTANT:
+        if config.constant_level > 0:
+            processed = processed - config.constant_level
+
+    if config.additional_constant != 0:
+        processed = processed - config.additional_constant
+
+    return processed
 
 
 def subtract_background(image: Array2D, background: Array2D) -> Array2D:

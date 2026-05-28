@@ -29,7 +29,8 @@ from matplotlib.figure import Figure
 from matplotlib.axes import Axes
 
 # Import the StandardAnalyzer parent class
-from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from image_analysis.algorithms.beam_slopes import compute_beam_slopes
 
@@ -100,26 +101,19 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str
-        Name of the camera configuration to load (e.g., "undulator_exit_cam")
+    camera_config : CameraConfig
+        Validated camera configuration model.
     """
 
     def __init__(
         self,
-        camera_config_name: str,
+        camera_config: CameraConfig,
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
-        """Initialize the beam analyzer with external configuration.
-
-        Parameters
-        ----------
-        camera_config_name : str
-            Name of the camera configuration to load (e.g., "UC_ALineEBeam3")
-        """
-        # Initialize parent class
+        """Initialize the downramp phase analyzer with a validated camera config."""
         super().__init__(
-            camera_config_name=camera_config_name,
+            camera_config=camera_config,
             name_suffix=name_suffix,
             metric_suffix=metric_suffix,
         )
@@ -127,7 +121,7 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         self.run_analyze_image_asynchronously = False
 
         logger.info(
-            "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config_name
+            "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config.name
         )
 
     def analyze_image(

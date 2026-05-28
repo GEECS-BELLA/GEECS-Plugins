@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 from geecs_data_utils import ScanPaths, ScanTag
 
-from image_analysis.offline_analyzers.grenouille_analyzer import GrenouilleAnalyzer
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
     FilteringConfig,
@@ -84,7 +84,7 @@ def grenouille_result():
         pytest.skip(f"Data file not found: {DATA_FILE}")
 
     try:
-        analyzer = GrenouilleAnalyzer(camera_config_name=_make_config())
+        analyzer = GrenouilleAnalyzer(camera_config=_make_config())
     except Exception as exc:
         pytest.skip(f"Could not initialise GrenouilleAnalyzer: {exc}")
 

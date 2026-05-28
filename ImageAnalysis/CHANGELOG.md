@@ -3,6 +3,66 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.5.0] — 2026-05-27
+
+Loader API consolidation (PR-E). Companion to ScanAnalysis 1.7.0.
+Collapses the public surface for going from disk to a configured
+analyzer into a single `image_analysis.config` namespace, switches the
+diagnostic `image:` schema to a type-discriminated payload, and
+finishes the `offline_analyzers/` → `analyzers/` rename.
+
+Net code delta (this PR): roughly +1750 / −2200 LoC across the two
+packages despite adding the new public-config module and ~370 LoC of
+new tests — the consolidation paid off.
+
+### Added
+- `image_analysis.config` public namespace as the single entry point.
+  Exports: `load_diagnostic`, `load_camera_config`, `load_line_config`,
+  `create_image_analyzer`, and all sub-models (`CameraConfig`,
+  `Line1DConfig`, `ROIConfig`, `BackgroundConfig`,
+  `DiagnosticAnalysisConfig`, `ImageAnalyzerSpec`, `ImageKind`,
+  `ScanType`).
+- `create_image_analyzer(DiagnosticAnalysisConfig) -> ImageAnalyzer`
+  factory — the Mode 2 (config-driven) entry point.
+- Type-discriminated `image:` payload in the diagnostic schema:
+  `Array2DImageConfig` (carries `camera_config_name`) and
+  `Array1DImageConfig` (carries `line_config_name`), discriminated by
+  the analyzer's class path. The legacy `image_kind` / `scan_type`
+  fields are gone.
+
+### Changed
+- `offline_analyzers/` renamed to `analyzers/`. The `offline_`
+  qualifier was a holdover from a never-built online counterpart.
+- `BackgroundManager` (class) collapsed to
+  `apply_background(image, config, *, cache=None)` (function). The
+  path-keyed cache moves onto the analyzer instance (`self._bg_cache`),
+  so the manager class no longer needs to exist.
+- Configs consolidated under `image_analysis.config/` only — no
+  parallel `processing/` config tree.
+
+### Removed
+- Polymorphic `camera_config_name=` / `line_config_name=` constructor
+  kwargs on analyzers. Constructors now take typed `CameraConfig` /
+  `Line1DConfig` models only. The string-name → file → model load lives
+  at the loader/factory layer (`load_camera_config`, `load_diagnostic`,
+  `create_image_analyzer`).
+- `image_analyzer` alias registry. Diagnostic YAMLs use full class
+  paths (e.g. `image_analysis.analyzers.beam_analyzer.BeamAnalyzer`).
+  The bare-string form defaults to camera + array2d; verbose-dict form
+  with explicit `class_path` / `kwargs` handles 1D and no-image cases.
+
+### Breaking
+- `from image_analysis.offline_analyzers import …` →
+  `from image_analysis.analyzers import …`.
+- `BackgroundManager.apply(...)` → `apply_background(image, config,
+  cache=...)`.
+- Analyzer constructors no longer accept string config names — load via
+  `load_camera_config("X")` / `load_diagnostic(...)` first, then pass
+  the resulting typed model into the constructor (or use the Mode 2
+  `create_image_analyzer` factory).
+- Diagnostic YAMLs with `image_kind:` or `scan_type:` fields no longer
+  validate; the type discriminator is now the analyzer's `class_path`.
+
 ## [1.4.0] — 2026-05-24
 
 Companion release to the ScanAnalysis 1.6.0 unified-configs cutover.

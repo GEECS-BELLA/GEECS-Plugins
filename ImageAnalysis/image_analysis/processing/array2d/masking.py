@@ -11,7 +11,11 @@ import cv2
 import logging
 from typing import Tuple
 from ...types import Array2D
-from .config_models import CrosshairMaskingConfig, ROIConfig, CircularMaskConfig
+from image_analysis.config.array2d_processing import (
+    CrosshairMaskingConfig,
+    ROIConfig,
+    CircularMaskConfig,
+)
 
 logger = logging.getLogger(__name__)
 

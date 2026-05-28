@@ -54,7 +54,7 @@ These three modules have a clear division of responsibility:
 
 | Notebook | What it covers |
 |---|---|
-| [Basic Offline Analysis](examples/basic_offline_analysis.ipynb) | End-to-end offline analysis with a standard analyzer |
+| [Basic Offline Analysis](examples/basic_usage_image_analyzer.ipynb) | End-to-end offline analysis with a standard analyzer |
 | [Basic Usage — 1D Analyzer](examples/basic_usage_1D_analyzer.ipynb) | Using 1D array analyzers for profile data |
 | [Grenouille Analysis](examples/grenouille_analysis.ipynb) | Pulse characterization with Grenouille data |
 | [HasoLift Analysis](examples/HasoLift_analysis.ipynb) | Wavefront analysis with HasoLift `.himg` files |

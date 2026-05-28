@@ -8,15 +8,15 @@ emittance proxy score suitable for optimization.
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.processing.array2d.config_models import CameraConfig
+from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.algorithms.bowtie_fit import BowtieFitAlgorithm
 from image_analysis.types import ImageAnalyzerResult
 
@@ -35,7 +35,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: Union[str, CameraConfig] = "UC_HiResMagCam",
+        camera_config: CameraConfig,
         n_beam_size_clearance: int = 4,
         min_total_counts: float = 2500.0,
         threshold_factor: float = 10.0,
@@ -44,9 +44,10 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
 
         Parameters
         ----------
-        camera_config_name : str or CameraConfig, default="UC_HiResMagCam"
-            Name of the camera configuration to load, or a pre-constructed
-            ``CameraConfig`` instance.
+        camera_config : CameraConfig
+            Validated camera configuration model. (Use
+            ``image_analysis.config.loader.load_camera_config("UC_HiResMagCam")``
+            to get the standard config.)
         n_beam_size_clearance : int, default=4
             Bowtie fit parameter: beam size clearance
         min_total_counts : float, default=2500.0
@@ -54,7 +55,7 @@ class HiResMagCamAnalyzer(BeamAnalyzer):
         threshold_factor : float, default=10.0
             Bowtie fit parameter: threshold factor for fit
         """
-        super().__init__(camera_config_name)
+        super().__init__(camera_config)
 
         # Initialize bowtie fit algorithm with custom parameters
         self.algo = BowtieFitAlgorithm(
@@ -217,7 +218,11 @@ if __name__ == "__main__":
     geecs_plugins_dir = current_dir.parent.parent.parent
     image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
-    image_analyzer = HiResMagCamAnalyzer(camera_config_name="UC_HiResMagCam")
+    from image_analysis.config.loader import load_camera_config
+
+    image_analyzer = HiResMagCamAnalyzer(
+        camera_config=load_camera_config("UC_HiResMagCam")
+    )
 
     # Example file path (update to actual path)
     file_path = Path(

@@ -9,14 +9,15 @@ and returns the weighted sum as an optimization target.
 
 from __future__ import annotations
 
-from typing import Union, Optional, Tuple, List, Dict, Any
+from typing import Union, Optional, Tuple, List
 from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.tools.rendering import base_render_image
-from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.config.array2d_processing import CameraConfig
 from image_analysis.types import AnalyzerResultDict
 
 import logging
@@ -35,8 +36,7 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: str = "U_BCaveMagSpec",
-        config_overrides: Optional[Dict[str, Any]] = None,
+        camera_config: "CameraConfig",
         gaussian_sigma: float = 20.0,
         gaussian_center: float = 250.0,
     ):
@@ -44,16 +44,14 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
         Parameters
         ----------
-        camera_config_name : str, default="U_BCaveMagSpec"
-            Name of the camera configuration to load
-        config_overrides : dict, optional
-            Runtime overrides for configuration parameters
+        camera_config : CameraConfig
+            Validated camera configuration model.
         gaussian_sigma : float, default=20.0
             Standard deviation of Gaussian weighting function
         gaussian_center : float, default=250.0
             Center position of Gaussian weighting function (in pixels)
         """
-        super().__init__(camera_config_name, config_overrides)
+        super().__init__(camera_config)
         self.gaussian_sigma = gaussian_sigma
         self.gaussian_center = gaussian_center
 
@@ -253,8 +251,12 @@ if __name__ == "__main__":
     geecs_plugins_dir = current_dir.parent.parent.parent
     image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
+    from image_analysis.config.loader import load_camera_config
+
     image_analyzer = BCaveMagSpecStitcherAnalyzer(
-        camera_config_name="U_BCaveMagSpec", gaussian_sigma=20.0, gaussian_center=250.0
+        camera_config=load_camera_config("U_BCaveMagSpec"),
+        gaussian_sigma=20.0,
+        gaussian_center=250.0,
     )
 
     # Example file path (update to actual path)

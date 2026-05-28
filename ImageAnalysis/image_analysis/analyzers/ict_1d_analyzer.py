@@ -23,7 +23,8 @@ import logging
 from typing import Optional, Dict
 
 
-from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 from image_analysis.algorithms.ict_algorithms import (
     ICTAnalysisConfig,
@@ -43,8 +44,8 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
 
     Parameters
     ----------
-    line_config_name : str
-        Name of the line configuration to load (must define ``data_loading``).
+    line_config : Line1DConfig
+        Validated line configuration model (must define ``data_loading``).
 
     Attributes
     ----------
@@ -59,15 +60,15 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         derived from the time column of the loaded data.
     """
 
-    def __init__(self, line_config_name: str):
-        super().__init__(line_config_name)
+    def __init__(self, line_config: Line1DConfig):
+        super().__init__(line_config)
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = ICTAnalysisConfig.model_validate(
             self.line_config.analysis or {}
         )
 
-        logger.info("Initialized ICT1DAnalyzer with config '%s'", line_config_name)
+        logger.info("Initialized ICT1DAnalyzer with config '%s'", line_config.name)
 
     # ------------------------------------------------------------------
     # Analysis

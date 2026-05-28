@@ -34,10 +34,12 @@ from typing import Dict, Iterable, List, Optional, Union
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from image_analysis.config import load_diagnostic
+
 from .diagnostic_models import (
     AnalysisGroupConfig,
-    DiagnosticAnalysisConfig,
     ResolvedDiagnosticConfig,
+    ScanRuntimeConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,7 +49,6 @@ __all__ = [
     "discover_analyzers",
     "discover_groups",
     "load_analysis_group",
-    "load_diagnostic",
     "resolve_group",
 ]
 
@@ -245,11 +246,13 @@ def resolve_group(
             )
         seen[ref] = 1
 
-        diagnostic = _load_diagnostic_file(analyzer_index[ref])
+        diagnostic = load_diagnostic(analyzer_index[ref])
+        # diagnostic.scan is weakly typed at the ImageAnalysis layer;
+        # validate to read the priority field. ``or {}`` covers the
+        # legitimate "no scan block in the YAML" case.
+        scan_cfg = ScanRuntimeConfig.model_validate(diagnostic.scan or {})
         effective_priority = (
-            ref_entry.priority
-            if ref_entry.priority is not None
-            else diagnostic.scan.priority
+            ref_entry.priority if ref_entry.priority is not None else scan_cfg.priority
         )
 
         if not ref_entry.enabled:
@@ -272,16 +275,6 @@ def resolve_group(
         upload_to_scanlog=group_cfg.upload_to_scanlog,
         analyzers=resolved,
     )
-
-
-def _load_diagnostic_file(path: Path) -> DiagnosticAnalysisConfig:
-    """Read and validate a single diagnostic YAML."""
-    with open(path, "r") as f:
-        data = yaml.safe_load(f) or {}
-    try:
-        return DiagnosticAnalysisConfig.model_validate(data)
-    except ValidationError as exc:
-        raise ValueError(f"Invalid diagnostic config at {path}: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -349,113 +342,6 @@ def load_analysis_group(
         raise ValueError(f"Invalid group config at {group_path}: {exc}") from exc
 
     return resolve_group(group_cfg, analyzer_index)
-
-
-def load_diagnostic(
-    name_or_path: Union[str, Path],
-    *,
-    config_dir: Optional[Path] = None,
-) -> ResolvedDiagnosticConfig:
-    """Load a single diagnostic by name or absolute path.
-
-    Convenience for notebook / scripted use that doesn't go through a
-    group config. The returned :class:`ResolvedDiagnosticConfig` is
-    suitable for handing directly to
-    :func:`scan_analysis.config.create_diagnostic_analyzer`, producing
-    a ready-to-run ``ScanAnalyzer`` wired with the diagnostic's
-    image-analyzer, device folder, file tail, priority, and any other
-    runtime settings.
-
-    Per-group overrides (``enabled``, ``priority``) don't apply here:
-    the returned config takes its priority straight from
-    ``diagnostic.scan.priority`` and is always enabled.
-
-    Parameters
-    ----------
-    name_or_path : str or Path
-        Diagnostic ID (filename stem, e.g. ``"UC_VisaEBeam1"``) or an
-        absolute path to a unified diagnostic YAML. Filename stems must
-        be globally unique across the ``analyzers/`` tree, so the bare
-        stem suffices — no namespace prefix needed.
-    config_dir : Path, optional
-        Root of the scan-analysis configs tree. When ``None`` and
-        ``name_or_path`` is a string, falls back to
-        ``ScanPaths.paths_config.scan_analysis_configs_path`` — the
-        same default the task queue uses. Ignored when ``name_or_path``
-        is an absolute ``Path``.
-
-    Returns
-    -------
-    ResolvedDiagnosticConfig
-        Wraps the loaded :class:`DiagnosticAnalysisConfig` with the
-        filename stem as ``id`` and ``priority`` taken from
-        ``diagnostic.scan.priority``.
-
-    Raises
-    ------
-    FileNotFoundError
-        If the diagnostic can't be located.
-    KeyError
-        If the named stem isn't present under ``analyzers/``.
-    ValueError
-        On invalid YAML, validation errors, or when ``config_dir`` is
-        needed but no default is available.
-
-    Examples
-    --------
-    Load and instantiate a single diagnostic for offline use::
-
-        >>> from scan_analysis.config import (
-        ...     load_diagnostic, create_diagnostic_analyzer,
-        ... )
-        >>> resolved = load_diagnostic("BcaveMagSpecStitcherSpec")
-        >>> resolved.diagnostic.image.roi.x_max = 200   # notebook tweak
-        >>> analyzer = create_diagnostic_analyzer(resolved)
-        >>> analyzer.run_analysis(scan_tag)
-    """
-    if isinstance(name_or_path, Path):
-        diag_path = name_or_path
-        if not diag_path.exists():
-            raise FileNotFoundError(f"Diagnostic config not found: {diag_path}")
-    else:
-        base_dir = _resolve_default_config_dir(config_dir)
-        index = discover_analyzers(base_dir)
-        if name_or_path not in index:
-            raise KeyError(
-                f"Diagnostic '{name_or_path}' not found under "
-                f"{base_dir / 'analyzers'}. Known diagnostics: "
-                f"{sorted(set(index))}"
-            )
-        diag_path = index[name_or_path]
-
-    diag = _load_diagnostic_file(diag_path)
-    return ResolvedDiagnosticConfig(
-        id=diag_path.stem,
-        enabled=True,
-        priority=diag.scan.priority,
-        diagnostic=diag,
-    )
-
-
-def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:
-    """Return ``config_dir`` if set, else the globally configured root."""
-    if config_dir is not None:
-        return Path(config_dir)
-    try:
-        from geecs_data_utils import ScanPaths
-
-        root = ScanPaths.paths_config.scan_analysis_configs_path
-    except Exception as exc:  # pragma: no cover — defensive
-        raise ValueError(
-            "config_dir was not provided and no default could be "
-            "resolved from ScanPaths.paths_config."
-        ) from exc
-    if root is None:
-        raise ValueError(
-            "config_dir was not provided and "
-            "ScanPaths.paths_config.scan_analysis_configs_path is unset."
-        )
-    return Path(root)
 
 
 def _resolve_group_path(name: str, base_dir: Path) -> Path:

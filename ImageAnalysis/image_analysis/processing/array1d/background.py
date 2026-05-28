@@ -17,7 +17,11 @@ from typing import Optional
 
 import numpy as np
 
-from .config_models import BackgroundConfig, BackgroundMethod, Data1DConfig
+from image_analysis.config.array1d_processing import (
+    BackgroundConfig,
+    BackgroundMethod,
+    Data1DConfig,
+)
 
 logger = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@ for specialized analyzers. It includes:
 - External YAML configuration files instead of hardcoded settings
 - Pydantic models for type-safe configuration validation
 - Unified processing pipeline with modular processing functions
-- Dedicated BackgroundManager for background processing
+- Path-keyed background caching across analyze_image calls
 - Proper 16-bit image handling with float64 processing
 - Extensible preprocessing algorithm framework
 - Clean separation of concerns
@@ -25,17 +25,11 @@ import numpy as np
 from pydantic import BaseModel
 
 # Import the new processing framework
-from image_analysis.config_loader import load_camera_config
-from image_analysis.processing.array2d import (
-    apply_camera_processing_pipeline,
-)
-from image_analysis.processing.array2d import (
-    create_background_manager_from_config,
-)
-from image_analysis.types import ImageAnalyzerResult
+from image_analysis.processing.array2d import apply_camera_processing_pipeline
+from image_analysis.types import Array2D, ImageAnalyzerResult
 
 # Import existing tools and base classes
-import image_analysis.processing.array2d.config_models as cfg_2d
+import image_analysis.config.array2d_processing as cfg_2d
 from image_analysis.base import ImageAnalyzer
 
 logger = logging.getLogger(__name__)
@@ -49,7 +43,7 @@ class StandardAnalyzer(ImageAnalyzer):
     - Type-safe camera configuration via Pydantic models
     - Externalized configuration in YAML files
     - Unified processing pipeline
-    - Dedicated background management
+    - Path-keyed background caching across analyze_image calls
     - Proper 16-bit image handling
     - Extensible preprocessing algorithms
     - Clean separation of concerns
@@ -59,11 +53,10 @@ class StandardAnalyzer(ImageAnalyzer):
 
     Parameters
     ----------
-    camera_config_name : str or CameraConfig
-        Name of the camera configuration to load (e.g., "undulator_exit_cam"),
-        or a pre-constructed ``CameraConfig`` instance.  Passing a config
-        object bypasses YAML loading entirely — useful for testing or for
-        building configs programmatically at runtime.
+    camera_config : CameraConfig
+        Validated camera configuration model. Use
+        ``image_analysis.config.loader.load_camera_config(name)`` to load
+        from disk by name before constructing.
     name_suffix : str, optional
         Suffix to append to camera name for scalar result prefixes.
         Useful for distinguishing multiple analysis passes on the same camera.
@@ -78,35 +71,30 @@ class StandardAnalyzer(ImageAnalyzer):
 
     def __init__(
         self,
-        camera_config_name: Union[str, cfg_2d.CameraConfig],
+        camera_config: cfg_2d.CameraConfig,
         name_suffix: Optional[str] = None,
         metric_suffix: Optional[str] = None,
     ):
-        """Initialize the standard analyzer with external configuration."""
-        # Accept a pre-built CameraConfig directly (bypasses YAML loading)
-        if isinstance(camera_config_name, cfg_2d.CameraConfig):
-            self.camera_config = camera_config_name
-            camera_config_name = self.camera_config.name
-            logger.info("Using provided CameraConfig: %s", self.camera_config.name)
-        else:
-            # Load camera configuration from YAML
-            try:
-                self.camera_config = load_camera_config(camera_config_name)
-                logger.info(
-                    "Loaded configuration for camera: %s", self.camera_config.name
-                )
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to load camera configuration '{camera_config_name}': {e}"
-                )
+        """Initialize the standard analyzer with a validated camera config.
 
-        # Create background manager if background processing is configured
-        self.background_manager = create_background_manager_from_config(
-            self.camera_config
-        )
+        The string-by-name convenience that this constructor used to
+        offer has moved to the loader layer — call
+        ``image_analysis.config.loader.load_camera_config(name)`` (or
+        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``CameraConfig`` first, then hand it here.
+        """
+        self.camera_config = camera_config
+        # Original config name preserved before any name_suffix mutation;
+        # used as scalar-dict key in analyze_image output.
+        self.camera_config_name = camera_config.name
+        logger.info("Using provided CameraConfig: %s", self.camera_config.name)
+
+        # Path-keyed cache for ``apply_background``. Loaded backgrounds
+        # are reused across analyze_image calls; the cache is rebuilt
+        # transparently if the config's file_path changes.
+        self._bg_cache: Dict[str, Array2D] = {}
 
         # Store analyzer state
-        self.camera_config_name = camera_config_name
         self.run_analyze_image_asynchronously = True
 
         # Store metric suffix for use in analyze_image
@@ -117,8 +105,7 @@ class StandardAnalyzer(ImageAnalyzer):
             self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
             logger.info(f"Camera name set to: {self.camera_config.name}")
 
-        # Initialize base class with the background manager
-        super().__init__(background_manager=self.background_manager)
+        super().__init__()
 
     def preprocess_image(self, image: np.ndarray) -> np.ndarray:
         """
@@ -142,7 +129,7 @@ class StandardAnalyzer(ImageAnalyzer):
 
         # Use the unified processing pipeline
         processed_image = apply_camera_processing_pipeline(
-            image, self.camera_config, self.background_manager
+            image, self.camera_config, background_cache=self._bg_cache
         )
 
         return processed_image
@@ -192,7 +179,10 @@ class StandardAnalyzer(ImageAnalyzer):
             "processing_dtype": str(self.camera_config.processing_dtype),
             "storage_dtype": str(self.camera_config.storage_dtype),
             "config_file": self.camera_config_name,
-            "has_background_manager": self.background_manager is not None,
+            "background_enabled": (
+                self.camera_config.background is not None
+                and self.camera_config.background.enabled
+            ),
         }
 
     def set_camera_config(self, new_cfg: cfg_2d.CameraConfig) -> None:
@@ -200,9 +190,9 @@ class StandardAnalyzer(ImageAnalyzer):
         old_bg = self.camera_config.background
         self.camera_config = cfg_2d.CameraConfig.model_validate(new_cfg)
         if self.camera_config.background != old_bg:
-            self.background_manager = create_background_manager_from_config(
-                self.camera_config
-            )
+            # Background source may have changed; drop the cache so the
+            # next analyze_image reloads from the new file.
+            self._bg_cache.clear()
         logger.info("Replaced camera configuration: %s", self.camera_config.name)
 
     def update_config(
@@ -263,11 +253,10 @@ class StandardAnalyzer(ImageAnalyzer):
         if new_cfg != self.camera_config:
             self.camera_config = new_cfg
 
-            # Recreate background manager if background config changed
+            # Drop the background cache if bg config changed — next
+            # analyze_image will reload from the new file_path.
             if bg_changed:
-                self.background_manager = create_background_manager_from_config(
-                    self.camera_config
-                )
+                self._bg_cache.clear()
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
 

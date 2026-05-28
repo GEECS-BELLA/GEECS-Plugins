@@ -10,8 +10,8 @@ import math
 
 
 from ConfigFileGUI.config_io import load_config, save_config
-from image_analysis.processing.array2d.config_models import CameraConfig
-from image_analysis.processing.array1d.config_models import Line1DConfig, Data1DConfig
+from image_analysis.config.array2d_processing import CameraConfig
+from image_analysis.config.array1d_processing import Line1DConfig, Data1DConfig
 
 
 # ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ class TestCameraConfigRoundtrip:
 
 class TestFloatPrecisionRoundtrip:
     def test_normal_float_survives(self, tmp_path):
-        from image_analysis.processing.array2d.config_models import ThresholdingConfig
+        from image_analysis.config.array2d_processing import ThresholdingConfig
 
         cfg = CameraConfig(
             name="UC_Test",
@@ -84,7 +84,7 @@ class TestFloatPrecisionRoundtrip:
         assert math.isclose(reloaded.thresholding.value, 0.2008, rel_tol=1e-9)
 
     def test_scientific_notation_float_survives(self, tmp_path):
-        from image_analysis.processing.array2d.config_models import ThresholdingConfig
+        from image_analysis.config.array2d_processing import ThresholdingConfig
 
         tiny = 1e-13
         cfg = CameraConfig(
@@ -103,7 +103,7 @@ class TestFloatPrecisionRoundtrip:
 
 class TestLine1DConfigRoundtrip:
     def test_minimal_line_config(self, tmp_path):
-        from image_analysis.processing.array1d.config_models import Data1DType
+        from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
             name="U_TestSignal",
@@ -113,7 +113,7 @@ class TestLine1DConfigRoundtrip:
         assert reloaded.name == cfg.name
 
     def test_name_survives_roundtrip(self, tmp_path):
-        from image_analysis.processing.array1d.config_models import Data1DType
+        from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
             name="MySignalName",
@@ -123,7 +123,7 @@ class TestLine1DConfigRoundtrip:
         assert reloaded.name == "MySignalName"
 
     def test_model_dump_identical(self, tmp_path):
-        from image_analysis.processing.array1d.config_models import Data1DType
+        from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
             name="U_Test",

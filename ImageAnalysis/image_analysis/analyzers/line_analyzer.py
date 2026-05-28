@@ -14,12 +14,12 @@ the Standard1DAnalyzer for all 1D data processing pipeline functionality.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Union
+from typing import Optional, Dict
 
 
 # Import the Standard1DAnalyzer parent class
-from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
-from image_analysis.processing.array1d.config_models import Line1DConfig
+from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.config.array1d_processing import Line1DConfig
 
 # Import line-specific tools
 from image_analysis.algorithms.basic_line_stats import LineBasicStats
@@ -43,8 +43,8 @@ class LineAnalyzer(Standard1DAnalyzer):
 
     Parameters
     ----------
-    line_config_name : str
-        Name of the line configuration to load (e.g., "spectrometer_config")
+    line_config : Line1DConfig
+        Validated line configuration model.
     metric_suffix : str, optional
         Suffix to append to all metric names (underscore is auto-prepended).
         For example, "calibrated" becomes "_calibrated" in the output keys.
@@ -60,27 +60,26 @@ class LineAnalyzer(Standard1DAnalyzer):
 
     def __init__(
         self,
-        line_config_name: Union[str, Line1DConfig],
+        line_config: Line1DConfig,
         metric_suffix: Optional[str] = None,
         metric_prefix: Optional[str] = None,
     ):
-        """Initialize the line analyzer with external configuration.
+        """Initialize the line analyzer with a validated line config.
 
         Parameters
         ----------
-        line_config_name : str or Line1DConfig
-            Name of the line configuration to load (e.g., "spectrometer_config"),
-            or a pre-constructed ``Line1DConfig`` instance.
+        line_config : Line1DConfig
+            Pre-validated line configuration. Use
+            ``image_analysis.config.loader.load_line_config(name)`` to
+            load from disk by name.
         metric_suffix : str, optional
             Suffix to append to all metric names (underscore is auto-prepended).
-            For example, "calibrated" becomes "_calibrated" in the output keys.
-            Useful for distinguishing multiple analysis passes on the same line.
         metric_prefix : str, optional
             Override the prefix used for scalar metric keys. Defaults to
             ``line_config.name``.
         """
         # Initialize parent class
-        super().__init__(line_config_name)
+        super().__init__(line_config)
 
         # Store metric suffix/prefix for use in analyze_image
         self.metric_suffix = metric_suffix

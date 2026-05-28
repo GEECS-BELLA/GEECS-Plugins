@@ -7,7 +7,7 @@ All models use Pydantic for validation and automatic YAML/JSON serialization.
 """
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
-from typing import Any, Optional, Tuple, List, Union, Dict
+from typing import Any, Literal, Optional, Tuple, List, Union, Dict
 from pathlib import Path
 from enum import Enum
 
@@ -570,6 +570,11 @@ class CameraConfig(BaseModel):
         extra="allow",
         arbitrary_types_allowed=True,
     )
+
+    # Discriminator for the unified-diagnostic Union[CameraConfig, Line1DConfig].
+    # Defaults so direct construction (``CameraConfig(name="x")``) and
+    # standalone-YAML loads keep working without writing ``type: camera``.
+    type: Literal["camera"] = "camera"
 
     name: str = Field(..., description="Camera identifier/name")
     description: Optional[str] = Field(None, description="Camera description")

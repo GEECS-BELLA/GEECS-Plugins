@@ -15,16 +15,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple, Union
+from typing import Optional, Dict, Any, Tuple
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from image_analysis.base import ImageAnalyzer
-from image_analysis.config_loader import load_line_config
 from image_analysis.data_1d_utils import read_1d_data
 from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
-from image_analysis.processing.array1d.config_models import Line1DConfig
+from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -54,29 +53,24 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
     def __init__(
         self,
-        line_config_name: Union[str, Line1DConfig],
+        line_config: Line1DConfig,
     ):
-        """Initialize the standard 1D analyzer with external configuration."""
+        """Initialize the standard 1D analyzer with a validated line config.
+
+        The string-by-name convenience that this constructor used to
+        offer has moved to the loader layer — call
+        ``image_analysis.config.loader.load_line_config(name)`` (or
+        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``Line1DConfig`` first, then hand it here.
+        """
         # Initialize base class first so any defaults it sets can be overridden below.
         super().__init__()
 
-        # Accept a pre-built Line1DConfig directly (bypasses YAML loading)
-        if isinstance(line_config_name, Line1DConfig):
-            self.line_config = line_config_name
-            line_config_name = self.line_config.name
-            logger.info("Using provided Line1DConfig: %s", self.line_config.name)
-        else:
-            # Load line configuration from YAML
-            try:
-                self.line_config = load_line_config(line_config_name)
-                logger.info("Loaded configuration for line: %s", self.line_config.name)
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to load line configuration '{line_config_name}': {e}"
-                ) from e
+        self.line_config = line_config
+        # Original config name preserved for scalar-dict keys.
+        self.line_config_name = line_config.name
+        logger.info("Using provided Line1DConfig: %s", self.line_config.name)
 
-        # Store analyzer state
-        self.line_config_name = line_config_name
         self.run_analyze_image_asynchronously = True
 
         # Storage for metadata from read_1d_data

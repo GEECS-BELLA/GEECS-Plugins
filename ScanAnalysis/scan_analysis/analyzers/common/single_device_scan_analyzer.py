@@ -349,7 +349,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         from image_analysis.processing.array2d.background import (
             compute_and_cache_scan_background,
         )
-        from image_analysis.processing.array2d.config_models import BackgroundMethod
+        from image_analysis.config.array2d_processing import BackgroundMethod
 
         if directive.scan_number is not None:
             from geecs_data_utils import ScanPaths, ScanTag as GeecsDataScanTag

@@ -7,7 +7,10 @@ implemented as a separate function for clarity and testability.
 
 import logging
 from ...types import Array2D
-from .config_models import NormalizationConfig, NormalizationMethod
+from image_analysis.config.array2d_processing import (
+    NormalizationConfig,
+    NormalizationMethod,
+)
 
 logger = logging.getLogger(__name__)
 

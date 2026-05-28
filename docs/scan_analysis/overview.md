@@ -46,8 +46,6 @@ analyzers:
     gdoc_slot: 0   # upload summary figure to row 1, col 0 of the e-log
 ```
 
-See [Config-Based Scan Analysis](examples/config_based_scan_analysis.ipynb) for the full config format and options.
-
 ---
 
 ## Outputs
@@ -85,7 +83,6 @@ The base class handles scan folder location, s-file loading, and the overall exe
 |---|---|
 | [Basic Usage (2D)](examples/basic_usage.ipynb) | Run an `Array2DAnalysis` analyzer on a scan |
 | [Basic Usage (1D)](examples/basic_usage_1D.ipynb) | Run an `Array1DAnalysis` analyzer on a scan |
-| [Config-Based Workflow](examples/config_based_scan_analysis.ipynb) | YAML config, factory instantiation, and batch runs |
 | [Live Watch](examples/live_watch.ipynb) | Set up a `LiveTaskRunner` for automated processing |
 | [GDoc Upload](examples/gdoc_upload.ipynb) | Integrate with Google Doc e-logs |
 | [Variational Analysis](examples/variational_analysis.ipynb) | Custom variational analysis patterns |

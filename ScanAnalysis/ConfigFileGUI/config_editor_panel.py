@@ -235,13 +235,13 @@ class ConfigEditorPanel(QWidget):
 
         try:
             if self._config_type == "camera_2d":
-                from image_analysis.processing.array2d.config_models import (
+                from image_analysis.config.array2d_processing import (
                     CameraConfig,
                 )
 
                 CameraConfig.model_validate(data)
             elif self._config_type == "line_1d":
-                from image_analysis.processing.array1d.config_models import (
+                from image_analysis.config.array1d_processing import (
                     Line1DConfig,
                 )
 
@@ -269,7 +269,7 @@ class ConfigEditorPanel(QWidget):
         config : CameraConfig
             The loaded 2D camera configuration model.
         """
-        from image_analysis.processing.array2d.config_models import (
+        from image_analysis.config.array2d_processing import (
             BackgroundConfig,
             CircularMaskConfig,
             CrosshairMaskingConfig,
@@ -399,7 +399,7 @@ class ConfigEditorPanel(QWidget):
         config : Line1DConfig
             The loaded 1D line configuration model.
         """
-        from image_analysis.processing.array1d.config_models import (
+        from image_analysis.config.array1d_processing import (
             BackgroundConfig as BG1D,
             Data1DConfig,
             FilteringConfig as Filter1D,

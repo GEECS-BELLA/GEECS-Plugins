@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from ...types import Array2D
-from .config_models import VignetteConfig, VignetteMethod
+from image_analysis.config.array2d_processing import VignetteConfig, VignetteMethod
 
 
 def build_radial_vignette_map(

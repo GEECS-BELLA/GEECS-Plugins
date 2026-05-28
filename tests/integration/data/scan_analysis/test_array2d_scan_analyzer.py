@@ -16,7 +16,7 @@ DEV_NAME = "UC_Amp4_IR_input"
 
 def _make_beam_config(name: str):
     """Construct a minimal CameraConfig for beam analysis (no YAML required)."""
-    from image_analysis.processing.array2d.config_models import (
+    from image_analysis.config.array2d_processing import (
         BackgroundConfig,
         CameraConfig,
     )
@@ -35,7 +35,7 @@ def test_array2d_beam_analyzer_noscan():
     """
     from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+    from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
     image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
     scan_analyzer = Array2DScanAnalyzer(
@@ -57,7 +57,7 @@ def test_array2d_results_have_scalars():
     """Each per-shot result contains the expected beam scalar keys."""
     from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+    from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
     image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
     scan_analyzer = Array2DScanAnalyzer(

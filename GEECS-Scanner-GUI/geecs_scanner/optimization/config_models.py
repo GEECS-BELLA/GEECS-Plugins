@@ -11,7 +11,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from xopt import VOCS
 
-from scan_analysis.config.aliases import (
+from image_analysis.config import (
     ImageAnalyzerSpec,
     resolve_image_analyzer_value,
 )
@@ -43,18 +43,14 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
         for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
-        Which scan-analyzer wrapper to instantiate. Redundant with
-        ``image_analyzer.scan_type``; kept for explicitness in optimizer
-        YAMLs and to make the YAML readable without an alias-registry
-        lookup.
+        Which scan-analyzer wrapper to instantiate. Also drives which
+        image-config loader is called (camera for 2D, line for 1D).
     file_tail : str, default=".png"
         File extension/suffix used to match data files for this device.
     image_analyzer : ImageAnalyzerSpec
-        Alias-driven spec for the ImageAnalyzer class. Accepts a string
-        alias (``"beam"``), an alias-with-kwargs dict
-        (``{"alias": "line_stitcher", "kwargs": {...}}``), or the verbose
-        ``{"class": "...", "image_kind": "...", "scan_type": "...",
-        "kwargs": {...}}`` escape hatch.
+        Spec for the ImageAnalyzer class. Accepts a bare class-path
+        string or the verbose ``{"class_path": "...", "kwargs": {...}}``
+        form for analyzers that need extra per-instance kwargs.
     analysis_mode : {"per_shot", "per_bin"}, default="per_bin"
         Analysis mode for the scan analyzer. "per_bin" is recommended for
         optimization as it leverages built-in averaging.

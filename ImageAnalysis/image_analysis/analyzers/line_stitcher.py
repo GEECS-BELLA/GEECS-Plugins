@@ -20,7 +20,8 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from image_analysis.data_1d_utils import read_1d_data
-from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
+from image_analysis.analyzers.line_analyzer import LineAnalyzer
+from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.types import Array1D, ImageAnalyzerResult
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,8 @@ class LineStitcher(LineAnalyzer):
 
     Parameters
     ----------
-    line_config_name : str
-        Name of the line configuration for the master device.
+    line_config : Line1DConfig
+        Validated line configuration for the master device.
     sibling_devices : list of str
         Device names to load in addition to the master. Order determines
         how ties are broken when energies overlap, but the data is always
@@ -48,13 +49,13 @@ class LineStitcher(LineAnalyzer):
 
     def __init__(
         self,
-        line_config_name: str,
+        line_config: Line1DConfig,
         sibling_devices: List[str],
         name: str,
         metric_suffix: Optional[str] = None,
     ):
         super().__init__(
-            line_config_name,
+            line_config,
             metric_suffix=metric_suffix,
             metric_prefix=name,
         )

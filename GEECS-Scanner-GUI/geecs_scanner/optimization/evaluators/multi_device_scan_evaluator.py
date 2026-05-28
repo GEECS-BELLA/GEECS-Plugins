@@ -106,16 +106,17 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
     def _create_scan_analyzer(self, config: SingleDeviceScanAnalyzerConfig):
         """Instantiate a scan analyzer from an optimizer-side config.
 
-        Optimizer YAMLs do not embed an ``image:`` section — the
-        ImageAnalyzer loads its own camera/line config by name at
-        construction time. So this path uses the alias's class path and
-        kwargs directly, without going through the disk-loaded
-        diagnostic factory.
+        Optimizer YAMLs don't embed an ``image:`` section. Instead the
+        camera/line config name is implied by ``device_name`` (or
+        overridden via ``kwargs.camera_config_name`` /
+        ``kwargs.line_config_name``); this method loads that config
+        through the standard ImageAnalysis loader and hands the typed
+        model to the analyzer constructor.
         """
-        image_analysis_config.set_base_dir(
-            ScanPaths.paths_config.image_analysis_configs_path
+        from image_analysis.config.loader import (
+            load_camera_config,
+            load_line_config,
         )
-
         from scan_analysis.analyzers.common.array1d_scan_analysis import (
             Array1DScanAnalyzer,
         )
@@ -123,16 +124,33 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             Array2DScanAnalyzer,
         )
 
+        image_analysis_config.set_base_dir(
+            ScanPaths.paths_config.image_analysis_configs_path
+        )
+
         wrapper_class = {
             "Array1DScanAnalyzer": Array1DScanAnalyzer,
             "Array2DScanAnalyzer": Array2DScanAnalyzer,
         }[config.analyzer_type]
 
+        # Load the typed image config based on the analyzer_type.
+        # Optimizer YAMLs can override the loaded name via kwargs;
+        # otherwise it defaults to ``device_name``. No-image analyzers
+        # (HASO-style) aren't supported through this evaluator path —
+        # they'd need a dedicated evaluator subclass.
         spec = config.image_analyzer
+        kwargs = dict(spec.kwargs)
+        if config.analyzer_type == "Array2DScanAnalyzer":
+            name = kwargs.pop("camera_config_name", config.device_name)
+            kwargs["camera_config"] = load_camera_config(name)
+        else:  # "Array1DScanAnalyzer"
+            name = kwargs.pop("line_config_name", config.device_name)
+            kwargs["line_config"] = load_line_config(name)
+
         module_path, class_name = spec.class_path.rsplit(".", 1)
         image_analyzer_module = importlib.import_module(module_path)
         image_analyzer_class = getattr(image_analyzer_module, class_name)
-        image_analyzer = image_analyzer_class(**spec.kwargs)
+        image_analyzer = image_analyzer_class(**kwargs)
 
         scan_analyzer = wrapper_class(
             device_name=config.device_name,

@@ -5,8 +5,8 @@ import math
 import numpy as np
 import pytest
 
-from image_analysis.offline_analyzers.line_analyzer import LineAnalyzer
-from image_analysis.processing.array1d.config_models import Data1DConfig, Line1DConfig
+from image_analysis.analyzers.line_analyzer import LineAnalyzer
+from image_analysis.config.array1d_processing import Data1DConfig, Line1DConfig
 from image_analysis.tools.synthetic_generators import gaussian_peak_1d
 
 

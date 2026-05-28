@@ -378,7 +378,7 @@ class ScanAnalyzerEditorPanel(QWidget):
         # analyzer_class
         self._analyzer_class_edit = QLineEdit()
         self._analyzer_class_edit.setPlaceholderText(
-            "e.g. image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer"
+            "e.g. image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
         )
         self._analyzer_class_edit.textChanged.connect(self._emit_changed)
         form.addRow("analyzer_class:", self._analyzer_class_edit)

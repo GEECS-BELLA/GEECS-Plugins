@@ -25,7 +25,7 @@ from geecs_data_utils import GeecsPathsConfig, ScanPaths, ScanTag
 # Skip the whole module if the WaveKit SDK is unavailable.
 pytest.importorskip("image_analysis.third_party_sdks.wavekit_43.wavekit_py")
 
-from image_analysis.offline_analyzers.HASO_himg_has_processor import (  # noqa: E402
+from image_analysis.analyzers.HASO_himg_has_processor import (  # noqa: E402
     HASOHimgHasProcessor,
 )
 

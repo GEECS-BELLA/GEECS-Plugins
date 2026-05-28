@@ -8,8 +8,8 @@ import math
 
 import pytest
 
-from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
     ROIConfig,
@@ -214,7 +214,7 @@ class TestBeamAnalyzerUpdateConfig:
     """Tests for update_config()."""
 
     def test_update_background_does_not_raise(self, analyzer):
-        from image_analysis.processing.array2d import config_models as cfg
+        from image_analysis.config import array2d_processing as cfg
 
         new_bkg = cfg.BackgroundConfig(method="constant", constant_level=200)
         analyzer.update_config(background=new_bkg)
