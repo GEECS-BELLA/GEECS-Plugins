@@ -119,18 +119,29 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
         ``Standard1DAnalyzer.analyze_image_file`` when the configured
         ``data_loading.auxiliary_columns`` mapping declares a
         ``weights`` column).
+
+        ``result.line_data`` carries the **fitted** phase curve on a
+        wavelength grid of length ``fit_num_points`` (default 300) — a
+        fixed-length, wavelength-sorted Nx2 array. Every shot in a scan
+        therefore emits ``line_data`` of identical shape, which is what
+        ``Array1DScanAnalyzer``'s waterfall and per-bin averaging
+        require to aggregate across shots. The raw masked phase samples
+        and the intensity weight curve at those samples live in
+        ``result.render_data`` for single-shot diagnostic plots
+        (``raw_wavelength_nm``, ``raw_spectral_phase``,
+        ``fit_normalized_reference``).
         """
         raw_aux = (auxiliary_data or {}).get("_aux_columns", {})
         processed, filtered_aux = self._preprocess_line_data(
             image, auxiliary_column_data=raw_aux
         )
 
-        line_data = np.asarray(processed, dtype=float).copy()
-        if line_data.size == 0 or line_data.shape[1] < 2:
+        processed = np.asarray(processed, dtype=float).copy()
+        if processed.size == 0 or processed.shape[1] < 2:
             raise ValueError("FrogSpectralPhaseAnalyzer requires 1D line_data")
 
-        spectral_axis = line_data[:, 0]
-        spectral_phase = line_data[:, 1]
+        spectral_axis = processed[:, 0]
+        spectral_phase = processed[:, 1]
         weights = filtered_aux.get("weights")
 
         reference_omega = float(
@@ -163,8 +174,17 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
                 epsilon=self.analysis_config.sign_epsilon,
             )
             if flipped:
-                line_data[:, 1] *= -1
+                spectral_phase = -spectral_phase
                 fit_y = -fit_y
+
+        # Build the fixed-length line_data from the fit, sorted by
+        # wavelength so downstream renderers can treat it as a monotonic
+        # spectrum without reordering.
+        fit_wavelength_nm = omega_rad_per_fs_to_wavelength_nm(
+            fit_result.fit_x + reference_omega
+        )
+        order = np.argsort(fit_wavelength_nm)
+        line_data = np.column_stack([fit_wavelength_nm[order], fit_y[order]])
 
         prefix = self.metric_prefix or self.line_config.name
         scalars = self._build_scalars(
@@ -187,15 +207,17 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
             }
         )
 
+        # Raw samples + diagnostic curves go in render_data. Single-shot
+        # plots can overlay the variable-length scatter
+        # (``raw_wavelength_nm`` vs ``raw_spectral_phase``) on the
+        # fixed-length fit in ``line_data``.
         render_data = {
-            "fit_omega_detuning_rad_per_fs": fit_result.fit_x,
-            "fit_phase": fit_y,
-            "fit_valid_mask": fit_result.valid_mask,
+            "raw_wavelength_nm": spectral_axis,
+            "raw_spectral_phase": spectral_phase,
             "fit_normalized_reference": fit_result.normalized_reference,
+            "fit_valid_mask": fit_result.valid_mask,
+            "fit_omega_detuning_rad_per_fs": fit_result.fit_x,
         }
-        render_data["fit_wavelength_nm"] = omega_rad_per_fs_to_wavelength_nm(
-            fit_result.fit_x + reference_omega
-        )
 
         return ImageAnalyzerResult(
             data_type="1d",
