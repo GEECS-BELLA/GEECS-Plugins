@@ -35,8 +35,9 @@ def apply_background(
     image : Array2D
         Input image.
     config : BackgroundConfig
-        Background configuration. ``config.enabled=False`` or
-        ``config.method is None`` skip the primary background.
+        Background configuration. ``config.method is None`` skips the
+        primary background (only the ``additional_constant`` offset
+        applies, if any).
     cache : dict, optional
         Path-keyed cache for loaded background arrays. When provided,
         ``from_file`` backgrounds are loaded once per unique path and
@@ -48,9 +49,6 @@ def apply_background(
     Array2D
         Background-processed image. Float64 dtype.
     """
-    if not config.enabled:
-        return image
-
     processed = image.astype(np.float64)
 
     if config.method == BackgroundMethod.FROM_FILE and config.file_path is not None:

@@ -12,6 +12,8 @@ from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
+    PipelineConfig,
+    ProcessingStepType,
     ROIConfig,
 )
 from image_analysis.tools.synthetic_generators import gaussian_beam_2d
@@ -149,7 +151,12 @@ class TestBeamAnalyzerROICoordinates:
 
         # ROI that contains the beam; origin at (x_min=100, y_min=60)
         roi = ROIConfig(x_min=100, x_max=200, y_min=60, y_max=140)
-        config = CameraConfig(name="roi_cam", bit_depth=16, roi=roi)
+        config = CameraConfig(
+            name="roi_cam",
+            bit_depth=16,
+            roi=roi,
+            pipeline=PipelineConfig(steps=[ProcessingStepType.ROI]),
+        )
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)
 

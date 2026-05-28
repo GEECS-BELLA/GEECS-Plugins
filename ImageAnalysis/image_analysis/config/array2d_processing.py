@@ -47,7 +47,6 @@ class BackgroundConfig(BaseModel):
         Additional constant to subtract AFTER primary background (default 0).
     """
 
-    enabled: bool = Field(True, description="Enable background processing")
     method: Optional[BackgroundMethod] = Field(
         None, description="Primary background method (None to skip)"
     )
@@ -119,7 +118,6 @@ class CrosshairMaskingConfig(BaseModel):
         Value to use for masked pixels (typically 0).
     """
 
-    enabled: bool = True
     crosshairs: List[CrosshairConfig] = Field(
         default_factory=list, description="List of crosshair configurations"
     )
@@ -272,7 +270,6 @@ class CircularMaskConfig(BaseModel):
         Value to use for masked pixels.
     """
 
-    enabled: bool = False
     center: Tuple[int, int] = (512, 512)
     radius: int = Field(100, gt=0, description="Radius of circular mask")
     mask_outside: bool = Field(True, description="Mask outside circle if True")
@@ -327,7 +324,6 @@ class VignetteConfig(BaseModel):
         Path to precomputed vignette correction map (.npy) for map_file method.
     """
 
-    enabled: bool = Field(False, description="Whether vignette correction is enabled")
     method: VignetteMethod = Field(
         VignetteMethod.RADIAL_POLYNOMIAL, description="Vignette correction method"
     )
@@ -354,10 +350,7 @@ class VignetteConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_method_requirements(self):
-        """Validate required fields for the selected vignette method when enabled."""
-        if not self.enabled:
-            return self
-
+        """Validate required fields for the selected vignette method."""
         if self.method == VignetteMethod.MAP_FILE and self.map_file_path is None:
             raise ValueError("map_file_path required when method is 'map_file'")
 
@@ -405,7 +398,6 @@ class ThresholdingConfig(BaseModel):
         Whether to invert the threshold operation.
     """
 
-    enabled: bool = Field(False, description="Whether thresholding is enabled")
     method: ThresholdMethod = ThresholdMethod.CONSTANT
     value: float = Field(100.0, ge=0.0, description="Threshold value")
     mode: ThresholdMode = ThresholdMode.BINARY
@@ -459,7 +451,6 @@ class NormalizationConfig(BaseModel):
         Required if method is CONSTANT or DISTRIBUTE_VALUE.
     """
 
-    enabled: bool = Field(False, description="Whether normalization is enabled")
     method: NormalizationMethod = Field(
         NormalizationMethod.IMAGE_TOTAL,
         description="Normalization method to use",
@@ -502,31 +493,26 @@ class PipelineConfig(BaseModel):
     """
     Configuration for the processing pipeline execution order.
 
-    This allows users to customize which processing steps are executed
-    and in what order. If not specified, a default pipeline matching
-    the original hardcoded order is used.
+    The pipeline is **the** source of truth for what runs and in what
+    order. A step executes if and only if it appears in ``steps``;
+    omission is the canonical way to skip a step. The previous
+    ``enabled`` flag on each sub-config (and the implicit
+    all-steps default) are both gone — they were redundant gating
+    mechanisms that disagreed with this list in subtle ways.
 
     Attributes
     ----------
     steps : List[ProcessingStepType]
-        Ordered list of processing steps to execute. Steps are executed
-        in the order specified. If a step's configuration is not provided
-        or is disabled, it will be skipped automatically.
+        Ordered list of processing steps to execute. Empty list
+        means "no processing" (the raw image flows through). Each
+        step in the list must have a matching non-None sub-config on
+        the parent :class:`CameraConfig`; otherwise the step is
+        silently skipped (with a debug log).
     """
 
     steps: List[ProcessingStepType] = Field(
-        default_factory=lambda: [
-            ProcessingStepType.BACKGROUND,
-            ProcessingStepType.VIGNETTE,
-            ProcessingStepType.CROSSHAIR_MASKING,
-            ProcessingStepType.ROI,
-            ProcessingStepType.CIRCULAR_MASK,
-            ProcessingStepType.THRESHOLDING,
-            ProcessingStepType.FILTERING,
-            ProcessingStepType.NORMALIZATION,
-            ProcessingStepType.TRANSFORMS,
-        ],
-        description="Ordered list of processing steps to execute",
+        default_factory=list,
+        description="Ordered list of processing steps to execute (empty = no processing)",
     )
 
 
@@ -606,8 +592,9 @@ class CameraConfig(BaseModel):
     transforms: Optional[TransformConfig] = Field(
         None, description="Geometric transform settings"
     )
-    pipeline: Optional[PipelineConfig] = Field(
-        None, description="Processing pipeline configuration"
+    pipeline: PipelineConfig = Field(
+        default_factory=PipelineConfig,
+        description="Processing pipeline configuration (defaults to empty — nothing runs)",
     )
 
     # Analyzer-specific configuration

@@ -339,14 +339,16 @@ class ConfigEditorPanel(QWidget):
             field_value = getattr(config, section_name, None)
 
             if field_value is not None:
+                # Section is present on the typed config → render its
+                # values and check the header (active).
                 section.set_values(field_value.model_dump())
-            elif "enabled" not in model_class.model_fields:
-                # Models without an ``enabled`` field cannot be toggled via
-                # a checkbox, so the SectionWidget has no enable/disable
-                # control.  Populate with defaults so the step remains
-                # visible and can be included in the pipeline order.
-                section.set_values(model_class().model_dump())
             else:
+                # Section is absent on the typed config → leave the
+                # header unchecked and the form blank. The user can
+                # check it to materialise a default-valued section.
+                # (Don't pre-populate with model_class() — some
+                # sub-configs have required fields and an empty default
+                # construction fails validation.)
                 section.set_enabled(False)
 
             section.sectionEnabledChanged.connect(self._on_value_changed)

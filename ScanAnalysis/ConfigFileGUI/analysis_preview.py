@@ -70,6 +70,22 @@ def _detect_config_type_from_dict(
 ) -> str:
     """Return ``'camera_2d'``, ``'line_1d'``, or ``'unknown'``.
 
+    Recognises three shapes:
+
+    * **Unified diagnostic** (``DiagnosticAnalysisConfig`` post-PR-E):
+      check ``image.type``. ``"camera"`` → ``"camera_2d"``;
+      ``"line"`` → ``"line_1d"``; absent ``image:`` →
+      ``"unknown"`` (HASO-style analyzers have no image to preview).
+    * **Bare ``CameraConfig`` / ``Line1DConfig``** (pre-PR-E or
+      standalone): fall back to structural-indicator keys at the top
+      level.
+
+    Both forms are then accepted by
+    :func:`image_analysis.config.loader.load_camera_config` /
+    :func:`load_line_config` (which transparently unwrap the
+    ``image:`` section), so the worker downstream doesn't need to
+    know which form it got.
+
     Parameters
     ----------
     config_dict : dict
@@ -80,6 +96,15 @@ def _detect_config_type_from_dict(
     str
         Detected config type.
     """
+    # Unified-diagnostic form: read the discriminator on image:.
+    image = config_dict.get("image")
+    if isinstance(image, dict):
+        kind = image.get("type")
+        if kind == "camera":
+            return "camera_2d"
+        if kind == "line":
+            return "line_1d"
+    # Fall back to bare-config structural detection.
     keys = set(config_dict.keys())
     if keys & _2D_INDICATOR_KEYS:
         return "camera_2d"
@@ -437,15 +462,20 @@ class AnalysisPreviewDialog(QDialog):
     # Auto-complete population
     # ------------------------------------------------------------------
     def _populate_completer(self) -> None:
-        """Fill the ``QCompleter`` with YAML stems from *config_dir*."""
+        """Fill the ``QCompleter`` with YAML stems found under *config_dir*.
+
+        Walks recursively so configs under facility-namespaced
+        subdirectories (``HTU/``, ``HTT/``, ``PW/``, …) are picked up.
+        """
         if not _MPL_AVAILABLE:
             return
 
         names: List[str] = []
         if self._config_dir is not None and self._config_dir.is_dir():
-            for p in sorted(self._config_dir.iterdir()):
-                if p.suffix in (".yaml", ".yml"):
-                    names.append(p.stem)
+            stems = {
+                p.stem for p in self._config_dir.rglob("*.yaml") if p.is_file()
+            } | {p.stem for p in self._config_dir.rglob("*.yml") if p.is_file()}
+            names = sorted(stems, key=str.lower)
 
         completer = QCompleter(names)
         completer.setCaseSensitivity(0)  # Qt.CaseInsensitive
@@ -549,12 +579,17 @@ class AnalysisPreviewDialog(QDialog):
             except Exception:
                 logger.debug("get_current_config callback failed", exc_info=True)
 
-        # Fall back to loading from disk
+        # Fall back to loading from disk. The new layout is
+        # ``<config_dir>/<facility>/<stem>.yaml`` (facility-namespaced
+        # subdirectories under ``analyzers/``), so we walk recursively
+        # rather than checking the flat directory.
         if self._config_dir is None:
             return None, "unknown"
 
-        for ext in (".yaml", ".yml"):
-            candidate = self._config_dir / f"{config_name}{ext}"
+        candidates = list(self._config_dir.rglob(f"{config_name}.yaml")) + list(
+            self._config_dir.rglob(f"{config_name}.yml")
+        )
+        for candidate in candidates:
             if candidate.is_file():
                 try:
                     import yaml

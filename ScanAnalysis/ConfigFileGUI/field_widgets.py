@@ -579,11 +579,16 @@ class EnumFieldWidget(BaseFieldWidget):
 
 
 class OptionalFieldWidget(BaseFieldWidget):
-    """Wraps another field widget with an enable/disable checkbox.
+    """Wraps another field widget with a "value is set" checkbox.
 
-    When the checkbox is unchecked the inner widget is disabled and
-    :meth:`get_value` returns ``None``.  When checked, it delegates
-    to the inner widget.
+    For Pydantic fields typed ``Optional[X]``. When the checkbox is
+    unchecked the inner widget is disabled and :meth:`get_value`
+    returns ``None``. When checked, it delegates to the inner widget.
+
+    The checkbox is unlabelled because the field's own label (rendered
+    by ``BaseFieldWidget``) already identifies the field. Adding a
+    second word like "Enabled" next to it was confusing — especially
+    after the per-step ``enabled`` flag was removed from the schema.
 
     Parameters
     ----------
@@ -611,7 +616,8 @@ class OptionalFieldWidget(BaseFieldWidget):
         inner_label = inner_widget._label
         inner_label.hide()
 
-        self._enable_cb = QCheckBox("Enabled")
+        self._enable_cb = QCheckBox()  # unlabelled — see class docstring
+        self._enable_cb.setToolTip("Set this value (uncheck to leave as None)")
         self._row_layout.addWidget(self._enable_cb)
         self._row_layout.addWidget(self._inner, stretch=1)
 

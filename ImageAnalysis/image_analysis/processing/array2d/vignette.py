@@ -133,14 +133,7 @@ def apply_vignette_map(image: Array2D, vignette_map: Array2D) -> Array2D:
 
 
 def apply_vignette_config(image: Array2D, config: VignetteConfig) -> Array2D:
-    """
-    Apply vignette correction according to configuration.
-
-    Returns the original image unchanged when correction is disabled.
-    """
-    if not config.enabled:
-        return image
-
+    """Apply vignette correction according to configuration."""
     if config.method == VignetteMethod.RADIAL_POLYNOMIAL:
         vignette_map = build_radial_vignette_map(
             image_shape=image.shape,
