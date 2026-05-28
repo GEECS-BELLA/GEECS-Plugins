@@ -6,8 +6,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.8.2] — 2026-05-28
 
 Companion to ImageAnalysis 1.6.0 (FROG spectral phase analyzer). Hardens
-the 1D averaging path against inhomogeneous per-shot lineouts that
-analyzer-specific ROI/weight masking can produce.
+the 1D averaging and waterfall paths against inhomogeneous per-shot
+lineouts that analyzer-specific ROI/weight masking can produce.
 
 ### Fixed
 - `SingleDeviceScanAnalyzer.average_data` no longer raises `ValueError`
@@ -19,6 +19,15 @@ analyzer-specific ROI/weight masking can produce.
   ROI/weight masking yields variable sample counts — most
   immediately `FrogSpectralPhaseAnalyzer`, where each shot's valid
   retrieved-spectrum window differs.
+- `Line1DRenderer._create_waterfall_plot` skips with a warning when
+  per-shot y-arrays have inhomogeneous shapes, instead of crashing
+  on `np.array(data_arrays)` (hard `ValueError` on numpy 2.x).
+  Mirrors the `average_data` fix and prevents `run_analysis` from
+  dying mid-postprocess after per-shot scalars + data files have
+  already been written. The warning points at the two real fixes
+  (interpolation onto a common grid via the pipeline, or having the
+  analyzer emit fixed-length summary `line_data`) so the user knows
+  how to actually get a waterfall.
 
 ## [1.8.1] — 2026-05-28
 

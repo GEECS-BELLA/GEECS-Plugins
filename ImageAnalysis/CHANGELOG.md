@@ -43,6 +43,20 @@ dict rather than through analyzer-instance state.
   `_preprocess_line_data` directly so the line and aux arrays come
   back from the same call boundary (see `FrogSpectralPhaseAnalyzer`
   for the pattern).
+- `FrogSpectralPhaseAnalyzer.analyze_image` now emits the **fit**
+  curve as `result.line_data` — fixed-length (`fit_num_points`,
+  default 300), wavelength-sorted Nx2. Raw scattered phase samples
+  and the intensity-weight curve move to `result.render_data`
+  (`raw_wavelength_nm`, `raw_spectral_phase`,
+  `fit_normalized_reference`). This makes every shot in a scan
+  emit identically-shaped `line_data`, so `Array1DScanAnalyzer`'s
+  waterfall and per-bin averaging aggregate cleanly across shots —
+  fixing the inhomogeneous-shape crash hit on 500-shot scans where
+  per-shot ROI-edge wobble produced variable raw lengths.
+- `FrogSpectralPhaseAnalyzer.__init__` takes a typed `Line1DConfig`
+  (matches the post-PR-E `Standard1DAnalyzer` contract). String-by-
+  name resolution moved to the loader — call
+  `image_analysis.config.load_line_config(name)` first.
 
 ### Removed
 - `ImageAnalyzerResult.line_auxiliary_column_data` field. Aux columns
