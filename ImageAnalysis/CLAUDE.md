@@ -6,9 +6,14 @@ classes. The output of every analyzer is a standardized `ImageAnalyzerResult`.
 
 ## Scope Note
 
-The `analyzers/` directory contains older LabVIEW-era analyzers that are
-**not** the focus of active development. The `offline_analyzers/` directory
-contains the modern, actively maintained classes. Focus here.
+The `analyzers/` directory is the modern, actively maintained home for all
+image and 1D analyzer classes. Before the PR-E loader-API refactor
+(ImageAnalysis 1.5.0) this directory held LabVIEW-era code and the modern
+classes lived under `offline_analyzers/`; the rename inverted that. The
+`offline_qualifier` was a holdover from a never-built online counterpart.
+A nearly-empty `offline_analyzers/` directory may still exist with a couple
+of subpackage remnants (`Thomson/`, `Undulator/`); it is deprecated and
+should not be imported from.
 
 ## Package Layout
 
@@ -16,22 +21,27 @@ contains the modern, actively maintained classes. Focus here.
 image_analysis/
   base.py                          # ImageAnalyzer abstract base; ImageAnalyzerResult in types.py
   types.py                         # ImageAnalyzerResult, Array1D, Array2D type aliases
-  config_loader.py                 # load_camera_config(), load_line_config() — YAML entry points
+  config/                          # Public configuration API — single entry point
+    __init__.py                    # Exports: load_camera_config, load_line_config,
+                                   #          load_diagnostic, create_image_analyzer,
+                                   #          CameraConfig, Line1DConfig + all sub-models
+    loader.py                      # YAML → typed model loaders
+    factory.py                     # create_image_analyzer(DiagnosticAnalysisConfig)
+    diagnostic.py                  # DiagnosticAnalysisConfig + type-discriminated image:
+    array2d_processing.py          # CameraConfig + 2D sub-models (re-exported)
+    array1d_processing.py          # Line1DConfig + 1D sub-models (re-exported)
   processing/
     array2d/
-      config_models.py             # CameraConfig and all sub-models (ROI, Background, etc.)
-      background.py                # Background subtraction implementations
-      background_manager.py        # BackgroundManager orchestrator
+      background.py                # apply_background(image, config, *, cache=None)
       filtering.py                 # Gaussian / median filters
       masking.py                   # Crosshair and circular masking
       transforms.py                # Rotation, flip, distortion
-      pipeline.py (or inline)      # apply_camera_processing_pipeline()
+      pipeline.py                  # apply_camera_processing_pipeline()
     array1d/
-      config_models.py             # Line1DConfig and sub-models (ROI1D, Filtering, etc.)
       background.py                # 1D background subtraction
       roi.py                       # 1D ROI (x-value range, not pixel)
       thresholding.py              # 1D thresholding
-  offline_analyzers/
+  analyzers/                       # Modern analyzer classes (was offline_analyzers/ pre-PR-E)
     __init__.py                    # Exports: StandardAnalyzer, Standard1DAnalyzer, BeamAnalyzer, LineAnalyzer
     standard_analyzer.py           # StandardAnalyzer — 2D foundation
     standard_1d_analyzer.py        # Standard1DAnalyzer — 1D foundation
@@ -39,6 +49,10 @@ image_analysis/
     line_analyzer.py               # LineAnalyzer(Standard1DAnalyzer)
     ict_1d_analyzer.py             # ICT1DAnalyzer(Standard1DAnalyzer)
     density_from_phase_analysis.py # DensityFromPhaseAnalyzer(ImageAnalyzer)
+    line_stitcher.py               # LineStitcher
+    magspec_manual_calib_analyzer.py
+    grenouille_analyzer.py         # FROG / Grenouille
+    HASO_himg_has_processor.py     # HASOHimgHasProcessor
     ...
 ```
 
@@ -94,7 +108,7 @@ Key methods:
 YAML files live in the **GEECS-Plugins-configs** repo. Loaded via:
 
 ```python
-from image_analysis.config_loader import load_camera_config
+from image_analysis.config import load_camera_config
 cfg = load_camera_config("UC_GaiaMode")  # finds UC_GaiaMode.yaml in configs repo
 ```
 
@@ -130,7 +144,7 @@ the per-shot pipeline runs.
 ### 1D Line Configs (`Line1DConfig`)
 
 ```python
-from image_analysis.config_loader import load_line_config
+from image_analysis.config import load_line_config
 cfg = load_line_config("U_BCaveICT")
 ```
 
@@ -154,15 +168,36 @@ class Line1DConfig(BaseModel):
     analysis: Optional[Dict[str, Any]]
 ```
 
-## Offline Analyzers
+## Analyzers
+
+Analyzer constructors take **typed config models** (`CameraConfig` /
+`Line1DConfig`) rather than string names. The string-by-name convenience
+moved to the loader layer in PR-E. Two patterns:
+
+```python
+# Mode 1: direct construction for exploration
+from image_analysis.config import load_camera_config
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+
+cfg = load_camera_config("UC_GaiaMode")
+analyzer = StandardAnalyzer(camera_config=cfg)
+```
+
+```python
+# Mode 2: config-driven factory (production scan path)
+from image_analysis.config import load_diagnostic, create_image_analyzer
+
+diag = load_diagnostic("UC_GaiaMode")          # → DiagnosticAnalysisConfig
+analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
+```
 
 ### `StandardAnalyzer` (2D foundation)
 
 ```python
 analyzer = StandardAnalyzer(
-    camera_config_name="UC_GaiaMode",
-    name_suffix=None,       # Appended to camera name
-    metric_suffix=None,     # Appended to all scalar metric keys
+    camera_config=cfg,       # typed CameraConfig (load via load_camera_config)
+    name_suffix=None,        # Appended to camera name
+    metric_suffix=None,      # Appended to all scalar metric keys
 )
 ```
 
@@ -175,7 +210,7 @@ Key methods:
 ### `Standard1DAnalyzer` (1D foundation)
 
 ```python
-analyzer = Standard1DAnalyzer(line_config_name="U_BCaveICT")
+analyzer = Standard1DAnalyzer(line_config=cfg)   # typed Line1DConfig
 ```
 
 Key methods:
@@ -207,12 +242,13 @@ Direct subclass of `ImageAnalyzer` (not Standard). Plasma density from wavefront
 phase data — Abel inversion, background removal, rotation alignment, Gaussian
 masking.
 
-## Adding a New Offline Analyzer
+## Adding a New Analyzer
 
 ### 2D analyzer
 
 ```python
-from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.config import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from pydantic import BaseModel
 
@@ -221,8 +257,8 @@ class MyAnalysisConfig(BaseModel):
     # ... typed config fields from analysis: section of CameraConfig
 
 class MyAnalyzer(StandardAnalyzer):
-    def __init__(self, camera_config_name: str, **kwargs):
-        super().__init__(camera_config_name, **kwargs)
+    def __init__(self, camera_config: CameraConfig, **kwargs):
+        super().__init__(camera_config=camera_config, **kwargs)
         self._my_cfg = MyAnalysisConfig(**(self.camera_config.analysis or {}))
 
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
@@ -234,7 +270,8 @@ class MyAnalyzer(StandardAnalyzer):
 
 ### 1D analyzer
 
-Same pattern but inherit from `Standard1DAnalyzer` and use `self.line_config.analysis`.
+Same pattern but inherit from `Standard1DAnalyzer`, take a typed
+`Line1DConfig`, and use `self.line_config.analysis`.
 
 ## Key Design Decisions
 
@@ -249,7 +286,7 @@ Same pattern but inherit from `Standard1DAnalyzer` and use `self.line_config.ana
 - **Nx2 convention for 1D data** — Column 0 is always x (independent), column 1
   is always y (dependent). `read_1d_data()` enforces this.
 
-## Filesystem invariants for offline_analyzers that write inside `scans/ScanNNN/`
+## Filesystem invariants for analyzers that write inside `scans/ScanNNN/`
 
 Some analyzers (`LineStitcher`, `MagSpecManualCalibAnalyzer`,
 `HASOHimgHasProcessor`, `GrenouilleAnalyzer`) save derived per-shot outputs
