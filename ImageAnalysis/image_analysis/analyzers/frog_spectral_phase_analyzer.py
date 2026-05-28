@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 import numpy as np
 from pydantic import BaseModel, Field
@@ -72,12 +72,29 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
 
     def __init__(
         self,
-        line_config_name: Union[str, Line1DConfig],
+        line_config: Line1DConfig,
         metric_suffix: Optional[str] = None,
         metric_prefix: Optional[str] = None,
     ):
-        """Initialize the analyzer with a line configuration."""
-        super().__init__(line_config_name)
+        """Initialize the analyzer with a typed line configuration.
+
+        Matches the post-PR-E ``Standard1DAnalyzer`` contract — the
+        constructor takes a validated ``Line1DConfig`` only. String-by-name
+        resolution moved to the loader layer; call
+        ``image_analysis.config.load_line_config(name)`` to obtain the
+        ``Line1DConfig`` first, then pass it here.
+
+        Parameters
+        ----------
+        line_config : Line1DConfig
+            Typed configuration. The ``analysis`` block is validated
+            into a :class:`FrogSpectralPhaseConfig` and exposed as
+            ``self.analysis_config``.
+        metric_suffix, metric_prefix : str, optional
+            Override the scalar-key prefix / suffix. Default behavior:
+            prefix from ``line_config.name``; no suffix.
+        """
+        super().__init__(line_config=line_config)
         self.analysis_config = FrogSpectralPhaseConfig.model_validate(
             self.line_config.analysis or {}
         )
