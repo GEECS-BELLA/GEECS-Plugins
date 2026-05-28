@@ -3,6 +3,59 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] — 2026-05-24
+
+Cutover to the unified diagnostic-config schema. The split
+`scan_analysis_configs/library/` and `experiments/` layers are gone;
+analyzers live one-file-per-diagnostic under `analyzers/<namespace>/`
+and are assembled into groups under `groups/<namespace>/`. The old
+loader/factory/models are deleted.
+
+### Added
+- `scan_analysis.config.load_analysis_group` and
+  `create_diagnostic_analyzer` re-exported from
+  `scan_analysis.config` as the public API for loading and
+  instantiating analyzers from disk.
+- `scan.background_source` directive is the sole way to express
+  cross-scan-dark and dynamic-from-current-scan backgrounds in
+  the unified schema.
+
+### Changed
+- `scan_analysis.task_queue.load_analyzers_from_config` now consumes
+  the unified analysis-group layout via
+  `analysis_group_loader.load_analysis_group` and
+  `diagnostic_factory.create_diagnostic_analyzer`. The function
+  signature is unchanged (still takes a group name + optional
+  `config_dir`), but it no longer accepts the old experiment-wrapper
+  YAMLs.
+- `LiveWatchGUI`: replaced the broken `_try_list_experiments` (which
+  imported the deleted `config_loader`) with `_try_list_groups` built
+  on `discover_groups`. The combo box now populates from
+  `<config_dir>/groups/` and falls back to an empty list (instead of
+  hard-coding `"Undulator"`) when no groups are found.
+
+### Removed
+- `scan_analysis.config.config_loader` and all of its public symbols
+  (`ScanAnalyzerInfo`, `ScanAnalyzersConfig`, `ExperimentAnalysisConfig`,
+  `load_experiment_analyzers`, `list_available_configs`,
+  `set_analyzer_attributes`, etc.).
+- All Array2D / Array1D / Array1DLineout fields from
+  `analyzer_config_models.py`; only `PlotParameterConfig` and
+  `ScatterAnalyzerConfig` remain.
+- `analyzer_factory.create_analyzer` now only dispatches scatter
+  configs. Image-analyzer-driven analyzers go through
+  `create_diagnostic_analyzer`.
+- The `BackgroundConfig.background_scan_number`-driven path
+  (`SingleDeviceScanAnalyzer._generate_scan_background`). Use
+  `scan.background_source.scan_number` instead.
+
+### Breaking
+- Experiment-wrapper YAMLs (`experiments/<name>.yaml`) and the library
+  shorthand entries are no longer recognised. Callers must point at
+  the new `analyzers/` + `groups/` layout.
+- The `analyzer_config_models` / `analyzer_factory` public surface
+  shrinks to scatter-only.
+
 ## [1.5.1] — 2026-05-22
 
 ### Removed

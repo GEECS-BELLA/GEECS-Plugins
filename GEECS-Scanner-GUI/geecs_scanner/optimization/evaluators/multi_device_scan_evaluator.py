@@ -104,7 +104,14 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
     # ------------------------------------------------------------------
 
     def _create_scan_analyzer(self, config: SingleDeviceScanAnalyzerConfig):
-        """Dynamically instantiate a scan analyzer from *config*."""
+        """Instantiate a scan analyzer from an optimizer-side config.
+
+        Optimizer YAMLs do not embed an ``image:`` section — the
+        ImageAnalyzer loads its own camera/line config by name at
+        construction time. So this path uses the alias's class path and
+        kwargs directly, without going through the disk-loaded
+        diagnostic factory.
+        """
         image_analysis_config.set_base_dir(
             ScanPaths.paths_config.image_analysis_configs_path
         )
@@ -116,18 +123,18 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             Array2DScanAnalyzer,
         )
 
-        analyzer_class = {
+        wrapper_class = {
             "Array1DScanAnalyzer": Array1DScanAnalyzer,
             "Array2DScanAnalyzer": Array2DScanAnalyzer,
         }[config.analyzer_type]
 
-        image_analyzer_module = importlib.import_module(config.image_analyzer.module)
-        image_analyzer_class = getattr(
-            image_analyzer_module, config.image_analyzer.class_
-        )
-        image_analyzer = image_analyzer_class(**config.image_analyzer.kwargs)
+        spec = config.image_analyzer
+        module_path, class_name = spec.class_path.rsplit(".", 1)
+        image_analyzer_module = importlib.import_module(module_path)
+        image_analyzer_class = getattr(image_analyzer_module, class_name)
+        image_analyzer = image_analyzer_class(**spec.kwargs)
 
-        scan_analyzer = analyzer_class(
+        scan_analyzer = wrapper_class(
             device_name=config.device_name,
             image_analyzer=image_analyzer,
             file_tail=config.file_tail,

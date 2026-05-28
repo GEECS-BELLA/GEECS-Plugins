@@ -28,7 +28,7 @@ class TestSingleDeviceScanAnalyzerConfig:
             {
                 "device_name": device_name,
                 "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": {"module": "m", "class": "C"},
+                "image_analyzer": "beam",
                 "analysis_mode": mode,
                 **extra,
             }
@@ -58,7 +58,7 @@ class TestSingleDeviceScanAnalyzerConfig:
                 {
                     "device_name": "D",
                     "analyzer_type": "Array2DScanAnalyzer",
-                    "image_analyzer": {"module": "m", "class": "C"},
+                    "image_analyzer": "beam",
                     "analysis_mode": "invalid_mode",
                 }
             )
@@ -94,7 +94,7 @@ class TestMultiDeviceScanEvaluatorConfig:
             {
                 "device_name": name,
                 "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": {"module": "m", "class": "C"},
+                "image_analyzer": "beam",
             }
             for name in device_names
         ]

@@ -94,8 +94,7 @@ class BackgroundSource(BaseModel):
         The scan analyzer loads the device's images from that scan,
         averages them, and caches the result in that scan's analysis
         folder. Any scan that references the same ``scan_number``
-        reuses the cache. Replaces the legacy
-        ``BackgroundConfig.background_scan_number`` field.
+        reuses the cache.
     from_current_scan : FromCurrentScanSpec, optional
         Compute a background from the current scan's own images. First
         consumer triggers the compute; subsequent consumers in the

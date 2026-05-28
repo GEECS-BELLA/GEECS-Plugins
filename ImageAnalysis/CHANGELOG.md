@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.4.0] — 2026-05-24
+
+Companion release to the ScanAnalysis 1.6.0 unified-configs cutover.
+Removes a chunk of dead and now-misleading background-handling
+surface area.
+
+### Removed
+- `BackgroundConfig.background_scan_number` field. The scan-as-background
+  workflow is now expressed via the diagnostic config's
+  `scan.background_source.scan_number` directive, handled in
+  ScanAnalysis. (The `SingleDeviceScanAnalyzer._generate_scan_background`
+  consumer is removed in ScanAnalysis 1.6.0.)
+- `image_analysis.processing.array2d.compute_background` — the function
+  had no live callers (BackgroundManager covers `from_file`/`constant`
+  directly) and referenced `config.level` / `config.percentile` fields
+  that don't exist on `BackgroundConfig`, so it was unreachable.
+- `BackgroundMethod.PERCENTILE_DATASET` and `BackgroundMethod.MEDIAN`.
+  Both enum values were only reachable through the deleted
+  `compute_background`. The aggregation helpers
+  `_compute_percentile_background` and `_compute_median_background`
+  stay — they're used by `compute_and_cache_scan_background`.
+- `_compute_constant_background` helper and its `TestConstantBackground`
+  test class.
+
+### Breaking
+- `BackgroundConfig` no longer accepts `background_scan_number`.
+- `BackgroundMethod` no longer includes `PERCENTILE_DATASET` or `MEDIAN`.
+- `compute_background` is no longer exported from
+  `image_analysis.processing.array2d`.
+
 ## [1.3.1] — 2026-05-22
 
 ### Removed

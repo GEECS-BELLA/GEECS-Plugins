@@ -4,7 +4,6 @@ import numpy as np
 import pytest
 
 from image_analysis.processing.array2d.background import (
-    _compute_constant_background,
     _compute_median_background,
     _compute_percentile_background,
     compute_and_cache_scan_background,
@@ -39,26 +38,6 @@ class TestSubtractBackground:
         bg = np.ones((4, 4))
         with pytest.raises(ValueError):
             subtract_background(image, bg)
-
-
-class TestConstantBackground:
-    """Tests for _compute_constant_background()."""
-
-    def test_returns_correct_shape(self):
-        bg = _compute_constant_background((8, 12), level=50.0)
-        assert bg.shape == (8, 12)
-
-    def test_returns_correct_value(self):
-        bg = _compute_constant_background((4, 4), level=123.0)
-        assert np.all(bg == 123.0)
-
-    def test_dtype_is_float64(self):
-        bg = _compute_constant_background((4, 4), level=0.0)
-        assert bg.dtype == np.float64
-
-    def test_zero_level(self):
-        bg = _compute_constant_background((3, 3), level=0.0)
-        assert np.all(bg == 0.0)
 
 
 class TestPercentileBackground:
