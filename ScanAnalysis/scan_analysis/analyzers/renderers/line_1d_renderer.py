@@ -331,6 +331,15 @@ class Line1DRenderer(BaseRenderer):
     ) -> None:
         """Create waterfall (heatmap) plot of all bins.
 
+        Skips with a warning when per-shot / per-bin lineouts have
+        inhomogeneous shapes — analyzers whose ROI/weight masking
+        produces variable-length output (FrogSpectralPhaseAnalyzer is
+        the immediate example) can't be stacked into a single 2D
+        heatmap without a common-axis alignment step. Per-shot data
+        files and per-shot scalars are still written by the upstream
+        ``_postprocess_*`` path; only the summary waterfall image is
+        skipped.
+
         Parameters
         ----------
         contexts : list of RenderContext
@@ -353,6 +362,27 @@ class Line1DRenderer(BaseRenderer):
             else:
                 data_arrays.append(data)
             param_values.append(ctx.parameter_value or ctx.identifier)
+
+        # Bail out gracefully if shapes are inhomogeneous. ``np.array(list)``
+        # raises a hard ValueError on numpy 2.x when rows have different
+        # lengths, which would otherwise crash the whole analysis pipeline.
+        # This mirrors ``SingleDeviceScanAnalyzer.average_data``'s
+        # inhomogeneous-shape handling.
+        shapes = {arr.shape for arr in data_arrays}
+        if len(shapes) > 1:
+            logger.warning(
+                "Cannot render waterfall: %d arrays have inhomogeneous "
+                "shapes %s. Skipping summary plot %s. Per-shot files and "
+                "scalars are unaffected. If a summary waterfall is "
+                "needed, either (a) configure ``interpolation`` in the "
+                "Line1DConfig pipeline so every shot lands on a common "
+                "x-grid, or (b) have the analyzer emit a fixed-length "
+                "summary (e.g. the fit curve) in ``line_data``.",
+                len(data_arrays),
+                sorted(shapes),
+                save_path.name,
+            )
+            return
 
         # Stack into 2D array
         waterfall_data = np.array(data_arrays)
