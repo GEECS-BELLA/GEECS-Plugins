@@ -3,6 +3,42 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.7.0] — 2026-05-27
+
+Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and
+Scanner-GUI 0.22.0. Adds the `create_scan_analyzer` factory as the
+public production entry point and pins the dependency direction
+(ScanAnalysis depends on ImageAnalysis, never the reverse) by
+re-validating `scan:` at this layer.
+
+### Added
+- `scan_analysis.config.create_scan_analyzer(DiagnosticAnalysisConfig,
+  *, id, priority) -> ScanAnalyzer` — the Mode 2 (config-driven)
+  factory for going from a loaded diagnostic config to a ready-to-run
+  scan analyzer. Re-exported from `scan_analysis.config`.
+- `load_analysis_group(...)` now returns a `LoadedAnalysisGroup`
+  carrying resolved diagnostic configs ready to hand to
+  `create_scan_analyzer` (one call per analyzer in the group).
+
+### Changed
+- `scan:` field validation now happens in ScanAnalysis at scan-analyzer
+  build time rather than at YAML-load time in ImageAnalysis. The
+  ImageAnalysis-side `scan` field is weakly typed (`Optional[Dict[str,
+  Any]]`); `create_scan_analyzer` calls
+  `ScanRuntimeConfig.model_validate(diag.scan or {})` itself. This
+  breaks what would otherwise be a circular dependency between the two
+  packages and keeps ImageAnalysis ignorant of scan-runtime concerns.
+- `ScatterPlotterAnalysis` is now a standalone utility class, not part
+  of the config-driven scan pipeline. It is not wired into the unified
+  diagnostic schema and is unaffected by the loader API.
+
+### Breaking
+- Any caller still constructing scan analyzers via the
+  pre-PR-E factory path needs to migrate to `create_scan_analyzer` (or
+  the `task_queue.load_analyzers_from_config` wrapper, which is
+  unchanged in signature). Direct construction (`Mode 1`) still works
+  unchanged for exploration code that prefers it.
+
 ## [1.6.0] — 2026-05-24
 
 Cutover to the unified diagnostic-config schema. The split

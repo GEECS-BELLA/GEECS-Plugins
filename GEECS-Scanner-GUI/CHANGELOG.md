@@ -3,6 +3,34 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] — 2026-05-27
+
+Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and
+ScanAnalysis 1.7.0. The optimizer-side scan-analyzer construction path
+now goes through the same resolved-spec shape that the diagnostic
+factory uses.
+
+### Changed
+- `MultiDeviceScanEvaluator._create_scan_analyzer` reworked to consume
+  the resolved `ImageAnalyzerSpec` (`class_path` + `kwargs`) directly
+  and the new `image_analysis.analyzers.*` module layout. The evaluator
+  no longer carries an ad-hoc local construction path; it shares the
+  same spec resolution the diagnostic factory uses.
+- `optimization/config_models.py` simplified: the `image_analyzer`
+  field defers to the shared `ImageAnalyzerSpec` validator rather than
+  re-implementing analyzer-class resolution locally.
+
+### Added
+- `tests/optimization/test_evaluator_create_scan_analyzer.py` — 264
+  lines covering `MultiDeviceScanEvaluator._create_scan_analyzer`
+  against the new spec-resolution path. This evaluator method was
+  previously untested.
+
+### Breaking
+- Optimizer YAMLs that still reference
+  `image_analysis.offline_analyzers.*` class paths must migrate to
+  `image_analysis.analyzers.*` (PR-E rename).
+
 ## [0.21.0] — 2026-05-24
 
 Companion release to the ScanAnalysis 1.6.0 unified-configs cutover.
