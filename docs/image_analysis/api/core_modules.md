@@ -14,7 +14,7 @@
           show_signature_annotations: true
 
 ??? "StandardAnalyzer API"
-    ::: image_analysis.offline_analyzers.standard_analyzer.StandardAnalyzer
+    ::: image_analysis.analyzers.standard_analyzer.StandardAnalyzer
         options:
           show_source: true
           show_root_heading: true

@@ -1,69 +1,145 @@
 # GEECS Plugin Suite
 
-A collection of Python tools for laser-plasma experiments at [Lawrence Berkeley National Laboratory's BELLA Center](https://bella.lbl.gov/). The facility uses **GEECS** (Generalized Equipment and Experiment Control System) for hardware control and data acquisition; this suite extends that ecosystem with a Python-native interface for scanning, image analysis, and post-processing.
+**A Python-native toolkit for the BELLA beamline at LBNL.**
 
-## Start where you are
+The GEECS Plugin Suite extends LBNL's
+[GEECS](https://bella.lbl.gov/) (Generalized Equipment and Experiment Control
+System) acquisition platform with Python-native tools for scanning, image
+analysis, scan post-processing, and automated e-log uploads. Each subdirectory
+is an independent Python package; together they cover the experimental data
+lifecycle from acquisition through analysis to delivery.
 
-| If you want to... | Go here |
-|---|---|
-| **Run a scan from a GUI** | [Scanner Tutorial](geecs_scanner/tutorial.md) — your first NOSCAN and 1D scan, end to end |
-| **Add a device to a scan** | [Save Elements](geecs_scanner/save_elements.md) — the YAML format for what to record |
-| **Find your data on disk** | [Scan Output Structure](geecs_scanner/scan_output_structure.md) — what's in `Scan###/` and how to load each file |
-| **Diagnose why a scan failed** | [Troubleshooting](geecs_scanner/troubleshooting.md) — common errors and what they mean |
-| **Diagnose recurring scan failures with /triage** | [Skills — Overview](skills/overview.md) |
-| **Analyze images from a camera** | [Image Analysis — Basic Offline Analysis](image_analysis/examples/basic_usage_image_analyzer.ipynb) |
-| **Find the right analyzer for your diagnostic** | [Analyzer Index](image_analysis/analyzer_index.md) — beam profile, FROG, magspec, ICT, HASO |
-| **Run analysis across a scan** | [Scan Analysis — Basic Usage](scan_analysis/examples/basic_usage.ipynb) |
-| **Watch and process scans live** | [Scan Analysis — Live Watch](scan_analysis/examples/live_watch.ipynb) |
-| **Upload results to a Google Doc e-log** | [Scan Analysis — GDoc Upload](scan_analysis/examples/gdoc_upload.ipynb) |
-| **Run a parameter optimization scan** | [Scanner — Optimization Example](geecs_scanner/examples/optimization/optimization_example.ipynb) |
-| **Write a script that talks to a GEECS device** | [GEECS Python API — Scripting Guide](geecs_python_api/scripting_guide.md) |
-| **Write a custom evaluator or analyzer** | [Extending the Scanner](geecs_scanner/extending.md) |
-| **Understand the engine internals** | [Architecture](geecs_scanner/architecture.md) |
+## Where to start
 
-## What's in this suite
+The suite splits cleanly into the two halves of the experimental data
+lifecycle — **acquisition** and **analysis**. The first two cards below
+follow that split; the bottom row is for navigation and troubleshooting.
 
-**[GEECS Scanner GUI](geecs_scanner/overview.md)** — a PyQt5 data-acquisition application that runs scans, manages save elements, and supports multi-scan batches and Xopt-driven optimization. The primary tool for collecting data; the engine underneath is also usable as a headless library.
+<div class="grid cards" markdown>
 
-**[Image Analysis](image_analysis/overview.md)** — image processing and analysis for camera data. YAML-configured pipelines (background, masking, filtering, transforms, thresholding) with specialized analyzers for beam profile, FROG, magspec, HASO wavefront, and 1D traces. Used both offline and inside scan analyzers.
+-   :material-camera-iris:{ .lg .middle } **Data Acquisition**
 
-**[Scan Analysis](scan_analysis/overview.md)** — orchestrates analysis across a complete scan: shot binning, per-bin processing, summary figure rendering, s-file appending. Runs interactively on a finished scan or as a `LiveTaskRunner` that processes scans automatically as they complete. Optional integration with Google Doc e-logs.
+    ---
 
-**[GEECS Python API](geecs_python_api/overview.md)** — the low-level interface to GEECS hardware: device communication, the experiment database, and the UDP/TCP transport. Most tools use this indirectly; the [Scripting Guide](geecs_python_api/scripting_guide.md) covers the case where you want to use it directly.
+    Run scans on the beamline. Configure save elements, drive multi-scan
+    batches, and run Xopt-driven optimization through the Scanner GUI —
+    or use its engine headlessly from your own scripts.
 
-**[GEECS Data Utils](geecs_data_utils/overview.md)** — path resolution and data loading for GEECS scan folders. Resolves `(experiment, date, scan_number)` to a folder path on disk, loads s-files, and provides the common types used across the suite. Typically a dependency rather than a direct import.
+    [:octicons-arrow-right-24: Scanner GUI tutorial](geecs_scanner/tutorial.md) ·
+    [Overview](geecs_scanner/overview.md)
+
+-   :material-chart-areaspline:{ .lg .middle } **Data Analysis**
+
+    ---
+
+    Process per-shot images, configure analysis pipelines, run automated
+    per-scan analysis via LiveWatch. Edit configs in ConfigFileGUI; run
+    them headlessly or interactively via the Image/Scan Analysis APIs.
+
+    [:octicons-arrow-right-24: Analysis tutorial](tutorials/analysis.md) ·
+    [All tutorials](tutorials/index.md)
+
+-   :material-cube-outline:{ .lg .middle } **Browse by package**
+
+    ---
+
+    Overviews, examples, and API reference for each package in the
+    suite. Pick this if you already know which piece you're working
+    with.
+
+    [:octicons-arrow-right-24: Scanner GUI](geecs_scanner/overview.md) ·
+    [Image Analysis](image_analysis/overview.md) ·
+    [Scan Analysis](scan_analysis/overview.md) ·
+    [Data Utils](geecs_data_utils/overview.md) ·
+    [Python API](geecs_python_api/overview.md)
+
+-   :material-bug-outline:{ .lg .middle } **Troubleshooting & internals**
+
+    ---
+
+    Common scan failure modes, the `/triage` skill for diagnosing
+    recurring issues, and the architecture deep-dives.
+
+    [:octicons-arrow-right-24: Troubleshooting](geecs_scanner/troubleshooting.md) ·
+    [Skills](skills/overview.md) ·
+    [Architecture](geecs_scanner/architecture.md)
+
+</div>
 
 ## How the packages fit together
 
 ```mermaid
-flowchart TD
+flowchart LR
     GUI[Scanner GUI<br/>PyQt5 acquisition]
     Engine[Scanner Engine<br/>headless scan core]
     SA[Scan Analysis<br/>per-scan workflows]
     IA[Image Analysis<br/>per-image pipelines]
     DU[Data Utils<br/>paths + s-files]
     API[GEECS Python API<br/>device transport]
+    GDoc[LogMaker<br/>e-log upload]
 
     GUI --> Engine
     Engine --> API
     Engine --> DU
     SA --> IA
     SA --> DU
+    SA -.->|optional| GDoc
     IA -.->|optional, via Array2DScanAnalyzer| SA
 ```
 
-A typical workflow: the Scanner GUI runs a scan that writes a folder to the data server. ScanAnalysis (live or offline) reads that folder, runs configured ImageAnalysis analyzers across the shots, renders summary figures, and appends derived scalars back to the s-file. A separate notebook can then load the s-file via Data Utils for ad-hoc exploration.
+A typical workflow: the Scanner GUI runs a scan that writes a folder to the
+data server. Scan Analysis (live or offline) reads that folder, runs
+configured Image Analysis analyzers across the shots, renders summary
+figures, and appends derived scalars back to the s-file. A separate notebook
+can then load the s-file via Data Utils for ad-hoc exploration.
 
-## Common entry points by role
+## Packages at a glance
 
-If you're a **lab user running scans**, start with the [Scanner Installation](geecs_scanner/installation.md) and [Tutorial](geecs_scanner/tutorial.md).
+**[GEECS Scanner GUI](geecs_scanner/overview.md)** — PyQt5 data-acquisition
+application that runs scans, manages save elements, and supports multi-scan
+batches and Xopt-driven optimization. Primary tool for collecting data; the
+engine underneath is also usable as a headless library.
 
-If you're a **student or scientist analyzing data**, the [Image Analysis Basic Usage](image_analysis/examples/basic_usage_image_analyzer.ipynb) and [Scan Analysis Basic Usage](scan_analysis/examples/basic_usage.ipynb) notebooks are the right starting points; the [Analyzer Index](image_analysis/analyzer_index.md) helps you find the right tool for a specific diagnostic.
+**[Image Analysis](image_analysis/overview.md)** — per-image processing and
+analysis. Pipelines are described in YAML (background, masking, filtering,
+geometric transforms, thresholding) with specialised analyzers for beam
+profile, FROG, magspec, HASO wavefront, and 1D traces.
 
-If you're **scripting your own measurements**, start with the [Python API Scripting Guide](geecs_python_api/scripting_guide.md).
+**[Scan Analysis](scan_analysis/overview.md)** — orchestrates analysis across
+a complete scan: shot binning, per-bin processing, summary figure rendering,
+s-file appending. Runs interactively or as a `LiveTaskRunner` that processes
+scans automatically as they complete. Optional integration with Google Doc
+e-logs via `LogMaker4GoogleDocs`.
 
-If you're **maintaining or extending the codebase**, read the [Scanner Architecture](geecs_scanner/architecture.md) page first — it documents the engine's lifecycle, event flow, and design rationale.
+**[GEECS Python API](geecs_python_api/overview.md)** — low-level interface to
+GEECS hardware: device communication, the experiment database, and the shared
+[`config.ini`](geecs_python_api/scripting_guide.md). Most tools use it
+indirectly; the [Scripting Guide](geecs_python_api/scripting_guide.md) covers
+direct use.
+
+**[GEECS Data Utils](geecs_data_utils/overview.md)** — path resolution and
+data loading for scan folders. Resolves `(experiment, date, scan_number)` to
+an on-disk path, loads s-files, and defines the common types used across the
+suite. Typically a dependency rather than a direct import.
+
+## How the docs are organised
+
+Within each package, content is split into four kinds — different modes for
+different questions:
+
+- **Tutorials** teach by guided walkthrough — start here if you're new.
+- **How-To guides** are task recipes — "add a save element," "diagnose a
+  failed scan," "configure background subtraction."
+- **Reference** is for lookup once you know what you want — API docs,
+  config schema, CLI flags.
+- **Explanation** covers the *why* behind the *how* — architecture,
+  design rationale, what each package is for.
+
+If you're looking for something specific and you already know roughly where
+it lives, the left-hand navigation will get you there fastest. If you're new,
+the [Tutorials](tutorials/index.md) tab is the right entry point.
 
 ---
 
-*GEECS — Copyright (c) 2016, The Regents of the University of California, through Lawrence Berkeley National Laboratory*
+*GEECS — Copyright © 2016, The Regents of the University of California,
+through Lawrence Berkeley National Laboratory.*

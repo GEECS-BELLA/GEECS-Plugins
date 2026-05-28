@@ -18,6 +18,12 @@ tooling. Each subdirectory is an independent Python package with its own
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
+The published mkdocs site lives under `docs/` and also has its own
+`CLAUDE.md` covering documentation conventions — content organisation,
+build commands, the headless-screenshot workflow for GUI pages, and
+notebook hygiene constraints. Read it whenever you touch anything under
+`docs/`.
+
 ## Agent & Worktree Policy
 
 `CLAUDE.md` files are the canonical agent/developer instructions for this
@@ -25,17 +31,38 @@ repository. `AGENTS.md` exists only as a Codex compatibility shim that points
 Codex to the root and package-level `CLAUDE.md` files. Do not duplicate policy
 between `AGENTS.md` and `CLAUDE.md`; update the relevant `CLAUDE.md` instead.
 
-Worktrees should live outside the repository checkout, as siblings of the main
-clone, and should use stable names that describe the intended feature or fix.
-For example, keep the main checkout at `GEECS-Plugins/` and create worktrees
-such as `GEECS-Plugins-pulse-duration-jitter/`,
-`GEECS-Plugins-interlock-suggestions/`, or
-`GEECS-Plugins-bluesky-detectors/` next to it.
+Worktrees should live **inside** the main checkout at `.claude/worktrees/`,
+under stable names that describe the intended feature or fix — for example
+`.claude/worktrees/pulse-duration-jitter/`,
+`.claude/worktrees/interlock-suggestions/`, or
+`.claude/worktrees/docs-apps-tab/`. The `.claude/worktrees/` path is
+`.gitignore`d so worktree contents never pollute the main clone's git status
+or staging area.
 
-Do not create worktrees inside the repository root, inside subpackages, or
-under tool-generated paths such as `.claude/worktrees/`. Remove worktrees after
-their PR is merged unless they are intentionally long-lived for a distinct
-development stream.
+This is a deliberate reversal of an earlier policy that put worktrees as
+siblings of the main clone (`GEECS-Plugins-feature-name/`). In practice the
+sibling layout required agents to `cd` outside the project root constantly,
+which triggers permission prompts on macOS and Linux sandboxes for every
+command — enough friction to be a real drag on iteration. Living under
+`.claude/worktrees/` keeps every command rooted inside the project tree the
+agent already has permission to operate on.
+
+Do not create worktrees in the repository root itself, inside subpackages
+(e.g. `ImageAnalysis/.claude/worktrees/`), or in random tmp locations. The
+canonical location is `<repo-root>/.claude/worktrees/<feature-name>/`.
+
+**Always start Claude sessions with the repo root as the working directory.**
+When Claude Code is configured to spawn a session worktree, it places the
+worktree relative to wherever the session was launched from. Launching from
+`<repo-root>/ImageAnalysis/` produces a worktree at
+`ImageAnalysis/.claude/worktrees/<id>/`, not at `<repo-root>/.claude/worktrees/`.
+The `**/.claude/worktrees/` pattern in `.gitignore` is a safety net for this
+case, but the right fix is to launch from the repo root.
+
+Remove worktrees after their PR is merged unless they are intentionally
+long-lived for a distinct development stream (currently only
+`geecs-plugins-bluesky` qualifies, and it sits as a sibling because it
+predates this policy and would be expensive to relocate).
 
 ## Python & Tooling
 

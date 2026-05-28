@@ -33,7 +33,7 @@ The [Architecture page](architecture.md) goes into the lifecycle, event flow, an
 
 ## Getting started
 
-1. **Install** — see [Installation & Setup](installation.md). Python 3.10, Poetry, and access to the GEECS database are the prerequisites.
+1. **Install** — see [Installation & Setup](installation.md). Python 3.11, Poetry, and access to the GEECS database are the prerequisites.
 2. **Run your first scan** — the [Tutorial](tutorial.md) walks through configuring an experiment, building a save element, and running a NOSCAN and a 1D scan.
 3. **Understand the data layout** — the [Scan Output Structure](scan_output_structure.md) page documents what's in a scan folder and how to load each file.
 

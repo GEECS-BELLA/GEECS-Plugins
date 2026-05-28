@@ -33,7 +33,7 @@ Try `ping <device_ip>` from the acquisition machine first. If that works, try co
 Two common patterns:
 
 - **`poetry` is not on PATH.** The official installer drops it in `%APPDATA%\Python\Scripts` or `%USERPROFILE%\.local\bin`. Add the right directory to PATH and reopen the terminal.
-- **`poetry env use` fails to find Python 3.10.** When multiple Python versions are installed, point Poetry at the right one explicitly: `poetry env use C:\Users\<you>\AppData\Local\Programs\Python\Python310\python.exe`.
+- **`poetry env use` fails to find Python 3.11.** When multiple Python versions are installed, point Poetry at the right one explicitly: `poetry env use C:\Users\<you>\AppData\Local\Programs\Python\Python311\python.exe`.
 
 If you see `pythoncom` or `pywin32` errors, run `poetry run python -m pip install pywin32` and then `poetry run python <path-to-pywin32_postinstall.py> -install`.
 
