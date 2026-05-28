@@ -112,7 +112,6 @@ class TestFrogSpectralPhaseAnalyzer:
         assert scalars["frog_phase_gdd_fs2"] == pytest.approx(expected["gdd"], rel=1e-6)
         assert scalars["frog_phase_tod_fs3"] == pytest.approx(expected["tod"], rel=1e-4)
         assert scalars["frog_phase_flipped"] == 0.0
-        assert "weights" in result.line_auxiliary_column_data
 
     def test_metric_suffix_and_prefix(self, tmp_path):
         file_path = tmp_path / "retrieved_lineouts.tsv"
@@ -134,7 +133,9 @@ class TestFrogSpectralPhaseAnalyzer:
         data = np.genfromtxt(file_path, delimiter="\t", skip_header=1)[:, [3, 5]]
 
         analyzer = FrogSpectralPhaseAnalyzer(_make_config())
+        # Direct analyze_image with no auxiliary_data — the analyzer
+        # falls back to an unweighted fit when no `weights` aux column
+        # was loaded.
         result = analyzer.analyze_image(data)
 
         assert result.scalars["frog_phase_gdd_fs2"] == pytest.approx(180.0, rel=1e-6)
-        assert result.line_auxiliary_column_data == {}

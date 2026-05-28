@@ -7,8 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Add the `FrogSpectralPhaseAnalyzer` and the auxiliary-column loading
 support it needed. Originally branched before PR-E; rebased onto the
-post-PR-E surface and simplified to fit the atomic load+analyze
-contract.
+post-PR-E surface and **simplified to fit the atomic load+analyze
+contract** — aux columns now flow through the local `auxiliary_data`
+dict rather than through analyzer-instance state.
 
 ### Added
 - `algorithms.polynomial_fit` provides reusable weighted polynomial
@@ -29,10 +30,39 @@ contract.
   demonstrates loading a Scan010 retrieved FROG lineout and running
   the new analyzer.
 
+### Changed
+- `Standard1DAnalyzer.analyze_image_file` is now the canonical atomic
+  load+analyze entry point. It reads the file, stashes descriptive
+  metadata (units, labels) on `self.data_metadata`, and routes any
+  loaded aux columns through `auxiliary_data["_aux_columns"]` to
+  `analyze_image`. Per-shot data (the loaded arrays) no longer
+  travels through analyzer-instance state between separate pipeline
+  phases — this is the correctness property the post-PR-E
+  `SingleDeviceScanAnalyzer` contract enforces.
+- Subclasses that need ROI-filtered aux columns should call
+  `_preprocess_line_data` directly so the line and aux arrays come
+  back from the same call boundary (see `FrogSpectralPhaseAnalyzer`
+  for the pattern).
+
+### Removed
+- `ImageAnalyzerResult.line_auxiliary_column_data` field. Aux columns
+  no longer escape the analyzer — they're consumed and discarded
+  inside the analyze call. ScanAnalysis never had a use for them; no
+  downstream consumer breaks.
+- `Standard1DAnalyzer._loaded_auxiliary_column_data` instance state
+  and the `_use_loaded_auxiliary_columns` flag that controlled when
+  `analyze_image` read from it. Both were the pre-PR-E shuttle for
+  the now-deleted load-all pipeline.
+
 ### Fixed
 - `data_1d_utils` now skips a detected CSV/TSV header row after
   parsing column metadata, allowing `read_1d_data` to load Grenouille
   retrieved lineout TSVs written with named column headers.
+- `_interpolation_enabled` no longer reads the deleted
+  `InterpolationConfig.enabled` field. Post-PR-F semantics:
+  `pipeline.steps` is the single source of truth — if
+  `INTERPOLATION` is in the step list and the sub-config is present,
+  interpolation runs.
 
 ## [1.5.0] — 2026-05-27
 

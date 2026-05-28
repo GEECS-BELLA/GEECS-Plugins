@@ -74,34 +74,82 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
         self.run_analyze_image_asynchronously = True
 
-        # Storage for metadata from read_1d_data
+        # Storage for metadata from read_1d_data.
+        # Note: only descriptive metadata (units, labels) persists on self —
+        # per-shot data (loaded aux columns, raw arrays) does not. Aux
+        # columns flow through ``auxiliary_data["_aux_columns"]`` instead,
+        # so atomic ``analyze_image_file`` calls don't leak per-shot state
+        # between scan-pipeline tasks.
         self.data_metadata: Optional[Dict[str, str]] = None
-        self._loaded_auxiliary_column_data: Dict[str, np.ndarray] = {}
-        self._use_loaded_auxiliary_columns = False
 
     def analyze_image_file(
         self,
         image_filepath: Union[Path, list[Path]],
         auxiliary_data: Optional[Dict] = None,
     ) -> ImageAnalyzerResult:
-        """Analyze a 1D file and preserve loaded auxiliary columns."""
-        image = self.load_image(image_filepath)
+        """Atomically load and analyze a 1D data file.
+
+        The load and analyze steps are fused into one task so per-shot
+        data — including loaded auxiliary columns — flows through the
+        local ``auxiliary_data`` dict rather than through analyzer
+        instance state. This matches the post-PR-E ``SingleDeviceScanAnalyzer``
+        contract (per-shot data never travels through analyzer state).
+
+        Auxiliary columns loaded by ``read_1d_data`` (as configured by
+        ``line_config.data_loading.auxiliary_columns``) are stashed under
+        the namespaced ``auxiliary_data["_aux_columns"]`` key — a dict of
+        ``{name: np.ndarray}``. Subclasses (e.g.
+        ``FrogSpectralPhaseAnalyzer``) read them from there. Row-alignment
+        with the primary Nx2 line data is the loader's responsibility;
+        ROI filtering downstream filters both consistently via
+        ``_preprocess_line_data``.
+        """
+        data_config = self.line_config.data_loading
+        data_result = read_1d_data(image_filepath, data_config)
+
+        # Stash descriptive metadata (units, labels) for input-parameter
+        # construction. This is config-derived, not per-shot data.
+        self.data_metadata = {
+            "x_units": data_result.x_units,
+            "y_units": data_result.y_units,
+            "x_label": data_result.x_label,
+            "y_label": data_result.y_label,
+        }
+
+        logger.info(
+            "Loaded 1D data from %s (type: %s, shape: %s)",
+            image_filepath,
+            data_config.data_type,
+            data_result.data.shape,
+        )
+
         aux = dict(auxiliary_data or {})
         if not isinstance(image_filepath, list):
             aux.setdefault("file_path", Path(image_filepath))
 
-        self._use_loaded_auxiliary_columns = True
-        try:
-            return self.analyze_image(image, aux)
-        finally:
-            self._use_loaded_auxiliary_columns = False
+        # Aux columns flow through the local call dict. The copy isolates
+        # the analyzer from external mutation; downstream subclasses get
+        # the same arrays the loader emitted.
+        if data_result.auxiliary_column_data:
+            aux["_aux_columns"] = {
+                name: np.asarray(values, dtype=float).copy()
+                for name, values in data_result.auxiliary_column_data.items()
+            }
+
+        return self.analyze_image(data_result.data, aux)
 
     def load_image(self, file_path: Path) -> Array1D:
         """Load 1D data from file using configured data loader.
 
-        This method overrides the base class to use read_1d_data instead of
-        read_imaq_image. It uses the data_loading configuration stored in
-        self.line_config and preserves metadata for later use.
+        Overrides the base class to use ``read_1d_data`` instead of
+        ``read_imaq_image``. Uses the ``data_loading`` configuration
+        stored in ``self.line_config`` and stashes descriptive metadata
+        (units, labels) on ``self.data_metadata`` for later use.
+
+        Returns only the primary Nx2 array; any auxiliary columns are
+        dropped on the floor. Callers that need aux columns should go
+        through :meth:`analyze_image_file` instead, which routes them
+        through the local ``auxiliary_data`` dict.
 
         Parameters
         ----------
@@ -113,22 +161,14 @@ class Standard1DAnalyzer(ImageAnalyzer):
         Array1D
             Nx2 array where column 0 is x values and column 1 is y values
         """
-        # Extract Data1DConfig from line_config
         data_config = self.line_config.data_loading
-
-        # Load data using read_1d_data
         result = read_1d_data(file_path, data_config)
 
-        # Store metadata for use in _build_input_parameters
         self.data_metadata = {
             "x_units": result.x_units,
             "y_units": result.y_units,
             "x_label": result.x_label,
             "y_label": result.y_label,
-        }
-        self._loaded_auxiliary_column_data = {
-            name: np.asarray(values, dtype=float).copy()
-            for name, values in result.auxiliary_column_data.items()
         }
 
         logger.info(
@@ -200,36 +240,45 @@ class Standard1DAnalyzer(ImageAnalyzer):
     ) -> ImageAnalyzerResult:
         """Analyze 1D data.
 
-        Note: Method is named 'analyze_image' for compatibility with base class,
-        but it processes 1D data.
+        Note: method is named ``analyze_image`` for compatibility with the
+        base class, but it processes 1D data.
+
+        Aux columns are read from ``auxiliary_data["_aux_columns"]`` if
+        present (populated by ``analyze_image_file`` from the loader
+        output) and applied through the preprocessing pipeline alongside
+        the primary line data — ROI filtering trims both consistently.
+        The processed aux columns are not re-emitted on the result;
+        subclasses that need them should call
+        :meth:`_preprocess_line_data` directly.
 
         Parameters
         ----------
         image : Array1D
             Input Nx2 array (column 0: x, column 1: y)
         auxiliary_data : dict, optional
-            Additional data for analysis
+            Per-call data: ``file_path`` for late metadata population
+            (when called outside ``analyze_image_file``), and
+            ``_aux_columns`` for row-aligned auxiliary arrays.
 
         Returns
         -------
         ImageAnalyzerResult
-            Structured result containing processed 1D data and metadata
+            Structured result with processed 1D data and metadata.
         """
-        raw_auxiliary_columns: Dict[str, np.ndarray] = {}
-        loaded_for_metadata = False
+        # When ``analyze_image`` is called directly (not via
+        # ``analyze_image_file``), populate metadata from the file
+        # referenced in auxiliary_data if available.
         if (
             self.data_metadata is None
             and auxiliary_data
             and "file_path" in auxiliary_data
         ):
-            self.load_image(auxiliary_data["file_path"])  # Populates self.data_metadata
-            loaded_for_metadata = True
+            self.load_image(auxiliary_data["file_path"])
 
-        if self._use_loaded_auxiliary_columns or loaded_for_metadata:
-            raw_auxiliary_columns = self._loaded_auxiliary_column_data
+        raw_auxiliary_columns = (auxiliary_data or {}).get("_aux_columns", {})
 
         # Apply processing pipeline
-        processed, line_auxiliary_column_data = self._preprocess_line_data(
+        processed, _ = self._preprocess_line_data(
             image,
             auxiliary_column_data=raw_auxiliary_columns,
         )
@@ -238,15 +287,12 @@ class Standard1DAnalyzer(ImageAnalyzer):
         input_params = self._build_input_parameters(auxiliary_data)
 
         # Build and return result with 1D data
-        result = ImageAnalyzerResult(
+        return ImageAnalyzerResult(
             data_type="1d",
             line_data=processed,  # Nx2 array
-            line_auxiliary_column_data=line_auxiliary_column_data,
-            scalars={},  # No scalars by default, subclasses can add them
+            scalars={},  # No scalars by default; subclasses can add them
             metadata=input_params,
         )
-
-        return result
 
     def _build_input_parameters(
         self, auxiliary_data: Optional[Dict] = None
@@ -529,9 +575,10 @@ def _interpolation_enabled(
     config: Line1DConfig,
     steps: list[PipelineStepType],
 ) -> bool:
-    """Return whether interpolation will modify the primary line grid."""
-    return (
-        PipelineStepType.INTERPOLATION in steps
-        and config.interpolation is not None
-        and config.interpolation.enabled
-    )
+    """Return whether interpolation will modify the primary line grid.
+
+    Post-PR-F semantics: ``pipeline.steps`` is the single source of
+    truth — if the step is in the list and the sub-config is present,
+    it runs. There is no separate ``enabled`` flag on the sub-config.
+    """
+    return PipelineStepType.INTERPOLATION in steps and config.interpolation is not None

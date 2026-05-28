@@ -92,17 +92,29 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
     ) -> ImageAnalyzerResult:
-        """Fit spectral phase and report polynomial/dispersion scalars."""
-        initial_result = super().analyze_image(
-            image=image, auxiliary_data=auxiliary_data
+        """Fit spectral phase and report polynomial/dispersion scalars.
+
+        Bypasses :meth:`Standard1DAnalyzer.analyze_image` and calls
+        :meth:`_preprocess_line_data` directly so the ROI-filtered
+        ``weights`` aux column is in hand at the same call boundary as
+        the ROI-filtered line data. Reads the raw weights from
+        ``auxiliary_data["_aux_columns"]`` (populated by
+        ``Standard1DAnalyzer.analyze_image_file`` when the configured
+        ``data_loading.auxiliary_columns`` mapping declares a
+        ``weights`` column).
+        """
+        raw_aux = (auxiliary_data or {}).get("_aux_columns", {})
+        processed, filtered_aux = self._preprocess_line_data(
+            image, auxiliary_column_data=raw_aux
         )
-        if initial_result.line_data is None:
+
+        line_data = np.asarray(processed, dtype=float).copy()
+        if line_data.size == 0 or line_data.shape[1] < 2:
             raise ValueError("FrogSpectralPhaseAnalyzer requires 1D line_data")
 
-        line_data = np.asarray(initial_result.line_data, dtype=float).copy()
         spectral_axis = line_data[:, 0]
         spectral_phase = line_data[:, 1]
-        weights = initial_result.line_auxiliary_column_data.get("weights")
+        weights = filtered_aux.get("weights")
 
         reference_omega = float(
             wavelength_nm_to_omega_rad_per_fs(
@@ -149,7 +161,7 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
                 f"{key}{self.metric_suffix}": value for key, value in scalars.items()
             }
 
-        metadata = dict(initial_result.metadata or {})
+        metadata = self._build_input_parameters(auxiliary_data)
         metadata.update(
             {
                 "fit_order": self.analysis_config.fit_order,
@@ -171,7 +183,6 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
         return ImageAnalyzerResult(
             data_type="1d",
             line_data=line_data,
-            line_auxiliary_column_data=initial_result.line_auxiliary_column_data,
             scalars=scalars,
             metadata=metadata,
             render_data=render_data,
