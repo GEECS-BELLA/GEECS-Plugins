@@ -37,6 +37,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -243,7 +244,20 @@ class ScanAnalyzerEditorPanel(QWidget):
         self._image_box = QGroupBox("Image")
         image_layout = QVBoxLayout(self._image_box)
 
+        # Header row: collapse toggle + type discriminator combo. The
+        # toggle hides the embedded ConfigEditorPanel below while leaving
+        # the type combo visible, so users can see the current image
+        # kind at a glance even when the form is folded away.
         type_row = QHBoxLayout()
+        self._image_collapse_btn = QToolButton()
+        self._image_collapse_btn.setText("▼")
+        self._image_collapse_btn.setToolTip("Collapse image config")
+        self._image_collapse_btn.setStyleSheet(
+            "QToolButton { border: none; font-size: 10px; }"
+        )
+        self._image_collapse_btn.clicked.connect(self._on_image_collapse_clicked)
+        type_row.addWidget(self._image_collapse_btn)
+
         type_row.addWidget(QLabel("type:"))
         self._image_type_combo = QComboBox()
         self._image_type_combo.addItems(
@@ -264,6 +278,12 @@ class ScanAnalyzerEditorPanel(QWidget):
         self._image_panel = ConfigEditorPanel()
         self._image_panel.valueChanged.connect(self._on_value_changed)
         image_layout.addWidget(self._image_panel, stretch=1)
+
+        # User-controlled toggle state. ``_image_active`` (set in
+        # ``_apply_image_kind``) is the orthogonal signal that there's
+        # actually something to show; ``_refresh_image_panel_visibility``
+        # ANDs the two.
+        self._image_expanded = True
 
         outer.addWidget(self._image_box, stretch=1)
 
@@ -301,12 +321,12 @@ class ScanAnalyzerEditorPanel(QWidget):
         model).
         """
         if kind == self._TYPE_NONE:
-            self._image_panel.setVisible(False)
             self._image_active = False
+            self._refresh_image_panel_visibility()
             return
 
-        self._image_panel.setVisible(True)
         self._image_active = True
+        self._refresh_image_panel_visibility()
 
         if kind == self._TYPE_CAMERA:
             model_cls, cep_type = self._camera_classes()
@@ -399,6 +419,42 @@ class ScanAnalyzerEditorPanel(QWidget):
             return
         self._apply_image_kind(new_kind, payload=None)
         self._on_value_changed()
+
+    def _on_image_collapse_clicked(self) -> None:
+        """Toggle the user-controlled expanded/collapsed state.
+
+        Flips ``_image_expanded`` and updates panel visibility through
+        the same helper that ``_apply_image_kind`` uses, so the
+        user-controlled toggle and the discriminator-driven hide stay
+        consistent.
+        """
+        self._image_expanded = not self._image_expanded
+        self._refresh_image_panel_visibility()
+
+    def _refresh_image_panel_visibility(self) -> None:
+        """Show the image ConfigEditorPanel only when active **and** expanded.
+
+        Two orthogonal signals decide whether the embedded
+        ``ConfigEditorPanel`` is visible:
+
+        * ``_image_active`` — set by ``_apply_image_kind`` based on the
+          discriminator (False for ``(none)``, True for ``camera`` /
+          ``line``).
+        * ``_image_expanded`` — user-controlled collapse toggle in the
+          header row.
+
+        Also keeps the toggle button's arrow glyph and tooltip in sync.
+        """
+        visible = self._image_active and self._image_expanded
+        self._image_panel.setVisible(visible)
+        # Update the toggle glyph + tooltip regardless of active state,
+        # so the button always reflects the user's last preference.
+        if self._image_expanded:
+            self._image_collapse_btn.setText("▼")
+            self._image_collapse_btn.setToolTip("Collapse image config")
+        else:
+            self._image_collapse_btn.setText("▶")
+            self._image_collapse_btn.setToolTip("Expand image config")
 
     # ------------------------------------------------------------------
     # Public API

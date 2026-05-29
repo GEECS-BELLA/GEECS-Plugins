@@ -74,6 +74,28 @@ lineouts that analyzer-specific ROI/weight masking can produce.
 
 ## [1.8.1] — 2026-05-28
 
+ConfigFileGUI quality-of-life: validated dropdowns for `Literal[...]`
+fields and a collapsible image section in the scan-analyzer editor.
+
+### Added
+- `LiteralFieldWidget` in `field_widgets.py`. `Literal["a", "b", ...]`
+  fields on Pydantic models are now rendered as a `QComboBox`
+  populated with the literal arguments, instead of falling through to
+  the string-input fallback. Dispatched before the `Enum` case in
+  `create_field_widget` and handles bare `Literal[...]` as well as the
+  inner type of `Optional[Literal[...]]`. First concrete user is
+  `FromCurrentScanSpec.method` (`Literal["median", "percentile"]`) in
+  the scan field's `background_source.from_current_scan` editor.
+- Collapse toggle on the **Image** group in `scan_analyzer_editor.py`.
+  A `QToolButton` (▼ / ▶) in the type-discriminator row hides the
+  embedded `ConfigEditorPanel` while leaving the type combo visible,
+  so users can fold the long camera/line form away without losing
+  sight of the current image kind. The toggle is orthogonal to the
+  `(none)` discriminator hide — both states are tracked separately
+  and ANDed in `_refresh_image_panel_visibility`.
+
+## [1.8.0] — 2026-05-27
+
 ConfigFileGUI rewrite against the PR-E unified-diagnostic surface
 (PR-F), plus LiveWatchGUI hardening, plus a single-source-of-truth
 refactor for what the per-shot pipeline runs.
