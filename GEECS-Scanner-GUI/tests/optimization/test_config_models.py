@@ -2,10 +2,14 @@
 
 Tests validate schema correctness, auto-generation of device_requirements,
 BaseOptimizerConfig validation logic, and the generator factory.
-No live connections or scan files required.
+No live connections or scan files required — the diagnostic loader is
+patched to return synthesised ``DiagnosticAnalysisConfig`` fakes.
 """
 
 from __future__ import annotations
+
+from contextlib import contextmanager
+from unittest.mock import patch
 
 import pytest
 
@@ -16,23 +20,74 @@ from geecs_scanner.optimization.config_models import (
 
 
 # ---------------------------------------------------------------------------
+# Diagnostic fakes
+# ---------------------------------------------------------------------------
+
+
+_BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
+
+
+def _camera_image(name: str):
+    """Return a minimal CameraConfig for embedding in fake diagnostics."""
+    from image_analysis.config import CameraConfig
+
+    return CameraConfig(name=name)
+
+
+def _diag(*, name: str, scan: dict | None = None):
+    """Build a ``DiagnosticAnalysisConfig`` for stubbing ``load_diagnostic``.
+
+    Uses BeamAnalyzer + a trivial CameraConfig so every test gets a 2D-style
+    diagnostic by default; bespoke variants are still constructed inline
+    when a test needs them.
+    """
+    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+
+    return DiagnosticAnalysisConfig.model_validate(
+        {
+            "name": name,
+            "image_analyzer": {"class_path": _BEAM_PATH, "kwargs": {}},
+            "image": _camera_image(name),
+            "scan": scan or {},
+        }
+    )
+
+
+@contextmanager
+def _stub_loader_by_name(per_name: dict):
+    """Return a ``load_diagnostic`` mock that dispatches by the requested name.
+
+    Lets a single test build multiple analyzer configs that each resolve
+    to their own diagnostic without re-patching for every call.
+    """
+
+    def _fake(name: str, **_kwargs):
+        return per_name[name]
+
+    with patch(
+        "geecs_scanner.optimization.config_models.load_diagnostic",
+        side_effect=_fake,
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
 # SingleDeviceScanAnalyzerConfig
 # ---------------------------------------------------------------------------
 
 
 class TestSingleDeviceScanAnalyzerConfig:
-    """to_device_requirement must produce the expected dict shape."""
+    """``to_device_requirement`` must produce the expected dict shape."""
 
-    def _make_config(self, device_name="UC_Device", mode="per_bin", **extra):
-        return SingleDeviceScanAnalyzerConfig.model_validate(
-            {
-                "device_name": device_name,
-                "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
-                "analysis_mode": mode,
-                **extra,
-            }
-        )
+    def _make_config(self, device_name="UC_Device", mode="per_bin", scan_extras=None):
+        scan = {"mode": mode}
+        if scan_extras:
+            scan.update(scan_extras)
+        diag = _diag(name=device_name, scan=scan)
+        with _stub_loader_by_name({device_name: diag}):
+            return SingleDeviceScanAnalyzerConfig.model_validate(
+                {"diagnostic": device_name}
+            )
 
     def test_device_requirement_shape(self):
         cfg = self._make_config("UC_ALineEBeam3")
@@ -44,39 +99,43 @@ class TestSingleDeviceScanAnalyzerConfig:
         assert dev["synchronous"] is True
         assert "acq_timestamp" in dev["variable_list"]
 
-    def test_default_analysis_mode(self):
-        cfg = self._make_config()
+    def test_analysis_mode_inherits_from_diagnostic(self):
+        cfg = self._make_config(mode="per_bin")
         assert cfg.analysis_mode == "per_bin"
 
-    def test_per_shot_mode_accepted(self):
+    def test_per_shot_mode_inherited(self):
         cfg = self._make_config(mode="per_shot")
         assert cfg.analysis_mode == "per_shot"
 
-    def test_invalid_mode_rejected(self):
-        with pytest.raises(Exception):
-            SingleDeviceScanAnalyzerConfig.model_validate(
-                {
-                    "device_name": "D",
-                    "analyzer_type": "Array2DScanAnalyzer",
-                    "image_analyzer": (
-                        "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
-                    ),
-                    "analysis_mode": "invalid_mode",
-                }
+    def test_analysis_mode_override_wins(self):
+        diag = _diag(name="UC_Device", scan={"mode": "per_shot"})
+        with _stub_loader_by_name({"UC_Device": diag}):
+            cfg = SingleDeviceScanAnalyzerConfig.model_validate(
+                {"diagnostic": "UC_Device", "analysis_mode": "per_bin"}
             )
+        assert cfg.analysis_mode == "per_bin"
 
-    def test_data_device_name_defaults_to_none(self):
+    def test_invalid_mode_rejected(self):
+        diag = _diag(name="UC_Device")
+        with _stub_loader_by_name({"UC_Device": diag}):
+            with pytest.raises(Exception):
+                SingleDeviceScanAnalyzerConfig.model_validate(
+                    {"diagnostic": "UC_Device", "analysis_mode": "invalid_mode"}
+                )
+
+    def test_data_device_name_is_none_when_diagnostic_omits_scan_device(self):
         cfg = self._make_config()
         assert cfg.data_device_name is None
 
-    def test_data_device_name_can_be_set(self):
-        cfg = self._make_config(data_device_name="UC_Device-processed")
-        assert cfg.data_device_name == "UC_Device-processed"
+    def test_data_device_name_inherits_from_scan_device(self):
+        cfg = self._make_config(scan_extras={"device": "UC_Device-interpSpec"})
+        assert cfg.data_device_name == "UC_Device-interpSpec"
 
     def test_requirement_key_is_device_name_not_data_device_name(self):
-        """to_device_requirement must key on device_name, not data_device_name."""
+        """``to_device_requirement`` keys on the GEECS device, not the data folder."""
         cfg = self._make_config(
-            device_name="UC_Dev", data_device_name="UC_Dev-interpSpec"
+            device_name="UC_Dev",
+            scan_extras={"device": "UC_Dev-interpSpec"},
         )
         req = cfg.to_device_requirement()
         assert "UC_Dev" in req
@@ -89,18 +148,13 @@ class TestSingleDeviceScanAnalyzerConfig:
 
 
 class TestMultiDeviceScanEvaluatorConfig:
-    """generate_device_requirements must merge all analyzer requirements."""
+    """``generate_device_requirements`` must merge all analyzer requirements."""
 
     def _make_evaluator_config(self, device_names):
-        analyzers = [
-            {
-                "device_name": name,
-                "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
-            }
-            for name in device_names
-        ]
-        return MultiDeviceScanEvaluatorConfig(analyzers=analyzers)
+        per_name = {name: _diag(name=name) for name in device_names}
+        analyzers = [{"diagnostic": name} for name in device_names]
+        with _stub_loader_by_name(per_name):
+            return MultiDeviceScanEvaluatorConfig(analyzers=analyzers)
 
     def test_single_device(self):
         cfg = self._make_evaluator_config(["Dev_A"])

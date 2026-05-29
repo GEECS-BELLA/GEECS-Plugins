@@ -37,8 +37,6 @@ from geecs_scanner.optimization.config_models import (
     MultiDeviceScanEvaluatorConfig,
     SingleDeviceScanAnalyzerConfig,
 )
-from geecs_data_utils import ScanPaths
-from geecs_data_utils.config_roots import image_analysis_config
 
 logger = logging.getLogger(__name__)
 
@@ -104,19 +102,15 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
     # ------------------------------------------------------------------
 
     def _create_scan_analyzer(self, config: SingleDeviceScanAnalyzerConfig):
-        """Instantiate a scan analyzer from an optimizer-side config.
+        """Instantiate a scan analyzer from a diagnostic-driven config.
 
-        Optimizer YAMLs don't embed an ``image:`` section. Instead the
-        camera/line config name is implied by ``device_name`` (or
-        overridden via ``kwargs.camera_config_name`` /
-        ``kwargs.line_config_name``); this method loads that config
-        through the standard ImageAnalysis loader and hands the typed
-        model to the analyzer constructor.
+        The ``SingleDeviceScanAnalyzerConfig`` validator has already
+        loaded the unified diagnostic and exposes the typed image
+        config (CameraConfig / Line1DConfig) directly — no second
+        on-disk lookup needed here. We just import the analyzer class
+        from ``spec.class_path``, splice the typed image config into
+        the spec's kwargs under the right keyword, and instantiate.
         """
-        from image_analysis.config.loader import (
-            load_camera_config,
-            load_line_config,
-        )
         from scan_analysis.analyzers.common.array1d_scan_analysis import (
             Array1DScanAnalyzer,
         )
@@ -124,35 +118,21 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             Array2DScanAnalyzer,
         )
 
-        # Point the loader at the unified diagnostic-config root. Post
-        # PR-E + Configs migration, ``image:`` sections live inside the
-        # diagnostic YAMLs under ``scan_analysis_configs/analyzers/
-        # <namespace>/<name>.yaml`` rather than at the legacy
-        # ``image_analysis_configs/<name>.yaml`` location;
-        # ``load_camera_config`` / ``load_line_config`` unwrap the
-        # ``image:`` subsection transparently.
-        image_analysis_config.set_base_dir(
-            ScanPaths.paths_config.scan_analysis_configs_path
-        )
-
         wrapper_class = {
             "Array1DScanAnalyzer": Array1DScanAnalyzer,
             "Array2DScanAnalyzer": Array2DScanAnalyzer,
         }[config.analyzer_type]
 
-        # Load the typed image config based on the analyzer_type.
-        # Optimizer YAMLs can override the loaded name via kwargs;
-        # otherwise it defaults to ``device_name``. No-image analyzers
-        # (HASO-style) aren't supported through this evaluator path —
-        # they'd need a dedicated evaluator subclass.
+        # Splice the diagnostic's typed image config into the analyzer
+        # kwargs under the appropriate keyword. Any kwargs already on
+        # the spec (e.g. LineStitcher's ``sibling_devices``) flow
+        # through unchanged.
         spec = config.image_analyzer
         kwargs = dict(spec.kwargs)
         if config.analyzer_type == "Array2DScanAnalyzer":
-            name = kwargs.pop("camera_config_name", config.device_name)
-            kwargs["camera_config"] = load_camera_config(name)
+            kwargs["camera_config"] = config.image_config
         else:  # "Array1DScanAnalyzer"
-            name = kwargs.pop("line_config_name", config.device_name)
-            kwargs["line_config"] = load_line_config(name)
+            kwargs["line_config"] = config.image_config
 
         module_path, class_name = spec.class_path.rsplit(".", 1)
         image_analyzer_module = importlib.import_module(module_path)

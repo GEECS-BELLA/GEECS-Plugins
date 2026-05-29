@@ -8,78 +8,195 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from typing import TYPE_CHECKING
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    computed_field,
+    field_validator,
+    model_validator,
+)
 from xopt import VOCS
 
-from image_analysis.config import (
-    ImageAnalyzerSpec,
-    resolve_image_analyzer_value,
-)
+from image_analysis.config import ImageAnalyzerSpec, load_diagnostic
 
 if TYPE_CHECKING:
     from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
+    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+    from scan_analysis.config.diagnostic_models import ScanRuntimeConfig
+
+
+# Maps the discriminator on ``DiagnosticAnalysisConfig.image.type`` to the
+# scan-side wrapper class name the optimizer instantiates.
+_IMAGE_TYPE_TO_ANALYZER_TYPE = {
+    "camera": "Array2DScanAnalyzer",
+    "line": "Array1DScanAnalyzer",
+}
 
 
 class SingleDeviceScanAnalyzerConfig(BaseModel):
-    """
-    Configuration for creating a SingleDeviceScanAnalyzer instance.
+    """Configuration for one analyzer inside ``MultiDeviceScanEvaluator``.
 
-    Distinct from the disk-loaded
-    :class:`scan_analysis.config.diagnostic_models.DiagnosticAnalysisConfig`
-    in that this model describes a runtime-instantiated analyzer inside
-    an Xopt evaluator: no embedded ``image:`` section (the ImageAnalyzer
-    loads its own config by name at construction), no priority, no
-    gdoc_slot. The shared piece is the alias-driven
-    :class:`ImageAnalyzerSpec` on the ``image_analyzer`` field — same
-    surface forms as on diagnostic configs, same registry.
+    The optimizer YAML points at a unified diagnostic by name; everything
+    else is inherited from the diagnostic's ``image:`` / ``scan:`` sections
+    on disk (the same YAML the scan-side ``Array1D/2DScanAnalyzer`` consumes
+    via the analysis-group loader). Two optional override fields let you
+    twiddle the things you actually care about per-optimization-run —
+    typically ``analysis_mode`` (per_shot vs per_bin) — without forking a
+    separate diagnostic.
+
+    YAML shape::
+
+        analyzers:
+          - diagnostic: UC_TopView                # everything inherited
+          - diagnostic: U_FROG_Grenouille-SpectralPhase
+            analysis_mode: per_bin                # override scan.mode
 
     Attributes
     ----------
+    diagnostic : str
+        Diagnostic ID (filename stem of the YAML under
+        ``scan_analysis_configs/analyzers/<namespace>/<stem>.yaml``).
+        Resolved via :func:`image_analysis.config.load_diagnostic` at
+        validation time.
+    analysis_mode : {"per_shot", "per_bin"}, optional
+        Per-run override for the diagnostic's ``scan.mode``. ``None``
+        (default) means "use whatever the diagnostic says." Useful when
+        the same diagnostic is consumed by both per-shot scan analysis
+        and per-bin optimization without a fork.
+
+    Computed (derived from the loaded diagnostic; exposed as fields so
+    downstream code reads them by attribute access)
+    -------------------------------------------------------------------
     device_name : str
-        GEECS device name used for communication and device requirements
-        (e.g., 'U_BCaveMagSpec').
-    data_device_name : str, optional
-        Name of the data subfolder within the scan directory. Set this when the
-        saved data folder differs from ``device_name`` (e.g., 'U_BCaveMagSpec-interpSpec'
-        for post-processed/stitched outputs). Defaults to ``device_name`` if omitted.
+        ``diagnostic.name`` — GEECS device name used for communication
+        and device requirements.
     analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
-        Which scan-analyzer wrapper to instantiate. Also drives which
-        image-config loader is called (camera for 2D, line for 1D).
-    file_tail : str, default=".png"
-        File extension/suffix used to match data files for this device.
+        Derived from the typed ``image:`` section's discriminator
+        (``"camera"`` → 2D, ``"line"`` → 1D).
+    file_tail : str
+        ``scan.file_tail`` (falls back to ``".png"`` when the diagnostic
+        omits it).
     image_analyzer : ImageAnalyzerSpec
-        Spec for the ImageAnalyzer class. Accepts a bare class-path
-        string or the verbose ``{"class_path": "...", "kwargs": {...}}``
-        form for analyzers that need extra per-instance kwargs.
-    analysis_mode : {"per_shot", "per_bin"}, default="per_bin"
-        Analysis mode for the scan analyzer. "per_bin" is recommended for
-        optimization as it leverages built-in averaging.
+        ``diagnostic.image_analyzer`` — the typed analyzer-class spec.
+    data_device_name : str, optional
+        ``scan.device`` — data subfolder override. ``None`` means "use
+        ``device_name``."
 
     Methods
     -------
     to_device_requirement()
-        Generate a device_requirements entry for this analyzer.
+        Generate a ``device_requirements`` entry for this analyzer.
     """
 
-    device_name: str
-    data_device_name: Optional[str] = None
-    analyzer_type: Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]
-    file_tail: str = ".png"
-    image_analyzer: ImageAnalyzerSpec
-    analysis_mode: Literal["per_shot", "per_bin"] = "per_bin"
+    diagnostic: str
+    analysis_mode: Optional[Literal["per_shot", "per_bin"]] = None
 
-    @field_validator("image_analyzer", mode="before")
-    @classmethod
-    def _normalise_image_analyzer(cls, value: Any) -> Any:
-        """Accept the alias / verbose surface forms used in optimizer YAMLs."""
-        return resolve_image_analyzer_value(value)
+    # Cached resolved diagnostic + scan-runtime view. Populated by the
+    # ``_resolve_from_diagnostic`` validator; consumed by the computed
+    # fields below. Private so they don't appear in ``model_dump`` /
+    # serialised YAML round-trips.
+    _diag: Optional["DiagnosticAnalysisConfig"] = PrivateAttr(default=None)
+    _scan: Optional["ScanRuntimeConfig"] = PrivateAttr(default=None)
+
+    @model_validator(mode="after")
+    def _resolve_from_diagnostic(self) -> "SingleDeviceScanAnalyzerConfig":
+        """Load the unified diagnostic and stash the resolved view.
+
+        Runs once at model construction. ``load_diagnostic`` defaults to
+        ``ScanPaths.paths_config.scan_analysis_configs_path`` for its
+        config-dir lookup — same root the task-queue + analysis-group
+        loader use — so the diagnostic name has to be unique across the
+        ``analyzers/`` tree but doesn't need a namespace prefix.
+
+        The ``scan:`` section on the diagnostic is weakly typed at the
+        ImageAnalysis layer (``Optional[Dict]``); we re-validate it
+        against the canonical
+        ``scan_analysis.config.diagnostic_models.ScanRuntimeConfig``
+        here so the optimizer reads field-by-field.
+        """
+        # Local import: scan_analysis.config has a runtime import of
+        # geecs_data_utils which can fail on test fixtures that mock
+        # the ScanPaths layer — keeping the import lazy makes this
+        # validator safe to instantiate in unit tests without a full
+        # data-utils environment.
+        from scan_analysis.config.diagnostic_models import ScanRuntimeConfig
+
+        diag = load_diagnostic(self.diagnostic)
+        scan = ScanRuntimeConfig.model_validate(diag.scan or {})
+        self._diag = diag
+        self._scan = scan
+        # Resolve analysis_mode: explicit override wins; otherwise inherit
+        # from the diagnostic's scan.mode.
+        if self.analysis_mode is None:
+            self.analysis_mode = scan.mode
+        return self
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def device_name(self) -> str:
+        """GEECS device name; used for device_requirements + comms."""
+        assert self._diag is not None, "validator must run first"
+        return self._diag.name
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def analyzer_type(self) -> Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]:
+        """Which scan-analyzer wrapper to build, from the image-section type."""
+        assert self._diag is not None, "validator must run first"
+        if self._diag.image is None:
+            raise ValueError(
+                f"diagnostic {self.diagnostic!r} has no ``image:`` section; "
+                "the optimizer only supports image-driven analyzers."
+            )
+        image_type = self._diag.image.type
+        try:
+            return _IMAGE_TYPE_TO_ANALYZER_TYPE[image_type]
+        except KeyError as exc:
+            raise ValueError(
+                f"diagnostic {self.diagnostic!r} declares image.type="
+                f"{image_type!r}; optimizer only supports "
+                f"{sorted(_IMAGE_TYPE_TO_ANALYZER_TYPE)}."
+            ) from exc
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def file_tail(self) -> str:
+        """Filename suffix to match per-shot data files. Defaults to ``.png``."""
+        assert self._scan is not None, "validator must run first"
+        return self._scan.file_tail or ".png"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def image_analyzer(self) -> ImageAnalyzerSpec:
+        """Typed analyzer-class spec from the diagnostic."""
+        assert self._diag is not None, "validator must run first"
+        return self._diag.image_analyzer
+
+    @property
+    def image_config(self) -> Any:
+        """Typed image-section from the diagnostic.
+
+        ``CameraConfig`` for 2D / ``Line1DConfig`` for 1D — already
+        validated by the diagnostic loader, no need for a second on-disk
+        lookup at analyzer-instantiation time. Not exposed via
+        ``@computed_field`` because Pydantic can't serialize the
+        discriminated-union shape cleanly and we don't need it in
+        ``model_dump`` output anyway.
+        """
+        assert self._diag is not None, "validator must run first"
+        return self._diag.image
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def data_device_name(self) -> Optional[str]:
+        """Data subfolder override; None means "use ``device_name``"."""
+        assert self._scan is not None, "validator must run first"
+        return self._scan.device
 
     def to_device_requirement(self) -> dict:
-        """
-        Generate device_requirements entry for this analyzer.
-
-        Creates a properly formatted device requirement dictionary that can be
-        used by the scan data manager to instantiate and configure the device.
+        """Generate the ``device_requirements`` entry for this analyzer.
 
         Returns
         -------

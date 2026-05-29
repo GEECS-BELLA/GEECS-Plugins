@@ -3,6 +3,55 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] — 2026-05-29
+
+Diagnostic-driven optimizer analyzer configs.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` now references a unified diagnostic
+  YAML by name (`diagnostic: <stem>`) instead of duplicating every
+  field the diagnostic already defines. The model validator calls
+  `image_analysis.config.load_diagnostic(stem)` at construction and
+  exposes `device_name`, `analyzer_type`, `file_tail`,
+  `image_analyzer`, `image_config`, and `data_device_name` as
+  computed properties derived from the diagnostic's `image:` /
+  `scan:` sections. The single override knob is `analysis_mode`,
+  which beats the diagnostic's `scan.mode` when set (the common
+  `per_shot` ↔ `per_bin` toggle you actually want per optimization
+  run).
+- `MultiDeviceScanEvaluator._create_scan_analyzer` consumes the
+  diagnostic's typed image config directly (no second on-disk lookup
+  via `load_camera_config` / `load_line_config`). Drops the
+  `image_analysis_config.set_base_dir(...)` side effect entirely
+  since `load_diagnostic` resolves its own base dir.
+- The legacy optimizer YAML shape (`device_name`, `analyzer_type`,
+  `file_tail`, `image_analyzer.{module, class, kwargs}`,
+  `analysis_mode`, `data_device_name` as top-level analyzer fields)
+  is gone. Existing optimizer YAMLs must migrate to the
+  one-diagnostic-per-analyzer form:
+
+  ```yaml
+  # Before:
+  analyzers:
+    - device_name: UC_TopView
+      analyzer_type: Array2DScanAnalyzer
+      file_tail: .png
+      image_analyzer:
+        class_path: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+      analysis_mode: per_bin
+
+  # After:
+  analyzers:
+    - diagnostic: UC_TopView      # everything else inherited
+      analysis_mode: per_bin      # optional override
+  ```
+
+Net win: optimizer YAMLs drop from ~8 fields per analyzer to 1–2,
+analyzer configuration lives in one place (the diagnostic YAML)
+instead of being copy-pasted between scan-analysis and optimization
+contexts, and per-optimization-run tuning (specifically per_shot vs
+per_bin) stays a one-line override.
+
 ## [0.22.1] — 2026-05-29
 
 ### Fixed
