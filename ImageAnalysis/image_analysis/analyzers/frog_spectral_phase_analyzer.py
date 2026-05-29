@@ -177,6 +177,16 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
                 spectral_phase = -spectral_phase
                 fit_y = -fit_y
 
+        # Subtract the constant phi0 term from both the fit and the raw
+        # scatter before storing them. phi0 is an unphysical integration
+        # constant — spectral phase is only defined up to a constant —
+        # and it varies wildly shot-to-shot, which makes waterfall y-
+        # scales look chaotic. The scalar ``phi0_rad`` is still emitted
+        # via ``_build_scalars`` for downstream drift diagnostics.
+        phi0 = coefficients_by_order(coefficients)[0]
+        fit_y = fit_y - phi0
+        spectral_phase = spectral_phase - phi0
+
         # Build the fixed-length line_data from the fit, sorted by
         # wavelength so downstream renderers can treat it as a monotonic
         # spectrum without reordering.
