@@ -204,7 +204,9 @@ class LiveWatchWindow(QMainWindow):
 
         # Experiment (for Google Docs and Z Drive Navigation)
         self.combo_facility = QComboBox()
-        self.combo_facility.addItems(["Undulator", "Thomson", "(none)"])
+        self.combo_facility.addItems(
+            ["Undulator", "Thomson", "PWlaserData", "p2", "ControlRoom", "(none)"]
+        )
         self.combo_facility.setToolTip(
             "Select the experiment for Google Docs integration.\n"
             "This corresponds to the Data Storage Drive Location.\n"
