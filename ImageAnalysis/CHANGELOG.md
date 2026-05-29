@@ -77,6 +77,21 @@ dict rather than through analyzer-instance state.
   `pipeline.steps` is the single source of truth — if
   `INTERPOLATION` is in the step list and the sub-config is present,
   interpolation runs.
+- `ImageAnalyzerResult.average` no longer crashes on inhomogeneous-
+  shape arrays. The previous code called `np.nanmean(values, axis=0)`
+  directly on `line_data`, `processed_image`, and every NDArray
+  render_data field; on numpy 2.x this raises a hard `ValueError`
+  through `np.asanyarray` when shots have different shapes. Now: a
+  new module-level `_safe_nanmean_arrays` helper detects mismatched
+  shapes, logs a warning naming the offending field, and returns
+  `None` so the caller omits the key from the averaged result. List-
+  valued render_data fields get the same length check. Surfaces on
+  parameter scans with FROG: `raw_wavelength_nm`,
+  `raw_spectral_phase`, and `fit_normalized_reference` are variable-
+  length per shot by design (they track the raw ROI'd data); they're
+  now dropped from the per-bin average with a warning while
+  fixed-length fields (`line_data`, `fit_omega_detuning_rad_per_fs`)
+  average as expected.
 
 ## [1.5.0] — 2026-05-27
 
