@@ -37,19 +37,43 @@ class FrogSpectralPhaseConfig(BaseModel):
     Attributes
     ----------
     fit_order : int
-        Polynomial fit order.
+        Polynomial fit order. ``3`` (default) covers GD / GDD / TOD.
     mask_threshold : float, optional
-        Threshold applied to normalized weights. If no ``weights`` auxiliary
-        column is loaded, the threshold is applied to ``abs(phase)`` instead.
+        Threshold applied to normalized weights. Samples below this
+        threshold are excluded from the fit. If no ``weights`` auxiliary
+        column is loaded, the threshold is applied to ``abs(phase)``
+        instead. Set to ``None`` to disable masking.
+    min_points : int, optional
+        Minimum number of valid samples (after masking) required to
+        attempt the fit. The fit raises if fewer survive. ``None``
+        (default) uses the polynomial-fit machinery's own lower bound
+        (``fit_order + 1``).
+    fit_num_points : int
+        Number of points on the output fit grid that
+        :meth:`analyze_image` returns as ``result.line_data``. Default
+        ``300``. This is also the per-shot ``line_data`` row count seen
+        by ``Array1DScanAnalyzer`` for waterfall + averaging.
     reference_wavelength_nm : float
-        Reference wavelength used to build angular-frequency detuning.
+        Reference wavelength (nm) used to build angular-frequency
+        detuning. Conventionally the central wavelength of the pulse
+        (800 nm by default for Ti:Sa).
     sign_reference_order : int, optional
-        Polynomial order used to resolve the FROG ``phi`` versus ``-phi`` sign
-        ambiguity. ``2`` corresponds to the GDD-like term.
+        Polynomial order used to resolve the FROG ``phi`` vs ``-phi``
+        sign ambiguity by comparing the sign of one coefficient against
+        ``sign_reference``. ``2`` corresponds to the GDD-like term.
+        **Set to ``None`` to skip sign canonicalization entirely** —
+        useful when you know the physical sign already or when the
+        canonical reference is unreliable (e.g. near-zero GDD where the
+        sign of the reference coefficient is noise-dominated).
     sign_reference : float
-        Desired sign of ``sign_reference_order``.
+        Desired sign of the ``sign_reference_order`` coefficient.
+        ``+1.0`` (default) means "flip the polynomial if needed so the
+        reference coefficient comes out positive." Ignored when
+        ``sign_reference_order`` is ``None``.
     sign_epsilon : float
-        Tolerance below which the sign reference is treated as ambiguous.
+        Tolerance below which the sign reference is treated as
+        ambiguous (no flip applied). Ignored when
+        ``sign_reference_order`` is ``None``.
     """
 
     fit_order: int = Field(default=3, ge=0)
@@ -57,7 +81,14 @@ class FrogSpectralPhaseConfig(BaseModel):
     min_points: Optional[int] = Field(default=None, ge=1)
     fit_num_points: int = Field(default=300, ge=2)
     reference_wavelength_nm: float = Field(default=800.0, gt=0)
-    sign_reference_order: Optional[int] = Field(default=2, ge=0)
+    sign_reference_order: Optional[int] = Field(
+        default=2,
+        ge=0,
+        description=(
+            "Polynomial order used to canonicalize the FROG phi vs -phi "
+            "sign. Set to null to skip sign canonicalization."
+        ),
+    )
     sign_reference: float = 1.0
     sign_epsilon: float = Field(default=0.0, ge=0)
 
