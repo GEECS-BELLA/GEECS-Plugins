@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.1] — 2026-05-29
+
+### Fixed
+- `MultiDeviceScanEvaluator._create_scan_analyzer` now points the
+  image-analysis loader at the unified diagnostic-config root
+  (`scan_analysis_configs_path`) instead of the legacy
+  `image_analysis_configs_path`. The optimizer code missed the
+  base-dir migration that the PR-E loader-API refactor + unified-
+  configs cutover landed: optimizer YAMLs were resolving
+  `camera_config_name` against the empty/legacy
+  `image_analysis_configs/` directory and raising `FileNotFoundError`
+  on any real run. `load_camera_config` / `load_line_config` unwrap
+  the `image:` subsection from unified diagnostic YAMLs transparently,
+  so the new base dir works for the unified files that production
+  configs have migrated to.
+
 ## [0.22.0] — 2026-05-27
 
 Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and

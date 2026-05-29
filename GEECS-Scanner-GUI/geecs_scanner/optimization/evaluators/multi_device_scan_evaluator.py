@@ -124,8 +124,15 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
             Array2DScanAnalyzer,
         )
 
+        # Point the loader at the unified diagnostic-config root. Post
+        # PR-E + Configs migration, ``image:`` sections live inside the
+        # diagnostic YAMLs under ``scan_analysis_configs/analyzers/
+        # <namespace>/<name>.yaml`` rather than at the legacy
+        # ``image_analysis_configs/<name>.yaml`` location;
+        # ``load_camera_config`` / ``load_line_config`` unwrap the
+        # ``image:`` subsection transparently.
         image_analysis_config.set_base_dir(
-            ScanPaths.paths_config.image_analysis_configs_path
+            ScanPaths.paths_config.scan_analysis_configs_path
         )
 
         wrapper_class = {
