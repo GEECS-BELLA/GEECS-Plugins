@@ -13,38 +13,29 @@ from pydantic import (
     ConfigDict,
     Field,
     PrivateAttr,
-    computed_field,
     field_validator,
     model_validator,
 )
 from xopt import VOCS
 
-from image_analysis.config import ImageAnalyzerSpec, load_diagnostic
+from image_analysis.config import load_diagnostic
 
 if TYPE_CHECKING:
     from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
     from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
-    from scan_analysis.config.diagnostic_models import ScanRuntimeConfig
 
 
-# Maps the discriminator on ``DiagnosticAnalysisConfig.image.type`` to the
-# scan-side wrapper class name the optimizer instantiates.
-_IMAGE_TYPE_TO_ANALYZER_TYPE = {
-    "camera": "Array2DScanAnalyzer",
-    "line": "Array1DScanAnalyzer",
-}
+class OptimizerAnalyzerRef(BaseModel):
+    """One analyzer entry inside :class:`MultiDeviceScanEvaluator`.
 
-
-class SingleDeviceScanAnalyzerConfig(BaseModel):
-    """Configuration for one analyzer inside ``MultiDeviceScanEvaluator``.
-
-    The optimizer YAML points at a unified diagnostic by name; everything
-    else is inherited from the diagnostic's ``image:`` / ``scan:`` sections
-    on disk (the same YAML the scan-side ``Array1D/2DScanAnalyzer`` consumes
-    via the analysis-group loader). Two optional override fields let you
-    twiddle the things you actually care about per-optimization-run —
-    typically ``analysis_mode`` (per_shot vs per_bin) — without forking a
-    separate diagnostic.
+    The optimizer YAML points at a unified diagnostic by name; the
+    wrapper class, image config, file tail, data folder override, etc.
+    are all inherited from the diagnostic's ``image:`` / ``scan:``
+    sections on disk (the same YAML the scan-side analyzers consume via
+    the analysis-group loader). One optional override field —
+    ``analysis_mode`` — lets you flip the same diagnostic between
+    per-shot scan analysis and per-bin optimizer evaluation without
+    forking a separate YAML.
 
     YAML shape::
 
@@ -59,141 +50,58 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         Diagnostic ID (filename stem of the YAML under
         ``scan_analysis_configs/analyzers/<namespace>/<stem>.yaml``).
         Resolved via :func:`image_analysis.config.load_diagnostic` at
-        validation time.
+        validation time so a missing or malformed YAML fails fast.
     analysis_mode : {"per_shot", "per_bin"}, optional
         Per-run override for the diagnostic's ``scan.mode``. ``None``
-        (default) means "use whatever the diagnostic says." Useful when
-        the same diagnostic is consumed by both per-shot scan analysis
-        and per-bin optimization without a fork.
+        (default) means "use whatever the diagnostic declares." The
+        :func:`scan_analysis.config.create_scan_analyzer` factory applies
+        the override when building the wrapper analyzer.
 
-    Computed (derived from the loaded diagnostic; exposed as fields so
-    downstream code reads them by attribute access)
-    -------------------------------------------------------------------
-    device_name : str
-        ``diagnostic.name`` — GEECS device name used for communication
-        and device requirements.
-    analyzer_type : {"Array1DScanAnalyzer", "Array2DScanAnalyzer"}
-        Derived from the typed ``image:`` section's discriminator
-        (``"camera"`` → 2D, ``"line"`` → 1D).
-    file_tail : str
-        ``scan.file_tail`` (falls back to ``".png"`` when the diagnostic
-        omits it).
-    image_analyzer : ImageAnalyzerSpec
-        ``diagnostic.image_analyzer`` — the typed analyzer-class spec.
-    data_device_name : str, optional
-        ``scan.device`` — data subfolder override. ``None`` means "use
-        ``device_name``."
-
-    Methods
-    -------
-    to_device_requirement()
-        Generate a ``device_requirements`` entry for this analyzer.
+    Notes
+    -----
+    This model is deliberately thin — it caches the loaded
+    :class:`DiagnosticAnalysisConfig` (so callers don't pay for a
+    second on-disk lookup) and exposes the GEECS device name. Anything
+    else previously synthesised here (analyzer class, file tail, typed
+    image config) is now the diagnostic-factory's job and not duplicated
+    in the optimizer surface area.
     """
 
     diagnostic: str
     analysis_mode: Optional[Literal["per_shot", "per_bin"]] = None
 
-    # Cached resolved diagnostic + scan-runtime view. Populated by the
-    # ``_resolve_from_diagnostic`` validator; consumed by the computed
-    # fields below. Private so they don't appear in ``model_dump`` /
-    # serialised YAML round-trips.
+    # Cached resolved diagnostic. Populated by the validator; consumed by
+    # the ``diag`` / ``device_name`` accessors. Private so it doesn't
+    # appear in ``model_dump`` / serialised YAML round-trips.
     _diag: Optional["DiagnosticAnalysisConfig"] = PrivateAttr(default=None)
-    _scan: Optional["ScanRuntimeConfig"] = PrivateAttr(default=None)
 
     @model_validator(mode="after")
-    def _resolve_from_diagnostic(self) -> "SingleDeviceScanAnalyzerConfig":
+    def _resolve_diagnostic(self) -> "OptimizerAnalyzerRef":
         """Load the unified diagnostic and stash the resolved view.
 
-        Runs once at model construction. ``load_diagnostic`` defaults to
-        ``ScanPaths.paths_config.scan_analysis_configs_path`` for its
-        config-dir lookup — same root the task-queue + analysis-group
+        Runs once at model construction. ``load_diagnostic`` defaults
+        to ``ScanPaths.paths_config.scan_analysis_configs_path`` for
+        its config-dir lookup — same root the task-queue + analysis-group
         loader use — so the diagnostic name has to be unique across the
         ``analyzers/`` tree but doesn't need a namespace prefix.
-
-        The ``scan:`` section on the diagnostic is weakly typed at the
-        ImageAnalysis layer (``Optional[Dict]``); we re-validate it
-        against the canonical
-        ``scan_analysis.config.diagnostic_models.ScanRuntimeConfig``
-        here so the optimizer reads field-by-field.
         """
-        # Local import: scan_analysis.config has a runtime import of
-        # geecs_data_utils which can fail on test fixtures that mock
-        # the ScanPaths layer — keeping the import lazy makes this
-        # validator safe to instantiate in unit tests without a full
-        # data-utils environment.
-        from scan_analysis.config.diagnostic_models import ScanRuntimeConfig
-
-        diag = load_diagnostic(self.diagnostic)
-        scan = ScanRuntimeConfig.model_validate(diag.scan or {})
-        self._diag = diag
-        self._scan = scan
-        # Resolve analysis_mode: explicit override wins; otherwise inherit
-        # from the diagnostic's scan.mode.
-        if self.analysis_mode is None:
-            self.analysis_mode = scan.mode
+        self._diag = load_diagnostic(self.diagnostic)
         return self
 
-    @computed_field  # type: ignore[prop-decorator]
     @property
-    def device_name(self) -> str:
-        """GEECS device name; used for device_requirements + comms."""
-        assert self._diag is not None, "validator must run first"
-        return self._diag.name
+    def diag(self) -> "DiagnosticAnalysisConfig":
+        """The resolved diagnostic config.
 
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def analyzer_type(self) -> Literal["Array1DScanAnalyzer", "Array2DScanAnalyzer"]:
-        """Which scan-analyzer wrapper to build, from the image-section type."""
-        assert self._diag is not None, "validator must run first"
-        if self._diag.image is None:
-            raise ValueError(
-                f"diagnostic {self.diagnostic!r} has no ``image:`` section; "
-                "the optimizer only supports image-driven analyzers."
-            )
-        image_type = self._diag.image.type
-        try:
-            return _IMAGE_TYPE_TO_ANALYZER_TYPE[image_type]
-        except KeyError as exc:
-            raise ValueError(
-                f"diagnostic {self.diagnostic!r} declares image.type="
-                f"{image_type!r}; optimizer only supports "
-                f"{sorted(_IMAGE_TYPE_TO_ANALYZER_TYPE)}."
-            ) from exc
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def file_tail(self) -> str:
-        """Filename suffix to match per-shot data files. Defaults to ``.png``."""
-        assert self._scan is not None, "validator must run first"
-        return self._scan.file_tail or ".png"
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def image_analyzer(self) -> ImageAnalyzerSpec:
-        """Typed analyzer-class spec from the diagnostic."""
-        assert self._diag is not None, "validator must run first"
-        return self._diag.image_analyzer
-
-    @property
-    def image_config(self) -> Any:
-        """Typed image-section from the diagnostic.
-
-        ``CameraConfig`` for 2D / ``Line1DConfig`` for 1D — already
-        validated by the diagnostic loader, no need for a second on-disk
-        lookup at analyzer-instantiation time. Not exposed via
-        ``@computed_field`` because Pydantic can't serialize the
-        discriminated-union shape cleanly and we don't need it in
-        ``model_dump`` output anyway.
+        Handed straight to :func:`scan_analysis.config.create_scan_analyzer`
+        by :class:`MultiDeviceScanEvaluator`; not part of the YAML schema.
         """
         assert self._diag is not None, "validator must run first"
-        return self._diag.image
+        return self._diag
 
-    @computed_field  # type: ignore[prop-decorator]
     @property
-    def data_device_name(self) -> Optional[str]:
-        """Data subfolder override; None means "use ``device_name``"."""
-        assert self._scan is not None, "validator must run first"
-        return self._scan.device
+    def device_name(self) -> str:
+        """GEECS device name; used for device_requirements + auxiliary-data lookups."""
+        return self.diag.name
 
     def to_device_requirement(self) -> dict:
         """Generate the ``device_requirements`` entry for this analyzer.
@@ -201,8 +109,9 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         Returns
         -------
         dict
-            Device requirements dictionary with device name as key and
-            configuration as value.
+            ``{device_name: {add_all_variables, save_nonscalar_data,
+            synchronous, variable_list}}``. Merged into the evaluator-level
+            ``Devices`` block by :meth:`BaseOptimizerConfig._load_and_check`.
         """
         return {
             self.device_name: {
@@ -214,46 +123,32 @@ class SingleDeviceScanAnalyzerConfig(BaseModel):
         }
 
 
-class MultiDeviceScanEvaluatorConfig(BaseModel):
-    """
-    Configuration for evaluators using multiple SingleDeviceScanAnalyzers.
+def _build_device_requirements(analyzer_entries: List[dict]) -> dict:
+    """Aggregate ``device_requirements`` across a list of analyzer YAML entries.
 
-    This model contains a list of SingleDeviceScanAnalyzerConfig instances
-    and provides utilities for auto-generating device requirements from
-    the analyzer configurations.
+    Each entry is validated as an :class:`OptimizerAnalyzerRef` (which
+    loads its diagnostic), and the resulting per-analyzer device dicts
+    are merged into a single ``{"Devices": {...}}`` block. Used by
+    :meth:`BaseOptimizerConfig._load_and_check` to fill in
+    ``device_requirements`` when the optimizer YAML omits it.
 
-    Attributes
+    Parameters
     ----------
-    analyzers : list of SingleDeviceScanAnalyzerConfig
-        List of analyzer configurations. Each analyzer will be instantiated
-        and used to collect data during optimization.
+    analyzer_entries : list of dict
+        Raw ``evaluator.kwargs.analyzers`` entries from the optimizer YAML.
 
-    Methods
+    Returns
     -------
-    generate_device_requirements()
-        Auto-generate device_requirements dict from analyzer configs.
+    dict
+        ``{"Devices": {<device>: <requirement>, ...}}`` suitable for
+        assignment to ``device_requirements`` and consumption by the
+        scan data manager.
     """
-
-    analyzers: List[SingleDeviceScanAnalyzerConfig]
-
-    def generate_device_requirements(self) -> dict:
-        """
-        Auto-generate device_requirements from analyzer configs.
-
-        Iterates through all analyzer configurations and combines their
-        device requirements into a single dictionary suitable for use
-        by the scan data manager.
-
-        Returns
-        -------
-        dict
-            Device requirements dictionary with "Devices" key containing
-            all device configurations.
-        """
-        devices = {}
-        for analyzer_config in self.analyzers:
-            devices.update(analyzer_config.to_device_requirement())
-        return {"Devices": devices}
+    devices: Dict[str, dict] = {}
+    for entry in analyzer_entries:
+        ref = OptimizerAnalyzerRef.model_validate(entry)
+        devices.update(ref.to_device_requirement())
+    return {"Devices": devices}
 
 
 class EvaluatorConfig(BaseModel):
@@ -309,7 +204,10 @@ class BaseOptimizerConfig(BaseModel):
     unified, validated schema.
 
     For evaluators using MultiDeviceScanEvaluator, device_requirements are
-    automatically generated from the analyzer configurations in evaluator.kwargs.
+    automatically generated from the ``analyzers`` list in ``evaluator.kwargs``:
+    each entry is validated as an :class:`OptimizerAnalyzerRef` (which
+    loads its diagnostic), and the per-analyzer ``to_device_requirement``
+    blocks are merged.
 
     Attributes
     ----------
@@ -412,16 +310,15 @@ class BaseOptimizerConfig(BaseModel):
                 loaded = yaml.safe_load(f)
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
 
-        # Auto-generate device_requirements from evaluator kwargs if needed
+        # Auto-generate device_requirements from evaluator kwargs if needed.
+        # The evaluator YAML lists analyzers by diagnostic name; this loop
+        # validates each entry (loading the diagnostic to discover the
+        # GEECS device name) and merges the per-analyzer device blocks.
         if self.device_requirements is None:
             evaluator_kwargs = self.evaluator.kwargs
             if "analyzers" in evaluator_kwargs:
-                # Create MultiDeviceScanEvaluatorConfig to generate requirements
-                evaluator_config = MultiDeviceScanEvaluatorConfig(
-                    analyzers=evaluator_kwargs["analyzers"]
-                )
-                self.device_requirements = (
-                    evaluator_config.generate_device_requirements()
+                self.device_requirements = _build_device_requirements(
+                    evaluator_kwargs["analyzers"]
                 )
 
         # Validate VOCS

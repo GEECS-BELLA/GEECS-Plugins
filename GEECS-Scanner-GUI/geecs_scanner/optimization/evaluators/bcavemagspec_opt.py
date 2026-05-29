@@ -20,7 +20,7 @@ class EBeamSourceOpt(MultiDeviceScanEvaluator):
     def __init__(self, calibration: float = 24.4e-3, **kwargs):
         super().__init__(**kwargs)
         self.calibration = calibration
-        self.device_name = self.analyzer_configs[0].device_name
+        self.device_name = self.analyzer_refs[0].device_name
         self.objective_tag = "SpectralDensity"
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:

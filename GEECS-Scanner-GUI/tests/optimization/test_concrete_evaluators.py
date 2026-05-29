@@ -21,12 +21,11 @@ from image_analysis.types import ImageAnalyzerResult
 # ---------------------------------------------------------------------------
 
 
-def _fake_cfg(device_name: str, mode: str = "per_bin"):
-    """Minimal SingleDeviceScanAnalyzerConfig stand-in."""
-    cfg = MagicMock()
-    cfg.device_name = device_name
-    cfg.analysis_mode = mode
-    return cfg
+def _fake_ref(device_name: str):
+    """Minimal OptimizerAnalyzerRef stand-in."""
+    ref = MagicMock()
+    ref.device_name = device_name
+    return ref
 
 
 def _fake_analyzer(results_by_key: dict):
@@ -55,7 +54,8 @@ class TestBeamSizeEvaluator:
         )
 
         obj = object.__new__(BeamSizeEvaluator)
-        obj.analyzer_configs = [_fake_cfg(device_name)]
+        obj.analyzer_refs = [_fake_ref(device_name)]
+        obj._effective_modes = {device_name: "per_bin"}
         obj.scan_analyzers = {}
         obj.calibration = calibration
         obj.output_key = "f"
@@ -132,7 +132,8 @@ class TestMaxCountsEvaluator:
         )
 
         obj = object.__new__(MaxCountsEvaluator)
-        obj.analyzer_configs = [_fake_cfg(device_name)]
+        obj.analyzer_refs = [_fake_ref(device_name)]
+        obj._effective_modes = {device_name: "per_bin"}
         obj.scan_analyzers = {}
         obj.output_key = "f"
         obj.objective_tag = "TotalCounts"
@@ -205,7 +206,8 @@ class TestBeamPositionEvaluator:
         )
 
         obj = object.__new__(BeamPositionEvaluator)
-        obj.analyzer_configs = [_fake_cfg(device_name)]
+        obj.analyzer_refs = [_fake_ref(device_name)]
+        obj._effective_modes = {device_name: "per_bin"}
         obj.observable_names = (
             observable_names if observable_names is not None else ["x_CoM"]
         )

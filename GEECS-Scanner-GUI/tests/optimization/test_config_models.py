@@ -14,8 +14,8 @@ from unittest.mock import patch
 import pytest
 
 from geecs_scanner.optimization.config_models import (
-    MultiDeviceScanEvaluatorConfig,
-    SingleDeviceScanAnalyzerConfig,
+    OptimizerAnalyzerRef,
+    _build_device_requirements,
 )
 
 
@@ -72,26 +72,22 @@ def _stub_loader_by_name(per_name: dict):
 
 
 # ---------------------------------------------------------------------------
-# SingleDeviceScanAnalyzerConfig
+# OptimizerAnalyzerRef
 # ---------------------------------------------------------------------------
 
 
-class TestSingleDeviceScanAnalyzerConfig:
+class TestOptimizerAnalyzerRef:
     """``to_device_requirement`` must produce the expected dict shape."""
 
-    def _make_config(self, device_name="UC_Device", mode="per_bin", scan_extras=None):
-        scan = {"mode": mode}
-        if scan_extras:
-            scan.update(scan_extras)
+    def _make_ref(self, device_name="UC_Device", scan_extras=None):
+        scan = dict(scan_extras or {})
         diag = _diag(name=device_name, scan=scan)
         with _stub_loader_by_name({device_name: diag}):
-            return SingleDeviceScanAnalyzerConfig.model_validate(
-                {"diagnostic": device_name}
-            )
+            return OptimizerAnalyzerRef.model_validate({"diagnostic": device_name})
 
     def test_device_requirement_shape(self):
-        cfg = self._make_config("UC_ALineEBeam3")
-        req = cfg.to_device_requirement()
+        ref = self._make_ref("UC_ALineEBeam3")
+        req = ref.to_device_requirement()
 
         assert "UC_ALineEBeam3" in req
         dev = req["UC_ALineEBeam3"]
@@ -99,79 +95,74 @@ class TestSingleDeviceScanAnalyzerConfig:
         assert dev["synchronous"] is True
         assert "acq_timestamp" in dev["variable_list"]
 
-    def test_analysis_mode_inherits_from_diagnostic(self):
-        cfg = self._make_config(mode="per_bin")
-        assert cfg.analysis_mode == "per_bin"
+    def test_analysis_mode_defaults_to_none(self):
+        """Unset ``analysis_mode`` stays None on the ref (factory resolves it)."""
+        ref = self._make_ref()
+        assert ref.analysis_mode is None
 
-    def test_per_shot_mode_inherited(self):
-        cfg = self._make_config(mode="per_shot")
-        assert cfg.analysis_mode == "per_shot"
-
-    def test_analysis_mode_override_wins(self):
+    def test_analysis_mode_explicit_override_preserved(self):
         diag = _diag(name="UC_Device", scan={"mode": "per_shot"})
         with _stub_loader_by_name({"UC_Device": diag}):
-            cfg = SingleDeviceScanAnalyzerConfig.model_validate(
+            ref = OptimizerAnalyzerRef.model_validate(
                 {"diagnostic": "UC_Device", "analysis_mode": "per_bin"}
             )
-        assert cfg.analysis_mode == "per_bin"
+        assert ref.analysis_mode == "per_bin"
 
     def test_invalid_mode_rejected(self):
         diag = _diag(name="UC_Device")
         with _stub_loader_by_name({"UC_Device": diag}):
             with pytest.raises(Exception):
-                SingleDeviceScanAnalyzerConfig.model_validate(
+                OptimizerAnalyzerRef.model_validate(
                     {"diagnostic": "UC_Device", "analysis_mode": "invalid_mode"}
                 )
 
-    def test_data_device_name_is_none_when_diagnostic_omits_scan_device(self):
-        cfg = self._make_config()
-        assert cfg.data_device_name is None
-
-    def test_data_device_name_inherits_from_scan_device(self):
-        cfg = self._make_config(scan_extras={"device": "UC_Device-interpSpec"})
-        assert cfg.data_device_name == "UC_Device-interpSpec"
-
     def test_requirement_key_is_device_name_not_data_device_name(self):
-        """``to_device_requirement`` keys on the GEECS device, not the data folder."""
-        cfg = self._make_config(
+        """``to_device_requirement`` keys on the GEECS device, not the data folder.
+
+        The data subfolder override (``scan.device``) only affects where
+        the wrapper looks for image files; the device_requirements key
+        must remain the GEECS device name so the DataLogger registers
+        the right subscription.
+        """
+        ref = self._make_ref(
             device_name="UC_Dev",
             scan_extras={"device": "UC_Dev-interpSpec"},
         )
-        req = cfg.to_device_requirement()
+        req = ref.to_device_requirement()
         assert "UC_Dev" in req
         assert "UC_Dev-interpSpec" not in req
 
 
 # ---------------------------------------------------------------------------
-# MultiDeviceScanEvaluatorConfig
+# _build_device_requirements — module-level aggregator
 # ---------------------------------------------------------------------------
 
 
-class TestMultiDeviceScanEvaluatorConfig:
-    """``generate_device_requirements`` must merge all analyzer requirements."""
+class TestBuildDeviceRequirements:
+    """``_build_device_requirements`` merges per-analyzer device blocks."""
 
-    def _make_evaluator_config(self, device_names):
+    def _make_entries(self, device_names):
         per_name = {name: _diag(name=name) for name in device_names}
-        analyzers = [{"diagnostic": name} for name in device_names]
-        with _stub_loader_by_name(per_name):
-            return MultiDeviceScanEvaluatorConfig(analyzers=analyzers)
+        entries = [{"diagnostic": name} for name in device_names]
+        return per_name, entries
 
     def test_single_device(self):
-        cfg = self._make_evaluator_config(["Dev_A"])
-        req = cfg.generate_device_requirements()
+        per_name, entries = self._make_entries(["Dev_A"])
+        with _stub_loader_by_name(per_name):
+            req = _build_device_requirements(entries)
 
         assert "Devices" in req
         assert "Dev_A" in req["Devices"]
 
     def test_multiple_devices_all_present(self):
-        cfg = self._make_evaluator_config(["Dev_A", "Dev_B", "Dev_C"])
-        req = cfg.generate_device_requirements()
+        per_name, entries = self._make_entries(["Dev_A", "Dev_B", "Dev_C"])
+        with _stub_loader_by_name(per_name):
+            req = _build_device_requirements(entries)
 
         assert set(req["Devices"].keys()) == {"Dev_A", "Dev_B", "Dev_C"}
 
     def test_empty_analyzers_produces_empty_devices(self):
-        cfg = MultiDeviceScanEvaluatorConfig(analyzers=[])
-        req = cfg.generate_device_requirements()
+        req = _build_device_requirements([])
         assert req == {"Devices": {}}
 
 

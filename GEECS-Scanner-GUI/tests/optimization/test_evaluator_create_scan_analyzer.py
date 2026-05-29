@@ -1,17 +1,16 @@
-"""Unit tests for ``MultiDeviceScanEvaluator._create_scan_analyzer`` and
-``SingleDeviceScanAnalyzerConfig`` diagnostic resolution.
+"""Unit tests for ``MultiDeviceScanEvaluator``'s diagnostic-driven analyzer setup.
 
-Exercises the diagnostic-driven optimizer-config flow: the optimizer YAML
-points at a unified diagnostic by name, the model validator loads the
-diagnostic and exposes the derived fields (``device_name``,
-``analyzer_type``, ``file_tail``, ``image_analyzer``, ``image_config``)
-as computed properties, and ``_create_scan_analyzer`` consumes those
-properties without doing a second on-disk lookup.
+After the optimizer-side modernization, the evaluator no longer hand-rolls
+its own scan analyzers: it validates each YAML entry as an
+:class:`~geecs_scanner.optimization.config_models.OptimizerAnalyzerRef`,
+which loads the diagnostic, and then hands the resolved diagnostic
+straight to :func:`scan_analysis.config.create_scan_analyzer` with
+``use_injected_data=True``.
 
-``load_diagnostic`` is mocked so no real YAML files are needed; the real
-analyzer class and wrapper class are constructed end-to-end so we catch
-any signature drift between the optimizer's call site and the analyzer
-constructors.
+These tests exercise that path end-to-end, mocking ``load_diagnostic``
+so no real YAML files are needed. The wrapper class is built through the
+real factory, which catches any signature drift between the optimizer's
+call site and the analyzer constructors.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
-from geecs_scanner.optimization.config_models import SingleDeviceScanAnalyzerConfig
+from geecs_scanner.optimization.config_models import OptimizerAnalyzerRef
 
 
 # ---------------------------------------------------------------------------
@@ -28,17 +27,20 @@ from geecs_scanner.optimization.config_models import SingleDeviceScanAnalyzerCon
 # ---------------------------------------------------------------------------
 
 
-def _make_evaluator():
-    """Build a bare MultiDeviceScanEvaluator-like object without touching __init__."""
-    from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-        MultiDeviceScanEvaluator,
+def _build_analyzer(ref: OptimizerAnalyzerRef):
+    """Run the optimizer-side analyzer construction in isolation.
+
+    Mirrors what :class:`MultiDeviceScanEvaluator.__init__` does for a
+    single ref, but bypasses the full constructor (which needs a live
+    DataLogger / ScanDataManager).
+    """
+    from scan_analysis.config import create_scan_analyzer
+
+    return create_scan_analyzer(
+        ref.diag,
+        analysis_mode=ref.analysis_mode,
+        use_injected_data=True,
     )
-
-    class _Concrete(MultiDeviceScanEvaluator):
-        def compute_objective(self, scalar_results, bin_number):
-            return 0.0
-
-    return object.__new__(_Concrete)
 
 
 @pytest.fixture
@@ -86,12 +88,12 @@ def _diag(
 
 
 # ---------------------------------------------------------------------------
-# Array2D path: camera analyzers
+# OptimizerAnalyzerRef — the lightweight optimizer-side ref model
 # ---------------------------------------------------------------------------
 
 
-class TestSingleDeviceConfigResolution2D:
-    """``SingleDeviceScanAnalyzerConfig`` derives every field from the diagnostic."""
+class TestOptimizerAnalyzerRef:
+    """``OptimizerAnalyzerRef`` exposes the diagnostic + GEECS device name."""
 
     _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
@@ -107,97 +109,33 @@ class TestSingleDeviceConfigResolution2D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
 
-        assert config.device_name == "UC_VisaEBeam1"
+        assert ref.device_name == "UC_VisaEBeam1"
 
-    def test_analyzer_type_derived_from_camera_image_type(self, fake_camera_config):
+    def test_diag_property_returns_loaded_diagnostic(self, fake_camera_config):
         diag = _diag(
             name="UC_VisaEBeam1",
             image=fake_camera_config,
             class_path=self._BEAM_PATH,
-            scan={"mode": "per_bin"},
         )
 
         with patch(
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
 
-        assert config.analyzer_type == "Array2DScanAnalyzer"
-
-    def test_file_tail_inherits_from_scan(self, fake_camera_config):
-        diag = _diag(
-            name="UC_VisaEBeam1",
-            image=fake_camera_config,
-            class_path=self._BEAM_PATH,
-            scan={"file_tail": ".tdms"},
-        )
-
-        with patch(
-            "geecs_scanner.optimization.config_models.load_diagnostic",
-            return_value=diag,
-        ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
-
-        assert config.file_tail == ".tdms"
-
-    def test_file_tail_default_when_missing(self, fake_camera_config):
-        diag = _diag(
-            name="UC_VisaEBeam1",
-            image=fake_camera_config,
-            class_path=self._BEAM_PATH,
-            scan={},  # no file_tail
-        )
-
-        with patch(
-            "geecs_scanner.optimization.config_models.load_diagnostic",
-            return_value=diag,
-        ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
-
-        assert config.file_tail == ".png"
-
-    def test_data_device_name_inherits_from_scan_device(self, fake_camera_config):
-        diag = _diag(
-            name="UC_VisaEBeam1",
-            image=fake_camera_config,
-            class_path=self._BEAM_PATH,
-            scan={"device": "UC_VisaEBeam1-postproc"},
-        )
-
-        with patch(
-            "geecs_scanner.optimization.config_models.load_diagnostic",
-            return_value=diag,
-        ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
-
-        assert config.data_device_name == "UC_VisaEBeam1-postproc"
-
-    def test_data_device_name_is_none_when_scan_device_absent(self, fake_camera_config):
-        diag = _diag(
-            name="UC_VisaEBeam1",
-            image=fake_camera_config,
-            class_path=self._BEAM_PATH,
-            scan={},
-        )
-
-        with patch(
-            "geecs_scanner.optimization.config_models.load_diagnostic",
-            return_value=diag,
-        ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
-
-        assert config.data_device_name is None
+        assert ref.diag is diag
 
 
 class TestAnalysisModeOverride:
-    """``analysis_mode`` on the optimizer YAML overrides the diagnostic's ``scan.mode``."""
+    """``analysis_mode`` on the optimizer YAML threads through to the wrapper."""
 
     _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
-    def test_inherits_from_diagnostic_when_unset(self, fake_camera_config):
+    def test_unset_means_inherit_from_diagnostic(self, fake_camera_config):
+        """Leaving ``analysis_mode`` unset preserves the diagnostic's ``scan.mode``."""
         diag = _diag(
             name="UC_VisaEBeam1",
             image=fake_camera_config,
@@ -209,11 +147,14 @@ class TestAnalysisModeOverride:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
 
-        assert config.analysis_mode == "per_shot"
+        # The ref preserves the explicit None — resolution is deferred to
+        # the factory, which the next test covers end-to-end.
+        assert ref.analysis_mode is None
 
-    def test_override_wins_over_diagnostic(self, fake_camera_config):
+    def test_override_threads_to_wrapper(self, fake_camera_config):
+        """``analysis_mode`` on the ref overrides ``scan.mode`` in the built analyzer."""
         diag = _diag(
             name="UC_VisaEBeam1",
             image=fake_camera_config,
@@ -225,21 +166,44 @@ class TestAnalysisModeOverride:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(
+            ref = OptimizerAnalyzerRef(
                 diagnostic="UC_VisaEBeam1",
                 analysis_mode="per_bin",
             )
+            analyzer = _build_analyzer(ref)
 
-        assert config.analysis_mode == "per_bin"
+        assert analyzer.analysis_mode == "per_bin"
+
+    def test_unset_inherits_from_scan_mode_at_factory(self, fake_camera_config):
+        """When ``analysis_mode`` is None on the ref, the wrapper uses ``scan.mode``."""
+        diag = _diag(
+            name="UC_VisaEBeam1",
+            image=fake_camera_config,
+            class_path=self._BEAM_PATH,
+            scan={"mode": "per_shot"},
+        )
+
+        with patch(
+            "geecs_scanner.optimization.config_models.load_diagnostic",
+            return_value=diag,
+        ):
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
+            analyzer = _build_analyzer(ref)
+
+        assert analyzer.analysis_mode == "per_shot"
+
+
+# ---------------------------------------------------------------------------
+# Array2D path: camera analyzers
+# ---------------------------------------------------------------------------
 
 
 class TestCreateScanAnalyzer2D:
-    """End-to-end ``_create_scan_analyzer`` for the Array2D path."""
+    """End-to-end factory invocation for the Array2D path."""
 
     _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
     def test_passes_typed_camera_config_to_analyzer(self, fake_camera_config):
-        evaluator = _make_evaluator()
         diag = _diag(
             name="UC_VisaEBeam1",
             image=fake_camera_config,
@@ -251,19 +215,17 @@ class TestCreateScanAnalyzer2D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
+            analyzer = _build_analyzer(ref)
 
-        analyzer = evaluator._create_scan_analyzer(config)
-        # The typed CameraConfig from the diagnostic flowed through; no
-        # second on-disk lookup happened.
+        # The typed CameraConfig from the diagnostic flowed through.
         assert analyzer.image_analyzer.camera_config is fake_camera_config
 
-    def test_produces_array2d_wrapper(self, fake_camera_config):
+    def test_produces_array2d_wrapper_with_injected_data_flag(self, fake_camera_config):
         from scan_analysis.analyzers.common.array2D_scan_analysis import (
             Array2DScanAnalyzer,
         )
 
-        evaluator = _make_evaluator()
         diag = _diag(
             name="UC_VisaEBeam1",
             image=fake_camera_config,
@@ -275,17 +237,19 @@ class TestCreateScanAnalyzer2D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_VisaEBeam1")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_VisaEBeam1")
+            analyzer = _build_analyzer(ref)
 
-        analyzer = evaluator._create_scan_analyzer(config)
         assert isinstance(analyzer, Array2DScanAnalyzer)
-        assert analyzer.live_analysis is True
-        assert analyzer.use_colon_scan_param is False
+        # The optimizer always builds analyzers in injected-data mode;
+        # the wrapper's ``use_colon_scan_param`` flag is derived from it
+        # (in-memory DataLogger uses ``device:variable`` naming).
+        assert analyzer.use_injected_data is True
+        assert analyzer.use_colon_scan_param is True
         assert analyzer.device_name == "UC_VisaEBeam1"
 
     def test_extra_kwargs_flow_to_analyzer_constructor(self, fake_camera_config):
         """Non-config kwargs on the diagnostic's ``image_analyzer`` reach the analyzer's __init__."""
-        evaluator = _make_evaluator()
         diag = _diag(
             name="UC_TestBeam",
             image=fake_camera_config,
@@ -298,9 +262,9 @@ class TestCreateScanAnalyzer2D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="UC_TestBeam")
+            ref = OptimizerAnalyzerRef(diagnostic="UC_TestBeam")
+            analyzer = _build_analyzer(ref)
 
-        analyzer = evaluator._create_scan_analyzer(config)
         assert analyzer.image_analyzer.metric_suffix == "_curtis"
 
 
@@ -309,39 +273,14 @@ class TestCreateScanAnalyzer2D:
 # ---------------------------------------------------------------------------
 
 
-class TestSingleDeviceConfigResolution1D:
-    """1D-side derivations: ``image.type=line`` → Array1DScanAnalyzer."""
-
-    _STANDARD_1D_PATH = (
-        "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
-    )
-
-    def test_analyzer_type_derived_from_line_image_type(self, fake_line_config):
-        diag = _diag(
-            name="U_BCaveICT",
-            image=fake_line_config,
-            class_path=self._STANDARD_1D_PATH,
-            scan={"file_tail": ".tdms"},
-        )
-
-        with patch(
-            "geecs_scanner.optimization.config_models.load_diagnostic",
-            return_value=diag,
-        ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="U_BCaveICT")
-
-        assert config.analyzer_type == "Array1DScanAnalyzer"
-
-
 class TestCreateScanAnalyzer1D:
-    """End-to-end ``_create_scan_analyzer`` for the Array1D path."""
+    """End-to-end factory invocation for the Array1D path."""
 
     _STANDARD_1D_PATH = (
         "image_analysis.analyzers.standard_1d_analyzer.Standard1DAnalyzer"
     )
 
     def test_passes_typed_line_config_to_analyzer(self, fake_line_config):
-        evaluator = _make_evaluator()
         diag = _diag(
             name="U_BCaveICT",
             image=fake_line_config,
@@ -353,17 +292,16 @@ class TestCreateScanAnalyzer1D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="U_BCaveICT")
+            ref = OptimizerAnalyzerRef(diagnostic="U_BCaveICT")
+            analyzer = _build_analyzer(ref)
 
-        analyzer = evaluator._create_scan_analyzer(config)
         assert analyzer.image_analyzer.line_config is fake_line_config
 
-    def test_produces_array1d_wrapper(self, fake_line_config):
+    def test_produces_array1d_wrapper_with_injected_data_flag(self, fake_line_config):
         from scan_analysis.analyzers.common.array1d_scan_analysis import (
             Array1DScanAnalyzer,
         )
 
-        evaluator = _make_evaluator()
         diag = _diag(
             name="U_BCaveICT",
             image=fake_line_config,
@@ -375,10 +313,10 @@ class TestCreateScanAnalyzer1D:
             "geecs_scanner.optimization.config_models.load_diagnostic",
             return_value=diag,
         ):
-            config = SingleDeviceScanAnalyzerConfig(diagnostic="U_BCaveICT")
+            ref = OptimizerAnalyzerRef(diagnostic="U_BCaveICT")
+            analyzer = _build_analyzer(ref)
 
-        analyzer = evaluator._create_scan_analyzer(config)
         assert isinstance(analyzer, Array1DScanAnalyzer)
-        assert analyzer.live_analysis is True
-        assert analyzer.use_colon_scan_param is False
+        assert analyzer.use_injected_data is True
+        assert analyzer.use_colon_scan_param is True
         assert analyzer.device_name == "U_BCaveICT"

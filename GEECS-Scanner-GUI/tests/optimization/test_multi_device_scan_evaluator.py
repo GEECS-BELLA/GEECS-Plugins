@@ -28,6 +28,13 @@ def _make_analyzer_mock(results_by_key: dict):
     return m
 
 
+def _make_ref(device_name: str):
+    """Return a mock OptimizerAnalyzerRef carrying just a device name."""
+    ref = MagicMock()
+    ref.device_name = device_name
+    return ref
+
+
 class _ConcreteEvaluator:
     """Minimal concrete subclass — just negates the 'signal' scalar."""
 
@@ -104,8 +111,14 @@ class TestComputeObjectiveFromShotsDefault:
 class TestGetValueRouting:
     """_get_value must route to compute_objective or compute_objective_from_shots."""
 
-    def _make_evaluator_shell(self, analyzer_configs, scan_analyzers):
-        """Build a MultiDeviceScanEvaluator bypassing __init__."""
+    def _make_evaluator_shell(self, analyzer_refs, scan_analyzers):
+        """Build a MultiDeviceScanEvaluator bypassing __init__.
+
+        ``analyzer_refs`` is a list of (device_name, mode) tuples; the
+        shell synthesises both ``self.analyzer_refs`` (mock objects with
+        ``.device_name``) and ``self._effective_modes`` (the dict
+        ``_get_value`` actually reads to dispatch per_bin vs per_shot).
+        """
         from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
             MultiDeviceScanEvaluator,
         )
@@ -115,7 +128,8 @@ class TestGetValueRouting:
                 return 0.0
 
         obj = object.__new__(_Concrete)
-        obj.analyzer_configs = analyzer_configs
+        obj.analyzer_refs = [_make_ref(name) for name, _mode in analyzer_refs]
+        obj._effective_modes = {name: mode for name, mode in analyzer_refs}
         obj.scan_analyzers = scan_analyzers
         obj.output_key = "f"
         obj.bin_number = 1
@@ -124,17 +138,12 @@ class TestGetValueRouting:
         obj.scan_tag = MagicMock()
         return obj
 
-    def _make_config(self, device_name: str, mode: str):
-        cfg = MagicMock()
-        cfg.device_name = device_name
-        cfg.analysis_mode = mode
-        return cfg
-
     def test_per_bin_calls_compute_objective(self):
-        cfg = self._make_config("dev_a", "per_bin")
         analyzer = _make_analyzer_mock({1: _make_result({"signal": 42.0})})
 
-        evaluator = self._make_evaluator_shell([cfg], {"dev_a": analyzer})
+        evaluator = self._make_evaluator_shell(
+            [("dev_a", "per_bin")], {"dev_a": analyzer}
+        )
 
         objective_called_with = {}
 
@@ -151,7 +160,6 @@ class TestGetValueRouting:
         assert objective_called_with["signal"] == pytest.approx(42.0)
 
     def test_per_shot_calls_compute_objective_from_shots(self):
-        cfg = self._make_config("dev_b", "per_shot")
         analyzer = _make_analyzer_mock(
             {
                 1: _make_result({"signal": 10.0}),
@@ -160,7 +168,9 @@ class TestGetValueRouting:
             }
         )
 
-        evaluator = self._make_evaluator_shell([cfg], {"dev_b": analyzer})
+        evaluator = self._make_evaluator_shell(
+            [("dev_b", "per_shot")], {"dev_b": analyzer}
+        )
 
         received_list = []
 
@@ -178,7 +188,6 @@ class TestGetValueRouting:
 
     def test_per_shot_dict_return_passthrough(self):
         """compute_objective_from_shots returning a dict (with f_noise) is passed through."""
-        cfg = self._make_config("dev_c", "per_shot")
         analyzer = _make_analyzer_mock(
             {
                 1: _make_result({"signal": 10.0}),
@@ -187,7 +196,9 @@ class TestGetValueRouting:
             }
         )
 
-        evaluator = self._make_evaluator_shell([cfg], {"dev_c": analyzer})
+        evaluator = self._make_evaluator_shell(
+            [("dev_c", "per_shot")], {"dev_c": analyzer}
+        )
 
         def fake_from_shots(scalar_results_list, bin_number):
             vals = [d["signal"] for d in scalar_results_list]
@@ -204,9 +215,6 @@ class TestGetValueRouting:
 
     def test_mixed_mode_per_bin_scalars_merged_into_shots(self):
         """Per_bin scalars are available in every shot dict for mixed-mode setups."""
-        cfg_bin = self._make_config("dev_bin", "per_bin")
-        cfg_shot = self._make_config("dev_shot", "per_shot")
-
         analyzer_bin = _make_analyzer_mock({1: _make_result({"background": 5.0})})
         analyzer_shot = _make_analyzer_mock(
             {
@@ -217,7 +225,7 @@ class TestGetValueRouting:
         )
 
         evaluator = self._make_evaluator_shell(
-            [cfg_bin, cfg_shot],
+            [("dev_bin", "per_bin"), ("dev_shot", "per_shot")],
             {"dev_bin": analyzer_bin, "dev_shot": analyzer_shot},
         )
 
@@ -238,10 +246,11 @@ class TestGetValueRouting:
         assert all(d["background"] == pytest.approx(5.0) for d in received_list)
 
     def test_per_bin_missing_result_logs_warning(self, caplog):
-        cfg = self._make_config("dev_x", "per_bin")
         analyzer = _make_analyzer_mock({})  # no result for bin 1
 
-        evaluator = self._make_evaluator_shell([cfg], {"dev_x": analyzer})
+        evaluator = self._make_evaluator_shell(
+            [("dev_x", "per_bin")], {"dev_x": analyzer}
+        )
         evaluator.compute_objective = lambda scalar_results, bin_number: 0.0
         evaluator.compute_observables = lambda **kw: {}
 
@@ -275,7 +284,8 @@ class TestObservablesShadowing:
                 return {"f": 999.0, "other": 1.0}
 
         obj = object.__new__(_Shadowing)
-        obj.analyzer_configs = []
+        obj.analyzer_refs = []
+        obj._effective_modes = {}
         obj.scan_analyzers = {}
         obj.output_key = "f"
         obj.objective_tag = "test"
