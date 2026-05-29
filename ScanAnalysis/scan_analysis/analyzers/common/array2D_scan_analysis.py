@@ -88,6 +88,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         renderer_kwargs: Optional[Dict[str, Any]] = None,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
+        use_injected_data: bool = False,
     ):
         """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer.
 
@@ -138,6 +139,7 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             flag_save_data=flag_save_images,
             analysis_mode=analysis_mode,
             data_device_name=data_device_name,
+            use_injected_data=use_injected_data,
         )
 
     def _get_renderer_config(self):

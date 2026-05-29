@@ -97,12 +97,17 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         flag_save_data: bool = True,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
+        use_injected_data: bool = False,
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
             raise ValueError("SingleDeviceScanAnalyzer requires a device_name.")
 
-        super().__init__(device_name=device_name, skip_plt_show=skip_plt_show)
+        super().__init__(
+            device_name=device_name,
+            skip_plt_show=skip_plt_show,
+            use_injected_data=use_injected_data,
+        )
 
         self.image_analyzer = image_analyzer
         self.renderer = renderer
@@ -204,7 +209,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 else:
                     self._postprocess_scan()
 
-            if not self.live_analysis:
+            if not self.use_injected_data:
                 pending = getattr(self, "_pending_aux_updates", [])
                 if pending:
                     df_updates = pd.DataFrame(pending)
