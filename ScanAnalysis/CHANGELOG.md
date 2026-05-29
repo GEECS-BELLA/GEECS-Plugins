@@ -3,6 +3,49 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-05-28
+
+Sign-aware default colormap for 1D waterfall plots.
+
+### Added
+- `Line1DRendererConfig.colormap_mode` now supports an `"auto"` value
+  (also added to `BaseRendererConfig`'s Literal). `"auto"` inspects
+  the data range:
+  - If the data crosses zero (`min < 0 < max`), use an **asymmetric
+    diverging** colormap via `matplotlib.colors.TwoSlopeNorm(vmin,
+    vcenter=0, vmax)` with `RdBu_r` by default. The negative and
+    positive ranges each occupy the appropriate half of the colormap,
+    zero gets the neutral midpoint color, and asymmetric data (e.g.
+    `[-0.026, +0.85]`) doesn't waste color resolution on empty range.
+  - If the data is all non-negative, keep the legacy sequential
+    behavior (vmin=0, plasma).
+  - If the data is all-negative, use sequential with `vmin = data.min()`
+    so nothing is clipped.
+- `Line1DRendererConfig` defaults `colormap_mode="auto"`. Explicit
+  `"sequential"` / `"diverging"` / `"custom"` continue to behave as
+  before — opt-in to the legacy floor-at-zero by setting
+  `colormap_mode: "sequential"` in the renderer kwargs.
+
+### Changed
+- `Line1DRenderer._get_colormap_params_1d` returns a 4-tuple
+  `(vmin, vmax, cmap, norm)`. The `norm` is non-`None` only for the
+  auto-diverging case (when it's a `TwoSlopeNorm`); the waterfall
+  call site routes it to `pcolormesh(norm=...)` and skips
+  `vmin`/`vmax`. All other modes keep `norm=None` and the legacy
+  `vmin`/`vmax` path.
+- `Line1DRendererConfig.cmap` default is now `None` (was `"plasma"`).
+  This lets the renderer pick a mode-appropriate default
+  (`RdBu_r` for auto-diverging, `plasma` for sequential and the
+  non-sign-crossing auto branch) while still respecting any explicit
+  user choice. Existing YAMLs that hard-coded `cmap: "plasma"` keep
+  that exact behavior.
+
+Surfaces in production: FROG spectral-phase scans where the fit
+(after `phi0` subtraction) crosses zero — previously the negative
+region was floored to the bottom of the plasma colormap, hiding a
+real physical effect (the polynomial coefficients sweeping through
+zero along the scan parameter). Now visible at a glance.
+
 ## [1.8.2] — 2026-05-28
 
 Companion to ImageAnalysis 1.6.0 (FROG spectral phase analyzer). Hardens

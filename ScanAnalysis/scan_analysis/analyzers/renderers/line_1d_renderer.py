@@ -278,26 +278,78 @@ class Line1DRenderer(BaseRenderer):
     def _get_colormap_params_1d(
         self, data: np.ndarray, config: Line1DRendererConfig
     ) -> tuple:
-        """
-        Determine colormap parameters based on colormap_mode.
+        """Determine colormap parameters based on ``colormap_mode``.
 
         Parameters
         ----------
         data : np.ndarray
-            Data to determine limits from
+            Data to determine limits from.
         config : Line1DRendererConfig
-            Rendering configuration
+            Rendering configuration.
 
         Returns
         -------
         vmin : float
-            Minimum colormap value
+            Minimum colormap value (used only when ``norm`` is ``None``;
+            otherwise the norm encapsulates the limits).
         vmax : float
-            Maximum colormap value
+            Maximum colormap value (same caveat as ``vmin``).
         cmap : str
-            Colormap name
+            Colormap name.
+        norm : matplotlib.colors.Normalize or None
+            Explicit normalization object. Currently set only by
+            ``"auto"`` mode when the data crosses zero, in which case
+            it's a ``TwoSlopeNorm(vmin=data.min(), vcenter=0, vmax=data.max())``
+            that preserves asymmetric ranges while pinning zero to the
+            colormap's neutral midpoint. Pass this directly to
+            ``pcolormesh(..., norm=norm)`` and skip ``vmin``/``vmax``.
         """
-        if config.colormap_mode == "diverging":
+        norm = None
+
+        if config.colormap_mode == "auto":
+            # Sign-aware. Three sub-cases:
+            #   1. Data crosses zero → asymmetric diverging with
+            #      TwoSlopeNorm centered at zero. Negative + positive
+            #      ranges each occupy the appropriate half of the
+            #      colormap, zero gets the neutral midpoint color.
+            #   2. Data is all-negative → sequential, vmin = data.min().
+            #   3. Data is all-non-negative → sequential, vmin = 0
+            #      (matches the legacy ``"sequential"`` behavior so
+            #      analyzers that emit non-negative intensities keep
+            #      their familiar look).
+            data_min = float(data.min())
+            data_max = float(data.max())
+            if data_min < 0.0 < data_max:
+                from matplotlib.colors import TwoSlopeNorm
+
+                vmin = data_min
+                vmax = data_max
+                # config.cmap is None by default; only override the
+                # auto-diverging default of RdBu_r when the user
+                # explicitly chose a cmap.
+                cmap = config.cmap or "RdBu_r"
+                norm = TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+                logger.info(
+                    "Using auto/asymmetric-diverging colormap (%s) with "
+                    "vmin=%.3e, vcenter=0, vmax=%.3e",
+                    cmap,
+                    vmin,
+                    vmax,
+                )
+            else:
+                if data_min < 0.0:
+                    vmin = data_min  # all-negative
+                else:
+                    vmin = 0.0  # all-non-negative; preserve legacy floor
+                vmax = config.vmax if config.vmax is not None else data_max
+                cmap = config.cmap or "plasma"
+                logger.info(
+                    "Using auto/sequential colormap (%s) with vmin=%.3e, vmax=%.3e",
+                    cmap,
+                    vmin,
+                    vmax,
+                )
+        elif config.colormap_mode == "diverging":
             # Symmetric around zero for bipolar data
             vmax = np.abs(data).max()
             vmin = -vmax
@@ -306,7 +358,7 @@ class Line1DRenderer(BaseRenderer):
                 f"Using diverging colormap with vmin={vmin:.2e}, vmax={vmax:.2e}"
             )
         elif config.colormap_mode == "sequential":
-            # Standard: 0 to max (default behavior)
+            # Standard: 0 to max (legacy default behavior)
             vmin = 0
             vmax = config.vmax if config.vmax is not None else data.max()
             cmap = config.cmap or "plasma"
@@ -320,7 +372,7 @@ class Line1DRenderer(BaseRenderer):
             cmap = config.cmap or "plasma"
             logger.info(f"Using custom colormap with vmin={vmin:.2e}, vmax={vmax:.2e}")
 
-        return float(vmin), float(vmax), cmap
+        return float(vmin), float(vmax), cmap, norm
 
     def _create_waterfall_plot(
         self,
@@ -404,8 +456,10 @@ class Line1DRenderer(BaseRenderer):
         xlabel = f"{x_label} ({x_units})" if x_units else x_label
         ylabel = f"{y_label} ({y_units})" if y_units else y_label
 
-        # Determine colormap parameters based on mode
-        vmin, vmax, cmap = self._get_colormap_params_1d(waterfall_data, config)
+        # Determine colormap parameters based on mode. ``norm`` is set
+        # by "auto" mode when data crosses zero (TwoSlopeNorm); for all
+        # other modes it's None and vmin/vmax carry the limits directly.
+        vmin, vmax, cmap, norm = self._get_colormap_params_1d(waterfall_data, config)
 
         # Create plot
         fig, ax = plt.subplots(figsize=(10, 8), dpi=config.dpi)
@@ -443,15 +497,27 @@ class Line1DRenderer(BaseRenderer):
             for i in range(1, n):
                 y_edges[i] = (param_values[i - 1] + param_values[i]) / 2
 
-        im = ax.pcolormesh(
-            x_edges,
-            y_edges,
-            waterfall_data,
-            cmap=cmap,
-            vmin=vmin,
-            vmax=vmax,
-            shading="flat",
-        )
+        if norm is not None:
+            # TwoSlopeNorm (asymmetric diverging) — passes vmin/vcenter/vmax
+            # through the norm rather than separate kwargs.
+            im = ax.pcolormesh(
+                x_edges,
+                y_edges,
+                waterfall_data,
+                cmap=cmap,
+                norm=norm,
+                shading="flat",
+            )
+        else:
+            im = ax.pcolormesh(
+                x_edges,
+                y_edges,
+                waterfall_data,
+                cmap=cmap,
+                vmin=vmin,
+                vmax=vmax,
+                shading="flat",
+            )
 
         # Set y-ticks; labels always show the real parameter values
         max_ticks = 40
