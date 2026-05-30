@@ -3,6 +3,51 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] — 2026-05-29
+
+Optimizer-side modernization that exploits the post-PR-E unified-diagnostic
+surface. Drops the heavyweight wrapper config the previous release introduced
+in favour of a thin reference model that defers to the canonical scan-analyzer
+factory.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` is gone. Replaced by
+  `OptimizerAnalyzerRef` (~20 LoC vs the prior 170+) — just `diagnostic` +
+  optional `analysis_mode`. The replaced model used `computed_field`
+  shims (`device_name`, `analyzer_type`, `file_tail`, `image_analyzer`,
+  `data_device_name`, plus an `image_config` property) to re-expose
+  everything on the diagnostic; none of that earns its keep after
+  `scan_analysis.config.create_scan_analyzer(diag)` became the canonical
+  factory used by the task queue + LiveWatch. The optimizer now hands
+  the loaded diagnostic straight to that factory with
+  `use_injected_data=True`.
+- `MultiDeviceScanEvaluatorConfig` is gone. Its only consumer
+  (`BaseOptimizerConfig._load_and_check`) inlines into a small
+  `_build_device_requirements` helper that walks the analyzer entries,
+  validates each as `OptimizerAnalyzerRef`, and merges the per-analyzer
+  device blocks. No public-API change for the optimizer YAML shape; the
+  field disappearing is internal.
+- `MultiDeviceScanEvaluator._create_scan_analyzer` is gone. The
+  evaluator now calls
+  `create_scan_analyzer(ref.diag, analysis_mode=ref.analysis_mode,
+  use_injected_data=True)` directly — no manual analyzer-class
+  importing, no kwarg-splicing of the typed image config into the
+  analyzer's constructor, no `live_analysis` / `use_colon_scan_param`
+  setattr lines (the latter were broken anyway after ScanAnalysis 1.9.0
+  removed those attributes).
+- Evaluator attribute renamed `analyzer_configs` → `analyzer_refs` to
+  reflect the thinner role. Effective per-analyzer modes are cached in
+  `self._effective_modes` (the dict `_get_value` reads to dispatch
+  `per_bin` vs `per_shot`). Subclasses + tests that touched the old
+  attribute were updated (`bcavemagspec_opt.EBeamSourceOpt`,
+  `test_multi_device_scan_evaluator.py`, `test_evaluator_bax_mode.py`,
+  `test_concrete_evaluators.py`).
+
+### Migration
+The optimizer YAML shape from 0.23.0 is unchanged externally — analyzer
+entries are still `diagnostic: <stem>` (+ optional `analysis_mode`).
+Existing 0.23.0-style YAMLs work without edits.
+
 ## [0.23.0] — 2026-05-29
 
 Diagnostic-driven optimizer analyzer configs.

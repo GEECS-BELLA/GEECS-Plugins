@@ -3,6 +3,47 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-05-29
+
+Live / injected-data execution promoted from a setattr afterthought to a
+first-class constructor flag, plus matching factory plumbing for the
+optimizer's evaluator path.
+
+### Changed (breaking)
+- `ScanAnalyzer.__init__` gained `use_injected_data: bool = False`.
+  When `False` (the canonical task-queue / LiveWatch path) the analyzer
+  loads its s-file from disk after the scan completes. When `True`, the
+  caller is responsible for assigning `analyzer.auxiliary_data` from an
+  in-memory frame before each `run_analysis` call — used by the
+  optimizer's `MultiDeviceScanEvaluator` so it can drive analyzers per
+  bin from the DataLogger without round-tripping through disk.
+  `use_colon_scan_param` is derived from the same flag (in-memory data
+  uses `device:variable` keys; disk-loaded s-files don't).
+- The old setattr pattern is gone — `analyzer.live_analysis = True` and
+  `analyzer.use_colon_scan_param = False` are no longer recognised
+  anywhere. Callers that need the optimizer-style behaviour must pass
+  `use_injected_data=True` at construction time. The flag threads
+  through `SingleDeviceScanAnalyzer`, `Array1DScanAnalyzer`,
+  `Array2DScanAnalyzer`, and `create_scan_analyzer`.
+- `create_scan_analyzer(diag)` now passes `device_name=diag.name` and
+  `data_device_name=scan_cfg.device` separately to the wrapper, where
+  it previously collapsed them via `scan_cfg.device or diag.name`. The
+  old form silently misrouted background-image paths when `scan.device`
+  was set (background images live under the GEECS device folder, not
+  the data-folder override). Behaviour-preserving for diagnostics
+  without `scan.device`; semantic fix for those that have one.
+
+### Added
+- `analysis_mode: Optional[Literal["per_shot", "per_bin"]]` kwarg on
+  `create_scan_analyzer`, defaulting to `None` (inherit from
+  `scan.mode`). Lets one diagnostic serve both per-shot scan analysis
+  and per-bin optimizer evaluation without forking a separate YAML.
+- New test suite `tests/test_use_injected_data.py` (5 tests) pinning
+  the disk-backed default, the injected-data flag propagation through
+  the 1D and 2D wrappers, and the `use_colon_scan_param` derivation.
+- Coverage for the `device_name` / `data_device_name` split in
+  `tests/test_diagnostic_factory.py`.
+
 ## [1.8.1] — 2026-05-28
 
 ConfigFileGUI quality-of-life: validated dropdowns for `Literal[...]`
