@@ -21,10 +21,11 @@ def _make_result(scalars: dict):
     return r
 
 
-def _make_analyzer_mock(results_by_key: dict):
-    """Return a mock scan analyzer whose .results dict is results_by_key."""
+def _make_analyzer_mock(results_by_key: dict, mode: str = "per_bin"):
+    """Return a mock scan analyzer with ``.results`` and ``.analysis_mode``."""
     m = MagicMock()
     m.results = results_by_key
+    m.analysis_mode = mode
     return m
 
 
@@ -115,9 +116,10 @@ class TestGetValueRouting:
         """Build a MultiDeviceScanEvaluator bypassing __init__.
 
         ``analyzer_refs`` is a list of (device_name, mode) tuples; the
-        shell synthesises both ``self.analyzer_refs`` (mock objects with
-        ``.device_name``) and ``self._effective_modes`` (the dict
-        ``_get_value`` actually reads to dispatch per_bin vs per_shot).
+        shell synthesises ``self.analyzer_refs`` (mock objects with
+        ``.device_name``) and stamps the matching ``.analysis_mode``
+        onto each pre-built scan-analyzer mock (which is what the
+        production dispatch loop reads).
         """
         from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
             MultiDeviceScanEvaluator,
@@ -129,7 +131,10 @@ class TestGetValueRouting:
 
         obj = object.__new__(_Concrete)
         obj.analyzer_refs = [_make_ref(name) for name, _mode in analyzer_refs]
-        obj._effective_modes = {name: mode for name, mode in analyzer_refs}
+        # Stamp the matching mode onto each analyzer mock so the dispatch
+        # loop's ``analyzer.analysis_mode`` reads match the test scenario.
+        for name, mode in analyzer_refs:
+            scan_analyzers[name].analysis_mode = mode
         obj.scan_analyzers = scan_analyzers
         obj.output_key = "f"
         obj.bin_number = 1
@@ -285,7 +290,6 @@ class TestObservablesShadowing:
 
         obj = object.__new__(_Shadowing)
         obj.analyzer_refs = []
-        obj._effective_modes = {}
         obj.scan_analyzers = {}
         obj.output_key = "f"
         obj.objective_tag = "test"

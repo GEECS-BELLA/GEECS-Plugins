@@ -101,23 +101,17 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         # Build one ScanAnalyzer per diagnostic. ``use_injected_data=True``
         # tells the wrapper to skip disk-based s-file loading; the
         # in-memory DataLogger frame is supplied per evaluation via
-        # ``auxiliary_data`` in ``_get_value``.
+        # ``auxiliary_data`` in ``_get_value``. The effective analysis
+        # mode (``per_shot`` vs ``per_bin``) is resolved inside the
+        # factory: ``ref.analysis_mode`` if set, else the diagnostic's
+        # ``scan.mode``. Read it off ``analyzer.analysis_mode`` whenever
+        # the dispatch loop needs it.
         self.scan_analyzers: Dict = {
             ref.device_name: create_scan_analyzer(
                 ref.diag,
                 analysis_mode=ref.analysis_mode,
                 use_injected_data=True,
             )
-            for ref in self.analyzer_refs
-        }
-
-        # Cache the effective analysis mode each analyzer actually runs
-        # in. ``ref.analysis_mode`` may be ``None`` (inherit from the
-        # diagnostic); the factory resolves it, and the wrapper exposes
-        # the final value as ``analyzer.analysis_mode``. Used below in
-        # ``_get_value`` for the per_bin vs per_shot dispatch.
-        self._effective_modes: Dict[str, str] = {
-            ref.device_name: self.scan_analyzers[ref.device_name].analysis_mode
             for ref in self.analyzer_refs
         }
 
@@ -180,7 +174,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         """
         shot_numbers: List[int] = list(self.current_shot_numbers or [])
         has_per_shot = any(
-            mode == "per_shot" for mode in self._effective_modes.values()
+            a.analysis_mode == "per_shot" for a in self.scan_analyzers.values()
         )
         # per_bin-only → one slot (the bin average); per_shot → one slot per shot
         n_slots = len(shot_numbers) if has_per_shot else 1
@@ -189,7 +183,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         for ref in self.analyzer_refs:
             device_name = ref.device_name
             analyzer = self.scan_analyzers[device_name]
-            mode = self._effective_modes[device_name]
+            mode = analyzer.analysis_mode
 
             logger.info(
                 "Running %s analyzer for '%s' on bin %s",

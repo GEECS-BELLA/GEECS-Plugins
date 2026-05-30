@@ -28,10 +28,11 @@ def _fake_ref(device_name: str):
     return ref
 
 
-def _fake_analyzer(results_by_key: dict):
-    """Scan analyzer whose .results dict is provided."""
+def _fake_analyzer(results_by_key: dict, mode: str = "per_bin"):
+    """Scan analyzer mock with ``.results`` and ``.analysis_mode``."""
     m = MagicMock()
     m.results = results_by_key
+    m.analysis_mode = mode
     return m
 
 
@@ -55,7 +56,6 @@ class TestBeamSizeEvaluator:
 
         obj = object.__new__(BeamSizeEvaluator)
         obj.analyzer_refs = [_fake_ref(device_name)]
-        obj._effective_modes = {device_name: "per_bin"}
         obj.scan_analyzers = {}
         obj.calibration = calibration
         obj.output_key = "f"
@@ -133,7 +133,6 @@ class TestMaxCountsEvaluator:
 
         obj = object.__new__(MaxCountsEvaluator)
         obj.analyzer_refs = [_fake_ref(device_name)]
-        obj._effective_modes = {device_name: "per_bin"}
         obj.scan_analyzers = {}
         obj.output_key = "f"
         obj.objective_tag = "TotalCounts"
@@ -207,7 +206,6 @@ class TestBeamPositionEvaluator:
 
         obj = object.__new__(BeamPositionEvaluator)
         obj.analyzer_refs = [_fake_ref(device_name)]
-        obj._effective_modes = {device_name: "per_bin"}
         obj.observable_names = (
             observable_names if observable_names is not None else ["x_CoM"]
         )

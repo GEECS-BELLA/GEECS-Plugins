@@ -36,7 +36,6 @@ def _make_bax_evaluator(observable_results: dict):
 
     obj = object.__new__(_BaxConcrete)
     obj.analyzer_refs = []
-    obj._effective_modes = {}
     obj.scan_analyzers = {}
     obj.output_key = None
     obj.objective_tag = "BAX"

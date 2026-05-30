@@ -38,9 +38,13 @@ optimizer's evaluator path.
   `create_scan_analyzer`, defaulting to `None` (inherit from
   `scan.mode`). Lets one diagnostic serve both per-shot scan analysis
   and per-bin optimizer evaluation without forking a separate YAML.
-- New test suite `tests/test_use_injected_data.py` (5 tests) pinning
-  the disk-backed default, the injected-data flag propagation through
-  the 1D and 2D wrappers, and the `use_colon_scan_param` derivation.
+- New test suite `tests/test_use_injected_data.py` (7 tests) covering
+  the structural propagation (default-disk vs injected flag threaded
+  through 1D / 2D wrappers, `use_colon_scan_param` derivation) and the
+  behavioral contract (`load_auxiliary_data` is a no-op under
+  `use_injected_data=True`, the injected DataFrame survives untouched,
+  no `pd.read_csv` is attempted; the disk-backed path *does* read the
+  s-file and derive `bins` / `binned_param_values`).
 - Coverage for the `device_name` / `data_device_name` split in
   `tests/test_diagnostic_factory.py`.
 

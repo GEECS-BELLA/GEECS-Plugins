@@ -36,10 +36,11 @@ factory.
   setattr lines (the latter were broken anyway after ScanAnalysis 1.9.0
   removed those attributes).
 - Evaluator attribute renamed `analyzer_configs` → `analyzer_refs` to
-  reflect the thinner role. Effective per-analyzer modes are cached in
-  `self._effective_modes` (the dict `_get_value` reads to dispatch
-  `per_bin` vs `per_shot`). Subclasses + tests that touched the old
-  attribute were updated (`bcavemagspec_opt.EBeamSourceOpt`,
+  reflect the thinner role. The `_get_value` dispatch reads each
+  analyzer's effective mode straight off `analyzer.analysis_mode` (the
+  factory resolved `ref.analysis_mode` ↔ `scan.mode` at construction);
+  no parallel cache to keep in sync. Subclasses + tests that touched
+  the old attribute were updated (`bcavemagspec_opt.EBeamSourceOpt`,
   `test_multi_device_scan_evaluator.py`, `test_evaluator_bax_mode.py`,
   `test_concrete_evaluators.py`).
 
