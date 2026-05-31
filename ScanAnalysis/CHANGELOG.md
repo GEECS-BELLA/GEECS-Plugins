@@ -71,6 +71,13 @@ lineouts that analyzer-specific ROI/weight masking can produce.
   (interpolation onto a common grid via the pipeline, or having the
   analyzer emit fixed-length summary `line_data`) so the user knows
   how to actually get a waterfall.
+  
+## [1.8.2] — 2026-05-22
+
+### Added
+- LiveWatch GUI: facility dropdown now includes `PWlaserData`, `p2`, and
+  `ControlRoom` alongside the existing `Undulator`, `Thomson`, and `(none)`
+  options.
 
 ## [1.8.1] — 2026-05-28
 
