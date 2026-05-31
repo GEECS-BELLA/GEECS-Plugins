@@ -3,6 +3,55 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] — 2026-05-30
+
+Reintroduce per-analyzer overrides on the optimizer YAML — but as a
+generic `scan:` (or any-field) patch routed through the loader, not as
+a magic single-field knob. Companion to ImageAnalysis 1.6.0.
+
+### Added
+- Optimizer YAML's `evaluator.kwargs.analyzers` accepts dict-form
+  entries alongside bare strings:
+  ```yaml
+  analyzers:
+    - UC_TopView                          # diagnostic as-is
+    - diagnostic: UC_FROG                 # patch scan block
+      scan:
+        mode: per_bin
+  ```
+  Any field on the diagnostic can be overridden; the patch is
+  deep-merged via `load_diagnostic`'s new `overrides` kwarg
+  (ImageAnalysis 1.6.0) and re-validated. No code change here is
+  optimization-specific — the override mechanism lives on the loader.
+- `OptimizerAnalyzerEntry` — three-line envelope model
+  (`diagnostic: str` + `ConfigDict(extra="allow")`) that validates the
+  dict form's shape and surfaces the override patch via
+  `model_extra`. Deliberately does not enumerate override fields, so
+  future per-context overrides (priority, save flag, anything) need no
+  code changes here.
+- `_split_analyzer_entry(entry) -> (name, overrides)` — single
+  envelope decoder used by both `BaseOptimizerConfig._load_and_check`
+  (for `device_requirements` auto-generation) and
+  `MultiDeviceScanEvaluator.__init__` (for analyzer construction).
+  Keeps the two call sites in lockstep.
+
+### Migration
+Production optimizer YAMLs that previously needed `per_bin` and were
+flattened to bare strings in 0.25.0 — and lost their override — are
+restored to dict form with `scan: {mode: per_bin}` patches in
+[GEECS-Plugins-Configs](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs).
+Bare-string entries are still accepted and behave as before (use
+diagnostic as-is).
+
+### Note
+This release reverses the override removal in 0.25.0. The reintroduced
+mechanism is structurally cleaner than the 0.24.0 form it replaced:
+the override capability lives in `image_analysis.config.load_diagnostic`
+(generic, available to any consumer), the optimizer-side surface is a
+three-line envelope model instead of the previous 95-LoC computed-field
+wrapper, and the YAML vocabulary matches the diagnostic's own shape
+(`scan:` block as the patch).
+
 ## [0.25.0] — 2026-05-30
 
 Drop the optimizer's per-analyzer override surface. The diagnostic YAML

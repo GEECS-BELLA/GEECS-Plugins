@@ -36,6 +36,62 @@ _OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE = {
 }
 
 
+class OptimizerAnalyzerEntry(BaseModel):
+    """Envelope-only model for an entry in the optimizer YAML's ``analyzers`` list.
+
+    The optimizer YAML lists analyzers as either a bare diagnostic stem
+    (no per-run customization) or a dict that names a diagnostic and
+    carries a patch over its fields::
+
+        analyzers:
+          - UC_TopView                          # use diagnostic as-is
+          - diagnostic: UC_FROG                 # patch scan block
+            scan:
+              mode: per_bin
+
+    This model validates the *envelope* — that the entry has a
+    ``diagnostic`` key naming a string — and uses ``extra="allow"`` to
+    capture every other field as the override patch. The patch dict is
+    then passed straight to :func:`image_analysis.config.load_diagnostic`
+    via its ``overrides`` kwarg, which deep-merges it into the on-disk
+    YAML before Pydantic re-validates the whole thing.
+
+    The model deliberately does *not* enumerate override fields
+    (``analysis_mode`` etc.) — that would re-couple the optimizer's
+    surface area to the diagnostic schema. ``model_extra`` carries the
+    patch generically, so any field on the diagnostic can be overridden
+    without code changes here.
+
+    See :class:`MultiDeviceScanEvaluator` for the consumption pattern.
+    """
+
+    diagnostic: str
+    model_config = ConfigDict(extra="allow")
+
+
+def _split_analyzer_entry(
+    entry: Union[str, Dict[str, Any]],
+) -> tuple[str, Optional[Dict[str, Any]]]:
+    """Parse one ``analyzers:`` list element into ``(name, overrides)``.
+
+    Used by both :meth:`BaseOptimizerConfig._load_and_check` (for
+    auto-generating ``device_requirements``) and
+    :class:`MultiDeviceScanEvaluator.__init__` (for building the
+    actual analyzers). Centralising the envelope parsing here keeps
+    the two call sites in lockstep — anywhere the optimizer YAML's
+    analyzers list is consumed, this is the single decoder.
+
+    Bare-string entries return ``(stem, None)``; dict entries are
+    validated as :class:`OptimizerAnalyzerEntry` and any fields beyond
+    ``diagnostic`` are returned as the overrides patch (or ``None``
+    when no overrides were supplied).
+    """
+    if isinstance(entry, str):
+        return entry, None
+    parsed = OptimizerAnalyzerEntry.model_validate(entry)
+    return parsed.diagnostic, (parsed.model_extra or None)
+
+
 class EvaluatorConfig(BaseModel):
     """
     Configuration for an optimization evaluator.
@@ -195,16 +251,19 @@ class BaseOptimizerConfig(BaseModel):
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
 
         # Auto-generate device_requirements from evaluator kwargs if needed.
-        # The evaluator YAML's ``analyzers`` is a flat list of diagnostic
-        # stems (no override knobs — see the 0.25.0 changelog). For each
-        # entry we load the diagnostic to discover its GEECS device name
-        # and template a per-analyzer device block under that key.
+        # Each entry in ``analyzers`` is either a bare diagnostic stem
+        # (string) or a dict with ``diagnostic:`` + override patch (see
+        # OptimizerAnalyzerEntry). The patch is forwarded to
+        # ``load_diagnostic`` so the resolved GEECS device name reflects
+        # any ``name``-level override; in practice overrides target
+        # ``scan:`` fields and the name comes straight off disk.
         if self.device_requirements is None:
             analyzers = self.evaluator.kwargs.get("analyzers")
             if analyzers:
                 devices: Dict[str, dict] = {}
-                for name in analyzers:
-                    diag = load_diagnostic(name)
+                for entry in analyzers:
+                    name, overrides = _split_analyzer_entry(entry)
+                    diag = load_diagnostic(name, overrides=overrides)
                     devices[diag.name] = dict(_OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE)
                 self.device_requirements = {"Devices": devices}
 

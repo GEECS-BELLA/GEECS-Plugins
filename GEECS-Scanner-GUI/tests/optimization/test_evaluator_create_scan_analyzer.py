@@ -214,11 +214,11 @@ class TestCreateScanAnalyzer1D:
 
 
 class TestEvaluatorInit:
-    """``MultiDeviceScanEvaluator.__init__`` consumes a list of stems."""
+    """``MultiDeviceScanEvaluator.__init__`` consumes bare-string or dict-form entries."""
 
     _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
-    def test_construction_loads_diagnostics_and_builds_analyzers(
+    def test_bare_string_entry_loads_diagnostic_and_builds_analyzer(
         self, fake_camera_config
     ):
         from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
@@ -251,3 +251,83 @@ class TestEvaluatorInit:
         assert "UC_TestDevice" in ev.device_requirements["Devices"]
         # primary_device exposed for legacy subclasses
         assert ev.primary_device == "UC_TestDevice"
+
+    def test_dict_form_entry_passes_overrides_to_loader(self, fake_camera_config):
+        """Dict-form entries forward their patch through to ``load_diagnostic``."""
+        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
+            MultiDeviceScanEvaluator,
+        )
+
+        diag = _diag(
+            name="UC_TestDevice",
+            image=fake_camera_config,
+            class_path=self._BEAM_PATH,
+            scan={"mode": "per_bin"},  # what the override would have produced
+        )
+        received_overrides: list = []
+
+        def _fake_loader(name, **kwargs):
+            received_overrides.append(kwargs.get("overrides"))
+            return diag
+
+        class _Concrete(MultiDeviceScanEvaluator):
+            def compute_objective(self, scalar_results, bin_number):
+                return 0.0
+
+        with patch(
+            "geecs_scanner.optimization.evaluators."
+            "multi_device_scan_evaluator.load_diagnostic",
+            side_effect=_fake_loader,
+        ):
+            ev = _Concrete(
+                analyzers=[{"diagnostic": "UC_TestDevice", "scan": {"mode": "per_bin"}}]
+            )
+
+        # Override patch reached the loader verbatim.
+        assert received_overrides == [{"scan": {"mode": "per_bin"}}]
+        assert len(ev.diagnostics) == 1
+        assert ev.diagnostics[0] is diag
+
+    def test_mixed_bare_and_dict_entries_in_same_list(self, fake_camera_config):
+        """One list can mix bare strings (no overrides) and dict forms (with overrides)."""
+        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
+            MultiDeviceScanEvaluator,
+        )
+
+        diag_a = _diag(
+            name="Dev_A",
+            image=fake_camera_config,
+            class_path=self._BEAM_PATH,
+        )
+        diag_b = _diag(
+            name="Dev_B",
+            image=fake_camera_config,
+            class_path=self._BEAM_PATH,
+        )
+        received: list = []
+
+        def _fake_loader(name, **kwargs):
+            received.append((name, kwargs.get("overrides")))
+            return {"Dev_A": diag_a, "Dev_B": diag_b}[name]
+
+        class _Concrete(MultiDeviceScanEvaluator):
+            def compute_objective(self, scalar_results, bin_number):
+                return 0.0
+
+        with patch(
+            "geecs_scanner.optimization.evaluators."
+            "multi_device_scan_evaluator.load_diagnostic",
+            side_effect=_fake_loader,
+        ):
+            ev = _Concrete(
+                analyzers=[
+                    "Dev_A",
+                    {"diagnostic": "Dev_B", "scan": {"mode": "per_bin"}},
+                ]
+            )
+
+        assert received == [
+            ("Dev_A", None),
+            ("Dev_B", {"scan": {"mode": "per_bin"}}),
+        ]
+        assert len(ev.diagnostics) == 2

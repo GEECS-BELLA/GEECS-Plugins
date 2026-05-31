@@ -258,6 +258,7 @@ def load_diagnostic(
     name_or_path: Union[str, Path],
     *,
     config_dir: Optional[Path] = None,
+    overrides: Optional[Dict[str, Any]] = None,
 ) -> DiagnosticAnalysisConfig:
     """Load a unified diagnostic YAML by name or path.
 
@@ -274,6 +275,16 @@ def load_diagnostic(
         string, falls back to
         ``ScanPaths.paths_config.scan_analysis_configs_path`` — the
         same default the task queue uses.
+    overrides : dict, optional
+        Deep-merged into the raw YAML before validation. Nested dicts
+        are merged key-by-key (so ``{"scan": {"mode": "per_bin"}}``
+        replaces only ``scan.mode`` and leaves the rest of ``scan``
+        untouched); anything else (scalars, lists) replaces wholesale.
+        Pydantic re-validates the merged result, so override typos and
+        type mismatches surface with the same error path as a bad YAML
+        on disk. Use this when a single consumer (e.g. the optimizer's
+        ``MultiDeviceScanEvaluator``) needs a per-call variant of a
+        diagnostic without forking the YAML.
 
     Returns
     -------
@@ -312,10 +323,34 @@ def load_diagnostic(
     with open(diag_path, "r") as f:
         data = yaml.safe_load(f) or {}
 
+    if overrides:
+        data = _deep_merge(data, overrides)
+
     try:
         return DiagnosticAnalysisConfig.model_validate(data)
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
+
+
+def _deep_merge(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    """Return ``base`` with ``overlay`` recursively merged in.
+
+    Nested dicts are merged key-by-key. Anything else — scalars, lists,
+    None — replaces wholesale (no list concatenation; that would create
+    surprising semantics when an overlay tries to *replace* a list).
+    Always returns a new dict; ``base`` and ``overlay`` are not mutated.
+
+    Used by :func:`load_diagnostic` to apply per-call overrides on top
+    of the on-disk YAML before Pydantic validation, but generic enough
+    to apply to any dict pair.
+    """
+    out: Dict[str, Any] = dict(base)
+    for key, value in overlay.items():
+        if key in out and isinstance(out[key], dict) and isinstance(value, dict):
+            out[key] = _deep_merge(out[key], value)
+        else:
+            out[key] = value
+    return out
 
 
 def _resolve_default_config_dir(config_dir: Optional[Path]) -> Path:

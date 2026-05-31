@@ -5,9 +5,13 @@ Subclasses implement :meth:`compute_objective` for simple per-bin averaging,
 or override :meth:`compute_objective_from_shots` for richer per-shot treatment
 (median, noise estimates, etc.).
 
-Analysis mode comes from each diagnostic's own ``scan.mode``. The optimizer
-YAML has no override knob — if a diagnostic should run in a different mode
-during optimization than during canonical scan analysis, edit the diagnostic.
+Analysis mode comes from each diagnostic's own ``scan.mode``, optionally
+patched per-entry via an override block on the optimizer YAML. Patches
+are applied at the loader (``load_diagnostic(name, overrides=...)``); the
+optimizer YAML just declares them and this evaluator forwards them
+without inspection. To run the same diagnostic in a different mode for
+optimization than for canonical scan analysis, add a ``scan: {mode: ...}``
+patch on the analyzer entry — no diagnostic fork required.
 
 When analyzers have mixed modes, ``per_bin`` results are broadcast across all
 shot slots so every slot has a full merged scalar dict before the objective hook
@@ -22,7 +26,7 @@ MultiDeviceScanEvaluator
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 if TYPE_CHECKING:
     from geecs_scanner.engine.data_logger import DataLogger
@@ -32,6 +36,7 @@ from image_analysis.config import load_diagnostic
 from scan_analysis.config import create_scan_analyzer
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
+from geecs_scanner.optimization.config_models import _split_analyzer_entry
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +66,14 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     Parameters
     ----------
-    analyzers : list of str
-        Diagnostic stems (filename without ``.yaml`` under
-        ``scan_analysis_configs/analyzers/<namespace>/``). Each is loaded
-        via :func:`image_analysis.config.load_diagnostic`; missing or
-        malformed diagnostics fail at construction.
+    analyzers : list of (str or dict)
+        Each entry names a diagnostic by stem (filename without ``.yaml``
+        under ``scan_analysis_configs/analyzers/<namespace>/``). Bare
+        strings load the diagnostic as-is; dicts of the form
+        ``{diagnostic: <stem>, <field>: <patch>}`` deep-merge the patch
+        into the diagnostic before validation (see
+        :func:`image_analysis.config.load_diagnostic`'s ``overrides``
+        kwarg). Missing or malformed diagnostics fail at construction.
     scan_data_manager : ScanDataManager, optional
     data_logger : DataLogger, optional
     **kwargs
@@ -74,16 +82,22 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        analyzers: List[str],
+        analyzers: List[Union[str, Dict[str, Any]]],
         scan_data_manager: Optional["ScanDataManager"] = None,
         data_logger: Optional["DataLogger"] = None,
         **kwargs,
     ):
-        # Load each diagnostic. ``load_diagnostic`` raises on missing or
-        # malformed YAML so construction-time failure is the surfacing
-        # point — the alternative ("evaluator created, blows up the first
-        # time it tries to analyze") would be much worse to debug.
-        self.diagnostics = [load_diagnostic(name) for name in analyzers]
+        # Decode each entry to (name, overrides), then load. The split
+        # helper handles both bare-string and dict-form entries and
+        # validates the envelope; ``load_diagnostic`` raises on missing
+        # or malformed YAML so construction-time failure is the
+        # surfacing point — the alternative ("evaluator created, blows
+        # up the first time it tries to analyze") would be much worse
+        # to debug.
+        self.diagnostics = []
+        for entry in analyzers:
+            name, overrides = _split_analyzer_entry(entry)
+            self.diagnostics.append(load_diagnostic(name, overrides=overrides))
 
         # Device requirements key on the GEECS device name (``diag.name``),
         # not on the diagnostic stem (those can differ for stitched /

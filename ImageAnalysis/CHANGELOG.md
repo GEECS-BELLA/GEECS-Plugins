@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.6.0] — 2026-05-30
+
+### Added
+- `load_diagnostic` gains an optional `overrides: dict` keyword. The
+  override dict is deep-merged into the on-disk YAML before Pydantic
+  validation: nested mappings merge key-by-key, scalars and lists
+  replace wholesale, and the merged result re-validates so override
+  typos or type mismatches surface with the same error path as a bad
+  YAML on disk. Generic — works for any field on the diagnostic, not
+  optimization-specific. First consumer is Scanner-GUI 0.26.0's
+  `MultiDeviceScanEvaluator`, which uses it to flip `scan.mode` per
+  optimization run without forking the diagnostic.
+- Private `_deep_merge(base, overlay) -> dict` helper next to
+  `load_diagnostic`. Recursive dict merge; returns a new dict (never
+  mutates inputs). Visible only to the loader module.
+
 ## [1.5.0] — 2026-05-27
 
 Loader API consolidation (PR-E). Companion to ScanAnalysis 1.7.0.

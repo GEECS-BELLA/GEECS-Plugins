@@ -13,9 +13,10 @@ from unittest.mock import patch
 
 import pytest
 
-# No imports from config_models needed at module load — the validator
-# behavior is exercised via BaseOptimizerConfig below, and the no-knob
-# YAML shape needs no per-analyzer model.
+from geecs_scanner.optimization.config_models import (
+    OptimizerAnalyzerEntry,
+    _split_analyzer_entry,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -75,11 +76,72 @@ def _stub_loader_by_name(per_name: dict):
 # ---------------------------------------------------------------------------
 
 
+class TestOptimizerAnalyzerEntry:
+    """Envelope model — validates shape, captures everything else as overrides."""
+
+    def test_bare_diagnostic_field_validates(self):
+        entry = OptimizerAnalyzerEntry.model_validate({"diagnostic": "UC_Test"})
+        assert entry.diagnostic == "UC_Test"
+        assert entry.model_extra in (None, {})
+
+    def test_missing_diagnostic_field_rejected(self):
+        with pytest.raises(Exception, match="diagnostic"):
+            OptimizerAnalyzerEntry.model_validate({"scan": {"mode": "per_bin"}})
+
+    def test_override_fields_captured_in_model_extra(self):
+        entry = OptimizerAnalyzerEntry.model_validate(
+            {
+                "diagnostic": "UC_Test",
+                "scan": {"mode": "per_bin"},
+            }
+        )
+        assert entry.model_extra == {"scan": {"mode": "per_bin"}}
+
+    def test_multiple_override_fields_all_captured(self):
+        """Model deliberately doesn't enumerate fields — anything goes in extras."""
+        entry = OptimizerAnalyzerEntry.model_validate(
+            {
+                "diagnostic": "UC_Test",
+                "scan": {"mode": "per_bin", "priority": 5},
+                "image": {"bit_depth": 12},
+            }
+        )
+        assert entry.model_extra == {
+            "scan": {"mode": "per_bin", "priority": 5},
+            "image": {"bit_depth": 12},
+        }
+
+
+class TestSplitAnalyzerEntry:
+    """Single envelope decoder used by both validator and evaluator."""
+
+    def test_bare_string_returns_name_and_none(self):
+        assert _split_analyzer_entry("UC_Test") == ("UC_Test", None)
+
+    def test_dict_form_returns_name_and_overrides(self):
+        name, overrides = _split_analyzer_entry(
+            {"diagnostic": "UC_Test", "scan": {"mode": "per_bin"}}
+        )
+        assert name == "UC_Test"
+        assert overrides == {"scan": {"mode": "per_bin"}}
+
+    def test_dict_form_no_overrides_returns_none(self):
+        """Dict form with only ``diagnostic:`` and no extras returns None overrides."""
+        name, overrides = _split_analyzer_entry({"diagnostic": "UC_Test"})
+        assert name == "UC_Test"
+        assert overrides is None
+
+    def test_dict_form_missing_diagnostic_rejected(self):
+        with pytest.raises(Exception, match="diagnostic"):
+            _split_analyzer_entry({"scan": {"mode": "per_bin"}})
+
+
 class TestAutoDeviceRequirements:
     """``BaseOptimizerConfig`` synthesises device_requirements from the analyzer list.
 
-    The optimizer YAML's ``evaluator.kwargs.analyzers`` is a flat list of
-    diagnostic stems. The validator loads each diagnostic to discover
+    The optimizer YAML's ``evaluator.kwargs.analyzers`` is a list of
+    diagnostic stems (bare strings) or dict-form entries with override
+    patches. For each, the validator loads the diagnostic to discover
     its GEECS device name and templates a per-analyzer device block.
     """
 
@@ -144,6 +206,37 @@ class TestAutoDeviceRequirements:
 
         assert "UC_RealDevice" in cfg.device_requirements["Devices"]
         assert "my_stem" not in cfg.device_requirements["Devices"]
+
+    def test_dict_form_entry_passes_overrides_to_loader(self):
+        """Dict-form entries forward their override patch to ``load_diagnostic``.
+
+        The auto-generated device_requirements still keys on the
+        diagnostic's ``name`` (which the override could in principle
+        affect, but usually doesn't — overrides target ``scan:`` not
+        ``name:``).
+        """
+        received_overrides: list = []
+
+        def _fake_loader(name, **kwargs):
+            received_overrides.append(kwargs.get("overrides"))
+            return _diag(name=name)
+
+        with patch(
+            "geecs_scanner.optimization.config_models.load_diagnostic",
+            side_effect=_fake_loader,
+        ):
+            cfg = self._build(
+                [
+                    "Dev_A",  # bare → overrides=None
+                    {"diagnostic": "Dev_B", "scan": {"mode": "per_bin"}},
+                ]
+            )
+
+        # Loader called with overrides=None for the bare entry, and the
+        # patch dict for the dict-form entry.
+        assert received_overrides == [None, {"scan": {"mode": "per_bin"}}]
+        # Both devices present in requirements regardless.
+        assert set(cfg.device_requirements["Devices"].keys()) == {"Dev_A", "Dev_B"}
 
 
 # ---------------------------------------------------------------------------
