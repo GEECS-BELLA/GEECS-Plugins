@@ -24,9 +24,15 @@ class BaseRendererConfig(BaseModel):
     ----------
     colormap_mode : str
         Colormap normalization mode:
-        - "sequential": Standard 0 to max (default)
-        - "diverging": Symmetric around zero for bipolar data
-        - "custom": User-defined vmin/vmax
+        - "auto": Sign-aware. If data crosses zero, use an asymmetric
+          diverging colormap (``TwoSlopeNorm`` centered on zero) so the
+          sign is visually distinct without wasting color resolution on
+          empty negative range. Otherwise behaves like "sequential" but
+          with ``vmin = data.min()`` so non-negative data still uses the
+          full color range. Default for ``Line1DRendererConfig``.
+        - "sequential": Standard 0 to max (clips negatives to bottom of cmap).
+        - "diverging": Symmetric around zero for bipolar data.
+        - "custom": User-defined vmin/vmax.
     cmap : str, optional
         Matplotlib colormap name (e.g., 'plasma', 'RdBu_r', 'coolwarm').
         If not provided, defaults are used based on colormap_mode.
@@ -54,7 +60,7 @@ class BaseRendererConfig(BaseModel):
 
     """
 
-    colormap_mode: Literal["sequential", "diverging", "custom"] = Field(
+    colormap_mode: Literal["auto", "sequential", "diverging", "custom"] = Field(
         default="sequential", description="Colormap normalization mode"
     )
 
@@ -103,9 +109,23 @@ class Line1DRendererConfig(BaseRendererConfig):
         default="waterfall", description="Visualization mode for summary figure"
     )
 
+    colormap_mode: Literal["auto", "sequential", "diverging", "custom"] = Field(
+        default="auto",
+        description=(
+            "Colormap normalization mode. Default 'auto' chooses between "
+            "sequential and asymmetric-diverging (TwoSlopeNorm) based on "
+            "whether the data crosses zero — see BaseRendererConfig."
+        ),
+    )
+
     cmap: Optional[str] = Field(
-        default="plasma",
-        description="Matplotlib colormap name (default: plasma for 1D)",
+        default=None,
+        description=(
+            "Matplotlib colormap name. None lets the renderer pick a "
+            "default for the chosen colormap_mode: 'plasma' for "
+            "sequential / non-sign-crossing 'auto', 'RdBu_r' for "
+            "diverging / sign-crossing 'auto'."
+        ),
     )
 
     waterfall_sort_key: Optional[str] = Field(

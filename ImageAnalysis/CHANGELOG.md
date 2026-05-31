@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [1.6.0] — 2026-05-30
+## [1.7.0] — 2026-05-30
 
 ### Added
 - `load_diagnostic` gains an optional `overrides: dict` keyword. The
@@ -18,6 +18,96 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Private `_deep_merge(base, overlay) -> dict` helper next to
   `load_diagnostic`. Recursive dict merge; returns a new dict (never
   mutates inputs). Visible only to the loader module.
+
+## [1.6.0] — 2026-05-28
+
+Add the `FrogSpectralPhaseAnalyzer` and the auxiliary-column loading
+support it needed. Originally branched before PR-E; rebased onto the
+post-PR-E surface and **simplified to fit the atomic load+analyze
+contract** — aux columns now flow through the local `auxiliary_data`
+dict rather than through analyzer-instance state.
+
+### Added
+- `algorithms.polynomial_fit` provides reusable weighted polynomial
+  fitting with finite-value filtering, optional threshold masking, and
+  sign canonicalization.
+- `Data1DConfig.auxiliary_columns: Dict[str, int]` — declarative
+  mapping from name → column index for sidecar columns loaded
+  alongside the primary `x` / `y` data. Row-aligned with the primary
+  Nx2 line data.
+- `Data1DResult.auxiliary_column_data: dict[str, np.ndarray]` —
+  loader output carrying the named aux columns. Lives at the loader
+  boundary; consumed by the analyzer and discarded.
+- `analyzers.frog_spectral_phase_analyzer.FrogSpectralPhaseAnalyzer`
+  fits retrieved FROG spectral phase lineouts and reports physical
+  dispersion terms (`GD`, `GDD`, `TOD`, ...). Uses the `weights`
+  aux column for intensity-weighted polynomial fitting when configured.
+- `docs/image_analysis/examples/pulse_duration_jitter_analysis.ipynb`
+  demonstrates loading a Scan010 retrieved FROG lineout and running
+  the new analyzer.
+
+### Changed
+- `Standard1DAnalyzer.analyze_image_file` is now the canonical atomic
+  load+analyze entry point. It reads the file, stashes descriptive
+  metadata (units, labels) on `self.data_metadata`, and routes any
+  loaded aux columns through `auxiliary_data["_aux_columns"]` to
+  `analyze_image`. Per-shot data (the loaded arrays) no longer
+  travels through analyzer-instance state between separate pipeline
+  phases — this is the correctness property the post-PR-E
+  `SingleDeviceScanAnalyzer` contract enforces.
+- Subclasses that need ROI-filtered aux columns should call
+  `_preprocess_line_data` directly so the line and aux arrays come
+  back from the same call boundary (see `FrogSpectralPhaseAnalyzer`
+  for the pattern).
+- `FrogSpectralPhaseAnalyzer.analyze_image` now emits the **fit**
+  curve as `result.line_data` — fixed-length (`fit_num_points`,
+  default 300), wavelength-sorted Nx2. Raw scattered phase samples
+  and the intensity-weight curve move to `result.render_data`
+  (`raw_wavelength_nm`, `raw_spectral_phase`,
+  `fit_normalized_reference`). This makes every shot in a scan
+  emit identically-shaped `line_data`, so `Array1DScanAnalyzer`'s
+  waterfall and per-bin averaging aggregate cleanly across shots —
+  fixing the inhomogeneous-shape crash hit on 500-shot scans where
+  per-shot ROI-edge wobble produced variable raw lengths.
+- `FrogSpectralPhaseAnalyzer.__init__` takes a typed `Line1DConfig`
+  (matches the post-PR-E `Standard1DAnalyzer` contract). String-by-
+  name resolution moved to the loader — call
+  `image_analysis.config.load_line_config(name)` first.
+
+### Removed
+- `ImageAnalyzerResult.line_auxiliary_column_data` field. Aux columns
+  no longer escape the analyzer — they're consumed and discarded
+  inside the analyze call. ScanAnalysis never had a use for them; no
+  downstream consumer breaks.
+- `Standard1DAnalyzer._loaded_auxiliary_column_data` instance state
+  and the `_use_loaded_auxiliary_columns` flag that controlled when
+  `analyze_image` read from it. Both were the pre-PR-E shuttle for
+  the now-deleted load-all pipeline.
+
+### Fixed
+- `data_1d_utils` now skips a detected CSV/TSV header row after
+  parsing column metadata, allowing `read_1d_data` to load Grenouille
+  retrieved lineout TSVs written with named column headers.
+- `_interpolation_enabled` no longer reads the deleted
+  `InterpolationConfig.enabled` field. Post-PR-F semantics:
+  `pipeline.steps` is the single source of truth — if
+  `INTERPOLATION` is in the step list and the sub-config is present,
+  interpolation runs.
+- `ImageAnalyzerResult.average` no longer crashes on inhomogeneous-
+  shape arrays. The previous code called `np.nanmean(values, axis=0)`
+  directly on `line_data`, `processed_image`, and every NDArray
+  render_data field; on numpy 2.x this raises a hard `ValueError`
+  through `np.asanyarray` when shots have different shapes. Now: a
+  new module-level `_safe_nanmean_arrays` helper detects mismatched
+  shapes, logs a warning naming the offending field, and returns
+  `None` so the caller omits the key from the averaged result. List-
+  valued render_data fields get the same length check. Surfaces on
+  parameter scans with FROG: `raw_wavelength_nm`,
+  `raw_spectral_phase`, and `fit_normalized_reference` are variable-
+  length per shot by design (they track the raw ROI'd data); they're
+  now dropped from the per-bin average with a warning while
+  fixed-length fields (`line_data`, `fit_omega_detuning_rad_per_fs`)
+  average as expected.
 
 ## [1.5.0] — 2026-05-27
 

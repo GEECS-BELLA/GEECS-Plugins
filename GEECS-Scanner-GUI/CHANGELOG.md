@@ -7,7 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 Reintroduce per-analyzer overrides on the optimizer YAML — but as a
 generic `scan:` (or any-field) patch routed through the loader, not as
-a magic single-field knob. Companion to ImageAnalysis 1.6.0.
+a magic single-field knob. Companion to ImageAnalysis 1.7.0.
 
 ### Added
 - Optimizer YAML's `evaluator.kwargs.analyzers` accepts dict-form
@@ -21,7 +21,7 @@ a magic single-field knob. Companion to ImageAnalysis 1.6.0.
   ```
   Any field on the diagnostic can be overridden; the patch is
   deep-merged via `load_diagnostic`'s new `overrides` kwarg
-  (ImageAnalysis 1.6.0) and re-validated. No code change here is
+  (ImageAnalysis 1.7.0) and re-validated. No code change here is
   optimization-specific — the override mechanism lives on the loader.
 - `OptimizerAnalyzerEntry` — three-line envelope model
   (`diagnostic: str` + `ConfigDict(extra="allow")`) that validates the
@@ -81,7 +81,7 @@ for optimization, edit the diagnostic.
   subclasses that touched `analyzer_refs[0].device_name` should use
   `primary_device` instead (`bcavemagspec_opt.EBeamSourceOpt` updated).
 - The `analysis_mode` keyword on `create_scan_analyzer` (added in
-  ScanAnalysis 1.9.0) is also gone — see ScanAnalysis 1.10.0.
+  ScanAnalysis 1.10.0) is also gone — see ScanAnalysis 1.11.0.
 
 ### Migration
 Production optimizer YAMLs under `scanner_configs/experiments/<exp>/optimizer_configs/`
@@ -122,7 +122,7 @@ factory.
   use_injected_data=True)` directly — no manual analyzer-class
   importing, no kwarg-splicing of the typed image config into the
   analyzer's constructor, no `live_analysis` / `use_colon_scan_param`
-  setattr lines (the latter were broken anyway after ScanAnalysis 1.9.0
+  setattr lines (the latter were broken anyway after ScanAnalysis 1.10.0
   removed those attributes).
 - Evaluator attribute renamed `analyzer_configs` → `analyzer_refs` to
   reflect the thinner role. The `_get_value` dispatch reads each
