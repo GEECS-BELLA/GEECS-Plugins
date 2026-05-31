@@ -38,8 +38,8 @@ for optimization, edit the diagnostic.
 Production optimizer YAMLs under `scanner_configs/experiments/<exp>/optimizer_configs/`
 need to drop their `analysis_mode:` lines and may collapse `{diagnostic: X}`
 entries to bare `X` strings. Done in
-[GEECS-Plugins-Configs@<commit>] for the 10 Undulator YAMLs in
-production. If an analyzer needs a different mode in optimization than
+[GEECS-Plugins-Configs@b2c14b1](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/b2c14b1)
+for the 10 Undulator YAMLs in production. If an analyzer needs a different mode in optimization than
 in scan analysis, edit the diagnostic's `scan.mode` (or fork the
 diagnostic if the modes legitimately differ between contexts).
 
