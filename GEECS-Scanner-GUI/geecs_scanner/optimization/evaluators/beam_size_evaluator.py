@@ -1,37 +1,36 @@
-"""
-Evaluator for minimizing beam size using MultiDeviceScanEvaluator.
+"""Minimize beam FWHM on a single camera diagnostic.
 
 Classes
 -------
 BeamSizeEvaluator
-    Minimize beam FWHM on any camera device.
+    Minimize ``(x_fwhm * cal)² + (y_fwhm * cal)²`` on whichever camera
+    diagnostic is listed first in ``analyzers``.
 """
 
 from __future__ import annotations
 
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 
-class BeamSizeEvaluator(MultiDeviceScanEvaluator):
-    """Minimize beam size: (x_fwhm * calibration)² + (y_fwhm * calibration)²."""
+class BeamSizeEvaluator(BaseEvaluator):
+    """Minimize quadrature sum of FWHMs (in physical units)."""
 
     def __init__(self, calibration: float = 24.4e-3, **kwargs):
         super().__init__(**kwargs)
         self.calibration = calibration
-        self.objective_tag = "BeamSize"
 
-    def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """Compute objective."""
-        x = self.get_scalar(self.primary_device, "x_fwhm", scalar_results)
-        y = self.get_scalar(self.primary_device, "y_fwhm", scalar_results)
+    def compute_objective(self, scalars, bin_number):
+        """Quadrature sum of calibrated FWHMs."""
+        dev = self.primary_device
+        x = scalars[f"{dev}_x_fwhm"]
+        y = scalars[f"{dev}_y_fwhm"]
         return (x * self.calibration) ** 2 + (y * self.calibration) ** 2
 
-    def compute_observables(self, scalar_results: dict, bin_number: int) -> dict:
-        """Compute observables."""
-        x = self.get_scalar(self.primary_device, "x_fwhm", scalar_results)
-        y = self.get_scalar(self.primary_device, "y_fwhm", scalar_results)
+    def compute_observables(self, scalars, bin_number):
+        """Expose pixel + calibrated FWHMs alongside the objective."""
+        dev = self.primary_device
+        x = scalars[f"{dev}_x_fwhm"]
+        y = scalars[f"{dev}_y_fwhm"]
         x_cal = x * self.calibration
         y_cal = y * self.calibration
         return {

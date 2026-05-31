@@ -118,6 +118,9 @@ def make_base_evaluator(
     obj = _Concrete.__new__(_Concrete)
     # Manually set attributes instead of calling __init__ to avoid needing
     # ScanDataManager / ScanPaths.
+    obj.diagnostics = []
+    obj.scan_analyzers = {}
+    obj.scalar_keys = []
     obj.device_requirements = {}
     obj.scan_data_manager = None
     obj.data_logger = FakeDataLogger(log_entries=log_entries, bin_num=bin_num)
