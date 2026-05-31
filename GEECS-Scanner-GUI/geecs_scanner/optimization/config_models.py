@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from typing import TYPE_CHECKING
 
@@ -12,7 +12,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -22,133 +21,19 @@ from image_analysis.config import load_diagnostic
 
 if TYPE_CHECKING:
     from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
-    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
 
 
-class OptimizerAnalyzerRef(BaseModel):
-    """One analyzer entry inside :class:`MultiDeviceScanEvaluator`.
-
-    The optimizer YAML points at a unified diagnostic by name; the
-    wrapper class, image config, file tail, data folder override, etc.
-    are all inherited from the diagnostic's ``image:`` / ``scan:``
-    sections on disk (the same YAML the scan-side analyzers consume via
-    the analysis-group loader). One optional override field —
-    ``analysis_mode`` — lets you flip the same diagnostic between
-    per-shot scan analysis and per-bin optimizer evaluation without
-    forking a separate YAML.
-
-    YAML shape::
-
-        analyzers:
-          - diagnostic: UC_TopView                # everything inherited
-          - diagnostic: U_FROG_Grenouille-SpectralPhase
-            analysis_mode: per_bin                # override scan.mode
-
-    Attributes
-    ----------
-    diagnostic : str
-        Diagnostic ID (filename stem of the YAML under
-        ``scan_analysis_configs/analyzers/<namespace>/<stem>.yaml``).
-        Resolved via :func:`image_analysis.config.load_diagnostic` at
-        validation time so a missing or malformed YAML fails fast.
-    analysis_mode : {"per_shot", "per_bin"}, optional
-        Per-run override for the diagnostic's ``scan.mode``. ``None``
-        (default) means "use whatever the diagnostic declares." The
-        :func:`scan_analysis.config.create_scan_analyzer` factory applies
-        the override when building the wrapper analyzer.
-
-    Notes
-    -----
-    This model is deliberately thin — it caches the loaded
-    :class:`DiagnosticAnalysisConfig` (so callers don't pay for a
-    second on-disk lookup) and exposes the GEECS device name. Anything
-    else previously synthesised here (analyzer class, file tail, typed
-    image config) is now the diagnostic-factory's job and not duplicated
-    in the optimizer surface area.
-    """
-
-    diagnostic: str
-    analysis_mode: Optional[Literal["per_shot", "per_bin"]] = None
-
-    # Cached resolved diagnostic. Populated by the validator; consumed by
-    # the ``diag`` / ``device_name`` accessors. Private so it doesn't
-    # appear in ``model_dump`` / serialised YAML round-trips.
-    _diag: Optional["DiagnosticAnalysisConfig"] = PrivateAttr(default=None)
-
-    @model_validator(mode="after")
-    def _resolve_diagnostic(self) -> "OptimizerAnalyzerRef":
-        """Load the unified diagnostic and stash the resolved view.
-
-        Runs once at model construction. ``load_diagnostic`` defaults
-        to ``ScanPaths.paths_config.scan_analysis_configs_path`` for
-        its config-dir lookup — same root the task-queue + analysis-group
-        loader use — so the diagnostic name has to be unique across the
-        ``analyzers/`` tree but doesn't need a namespace prefix.
-        """
-        self._diag = load_diagnostic(self.diagnostic)
-        return self
-
-    @property
-    def diag(self) -> "DiagnosticAnalysisConfig":
-        """The resolved diagnostic config.
-
-        Handed straight to :func:`scan_analysis.config.create_scan_analyzer`
-        by :class:`MultiDeviceScanEvaluator`; not part of the YAML schema.
-        """
-        assert self._diag is not None, "validator must run first"
-        return self._diag
-
-    @property
-    def device_name(self) -> str:
-        """GEECS device name; used for device_requirements + auxiliary-data lookups."""
-        return self.diag.name
-
-    def to_device_requirement(self) -> dict:
-        """Generate the ``device_requirements`` entry for this analyzer.
-
-        Returns
-        -------
-        dict
-            ``{device_name: {add_all_variables, save_nonscalar_data,
-            synchronous, variable_list}}``. Merged into the evaluator-level
-            ``Devices`` block by :meth:`BaseOptimizerConfig._load_and_check`.
-        """
-        return {
-            self.device_name: {
-                "add_all_variables": False,
-                "save_nonscalar_data": True,
-                "synchronous": True,
-                "variable_list": ["acq_timestamp"],
-            }
-        }
-
-
-def _build_device_requirements(analyzer_entries: List[dict]) -> dict:
-    """Aggregate ``device_requirements`` across a list of analyzer YAML entries.
-
-    Each entry is validated as an :class:`OptimizerAnalyzerRef` (which
-    loads its diagnostic), and the resulting per-analyzer device dicts
-    are merged into a single ``{"Devices": {...}}`` block. Used by
-    :meth:`BaseOptimizerConfig._load_and_check` to fill in
-    ``device_requirements`` when the optimizer YAML omits it.
-
-    Parameters
-    ----------
-    analyzer_entries : list of dict
-        Raw ``evaluator.kwargs.analyzers`` entries from the optimizer YAML.
-
-    Returns
-    -------
-    dict
-        ``{"Devices": {<device>: <requirement>, ...}}`` suitable for
-        assignment to ``device_requirements`` and consumption by the
-        scan data manager.
-    """
-    devices: Dict[str, dict] = {}
-    for entry in analyzer_entries:
-        ref = OptimizerAnalyzerRef.model_validate(entry)
-        devices.update(ref.to_device_requirement())
-    return {"Devices": devices}
+# Per-analyzer device-requirements template. Every optimizer-driven analyzer
+# subscribes to the same shape — synchronous, non-scalar saving, ``acq_timestamp``
+# in the variable list — so the only thing that varies per analyzer is the
+# GEECS device name (the dict key). Lifted out as a module constant so the
+# validator below and any downstream consumer share one definition.
+_OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE = {
+    "add_all_variables": False,
+    "save_nonscalar_data": True,
+    "synchronous": True,
+    "variable_list": ["acq_timestamp"],
+}
 
 
 class EvaluatorConfig(BaseModel):
@@ -204,10 +89,9 @@ class BaseOptimizerConfig(BaseModel):
     unified, validated schema.
 
     For evaluators using MultiDeviceScanEvaluator, device_requirements are
-    automatically generated from the ``analyzers`` list in ``evaluator.kwargs``:
-    each entry is validated as an :class:`OptimizerAnalyzerRef` (which
-    loads its diagnostic), and the per-analyzer ``to_device_requirement``
-    blocks are merged.
+    automatically generated from the ``analyzers`` list in ``evaluator.kwargs``
+    by loading each referenced diagnostic and keying the per-analyzer block on
+    its GEECS device name.
 
     Attributes
     ----------
@@ -311,15 +195,18 @@ class BaseOptimizerConfig(BaseModel):
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
 
         # Auto-generate device_requirements from evaluator kwargs if needed.
-        # The evaluator YAML lists analyzers by diagnostic name; this loop
-        # validates each entry (loading the diagnostic to discover the
-        # GEECS device name) and merges the per-analyzer device blocks.
+        # The evaluator YAML's ``analyzers`` is a flat list of diagnostic
+        # stems (no override knobs — see the 0.25.0 changelog). For each
+        # entry we load the diagnostic to discover its GEECS device name
+        # and template a per-analyzer device block under that key.
         if self.device_requirements is None:
-            evaluator_kwargs = self.evaluator.kwargs
-            if "analyzers" in evaluator_kwargs:
-                self.device_requirements = _build_device_requirements(
-                    evaluator_kwargs["analyzers"]
-                )
+            analyzers = self.evaluator.kwargs.get("analyzers")
+            if analyzers:
+                devices: Dict[str, dict] = {}
+                for name in analyzers:
+                    diag = load_diagnostic(name)
+                    devices[diag.name] = dict(_OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE)
+                self.device_requirements = {"Devices": devices}
 
         # Validate VOCS
         if not self.vocs.variables:

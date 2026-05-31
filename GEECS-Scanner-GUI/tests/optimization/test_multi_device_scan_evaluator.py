@@ -29,11 +29,11 @@ def _make_analyzer_mock(results_by_key: dict, mode: str = "per_bin"):
     return m
 
 
-def _make_ref(device_name: str):
-    """Return a mock OptimizerAnalyzerRef carrying just a device name."""
-    ref = MagicMock()
-    ref.device_name = device_name
-    return ref
+def _make_diag(device_name: str):
+    """Return a mock DiagnosticAnalysisConfig with ``.name`` set."""
+    diag = MagicMock()
+    diag.name = device_name
+    return diag
 
 
 class _ConcreteEvaluator:
@@ -112,14 +112,14 @@ class TestComputeObjectiveFromShotsDefault:
 class TestGetValueRouting:
     """_get_value must route to compute_objective or compute_objective_from_shots."""
 
-    def _make_evaluator_shell(self, analyzer_refs, scan_analyzers):
+    def _make_evaluator_shell(self, analyzer_specs, scan_analyzers):
         """Build a MultiDeviceScanEvaluator bypassing __init__.
 
-        ``analyzer_refs`` is a list of (device_name, mode) tuples; the
-        shell synthesises ``self.analyzer_refs`` (mock objects with
-        ``.device_name``) and stamps the matching ``.analysis_mode``
-        onto each pre-built scan-analyzer mock (which is what the
-        production dispatch loop reads).
+        ``analyzer_specs`` is a list of (device_name, mode) tuples; the
+        shell synthesises ``self.diagnostics`` (mock objects with
+        ``.name``) and stamps the matching ``.analysis_mode`` onto each
+        pre-built scan-analyzer mock (which is what the production
+        dispatch loop reads).
         """
         from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
             MultiDeviceScanEvaluator,
@@ -130,10 +130,10 @@ class TestGetValueRouting:
                 return 0.0
 
         obj = object.__new__(_Concrete)
-        obj.analyzer_refs = [_make_ref(name) for name, _mode in analyzer_refs]
+        obj.diagnostics = [_make_diag(name) for name, _mode in analyzer_specs]
         # Stamp the matching mode onto each analyzer mock so the dispatch
         # loop's ``analyzer.analysis_mode`` reads match the test scenario.
-        for name, mode in analyzer_refs:
+        for name, mode in analyzer_specs:
             scan_analyzers[name].analysis_mode = mode
         obj.scan_analyzers = scan_analyzers
         obj.output_key = "f"
@@ -289,7 +289,7 @@ class TestObservablesShadowing:
                 return {"f": 999.0, "other": 1.0}
 
         obj = object.__new__(_Shadowing)
-        obj.analyzer_refs = []
+        obj.diagnostics = []
         obj.scan_analyzers = {}
         obj.output_key = "f"
         obj.objective_tag = "test"

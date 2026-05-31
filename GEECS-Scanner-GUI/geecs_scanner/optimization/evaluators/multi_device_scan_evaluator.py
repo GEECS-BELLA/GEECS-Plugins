@@ -5,12 +5,9 @@ Subclasses implement :meth:`compute_objective` for simple per-bin averaging,
 or override :meth:`compute_objective_from_shots` for richer per-shot treatment
 (median, noise estimates, etc.).
 
-Analysis mode is configured per-analyzer via ``analysis_mode`` in
-:class:`~geecs_scanner.optimization.config_models.OptimizerAnalyzerRef`:
-
-- ``per_bin`` (default) — images averaged before analysis; one scalar dict
-  per bin is broadcast to every slot before aggregation.
-- ``per_shot`` — each image analyzed individually; one scalar dict per shot.
+Analysis mode comes from each diagnostic's own ``scan.mode``. The optimizer
+YAML has no override knob — if a diagnostic should run in a different mode
+during optimization than during canonical scan analysis, edit the diagnostic.
 
 When analyzers have mixed modes, ``per_bin`` results are broadcast across all
 shot slots so every slot has a full merged scalar dict before the objective hook
@@ -31,10 +28,10 @@ if TYPE_CHECKING:
     from geecs_scanner.engine.data_logger import DataLogger
     from geecs_scanner.engine.scan_data_manager import ScanDataManager
 
+from image_analysis.config import load_diagnostic
 from scan_analysis.config import create_scan_analyzer
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
-from geecs_scanner.optimization.config_models import OptimizerAnalyzerRef
 
 logger = logging.getLogger(__name__)
 
@@ -43,12 +40,12 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
     """
     Base evaluator using one or more diagnostic-driven ScanAnalyzers.
 
-    The optimizer YAML lists each analyzer as a reference to a unified
-    diagnostic (see
-    :class:`~geecs_scanner.optimization.config_models.OptimizerAnalyzerRef`).
-    Wrapper class, image config, file tail, and data folder are all
-    inherited from the diagnostic on disk; the optimizer only needs the
-    diagnostic name plus an optional per-run ``analysis_mode`` override.
+    The optimizer YAML lists each analyzer as a diagnostic stem (filename
+    without ``.yaml``); wrapper class, image config, file tail, analysis
+    mode, and data folder all come from the diagnostic YAML on disk.
+    The optimizer surface is intentionally bare — there is one canonical
+    description of each analyzer (the diagnostic YAML) and edits to its
+    behaviour happen there.
 
     Each diagnostic is handed straight to
     :func:`scan_analysis.config.create_scan_analyzer` — the canonical
@@ -64,9 +61,11 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     Parameters
     ----------
-    analyzers : list of dict
-        Each entry is validated as an
-        :class:`~geecs_scanner.optimization.config_models.OptimizerAnalyzerRef`.
+    analyzers : list of str
+        Diagnostic stems (filename without ``.yaml`` under
+        ``scan_analysis_configs/analyzers/<namespace>/``). Each is loaded
+        via :func:`image_analysis.config.load_diagnostic`; missing or
+        malformed diagnostics fail at construction.
     scan_data_manager : ScanDataManager, optional
     data_logger : DataLogger, optional
     **kwargs
@@ -75,21 +74,29 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     def __init__(
         self,
-        analyzers: List[dict],
+        analyzers: List[str],
         scan_data_manager: Optional["ScanDataManager"] = None,
         data_logger: Optional["DataLogger"] = None,
         **kwargs,
     ):
-        self.analyzer_refs: List[OptimizerAnalyzerRef] = [
-            OptimizerAnalyzerRef.model_validate(cfg) for cfg in analyzers
-        ]
+        # Load each diagnostic. ``load_diagnostic`` raises on missing or
+        # malformed YAML so construction-time failure is the surfacing
+        # point — the alternative ("evaluator created, blows up the first
+        # time it tries to analyze") would be much worse to debug.
+        self.diagnostics = [load_diagnostic(name) for name in analyzers]
 
-        # Aggregate per-analyzer device blocks into the evaluator-level
-        # device_requirements. Each ref already loaded its diagnostic
-        # during validation, so this loop does no extra disk work.
-        devices: Dict[str, dict] = {}
-        for ref in self.analyzer_refs:
-            devices.update(ref.to_device_requirement())
+        # Device requirements key on the GEECS device name (``diag.name``),
+        # not on the diagnostic stem (those can differ for stitched /
+        # post-processed flavours). Same template every analyzer uses.
+        devices: Dict[str, dict] = {
+            diag.name: {
+                "add_all_variables": False,
+                "save_nonscalar_data": True,
+                "synchronous": True,
+                "variable_list": ["acq_timestamp"],
+            }
+            for diag in self.diagnostics
+        }
         device_requirements = {"Devices": devices}
 
         super().__init__(
@@ -101,18 +108,12 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         # Build one ScanAnalyzer per diagnostic. ``use_injected_data=True``
         # tells the wrapper to skip disk-based s-file loading; the
         # in-memory DataLogger frame is supplied per evaluation via
-        # ``auxiliary_data`` in ``_get_value``. The effective analysis
-        # mode (``per_shot`` vs ``per_bin``) is resolved inside the
-        # factory: ``ref.analysis_mode`` if set, else the diagnostic's
-        # ``scan.mode``. Read it off ``analyzer.analysis_mode`` whenever
-        # the dispatch loop needs it.
+        # ``auxiliary_data`` in ``_get_value``. Analysis mode comes
+        # from each diagnostic's own ``scan.mode``; the dispatch loop
+        # below reads it off ``analyzer.analysis_mode``.
         self.scan_analyzers: Dict = {
-            ref.device_name: create_scan_analyzer(
-                ref.diag,
-                analysis_mode=ref.analysis_mode,
-                use_injected_data=True,
-            )
-            for ref in self.analyzer_refs
+            diag.name: create_scan_analyzer(diag, use_injected_data=True)
+            for diag in self.diagnostics
         }
 
         self.output_key = "f"
@@ -124,8 +125,8 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
 
     @property
     def primary_device(self) -> str:
-        """Device name from the first analyzer ref."""
-        return self.analyzer_refs[0].device_name
+        """GEECS device name of the first listed diagnostic."""
+        return self.diagnostics[0].name
 
     # ------------------------------------------------------------------
     # Scalar key resolution
@@ -180,9 +181,7 @@ class MultiDeviceScanEvaluator(BaseEvaluator):
         n_slots = len(shot_numbers) if has_per_shot else 1
         merged: List[Dict[str, float]] = [{} for _ in range(n_slots)]
 
-        for ref in self.analyzer_refs:
-            device_name = ref.device_name
-            analyzer = self.scan_analyzers[device_name]
+        for device_name, analyzer in self.scan_analyzers.items():
             mode = analyzer.analysis_mode
 
             logger.info(

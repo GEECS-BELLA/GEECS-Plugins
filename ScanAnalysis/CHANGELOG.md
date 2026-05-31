@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] — 2026-05-30
+
+### Removed
+- The `analysis_mode` keyword parameter on `create_scan_analyzer`
+  (introduced in 1.9.0) is gone. The factory now always uses
+  `scan_cfg.mode` from the diagnostic. Companion to Scanner-GUI 0.25.0,
+  which drops the optimizer's per-call override surface — the
+  diagnostic YAML is the single source of truth for analysis mode in
+  both task-queue and optimizer execution contexts.
+
 ## [1.9.0] — 2026-05-29
 
 Live / injected-data execution promoted from a setattr afterthought to a

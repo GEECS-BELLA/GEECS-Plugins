@@ -23,7 +23,7 @@ explicitly via the keyword arguments.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Type
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type
 
 from image_analysis.config import (
     DiagnosticAnalysisConfig,
@@ -46,7 +46,6 @@ def create_scan_analyzer(
     *,
     id: Optional[str] = None,
     priority: Optional[int] = None,
-    analysis_mode: Optional[Literal["per_shot", "per_bin"]] = None,
     use_injected_data: bool = False,
 ) -> "ScanAnalyzer":
     """Build a ScanAnalyzer from a validated diagnostic config.
@@ -73,12 +72,6 @@ def create_scan_analyzer(
         Effective execution priority. Defaults to the diagnostic's own
         ``scan.priority``. The group loader passes the
         per-group-overridden value when present.
-    analysis_mode : {"per_shot", "per_bin"}, optional
-        Per-call override for the diagnostic's ``scan.mode``. ``None``
-        (default) inherits whatever the diagnostic declares. Used by
-        the optimizer to flip the same diagnostic between per-shot
-        (canonical scan analysis) and per-bin (optimizer evaluation)
-        without forking a separate YAML.
     use_injected_data : bool, default=False
         When ``False`` (default), the wrapper analyzer loads its s-file
         from disk after the scan completes — the canonical task-queue /
@@ -111,7 +104,6 @@ def create_scan_analyzer(
 
     effective_id = id if id is not None else diag.name
     effective_priority = priority if priority is not None else scan_cfg.priority
-    effective_mode = analysis_mode if analysis_mode is not None else scan_cfg.mode
 
     return _wrap_in_scan_analyzer(
         diag=diag,
@@ -119,7 +111,6 @@ def create_scan_analyzer(
         image_analyzer=image_analyzer,
         analyzer_id=effective_id,
         priority=effective_priority,
-        analysis_mode=effective_mode,
         use_injected_data=use_injected_data,
     )
 
@@ -131,7 +122,6 @@ def _wrap_in_scan_analyzer(
     image_analyzer: Any,
     analyzer_id: str,
     priority: int,
-    analysis_mode: Literal["per_shot", "per_bin"],
     use_injected_data: bool,
 ) -> "ScanAnalyzer":
     """Construct the dimension-specific scan-analyzer wrapper.
@@ -172,7 +162,7 @@ def _wrap_in_scan_analyzer(
         "data_device_name": scan_cfg.device,
         "image_analyzer": image_analyzer,
         "renderer_kwargs": scan_cfg.renderer_kwargs,
-        "analysis_mode": analysis_mode,
+        "analysis_mode": scan_cfg.mode,
         "use_injected_data": use_injected_data,
         save_kwarg: scan_cfg.save,
     }

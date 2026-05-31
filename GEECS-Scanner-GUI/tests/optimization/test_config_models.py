@@ -13,10 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
-from geecs_scanner.optimization.config_models import (
-    OptimizerAnalyzerRef,
-    _build_device_requirements,
-)
+# No imports from config_models needed at module load — the validator
+# behavior is exercised via BaseOptimizerConfig below, and the no-knob
+# YAML shape needs no per-analyzer model.
 
 
 # ---------------------------------------------------------------------------
@@ -72,98 +71,79 @@ def _stub_loader_by_name(per_name: dict):
 
 
 # ---------------------------------------------------------------------------
-# OptimizerAnalyzerRef
+# Auto device_requirements via BaseOptimizerConfig
 # ---------------------------------------------------------------------------
 
 
-class TestOptimizerAnalyzerRef:
-    """``to_device_requirement`` must produce the expected dict shape."""
+class TestAutoDeviceRequirements:
+    """``BaseOptimizerConfig`` synthesises device_requirements from the analyzer list.
 
-    def _make_ref(self, device_name="UC_Device", scan_extras=None):
-        scan = dict(scan_extras or {})
-        diag = _diag(name=device_name, scan=scan)
-        with _stub_loader_by_name({device_name: diag}):
-            return OptimizerAnalyzerRef.model_validate({"diagnostic": device_name})
+    The optimizer YAML's ``evaluator.kwargs.analyzers`` is a flat list of
+    diagnostic stems. The validator loads each diagnostic to discover
+    its GEECS device name and templates a per-analyzer device block.
+    """
 
-    def test_device_requirement_shape(self):
-        ref = self._make_ref("UC_ALineEBeam3")
-        req = ref.to_device_requirement()
+    def _build(self, analyzers):
+        from pydantic import BaseModel
+        from xopt import VOCS
 
-        assert "UC_ALineEBeam3" in req
-        dev = req["UC_ALineEBeam3"]
+        from geecs_scanner.optimization.config_models import (
+            BaseOptimizerConfig,
+            EvaluatorConfig,
+            GeneratorConfig,
+        )
+
+        class _FakeSaveDeviceConfig(BaseModel):
+            model_config = {"extra": "allow"}
+
+        BaseOptimizerConfig.model_rebuild(
+            force=True, _types_namespace={"SaveDeviceConfig": _FakeSaveDeviceConfig}
+        )
+
+        return BaseOptimizerConfig(
+            vocs=VOCS(variables={"x": [0.0, 1.0]}, objectives={"f": "MINIMIZE"}),
+            evaluator=EvaluatorConfig.model_validate(
+                {"module": "m", "class": "C", "kwargs": {"analyzers": analyzers}}
+            ),
+            generator=GeneratorConfig(name="random"),
+        )
+
+    def test_single_device(self):
+        per_name = {"Dev_A": _diag(name="Dev_A")}
+        with _stub_loader_by_name(per_name):
+            cfg = self._build(["Dev_A"])
+
+        assert "Devices" in cfg.device_requirements
+        assert "Dev_A" in cfg.device_requirements["Devices"]
+        dev = cfg.device_requirements["Devices"]["Dev_A"]
         assert dev["save_nonscalar_data"] is True
         assert dev["synchronous"] is True
         assert "acq_timestamp" in dev["variable_list"]
 
-    def test_analysis_mode_defaults_to_none(self):
-        """Unset ``analysis_mode`` stays None on the ref (factory resolves it)."""
-        ref = self._make_ref()
-        assert ref.analysis_mode is None
-
-    def test_analysis_mode_explicit_override_preserved(self):
-        diag = _diag(name="UC_Device", scan={"mode": "per_shot"})
-        with _stub_loader_by_name({"UC_Device": diag}):
-            ref = OptimizerAnalyzerRef.model_validate(
-                {"diagnostic": "UC_Device", "analysis_mode": "per_bin"}
-            )
-        assert ref.analysis_mode == "per_bin"
-
-    def test_invalid_mode_rejected(self):
-        diag = _diag(name="UC_Device")
-        with _stub_loader_by_name({"UC_Device": diag}):
-            with pytest.raises(Exception):
-                OptimizerAnalyzerRef.model_validate(
-                    {"diagnostic": "UC_Device", "analysis_mode": "invalid_mode"}
-                )
-
-    def test_requirement_key_is_device_name_not_data_device_name(self):
-        """``to_device_requirement`` keys on the GEECS device, not the data folder.
-
-        The data subfolder override (``scan.device``) only affects where
-        the wrapper looks for image files; the device_requirements key
-        must remain the GEECS device name so the DataLogger registers
-        the right subscription.
-        """
-        ref = self._make_ref(
-            device_name="UC_Dev",
-            scan_extras={"device": "UC_Dev-interpSpec"},
-        )
-        req = ref.to_device_requirement()
-        assert "UC_Dev" in req
-        assert "UC_Dev-interpSpec" not in req
-
-
-# ---------------------------------------------------------------------------
-# _build_device_requirements — module-level aggregator
-# ---------------------------------------------------------------------------
-
-
-class TestBuildDeviceRequirements:
-    """``_build_device_requirements`` merges per-analyzer device blocks."""
-
-    def _make_entries(self, device_names):
-        per_name = {name: _diag(name=name) for name in device_names}
-        entries = [{"diagnostic": name} for name in device_names]
-        return per_name, entries
-
-    def test_single_device(self):
-        per_name, entries = self._make_entries(["Dev_A"])
-        with _stub_loader_by_name(per_name):
-            req = _build_device_requirements(entries)
-
-        assert "Devices" in req
-        assert "Dev_A" in req["Devices"]
-
     def test_multiple_devices_all_present(self):
-        per_name, entries = self._make_entries(["Dev_A", "Dev_B", "Dev_C"])
+        names = ["Dev_A", "Dev_B", "Dev_C"]
+        per_name = {n: _diag(name=n) for n in names}
         with _stub_loader_by_name(per_name):
-            req = _build_device_requirements(entries)
+            cfg = self._build(names)
 
-        assert set(req["Devices"].keys()) == {"Dev_A", "Dev_B", "Dev_C"}
+        assert set(cfg.device_requirements["Devices"].keys()) == set(names)
 
-    def test_empty_analyzers_produces_empty_devices(self):
-        req = _build_device_requirements([])
-        assert req == {"Devices": {}}
+    def test_requirement_key_is_geecs_device_name(self):
+        """Auto-built device key is ``diag.name``, not the diagnostic stem.
+
+        The diagnostic stem can differ from the GEECS device name for
+        stitched / post-processed analyzers (e.g. stem
+        ``BcaveMagSpecStitcherSpec`` carries
+        ``name: U_BCaveMagSpec-interpSpec``). The DataLogger subscribes
+        by GEECS device name, so the requirements dict must key on
+        ``diag.name``.
+        """
+        per_name = {"my_stem": _diag(name="UC_RealDevice")}
+        with _stub_loader_by_name(per_name):
+            cfg = self._build(["my_stem"])
+
+        assert "UC_RealDevice" in cfg.device_requirements["Devices"]
+        assert "my_stem" not in cfg.device_requirements["Devices"]
 
 
 # ---------------------------------------------------------------------------

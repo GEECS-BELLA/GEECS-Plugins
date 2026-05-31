@@ -3,6 +3,46 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.25.0] — 2026-05-30
+
+Drop the optimizer's per-analyzer override surface. The diagnostic YAML
+is now the single source of truth for how each analyzer runs, in both
+canonical scan analysis and optimization. To change an analyzer's mode
+for optimization, edit the diagnostic.
+
+### Changed (breaking)
+- Optimizer YAML's `evaluator.kwargs.analyzers` is now a flat list of
+  diagnostic stems. The `{diagnostic: <stem>, analysis_mode: <mode>}`
+  dict form from 0.24.0 is gone:
+  ```yaml
+  analyzers:
+    - UC_TopView                   # was: {diagnostic: UC_TopView}
+    - U_BCaveICT
+  ```
+- `OptimizerAnalyzerRef` (and its `to_device_requirement` method) and
+  `_build_device_requirements` helper are gone from `config_models.py`.
+  Device-requirements aggregation now happens inline in
+  `BaseOptimizerConfig._load_and_check` — for each diagnostic stem the
+  validator loads the YAML, reads `diag.name`, and templates a per-analyzer
+  device block under that key.
+- `MultiDeviceScanEvaluator.__init__` takes `analyzers: List[str]` instead
+  of `List[dict]`. The evaluator stashes the loaded diagnostics on
+  `self.diagnostics`; the `analyzer_refs` attribute is gone.
+  `primary_device` now reads `self.diagnostics[0].name`. Downstream
+  subclasses that touched `analyzer_refs[0].device_name` should use
+  `primary_device` instead (`bcavemagspec_opt.EBeamSourceOpt` updated).
+- The `analysis_mode` keyword on `create_scan_analyzer` (added in
+  ScanAnalysis 1.9.0) is also gone — see ScanAnalysis 1.10.0.
+
+### Migration
+Production optimizer YAMLs under `scanner_configs/experiments/<exp>/optimizer_configs/`
+need to drop their `analysis_mode:` lines and may collapse `{diagnostic: X}`
+entries to bare `X` strings. Done in
+[GEECS-Plugins-Configs@<commit>] for the 10 Undulator YAMLs in
+production. If an analyzer needs a different mode in optimization than
+in scan analysis, edit the diagnostic's `scan.mode` (or fork the
+diagnostic if the modes legitimately differ between contexts).
+
 ## [0.24.0] — 2026-05-29
 
 Optimizer-side modernization that exploits the post-PR-E unified-diagnostic
