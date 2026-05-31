@@ -46,6 +46,7 @@ def create_scan_analyzer(
     *,
     id: Optional[str] = None,
     priority: Optional[int] = None,
+    use_injected_data: bool = False,
 ) -> "ScanAnalyzer":
     """Build a ScanAnalyzer from a validated diagnostic config.
 
@@ -71,6 +72,14 @@ def create_scan_analyzer(
         Effective execution priority. Defaults to the diagnostic's own
         ``scan.priority``. The group loader passes the
         per-group-overridden value when present.
+    use_injected_data : bool, default=False
+        When ``False`` (default), the wrapper analyzer loads its s-file
+        from disk after the scan completes — the canonical task-queue /
+        LiveWatch path. When ``True``, the caller (e.g. the optimizer's
+        ``MultiDeviceScanEvaluator``) is responsible for setting
+        ``analyzer.auxiliary_data`` from the in-memory DataLogger before
+        each ``run_analysis`` call. See
+        :class:`scan_analysis.base.ScanAnalyzer` for the full contract.
 
     Returns
     -------
@@ -102,6 +111,7 @@ def create_scan_analyzer(
         image_analyzer=image_analyzer,
         analyzer_id=effective_id,
         priority=effective_priority,
+        use_injected_data=use_injected_data,
     )
 
 
@@ -112,6 +122,7 @@ def _wrap_in_scan_analyzer(
     image_analyzer: Any,
     analyzer_id: str,
     priority: int,
+    use_injected_data: bool,
 ) -> "ScanAnalyzer":
     """Construct the dimension-specific scan-analyzer wrapper.
 
@@ -138,11 +149,21 @@ def _wrap_in_scan_analyzer(
         wrapper_class = Array2DScanAnalyzer
         save_kwarg = "flag_save_images"
 
+    # ``device_name`` is the GEECS device identifier (used as the auxiliary
+    # data lookup prefix and the background-image folder name). ``scan.device``
+    # is an *optional* data subfolder override for the rare case where the
+    # data folder name differs from the device's metric prefix
+    # (e.g. post-processed/stitched outputs that live in a sibling folder).
+    # Keep them separate — the previous form `scan_cfg.device or diag.name`
+    # collapsed them, which silently misrouted background-image paths
+    # whenever ``scan.device`` was set.
     wrapper_kwargs: Dict[str, Any] = {
-        "device_name": scan_cfg.device or diag.name,
+        "device_name": diag.name,
+        "data_device_name": scan_cfg.device,
         "image_analyzer": image_analyzer,
         "renderer_kwargs": scan_cfg.renderer_kwargs,
         "analysis_mode": scan_cfg.mode,
+        "use_injected_data": use_injected_data,
         save_kwarg: scan_cfg.save,
     }
     if scan_cfg.file_tail is not None:

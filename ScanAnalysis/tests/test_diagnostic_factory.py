@@ -156,15 +156,27 @@ class TestScanRuntimeAttachment:
         analyzer = create_scan_analyzer(_diag(scan={"mode": "per_bin"}))
         assert analyzer.analysis_mode == "per_bin"
 
-    def test_device_override_changes_device_name(self):
+    def test_device_override_routes_to_data_device_name(self):
+        """``scan.device`` overrides only the *data folder*, not the GEECS device.
+
+        ``device_name`` keys auxiliary-data lookups and background-image
+        paths and must stay the GEECS device identifier;
+        ``data_device_name`` is the data subfolder override used for
+        post-processed/stitched outputs that live next to the device's
+        own folder.
+        """
         analyzer = create_scan_analyzer(
             _diag(name="UC_Logical", scan={"device": "UC_DataFolder"})
         )
-        assert analyzer.device_name == "UC_DataFolder"
+        assert analyzer.device_name == "UC_Logical"
+        assert analyzer.data_device_name == "UC_DataFolder"
 
     def test_no_device_override_uses_top_level_name(self):
         analyzer = create_scan_analyzer(_diag(name="UC_Same"))
         assert analyzer.device_name == "UC_Same"
+        # ``data_device_name`` defaults to ``device_name`` inside the
+        # wrapper; the constructor coerces ``None`` → ``device_name``.
+        assert analyzer.data_device_name == "UC_Same"
 
     def test_file_tail_passed_through_when_set(self):
         analyzer = create_scan_analyzer(_diag(scan={"file_tail": ".himg"}))

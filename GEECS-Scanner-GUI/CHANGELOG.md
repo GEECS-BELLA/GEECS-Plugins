@@ -3,6 +3,206 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] — 2026-05-30
+
+Reintroduce per-analyzer overrides on the optimizer YAML — but as a
+generic `scan:` (or any-field) patch routed through the loader, not as
+a magic single-field knob. Companion to ImageAnalysis 1.7.0.
+
+### Added
+- Optimizer YAML's `evaluator.kwargs.analyzers` accepts dict-form
+  entries alongside bare strings:
+  ```yaml
+  analyzers:
+    - UC_TopView                          # diagnostic as-is
+    - diagnostic: UC_FROG                 # patch scan block
+      scan:
+        mode: per_bin
+  ```
+  Any field on the diagnostic can be overridden; the patch is
+  deep-merged via `load_diagnostic`'s new `overrides` kwarg
+  (ImageAnalysis 1.7.0) and re-validated. No code change here is
+  optimization-specific — the override mechanism lives on the loader.
+- `OptimizerAnalyzerEntry` — three-line envelope model
+  (`diagnostic: str` + `ConfigDict(extra="allow")`) that validates the
+  dict form's shape and surfaces the override patch via
+  `model_extra`. Deliberately does not enumerate override fields, so
+  future per-context overrides (priority, save flag, anything) need no
+  code changes here.
+- `_split_analyzer_entry(entry) -> (name, overrides)` — single
+  envelope decoder used by both `BaseOptimizerConfig._load_and_check`
+  (for `device_requirements` auto-generation) and
+  `MultiDeviceScanEvaluator.__init__` (for analyzer construction).
+  Keeps the two call sites in lockstep.
+
+### Migration
+Production optimizer YAMLs that previously needed `per_bin` and were
+flattened to bare strings in 0.25.0 — and lost their override — are
+restored to dict form with `scan: {mode: per_bin}` patches in
+[GEECS-Plugins-Configs@148e222](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/148e222).
+Bare-string entries are still accepted and behave as before (use
+diagnostic as-is).
+
+### Note
+This release reverses the override removal in 0.25.0. The reintroduced
+mechanism is structurally cleaner than the 0.24.0 form it replaced:
+the override capability lives in `image_analysis.config.load_diagnostic`
+(generic, available to any consumer), the optimizer-side surface is a
+three-line envelope model instead of the previous 95-LoC computed-field
+wrapper, and the YAML vocabulary matches the diagnostic's own shape
+(`scan:` block as the patch).
+
+## [0.25.0] — 2026-05-30
+
+Drop the optimizer's per-analyzer override surface. The diagnostic YAML
+is now the single source of truth for how each analyzer runs, in both
+canonical scan analysis and optimization. To change an analyzer's mode
+for optimization, edit the diagnostic.
+
+### Changed (breaking)
+- Optimizer YAML's `evaluator.kwargs.analyzers` is now a flat list of
+  diagnostic stems. The `{diagnostic: <stem>, analysis_mode: <mode>}`
+  dict form from 0.24.0 is gone:
+  ```yaml
+  analyzers:
+    - UC_TopView                   # was: {diagnostic: UC_TopView}
+    - U_BCaveICT
+  ```
+- `OptimizerAnalyzerRef` (and its `to_device_requirement` method) and
+  `_build_device_requirements` helper are gone from `config_models.py`.
+  Device-requirements aggregation now happens inline in
+  `BaseOptimizerConfig._load_and_check` — for each diagnostic stem the
+  validator loads the YAML, reads `diag.name`, and templates a per-analyzer
+  device block under that key.
+- `MultiDeviceScanEvaluator.__init__` takes `analyzers: List[str]` instead
+  of `List[dict]`. The evaluator stashes the loaded diagnostics on
+  `self.diagnostics`; the `analyzer_refs` attribute is gone.
+  `primary_device` now reads `self.diagnostics[0].name`. Downstream
+  subclasses that touched `analyzer_refs[0].device_name` should use
+  `primary_device` instead (`bcavemagspec_opt.EBeamSourceOpt` updated).
+- The `analysis_mode` keyword on `create_scan_analyzer` (added in
+  ScanAnalysis 1.10.0) is also gone — see ScanAnalysis 1.11.0.
+
+### Migration
+Production optimizer YAMLs under `scanner_configs/experiments/<exp>/optimizer_configs/`
+need to drop their `analysis_mode:` lines and may collapse `{diagnostic: X}`
+entries to bare `X` strings. Done in
+[GEECS-Plugins-Configs@b2c14b1](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/b2c14b1)
+for the 10 Undulator YAMLs in production. If an analyzer needs a different mode in optimization than
+in scan analysis, edit the diagnostic's `scan.mode` (or fork the
+diagnostic if the modes legitimately differ between contexts).
+
+## [0.24.0] — 2026-05-29
+
+Optimizer-side modernization that exploits the post-PR-E unified-diagnostic
+surface. Drops the heavyweight wrapper config the previous release introduced
+in favour of a thin reference model that defers to the canonical scan-analyzer
+factory.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` is gone. Replaced by
+  `OptimizerAnalyzerRef` (~20 LoC vs the prior 170+) — just `diagnostic` +
+  optional `analysis_mode`. The replaced model used `computed_field`
+  shims (`device_name`, `analyzer_type`, `file_tail`, `image_analyzer`,
+  `data_device_name`, plus an `image_config` property) to re-expose
+  everything on the diagnostic; none of that earns its keep after
+  `scan_analysis.config.create_scan_analyzer(diag)` became the canonical
+  factory used by the task queue + LiveWatch. The optimizer now hands
+  the loaded diagnostic straight to that factory with
+  `use_injected_data=True`.
+- `MultiDeviceScanEvaluatorConfig` is gone. Its only consumer
+  (`BaseOptimizerConfig._load_and_check`) inlines into a small
+  `_build_device_requirements` helper that walks the analyzer entries,
+  validates each as `OptimizerAnalyzerRef`, and merges the per-analyzer
+  device blocks. No public-API change for the optimizer YAML shape; the
+  field disappearing is internal.
+- `MultiDeviceScanEvaluator._create_scan_analyzer` is gone. The
+  evaluator now calls
+  `create_scan_analyzer(ref.diag, analysis_mode=ref.analysis_mode,
+  use_injected_data=True)` directly — no manual analyzer-class
+  importing, no kwarg-splicing of the typed image config into the
+  analyzer's constructor, no `live_analysis` / `use_colon_scan_param`
+  setattr lines (the latter were broken anyway after ScanAnalysis 1.10.0
+  removed those attributes).
+- Evaluator attribute renamed `analyzer_configs` → `analyzer_refs` to
+  reflect the thinner role. The `_get_value` dispatch reads each
+  analyzer's effective mode straight off `analyzer.analysis_mode` (the
+  factory resolved `ref.analysis_mode` ↔ `scan.mode` at construction);
+  no parallel cache to keep in sync. Subclasses + tests that touched
+  the old attribute were updated (`bcavemagspec_opt.EBeamSourceOpt`,
+  `test_multi_device_scan_evaluator.py`, `test_evaluator_bax_mode.py`,
+  `test_concrete_evaluators.py`).
+
+### Migration
+The optimizer YAML shape from 0.23.0 is unchanged externally — analyzer
+entries are still `diagnostic: <stem>` (+ optional `analysis_mode`).
+Existing 0.23.0-style YAMLs work without edits.
+
+## [0.23.0] — 2026-05-29
+
+Diagnostic-driven optimizer analyzer configs.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` now references a unified diagnostic
+  YAML by name (`diagnostic: <stem>`) instead of duplicating every
+  field the diagnostic already defines. The model validator calls
+  `image_analysis.config.load_diagnostic(stem)` at construction and
+  exposes `device_name`, `analyzer_type`, `file_tail`,
+  `image_analyzer`, `image_config`, and `data_device_name` as
+  computed properties derived from the diagnostic's `image:` /
+  `scan:` sections. The single override knob is `analysis_mode`,
+  which beats the diagnostic's `scan.mode` when set (the common
+  `per_shot` ↔ `per_bin` toggle you actually want per optimization
+  run).
+- `MultiDeviceScanEvaluator._create_scan_analyzer` consumes the
+  diagnostic's typed image config directly (no second on-disk lookup
+  via `load_camera_config` / `load_line_config`). Drops the
+  `image_analysis_config.set_base_dir(...)` side effect entirely
+  since `load_diagnostic` resolves its own base dir.
+- The legacy optimizer YAML shape (`device_name`, `analyzer_type`,
+  `file_tail`, `image_analyzer.{module, class, kwargs}`,
+  `analysis_mode`, `data_device_name` as top-level analyzer fields)
+  is gone. Existing optimizer YAMLs must migrate to the
+  one-diagnostic-per-analyzer form:
+
+  ```yaml
+  # Before:
+  analyzers:
+    - device_name: UC_TopView
+      analyzer_type: Array2DScanAnalyzer
+      file_tail: .png
+      image_analyzer:
+        class_path: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+      analysis_mode: per_bin
+
+  # After:
+  analyzers:
+    - diagnostic: UC_TopView      # everything else inherited
+      analysis_mode: per_bin      # optional override
+  ```
+
+Net win: optimizer YAMLs drop from ~8 fields per analyzer to 1–2,
+analyzer configuration lives in one place (the diagnostic YAML)
+instead of being copy-pasted between scan-analysis and optimization
+contexts, and per-optimization-run tuning (specifically per_shot vs
+per_bin) stays a one-line override.
+
+## [0.22.1] — 2026-05-29
+
+### Fixed
+- `MultiDeviceScanEvaluator._create_scan_analyzer` now points the
+  image-analysis loader at the unified diagnostic-config root
+  (`scan_analysis_configs_path`) instead of the legacy
+  `image_analysis_configs_path`. The optimizer code missed the
+  base-dir migration that the PR-E loader-API refactor + unified-
+  configs cutover landed: optimizer YAMLs were resolving
+  `camera_config_name` against the empty/legacy
+  `image_analysis_configs/` directory and raising `FileNotFoundError`
+  on any real run. `load_camera_config` / `load_line_config` unwrap
+  the `image:` subsection from unified diagnostic YAMLs transparently,
+  so the new base dir works for the unified files that production
+  configs have migrated to.
+
 ## [0.22.0] — 2026-05-27
 
 Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and

@@ -3,6 +3,62 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.0] — 2026-05-30
+
+### Removed
+- The `analysis_mode` keyword parameter on `create_scan_analyzer`
+  (introduced in 1.10.0) is gone. The factory now always uses
+  `scan_cfg.mode` from the diagnostic. Companion to Scanner-GUI 0.25.0,
+  which dropped the optimizer's per-call override surface — and to
+  Scanner-GUI 0.26.0, which restored that capability at the loader
+  layer (`image_analysis.config.load_diagnostic(overrides=...)`)
+  instead. The ScanAnalysis-side factory stays simple either way.
+
+## [1.10.0] — 2026-05-29
+
+Live / injected-data execution promoted from a setattr afterthought to a
+first-class constructor flag, plus matching factory plumbing for the
+optimizer's evaluator path.
+
+### Changed (breaking)
+- `ScanAnalyzer.__init__` gained `use_injected_data: bool = False`.
+  When `False` (the canonical task-queue / LiveWatch path) the analyzer
+  loads its s-file from disk after the scan completes. When `True`, the
+  caller is responsible for assigning `analyzer.auxiliary_data` from an
+  in-memory frame before each `run_analysis` call — used by the
+  optimizer's `MultiDeviceScanEvaluator` so it can drive analyzers per
+  bin from the DataLogger without round-tripping through disk.
+  `use_colon_scan_param` is derived from the same flag (in-memory data
+  uses `device:variable` keys; disk-loaded s-files don't).
+- The old setattr pattern is gone — `analyzer.live_analysis = True` and
+  `analyzer.use_colon_scan_param = False` are no longer recognised
+  anywhere. Callers that need the optimizer-style behaviour must pass
+  `use_injected_data=True` at construction time. The flag threads
+  through `SingleDeviceScanAnalyzer`, `Array1DScanAnalyzer`,
+  `Array2DScanAnalyzer`, and `create_scan_analyzer`.
+- `create_scan_analyzer(diag)` now passes `device_name=diag.name` and
+  `data_device_name=scan_cfg.device` separately to the wrapper, where
+  it previously collapsed them via `scan_cfg.device or diag.name`. The
+  old form silently misrouted background-image paths when `scan.device`
+  was set (background images live under the GEECS device folder, not
+  the data-folder override). Behaviour-preserving for diagnostics
+  without `scan.device`; semantic fix for those that have one.
+
+### Added
+- `analysis_mode: Optional[Literal["per_shot", "per_bin"]]` kwarg on
+  `create_scan_analyzer`, defaulting to `None` (inherit from
+  `scan.mode`). Lets one diagnostic serve both per-shot scan analysis
+  and per-bin optimizer evaluation without forking a separate YAML.
+- New test suite `tests/test_use_injected_data.py` (7 tests) covering
+  the structural propagation (default-disk vs injected flag threaded
+  through 1D / 2D wrappers, `use_colon_scan_param` derivation) and the
+  behavioral contract (`load_auxiliary_data` is a no-op under
+  `use_injected_data=True`, the injected DataFrame survives untouched,
+  no `pd.read_csv` is attempted; the disk-backed path *does* read the
+  s-file and derive `bins` / `binned_param_values`).
+- Coverage for the `device_name` / `data_device_name` split in
+  `tests/test_diagnostic_factory.py`.
+
 ## [1.9.0] — 2026-05-28
 
 Sign-aware default colormap for 1D waterfall plots.
@@ -71,7 +127,7 @@ lineouts that analyzer-specific ROI/weight masking can produce.
   (interpolation onto a common grid via the pipeline, or having the
   analyzer emit fixed-length summary `line_data`) so the user knows
   how to actually get a waterfall.
-  
+
 ## [1.8.2] — 2026-05-22
 
 ### Added
