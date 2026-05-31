@@ -18,7 +18,7 @@ from typing import (
     Literal,
     List,
 )
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 import logging
 
 # exception to handle python 3.7
@@ -80,6 +80,35 @@ class AnalyzerResultDict(TypedDict):
 
 # Type alias for render_data values
 RenderDataValue = Union[float, List[float], NDArray]
+
+
+def _safe_nanmean_arrays(arrays: List[NDArray], *, label: str) -> Optional[NDArray]:
+    """Average a list of ndarrays along axis 0, skipping with a warning on shape mismatch.
+
+    Wraps :func:`numpy.nanmean` with an explicit homogeneity check.
+    ``np.nanmean(list_of_arrays, axis=0)`` calls ``np.asanyarray``
+    first, which raises a hard ``ValueError`` on numpy 2.x when rows
+    have different shapes. We detect that case up front and return
+    ``None`` so the caller can omit the field from the averaged result
+    rather than killing the whole post-processing pipeline.
+
+    Returns ``None`` for an empty list, mixed shapes, or any other
+    asanyarray failure. The named ``label`` is used in the log message
+    so callers can attribute warnings to the right field.
+    """
+    if not arrays:
+        return None
+    shapes = {np.asarray(a).shape for a in arrays}
+    if len(shapes) > 1:
+        logger.warning(
+            "Cannot average %s across %d shots: inhomogeneous shapes %s. "
+            "Skipping this field in the averaged result.",
+            label,
+            len(arrays),
+            sorted(shapes),
+        )
+        return None
+    return np.nanmean(arrays, axis=0)
 
 
 class ImageAnalyzerResult(BaseModel):
@@ -292,16 +321,25 @@ class ImageAnalyzerResult(BaseModel):
 
         data_type = results[0].data_type
 
-        # Average primary data using nanmean
+        # Average primary data using nanmean. Inhomogeneous shapes
+        # across shots (analyzers whose per-shot ROI/threshold masking
+        # yields variable lengths — e.g. raw FROG spectral phase before
+        # the fixed-length-fit refactor) would otherwise raise a hard
+        # ValueError on numpy 2.x via np.asanyarray. Skip with a
+        # warning so the rest of the averaged result is still useful.
         if data_type == "2d":
             images = [
                 r.processed_image for r in results if r.processed_image is not None
             ]
-            avg_image = np.nanmean(images, axis=0) if images else None
+            avg_image = (
+                _safe_nanmean_arrays(images, label="processed_image")
+                if images
+                else None
+            )
             avg_line = None
         elif data_type == "1d":
             lines = [r.line_data for r in results if r.line_data is not None]
-            avg_line = np.nanmean(lines, axis=0) if lines else None
+            avg_line = _safe_nanmean_arrays(lines, label="line_data") if lines else None
             avg_image = None
         else:  # scalars_only
             avg_image = None
@@ -347,8 +385,26 @@ class ImageAnalyzerResult(BaseModel):
 
             first_val = values[0]
             if isinstance(first_val, np.ndarray):
-                avg_render_data[key] = np.nanmean(values, axis=0)
+                # Skip with warning when shots have inhomogeneous shapes
+                # — e.g. analyzers whose render_data carries per-shot raw
+                # scatter on a variable-length wavelength grid (FROG's
+                # ``raw_wavelength_nm`` / ``raw_spectral_phase``). The
+                # averaged result simply omits the key; the per-shot
+                # values stay available on the individual results.
+                avg = _safe_nanmean_arrays(values, label=f"render_data[{key!r}]")
+                if avg is not None:
+                    avg_render_data[key] = avg
             elif isinstance(first_val, list):
+                lengths = {len(v) for v in values if hasattr(v, "__len__")}
+                if len(lengths) > 1:
+                    logger.warning(
+                        "Cannot average render_data[%r]: lists have "
+                        "inhomogeneous lengths %s. Skipping this key in "
+                        "the averaged result.",
+                        key,
+                        sorted(lengths),
+                    )
+                    continue
                 avg_render_data[key] = np.nanmean(values, axis=0).tolist()
             elif isinstance(first_val, (int, float)):
                 avg_render_data[key] = float(np.nanmean(values))

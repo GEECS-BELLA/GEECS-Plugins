@@ -240,27 +240,37 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             # Safely get render_image method if it exists
             render_func = getattr(self.image_analyzer, "render_image", None)
 
-            # Create ImageAnalyzerResult for averaged data
-            avg_result = ImageAnalyzerResult(
-                data_type="1d",
-                line_data=avg_data,
-                scalars=avg_scalars,
-                metadata={"analyzer_return_dictionary": avg_scalars},
-                render_function=render_func,
-            )
-
-            # Create RenderContext for average
-            avg_context = RenderContext.from_analyzer_result(
-                shot_number="average",
-                result=avg_result,
-                device_name=self.device_name,
-                render_function=render_func,
-            )
-
             config = self._get_renderer_config()
 
-            # Save average using renderer
-            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+            # The averaged-line figure only makes sense when shots share a
+            # common x-axis. For analyzers whose per-shot lineouts have
+            # variable shape (e.g. FROG spectral phase, where ROI/weight
+            # masking yields different sample counts per shot),
+            # `average_data` returns None and we skip the averaged figure
+            # without losing per-shot scalars or the waterfall summary.
+            if avg_data is not None:
+                avg_result = ImageAnalyzerResult(
+                    data_type="1d",
+                    line_data=avg_data,
+                    scalars=avg_scalars,
+                    metadata={"analyzer_return_dictionary": avg_scalars},
+                    render_function=render_func,
+                )
+
+                avg_context = RenderContext.from_analyzer_result(
+                    shot_number="average",
+                    result=avg_result,
+                    device_name=self.device_name,
+                    render_function=render_func,
+                )
+
+                self.renderer.render_single(avg_context, config, self.path_dict["save"])
+            else:
+                logger.info(
+                    "Skipping averaged-line figure for %s; per-shot scalars "
+                    "and waterfall summary are unaffected.",
+                    self.device_name,
+                )
 
             # Create waterfall plot from all results
             # Resolve optional sort key from renderer_kwargs

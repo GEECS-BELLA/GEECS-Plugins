@@ -3,6 +3,75 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-05-28
+
+Sign-aware default colormap for 1D waterfall plots.
+
+### Added
+- `Line1DRendererConfig.colormap_mode` now supports an `"auto"` value
+  (also added to `BaseRendererConfig`'s Literal). `"auto"` inspects
+  the data range:
+  - If the data crosses zero (`min < 0 < max`), use an **asymmetric
+    diverging** colormap via `matplotlib.colors.TwoSlopeNorm(vmin,
+    vcenter=0, vmax)` with `RdBu_r` by default. The negative and
+    positive ranges each occupy the appropriate half of the colormap,
+    zero gets the neutral midpoint color, and asymmetric data (e.g.
+    `[-0.026, +0.85]`) doesn't waste color resolution on empty range.
+  - If the data is all non-negative, keep the legacy sequential
+    behavior (vmin=0, plasma).
+  - If the data is all-negative, use sequential with `vmin = data.min()`
+    so nothing is clipped.
+- `Line1DRendererConfig` defaults `colormap_mode="auto"`. Explicit
+  `"sequential"` / `"diverging"` / `"custom"` continue to behave as
+  before — opt-in to the legacy floor-at-zero by setting
+  `colormap_mode: "sequential"` in the renderer kwargs.
+
+### Changed
+- `Line1DRenderer._get_colormap_params_1d` returns a 4-tuple
+  `(vmin, vmax, cmap, norm)`. The `norm` is non-`None` only for the
+  auto-diverging case (when it's a `TwoSlopeNorm`); the waterfall
+  call site routes it to `pcolormesh(norm=...)` and skips
+  `vmin`/`vmax`. All other modes keep `norm=None` and the legacy
+  `vmin`/`vmax` path.
+- `Line1DRendererConfig.cmap` default is now `None` (was `"plasma"`).
+  This lets the renderer pick a mode-appropriate default
+  (`RdBu_r` for auto-diverging, `plasma` for sequential and the
+  non-sign-crossing auto branch) while still respecting any explicit
+  user choice. Existing YAMLs that hard-coded `cmap: "plasma"` keep
+  that exact behavior.
+
+Surfaces in production: FROG spectral-phase scans where the fit
+(after `phi0` subtraction) crosses zero — previously the negative
+region was floored to the bottom of the plasma colormap, hiding a
+real physical effect (the polynomial coefficients sweeping through
+zero along the scan parameter). Now visible at a glance.
+
+## [1.8.2] — 2026-05-28
+
+Companion to ImageAnalysis 1.6.0 (FROG spectral phase analyzer). Hardens
+the 1D averaging and waterfall paths against inhomogeneous per-shot
+lineouts that analyzer-specific ROI/weight masking can produce.
+
+### Fixed
+- `SingleDeviceScanAnalyzer.average_data` no longer raises `ValueError`
+  when per-shot lineouts have inhomogeneous shapes. It detects the
+  mismatch, logs a warning, and returns `None`.
+  `Array1DScanAnalyzer._postprocess_noscan` skips the averaged-line
+  figure on `None` while still saving per-shot scalars and the
+  waterfall summary. This unblocks 1D analyzers whose per-shot
+  ROI/weight masking yields variable sample counts — most
+  immediately `FrogSpectralPhaseAnalyzer`, where each shot's valid
+  retrieved-spectrum window differs.
+- `Line1DRenderer._create_waterfall_plot` skips with a warning when
+  per-shot y-arrays have inhomogeneous shapes, instead of crashing
+  on `np.array(data_arrays)` (hard `ValueError` on numpy 2.x).
+  Mirrors the `average_data` fix and prevents `run_analysis` from
+  dying mid-postprocess after per-shot scalars + data files have
+  already been written. The warning points at the two real fixes
+  (interpolation onto a common grid via the pipeline, or having the
+  analyzer emit fixed-length summary `line_data`) so the user knows
+  how to actually get a waterfall.
+  
 ## [1.8.2] — 2026-05-22
 
 ### Added
