@@ -39,7 +39,7 @@ a magic single-field knob. Companion to ImageAnalysis 1.6.0.
 Production optimizer YAMLs that previously needed `per_bin` and were
 flattened to bare strings in 0.25.0 — and lost their override — are
 restored to dict form with `scan: {mode: per_bin}` patches in
-[GEECS-Plugins-Configs](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs).
+[GEECS-Plugins-Configs@148e222](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/148e222).
 Bare-string entries are still accepted and behave as before (use
 diagnostic as-is).
 
