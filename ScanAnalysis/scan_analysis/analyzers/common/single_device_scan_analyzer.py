@@ -113,7 +113,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
         use_injected_data: bool = False,
-        metric_prefix: Optional[str] = None,
+        output_name: Optional[str] = None,
         metric_suffix: str = "",
     ):
         """Initialize the analyzer and validate concurrency constraints."""
@@ -139,19 +139,19 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
 
-        # Scalar-key prefix/suffix (#412). The diagnostic factory passes
-        # ``effective_metric_prefix`` (= the diagnostic's ``metric_prefix``
-        # if set, else the device name) and an optional ``metric_suffix``.
-        # When constructed directly (Mode 1, notebook use), ``metric_prefix``
+        # Output identifier (#412). The diagnostic factory passes
+        # ``effective_output_name`` (= the diagnostic's ``output_name`` if
+        # set, else the device name) and an optional ``metric_suffix``.
+        # When constructed directly (Mode 1, notebook use), ``output_name``
         # defaults to None and we fall back to ``device_name`` here — same
         # convention. ``ImageAnalyzer`` emits bare scalar keys; this class
-        # applies prefix + suffix in ``_consume_result`` before storing
-        # results, so all downstream consumers (s-file writer, in-memory
-        # optimizer evaluator, render data) see consistently namespaced
-        # keys.
-        self._metric_prefix: str = (
-            metric_prefix if metric_prefix is not None else device_name
-        )
+        # applies the ``output_name`` prefix + ``metric_suffix`` in
+        # ``_consume_result`` before storing results, so all downstream
+        # consumers (s-file writer, in-memory optimizer evaluator, render
+        # data) see consistently namespaced keys. Per-analyzer output
+        # directories are also keyed off ``_output_name`` so the on-disk
+        # layout matches the s-file columns.
+        self._output_name: str = output_name if output_name is not None else device_name
         self._metric_suffix: str = metric_suffix or ""
 
         # Check if image_analyzer is pickleable
@@ -647,15 +647,16 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         scalars: ``[shot_num]`` for per-shot, the bin's shot list for
         per-bin.
 
-        Applies the diagnostic's scalar-key prefix/suffix here (#412):
+        Applies the diagnostic's output-naming here (#412):
         ``ImageAnalyzer`` emits bare keys; this is the single layer
-        where they get namespaced. After the rewrite, every downstream
+        where they get namespaced with ``output_name`` (prefix) and
+        ``metric_suffix`` (suffix). After the rewrite, every downstream
         consumer (s-file writer below, optimizer evaluator reading
         ``self.results[shot].scalars`` in memory) sees the same
-        ``{prefix}_{key}{suffix}`` shape.
+        ``{output_name}_{key}{metric_suffix}`` shape.
         """
         result.scalars = _apply_prefix_suffix(
-            result.scalars, self._metric_prefix, self._metric_suffix
+            result.scalars, self._output_name, self._metric_suffix
         )
         analysis_results = result.scalars
 

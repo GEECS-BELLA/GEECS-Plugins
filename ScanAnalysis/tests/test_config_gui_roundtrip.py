@@ -405,7 +405,7 @@ class TestScanAnalyzerEditorRoundtrip:
     """Round-trip a diagnostic YAML through the full scan-analyzer editor.
 
     Focused on fields the editor adds beyond the I/O layer's coverage —
-    primarily the General-section ``metric_prefix`` / ``metric_suffix``
+    primarily the General-section ``output_name`` / ``metric_suffix``
     decoration fields that were added when the prefix/suffix concept
     moved from ImageAnalysis to ScanAnalysis.
     """
@@ -428,17 +428,17 @@ class TestScanAnalyzerEditorRoundtrip:
         editor.load_config(data)
         return editor.get_config_dict()
 
-    def test_metric_prefix_survives_editor_roundtrip(self):
-        """An explicit ``metric_prefix`` makes it through load + save."""
+    def test_output_name_survives_editor_roundtrip(self):
+        """An explicit ``output_name`` makes it through load + save."""
         data = {
             "name": "UC_Test",
-            "metric_prefix": "custom_prefix",
+            "output_name": "custom_prefix",
             "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
             "image": {"type": "camera", "bit_depth": 16},
             "scan": {"priority": 50},
         }
         out = self._editor_roundtrip(data)
-        assert out.get("metric_prefix") == "custom_prefix"
+        assert out.get("output_name") == "custom_prefix"
 
     def test_metric_suffix_survives_editor_roundtrip(self):
         """An explicit ``metric_suffix`` makes it through load + save."""
@@ -453,10 +453,10 @@ class TestScanAnalyzerEditorRoundtrip:
         assert out.get("metric_suffix") == "_roi_left"
 
     def test_absent_metric_keys_stay_absent(self):
-        """A YAML without metric_prefix/suffix doesn't grow them on round-trip.
+        """A YAML without output_name/suffix doesn't grow them on round-trip.
 
         Empty edits map to "field absent" — the schema defaults
-        (``effective_metric_prefix → name``, suffix → "") then take
+        (``effective_output_name → name``, suffix → "") then take
         over on consumption. We deliberately do NOT serialise empty
         strings, so the on-disk YAML stays clean.
         """
@@ -467,7 +467,7 @@ class TestScanAnalyzerEditorRoundtrip:
             "scan": {"priority": 50},
         }
         out = self._editor_roundtrip(data)
-        assert "metric_prefix" not in out
+        assert "output_name" not in out
         assert "metric_suffix" not in out
 
     def test_full_diagnostic_roundtrip_with_decoration(self):
@@ -477,7 +477,7 @@ class TestScanAnalyzerEditorRoundtrip:
 
         data = {
             "name": "UC_Test",
-            "metric_prefix": "custom_pref",
+            "output_name": "custom_pref",
             "metric_suffix": "_v2",
             "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
             "image": {"type": "camera", "bit_depth": 16},
@@ -486,15 +486,15 @@ class TestScanAnalyzerEditorRoundtrip:
         out = self._editor_roundtrip(data)
         m_in = DiagnosticAnalysisConfig.model_validate(data)
         m_out = DiagnosticAnalysisConfig.model_validate(out)
-        assert m_in.metric_prefix == m_out.metric_prefix == "custom_pref"
+        assert m_in.output_name == m_out.output_name == "custom_pref"
         assert m_in.metric_suffix == m_out.metric_suffix == "_v2"
-        assert m_in.effective_metric_prefix == "custom_pref"
+        assert m_in.effective_output_name == "custom_pref"
 
     def test_image_section_does_not_emit_redundant_name(self):
         """Embedded ConfigEditorPanel hides the image-level Name row.
 
         After PR #420 the top-level ``DiagnosticAnalysisConfig.name`` is
-        the source of truth (it's also the default ``metric_prefix``).
+        the source of truth (it's also the default ``output_name``).
         The image-level ``name`` field is ``Optional[str]`` and gets
         injected by the validator on-load. The editor must not emit a
         redundant ``image.name`` on save — that's what created the

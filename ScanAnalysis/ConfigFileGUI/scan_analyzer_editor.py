@@ -3,8 +3,9 @@
 Builds a form against :class:`image_analysis.config.DiagnosticAnalysisConfig`
 (the post-PR-E unified-diagnostic schema) with four sections:
 
-* **General** — ``name`` + optional ``metric_prefix`` / ``metric_suffix``
-  (scalar-key decoration, applied by ScanAnalysis on consumption)
+* **General** — ``name`` + optional ``output_name`` / ``metric_suffix``
+  (output identifier + scalar-key suffix, applied by ScanAnalysis on
+  consumption)
 * **Image Analyzer** — ``image_analyzer.class_path`` +
   ``image_analyzer.kwargs``
 * **Image** — discriminator type combo (``camera`` / ``line`` /
@@ -225,28 +226,30 @@ class ScanAnalyzerEditorPanel(QWidget):
         self._name_edit.textChanged.connect(self._on_value_changed)
         general_form.addRow("name:", self._name_edit)
 
-        # Optional scalar-key decoration. Empty string = field absent =
-        # use the schema defaults (prefix → name, suffix → ""). These
-        # are applied by ScanAnalysis at consumption time; ImageAnalysis
-        # emits bare keys.
-        self._metric_prefix_edit = QLineEdit()
-        self._metric_prefix_edit.setPlaceholderText("(defaults to name)")
-        self._metric_prefix_edit.setToolTip(
-            "Prefix applied to every scalar metric key by ScanAnalysis. "
-            "Leave blank to default to 'name'. Set to a different string "
-            "when you want the column names on disk to differ from the "
-            "diagnostic name."
+        # Optional output identifier + scalar-key suffix. Empty string
+        # = field absent = use the schema defaults (output_name → name,
+        # suffix → ""). These are applied by ScanAnalysis at
+        # consumption time; ImageAnalysis emits bare keys.
+        self._output_name_edit = QLineEdit()
+        self._output_name_edit.setPlaceholderText("(defaults to name)")
+        self._output_name_edit.setToolTip(
+            "Output identifier. Drives BOTH the s-file column prefix AND "
+            "the per-analyzer output directory name. Leave blank to "
+            "default to 'name'. Set to a different string when you want "
+            "outputs (columns and dir) labelled differently from the "
+            "input device — e.g. running two BeamAnalyzer variants over "
+            "the same camera (output_name=UC_TopView_left / _right)."
         )
-        self._metric_prefix_edit.textChanged.connect(self._on_value_changed)
-        general_form.addRow("metric_prefix:", self._metric_prefix_edit)
+        self._output_name_edit.textChanged.connect(self._on_value_changed)
+        general_form.addRow("output_name:", self._output_name_edit)
 
         self._metric_suffix_edit = QLineEdit()
         self._metric_suffix_edit.setPlaceholderText("(none)")
         self._metric_suffix_edit.setToolTip(
             "Suffix appended to every scalar metric key by ScanAnalysis. "
-            "Leave blank for no suffix. Use to distinguish multiple "
-            "analysis variants of the same physical device (e.g. "
-            "'_roi_left' vs '_roi_right')."
+            "Scalar-key-only — does NOT affect directory or file names "
+            "(use output_name for those). Leave blank for no suffix. "
+            "Use to distinguish post-processed column variants."
         )
         self._metric_suffix_edit.textChanged.connect(self._on_value_changed)
         general_form.addRow("metric_suffix:", self._metric_suffix_edit)
@@ -305,8 +308,8 @@ class ScanAnalyzerEditorPanel(QWidget):
         # long CameraConfig/Line1DConfig form. ``embedded_mode=True``
         # suppresses the image-level ``Name:`` row, because the parent
         # ``DiagnosticAnalysisConfig`` owns the authoritative name
-        # (and is the source of truth for the scalar-key prefix via
-        # ``effective_metric_prefix``).
+        # (and is the source of truth for the output identifier via
+        # ``effective_output_name``).
         self._image_panel = ConfigEditorPanel(embedded_mode=True)
         self._image_panel.valueChanged.connect(self._on_value_changed)
         image_layout.addWidget(self._image_panel, stretch=1)
@@ -499,11 +502,11 @@ class ScanAnalyzerEditorPanel(QWidget):
         try:
             # General
             self._name_edit.setText(str(data.get("name", "")))
-            # Optional scalar-key decoration. Render absent / null as an
-            # empty edit so a round-trip without user changes doesn't
-            # introduce these keys in the YAML.
-            mp = data.get("metric_prefix")
-            self._metric_prefix_edit.setText("" if mp is None else str(mp))
+            # Optional output identifier + scalar-key suffix. Render
+            # absent / null as an empty edit so a round-trip without
+            # user changes doesn't introduce these keys in the YAML.
+            on = data.get("output_name")
+            self._output_name_edit.setText("" if on is None else str(on))
             ms = data.get("metric_suffix")
             self._metric_suffix_edit.setText("" if ms is None else str(ms))
 
@@ -560,16 +563,16 @@ class ScanAnalyzerEditorPanel(QWidget):
         name = self._name_edit.text().strip()
         if name:
             out["name"] = name
-        # Only emit metric_prefix / metric_suffix when the user actually
+        # Only emit output_name / metric_suffix when the user actually
         # entered something. Empty edits stay absent from the YAML so
         # the DiagnosticAnalysisConfig defaults take over on load
-        # (effective_metric_prefix falls back to ``name``, suffix to "").
+        # (effective_output_name falls back to ``name``, suffix to "").
         # We deliberately do NOT .strip() — a leading/trailing space in
         # a suffix is unusual but legal, and silently mangling it would
         # be surprising.
-        metric_prefix = self._metric_prefix_edit.text()
-        if metric_prefix:
-            out["metric_prefix"] = metric_prefix
+        output_name = self._output_name_edit.text()
+        if output_name:
+            out["output_name"] = output_name
         metric_suffix = self._metric_suffix_edit.text()
         if metric_suffix:
             out["metric_suffix"] = metric_suffix
