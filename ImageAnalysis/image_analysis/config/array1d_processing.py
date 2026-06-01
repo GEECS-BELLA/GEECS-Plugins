@@ -393,7 +393,9 @@ class Line1DConfig(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        # ``extra="forbid"`` per the #412 cleanup — see the matching
+        # rationale on :class:`CameraConfig`.
+        extra="forbid",
         arbitrary_types_allowed=True,
         use_enum_values=True,
         validate_assignment=True,

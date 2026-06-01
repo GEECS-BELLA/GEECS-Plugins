@@ -10,10 +10,9 @@ from image_analysis.config.array1d_processing import Data1DConfig, Line1DConfig
 from image_analysis.tools.synthetic_generators import gaussian_peak_1d
 
 
-def _make_line_config(name: str = "test_line") -> Line1DConfig:
+def _make_line_config() -> Line1DConfig:
     """Minimal Line1DConfig — no processing steps."""
     return Line1DConfig(
-        name=name,
         description="synthetic test line",
         data_loading=Data1DConfig(data_type="npy"),
     )
@@ -35,8 +34,14 @@ class TestLineAnalyzerInstantiation:
     """Construction tests."""
 
     def test_accepts_line_config_object(self):
-        analyzer = LineAnalyzer(_make_line_config("my_line"))
-        assert analyzer.line_config.name == "my_line"
+        analyzer = LineAnalyzer(_make_line_config())
+        # ``output_name`` defaults to None in standalone Mode-1 use
+        # (no diagnostic factory present to wire it).
+        assert analyzer.output_name is None
+
+    def test_output_name_passthrough(self):
+        analyzer = LineAnalyzer(_make_line_config(), output_name="my_line")
+        assert analyzer.output_name == "my_line"
 
 
 class TestLineAnalyzerScalars:

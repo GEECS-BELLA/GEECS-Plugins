@@ -112,15 +112,16 @@ class TestLoadCameraConfigFromDiagnosticPath:
         assert cfg.data_loading.data_type.value == "csv"
 
     def test_load_camera_config_from_legacy_flat_yaml_still_works(self, tmp_path):
+        """A flat YAML (no ``image:`` wrapper) loads as a bare CameraConfig.
+
+        Per #412, ``name`` is no longer a CameraConfig field — and with
+        ``extra="forbid"`` it raises rather than silently passing
+        through. Legacy YAMLs that still carry ``name:`` need it
+        stripped before loading (the diagnostic factory does this
+        upstream; standalone callers must do it themselves).
+        """
         path = tmp_path / "UC_Flat.yaml"
-        path.write_text(
-            yaml.safe_dump(
-                {
-                    "name": "UC_Flat",
-                    "bit_depth": 12,
-                }
-            )
-        )
+        path.write_text(yaml.safe_dump({"bit_depth": 12}))
 
         cfg = load_camera_config(path)
         assert cfg.bit_depth == 12

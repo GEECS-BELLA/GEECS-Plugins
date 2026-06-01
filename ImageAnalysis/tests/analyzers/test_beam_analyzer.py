@@ -19,10 +19,9 @@ from image_analysis.config.array2d_processing import (
 from image_analysis.tools.synthetic_generators import gaussian_beam_2d
 
 
-def _make_config(name: str = "test_cam") -> CameraConfig:
+def _make_config() -> CameraConfig:
     """Minimal CameraConfig with no processing steps."""
     return CameraConfig(
-        name=name,
         bit_depth=16,
         background=BackgroundConfig(method="constant", constant_level=0),
     )
@@ -39,7 +38,7 @@ class TestBeamAnalyzerInstantiation:
 
     def test_accepts_config_object(self):
         """BeamAnalyzer can be constructed from a CameraConfig directly."""
-        analyzer = BeamAnalyzer(_make_config("my_cam"))
+        analyzer = BeamAnalyzer(_make_config())
         # ``output_name`` defaults to None when not explicitly passed
         # (standalone notebook construction). The diagnostic factory
         # passes a value in the scan path.
@@ -153,7 +152,6 @@ class TestBeamAnalyzerROICoordinates:
         # ROI that contains the beam; origin at (x_min=100, y_min=60)
         roi = ROIConfig(x_min=100, x_max=200, y_min=60, y_max=140)
         config = CameraConfig(
-            name="roi_cam",
             bit_depth=16,
             roi=roi,
             pipeline=PipelineConfig(steps=[ProcessingStepType.ROI]),
@@ -171,7 +169,7 @@ class TestBeamAnalyzerROICoordinates:
         img = gaussian_beam_2d(
             shape=(128, 128), center=(global_row, global_col), sigma=(8.0, 8.0), seed=11
         )
-        config = CameraConfig(name="no_roi_cam", bit_depth=16)
+        config = CameraConfig(bit_depth=16)
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)
 
@@ -185,7 +183,7 @@ class TestBeamAnalyzerROICoordinates:
         )
 
         # No ROI — full image
-        cfg_full = CameraConfig(name="full", bit_depth=16)
+        cfg_full = CameraConfig(bit_depth=16)
         result_full = BeamAnalyzer(cfg_full).analyze_image(img)
 
         # ROI that covers the same area but with a non-zero origin
@@ -194,7 +192,7 @@ class TestBeamAnalyzerROICoordinates:
             shape=(200, 200), center=(150.0, 150.0), sigma=(6.0, 6.0), seed=12
         )
         roi = ROIConfig(x_min=100, x_max=200, y_min=100, y_max=200)
-        cfg_roi = CameraConfig(name="roi", bit_depth=16, roi=roi)
+        cfg_roi = CameraConfig(bit_depth=16, roi=roi)
         result_roi = BeamAnalyzer(cfg_roi).analyze_image(img_large)
 
         assert result_roi.scalars["x_rms"] == pytest.approx(
@@ -210,7 +208,7 @@ class TestBeamAnalyzerROICoordinates:
 
         # ROI claims a 200x200 region on a 50x50 image — should be clamped
         roi = ROIConfig(x_min=0, x_max=200, y_min=0, y_max=200)
-        config = CameraConfig(name="big_roi_cam", bit_depth=16, roi=roi)
+        config = CameraConfig(bit_depth=16, roi=roi)
         analyzer = BeamAnalyzer(config)
 
         result = analyzer.analyze_image(img)  # must not raise

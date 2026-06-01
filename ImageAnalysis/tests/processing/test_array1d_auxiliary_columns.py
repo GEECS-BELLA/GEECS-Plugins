@@ -49,7 +49,6 @@ def _line_config(path: Path, interpolation: bool = False) -> Line1DConfig:
     if interpolation:
         steps.append(PipelineStepType.INTERPOLATION)
     return Line1DConfig(
-        name="weighted_line",
         description="weighted line test",
         data_loading=Data1DConfig(
             data_type="tsv",

@@ -553,7 +553,12 @@ class CameraConfig(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        # ``extra="forbid"`` per the #412 cleanup: the schema is the
+        # source of truth. Legacy YAMLs with stray keys (notably the
+        # dropped ``name:`` field) will now error loudly at load
+        # rather than landing in ``model_extra`` and being silently
+        # inert.
+        extra="forbid",
         arbitrary_types_allowed=True,
     )
 

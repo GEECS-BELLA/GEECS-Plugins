@@ -34,13 +34,13 @@ from image_analysis.config.array1d_processing import Line1DConfig, Data1DConfig
 
 
 def _roundtrip_camera(config: CameraConfig, tmp_path) -> CameraConfig:
-    path = tmp_path / f"{config.name}.yaml"
+    path = tmp_path / "config.yaml"
     save_config(config, path)
     return load_config(path)
 
 
 def _roundtrip_line(config: Line1DConfig, tmp_path) -> Line1DConfig:
-    path = tmp_path / f"{config.name}.yaml"
+    path = tmp_path / "config.yaml"
     save_config(config, path)
     return load_config(path)
 
@@ -51,31 +51,25 @@ def _roundtrip_line(config: Line1DConfig, tmp_path) -> Line1DConfig:
 
 
 class TestCameraConfigRoundtrip:
+    """Round-trip CameraConfig through I/O — verify processing fields survive.
+
+    Per #412 the ``name`` field is gone; tests that previously pinned
+    ``name`` round-tripping have been dropped. ``bit_depth`` /
+    ``description`` are the remaining identity fields.
+    """
+
     def test_minimal_camera_config(self, tmp_path):
-        cfg = CameraConfig(name="UC_TestCamera", bit_depth=16)
+        cfg = CameraConfig(bit_depth=16)
         reloaded = _roundtrip_camera(cfg, tmp_path)
-        assert reloaded.name == cfg.name
         assert reloaded.bit_depth == cfg.bit_depth
 
-    def test_name_survives_roundtrip(self, tmp_path):
-        cfg = CameraConfig(name="MyCustomName", bit_depth=8)
-        reloaded = _roundtrip_camera(cfg, tmp_path)
-        assert reloaded.name == "MyCustomName"
-
     def test_description_survives_roundtrip(self, tmp_path):
-        cfg = CameraConfig(name="UC_Test", bit_depth=16, description="A test camera")
+        cfg = CameraConfig(bit_depth=16, description="A test camera")
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert reloaded.description == "A test camera"
 
-    def test_name_independent_of_filename(self, tmp_path):
-        cfg = CameraConfig(name="DeviceName", bit_depth=16)
-        path = tmp_path / "DifferentFilename.yaml"
-        save_config(cfg, path)
-        reloaded = load_config(path)
-        assert reloaded.name == "DeviceName"
-
     def test_model_dump_identical(self, tmp_path):
-        cfg = CameraConfig(name="UC_Test", bit_depth=16, description="desc")
+        cfg = CameraConfig(bit_depth=16, description="desc")
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert reloaded.model_dump() == cfg.model_dump()
 
@@ -90,7 +84,6 @@ class TestFloatPrecisionRoundtrip:
         from image_analysis.config.array2d_processing import ThresholdingConfig
 
         cfg = CameraConfig(
-            name="UC_Test",
             bit_depth=16,
             thresholding=ThresholdingConfig(enabled=True, value=0.2008),
         )
@@ -102,7 +95,6 @@ class TestFloatPrecisionRoundtrip:
 
         tiny = 1e-13
         cfg = CameraConfig(
-            name="UC_Test",
             bit_depth=16,
             thresholding=ThresholdingConfig(enabled=True, value=tiny),
         )
@@ -116,31 +108,26 @@ class TestFloatPrecisionRoundtrip:
 
 
 class TestLine1DConfigRoundtrip:
+    """Round-trip Line1DConfig through I/O — verify processing fields survive.
+
+    Per #412 the ``name`` field is gone; tests that previously pinned
+    name-round-tripping are dropped. ``description`` / ``data_loading``
+    are the remaining identity fields.
+    """
+
     def test_minimal_line_config(self, tmp_path):
         from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
-            name="U_TestSignal",
             data_loading=Data1DConfig(data_type=Data1DType.CSV),
         )
         reloaded = _roundtrip_line(cfg, tmp_path)
-        assert reloaded.name == cfg.name
-
-    def test_name_survives_roundtrip(self, tmp_path):
-        from image_analysis.config.array1d_processing import Data1DType
-
-        cfg = Line1DConfig(
-            name="MySignalName",
-            data_loading=Data1DConfig(data_type=Data1DType.CSV),
-        )
-        reloaded = _roundtrip_line(cfg, tmp_path)
-        assert reloaded.name == "MySignalName"
+        assert reloaded.data_loading.data_type == cfg.data_loading.data_type
 
     def test_model_dump_identical(self, tmp_path):
         from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
-            name="U_Test",
             description="line desc",
             data_loading=Data1DConfig(data_type=Data1DType.CSV),
         )

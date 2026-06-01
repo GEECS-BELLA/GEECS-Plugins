@@ -18,7 +18,6 @@ from image_analysis.config.array1d_processing import (
 
 def _make_config() -> Line1DConfig:
     return Line1DConfig(
-        name="frog_phase",
         description="synthetic FROG spectral phase",
         data_loading=Data1DConfig(
             data_type="tsv",
