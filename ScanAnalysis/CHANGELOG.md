@@ -5,66 +5,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.12.0] — 2026-06-01
 
-Single source of truth for scalar-key namespacing (issue #412).
-ScanAnalysis becomes the sole layer that applies
-``{metric_prefix}_{key}{metric_suffix}`` to scalar dicts; ImageAnalysis
-emits bare keys. Companion to ImageAnalysis 1.8.0.
+Single source of truth for output naming (issue #412). ScanAnalysis
+becomes the sole layer that applies ``{output_name}_{key}{metric_suffix}``
+to scalar dicts AND uses ``output_name`` to label per-analyzer output
+directories. ImageAnalysis emits bare keys and exposes the
+``output_name`` identifier via the analyzer's
+``output_name`` property. Companion to ImageAnalysis 1.8.0.
 
 ### Added
-- Per-analyzer scalar prefix/suffix on the unified diagnostic config:
-  ``DiagnosticAnalysisConfig.metric_prefix`` and
-  ``DiagnosticAnalysisConfig.metric_suffix`` (both optional, both
-  default ``None``).
-- ``DiagnosticAnalysisConfig.effective_metric_prefix`` property —
-  resolves to ``metric_prefix`` when set, otherwise falls back to
-  ``name``. This is the value ScanAnalysis applies as the scalar
-  prefix.
-- ``SingleDeviceScanAnalyzer`` gains ``metric_prefix`` / ``metric_suffix``
+- Per-analyzer output identifier on the unified diagnostic config:
+  ``DiagnosticAnalysisConfig.output_name`` (Optional[str]; defaults to
+  None → falls back to ``name``).
+- ``DiagnosticAnalysisConfig.effective_output_name`` property —
+  resolves to ``output_name`` when set, otherwise falls back to
+  ``name``. ScanAnalysis applies this as the scalar prefix AND uses
+  it for per-analyzer output directory names — one field controls
+  both.
+- ``DiagnosticAnalysisConfig.metric_suffix`` (Optional[str]; default
+  None). Scalar-key-only — does not affect directory or file names.
+- ``SingleDeviceScanAnalyzer`` gains ``output_name`` / ``metric_suffix``
   constructor kwargs, plumbed through ``Array1DScanAnalyzer``,
   ``Array2DScanAnalyzer``, and ``create_scan_analyzer``. The factory
   populates them from the diagnostic config.
 - Module-level ``_apply_prefix_suffix(scalars, prefix, suffix)`` helper
   in ``single_device_scan_analyzer.py``.
-- ``ConfigFileGUI.ScanAnalyzerEditorPanel`` exposes ``metric_prefix``
-  and ``metric_suffix`` as editable fields in the General section, so
-  users can configure scalar-key decoration from the GUI rather than
+- ``ConfigFileGUI.ScanAnalyzerEditorPanel`` exposes ``output_name`` and
+  ``metric_suffix`` as editable fields in the General section, so
+  users can configure output naming from the GUI rather than
   hand-editing YAML. Empty edits map to "field absent" — the
   ``DiagnosticAnalysisConfig`` defaults take over on consumption.
   Round-trip is covered by ``TestScanAnalyzerEditorRoundtrip``.
-- ``ConfigEditorPanel`` gains an ``embedded_mode`` constructor flag.
-  When ``True`` (used by ``ScanAnalyzerEditorPanel`` for its embedded
-  image panel), the image-level ``Name:`` row is suppressed — the
-  parent ``DiagnosticAnalysisConfig`` owns the authoritative name and
-  the embedded panel never emits a redundant ``image.name`` key into
-  the YAML. Legacy YAMLs that still carry ``image.name`` get it
-  silently dropped on the next save; the on-resolve model is
-  unchanged because the ``DiagnosticAnalysisConfig`` validator
-  injects ``image.name = name`` at validate-time. In standalone mode
-  the row is still shown, with a corrected placeholder ("Local
-  identifier (auto-derived from filename if unset)") that reflects
-  the post-PR #420 reality that ``image.name`` is no longer the
-  scalar-key prefix.
 
 ### Changed
 - ``SingleDeviceScanAnalyzer._consume_result`` now applies the
-  prefix/suffix to ``result.scalars`` before storing the result in
-  ``self.results[unit_key]``. Every downstream consumer — the s-file
-  writer below in the same method, and any in-memory consumer
-  (notably the optimizer's ``MultiDeviceScanEvaluator`` reading
+  ``output_name`` prefix and ``metric_suffix`` to ``result.scalars``
+  before storing the result in ``self.results[unit_key]``. Every
+  downstream consumer — the s-file writer below in the same method,
+  and any in-memory consumer (notably the optimizer's
+  ``MultiDeviceScanEvaluator`` reading
   ``analyzer.results[shot].scalars``) — sees the namespaced keys
   through the same contract.
+- ``SingleDeviceScanAnalyzer._establish_additional_paths`` reads the
+  analyzer's ``output_name`` property (was ``camera_name``) for
+  output directory labels. Falls back to ``device_name`` when the
+  analyzer doesn't expose ``output_name``.
+- ``ConfigEditorPanel`` no longer renders a ``Name:`` row in either
+  the 2D or 1D General Settings section — ``CameraConfig.name`` and
+  ``Line1DConfig.name`` were dropped from the ImageAnalysis schema
+  (1.8.0). The previously-added ``embedded_mode`` flag is removed
+  along with the row it suppressed.
 
 ### Migration
-Production YAMLs require **no changes**. When ``metric_prefix`` is
-unset on the diagnostic, the effective prefix defaults to ``diag.name``
-and the suffix to ``""``, producing the same s-file column names as
-before the refactor (``UC_TopView_x_fwhm``, etc.).
+Production YAMLs require **no changes for typical use** — the
+bit-identical contract holds: when the diagnostic config has no
+``output_name`` field, the effective output_name defaults to
+``diag.name`` and the suffix to ``""``, producing the same s-file
+column names AND output directory names as before the refactor
+(``UC_TopView_x_fwhm``, ``analysis/Scan001/UC_TopView/...``).
+
+In-development YAMLs that used the briefly-named ``metric_prefix:``
+key (never shipped) should rename it to ``output_name:``.
 
 ### Test count
 - 141 headless tests pass unchanged. ``TestScanAnalyzerEditorRoundtrip``
   adds 6 GUI-marked tests (deselected on headless CI; require PyQt5) —
-  4 covering metric_prefix/metric_suffix round-trip and 2 covering the
-  embedded-mode name-field suppression.
+  4 covering output_name/metric_suffix round-trip and 2 covering the
+  image-section ``name`` field being absent from YAML output (the
+  field was removed from the schema, so the editor renders no widget
+  for it).
 
 ## [1.11.0] — 2026-05-30
 

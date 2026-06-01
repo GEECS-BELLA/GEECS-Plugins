@@ -5,57 +5,101 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.8.0] — 2026-06-01
 
-Single source of truth for scalar-key namespacing (issue #412). All
-prefix/suffix infrastructure moves out of ImageAnalysis into
-ScanAnalysis. Companion to ScanAnalysis 1.12.0.
+Single source of truth for output naming (issue #412). All scalar-key
+prefix/suffix infrastructure and the per-image-config ``name`` field
+move out of ImageAnalysis. The analyzer hierarchy gains an
+``output_name`` kwarg that the diagnostic factory wires from
+``DiagnosticAnalysisConfig.effective_output_name``. Companion to
+ScanAnalysis 1.13.0.
 
 ### Changed (breaking)
+- ``DiagnosticAnalysisConfig``: new ``output_name: Optional[str]``
+  field replaces the briefly-named ``metric_prefix`` (the latter
+  never shipped). Reads as "the stem string used for all outputs
+  this analyzer produces" — drives both s-file column prefixes AND
+  per-analyzer output directory names. ``effective_output_name``
+  property: ``output_name`` if set, else ``name``.
+  ``metric_suffix`` keeps its name (narrow — scalar-key-only).
+- ``StandardAnalyzer``, ``Standard1DAnalyzer``, ``BeamAnalyzer``,
+  ``LineAnalyzer``: add ``output_name`` keyword-only kwarg. Replaces
+  the previous ``camera_name`` property (read by
+  ``SingleDeviceScanAnalyzer`` for output dir labels and by MagSpec
+  for per-file output paths).
 - ``BeamAnalyzer``, ``LineAnalyzer``, ``Standard1DAnalyzer``,
   ``StandardAnalyzer``, ``GrenouilleAnalyzer``,
   ``DownrampPhaseAnalyzer``, ``FrogSpectralPhaseAnalyzer``,
-  ``LineStitcher``, ``BCaveMagOpt`` — all emit **bare scalar keys**
-  (``"x_fwhm"``, ``"image_total"``, ``"gdd_fs2"`` etc.). Namespacing
-  with device prefix moves to ``SingleDeviceScanAnalyzer`` in
-  ScanAnalysis. Mode-1 (notebook) consumers see bare keys; Mode-2
-  (scan-analysis-driven) consumers see prefixed keys as before.
-- ``CameraConfig.name`` and ``Line1DConfig.name`` are now
-  ``Optional[str]``. They're purely cosmetic now — used only for log
-  messages and ``ImageAnalyzerResult.metadata``. The loader fills in
-  the filename stem when ``name`` is absent in the YAML and a path was
-  supplied; Mode-1 notebook construction with no name leaves it
-  ``None``.
+  ``LineStitcher``, ``BCaveMagOpt``, ``ICT1DAnalyzer`` — all emit
+  **bare scalar keys** (``"x_fwhm"``, ``"image_total"``,
+  ``"temporal_fwhm"``, ``"charge_pC"`` etc.). Namespacing with the
+  ``output_name`` prefix moves to ``SingleDeviceScanAnalyzer`` in
+  ScanAnalysis.
 
-### Removed
+### Removed (breaking)
+- ``CameraConfig.name`` and ``Line1DConfig.name`` are gone from the
+  documented schema. Analyzer identity now flows through the
+  ``output_name`` constructor kwarg (set by the diagnostic factory
+  from ``effective_output_name``); the per-image-config ``name``
+  field that was previously coupled to it has nowhere left to live.
+  ``extra="allow"`` on both config classes means legacy YAMLs that
+  still carry ``name:`` inside ``image:`` still load (the key lands
+  in ``model_extra``), but nothing reads it for behavior.
+- ``DiagnosticAnalysisConfig._inject_name_into_image`` validator
+  (used to default ``image.name`` from top-level ``name``). No
+  longer needed — there's no ``image.name`` field to default.
+- Loader's filename-stem ``name`` injection.
+- ``StandardAnalyzer.camera_name`` property; renamed to
+  ``output_name``.
+- ``Standard1DAnalyzer.camera_name`` compatibility property; renamed
+  to ``output_name``.
 - ``flatten_beam_stats`` and ``compute_beam_slopes``: ``prefix`` and
-  ``suffix`` kwargs are gone.
-- ``LineBasicStats.to_dict``: ``prefix`` and ``suffix`` kwargs gone.
+  ``suffix`` kwargs.
+- ``LineBasicStats.to_dict``: ``prefix`` and ``suffix`` kwargs.
 - All ``name_suffix`` constructor kwargs (and the
   ``camera_config.name`` mutation pattern that backed them) on
   ``StandardAnalyzer``, ``BeamAnalyzer``, ``DownrampPhaseAnalyzer``,
   ``GrenouilleAnalyzer``.
-- All ``metric_prefix`` / ``metric_suffix`` constructor kwargs on
-  ``LineAnalyzer``, ``FrogSpectralPhaseAnalyzer``, ``LineStitcher``,
-  ``BCaveMagOpt``.
+- All previous ``metric_prefix`` / ``metric_suffix`` constructor
+  kwargs on ``LineAnalyzer``, ``FrogSpectralPhaseAnalyzer``,
+  ``LineStitcher``, ``BCaveMagOpt``.
 - ``StandardAnalyzer.apply_metric_suffix`` utility method.
-- ``StandardAnalyzer.camera_config_name`` shadow attribute (subsumed by
-  ``camera_config.name`` now that ``name_suffix`` no longer mutates it).
+- ``StandardAnalyzer.camera_config_name`` shadow attribute.
 - Private ``_normalize_metric_suffix`` helper in
   ``frog_spectral_phase_analyzer``.
 
+### Fixed
+- ``GrenouilleAnalyzer``, ``ICT1DAnalyzer``,
+  ``DownrampPhaseAnalyzer`` were still self-prefixing their scalar
+  keys with the camera name (e.g. ``"UC_FROG_temporal_fwhm"``). With
+  ScanAnalysis also prefixing, this produced doubly-prefixed columns
+  (``"UC_FROG_UC_FROG_temporal_fwhm"``). All three now emit bare
+  keys and rely on ScanAnalysis to namespace them once, end-to-end.
+- ``DownrampPhaseAnalyzer`` was calling
+  ``compute_beam_slopes(phase_array, prefix=self.camera_name)``;
+  ``compute_beam_slopes`` had its ``prefix`` kwarg removed earlier
+  in #412 (so this call would have failed at runtime). Now passes
+  no prefix and reads the bare-key result.
+
 ### Migration
-- Production YAMLs require **no changes** — the bit-identical contract
-  holds: when the diagnostic config has no ``metric_prefix`` / ``metric_suffix``
-  fields, ScanAnalysis defaults the prefix to ``diag.name`` and the
-  suffix to ``""``, producing the same s-file column names as before
-  (``UC_TopView_x_fwhm`` etc.).
+- Production YAMLs require **no changes for typical use** — the
+  bit-identical contract holds when the diagnostic config has no
+  ``output_name`` / ``metric_suffix`` fields: ScanAnalysis defaults
+  the prefix to ``diag.name`` and the suffix to ``""``, producing
+  the same s-file column names as before (``UC_TopView_x_fwhm``).
+- YAMLs that used the in-development ``metric_prefix:`` key (never
+  shipped) should rename it to ``output_name:``.
+- Standalone notebook ``CameraConfig(name="foo", ...)`` usage stops
+  validating ``name`` against a typed field — it lands in
+  ``model_extra`` and is silently ignored. Notebook code that read
+  ``cfg.name`` should switch to tracking the identifier itself.
 - Notebook code that passed ``metric_suffix=`` / ``metric_prefix=`` /
-  ``name_suffix=`` to an analyzer constructor needs to either drop
-  those kwargs and live with bare keys, or rename the dict keys
+  ``name_suffix=`` to an analyzer constructor needs to drop the
+  kwarg and either live with bare keys or rename the dict keys
   themselves after analysis.
 
 ### Test count
-- 214 tests pass (was 220; six tests of the removed kwargs were
-  deleted).
+- 213 tests pass (was 220; 6 tests of removed kwargs deleted, 1
+  ``name``-assertion test rewritten as an ``output_name``-assertion
+  test).
 
 ## [1.7.0] — 2026-05-30
 
