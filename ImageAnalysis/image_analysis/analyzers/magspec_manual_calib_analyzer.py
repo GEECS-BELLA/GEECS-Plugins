@@ -391,7 +391,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         analysis = self.camera_config.analysis
         if not analysis or "calibration" not in analysis:
             raise ValueError(
-                f"Camera '{self.camera_name}' requires an 'analysis' section "
+                f"Camera '{self.output_name}' requires an 'analysis' section "
                 f"with at least 'calibration' and 'energy_range'."
             )
 
@@ -407,7 +407,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
 
         logger.info(
             "Initialized %s magspec analyzer: energy_range=%s MeV, calibration=%s",
-            self.camera_name,
+            self.output_name,
             self.magspec_config.energy_range,
             self.magspec_config.calibration.kind,
         )
@@ -524,11 +524,11 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         present in ``auxiliary_data``.  Two sibling directories are created
         next to the camera's raw-data folder (``file_path.parent.parent``):
 
-        ``{camera_name}-interp/``
+        ``{output_name}-interp/``
             16-bit PNG where each pixel value equals the charge-calibrated
             intensity divided by the energy bin width (units: fC / MeV).
 
-        ``{camera_name}-interpSpec/``
+        ``{output_name}-interpSpec/``
             Two-column TSV: ``Energy [MeV]`` and ``Charge Density [pC/MeV]``
             (vertical integral of the calibrated image, converted fC → pC,
             divided by the energy bin width).
@@ -557,7 +557,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         file_stem = file_path.stem
 
         # --- interp: 16-bit PNG with units atto_C/MeV per pixel ---
-        interp_dir = output_dir / f"{self.camera_name}-interp"
+        interp_dir = output_dir / f"{self.output_name}-interp"
         interp_dir.mkdir(exist_ok=True)
         # scale image by 1000 to convert fC/MeV to aC/MeV, then clip and convert to uint16 for PNG
         image_uint16 = np.clip(image * 1000, 0, 65535).astype(np.uint16)
@@ -571,7 +571,7 @@ class MagSpecManualCalibAnalyzer(BeamAnalyzer):
         logger.info("Saved calibrated image to %s", interp_dir / f"{file_stem}.png")
 
         # --- interpSpec: energy / charge-density TSV ---
-        spec_dir = output_dir / f"{self.camera_name}-interpSpec"
+        spec_dir = output_dir / f"{self.output_name}-interpSpec"
         spec_dir.mkdir(exist_ok=True)
         spectrum_pC_per_MeV = np.sum(image, axis=0) / 1000.0
         data = np.column_stack([energy_axis, spectrum_pC_per_MeV])

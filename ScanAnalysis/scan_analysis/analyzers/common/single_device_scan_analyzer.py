@@ -167,9 +167,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     def _establish_additional_paths(self):
         """Compute input/output paths and validate data presence."""
-        # Get the analyzer-specific name if available
+        # Get the analyzer-specific output identifier if available
+        # (Standard family exposes ``output_name``); fall back to the
+        # device name when the analyzer doesn't carry one.
         analyzer_name = (
-            getattr(self.image_analyzer, "camera_name", None) or self.device_name
+            getattr(self.image_analyzer, "output_name", None) or self.device_name
         )
 
         # Organize various paths for location of saved data

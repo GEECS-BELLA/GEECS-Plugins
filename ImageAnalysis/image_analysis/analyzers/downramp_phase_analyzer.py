@@ -211,8 +211,12 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             'Plasma downramp shock location (pixel)', 'Plasma downramp plateau avg (phase)',
             'Plasma downramp peak to plateau (phase)', and figure metadata from rotation.
         """
-        slopes = compute_beam_slopes(phase_array, prefix=self.camera_name)
-        laser_angle = np.arctan(slopes[f"{self.camera_name}_image_com_slope_x"])
+        # compute_beam_slopes returns bare keys post-PR #420 (#412);
+        # the previous prefix= kwarg was removed and the analyzer
+        # reads the bare key here. ScanAnalysis applies the
+        # output_name prefix at consumption time.
+        slopes = compute_beam_slopes(phase_array)
+        laser_angle = np.arctan(slopes["image_com_slope_x"])
         laser_angle_deg = np.degrees(laser_angle)
         rotated_data = ndimage.rotate(
             phase_array, angle=laser_angle_deg, reshape=True, order=1

@@ -107,12 +107,14 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
             charge_pC = 0.0
             peak_time_us = 0.0
 
+        # Bare scalar keys (#412 — PR #420 leftover fix). ScanAnalysis
+        # applies the output_name prefix at consumption time.
         result = ImageAnalyzerResult(
             data_type="1d",
             line_data=image,
             scalars={
-                f"{self.camera_name}_charge_pC": charge_pC,
-                f"{self.camera_name}_ICT Signal Peak_us": peak_time_us,
+                "charge_pC": charge_pC,
+                "ICT Signal Peak_us": peak_time_us,
             },
         )
 

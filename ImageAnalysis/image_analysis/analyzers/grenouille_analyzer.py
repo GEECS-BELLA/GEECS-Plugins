@@ -98,12 +98,16 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             noise_rad=self.analysis_config.noise_rad,
         )
 
+        # Bare scalar keys (#412 — PR #420 leftover fix). ScanAnalysis
+        # applies the output_name prefix at consumption time; emitting
+        # bare keys here makes the analyzer reusable standalone and
+        # avoids the double-prefix bug that existed in PR #420.
         scalar_results = {
-            f"{self.camera_name}_temporal_fwhm": result.temporal_fwhm,
-            f"{self.camera_name}_spectral_fwhm": result.spectral_fwhm,
-            f"{self.camera_name}_frog_error": result.frog_error,
-            f"{self.camera_name}_frog_iterations": result.num_iterations,
-            f"{self.camera_name}_tw_per_joule": result.tw_per_joule,
+            "temporal_fwhm": result.temporal_fwhm,
+            "spectral_fwhm": result.spectral_fwhm,
+            "frog_error": result.frog_error,
+            "frog_iterations": result.num_iterations,
+            "tw_per_joule": result.tw_per_joule,
         }
 
         # Pad shorter array with NaN to match lengths

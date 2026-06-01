@@ -85,9 +85,17 @@ class BeamAnalyzer(StandardAnalyzer):
     ----------
     camera_config : CameraConfig
         Validated camera configuration model.
+    output_name : str, optional
+        Output identifier — forwarded to :class:`StandardAnalyzer`.
+        See its docstring for the contract.
     """
 
-    def __init__(self, camera_config: cfg_2d.CameraConfig):
+    def __init__(
+        self,
+        camera_config: cfg_2d.CameraConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the beam analyzer with a validated camera config.
 
         Parameters
@@ -96,9 +104,11 @@ class BeamAnalyzer(StandardAnalyzer):
             Pre-validated camera configuration. Use
             ``image_analysis.config.loader.load_camera_config(name)`` to
             load from disk by name.
+        output_name : str, optional
+            Output identifier; forwarded to ``StandardAnalyzer``.
         """
         # Initialize parent class
-        super().__init__(camera_config=camera_config)
+        super().__init__(camera_config=camera_config, output_name=output_name)
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = BeamAnalysisConfig.model_validate(

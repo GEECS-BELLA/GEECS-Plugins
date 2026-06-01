@@ -40,16 +40,20 @@ class TestBeamAnalyzerInstantiation:
     def test_accepts_config_object(self):
         """BeamAnalyzer can be constructed from a CameraConfig directly."""
         analyzer = BeamAnalyzer(_make_config("my_cam"))
-        assert analyzer.camera_config.name == "my_cam"
+        # ``output_name`` defaults to None when not explicitly passed
+        # (standalone notebook construction). The diagnostic factory
+        # passes a value in the scan path.
+        assert analyzer.output_name is None
 
     def test_accepts_analysis_config(self):
         """BeamAnalyzer exposes a typed analysis_config after construction."""
         analyzer = BeamAnalyzer(_make_config())
         assert analyzer.analysis_config is not None
 
-    def test_camera_name_property(self):
-        analyzer = BeamAnalyzer(_make_config("cam_x"))
-        assert analyzer.camera_name == "cam_x"
+    def test_output_name_property(self):
+        """``output_name`` reflects the value passed at construction time."""
+        analyzer = BeamAnalyzer(_make_config(), output_name="cam_x")
+        assert analyzer.output_name == "cam_x"
 
 
 class TestBeamAnalyzerScalars:

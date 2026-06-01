@@ -71,16 +71,30 @@ def create_image_analyzer(diag: DiagnosticAnalysisConfig) -> Any:
         If the resolved class can't be instantiated with the inferred
         kwargs.
     """
-    return _instantiate_image_analyzer(diag.image_analyzer, diag.image)
+    return _instantiate_image_analyzer(
+        diag.image_analyzer,
+        diag.image,
+        output_name=diag.effective_output_name,
+    )
 
 
-def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> Any:
+def _instantiate_image_analyzer(
+    spec: ImageAnalyzerSpec,
+    image_config: Any,
+    *,
+    output_name: str | None = None,
+) -> Any:
     """Import the class and instantiate with kwargs + image config.
 
     The kwarg name (``camera_config`` vs ``line_config``) is decided
     by the type of the validated image config. When ``image_config`` is
     ``None``, no image-config kwarg is injected — the analyzer takes
     only what ``spec.kwargs`` provides (HASO-style).
+
+    ``output_name`` is forwarded to analyzers that accept it (Standard
+    family + subclasses); analyzers that don't accept the kwarg get a
+    fallback instantiation without it so HASO-style and other
+    out-of-family analyzers stay compatible.
     """
     analyzer_class = _import_class(spec.class_path)
     kwargs = dict(spec.kwargs)
@@ -91,6 +105,9 @@ def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> A
         kwargs["line_config"] = image_config
     # image_config is None: kwargs is exactly what the YAML supplied.
 
+    if output_name is not None:
+        kwargs.setdefault("output_name", output_name)
+
     logger.info(
         "Instantiating %s with kwargs %s",
         spec.class_path,
@@ -99,6 +116,14 @@ def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> A
     try:
         return analyzer_class(**kwargs)
     except TypeError as exc:
+        # Fallback for analyzers that don't accept output_name
+        # (out-of-family / legacy analyzers). Drop it and retry once.
+        if "output_name" in kwargs:
+            retry_kwargs = {k: v for k, v in kwargs.items() if k != "output_name"}
+            try:
+                return analyzer_class(**retry_kwargs)
+            except TypeError:
+                pass
         raise TypeError(
             f"Failed to instantiate {spec.class_path} with kwargs "
             f"{sorted(kwargs)}: {exc}"
