@@ -250,22 +250,29 @@ class BaseOptimizerConfig(BaseModel):
                 loaded = yaml.safe_load(f)
             self.save_devices = SaveDeviceConfig.model_validate(loaded)
 
-        # Auto-generate device_requirements from evaluator kwargs if needed.
+        # Auto-generate device_requirements from evaluator kwargs.
         # Each entry in ``analyzers`` is either a bare diagnostic stem
         # (string) or a dict with ``diagnostic:`` + override patch (see
         # OptimizerAnalyzerEntry). The patch is forwarded to
         # ``load_diagnostic`` so the resolved GEECS device name reflects
         # any ``name``-level override; in practice overrides target
         # ``scan:`` fields and the name comes straight off disk.
+        #
+        # Always produce a ``{"Devices": {...}}`` shell (possibly empty)
+        # when device_requirements was unset — downstream
+        # ``device_manager.load_from_dictionary`` iterates over the
+        # ``Devices`` mapping unconditionally and would AttributeError
+        # on ``None``. Empty is the legitimate state for evaluators that
+        # use only s-file scalars (e.g. ``BeamPositionSimulationEvaluator``)
+        # where the scanner-side save_elements / scan variables already
+        # cover the columns the evaluator reads.
         if self.device_requirements is None:
-            analyzers = self.evaluator.kwargs.get("analyzers")
-            if analyzers:
-                devices: Dict[str, dict] = {}
-                for entry in analyzers:
-                    name, overrides = _split_analyzer_entry(entry)
-                    diag = load_diagnostic(name, overrides=overrides)
-                    devices[diag.name] = dict(_OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE)
-                self.device_requirements = {"Devices": devices}
+            devices: Dict[str, dict] = {}
+            for entry in self.evaluator.kwargs.get("analyzers") or []:
+                name, overrides = _split_analyzer_entry(entry)
+                diag = load_diagnostic(name, overrides=overrides)
+                devices[diag.name] = dict(_OPTIMIZER_DEVICE_REQUIREMENT_TEMPLATE)
+            self.device_requirements = {"Devices": devices}
 
         # Validate VOCS
         if not self.vocs.variables:
