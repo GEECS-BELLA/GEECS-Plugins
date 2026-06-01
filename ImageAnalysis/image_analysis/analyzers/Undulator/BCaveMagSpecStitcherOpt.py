@@ -70,31 +70,16 @@ def objective(spectrum, E0=100.0, sigma_gate=5.0):
 class BCaveMagOpt(Standard1DAnalyzer):
     """Line profile analyzer using the Standard1DAnalyzer framework."""
 
-    def __init__(
-        self,
-        line_config: Line1DConfig,
-        metric_suffix: Optional[str] = None,
-    ):
+    def __init__(self, line_config: Line1DConfig):
         """Initialize the line analyzer with a validated line config.
 
         Parameters
         ----------
         line_config : Line1DConfig
             Pre-validated line configuration.
-        metric_suffix : str, optional
-            Suffix to append to all metric names (underscore is auto-prepended).
         """
-        # Initialize parent class
         super().__init__(line_config)
-
-        # Store metric suffix for use in analyze_image
-        self.metric_suffix = metric_suffix
-
-        logger.info(
-            "Initialized LineAnalyzer for line: %s%s",
-            self.line_config.name,
-            f" (suffix: {metric_suffix})" if metric_suffix else "",
-        )
+        logger.info("Initialized BCaveMagOpt for line: %s", self.line_config.name)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
@@ -124,8 +109,9 @@ class BCaveMagOpt(Standard1DAnalyzer):
 
         processed_line_data = initial_result.line_data
 
+        # Bare-keyed scalar; ScanAnalysis namespaces via metric_prefix per #412.
         obj = objective(processed_line_data)
-        scalars = {f"{self.line_config.name}_objective": obj}
+        scalars = {"objective": obj}
 
         # Build result with line-specific data
         result = ImageAnalyzerResult(

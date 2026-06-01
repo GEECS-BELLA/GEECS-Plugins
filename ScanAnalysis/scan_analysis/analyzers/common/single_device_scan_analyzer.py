@@ -54,6 +54,21 @@ class BinDataEntry(TypedDict):
     result: Optional[ImageAnalyzerResult]
 
 
+def _apply_prefix_suffix(scalars: dict, prefix: str, suffix: str) -> dict:
+    """Return a new scalars dict with ``{prefix}_{key}{suffix}`` keys (#412).
+
+    ImageAnalysis emits bare scalar keys; this function applies the
+    namespacing on the way to storage in ``self.results``. Empty / falsy
+    prefix means no underscore is prepended (explicit unprefixed opt-in,
+    distinct from the default ``device_name`` fallback applied at
+    constructor time).
+    """
+    if not scalars:
+        return scalars
+    pre = f"{prefix}_" if prefix else ""
+    return {f"{pre}{k}{suffix}": v for k, v in scalars.items()}
+
+
 # %% Base Class
 class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
     """
@@ -631,7 +646,17 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         list of shot numbers whose s-file rows should receive the
         scalars: ``[shot_num]`` for per-shot, the bin's shot list for
         per-bin.
+
+        Applies the diagnostic's scalar-key prefix/suffix here (#412):
+        ``ImageAnalyzer`` emits bare keys; this is the single layer
+        where they get namespaced. After the rewrite, every downstream
+        consumer (s-file writer below, optimizer evaluator reading
+        ``self.results[shot].scalars`` in memory) sees the same
+        ``{prefix}_{key}{suffix}`` shape.
         """
+        result.scalars = _apply_prefix_suffix(
+            result.scalars, self._metric_prefix, self._metric_suffix
+        )
         analysis_results = result.scalars
 
         if self._has_valid_result(result):

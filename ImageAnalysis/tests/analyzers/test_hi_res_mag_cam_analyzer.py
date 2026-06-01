@@ -67,8 +67,7 @@ class TestHiResMagCamAnalyzerScalars:
     def test_beam_scalars_present(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
         for key in self.BEAM_SCALARS:
-            prefixed = f"test_hires_{key}"
-            assert prefixed in result.scalars, f"Missing: {prefixed}"
+            assert key in result.scalars, f"Missing: {key}"
 
     def test_bowtie_scalars_present(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
@@ -78,8 +77,7 @@ class TestHiResMagCamAnalyzerScalars:
     def test_beam_scalars_finite(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)
         for key in self.BEAM_SCALARS:
-            prefixed = f"test_hires_{key}"
-            assert math.isfinite(result.scalars[prefixed]), f"Non-finite: {prefixed}"
+            assert math.isfinite(result.scalars[key]), f"Non-finite: {key}"
 
     def test_total_counts_non_negative(self, analyzer, bowtie_image):
         result = analyzer.analyze_image(bowtie_image)

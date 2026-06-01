@@ -66,13 +66,13 @@ class TestBeamAnalyzerScalars:
         img = gaussian_beam_2d(shape=(128, 128), center=(64.0, 64.0), seed=0)
         result = analyzer.analyze_image(img)
         for key in self.SCALARS_ALWAYS_PRESENT:
-            assert f"test_cam_{key}" in result.scalars, f"Missing: test_cam_{key}"
+            assert key in result.scalars, f"Missing: test_cam_{key}"
 
     def test_all_scalars_finite(self, analyzer):
         img = gaussian_beam_2d(shape=(128, 128), center=(64.0, 64.0), seed=0)
         result = analyzer.analyze_image(img)
         for key in self.SCALARS_ALWAYS_PRESENT:
-            prefixed = f"test_cam_{key}"
+            prefixed = key
             assert math.isfinite(result.scalars[prefixed]), f"Non-finite: {prefixed}"
 
 
@@ -97,8 +97,8 @@ class TestBeamAnalyzerCentroidAccuracy:
         result = analyzer.analyze_image(img)
 
         # BeamAnalyzer reports x=column, y=row
-        assert abs(result.scalars["test_cam_x_CoM"] - col) < 1.0
-        assert abs(result.scalars["test_cam_y_CoM"] - row) < 1.0
+        assert abs(result.scalars["x_CoM"] - col) < 1.0
+        assert abs(result.scalars["y_CoM"] - row) < 1.0
 
     def test_image_total_scales_with_peak(self):
         """Higher peak_value → higher image_total."""
@@ -111,10 +111,7 @@ class TestBeamAnalyzerCentroidAccuracy:
         analyzer = BeamAnalyzer(_make_config())
         r_low = analyzer.analyze_image(low)
         r_high = analyzer.analyze_image(high)
-        assert (
-            r_high.scalars["test_cam_image_total"]
-            > r_low.scalars["test_cam_image_total"]
-        )
+        assert r_high.scalars["image_total"] > r_low.scalars["image_total"]
 
 
 class TestBeamAnalyzerResult:
@@ -161,8 +158,8 @@ class TestBeamAnalyzerROICoordinates:
         result = analyzer.analyze_image(img)
 
         # CoM should be close to the global position, not local (20, 20)
-        assert abs(result.scalars["roi_cam_x_CoM"] - global_col) < 1.5
-        assert abs(result.scalars["roi_cam_y_CoM"] - global_row) < 1.5
+        assert abs(result.scalars["x_CoM"] - global_col) < 1.5
+        assert abs(result.scalars["y_CoM"] - global_row) < 1.5
 
     def test_roi_offset_not_applied_without_roi(self):
         """Without ROI, CoM is in the full-image frame (offset is trivially 0)."""
@@ -174,8 +171,8 @@ class TestBeamAnalyzerROICoordinates:
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)
 
-        assert abs(result.scalars["no_roi_cam_x_CoM"] - global_col) < 1.5
-        assert abs(result.scalars["no_roi_cam_y_CoM"] - global_row) < 1.5
+        assert abs(result.scalars["x_CoM"] - global_col) < 1.5
+        assert abs(result.scalars["y_CoM"] - global_row) < 1.5
 
     def test_roi_width_stats_unchanged_by_offset(self):
         """rms and fwhm are identical with or without a non-zero ROI origin."""
@@ -196,11 +193,11 @@ class TestBeamAnalyzerROICoordinates:
         cfg_roi = CameraConfig(name="roi", bit_depth=16, roi=roi)
         result_roi = BeamAnalyzer(cfg_roi).analyze_image(img_large)
 
-        assert result_roi.scalars["roi_x_rms"] == pytest.approx(
-            result_full.scalars["full_x_rms"], rel=0.01
+        assert result_roi.scalars["x_rms"] == pytest.approx(
+            result_full.scalars["x_rms"], rel=0.01
         )
-        assert result_roi.scalars["roi_y_rms"] == pytest.approx(
-            result_full.scalars["full_y_rms"], rel=0.01
+        assert result_roi.scalars["y_rms"] == pytest.approx(
+            result_full.scalars["y_rms"], rel=0.01
         )
 
     def test_oversized_roi_is_clamped_not_raised(self):

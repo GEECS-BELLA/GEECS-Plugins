@@ -38,14 +38,6 @@ class TestLineAnalyzerInstantiation:
         analyzer = LineAnalyzer(_make_line_config("my_line"))
         assert analyzer.line_config.name == "my_line"
 
-    def test_accepts_metric_suffix(self):
-        analyzer = LineAnalyzer(_make_line_config(), metric_suffix="v2")
-        assert analyzer.metric_suffix == "v2"
-
-    def test_accepts_metric_prefix(self):
-        analyzer = LineAnalyzer(_make_line_config(), metric_prefix="MyStitcher")
-        assert analyzer.metric_prefix == "MyStitcher"
-
 
 class TestLineAnalyzerScalars:
     """Scalar presence and finiteness."""
@@ -63,14 +55,14 @@ class TestLineAnalyzerScalars:
         data = _make_data()
         result = analyzer.analyze_image(data)
         for key in self.EXPECTED:
-            full_key = f"test_line_{key}"
+            full_key = key
             assert full_key in result.scalars, f"Missing: {full_key}"
 
     def test_all_scalars_finite(self, analyzer):
         data = _make_data()
         result = analyzer.analyze_image(data)
         for key in self.EXPECTED:
-            full_key = f"test_line_{key}"
+            full_key = key
             assert math.isfinite(result.scalars[full_key]), f"Non-finite: {full_key}"
 
 
@@ -83,14 +75,14 @@ class TestLineAnalyzerCentroidAccuracy:
         data = _make_data(center=center, sigma=1.0)
         analyzer = LineAnalyzer(_make_line_config())
         result = analyzer.analyze_image(data)
-        com = result.scalars["test_line_CoM"]
+        com = result.scalars["CoM"]
         assert abs(com - center) < 0.1, f"CoM={com:.3f}, expected ~{center}"
 
     def test_peak_value_matches_amplitude(self, analyzer):
         """Peak value should be close to the amplitude passed to the generator."""
         data = _make_data()
         result = analyzer.analyze_image(data)
-        assert result.scalars["test_line_peak_value"] == pytest.approx(1000.0, rel=0.01)
+        assert result.scalars["peak_value"] == pytest.approx(1000.0, rel=0.01)
 
     def test_higher_amplitude_gives_higher_integrated_intensity(self):
         x = np.linspace(0.0, 10.0, 200)
@@ -100,8 +92,8 @@ class TestLineAnalyzerCentroidAccuracy:
         r_low = analyzer.analyze_image(np.column_stack([x, y_low]))
         r_high = analyzer.analyze_image(np.column_stack([x, y_high]))
         assert (
-            r_high.scalars["test_line_integrated_intensity"]
-            > r_low.scalars["test_line_integrated_intensity"]
+            r_high.scalars["integrated_intensity"]
+            > r_low.scalars["integrated_intensity"]
         )
 
 
@@ -117,14 +109,3 @@ class TestLineAnalyzerResult:
         assert result.line_data is not None
         assert result.line_data.ndim == 2
         assert result.line_data.shape[1] == 2
-
-    def test_metric_suffix_appended(self):
-        analyzer = LineAnalyzer(_make_line_config("line"), metric_suffix="cal")
-        result = analyzer.analyze_image(_make_data())
-        assert "line_CoM_cal" in result.scalars
-
-    def test_metric_prefix_overrides_line_name(self):
-        analyzer = LineAnalyzer(_make_line_config("line"), metric_prefix="stitched")
-        result = analyzer.analyze_image(_make_data())
-        assert "stitched_CoM" in result.scalars
-        assert "line_CoM" not in result.scalars

@@ -57,25 +57,17 @@ class StandardAnalyzer(ImageAnalyzer):
         Validated camera configuration model. Use
         ``image_analysis.config.loader.load_camera_config(name)`` to load
         from disk by name before constructing.
-    name_suffix : str, optional
-        Suffix to append to camera name for scalar result prefixes.
-        Useful for distinguishing multiple analysis passes on the same camera.
-        For example, use "_variation" to distinguish variation analysis results
-        from standard analysis results.
-    metric_suffix : str, optional
-        Suffix to append to all metric names (underscore is auto-prepended).
-        For example, "curtis" becomes "_curtis" in the output keys.
-        Useful for tracking different analysis variations while keeping the
-        same camera name. (e.g., "camera_x_rms_curtis").
     """
 
-    def __init__(
-        self,
-        camera_config: cfg_2d.CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
-    ):
+    def __init__(self, camera_config: cfg_2d.CameraConfig):
         """Initialize the standard analyzer with a validated camera config.
+
+        Scalar-key prefix/suffix used to live here (``name_suffix``,
+        ``metric_suffix``) but was promoted to ScanAnalysis per #412 —
+        all naming concerns now live on the diagnostic config
+        (``metric_prefix`` / ``metric_suffix``) and are applied by
+        :class:`SingleDeviceScanAnalyzer` when storing per-shot results.
+        The analyzer emits bare scalar keys.
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
@@ -84,9 +76,6 @@ class StandardAnalyzer(ImageAnalyzer):
         ``CameraConfig`` first, then hand it here.
         """
         self.camera_config = camera_config
-        # Original config name preserved before any name_suffix mutation;
-        # used as scalar-dict key in analyze_image output.
-        self.camera_config_name = camera_config.name
         logger.info("Using provided CameraConfig: %s", self.camera_config.name)
 
         # Path-keyed cache for ``apply_background``. Loaded backgrounds
@@ -96,14 +85,6 @@ class StandardAnalyzer(ImageAnalyzer):
 
         # Store analyzer state
         self.run_analyze_image_asynchronously = True
-
-        # Store metric suffix for use in analyze_image
-        self.metric_suffix = metric_suffix
-
-        # Apply name suffix if provided
-        if name_suffix:
-            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
-            logger.info(f"Camera name set to: {self.camera_config.name}")
 
         super().__init__()
 
@@ -139,7 +120,7 @@ class StandardAnalyzer(ImageAnalyzer):
         input_params = {
             "camera_name": self.camera_config.name,
             "bit_depth": self.camera_config.bit_depth,
-            "config_name": self.camera_config_name,
+            "config_name": self.camera_config.name,
         }
 
         # Add ROI information if available
@@ -178,7 +159,7 @@ class StandardAnalyzer(ImageAnalyzer):
             "bit_depth": self.camera_config.bit_depth,
             "processing_dtype": str(self.camera_config.processing_dtype),
             "storage_dtype": str(self.camera_config.storage_dtype),
-            "config_file": self.camera_config_name,
+            "config_file": self.camera_config.name,
             "background_enabled": (
                 self.camera_config.background is not None
                 and any(
@@ -262,13 +243,6 @@ class StandardAnalyzer(ImageAnalyzer):
                 self._bg_cache.clear()
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
-
-    def apply_metric_suffix(self, scalars: dict) -> dict:
-        """Return a new dict with the metric suffix appended to each scalar key."""
-        # no-op if no suffix configured or no scalars present
-        if not self.metric_suffix or not scalars:
-            return scalars or {}
-        return {f"{k}{self.metric_suffix}": v for k, v in scalars.items()}
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None

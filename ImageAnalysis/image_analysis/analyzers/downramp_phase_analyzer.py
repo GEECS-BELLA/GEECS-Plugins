@@ -105,21 +105,10 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         Validated camera configuration model.
     """
 
-    def __init__(
-        self,
-        camera_config: CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
-    ):
+    def __init__(self, camera_config: CameraConfig):
         """Initialize the downramp phase analyzer with a validated camera config."""
-        super().__init__(
-            camera_config=camera_config,
-            name_suffix=name_suffix,
-            metric_suffix=metric_suffix,
-        )
-
+        super().__init__(camera_config=camera_config)
         self.run_analyze_image_asynchronously = False
-
         logger.info(
             "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config.name
         )
@@ -186,10 +175,6 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
-
-        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
-        if getattr(result, "scalars", None):
-            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
 

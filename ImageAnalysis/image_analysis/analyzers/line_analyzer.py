@@ -45,52 +45,19 @@ class LineAnalyzer(Standard1DAnalyzer):
     ----------
     line_config : Line1DConfig
         Validated line configuration model.
-    metric_suffix : str, optional
-        Suffix to append to all metric names (underscore is auto-prepended).
-        For example, "calibrated" becomes "_calibrated" in the output keys.
-        Useful for tracking different analysis variations while keeping the
-        same line name (e.g., "spectrum_CoM_calibrated").
-    metric_prefix : str, optional
-        Override the prefix used for scalar metric keys. Defaults to
-        ``line_config.name``. Useful when one ``Line1DConfig`` is reused by
-        multiple analyzer instances that should report under different names
-        (e.g., a stitcher that loads from a per-device config but emits
-        metrics under a composite name).
     """
 
-    def __init__(
-        self,
-        line_config: Line1DConfig,
-        metric_suffix: Optional[str] = None,
-        metric_prefix: Optional[str] = None,
-    ):
+    def __init__(self, line_config: Line1DConfig):
         """Initialize the line analyzer with a validated line config.
 
-        Parameters
-        ----------
-        line_config : Line1DConfig
-            Pre-validated line configuration. Use
-            ``image_analysis.config.loader.load_line_config(name)`` to
-            load from disk by name.
-        metric_suffix : str, optional
-            Suffix to append to all metric names (underscore is auto-prepended).
-        metric_prefix : str, optional
-            Override the prefix used for scalar metric keys. Defaults to
-            ``line_config.name``.
+        Scalar-key prefix/suffix used to live here as ``metric_prefix`` /
+        ``metric_suffix`` kwargs; they were promoted to the
+        diagnostic-config layer per #412. ScanAnalysis now applies the
+        prefix/suffix when storing per-shot results, and this analyzer
+        emits bare scalar keys.
         """
-        # Initialize parent class
         super().__init__(line_config)
-
-        # Store metric suffix/prefix for use in analyze_image
-        self.metric_suffix = metric_suffix
-        self.metric_prefix = metric_prefix
-
-        logger.info(
-            "Initialized LineAnalyzer for line: %s%s%s",
-            self.line_config.name,
-            f" (prefix: {metric_prefix})" if metric_prefix else "",
-            f" (suffix: {metric_suffix})" if metric_suffix else "",
-        )
+        logger.info("Initialized LineAnalyzer for line: %s", self.line_config.name)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
@@ -127,9 +94,8 @@ class LineAnalyzer(Standard1DAnalyzer):
             y_units=initial_result.metadata.get("y_units"),
         )
 
-        # Generate scalars dict with prefix and optional suffix
-        prefix = self.metric_prefix or self.line_config.name
-        scalars = line_stats.to_dict(prefix=prefix, suffix=self.metric_suffix)
+        # Bare-keyed scalars; ScanAnalysis namespaces them per #412.
+        scalars = line_stats.to_dict()
 
         # Build result with line-specific data
         result = ImageAnalyzerResult(

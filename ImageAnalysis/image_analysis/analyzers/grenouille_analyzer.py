@@ -44,20 +44,9 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         Validated camera configuration model.
     """
 
-    def __init__(
-        self,
-        camera_config: CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
-    ):
+    def __init__(self, camera_config: CameraConfig):
         """Initialize the FROG analyzer with a validated camera config."""
-        # Initialize parent class
-        super().__init__(
-            camera_config=camera_config,
-            name_suffix=name_suffix,
-            metric_suffix=metric_suffix,
-        )
-
+        super().__init__(camera_config=camera_config)
         self.retrieval = FrogDllRetrieval.from_config()
 
         # Validate analysis config (if present) into a typed model
@@ -181,9 +170,5 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
-
-        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
-        if getattr(result, "scalars", None):
-            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result
