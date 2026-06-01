@@ -89,6 +89,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
         use_injected_data: bool = False,
+        metric_prefix: Optional[str] = None,
+        metric_suffix: str = "",
     ):
         """Initialize the analyzer with an ImageAnalyzer and Image2DRenderer.
 
@@ -140,6 +142,8 @@ class Array2DScanAnalyzer(SingleDeviceScanAnalyzer):
             analysis_mode=analysis_mode,
             data_device_name=data_device_name,
             use_injected_data=use_injected_data,
+            metric_prefix=metric_prefix,
+            metric_suffix=metric_suffix,
         )
 
     def _get_renderer_config(self):

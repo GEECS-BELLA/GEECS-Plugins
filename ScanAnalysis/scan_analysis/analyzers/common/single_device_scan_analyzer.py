@@ -98,6 +98,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
         use_injected_data: bool = False,
+        metric_prefix: Optional[str] = None,
+        metric_suffix: str = "",
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -121,6 +123,21 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.flag_save_data = flag_save_data
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
+
+        # Scalar-key prefix/suffix (#412). The diagnostic factory passes
+        # ``effective_metric_prefix`` (= the diagnostic's ``metric_prefix``
+        # if set, else the device name) and an optional ``metric_suffix``.
+        # When constructed directly (Mode 1, notebook use), ``metric_prefix``
+        # defaults to None and we fall back to ``device_name`` here — same
+        # convention. ``ImageAnalyzer`` emits bare scalar keys; this class
+        # applies prefix + suffix in ``_consume_result`` before storing
+        # results, so all downstream consumers (s-file writer, in-memory
+        # optimizer evaluator, render data) see consistently namespaced
+        # keys.
+        self._metric_prefix: str = (
+            metric_prefix if metric_prefix is not None else device_name
+        )
+        self._metric_suffix: str = metric_suffix or ""
 
         # Check if image_analyzer is pickleable
         try:

@@ -164,6 +164,15 @@ def _wrap_in_scan_analyzer(
         "renderer_kwargs": scan_cfg.renderer_kwargs,
         "analysis_mode": scan_cfg.mode,
         "use_injected_data": use_injected_data,
+        # Scalar-key prefix/suffix (#412). ImageAnalysis emits bare
+        # scalar keys; ScanAnalysis is the sole authority for naming
+        # them on the way to disk / memory consumers.
+        # ``effective_metric_prefix`` returns ``metric_prefix`` when
+        # set on the diagnostic, otherwise falls back to ``diag.name`` —
+        # so existing YAMLs that don't set ``metric_prefix`` produce
+        # the same column names as before.
+        "metric_prefix": diag.effective_metric_prefix,
+        "metric_suffix": diag.metric_suffix or "",
         save_kwarg: scan_cfg.save,
     }
     if scan_cfg.file_tail is not None:
