@@ -15,6 +15,10 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.data]
 
 DEV_NAME = "UC_Amp4_IR_input"
+# Standalone BeamAnalyzer emits BARE scalar keys post-#412. ScanAnalysis
+# is the layer that applies the ``output_name`` prefix; a Mode-1
+# notebook user calling ``analyzer.analyze_image_file(path)`` sees the
+# raw key names below.
 EXPECTED_SCALARS = ["x_CoM", "y_CoM", "image_total", "image_peak_value"]
 
 
@@ -33,9 +37,11 @@ def test_beam_analyzer_end_to_end():
     file_path = scan.data_frame[f"{DEV_NAME}_expected_path"].iloc[0]
     assert file_path is not None and str(file_path) != "nan"
 
+    # ``CameraConfig.name`` was removed in #412; identity now lives on
+    # the analyzer instance via ``output_name``. Standalone construction
+    # without an output_name is fine — keys come out bare.
     analyzer = BeamAnalyzer(
         CameraConfig(
-            name=DEV_NAME,
             bit_depth=16,
             background=BackgroundConfig(method="constant", constant_level=0),
         )
@@ -45,6 +51,5 @@ def test_beam_analyzer_end_to_end():
     assert result.processed_image is not None
     assert result.processed_image.ndim == 2
     for key in EXPECTED_SCALARS:
-        prefixed = f"{DEV_NAME}_{key}"
-        assert prefixed in result.scalars, f"Missing scalar: {prefixed}"
-        assert math.isfinite(result.scalars[prefixed]), f"Non-finite: {prefixed}"
+        assert key in result.scalars, f"Missing scalar: {key}"
+        assert math.isfinite(result.scalars[key]), f"Non-finite: {key}"

@@ -14,15 +14,19 @@ pytestmark = [pytest.mark.integration, pytest.mark.data]
 DEV_NAME = "UC_Amp4_IR_input"
 
 
-def _make_beam_config(name: str):
-    """Construct a minimal CameraConfig for beam analysis (no YAML required)."""
+def _make_beam_config():
+    """Construct a minimal CameraConfig for beam analysis (no YAML required).
+
+    ``CameraConfig.name`` was removed in #412 — identity lives on the
+    analyzer instance (``output_name``) and on the wrapping
+    ``Array2DScanAnalyzer`` (``device_name`` → ``output_name`` fallback).
+    """
     from image_analysis.config.array2d_processing import (
         BackgroundConfig,
         CameraConfig,
     )
 
     return CameraConfig(
-        name=name,
         bit_depth=16,
         background=BackgroundConfig(method="constant", constant_level=0),
     )
@@ -37,7 +41,7 @@ def test_array2d_beam_analyzer_noscan():
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
-    image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
+    image_analyzer = BeamAnalyzer(_make_beam_config())
     scan_analyzer = Array2DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=DEV_NAME,
@@ -59,7 +63,7 @@ def test_array2d_results_have_scalars():
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
-    image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
+    image_analyzer = BeamAnalyzer(_make_beam_config())
     scan_analyzer = Array2DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=DEV_NAME,
