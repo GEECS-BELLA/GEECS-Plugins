@@ -5,6 +5,11 @@ dict they receive in ``compute_objective`` / ``compute_observables`` uses
 device-prefixed keys for analyzer outputs (``"UC_Cam_x_fwhm"``) and bare
 column names for s-file scalars (``"U_Laser:Energy"``).
 
+Analyzer-side keys are emitted *already prefixed* by ImageAnalysis today
+(via ``camera_config.name``); `BaseEvaluator._get_value` forwards them
+through unchanged. That contract is pinned by
+:class:`TestAnalyzerScalarPassthrough` below.
+
 Tests bypass ``__init__`` via ``object.__new__`` so they don't need a live
 ScanPaths / load_diagnostic round-trip; minimal attributes are stamped on
 the instance directly.
@@ -278,3 +283,100 @@ class TestBeamPositionSimulationEvaluator:
             obs = ev.compute_observables({"wrong_column": 1.0}, bin_number=1)
         assert obs == {}
         assert len(caplog.records) > 0
+
+
+# ---------------------------------------------------------------------------
+# Analyzer-scalar pass-through (pin the post-RFC-#412 inversion point)
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyzerScalarPassthrough:
+    """``_get_value`` forwards analyzer-emitted scalars through unchanged.
+
+    Pins the *today* contract: ImageAnalysis emits keys already prefixed
+    by ``camera_config.name`` (e.g. ``"UC_TopView_x_fwhm"``), so the
+    framework does not add another prefix. When RFC #412 lands and moves
+    prefixing into ScanAnalysis (analyzers emit bare ``"x_fwhm"`` keys),
+    these assertions need to flip: the framework will then be responsible
+    for prefixing, and the slot's key will become ``f"{device}_{k}"``.
+    """
+
+    def _make_evaluator_with_one_analyzer(
+        self, device_name: str, analyzer_result_scalars: dict, mode: str = "per_bin"
+    ):
+        """Build a BaseEvaluator shell with one analyzer pre-seeded with results."""
+        from geecs_scanner.optimization.base_evaluator import BaseEvaluator
+
+        analyzer = MagicMock()
+        analyzer.analysis_mode = mode
+        result = MagicMock()
+        result.scalars = analyzer_result_scalars
+        # per_bin: results keyed by bin_number; per_shot: keyed by shot
+        analyzer.results = {1: result} if mode == "per_bin" else {1: result, 2: result}
+
+        class _Concrete(BaseEvaluator):
+            def compute_objective(self, scalars, bin_number):
+                return 0.0  # don't care about the value here
+
+        obj = object.__new__(_Concrete)
+        obj.diagnostics = [_fake_diag(device_name)]
+        obj.scan_analyzers = {device_name: analyzer}
+        obj.scalar_keys = []
+        obj.output_key = "f"
+        obj.objective_tag = "test"
+        obj.bin_number = 1
+        obj.current_shot_numbers = [1, 2]
+        obj.current_data_bin = MagicMock()
+        obj.scan_tag = None
+        return obj
+
+    def test_per_bin_analyzer_scalars_pass_through_unchanged(self):
+        """Per-bin: analyzer emits already-prefixed keys; framework forwards verbatim."""
+        # Capture what compute_objective_from_shots receives.
+        captured: dict = {}
+
+        ev = self._make_evaluator_with_one_analyzer(
+            device_name="UC_TopView",
+            # Analyzer-emitted keys are already prefixed (today's reality)
+            analyzer_result_scalars={
+                "UC_TopView_image_total": 100.0,
+                "UC_TopView_x_fwhm": 5.0,
+            },
+            mode="per_bin",
+        )
+
+        def _capture(scalars_list, bin_number):
+            captured["scalars_list"] = scalars_list
+            return 0.0
+
+        ev.compute_objective_from_shots = _capture
+        ev._get_value({})
+
+        # Every slot got both keys verbatim — no double-prefix.
+        for slot in captured["scalars_list"]:
+            assert "UC_TopView_image_total" in slot
+            assert "UC_TopView_x_fwhm" in slot
+            # And the framework did NOT add another layer of prefixing.
+            assert "UC_TopView_UC_TopView_image_total" not in slot
+            assert "UC_TopView_UC_TopView_x_fwhm" not in slot
+
+    def test_per_shot_analyzer_scalars_pass_through_unchanged(self):
+        """Per-shot: same contract — keys forwarded verbatim."""
+        captured: dict = {}
+
+        ev = self._make_evaluator_with_one_analyzer(
+            device_name="UC_TopView",
+            analyzer_result_scalars={"UC_TopView_x_fwhm": 5.0},
+            mode="per_shot",
+        )
+
+        def _capture(scalars_list, bin_number):
+            captured["scalars_list"] = scalars_list
+            return 0.0
+
+        ev.compute_objective_from_shots = _capture
+        ev._get_value({})
+
+        for slot in captured["scalars_list"]:
+            assert "UC_TopView_x_fwhm" in slot
+            assert "UC_TopView_UC_TopView_x_fwhm" not in slot

@@ -62,6 +62,19 @@ degenerate special case.
   for single-analyzer subclasses, but reads from `self.diagnostics[0].name`
   rather than `self.analyzer_refs[0].device_name`.
 
+### Fixed
+- `BaseEvaluator._get_value` no longer double-prefixes analyzer scalars.
+  The image analyzer already emits scalars with keys like
+  `"UC_TopView_x_fwhm"` (the prefix comes from
+  ``camera_config.name``); the earlier draft of `_get_value` added the
+  prefix again, producing `"UC_TopView_UC_TopView_x_fwhm"` and a
+  `KeyError` on every objective lookup. `result.scalars` keys are now
+  forwarded through unchanged.
+- RFC #412 will move prefixing from ImageAnalysis to ScanAnalysis. When
+  that lands, this layer's pass-through behaviour reverses — the
+  framework will need to prefix bare keys with the device name itself.
+  Comment in `_get_value` flags the line that will need to change.
+
 ### Net
 - Files: 9 → 7 in `evaluators/`
 - Public classes: 3 evaluator-base classes (`BaseEvaluator`,

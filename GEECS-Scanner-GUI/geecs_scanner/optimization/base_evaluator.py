@@ -44,9 +44,13 @@ class BaseEvaluator:
     in the current bin from two sources:
 
     - ``analyzers``: diagnostic-driven scan analyzers (run in-memory against
-      the DataLogger frame). Each emits a flat dict of metrics; the framework
-      prefixes them by the analyzer's GEECS device name to disambiguate
-      across analyzers.
+      the DataLogger frame). Each analyzer's ``ImageAnalyzerResult.scalars``
+      dict comes back with keys *already* prefixed by the analyzer's
+      ``camera_config.name`` (e.g. ``"UC_TopView_x_fwhm"``) — that prefixing
+      happens inside ImageAnalysis today, and the framework here just
+      forwards the keys through. RFC #412 will move prefixing out of
+      ImageAnalysis into ScanAnalysis; when that lands, this layer will
+      need to add the device-name prefix itself.
     - ``scalars``: column names pulled directly from the current-bin DataFrame
       (i.e. raw s-file values like ``"U_Laser:Energy"``). Used verbatim as keys.
 
@@ -293,6 +297,13 @@ class BaseEvaluator:
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
+            # NOTE on prefixing: today the image analyzer emits its scalars
+            # already prefixed by camera_config.name (so the dict here is
+            # like ``{"UC_TopView_x_fwhm": ..., ...}``). We pass them
+            # through unchanged. RFC #412 will move prefixing out of
+            # ImageAnalysis and into ScanAnalysis; when that lands, the
+            # analyzer will emit bare keys (``{"x_fwhm": ...}``) and this
+            # loop will need to add ``f"{device_name}_{k}"`` back in.
             if mode == "per_bin":
                 result = analyzer.results.get(self.bin_number)
                 if result is None:
@@ -302,10 +313,10 @@ class BaseEvaluator:
                         device_name,
                     )
                     continue
-                # Broadcast prefixed scalars to every slot.
+                # Broadcast already-prefixed scalars to every slot.
                 for slot in merged:
                     for k, v in result.scalars.items():
-                        slot[f"{device_name}_{k}"] = v
+                        slot[k] = v
             else:  # per_shot
                 for i, shot in enumerate(shot_numbers):
                     if i >= n_slots:
@@ -313,7 +324,7 @@ class BaseEvaluator:
                     result = analyzer.results.get(shot)
                     if result:
                         for k, v in result.scalars.items():
-                            merged[i][f"{device_name}_{k}"] = v
+                            merged[i][k] = v
                     else:
                         logger.warning(
                             "No per_shot result for shot %s from '%s'",
