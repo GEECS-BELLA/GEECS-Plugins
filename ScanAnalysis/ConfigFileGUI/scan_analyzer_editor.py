@@ -302,8 +302,12 @@ class ScanAnalyzerEditorPanel(QWidget):
         image_layout.addLayout(type_row)
 
         # Embedded ConfigEditorPanel — handles its own scrolling for the
-        # long CameraConfig/Line1DConfig form.
-        self._image_panel = ConfigEditorPanel()
+        # long CameraConfig/Line1DConfig form. ``embedded_mode=True``
+        # suppresses the image-level ``Name:`` row, because the parent
+        # ``DiagnosticAnalysisConfig`` owns the authoritative name
+        # (and is the source of truth for the scalar-key prefix via
+        # ``effective_metric_prefix``).
+        self._image_panel = ConfigEditorPanel(embedded_mode=True)
         self._image_panel.valueChanged.connect(self._on_value_changed)
         image_layout.addWidget(self._image_panel, stretch=1)
 
@@ -364,17 +368,14 @@ class ScanAnalyzerEditorPanel(QWidget):
             logger.warning("Unknown image type: %r", kind)
             return
 
-        # If the diagnostic name is set but the image payload doesn't
-        # carry one, inject the top-level name. The
-        # DiagnosticAnalysisConfig validator does this implicitly on
-        # validate-time; mirroring it here keeps the editor's form
-        # consistent with what the user actually sees in the YAML.
-        effective_payload = dict(payload or {})
-        top_name = self._name_edit.text().strip()
-        if top_name and not effective_payload.get("name"):
-            effective_payload["name"] = top_name
-
-        model = self._build_image_model(model_cls, effective_payload)
+        # Note: we no longer inject the top-level diagnostic name into
+        # ``payload["name"]`` here. The embedded ConfigEditorPanel runs
+        # in ``embedded_mode=True`` (hides the image-level Name row),
+        # so there's no UI surface that would display an injected
+        # value. The DiagnosticAnalysisConfig validator still injects
+        # ``image.name = name`` on validate-time when image.name is
+        # absent, which is the only consumer that cares.
+        model = self._build_image_model(model_cls, payload)
         # ConfigEditorPanel.load_config requires a Path; we don't have a
         # standalone file here (the image config lives inside the
         # diagnostic YAML) so pass a sentinel — ConfigEditorPanel only
@@ -406,14 +407,13 @@ class ScanAnalyzerEditorPanel(QWidget):
 
         Concretely:
 
-        * :class:`CameraConfig` only requires ``name``; an empty
-          payload validates with just that.
-        * :class:`Line1DConfig` also requires ``data_loading`` (with
+        * :class:`CameraConfig` has no required fields after PR #420
+          (``name`` is ``Optional[str]``); an empty payload validates.
+        * :class:`Line1DConfig` still requires ``data_loading`` (with
           a ``data_type`` selector); we seed ``{data_type: 'csv'}``
           as a sensible starter that the user can change in the form.
         """
         clean = {k: v for k, v in (payload or {}).items() if k != "type"}
-        clean.setdefault("name", "")
 
         # Per-model minimum required defaults so model_validate succeeds
         # on a switch-to-empty.
@@ -435,11 +435,8 @@ class ScanAnalyzerEditorPanel(QWidget):
             if model_cls.__name__ == "Line1DConfig":
                 from image_analysis.config.array1d_processing import Data1DConfig
 
-                return model_cls(
-                    name=clean.get("name", "unnamed"),
-                    data_loading=Data1DConfig(data_type="csv"),
-                )
-            return model_cls(name=clean.get("name", "unnamed"))
+                return model_cls(data_loading=Data1DConfig(data_type="csv"))
+            return model_cls()
 
     def _on_image_type_changed(self, new_kind: str) -> None:
         """Rebuild the image panel for ``new_kind`` (with empty payload)."""
@@ -591,13 +588,13 @@ class ScanAnalyzerEditorPanel(QWidget):
         kind = self._image_type_combo.currentText()
         if kind != self._TYPE_NONE and self._image_active:
             values = self._image_panel.get_config_dict() or {}
-            # If image.name equals the top-level diagnostic name, drop
-            # it from the output: the DiagnosticAnalysisConfig validator
-            # injects ``image.name = name`` on validate-time when image.name
-            # is absent, so keeping it here just adds noise that wasn't in
-            # the source YAML.
-            if name and values.get("name") == name:
-                values = {k: v for k, v in values.items() if k != "name"}
+            # Note: the embedded ConfigEditorPanel runs in
+            # ``embedded_mode=True`` and so never emits ``name`` in
+            # ``values``. The DiagnosticAnalysisConfig validator
+            # injects ``image.name = name`` at validate-time, so
+            # downstream consumers still see the field; on disk it
+            # stays absent and the top-level name remains the single
+            # source of truth.
             # 1D pipeline workaround: ConfigEditorPanel's default
             # pipeline for line configs starts with "data_loading",
             # which is the name of a config section but NOT a valid

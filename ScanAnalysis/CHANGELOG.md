@@ -31,6 +31,19 @@ emits bare keys. Companion to ImageAnalysis 1.8.0.
   hand-editing YAML. Empty edits map to "field absent" — the
   ``DiagnosticAnalysisConfig`` defaults take over on consumption.
   Round-trip is covered by ``TestScanAnalyzerEditorRoundtrip``.
+- ``ConfigEditorPanel`` gains an ``embedded_mode`` constructor flag.
+  When ``True`` (used by ``ScanAnalyzerEditorPanel`` for its embedded
+  image panel), the image-level ``Name:`` row is suppressed — the
+  parent ``DiagnosticAnalysisConfig`` owns the authoritative name and
+  the embedded panel never emits a redundant ``image.name`` key into
+  the YAML. Legacy YAMLs that still carry ``image.name`` get it
+  silently dropped on the next save; the on-resolve model is
+  unchanged because the ``DiagnosticAnalysisConfig`` validator
+  injects ``image.name = name`` at validate-time. In standalone mode
+  the row is still shown, with a corrected placeholder ("Local
+  identifier (auto-derived from filename if unset)") that reflects
+  the post-PR #420 reality that ``image.name`` is no longer the
+  scalar-key prefix.
 
 ### Changed
 - ``SingleDeviceScanAnalyzer._consume_result`` now applies the
@@ -49,7 +62,9 @@ before the refactor (``UC_TopView_x_fwhm``, etc.).
 
 ### Test count
 - 141 headless tests pass unchanged. ``TestScanAnalyzerEditorRoundtrip``
-  adds 4 GUI-marked tests (deselected on headless CI; require PyQt5).
+  adds 6 GUI-marked tests (deselected on headless CI; require PyQt5) —
+  4 covering metric_prefix/metric_suffix round-trip and 2 covering the
+  embedded-mode name-field suppression.
 
 ## [1.11.0] — 2026-05-30
 

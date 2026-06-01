@@ -71,6 +71,18 @@ class ConfigEditorPanel(QWidget):
     ----------
     parent : QWidget, optional
         Parent Qt widget.
+    embedded_mode : bool, optional
+        When True, the panel is being hosted inside another editor
+        (e.g. :class:`ScanAnalyzerEditorPanel`) and the host's parent
+        config owns the ``name`` field. The ``Name:`` row is suppressed
+        in both ``_build_2d_editor`` and ``_build_1d_editor`` so the
+        embedded form doesn't render a redundant editable field. The
+        underlying ``CameraConfig.name`` / ``Line1DConfig.name`` are
+        ``Optional[str]`` post-PR #420; not emitting a ``name`` key
+        from :meth:`get_config_dict` keeps the on-disk YAML clean and
+        lets ``DiagnosticAnalysisConfig`` inject the top-level name
+        at validate time. Default ``False`` (standalone editing of a
+        single CameraConfig/Line1DConfig YAML).
 
     Signals
     -------
@@ -83,7 +95,12 @@ class ConfigEditorPanel(QWidget):
     valueChanged = pyqtSignal()
     dirtyStateChanged = pyqtSignal(bool)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(
+        self,
+        parent: Optional[QWidget] = None,
+        *,
+        embedded_mode: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._config_type: str = ""
         self._file_path: Optional[Path] = None
@@ -93,6 +110,10 @@ class ConfigEditorPanel(QWidget):
         self._top_widgets: Dict[str, QWidget] = {}
         self._analysis_widget: Optional[DictFieldWidget] = None
         self._metadata_widget: Optional[DictFieldWidget] = None
+        # When embedded inside ScanAnalyzerEditorPanel, the diagnostic
+        # config's top-level ``name`` is authoritative — hide the
+        # image-level Name row to avoid two coupled name fields.
+        self._embedded_mode: bool = embedded_mode
         # Bug 2: track whether the source YAML had an explicit pipeline key
         self._source_had_pipeline: bool = False
         # Bug 2: track whether the user has manually interacted with the pipeline
@@ -286,14 +307,19 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/camera identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Camera/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # Name — local identifier on the CameraConfig. Hidden in embedded
+        # mode because the parent DiagnosticAnalysisConfig owns the
+        # authoritative name (and scalar-key prefix). Standalone mode
+        # still renders the field; it's auto-derived from the filename
+        # when unset, so it's an override rather than a required field.
+        if not self._embedded_mode:
+            name_edit = QLineEdit(getattr(config, "name", "") or "")
+            name_edit.setPlaceholderText(
+                "Local identifier (auto-derived from filename if unset)"
+            )
+            name_edit.textChanged.connect(self._on_value_changed)
+            top_layout.addRow("Name:", name_edit)
+            self._top_widgets["name"] = name_edit
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")
@@ -415,14 +441,17 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/signal identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Signal/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # Name — local identifier on the Line1DConfig. Hidden in embedded
+        # mode for the same reason as the 2D case: the parent
+        # DiagnosticAnalysisConfig owns the authoritative name.
+        if not self._embedded_mode:
+            name_edit = QLineEdit(getattr(config, "name", "") or "")
+            name_edit.setPlaceholderText(
+                "Local identifier (auto-derived from filename if unset)"
+            )
+            name_edit.textChanged.connect(self._on_value_changed)
+            top_layout.addRow("Name:", name_edit)
+            self._top_widgets["name"] = name_edit
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")
