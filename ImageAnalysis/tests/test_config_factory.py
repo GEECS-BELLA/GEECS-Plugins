@@ -182,3 +182,79 @@ class TestCreateImageAnalyzer:
         )
         with pytest.raises(ImportError):
             create_image_analyzer(diag)
+
+
+# ---------------------------------------------------------------------------
+# metric_prefix / metric_suffix fields (issue #412)
+# ---------------------------------------------------------------------------
+
+
+class TestMetricPrefixSuffix:
+    """``DiagnosticAnalysisConfig`` exposes per-device scalar prefix/suffix.
+
+    Resolution rule: ``effective_metric_prefix`` returns ``metric_prefix``
+    when explicitly set; otherwise falls back to ``name``. This is the
+    field ScanAnalysis reads when prefixing scalars before storing
+    per-shot results (issue #412 — move prefixing out of ImageAnalysis).
+    """
+
+    def test_metric_prefix_defaults_to_name(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.metric_prefix is None
+        assert diag.effective_metric_prefix == "UC_TopView"
+
+    def test_explicit_metric_prefix_overrides_name(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            metric_prefix="UC_TopView_left",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_metric_prefix == "UC_TopView_left"
+
+    def test_metric_suffix_defaults_to_none(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.metric_suffix is None
+
+    def test_metric_suffix_passes_through(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            metric_suffix="_v1",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.metric_suffix == "_v1"
+
+    def test_empty_string_metric_prefix_is_distinct_from_none(self):
+        """``metric_prefix=""`` is an explicit choice for unprefixed output.
+
+        Resolution treats it as a real override (empty string), not as
+        "fall back to name". Edge case but worth pinning so callers
+        that want truly bare s-file columns can opt in.
+        """
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            metric_prefix="",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_metric_prefix == ""
+
+    def test_both_overrides_passed_through(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            metric_prefix="UC_TopView_left",
+            metric_suffix="_v1",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_metric_prefix == "UC_TopView_left"
+        assert diag.metric_suffix == "_v1"
