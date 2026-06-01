@@ -36,7 +36,6 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
 from .array1d_processing import Line1DConfig
@@ -264,27 +263,8 @@ class DiagnosticAnalysisConfig(BaseModel):
         """Accept bare class-path string or verbose dict."""
         return resolve_image_analyzer_value(value)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _inject_name_into_image(cls, data: Any) -> Any:
-        """Default ``image.name`` to the top-level ``name`` when absent.
-
-        Per-device defaults work the same way they do in standalone
-        camera/line YAMLs — the top-level diagnostic name is the
-        device identity, so we inject it into the image dict when the
-        user didn't bother to repeat themselves.
-
-        Operates only on dict-form input. Typed image instances passed
-        in via Mode-1 construction already have their ``name`` set.
-        """
-        if not isinstance(data, dict):
-            return data
-        image = data.get("image")
-        if not isinstance(image, dict):
-            return data
-        top_name = data.get("name")
-        if not top_name or "name" in image:
-            return data
-        data = dict(data)
-        data["image"] = {**image, "name": top_name}
-        return data
+    # Note: the ``_inject_name_into_image`` model validator that used
+    # to default ``image.name`` from the top-level ``name`` is gone
+    # along with the ``CameraConfig.name`` / ``Line1DConfig.name``
+    # fields themselves (#412). Analyzer identity now flows through
+    # the factory's ``output_name`` constructor kwarg.

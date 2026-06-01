@@ -45,9 +45,16 @@ class LineAnalyzer(Standard1DAnalyzer):
     ----------
     line_config : Line1DConfig
         Validated line configuration model.
+    output_name : str, optional
+        Output identifier — forwarded to :class:`Standard1DAnalyzer`.
     """
 
-    def __init__(self, line_config: Line1DConfig):
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the line analyzer with a validated line config.
 
         Scalar-key prefix/suffix used to live here as ``metric_prefix`` /
@@ -56,8 +63,8 @@ class LineAnalyzer(Standard1DAnalyzer):
         prefix/suffix when storing per-shot results, and this analyzer
         emits bare scalar keys.
         """
-        super().__init__(line_config)
-        logger.info("Initialized LineAnalyzer for line: %s", self.line_config.name)
+        super().__init__(line_config, output_name=output_name)
+        logger.info("Initialized LineAnalyzer (output_name=%r)", self.output_name)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None

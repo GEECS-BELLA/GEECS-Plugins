@@ -305,12 +305,11 @@ class ScanAnalyzerEditorPanel(QWidget):
         image_layout.addLayout(type_row)
 
         # Embedded ConfigEditorPanel — handles its own scrolling for the
-        # long CameraConfig/Line1DConfig form. ``embedded_mode=True``
-        # suppresses the image-level ``Name:`` row, because the parent
-        # ``DiagnosticAnalysisConfig`` owns the authoritative name
-        # (and is the source of truth for the output identifier via
-        # ``effective_output_name``).
-        self._image_panel = ConfigEditorPanel(embedded_mode=True)
+        # long CameraConfig/Line1DConfig form. Per #412 the image
+        # configs no longer carry a ``name`` field, so there's nothing
+        # to suppress — the panel renders identically in standalone
+        # and embedded use.
+        self._image_panel = ConfigEditorPanel()
         self._image_panel.valueChanged.connect(self._on_value_changed)
         image_layout.addWidget(self._image_panel, stretch=1)
 

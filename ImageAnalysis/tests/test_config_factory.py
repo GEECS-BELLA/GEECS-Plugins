@@ -77,12 +77,11 @@ class TestLoadDiagnostic:
         diag = load_diagnostic("UC_GaiaMode", config_dir=configs_tree)
         assert isinstance(diag, DiagnosticAnalysisConfig)
         assert diag.name == "UC_GaiaMode"
-        # image: is a typed CameraConfig at this layer — the top-level
-        # ``name`` is injected as the device identity for the embedded
-        # image section.
+        # image: is a typed CameraConfig at this layer. Per #412 it
+        # carries no ``name`` field — identity lives on the diagnostic
+        # and on the analyzer instance, not on the image config.
         assert isinstance(diag.image, CameraConfig)
         assert diag.image.bit_depth == 16
-        assert diag.image.name == "UC_GaiaMode"
         # scan: stays weakly typed at this layer (ScanAnalysis validates
         # it against its own ScanRuntimeConfig).
         assert diag.scan == {"priority": 100}
@@ -135,10 +134,11 @@ class TestCreateImageAnalyzer:
             image={"type": "camera", "bit_depth": 16},
         )
         analyzer = create_image_analyzer(diag)
-        # Sanity: the returned object is the right class, configured with
-        # a CameraConfig whose name is the diagnostic name.
+        # Sanity: the returned object is the right class, and its
+        # ``output_name`` was wired from the diagnostic's
+        # ``effective_output_name`` (= diag.name when no override).
         assert analyzer.__class__.__name__ == "BeamAnalyzer"
-        assert analyzer.camera_config.name == "UC_TestBeam"
+        assert analyzer.output_name == "UC_TestBeam"
 
     def test_line_analyzer_built_from_typed_image(self):
         # 1D analyzers are picked by ``type: line`` on the image section,

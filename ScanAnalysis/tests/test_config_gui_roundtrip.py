@@ -490,15 +490,12 @@ class TestScanAnalyzerEditorRoundtrip:
         assert m_in.metric_suffix == m_out.metric_suffix == "_v2"
         assert m_in.effective_output_name == "custom_pref"
 
-    def test_image_section_does_not_emit_redundant_name(self):
-        """Embedded ConfigEditorPanel hides the image-level Name row.
+    def test_image_section_does_not_emit_name(self):
+        """``image.name`` is gone post-#412 — should never appear in YAML output.
 
-        After PR #420 the top-level ``DiagnosticAnalysisConfig.name`` is
-        the source of truth (it's also the default ``output_name``).
-        The image-level ``name`` field is ``Optional[str]`` and gets
-        injected by the validator on-load. The editor must not emit a
-        redundant ``image.name`` on save — that's what created the
-        confusing "two name fields" UX before this change.
+        ``CameraConfig.name`` was dropped from the schema. The editor
+        renders no ``Name:`` row in the image section, so saving never
+        emits an ``image.name`` key.
         """
         data = {
             "name": "UC_Test",
@@ -507,24 +504,17 @@ class TestScanAnalyzerEditorRoundtrip:
             "scan": {"priority": 50},
         }
         out = self._editor_roundtrip(data)
-        assert "name" not in out.get("image", {}), (
-            "image.name leaked into the YAML output — the embedded panel "
-            "should run in embedded_mode=True and suppress the Name field."
-        )
+        assert "name" not in out.get("image", {})
 
     def test_legacy_image_name_dropped_on_roundtrip(self):
         """A legacy YAML with redundant ``image.name`` loses it on save.
 
-        Pre-PR #420 the editor injected the top-level name into
-        ``image.name`` so it would render in the embedded form. After
-        the embedded_mode switch, no field renders it, and the editor
-        doesn't emit it. The ``DiagnosticAnalysisConfig`` validator
-        still injects ``image.name = name`` at validate-time, so the
-        resolved model is unchanged — but the on-disk shape gets
-        cleaner.
+        Pre-#412 some YAMLs carried both ``name`` and ``image.name``.
+        After the schema rewrite, ``CameraConfig`` has no ``name``
+        field — pydantic's ``extra="allow"`` keeps the key as model
+        extra during load, but the editor's form has no widget for it,
+        so it doesn't survive a round-trip.
         """
-        from image_analysis.config import DiagnosticAnalysisConfig
-
         data = {
             "name": "UC_Test",
             "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
@@ -533,8 +523,3 @@ class TestScanAnalyzerEditorRoundtrip:
         }
         out = self._editor_roundtrip(data)
         assert "name" not in out.get("image", {})
-        # Resolved-model equivalence: the validator re-injects
-        # ``image.name = name``, so both shapes resolve identically.
-        m_in = DiagnosticAnalysisConfig.model_validate(data)
-        m_out = DiagnosticAnalysisConfig.model_validate(out)
-        assert m_in.image.name == m_out.image.name == "UC_Test"
