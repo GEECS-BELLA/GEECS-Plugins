@@ -177,8 +177,10 @@ class DiagnosticAnalysisConfig(BaseModel):
     Attributes
     ----------
     name : str
-        Logical device name. Used as the default data folder name and
-        as the default scalar prefix (when ``metric_prefix`` is unset).
+        Input identifier — the device/channel name used for **input
+        data discovery** (which folder under ``scans/ScanNNN/`` holds
+        this device's raw data). Also the default for ``output_name``
+        when no explicit override is supplied. Required.
     image_analyzer : ImageAnalyzerSpec
         Identifies the ImageAnalyzer class. Accepts a bare class-path
         string or a verbose ``{class_path, kwargs}`` dict.
@@ -187,20 +189,30 @@ class DiagnosticAnalysisConfig(BaseModel):
         (``"camera"`` or ``"line"``) routes Pydantic to the right
         variant. Omitted ``image:`` (``None``) means the analyzer takes
         no embedded image config — used by HASO-style analyzers.
-    metric_prefix : str, optional
-        Override for the prefix applied to every scalar key the analyzer
-        emits. When ``None`` (the default), ScanAnalysis falls back to
-        ``name``. Use this when two diagnostic configs share the same
-        ``image_analyzer`` class but need distinct s-file columns —
-        e.g. left/right halves of the same camera processed by two
-        ``BeamAnalyzer`` instances with different ROIs.
-        Resolution: ``final_prefix = metric_prefix if metric_prefix is
-        not None else name``.
+    output_name : str, optional
+        Output identifier — the **stem string used for all outputs**
+        produced by this analyzer. Drives:
+
+        * the scalar-key prefix applied to every metric written to the
+          s-file (e.g. ``UC_TopView_x_fwhm``);
+        * the per-analyzer output directory name under
+          ``analysis/Scan<NNN>/<output_name>/``;
+        * per-file output basenames (e.g. MagSpec's ``-interp/`` and
+          ``-interpSpec/`` subdirectories).
+
+        Defaults to ``name`` via :attr:`effective_output_name` — most
+        users never set this explicitly. Override only when you want
+        to **separate output naming from the input device identifier**
+        — e.g. running two ``BeamAnalyzer`` variants over the same
+        camera with different ROIs (``output_name: UC_TopView_left``
+        / ``UC_TopView_right`` — same input data folder, distinct
+        output dirs and s-file columns).
     metric_suffix : str, optional
         Optional suffix appended to every scalar key after the
-        analyzer-emitted name. Use for variant analyses that share a
-        prefix (e.g. ``_v1`` / ``_v2``) or to disambiguate
-        post-processed columns. Empty / ``None`` means no suffix.
+        analyzer-emitted name. **Scalar-key-only** — does not affect
+        directory or file names (unlike ``output_name``). Use for
+        post-processed column disambiguation. Empty / ``None`` means
+        no suffix.
     scan : dict, optional
         Raw embedded scan-runtime config. Weakly typed at this layer.
         ScanAnalysis validates this against
@@ -209,13 +221,21 @@ class DiagnosticAnalysisConfig(BaseModel):
 
     Notes
     -----
-    The scalar prefix/suffix concern lives at this layer rather than
-    inside ImageAnalysis (per issue #412): the analyzer emits **bare**
-    scalar keys (``"x_fwhm"``, not ``"UC_TopView_x_fwhm"``), and
-    ScanAnalysis applies the prefix/suffix when storing per-shot
-    results. That keeps ImageAnalysis reusable standalone (notebook
-    code doesn't need a fake device name to make prefixes work) and
-    eliminates the ``StandardAnalyzer.name_suffix`` mutation pattern.
+    The output-naming concern lives at this layer rather than inside
+    ImageAnalysis (per issue #412): the analyzer emits **bare** scalar
+    keys (``"x_fwhm"``, not ``"UC_TopView_x_fwhm"``), and ScanAnalysis
+    applies the ``output_name`` prefix and ``metric_suffix`` when
+    storing per-shot results. That keeps ImageAnalysis reusable
+    standalone (notebook code doesn't need a fake device name to make
+    prefixes work) and eliminates the ``StandardAnalyzer.name_suffix``
+    mutation pattern.
+
+    The ``name`` vs ``output_name`` split deliberately separates two
+    concerns that were previously conflated: input identification
+    (where to load from) and output identification (what to label
+    things). They default to the same string because the common case
+    is "I want my outputs labelled after my device" — but the override
+    is the whole reason both fields exist.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -223,14 +243,20 @@ class DiagnosticAnalysisConfig(BaseModel):
     name: str = Field(min_length=1)
     image_analyzer: ImageAnalyzerSpec
     image: Optional[ImageSection] = None
-    metric_prefix: Optional[str] = None
+    output_name: Optional[str] = None
     metric_suffix: Optional[str] = None
     scan: Optional[Dict[str, Any]] = None
 
     @property
-    def effective_metric_prefix(self) -> str:
-        """Resolved scalar-key prefix: ``metric_prefix`` if set, else ``name``."""
-        return self.metric_prefix if self.metric_prefix is not None else self.name
+    def effective_output_name(self) -> str:
+        """Resolved output identifier: ``output_name`` if set, else ``name``.
+
+        This is the string ScanAnalysis uses to prefix scalar keys in
+        the s-file AND to label this analyzer's per-scan output
+        directory. The two consumers stay in lock-step because they
+        read the same field.
+        """
+        return self.output_name if self.output_name is not None else self.name
 
     @field_validator("image_analyzer", mode="before")
     @classmethod
