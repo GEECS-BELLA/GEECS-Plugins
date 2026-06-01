@@ -32,12 +32,11 @@ def _make_beam_config():
     )
 
 
-def test_array2d_beam_analyzer_noscan():
+def test_array2d_beam_analyzer_noscan(canonical_scan_tag):
     """Array2DScanAnalyzer runs BeamAnalyzer on a noscan and produces results.
 
     Uses flag_save_images=False to avoid writing to the data directory.
     """
-    from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
@@ -48,8 +47,7 @@ def test_array2d_beam_analyzer_noscan():
         flag_save_images=False,
     )
 
-    tag = ScanTag(year=2025, month=2, day=20, number=14, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_2d"))
 
     assert len(scan_analyzer.results) > 0
     result = next(iter(scan_analyzer.results.values()))
@@ -57,9 +55,8 @@ def test_array2d_beam_analyzer_noscan():
     assert result.processed_image.ndim == 2
 
 
-def test_array2d_results_have_scalars():
+def test_array2d_results_have_scalars(canonical_scan_tag):
     """Each per-shot result contains the expected beam scalar keys."""
-    from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
@@ -70,8 +67,7 @@ def test_array2d_results_have_scalars():
         flag_save_images=False,
     )
 
-    tag = ScanTag(year=2025, month=2, day=20, number=14, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_2d"))
 
     for result in scan_analyzer.results.values():
         assert f"{DEV_NAME}_x_CoM" in result.scalars

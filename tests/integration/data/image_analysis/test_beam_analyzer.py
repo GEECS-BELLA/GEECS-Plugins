@@ -22,18 +22,15 @@ DEV_NAME = "UC_Amp4_IR_input"
 EXPECTED_SCALARS = ["x_CoM", "y_CoM", "image_total", "image_peak_value"]
 
 
-def test_beam_analyzer_end_to_end():
+def test_beam_analyzer_end_to_end(canonical_scan):
     """BeamAnalyzer loads a real image and returns finite scalars."""
-    from geecs_data_utils.scan_data import ScanData
     from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
     from image_analysis.config.array2d_processing import (
         BackgroundConfig,
         CameraConfig,
     )
 
-    scan = ScanData.from_date(
-        year=2025, month=2, day=20, number=14, experiment="Undulator", append_paths=True
-    )
+    scan = canonical_scan("undulator_2d")
     file_path = scan.data_frame[f"{DEV_NAME}_expected_path"].iloc[0]
     assert file_path is not None and str(file_path) != "nan"
 
