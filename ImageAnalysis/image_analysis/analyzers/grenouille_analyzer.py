@@ -44,9 +44,14 @@ class GrenouilleAnalyzer(StandardAnalyzer):
         Validated camera configuration model.
     """
 
-    def __init__(self, camera_config: CameraConfig):
+    def __init__(
+        self,
+        camera_config: CameraConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the FROG analyzer with a validated camera config."""
-        super().__init__(camera_config=camera_config)
+        super().__init__(camera_config=camera_config, output_name=output_name)
         self.retrieval = FrogDllRetrieval.from_config()
 
         # Validate analysis config (if present) into a typed model
@@ -54,9 +59,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             self.camera_config.analysis or {}
         )
 
-        logger.info(
-            "Initialized GrenouilleAnalyzer with config '%s'", camera_config.name
-        )
+        logger.info("Initialized GrenouilleAnalyzer (output_name=%r)", self.output_name)
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None

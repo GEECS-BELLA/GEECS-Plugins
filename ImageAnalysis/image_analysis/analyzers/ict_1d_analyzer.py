@@ -60,15 +60,20 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         derived from the time column of the loaded data.
     """
 
-    def __init__(self, line_config: Line1DConfig):
-        super().__init__(line_config)
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
+        super().__init__(line_config, output_name=output_name)
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = ICTAnalysisConfig.model_validate(
             self.line_config.analysis or {}
         )
 
-        logger.info("Initialized ICT1DAnalyzer with config '%s'", line_config.name)
+        logger.info("Initialized ICT1DAnalyzer (output_name=%r)", self.output_name)
 
     # ------------------------------------------------------------------
     # Analysis

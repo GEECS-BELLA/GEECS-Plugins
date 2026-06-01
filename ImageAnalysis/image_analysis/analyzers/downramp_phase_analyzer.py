@@ -105,12 +105,17 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
         Validated camera configuration model.
     """
 
-    def __init__(self, camera_config: CameraConfig):
+    def __init__(
+        self,
+        camera_config: CameraConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the downramp phase analyzer with a validated camera config."""
-        super().__init__(camera_config=camera_config)
+        super().__init__(camera_config=camera_config, output_name=output_name)
         self.run_analyze_image_asynchronously = False
         logger.info(
-            "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config.name
+            "Initialized DownrampPhaseAnalyzer (output_name=%r)", self.output_name
         )
 
     def analyze_image(

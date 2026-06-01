@@ -101,7 +101,12 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
     configured, is used for thresholding and weighted polynomial fitting.
     """
 
-    def __init__(self, line_config: Line1DConfig):
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the analyzer with a typed line configuration.
 
         Matches the post-PR-E ``Standard1DAnalyzer`` contract — the
@@ -118,14 +123,16 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
             Typed configuration. The ``analysis`` block is validated
             into a :class:`FrogSpectralPhaseConfig` and exposed as
             ``self.analysis_config``.
+        output_name : str, optional
+            Output identifier; forwarded to ``Standard1DAnalyzer``.
         """
-        super().__init__(line_config=line_config)
+        super().__init__(line_config=line_config, output_name=output_name)
         self.analysis_config = FrogSpectralPhaseConfig.model_validate(
             self.line_config.analysis or {}
         )
         logger.info(
-            "Initialized FrogSpectralPhaseAnalyzer for line config '%s'",
-            self.line_config.name,
+            "Initialized FrogSpectralPhaseAnalyzer (output_name=%r)",
+            self.output_name,
         )
 
     def analyze_image(

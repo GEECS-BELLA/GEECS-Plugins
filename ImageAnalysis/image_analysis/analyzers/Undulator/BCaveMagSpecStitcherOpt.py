@@ -70,16 +70,23 @@ def objective(spectrum, E0=100.0, sigma_gate=5.0):
 class BCaveMagOpt(Standard1DAnalyzer):
     """Line profile analyzer using the Standard1DAnalyzer framework."""
 
-    def __init__(self, line_config: Line1DConfig):
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
         """Initialize the line analyzer with a validated line config.
 
         Parameters
         ----------
         line_config : Line1DConfig
             Pre-validated line configuration.
+        output_name : str, optional
+            Output identifier; forwarded to ``Standard1DAnalyzer``.
         """
-        super().__init__(line_config)
-        logger.info("Initialized BCaveMagOpt for line: %s", self.line_config.name)
+        super().__init__(line_config, output_name=output_name)
+        logger.info("Initialized BCaveMagOpt (output_name=%r)", self.output_name)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
