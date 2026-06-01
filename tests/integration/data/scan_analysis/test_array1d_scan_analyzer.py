@@ -12,7 +12,12 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.data]
 
 ICT_DEV = "U_BCaveICT"
-MAGSPEC_DEV = "U_BCaveMagSpec-interpSpec"
+
+# The MagSpec line config lives under a filename that differs from the
+# device's data folder name. The loader resolves YAML by filename stem,
+# not by the ``name:`` field inside the YAML.
+MAGSPEC_CONFIG = "BcaveMagSpecStitcherSpec"  # filename in configs repo
+MAGSPEC_DEV = "U_BCaveMagSpec-interpSpec"  # device subfolder under scan dir
 
 
 # ---------------------------------------------------------------------------
@@ -83,7 +88,7 @@ def test_array1d_magspec_noscan_runs():
     from image_analysis.analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_CONFIG))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,
@@ -104,7 +109,7 @@ def test_array1d_magspec_results_have_com_scalar():
     from image_analysis.analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_CONFIG))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,
