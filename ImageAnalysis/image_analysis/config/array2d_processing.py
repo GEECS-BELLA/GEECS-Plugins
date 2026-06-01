@@ -562,7 +562,14 @@ class CameraConfig(BaseModel):
     # standalone-YAML loads keep working without writing ``type: camera``.
     type: Literal["camera"] = "camera"
 
-    name: str = Field(..., description="Camera identifier/name")
+    # Optional after #412. Used only for log messages and as a cosmetic
+    # identifier on the ImageAnalyzerResult.metadata; scalar-key
+    # naming is handled at the diagnostic-config layer via
+    # ``DiagnosticAnalysisConfig.metric_prefix`` / ``metric_suffix``.
+    # When loaded via ``load_camera_config(<path>)`` the loader fills
+    # this in from the filename stem if absent; direct construction
+    # (Mode-1 notebook use) can leave it ``None``.
+    name: Optional[str] = Field(None, description="Camera identifier/name")
     description: Optional[str] = Field(None, description="Camera description")
     bit_depth: int = Field(16, ge=8, le=32, description="Camera bit depth")
 

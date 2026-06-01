@@ -3,6 +3,60 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.8.0] — 2026-06-01
+
+Single source of truth for scalar-key namespacing (issue #412). All
+prefix/suffix infrastructure moves out of ImageAnalysis into
+ScanAnalysis. Companion to ScanAnalysis 1.12.0.
+
+### Changed (breaking)
+- ``BeamAnalyzer``, ``LineAnalyzer``, ``Standard1DAnalyzer``,
+  ``StandardAnalyzer``, ``GrenouilleAnalyzer``,
+  ``DownrampPhaseAnalyzer``, ``FrogSpectralPhaseAnalyzer``,
+  ``LineStitcher``, ``BCaveMagOpt`` — all emit **bare scalar keys**
+  (``"x_fwhm"``, ``"image_total"``, ``"gdd_fs2"`` etc.). Namespacing
+  with device prefix moves to ``SingleDeviceScanAnalyzer`` in
+  ScanAnalysis. Mode-1 (notebook) consumers see bare keys; Mode-2
+  (scan-analysis-driven) consumers see prefixed keys as before.
+- ``CameraConfig.name`` and ``Line1DConfig.name`` are now
+  ``Optional[str]``. They're purely cosmetic now — used only for log
+  messages and ``ImageAnalyzerResult.metadata``. The loader fills in
+  the filename stem when ``name`` is absent in the YAML and a path was
+  supplied; Mode-1 notebook construction with no name leaves it
+  ``None``.
+
+### Removed
+- ``flatten_beam_stats`` and ``compute_beam_slopes``: ``prefix`` and
+  ``suffix`` kwargs are gone.
+- ``LineBasicStats.to_dict``: ``prefix`` and ``suffix`` kwargs gone.
+- All ``name_suffix`` constructor kwargs (and the
+  ``camera_config.name`` mutation pattern that backed them) on
+  ``StandardAnalyzer``, ``BeamAnalyzer``, ``DownrampPhaseAnalyzer``,
+  ``GrenouilleAnalyzer``.
+- All ``metric_prefix`` / ``metric_suffix`` constructor kwargs on
+  ``LineAnalyzer``, ``FrogSpectralPhaseAnalyzer``, ``LineStitcher``,
+  ``BCaveMagOpt``.
+- ``StandardAnalyzer.apply_metric_suffix`` utility method.
+- ``StandardAnalyzer.camera_config_name`` shadow attribute (subsumed by
+  ``camera_config.name`` now that ``name_suffix`` no longer mutates it).
+- Private ``_normalize_metric_suffix`` helper in
+  ``frog_spectral_phase_analyzer``.
+
+### Migration
+- Production YAMLs require **no changes** — the bit-identical contract
+  holds: when the diagnostic config has no ``metric_prefix`` / ``metric_suffix``
+  fields, ScanAnalysis defaults the prefix to ``diag.name`` and the
+  suffix to ``""``, producing the same s-file column names as before
+  (``UC_TopView_x_fwhm`` etc.).
+- Notebook code that passed ``metric_suffix=`` / ``metric_prefix=`` /
+  ``name_suffix=`` to an analyzer constructor needs to either drop
+  those kwargs and live with bare keys, or rename the dict keys
+  themselves after analysis.
+
+### Test count
+- 214 tests pass (was 220; six tests of the removed kwargs were
+  deleted).
+
 ## [1.7.0] — 2026-05-30
 
 ### Added

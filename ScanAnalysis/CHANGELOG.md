@@ -3,6 +3,47 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] — 2026-06-01
+
+Single source of truth for scalar-key namespacing (issue #412).
+ScanAnalysis becomes the sole layer that applies
+``{metric_prefix}_{key}{metric_suffix}`` to scalar dicts; ImageAnalysis
+emits bare keys. Companion to ImageAnalysis 1.8.0.
+
+### Added
+- Per-analyzer scalar prefix/suffix on the unified diagnostic config:
+  ``DiagnosticAnalysisConfig.metric_prefix`` and
+  ``DiagnosticAnalysisConfig.metric_suffix`` (both optional, both
+  default ``None``).
+- ``DiagnosticAnalysisConfig.effective_metric_prefix`` property —
+  resolves to ``metric_prefix`` when set, otherwise falls back to
+  ``name``. This is the value ScanAnalysis applies as the scalar
+  prefix.
+- ``SingleDeviceScanAnalyzer`` gains ``metric_prefix`` / ``metric_suffix``
+  constructor kwargs, plumbed through ``Array1DScanAnalyzer``,
+  ``Array2DScanAnalyzer``, and ``create_scan_analyzer``. The factory
+  populates them from the diagnostic config.
+- Module-level ``_apply_prefix_suffix(scalars, prefix, suffix)`` helper
+  in ``single_device_scan_analyzer.py``.
+
+### Changed
+- ``SingleDeviceScanAnalyzer._consume_result`` now applies the
+  prefix/suffix to ``result.scalars`` before storing the result in
+  ``self.results[unit_key]``. Every downstream consumer — the s-file
+  writer below in the same method, and any in-memory consumer
+  (notably the optimizer's ``MultiDeviceScanEvaluator`` reading
+  ``analyzer.results[shot].scalars``) — sees the namespaced keys
+  through the same contract.
+
+### Migration
+Production YAMLs require **no changes**. When ``metric_prefix`` is
+unset on the diagnostic, the effective prefix defaults to ``diag.name``
+and the suffix to ``""``, producing the same s-file column names as
+before the refactor (``UC_TopView_x_fwhm``, etc.).
+
+### Test count
+- 141 tests pass unchanged.
+
 ## [1.11.0] — 2026-05-30
 
 ### Removed

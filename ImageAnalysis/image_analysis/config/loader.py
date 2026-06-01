@@ -122,19 +122,25 @@ def _load_camera_config_dict(
     """Internal: load raw config dict from name/path/dict.
 
     Unwraps the ``image:`` section if the YAML is a unified diagnostic,
-    so callers always receive the flat camera/line config shape.
+    so callers always receive the flat camera/line config shape. When
+    the resulting dict has no ``name``, the filename stem is injected
+    so the cosmetic identifier remains useful for logging / metadata
+    (per #412, ``name`` is now optional on ``CameraConfig`` /
+    ``Line1DConfig`` — pure cosmetic, not load-bearing for prefixing).
     """
+    source_path: Optional[Path] = None
     if isinstance(config_source, str):
-        path = find_config_file(config_source, config_dir=config_dir)
-        with open(path, "r") as f:
+        source_path = find_config_file(config_source, config_dir=config_dir)
+        with open(source_path, "r") as f:
             data = yaml.safe_load(f)
-        logger.info("Loaded camera configuration from %s", path)
+        logger.info("Loaded camera configuration from %s", source_path)
     elif isinstance(config_source, Path):
         if not config_source.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_source}")
-        with open(config_source, "r") as f:
+        source_path = config_source
+        with open(source_path, "r") as f:
             data = yaml.safe_load(f)
-        logger.info("Loaded configuration from %s", config_source)
+        logger.info("Loaded configuration from %s", source_path)
     elif isinstance(config_source, dict):
         data = config_source.copy()
         logger.info("Using provided configuration dictionary")
@@ -144,7 +150,15 @@ def _load_camera_config_dict(
     if data is None:
         data = {}
 
-    return _unwrap_diagnostic_image_section(data)
+    data = _unwrap_diagnostic_image_section(data)
+
+    # Cosmetic fallback: when name is absent in the data but we loaded
+    # from a file, derive it from the stem. Notebook callers passing a
+    # dict without name keep name=None.
+    if source_path is not None and isinstance(data, dict) and not data.get("name"):
+        data = {**data, "name": source_path.stem}
+
+    return data
 
 
 def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:

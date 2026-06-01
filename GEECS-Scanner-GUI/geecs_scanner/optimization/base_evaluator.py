@@ -45,12 +45,14 @@ class BaseEvaluator:
 
     - ``analyzers``: diagnostic-driven scan analyzers (run in-memory against
       the DataLogger frame). Each analyzer's ``ImageAnalyzerResult.scalars``
-      dict comes back with keys *already* prefixed by the analyzer's
-      ``camera_config.name`` (e.g. ``"UC_TopView_x_fwhm"``) — that prefixing
-      happens inside ImageAnalysis today, and the framework here just
-      forwards the keys through. RFC #412 will move prefixing out of
-      ImageAnalysis into ScanAnalysis; when that lands, this layer will
-      need to add the device-name prefix itself.
+      dict comes back with keys already namespaced via
+      ``{metric_prefix}_{key}{metric_suffix}`` (defaults to the
+      diagnostic's ``name`` for the prefix and empty for the suffix
+      when unset). The namespacing is applied by ScanAnalysis's
+      ``SingleDeviceScanAnalyzer._consume_result`` per #412; the
+      analyzer side emits bare keys and this evaluator just forwards
+      them through. So ``scalars["UC_TopView_x_fwhm"]`` is the
+      convention regardless of which side of the contract was running.
     - ``scalars``: column names pulled directly from the current-bin DataFrame
       (i.e. raw s-file values like ``"U_Laser:Energy"``). Used verbatim as keys.
 
@@ -297,13 +299,15 @@ class BaseEvaluator:
             analyzer.auxiliary_data = self.current_data_bin
             analyzer.run_analysis(scan_tag=self.scan_tag)
 
-            # NOTE on prefixing: today the image analyzer emits its scalars
-            # already prefixed by camera_config.name (so the dict here is
-            # like ``{"UC_TopView_x_fwhm": ..., ...}``). We pass them
-            # through unchanged. RFC #412 will move prefixing out of
-            # ImageAnalysis and into ScanAnalysis; when that lands, the
-            # analyzer will emit bare keys (``{"x_fwhm": ...}``) and this
-            # loop will need to add ``f"{device_name}_{k}"`` back in.
+            # Post-#412: ImageAnalysis emits bare scalar keys; ScanAnalysis's
+            # SingleDeviceScanAnalyzer._consume_result applies the
+            # ``{prefix}_{key}{suffix}`` namespacing (from the diagnostic
+            # config's ``metric_prefix`` / ``metric_suffix``) before
+            # stashing the result in ``analyzer.results[N]``. So
+            # ``result.scalars`` here already has fully-namespaced keys
+            # — pass them through unchanged. One source of truth lives
+            # in ScanAnalysis; nothing for the optimizer evaluator to
+            # do beyond forward.
             if mode == "per_bin":
                 result = analyzer.results.get(self.bin_number)
                 if result is None:

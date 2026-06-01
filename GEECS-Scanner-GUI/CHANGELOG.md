@@ -3,6 +3,27 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.0] — 2026-06-01
+
+Companion to ImageAnalysis 1.8.0 + ScanAnalysis 1.12.0 (issue #412 —
+scalar-key prefix/suffix moves to ScanAnalysis). The contract the
+optimizer evaluator sees is unchanged: ``analyzer.results[N].scalars``
+keys are still ``{prefix}_{key}{suffix}``-shaped (defaulting to
+``{device_name}_{key}`` when no overrides are set). What changed is
+*which layer* applies the namespacing. The pass-through behaviour in
+``BaseEvaluator._get_value`` shipped in 0.27.0 stays correct.
+
+### Changed
+- Doc-only refresh of the ``BaseEvaluator._get_value`` slot-merge
+  inline comment and the ``BaseEvaluator`` class docstring. The earlier
+  "inversion pending when #412 lands" note is replaced by the
+  post-#412 explanation: ImageAnalysis emits bare keys, ScanAnalysis's
+  ``SingleDeviceScanAnalyzer._consume_result`` adds the prefix/suffix,
+  the evaluator just forwards.
+
+### Test count
+- 67 tests pass unchanged.
+
 ## [0.27.0] — 2026-06-01
 
 Unified evaluator architecture. `MultiDeviceScanEvaluator` and

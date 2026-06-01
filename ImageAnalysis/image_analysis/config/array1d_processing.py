@@ -404,7 +404,14 @@ class Line1DConfig(BaseModel):
     # discriminator routes here instead of defaulting to CameraConfig.
     type: Literal["line"] = "line"
 
-    name: str = Field(..., description="Configuration name/identifier")
+    # Optional after #412. Used only for log messages and as a cosmetic
+    # identifier on the ImageAnalyzerResult.metadata; scalar-key
+    # naming is handled at the diagnostic-config layer via
+    # ``DiagnosticAnalysisConfig.metric_prefix`` / ``metric_suffix``.
+    # When loaded via ``load_line_config(<path>)`` the loader fills
+    # this in from the filename stem if absent; direct construction
+    # (Mode-1 notebook use) can leave it ``None``.
+    name: Optional[str] = Field(None, description="Configuration name/identifier")
     description: str = Field(
         default="", description="Human-readable description of this configuration"
     )
