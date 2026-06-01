@@ -3,6 +3,92 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] — 2026-06-01
+
+Unified evaluator architecture. `MultiDeviceScanEvaluator` and
+`ScalarLogEvaluator` collapse into a single `BaseEvaluator` class that
+handles both diagnostic-driven analyzers and direct s-file scalar
+columns. The minimum viable subclass for a new objective is now ~5
+lines of Python, down from ~30. Observables and objectives are peer
+first-class hooks; the BAX (observables-only) path is no longer a
+degenerate special case.
+
+### Changed (breaking)
+- `BaseEvaluator` is now a concrete class (not abstract) that absorbs
+  the data-source orchestration that previously lived in
+  `MultiDeviceScanEvaluator` and `ScalarLogEvaluator`. Construction
+  accepts:
+    - `analyzers: List[str | dict]` — diagnostic stems with optional
+      `{diagnostic: X, ...patch}` override entries (unchanged from
+      0.26.0)
+    - `scalars: List[str]` — s-file column names pulled per-shot from
+      `current_data_bin` (new — was `scalar_keys` on the old
+      `ScalarLogEvaluator`)
+    - `objective_tag: str | None` — human-readable label written to
+      `log_entries` under `Objective:<tag>`. Defaults to the subclass
+      name; override via YAML kwarg or subclass class attribute
+- `compute_objective(self, scalars, bin_number)` — the parameter is
+  now a flat dict with **device-prefixed keys for analyzer outputs**
+  (`scalars["UC_TopView_x_fwhm"]`) and bare column names for s-file
+  scalars (`scalars["U_Laser:Energy"]`). The previous loose `get_scalar`
+  helper with three-naming-convention fallback is gone — just dict access.
+  No collisions possible because analyzer keys are always device-prefixed.
+- `compute_objective` defaults to returning `None` (was: `NotImplementedError`).
+  Returning `None` signals "this evaluator has no objective" — the BAX
+  case where `output_key = None`. Subclasses with an objective must
+  override this OR `compute_objective_from_shots`.
+- `compute_observables_from_shots(self, scalars_list, bin_number)` — new
+  per-shot hook, peer to `compute_objective_from_shots`. Mean-aggregates
+  and delegates to `compute_observables` by default; override for custom
+  observable statistics or shot-level filtering (e.g. weighted median).
+- s-file scalars are always per-shot (one slot per shot row in
+  `current_data_bin`). Per-bin aggregation is purely an
+  image-analyzer concern (analyzer's own `scan.mode`); for raw scalars
+  the subclass decides how to aggregate the per-shot list (mean, median,
+  filtered, …) via `compute_*_from_shots` — no framework-level mean
+  policy on scalar data.
+
+### Removed
+- `MultiDeviceScanEvaluator` class. Absorbed into `BaseEvaluator`. All
+  concrete subclasses (`BeamSizeEvaluator`, `MaxCountsEvaluator`,
+  `BeamPositionEvaluator`, `BeamPositionSimulationEvaluator`,
+  `EBeamSourceOpt`) now inherit from `BaseEvaluator` directly.
+- `ScalarLogEvaluator` class and its `observables_only` classmethod
+  factory. Same capability is now `BaseEvaluator` with `analyzers=[]`
+  and a subclass implementing `compute_observables`.
+- `get_scalar(device, metric, results)` helper with three-naming-convention
+  fallback. Replaced by direct dict access on the prefixed scalars dict.
+- `primary_device` is still exposed on `BaseEvaluator` as a convenience
+  for single-analyzer subclasses, but reads from `self.diagnostics[0].name`
+  rather than `self.analyzer_refs[0].device_name`.
+
+### Fixed
+- `BaseEvaluator._get_value` no longer double-prefixes analyzer scalars.
+  The image analyzer already emits scalars with keys like
+  `"UC_TopView_x_fwhm"` (the prefix comes from
+  ``camera_config.name``); the earlier draft of `_get_value` added the
+  prefix again, producing `"UC_TopView_UC_TopView_x_fwhm"` and a
+  `KeyError` on every objective lookup. `result.scalars` keys are now
+  forwarded through unchanged.
+- RFC #412 will move prefixing from ImageAnalysis to ScanAnalysis. When
+  that lands, this layer's pass-through behaviour reverses — the
+  framework will need to prefix bare keys with the device name itself.
+  Comment in `_get_value` flags the line that will need to change.
+
+### Net
+- Files: 9 → 7 in `evaluators/`
+- Public classes: 3 evaluator-base classes (`BaseEvaluator`,
+  `MultiDeviceScanEvaluator`, `ScalarLogEvaluator`) → 1 (`BaseEvaluator`)
+- LoC (production code): 995 → ~800
+
+### Migration
+No production YAMLs need changes — all currently subclass
+`MultiDeviceScanEvaluator`, which is replaced by `BaseEvaluator` but
+the subclass names are preserved. The only optimizer YAML feature that
+required `ScalarLogEvaluator` directly was the simulation evaluator's
+column reads, which now use the new `scalars:` config block (auto-added
+by the subclass `__init__`).
+
 ## [0.26.0] — 2026-05-30
 
 Reintroduce per-analyzer overrides on the optimizer YAML — but as a

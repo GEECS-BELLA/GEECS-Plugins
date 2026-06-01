@@ -1,8 +1,8 @@
-"""
-Real-hardware beam position evaluator for BAX multipoint alignment.
+"""Real-hardware beam position evaluator for BAX multipoint alignment.
 
-Reads centroid observables produced by the configured image analyzer
-rather than deriving them from a simulation formula.
+Reads centroid observables from an image-analyzer diagnostic and forwards
+them to Xopt as named observables. BAX-style algorithms don't have an
+objective; they model observables.
 
 Classes
 -------
@@ -13,50 +13,41 @@ BeamPositionEvaluator
 from __future__ import annotations
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 logger = logging.getLogger(__name__)
 
 
-class BeamPositionEvaluator(MultiDeviceScanEvaluator):
-    """
-    Evaluator that publishes image-analyzer centroid positions as BAX observables.
+class BeamPositionEvaluator(BaseEvaluator):
+    """BAX evaluator: forwards image-analyzer centroid keys as observables.
 
     Parameters
     ----------
-    observable_names : list of str
-        Keys to extract from ``scalar_results`` and forward to Xopt.
-        Default is ``["x_CoM"]``.  Add ``"y_CoM"`` for 2-D alignment.
-    **kwargs
-        Forwarded to :class:`MultiDeviceScanEvaluator`.
+    observable_names : list of str, optional
+        Per-analyzer metric names (e.g. ``["x_CoM", "y_CoM"]``) to extract
+        from the primary device's analyzer output. Defaults to
+        ``["x_CoM"]``.
     """
 
-    def __init__(
-        self,
-        observable_names: List[str] = None,
-        **kwargs,
-    ):
+    # BAX: observables only, no objective.
+    output_key = None
+
+    def __init__(self, observable_names: Optional[List[str]] = None, **kwargs):
         super().__init__(**kwargs)
         self.observable_names = (
             observable_names if observable_names is not None else ["x_CoM"]
         )
-        self.objective_tag = "BeamPosition"
-        self.output_key = None  # BAX models observables only — no objective
 
-    def compute_observables(
-        self, scalar_results: dict, bin_number: int
-    ) -> Dict[str, float]:
-        """Extract centroid observables from image-analyzer scalar results."""
-        result: Dict[str, float] = {}
-        for obs in self.observable_names:
-            try:
-                result[obs] = float(
-                    self.get_scalar(self.primary_device, obs, scalar_results)
-                )
-            except KeyError as e:
-                logger.warning("Could not extract observable '%s': %s", obs, e)
-        return result
+    def compute_observables(self, scalars, bin_number) -> Dict[str, float]:
+        """Pull each requested metric off the primary device's analyzer output."""
+        dev = self.primary_device
+        out: Dict[str, float] = {}
+        for name in self.observable_names:
+            key = f"{dev}_{name}"
+            if key in scalars:
+                out[name] = float(scalars[key])
+            else:
+                logger.warning("BAX evaluator: missing observable '%s'", key)
+        return out

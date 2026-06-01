@@ -1,31 +1,19 @@
-"""
-Example evaluator for maximizing total counts using MultiDeviceScanEvaluator.
+"""Maximize spectral density on the BCave mag-spec stitcher.
 
 Classes
 -------
-MaxCountsEvaluator
-    Evaluator for maximizing beam total counts on any camera device.
+EBeamSourceOpt
+    Maximize ``U_BCaveMagSpec-interpSpec_objective`` (negated for MINIMIZE).
 """
 
 from __future__ import annotations
 
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 
-class EBeamSourceOpt(MultiDeviceScanEvaluator):
-    """Maximize spectral density on BCaveMagSpec."""
+class EBeamSourceOpt(BaseEvaluator):
+    """Maximize the stitched mag-spec objective scalar."""
 
-    def __init__(self, calibration: float = 24.4e-3, **kwargs):
-        super().__init__(**kwargs)
-        self.calibration = calibration
-        self.device_name = self.primary_device
-        self.objective_tag = "SpectralDensity"
-
-    def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """Compute objective."""
-        total = self.get_scalar(
-            self.device_name, "U_BCaveMagSpec-interpSpec_objective", scalar_results
-        )
-        return -total
+    def compute_objective(self, scalars, bin_number):
+        """Negate the analyzer's stitched-objective scalar."""
+        return -scalars[f"{self.primary_device}_U_BCaveMagSpec-interpSpec_objective"]

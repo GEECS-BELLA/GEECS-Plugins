@@ -214,15 +214,15 @@ class TestCreateScanAnalyzer1D:
 
 
 class TestEvaluatorInit:
-    """``MultiDeviceScanEvaluator.__init__`` consumes bare-string or dict-form entries."""
+    """``BaseEvaluator.__init__`` consumes bare-string or dict-form entries."""
 
     _BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
     def test_bare_string_entry_loads_diagnostic_and_builds_analyzer(
         self, fake_camera_config
     ):
-        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-            MultiDeviceScanEvaluator,
+        from geecs_scanner.optimization.base_evaluator import (
+            BaseEvaluator,
         )
 
         diag = _diag(
@@ -232,13 +232,12 @@ class TestEvaluatorInit:
             scan={"mode": "per_bin"},
         )
 
-        class _Concrete(MultiDeviceScanEvaluator):
+        class _Concrete(BaseEvaluator):
             def compute_objective(self, scalar_results, bin_number):
                 return 0.0
 
         with patch(
-            "geecs_scanner.optimization.evaluators."
-            "multi_device_scan_evaluator.load_diagnostic",
+            "geecs_scanner.optimization.base_evaluator.load_diagnostic",
             return_value=diag,
         ):
             ev = _Concrete(analyzers=["UC_TestDevice"])
@@ -254,8 +253,8 @@ class TestEvaluatorInit:
 
     def test_dict_form_entry_passes_overrides_to_loader(self, fake_camera_config):
         """Dict-form entries forward their patch through to ``load_diagnostic``."""
-        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-            MultiDeviceScanEvaluator,
+        from geecs_scanner.optimization.base_evaluator import (
+            BaseEvaluator,
         )
 
         diag = _diag(
@@ -270,13 +269,12 @@ class TestEvaluatorInit:
             received_overrides.append(kwargs.get("overrides"))
             return diag
 
-        class _Concrete(MultiDeviceScanEvaluator):
+        class _Concrete(BaseEvaluator):
             def compute_objective(self, scalar_results, bin_number):
                 return 0.0
 
         with patch(
-            "geecs_scanner.optimization.evaluators."
-            "multi_device_scan_evaluator.load_diagnostic",
+            "geecs_scanner.optimization.base_evaluator.load_diagnostic",
             side_effect=_fake_loader,
         ):
             ev = _Concrete(
@@ -290,8 +288,8 @@ class TestEvaluatorInit:
 
     def test_mixed_bare_and_dict_entries_in_same_list(self, fake_camera_config):
         """One list can mix bare strings (no overrides) and dict forms (with overrides)."""
-        from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-            MultiDeviceScanEvaluator,
+        from geecs_scanner.optimization.base_evaluator import (
+            BaseEvaluator,
         )
 
         diag_a = _diag(
@@ -310,13 +308,12 @@ class TestEvaluatorInit:
             received.append((name, kwargs.get("overrides")))
             return {"Dev_A": diag_a, "Dev_B": diag_b}[name]
 
-        class _Concrete(MultiDeviceScanEvaluator):
+        class _Concrete(BaseEvaluator):
             def compute_objective(self, scalar_results, bin_number):
                 return 0.0
 
         with patch(
-            "geecs_scanner.optimization.evaluators."
-            "multi_device_scan_evaluator.load_diagnostic",
+            "geecs_scanner.optimization.base_evaluator.load_diagnostic",
             side_effect=_fake_loader,
         ):
             ev = _Concrete(

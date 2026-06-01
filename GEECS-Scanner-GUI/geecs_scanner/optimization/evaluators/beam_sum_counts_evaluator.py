@@ -1,36 +1,29 @@
-"""
-Evaluator for maximizing total counts using MultiDeviceScanEvaluator.
+"""Maximize total image counts on a single camera diagnostic.
 
 Classes
 -------
 MaxCountsEvaluator
-    Maximize beam total counts on any camera device.
+    Maximize ``image_total`` (returns negative for Xopt minimization
+    semantics).
 """
 
 from __future__ import annotations
 
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 
-class MaxCountsEvaluator(MultiDeviceScanEvaluator):
-    """Maximize total counts (returns negative for minimization)."""
+class MaxCountsEvaluator(BaseEvaluator):
+    """Maximize total counts; negated for MINIMIZE direction."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.objective_tag = "TotalCounts"
+    def compute_objective(self, scalars, bin_number):
+        """Negate ``image_total`` so MINIMIZE direction drives it up."""
+        return -scalars[f"{self.primary_device}_image_total"]
 
-    def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        """Compute objective."""
-        return -self.get_scalar(self.primary_device, "image_total", scalar_results)
-
-    def compute_observables(self, scalar_results: dict, bin_number: int) -> dict:
-        """Compute observables."""
+    def compute_observables(self, scalars, bin_number):
+        """Expose centroid + peak alongside the objective."""
+        dev = self.primary_device
         return {
-            "x_CoM": self.get_scalar(self.primary_device, "x_CoM", scalar_results),
-            "y_CoM": self.get_scalar(self.primary_device, "y_CoM", scalar_results),
-            "image_peak_value": self.get_scalar(
-                self.primary_device, "image_peak_value", scalar_results
-            ),
+            "x_CoM": scalars[f"{dev}_x_CoM"],
+            "y_CoM": scalars[f"{dev}_y_CoM"],
+            "image_peak_value": scalars[f"{dev}_image_peak_value"],
         }

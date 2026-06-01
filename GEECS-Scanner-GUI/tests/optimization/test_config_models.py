@@ -238,6 +238,22 @@ class TestAutoDeviceRequirements:
         # Both devices present in requirements regardless.
         assert set(cfg.device_requirements["Devices"].keys()) == {"Dev_A", "Dev_B"}
 
+    def test_no_analyzers_produces_empty_devices_shell(self):
+        """Evaluators that use only s-file scalars still get a Devices: {} shell.
+
+        Regression for #419 / live test: BAX simulation evaluator's YAML has
+        no ``analyzers:`` key at all (the synthetic centroid is computed
+        from setpoint columns the scanner already logs). Before this fix
+        the validator left ``device_requirements`` as None, and
+        ``device_manager.load_from_dictionary`` then AttributeError'd
+        iterating ``Devices.items()``. The contract is now: always provide
+        the ``{"Devices": {...}}`` shell — empty when no analyzers, but
+        never None.
+        """
+        cfg = self._build([])  # zero analyzers
+        # Always returns a dict, never None
+        assert cfg.device_requirements == {"Devices": {}}
+
 
 # ---------------------------------------------------------------------------
 # BaseOptimizerConfig — objective validation

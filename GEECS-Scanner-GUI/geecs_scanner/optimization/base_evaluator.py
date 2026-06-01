@@ -1,70 +1,203 @@
-"""Abstract base class for GEECS optimization evaluators."""
+"""Unified base class for GEECS optimization evaluators.
+
+A single :class:`BaseEvaluator` handles both diagnostic-driven scan analyzers
+and direct s-file scalar columns. Subclasses implement
+:meth:`compute_objective` and/or :meth:`compute_observables` (both peer
+hooks; either or both can be implemented).
+"""
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+import numpy as np
+
+from image_analysis.config import load_diagnostic
+from scan_analysis.config import create_scan_analyzer
+
+from geecs_scanner.optimization.config_models import _split_analyzer_entry
 
 if TYPE_CHECKING:
     from geecs_scanner.engine.data_logger import DataLogger
     from geecs_scanner.engine.scan_data_manager import ScanDataManager
 
-import logging
-
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
-class BaseEvaluator(ABC):
-    """
-    Template-method base for all optimization evaluators.
+# Per-analyzer device-requirements template. Lifted from the old
+# multi_device_scan_evaluator + config_models constant so the unified base
+# class can build device_requirements from the analyzer list directly.
+_ANALYZER_DEVICE_REQUIREMENT_TEMPLATE = {
+    "add_all_variables": False,
+    "save_nonscalar_data": True,
+    "synchronous": True,
+    "variable_list": ["acq_timestamp"],
+}
 
-    Subclasses implement :meth:`_get_value`. The public entry point
-    :meth:`get_value` handles data refresh, type normalization, and logging.
+
+class BaseEvaluator:
+    """
+    Unified evaluator: runs diagnostic-driven analyzers and reads s-file scalars.
+
+    The evaluator's job is to assemble a per-shot scalar dict for every shot
+    in the current bin from two sources:
+
+    - ``analyzers``: diagnostic-driven scan analyzers (run in-memory against
+      the DataLogger frame). Each analyzer's ``ImageAnalyzerResult.scalars``
+      dict comes back with keys *already* prefixed by the analyzer's
+      ``camera_config.name`` (e.g. ``"UC_TopView_x_fwhm"``) — that prefixing
+      happens inside ImageAnalysis today, and the framework here just
+      forwards the keys through. RFC #412 will move prefixing out of
+      ImageAnalysis into ScanAnalysis; when that lands, this layer will
+      need to add the device-name prefix itself.
+    - ``scalars``: column names pulled directly from the current-bin DataFrame
+      (i.e. raw s-file values like ``"U_Laser:Energy"``). Used verbatim as keys.
+
+    Subclasses then implement either or both of:
+
+    - :meth:`compute_objective` — returns a float (the value Xopt optimizes)
+    - :meth:`compute_observables` — returns a dict of named auxiliary metrics
+      (also returned to Xopt; required for BAX-style algorithms that don't have
+      an objective)
+
+    Both hooks receive the same ``scalars`` dict and both can optionally
+    override the per-shot list versions (:meth:`compute_objective_from_shots`,
+    :meth:`compute_observables_from_shots`) for non-mean statistics or
+    shot-level filtering.
 
     Parameters
     ----------
+    analyzers : list of (str or dict), optional
+        Diagnostic stems or dict-form entries ``{diagnostic: X, ...overrides}``.
+        Each entry passes through :func:`image_analysis.config.load_diagnostic`
+        and yields a scan analyzer built via
+        :func:`scan_analysis.config.create_scan_analyzer` with
+        ``use_injected_data=True``.
+    scalars : list of str, optional
+        Column names to pull from ``current_data_bin`` per shot. No
+        analyzer is invoked for these; they're already in the DataLogger
+        frame.
     device_requirements : dict, optional
-        Devices the optimizer needs saved; consumed externally by the scan
-        executor, not by this class.
-    scan_data_manager : ScanDataManager, optional
-    data_logger : DataLogger, optional
+        Override the auto-generated requirements. The default is the union
+        of per-analyzer blocks (each keyed on the GEECS device name).
+    scan_data_manager, data_logger : injected at construction time
+
+    Attributes
+    ----------
+    diagnostics : list of DiagnosticAnalysisConfig
+        Resolved diagnostics from ``analyzers``.
+    scan_analyzers : dict[str, ScanAnalyzer]
+        One ScanAnalyzer per diagnostic, keyed by GEECS device name.
+    scalar_keys : list of str
+        Column names that will be read from ``current_data_bin``.
+    output_key : str or None
+        The key in the returned outputs dict that Xopt should treat as the
+        objective. Defaults to ``"f"``. Set to ``None`` for BAX evaluators
+        that emit only observables.
+    objective_tag : str, optional
+        Human-readable label written to ``log_entries`` (under
+        ``Objective:<tag>``). Xopt's actual objective key is hardcoded as
+        ``"f"``; this tag exists purely so the s-file row that gets written
+        to disk carries a recognisable name. Defaults to the subclass name.
+        Override via this kwarg from YAML, or via a class attribute on the
+        subclass.
     """
+
+    # Default output_key — subclasses override to None for BAX-style
+    # observables-only mode.
+    output_key: Optional[str] = "f"
+
+    # Defaults to class name in __init__ if not overridden by subclass.
+    objective_tag: str = ""
 
     def __init__(
         self,
+        analyzers: Optional[List[Union[str, Dict[str, Any]]]] = None,
+        scalars: Optional[List[str]] = None,
+        objective_tag: Optional[str] = None,
         device_requirements: Optional[Dict[str, Any]] = None,
         scan_data_manager: Optional["ScanDataManager"] = None,
         data_logger: Optional["DataLogger"] = None,
     ):
-        self.device_requirements = device_requirements or {}
+        # --- Data sources ---------------------------------------------
+        # Load each diagnostic into a typed config; build one scan
+        # analyzer per diagnostic, keyed on the GEECS device name. Both
+        # are stored so subclasses can introspect (e.g. for primary_device).
+        self.diagnostics = []
+        for entry in analyzers or []:
+            name, overrides = _split_analyzer_entry(entry)
+            self.diagnostics.append(load_diagnostic(name, overrides=overrides))
+
+        self.scan_analyzers: Dict = {
+            diag.name: create_scan_analyzer(diag, use_injected_data=True)
+            for diag in self.diagnostics
+        }
+
+        # s-file scalar keys are plain column names from current_data_bin.
+        # No analyzer needs to run for these.
+        self.scalar_keys: List[str] = list(scalars or [])
+
+        # --- Device requirements --------------------------------------
+        # Auto-generate from analyzers if not supplied. s-file scalars
+        # are assumed to already be in the DataLogger frame (configured
+        # via the scanner's save-element layer), so they don't extend
+        # device_requirements here.
+        if device_requirements is None:
+            devices = {
+                diag.name: dict(_ANALYZER_DEVICE_REQUIREMENT_TEMPLATE)
+                for diag in self.diagnostics
+            }
+            device_requirements = {"Devices": devices}
+        self.device_requirements = device_requirements
+
+        # --- Injected runtime context ---------------------------------
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
-
-        self.bin_number: int = 0
-        self.log_df = None  # pd.DataFrame, populated by get_current_data
-        self.current_data_bin = None  # pd.DataFrame filtered to current bin
-        self.current_shot_numbers: Optional[List[int]] = None
-        self.objective_tag: str = "default"
-        self.output_key: Optional[str] = None
-
         self.scan_tag = (
             self.scan_data_manager.scan_paths.get_tag()
             if self.scan_data_manager is not None
             else None
         )
 
+        # --- Per-evaluation state -------------------------------------
+        self.bin_number: int = 0
+        self.log_df = None  # pd.DataFrame
+        self.current_data_bin = None  # filtered to current bin
+        self.current_shot_numbers: Optional[List[int]] = None
+
+        # objective_tag resolution order:
+        # 1. ``objective_tag`` kwarg (typically set from YAML kwargs)
+        # 2. class attribute (``objective_tag = "BeamSize"`` on the subclass)
+        # 3. fall back to the subclass name
+        if objective_tag is not None:
+            self.objective_tag = objective_tag
+        elif not self.objective_tag:
+            self.objective_tag = self.__class__.__name__
+
+    # ------------------------------------------------------------------
+    # Convenience
+    # ------------------------------------------------------------------
+
+    @property
+    def primary_device(self) -> Optional[str]:
+        """GEECS device name of the first listed diagnostic, or None.
+
+        Convenience for subclasses that want to reference "the" device
+        when there's just one analyzer (the common case).
+        """
+        return self.diagnostics[0].name if self.diagnostics else None
+
     # ------------------------------------------------------------------
     # Data refresh
     # ------------------------------------------------------------------
 
     def get_current_data(self) -> None:
-        """
-        Refresh current_data_bin and current_shot_numbers from data_logger.
+        """Refresh ``current_data_bin`` and ``current_shot_numbers`` from data_logger.
 
-        Converts log_entries to a DataFrame (sorted by elapsed time so that
-        Shotnumber reflects acquisition order), then filters to the current bin.
+        Converts ``log_entries`` to a DataFrame (sorted by elapsed time so
+        ``Shotnumber`` reflects acquisition order), then filters to the
+        current bin.
         """
         import pandas as pd
 
@@ -94,19 +227,7 @@ class BaseEvaluator(ABC):
     # ------------------------------------------------------------------
 
     def get_value(self, input_data: Dict) -> Dict[str, float]:
-        """
-        Refresh data, evaluate, normalise types, log, and return results.
-
-        Parameters
-        ----------
-        input_data : dict
-            Control-variable values from the optimizer.
-
-        Returns
-        -------
-        dict
-            Scalar results, including ``self.output_key`` when set.
-        """
+        """Refresh data, evaluate, normalise types, log, and return results."""
         self.get_current_data()
 
         results = self._get_value(input_data=input_data)
@@ -121,7 +242,7 @@ class BaseEvaluator(ABC):
         if self.output_key is not None and self.output_key not in results:
             raise KeyError(
                 f"{self.__class__.__name__} requires objective key '{self.output_key}' "
-                "in results, or set self.output_key = None for observables-only evaluators."
+                "in results, or set output_key = None for observables-only evaluators."
             )
 
         self.log_results_for_current_bin(results)
@@ -130,6 +251,109 @@ class BaseEvaluator(ABC):
     def __call__(self, input_data: Dict) -> Dict:
         """Alias for :meth:`get_value`."""
         return self.get_value(input_data)
+
+    # ------------------------------------------------------------------
+    # Core evaluation: build per-shot scalars dict, call hooks
+    # ------------------------------------------------------------------
+
+    def _get_value(self, input_data: Dict) -> Dict[str, float]:
+        """Build the per-shot scalars list from both sources, call hooks.
+
+        - Each analyzer's per-shot or per-bin result merges into the slot
+          list with keys prefixed ``<device>_<metric>``.
+        - Each s-file scalar key is pulled from ``current_data_bin`` row
+          by row.
+        - The resulting list is handed to :meth:`_compute_outputs` which
+          calls both ``compute_*_from_shots`` hooks.
+        """
+        shot_numbers: List[int] = list(self.current_shot_numbers or [])
+
+        # Slot sizing.
+        # - Scalars are always per-shot. per_bin aggregation is purely an
+        #   image-analyzer concern; for raw s-file values the evaluator
+        #   subclass decides what to do with the per-shot list (mean,
+        #   median, whatever) via ``compute_*_from_shots``.
+        # - If any analyzer runs per_shot, slots match shot count.
+        # - Only when all analyzers are per_bin AND there are no scalars
+        #   do we collapse to one slot (a single bin-averaged result).
+        has_per_shot = any(
+            a.analysis_mode == "per_shot" for a in self.scan_analyzers.values()
+        )
+        if has_per_shot or self.scalar_keys:
+            n_slots = max(len(shot_numbers), 1)
+        else:
+            n_slots = 1
+        merged: List[Dict[str, float]] = [{} for _ in range(n_slots)]
+
+        # --- Run analyzers, prefix scalars by device name -----------------
+        for device_name, analyzer in self.scan_analyzers.items():
+            mode = analyzer.analysis_mode
+            logger.info(
+                "Running %s analyzer for '%s' on bin %s",
+                mode,
+                device_name,
+                self.bin_number,
+            )
+            analyzer.auxiliary_data = self.current_data_bin
+            analyzer.run_analysis(scan_tag=self.scan_tag)
+
+            # NOTE on prefixing: today the image analyzer emits its scalars
+            # already prefixed by camera_config.name (so the dict here is
+            # like ``{"UC_TopView_x_fwhm": ..., ...}``). We pass them
+            # through unchanged. RFC #412 will move prefixing out of
+            # ImageAnalysis and into ScanAnalysis; when that lands, the
+            # analyzer will emit bare keys (``{"x_fwhm": ...}``) and this
+            # loop will need to add ``f"{device_name}_{k}"`` back in.
+            if mode == "per_bin":
+                result = analyzer.results.get(self.bin_number)
+                if result is None:
+                    logger.warning(
+                        "No per_bin result for bin %s from '%s'",
+                        self.bin_number,
+                        device_name,
+                    )
+                    continue
+                # Broadcast already-prefixed scalars to every slot.
+                for slot in merged:
+                    for k, v in result.scalars.items():
+                        slot[k] = v
+            else:  # per_shot
+                for i, shot in enumerate(shot_numbers):
+                    if i >= n_slots:
+                        break
+                    result = analyzer.results.get(shot)
+                    if result:
+                        for k, v in result.scalars.items():
+                            merged[i][k] = v
+                    else:
+                        logger.warning(
+                            "No per_shot result for shot %s from '%s'",
+                            shot,
+                            device_name,
+                        )
+
+        # --- Pull s-file scalars: always per-shot, one row per slot ------
+        # The slot count was sized to match shot count whenever scalars are
+        # present, so this loop fills row-by-row. The subclass decides how
+        # to aggregate (mean, median, filtered, ...) via its
+        # ``compute_*_from_shots`` hook — no aggregation policy enforced
+        # at the framework layer.
+        if self.scalar_keys and self.current_data_bin is not None:
+            for i, (_, row) in enumerate(self.current_data_bin.iterrows()):
+                if i >= n_slots:
+                    break
+                for key in self.scalar_keys:
+                    if key in row:
+                        try:
+                            merged[i][key] = float(row[key])
+                        except (TypeError, ValueError):
+                            logger.warning(
+                                "Could not convert '%s' = %r to float for shot",
+                                key,
+                                row[key],
+                            )
+
+        return self._compute_outputs(merged, self.bin_number)
 
     # ------------------------------------------------------------------
     # Logging
@@ -168,121 +392,140 @@ class BaseEvaluator(ABC):
             logger.info("Logged %s = %s for shot %s", key, v, shot_num)
 
     # ------------------------------------------------------------------
-    # Hooks — override in subclasses
+    # Hooks — subclasses override these
     # ------------------------------------------------------------------
 
     def compute_objective(
-        self, scalar_results: Dict[str, float], bin_number: int
-    ) -> float:
-        """
-        Compute the scalar objective from aggregated per-shot scalars.
+        self, scalars: Dict[str, float], bin_number: int
+    ) -> Optional[float]:
+        """Compute the scalar objective from mean-aggregated per-shot scalars.
 
-        Override for simple evaluators where mean aggregation is sufficient.
-        For full per-shot control (median, noise estimates) override
-        :meth:`compute_objective_from_shots` instead.
+        Override this for simple evaluators where mean aggregation is enough.
+        For full per-shot control (median, percentile, shot-level filtering),
+        override :meth:`compute_objective_from_shots` instead.
 
-        Raises
-        ------
-        NotImplementedError
-            When neither this method nor :meth:`compute_objective_from_shots`
-            is overridden.
+        ``scalars`` is a flat dict with analyzer outputs prefixed by device
+        name (``"UC_TopView_x_fwhm"``) and s-file columns as their natural
+        names (``"U_Laser:Energy"``).
+
+        Returns ``None`` by default — signals "this evaluator has no
+        objective" (BAX mode). Subclasses with an objective must override
+        this OR :meth:`compute_objective_from_shots`.
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} must implement compute_objective "
-            "or override compute_objective_from_shots."
-        )
+        return None
 
     def compute_objective_from_shots(
         self,
-        scalar_results_list: List[Dict[str, float]],
+        scalars_list: List[Dict[str, float]],
         bin_number: int,
-    ) -> Union[float, Dict[str, float]]:
+    ) -> Union[float, Dict[str, float], None]:
+        """Compute the objective from a list of per-shot scalar dicts.
+
+        The default mean-aggregates and delegates to :meth:`compute_objective`.
+        Override for custom statistics::
+
+            def compute_objective_from_shots(self, scalars_list, bin_number):
+                vals = [d["UC_TopView_x_fwhm"] for d in scalars_list]
+                return float(np.median(vals))
+
+        Returns ``None`` to signal no objective (BAX mode), a ``float``, or
+        a dict that includes at least ``self.output_key`` plus any extras
+        (e.g. ``f_noise``) to pass through to Xopt.
         """
-        Compute the objective from a list of per-shot scalar dicts.
-
-        The default mean-aggregates all shots and delegates to
-        :meth:`compute_objective`. Override for custom statistics::
-
-            def compute_objective_from_shots(self, scalar_results_list, bin_number):
-                vals = [d["energy"] for d in scalar_results_list if "energy" in d]
-                return {"f": -float(np.median(vals)), "f_noise": float(np.std(vals))}
-
-        Returns
-        -------
-        float or dict
-            Scalar objective, or a dict with at least ``self.output_key`` plus
-            any extra keys (e.g. ``f_noise``) to pass through to Xopt.
-        """
-        if not scalar_results_list:
+        if not scalars_list:
             logger.warning(
                 "compute_objective_from_shots received empty list for bin %s",
                 bin_number,
             )
-            return 0.0
-
-        all_keys = set().union(*scalar_results_list)
-        aggregated: Dict[str, float] = {
-            k: float(np.mean([d[k] for d in scalar_results_list if k in d]))
-            for k in all_keys
-        }
-        return self.compute_objective(scalar_results=aggregated, bin_number=bin_number)
+            return None
+        aggregated = _mean_aggregate(scalars_list)
+        return self.compute_objective(scalars=aggregated, bin_number=bin_number)
 
     def compute_observables(
-        self, scalar_results: Dict[str, float], bin_number: int
+        self, scalars: Dict[str, float], bin_number: int
     ) -> Dict[str, float]:
-        """
-        Return extra scalar observables to log alongside the objective.
+        """Return auxiliary scalar observables.
 
-        *scalar_results* is the mean-aggregated dict across all shots.
-        The default returns an empty dict.
+        Override this for simple observables built from mean-aggregated
+        per-shot scalars. For full per-shot control, override
+        :meth:`compute_observables_from_shots` instead. Same ``scalars``
+        namespace as :meth:`compute_objective`. Default returns ``{}``.
+
+        Required for BAX evaluators (they have no objective; observables are
+        what Xopt models).
         """
         return {}
 
-    def _compute_outputs(
+    def compute_observables_from_shots(
         self,
-        scalar_results_list: List[Dict[str, float]],
+        scalars_list: List[Dict[str, float]],
         bin_number: int,
     ) -> Dict[str, float]:
-        """
-        Build the final outputs dict from a list of per-shot scalar dicts.
+        """Return auxiliary observables from the per-shot scalar list.
 
-        Called at the end of :meth:`_get_value` by subclasses after they have
-        assembled their shot list.  Handles objective computation, observable
-        merging, and the output-key shadowing check.
+        The default mean-aggregates and delegates to
+        :meth:`compute_observables`. Override for per-shot statistics or
+        shot-level filtering on observables — same shape as
+        :meth:`compute_objective_from_shots`, the observables peer.
+        """
+        if not scalars_list:
+            return {}
+        aggregated = _mean_aggregate(scalars_list)
+        return self.compute_observables(scalars=aggregated, bin_number=bin_number)
+
+    # ------------------------------------------------------------------
+    # Output assembly — calls both hooks, merges into one dict
+    # ------------------------------------------------------------------
+
+    def _compute_outputs(
+        self,
+        scalars_list: List[Dict[str, float]],
+        bin_number: int,
+    ) -> Dict[str, float]:
+        """Build the final outputs dict by calling both hooks.
+
+        Objective and observables are peer hooks. Either or both may
+        contribute keys; the framework merges them with the objective key
+        winning collisions.
         """
         outputs: Dict[str, float] = {}
         output_key = self.output_key
 
+        # --- Objective hook ---
         if output_key is not None:
             objective_result = self.compute_objective_from_shots(
-                scalar_results_list=scalar_results_list, bin_number=bin_number
+                scalars_list=scalars_list, bin_number=bin_number
             )
+            if objective_result is None:
+                # Subclass didn't implement objective despite output_key being
+                # set — surface this loudly so the user adjusts either the
+                # subclass or sets output_key=None for BAX mode.
+                raise NotImplementedError(
+                    f"{self.__class__.__name__}: output_key={output_key!r} but "
+                    f"compute_objective / compute_objective_from_shots returned None. "
+                    f"Either implement the objective hook or set output_key = None."
+                )
             if isinstance(objective_result, dict):
                 if output_key not in objective_result:
                     logger.warning(
-                        "compute_objective_from_shots dict missing key '%s'", output_key
+                        "compute_objective_from_shots dict missing key '%s'",
+                        output_key,
                     )
                 outputs.update({str(k): float(v) for k, v in objective_result.items()})
             else:
                 outputs[output_key] = float(objective_result)
 
-        all_keys = (
-            set().union(*(d.keys() for d in scalar_results_list))
-            if scalar_results_list
-            else set()
-        )
-        aggregated: Dict[str, float] = {
-            k: float(np.mean([d[k] for d in scalar_results_list if k in d]))
-            for k in all_keys
-        }
-
+        # --- Observables hook ---
         extra = (
-            self.compute_observables(scalar_results=aggregated, bin_number=bin_number)
+            self.compute_observables_from_shots(
+                scalars_list=scalars_list, bin_number=bin_number
+            )
             or {}
         )
         if output_key is not None and output_key in extra:
             logger.warning(
-                "compute_observables returned objective key '%s'; removing", output_key
+                "compute_observables returned objective key '%s'; removing",
+                output_key,
             )
             extra = {k: v for k, v in extra.items() if k != output_key}
 
@@ -292,14 +535,17 @@ class BaseEvaluator(ABC):
 
         return outputs
 
-    # ------------------------------------------------------------------
-    # Abstract
-    # ------------------------------------------------------------------
 
-    @abstractmethod
-    def _get_value(self, input_data: Dict) -> Dict[str, float]:
-        """
-        Compute and return results.
+# ----------------------------------------------------------------------
+# Helpers
+# ----------------------------------------------------------------------
 
-        Must include ``self.output_key`` when ``self.output_key`` is not None.
-        """
+
+def _mean_aggregate(scalars_list: List[Dict[str, float]]) -> Dict[str, float]:
+    """Mean-aggregate a list of per-shot scalar dicts to a single dict.
+
+    Keys present in any shot end up in the result; the mean is taken over
+    only the shots that have that key (missing values don't contribute).
+    """
+    all_keys = set().union(*scalars_list)
+    return {k: float(np.mean([d[k] for d in scalars_list if k in d])) for k in all_keys}
