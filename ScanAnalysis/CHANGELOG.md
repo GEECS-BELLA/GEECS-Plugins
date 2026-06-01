@@ -25,6 +25,12 @@ emits bare keys. Companion to ImageAnalysis 1.8.0.
   populates them from the diagnostic config.
 - Module-level ``_apply_prefix_suffix(scalars, prefix, suffix)`` helper
   in ``single_device_scan_analyzer.py``.
+- ``ConfigFileGUI.ScanAnalyzerEditorPanel`` exposes ``metric_prefix``
+  and ``metric_suffix`` as editable fields in the General section, so
+  users can configure scalar-key decoration from the GUI rather than
+  hand-editing YAML. Empty edits map to "field absent" — the
+  ``DiagnosticAnalysisConfig`` defaults take over on consumption.
+  Round-trip is covered by ``TestScanAnalyzerEditorRoundtrip``.
 
 ### Changed
 - ``SingleDeviceScanAnalyzer._consume_result`` now applies the
@@ -42,7 +48,8 @@ and the suffix to ``""``, producing the same s-file column names as
 before the refactor (``UC_TopView_x_fwhm``, etc.).
 
 ### Test count
-- 141 tests pass unchanged.
+- 141 headless tests pass unchanged. ``TestScanAnalyzerEditorRoundtrip``
+  adds 4 GUI-marked tests (deselected on headless CI; require PyQt5).
 
 ## [1.11.0] — 2026-05-30
 

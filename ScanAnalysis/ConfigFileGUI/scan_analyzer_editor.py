@@ -3,7 +3,8 @@
 Builds a form against :class:`image_analysis.config.DiagnosticAnalysisConfig`
 (the post-PR-E unified-diagnostic schema) with four sections:
 
-* **General** — ``name``
+* **General** — ``name`` + optional ``metric_prefix`` / ``metric_suffix``
+  (scalar-key decoration, applied by ScanAnalysis on consumption)
 * **Image Analyzer** — ``image_analyzer.class_path`` +
   ``image_analyzer.kwargs``
 * **Image** — discriminator type combo (``camera`` / ``line`` /
@@ -223,6 +224,33 @@ class ScanAnalyzerEditorPanel(QWidget):
         self._name_edit.setPlaceholderText("Device identifier (e.g. UC_VisaEBeam1)")
         self._name_edit.textChanged.connect(self._on_value_changed)
         general_form.addRow("name:", self._name_edit)
+
+        # Optional scalar-key decoration. Empty string = field absent =
+        # use the schema defaults (prefix → name, suffix → ""). These
+        # are applied by ScanAnalysis at consumption time; ImageAnalysis
+        # emits bare keys.
+        self._metric_prefix_edit = QLineEdit()
+        self._metric_prefix_edit.setPlaceholderText("(defaults to name)")
+        self._metric_prefix_edit.setToolTip(
+            "Prefix applied to every scalar metric key by ScanAnalysis. "
+            "Leave blank to default to 'name'. Set to a different string "
+            "when you want the column names on disk to differ from the "
+            "diagnostic name."
+        )
+        self._metric_prefix_edit.textChanged.connect(self._on_value_changed)
+        general_form.addRow("metric_prefix:", self._metric_prefix_edit)
+
+        self._metric_suffix_edit = QLineEdit()
+        self._metric_suffix_edit.setPlaceholderText("(none)")
+        self._metric_suffix_edit.setToolTip(
+            "Suffix appended to every scalar metric key by ScanAnalysis. "
+            "Leave blank for no suffix. Use to distinguish multiple "
+            "analysis variants of the same physical device (e.g. "
+            "'_roi_left' vs '_roi_right')."
+        )
+        self._metric_suffix_edit.textChanged.connect(self._on_value_changed)
+        general_form.addRow("metric_suffix:", self._metric_suffix_edit)
+
         outer.addWidget(general_box)
 
         # ── Image Analyzer ──────────────────────────────────────────────
@@ -474,6 +502,13 @@ class ScanAnalyzerEditorPanel(QWidget):
         try:
             # General
             self._name_edit.setText(str(data.get("name", "")))
+            # Optional scalar-key decoration. Render absent / null as an
+            # empty edit so a round-trip without user changes doesn't
+            # introduce these keys in the YAML.
+            mp = data.get("metric_prefix")
+            self._metric_prefix_edit.setText("" if mp is None else str(mp))
+            ms = data.get("metric_suffix")
+            self._metric_suffix_edit.setText("" if ms is None else str(ms))
 
             # Image Analyzer
             ia = data.get("image_analyzer", {})
@@ -528,6 +563,19 @@ class ScanAnalyzerEditorPanel(QWidget):
         name = self._name_edit.text().strip()
         if name:
             out["name"] = name
+        # Only emit metric_prefix / metric_suffix when the user actually
+        # entered something. Empty edits stay absent from the YAML so
+        # the DiagnosticAnalysisConfig defaults take over on load
+        # (effective_metric_prefix falls back to ``name``, suffix to "").
+        # We deliberately do NOT .strip() — a leading/trailing space in
+        # a suffix is unusual but legal, and silently mangling it would
+        # be surprising.
+        metric_prefix = self._metric_prefix_edit.text()
+        if metric_prefix:
+            out["metric_prefix"] = metric_prefix
+        metric_suffix = self._metric_suffix_edit.text()
+        if metric_suffix:
+            out["metric_suffix"] = metric_suffix
 
         # Image Analyzer — emit the bare-string form when there are
         # no extra kwargs, otherwise the verbose dict form.

@@ -393,3 +393,99 @@ class TestGroupEditorRoundtrip:
         m_in = AnalysisGroupConfig.model_validate(data)
         m_out = AnalysisGroupConfig.model_validate(out)
         assert m_in == m_out
+
+
+# ---------------------------------------------------------------------------
+# Scan analyzer editor (Qt) round-trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+class TestScanAnalyzerEditorRoundtrip:
+    """Round-trip a diagnostic YAML through the full scan-analyzer editor.
+
+    Focused on fields the editor adds beyond the I/O layer's coverage —
+    primarily the General-section ``metric_prefix`` / ``metric_suffix``
+    decoration fields that were added when the prefix/suffix concept
+    moved from ImageAnalysis to ScanAnalysis.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _qt_app(self):
+        import os
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        pytest.importorskip("PyQt5")
+        from PyQt5.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        yield app
+
+    def _editor_roundtrip(self, data: dict) -> dict:
+        from ConfigFileGUI.scan_analyzer_editor import ScanAnalyzerEditorPanel
+
+        editor = ScanAnalyzerEditorPanel()
+        editor.load_config(data)
+        return editor.get_config_dict()
+
+    def test_metric_prefix_survives_editor_roundtrip(self):
+        """An explicit ``metric_prefix`` makes it through load + save."""
+        data = {
+            "name": "UC_Test",
+            "metric_prefix": "custom_prefix",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert out.get("metric_prefix") == "custom_prefix"
+
+    def test_metric_suffix_survives_editor_roundtrip(self):
+        """An explicit ``metric_suffix`` makes it through load + save."""
+        data = {
+            "name": "UC_Test",
+            "metric_suffix": "_roi_left",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert out.get("metric_suffix") == "_roi_left"
+
+    def test_absent_metric_keys_stay_absent(self):
+        """A YAML without metric_prefix/suffix doesn't grow them on round-trip.
+
+        Empty edits map to "field absent" — the schema defaults
+        (``effective_metric_prefix → name``, suffix → "") then take
+        over on consumption. We deliberately do NOT serialise empty
+        strings, so the on-disk YAML stays clean.
+        """
+        data = {
+            "name": "UC_Test",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert "metric_prefix" not in out
+        assert "metric_suffix" not in out
+
+    def test_full_diagnostic_roundtrip_with_decoration(self):
+        """Both fields set + full diagnostic shape — validates as a
+        :class:`DiagnosticAnalysisConfig` and equals the input."""
+        from image_analysis.config import DiagnosticAnalysisConfig
+
+        data = {
+            "name": "UC_Test",
+            "metric_prefix": "custom_pref",
+            "metric_suffix": "_v2",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        m_in = DiagnosticAnalysisConfig.model_validate(data)
+        m_out = DiagnosticAnalysisConfig.model_validate(out)
+        assert m_in.metric_prefix == m_out.metric_prefix == "custom_pref"
+        assert m_in.metric_suffix == m_out.metric_suffix == "_v2"
+        assert m_in.effective_metric_prefix == "custom_pref"
