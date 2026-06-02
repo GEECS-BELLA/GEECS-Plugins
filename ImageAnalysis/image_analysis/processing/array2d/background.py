@@ -26,8 +26,8 @@ def apply_background(
     """Apply background subtraction per config; cache loaded files by path.
 
     Two-stage workflow matching :class:`BackgroundConfig`:
-    1. Primary background — ``from_file`` (load + subtract) or
-       ``constant`` (uniform level).
+    1. Primary background — ``from_file`` (load + subtract),
+       ``constant`` (uniform level), or ``edge`` (border-pixel mean).
     2. Additional constant offset applied after primary background.
 
     Parameters
@@ -74,11 +74,33 @@ def apply_background(
     elif config.method == BackgroundMethod.CONSTANT:
         if config.constant_level > 0:
             processed = processed - config.constant_level
+    elif config.method == BackgroundMethod.EDGE:
+        processed = processed - _compute_edge_background_level(
+            processed, config.edge_width
+        )
 
     if config.additional_constant != 0:
         processed = processed - config.additional_constant
 
     return processed
+
+
+def _compute_edge_background_level(image: Array2D, edge_width: int = 1) -> float:
+    """Compute a scalar background from the mean of border pixels."""
+    if image.ndim != 2:
+        raise ValueError(f"Expected 2D image for edge background, got {image.ndim}D")
+    if image.size == 0:
+        raise ValueError("Cannot compute edge background from an empty image")
+    if edge_width < 1:
+        raise ValueError(f"edge_width must be >= 1; got {edge_width}")
+
+    border_mask = np.zeros(image.shape, dtype=bool)
+    border_mask[:edge_width, :] = True
+    border_mask[-edge_width:, :] = True
+    border_mask[:, :edge_width] = True
+    border_mask[:, -edge_width:] = True
+
+    return float(np.nanmean(image.astype(np.float64)[border_mask]))
 
 
 def subtract_background(image: Array2D, background: Array2D) -> Array2D:

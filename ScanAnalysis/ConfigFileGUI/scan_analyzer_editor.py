@@ -85,6 +85,34 @@ def _prune_empty(value: Any) -> Any:
     return value
 
 
+def _prune_scan_section_values(scan_values: Any) -> Any:
+    """Prune scan-section values while preserving explicit empty directives."""
+    pruned = _prune_empty(scan_values)
+    raw_background_source = (
+        scan_values.get("background_source") if isinstance(scan_values, dict) else None
+    )
+    if (
+        isinstance(raw_background_source, dict)
+        and raw_background_source.get("scan_number") is None
+        and raw_background_source.get("from_current_scan") is None
+        and raw_background_source.get("autodetect") == {}
+    ):
+        pruned = pruned or {}
+        pruned["background_source"] = {"autodetect": {}}
+
+    # Special case: ``background_source`` always renders as a nested
+    # section, and ``FromCurrentScanSpec.method`` has a non-None default
+    # ("median"). So an untouched background_source survives pruning as
+    # ``{"from_current_scan": {"method": "median"}}``. Treat that shape
+    # as "user didn't configure a directive" and drop it.
+    if pruned and pruned.get("background_source") == {
+        "from_current_scan": {"method": "median"}
+    }:
+        pruned = {k: v for k, v in pruned.items() if k != "background_source"}
+
+    return pruned
+
+
 # ---------------------------------------------------------------------------
 # Lightweight JSON dict editor (used for image_analyzer.kwargs)
 # ---------------------------------------------------------------------------
@@ -615,18 +643,7 @@ class ScanAnalyzerEditorPanel(QWidget):
         # the user never wrote.
         if self._scan_section is not None:
             scan_values = self._scan_section.get_values()
-            pruned = _prune_empty(scan_values)
-            # Special case: ``background_source`` always renders as a
-            # nested section, and ``FromCurrentScanSpec.method`` has a
-            # non-None default ("median"). So an untouched
-            # background_source survives pruning as
-            # ``{"from_current_scan": {"method": "median"}}``. Treat
-            # that shape as "user didn't configure a directive" and
-            # drop it.
-            if pruned and pruned.get("background_source") == {
-                "from_current_scan": {"method": "median"}
-            }:
-                pruned = {k: v for k, v in pruned.items() if k != "background_source"}
+            pruned = _prune_scan_section_values(scan_values)
             if pruned:
                 out["scan"] = pruned
 

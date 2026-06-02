@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.0] — 2026-06-02
+
+### Added
+- `scan.background_source.autodetect: {}` now resolves a current-scan
+  precomputed averaged background file from the day-level `analysis/`
+  directory. The lookup matches exactly
+  `ScanNNN<device>_averaged.<ext>` for the current scan number and
+  analyzer device, then rewrites the image background to static
+  `from_file` before per-shot processing.
+
 ## [1.12.0] — 2026-06-01
 
 Single source of truth for output naming (issue #412). ScanAnalysis

@@ -52,6 +52,7 @@ from image_analysis.config import (
 from .diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
+    AutodetectBackgroundSpec,
     BackgroundSource,
     FromCurrentScanSpec,
     ResolvedDiagnosticConfig,
@@ -76,6 +77,7 @@ __all__ = [
     "AnalyzerRef",
     "AnalysisGroupConfig",
     "BackgroundSource",
+    "AutodetectBackgroundSpec",
     "FromCurrentScanSpec",
     # image_analyzer field model + helpers
     "ImageAnalyzerSpec",

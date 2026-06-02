@@ -379,11 +379,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """Apply a ``scan.background_source`` directive to ``bg_config``.
 
         Dispatches on which variant of the directive is set
-        (``scan_number`` or ``from_current_scan``), computes-and-caches
-        the corresponding background via the shared helper, then
-        rewrites ``bg_config`` to point at the cache via the
-        ``FROM_FILE`` method. The downstream per-shot pipeline sees a
-        static ``from_file`` background.
+        (``scan_number``, ``from_current_scan``, or ``autodetect``),
+        resolves the corresponding background, then rewrites
+        ``bg_config`` to point at the result via the ``FROM_FILE``
+        method. The downstream per-shot pipeline sees a static
+        ``from_file`` background.
         """
         from image_analysis.processing.array2d.background import (
             compute_and_cache_scan_background,
@@ -426,6 +426,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 method=spec.method,
                 percentile=spec.percentile,
             )
+        elif directive.autodetect is not None:
+            cache_path = self._find_autodetected_background_path()
         else:
             # BackgroundSource's model validator requires exactly one
             # source, so this should be unreachable.
@@ -435,6 +437,43 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         bg_config.file_path = cache_path
         bg_config.method = BackgroundMethod.FROM_FILE
+
+    def _find_autodetected_background_path(self) -> Path:
+        """Find the current scan's precomputed averaged background file."""
+        scan_number = self.scan_tag.number
+        analysis_dir = self.scan_directory.parents[1] / "analysis"
+        filename_pattern = re.compile(
+            rf"^Scan{scan_number:03d}"
+            rf"{re.escape(self.device_name)}"
+            r"_averaged\.[^.]+$"
+        )
+
+        if not analysis_dir.is_dir():
+            raise FileNotFoundError(
+                f"Autodetect background directory not found: {analysis_dir}"
+            )
+
+        matches = sorted(
+            path
+            for path in analysis_dir.iterdir()
+            if path.is_file() and filename_pattern.match(path.name)
+        )
+
+        if not matches:
+            raise FileNotFoundError(
+                "No autodetected background file found in "
+                f"{analysis_dir} matching "
+                f"Scan{scan_number:03d}{self.device_name}_averaged.<ext>"
+            )
+        if len(matches) > 1:
+            raise ValueError(
+                "Multiple autodetected background files found for "
+                f"Scan{scan_number:03d} device {self.device_name}: "
+                f"{', '.join(str(path) for path in matches)}"
+            )
+
+        logger.info("Autodetected background file: %s", matches[0])
+        return matches[0]
 
     @staticmethod
     def _normalize_aux_value(value):

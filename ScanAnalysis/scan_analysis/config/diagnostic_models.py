@@ -67,12 +67,26 @@ class FromCurrentScanSpec(BaseModel):
         return self
 
 
+class AutodetectBackgroundSpec(BaseModel):
+    """Automatically locate a current-scan background file.
+
+    Used inside :class:`BackgroundSource.autodetect`. The scan analyzer
+    looks in the day-level ``analysis/`` directory for exactly one file
+    named ``ScanNNN<device>_averaged.<ext>`` for the current scan and
+    device, then rewrites the image config to use that file as a static
+    ``FROM_FILE`` background.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class BackgroundSource(BaseModel):
     """ScanAnalysis-side directive for resolving a background source.
 
     Set on ``scan.background_source`` when the diagnostic needs a
     background that depends on scan context — a different scan's data,
-    or an aggregate computed from the current scan's own shots.
+    an aggregate computed from the current scan's own shots, or an
+    automatically generated current-scan averaged background file.
     Exactly one source must be specified.
 
     The resolver runs once per scan-analyzer execution. It produces a
@@ -101,12 +115,18 @@ class BackgroundSource(BaseModel):
         is small** (the bg can swallow the signal); not appropriate
         inside an optimizer evaluation loop, where good states have
         nearly identical shots.
+    autodetect : AutodetectBackgroundSpec, optional
+        Find a precomputed background in the day-level ``analysis/``
+        directory. Matches exactly
+        ``ScanNNN<device>_averaged.<ext>`` for the current scan and
+        analyzer device.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     scan_number: Optional[int] = Field(default=None, ge=0)
     from_current_scan: Optional[FromCurrentScanSpec] = None
+    autodetect: Optional[AutodetectBackgroundSpec] = None
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "BackgroundSource":
@@ -114,12 +134,13 @@ class BackgroundSource(BaseModel):
         sources = [
             ("scan_number", self.scan_number is not None),
             ("from_current_scan", self.from_current_scan is not None),
+            ("autodetect", self.autodetect is not None),
         ]
         set_sources = [name for name, is_set in sources if is_set]
         if len(set_sources) == 0:
             raise ValueError(
                 "background_source must specify exactly one source: "
-                "'scan_number' or 'from_current_scan'"
+                "'scan_number', 'from_current_scan', or 'autodetect'"
             )
         if len(set_sources) > 1:
             raise ValueError(

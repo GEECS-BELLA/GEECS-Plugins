@@ -104,6 +104,9 @@ ScanAnalysis 1.13.0.
 ## [1.7.0] — 2026-05-30
 
 ### Added
+- 2D image background subtraction now supports `method: edge`, which
+  subtracts the mean border-pixel value from each image. The border
+  thickness is configurable via `edge_width` and defaults to 1 pixel.
 - `load_diagnostic` gains an optional `overrides: dict` keyword. The
   override dict is deep-merged into the on-disk YAML before Pydantic
   validation: nested mappings merge key-by-key, scalars and lists
