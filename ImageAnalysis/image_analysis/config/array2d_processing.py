@@ -574,6 +574,15 @@ class CameraConfig(BaseModel):
     # The analyzer receives its output identifier through the
     # constructor (``StandardAnalyzer(camera_config, output_name=...)``).
     description: Optional[str] = Field(None, description="Camera description")
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Free-form documentation fields (location, notes, calibration "
+            "constants, etc.). Documentary only — not consumed by the "
+            "processing pipeline. Keep arbitrary keys here rather than "
+            "scattered at the top level so the schema stays strict."
+        ),
+    )
     bit_depth: int = Field(16, ge=8, le=32, description="Camera bit depth")
 
     # Processing configurations (all optional)
