@@ -553,17 +553,36 @@ class CameraConfig(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        # ``extra="forbid"`` per the #412 cleanup: the schema is the
+        # source of truth. Legacy YAMLs with stray keys (notably the
+        # dropped ``name:`` field) will now error loudly at load
+        # rather than landing in ``model_extra`` and being silently
+        # inert.
+        extra="forbid",
         arbitrary_types_allowed=True,
     )
 
     # Discriminator for the unified-diagnostic Union[CameraConfig, Line1DConfig].
-    # Defaults so direct construction (``CameraConfig(name="x")``) and
+    # Defaults so direct construction (``CameraConfig()``) and
     # standalone-YAML loads keep working without writing ``type: camera``.
     type: Literal["camera"] = "camera"
 
-    name: str = Field(..., description="Camera identifier/name")
+    # Note: ``name`` is no longer a CameraConfig field after #412.
+    # Camera-level identity / output naming live at the diagnostic
+    # layer (``DiagnosticAnalysisConfig.name`` for input lookup;
+    # ``DiagnosticAnalysisConfig.output_name`` for output labelling).
+    # The analyzer receives its output identifier through the
+    # constructor (``StandardAnalyzer(camera_config, output_name=...)``).
     description: Optional[str] = Field(None, description="Camera description")
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Free-form documentation fields (location, notes, calibration "
+            "constants, etc.). Documentary only — not consumed by the "
+            "processing pipeline. Keep arbitrary keys here rather than "
+            "scattered at the top level so the schema stays strict."
+        ),
+    )
     bit_depth: int = Field(16, ge=8, le=32, description="Camera bit depth")
 
     # Processing configurations (all optional)

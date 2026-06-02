@@ -54,6 +54,21 @@ class BinDataEntry(TypedDict):
     result: Optional[ImageAnalyzerResult]
 
 
+def _apply_prefix_suffix(scalars: dict, prefix: str, suffix: str) -> dict:
+    """Return a new scalars dict with ``{prefix}_{key}{suffix}`` keys (#412).
+
+    ImageAnalysis emits bare scalar keys; this function applies the
+    namespacing on the way to storage in ``self.results``. Empty / falsy
+    prefix means no underscore is prepended (explicit unprefixed opt-in,
+    distinct from the default ``device_name`` fallback applied at
+    constructor time).
+    """
+    if not scalars:
+        return scalars
+    pre = f"{prefix}_" if prefix else ""
+    return {f"{pre}{k}{suffix}": v for k, v in scalars.items()}
+
+
 # %% Base Class
 class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
     """
@@ -98,6 +113,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
         use_injected_data: bool = False,
+        output_name: Optional[str] = None,
+        metric_suffix: str = "",
     ):
         """Initialize the analyzer and validate concurrency constraints."""
         if not device_name:
@@ -122,6 +139,21 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         self.file_tail = file_tail
         self.analysis_mode = analysis_mode
 
+        # Output identifier (#412). The diagnostic factory passes
+        # ``effective_output_name`` (= the diagnostic's ``output_name`` if
+        # set, else the device name) and an optional ``metric_suffix``.
+        # When constructed directly (Mode 1, notebook use), ``output_name``
+        # defaults to None and we fall back to ``device_name`` here — same
+        # convention. ``ImageAnalyzer`` emits bare scalar keys; this class
+        # applies the ``output_name`` prefix + ``metric_suffix`` in
+        # ``_consume_result`` before storing results, so all downstream
+        # consumers (s-file writer, in-memory optimizer evaluator, render
+        # data) see consistently namespaced keys. Per-analyzer output
+        # directories are also keyed off ``_output_name`` so the on-disk
+        # layout matches the s-file columns.
+        self._output_name: str = output_name if output_name is not None else device_name
+        self._metric_suffix: str = metric_suffix or ""
+
         # Check if image_analyzer is pickleable
         try:
             pickle.dumps(self.image_analyzer)
@@ -135,9 +167,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     def _establish_additional_paths(self):
         """Compute input/output paths and validate data presence."""
-        # Get the analyzer-specific name if available
+        # Get the analyzer-specific output identifier if available
+        # (Standard family exposes ``output_name``); fall back to the
+        # device name when the analyzer doesn't carry one.
         analyzer_name = (
-            getattr(self.image_analyzer, "camera_name", None) or self.device_name
+            getattr(self.image_analyzer, "output_name", None) or self.device_name
         )
 
         # Organize various paths for location of saved data
@@ -614,7 +648,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         list of shot numbers whose s-file rows should receive the
         scalars: ``[shot_num]`` for per-shot, the bin's shot list for
         per-bin.
+
+        Applies the diagnostic's output-naming here (#412):
+        ``ImageAnalyzer`` emits bare keys; this is the single layer
+        where they get namespaced with ``output_name`` (prefix) and
+        ``metric_suffix`` (suffix). After the rewrite, every downstream
+        consumer (s-file writer below, optimizer evaluator reading
+        ``self.results[shot].scalars`` in memory) sees the same
+        ``{output_name}_{key}{metric_suffix}`` shape.
         """
+        result.scalars = _apply_prefix_suffix(
+            result.scalars, self._output_name, self._metric_suffix
+        )
         analysis_results = result.scalars
 
         if self._has_valid_result(result):

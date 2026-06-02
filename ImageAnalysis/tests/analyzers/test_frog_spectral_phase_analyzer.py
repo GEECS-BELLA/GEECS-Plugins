@@ -18,7 +18,6 @@ from image_analysis.config.array1d_processing import (
 
 def _make_config() -> Line1DConfig:
     return Line1DConfig(
-        name="frog_phase",
         description="synthetic FROG spectral phase",
         data_loading=Data1DConfig(
             data_type="tsv",
@@ -104,28 +103,13 @@ class TestFrogSpectralPhaseAnalyzer:
         assert result.line_data is not None
         assert result.line_data.shape[1] == 2
 
+        # Bare-keyed scalars; ScanAnalysis adds namespace prefix per #412.
         scalars = result.scalars
-        assert scalars["frog_phase_phi0_rad"] == pytest.approx(
-            expected["phi0"], abs=1e-8
-        )
-        assert scalars["frog_phase_gd_fs"] == pytest.approx(expected["gd"], rel=1e-6)
-        assert scalars["frog_phase_gdd_fs2"] == pytest.approx(expected["gdd"], rel=1e-6)
-        assert scalars["frog_phase_tod_fs3"] == pytest.approx(expected["tod"], rel=1e-4)
-        assert scalars["frog_phase_flipped"] == 0.0
-
-    def test_metric_suffix_and_prefix(self, tmp_path):
-        file_path = tmp_path / "retrieved_lineouts.tsv"
-        _write_frog_lineout(file_path)
-
-        analyzer = FrogSpectralPhaseAnalyzer(
-            _make_config(),
-            metric_prefix="custom_frog",
-            metric_suffix="v2",
-        )
-        result = analyzer.analyze_image_file(file_path)
-
-        assert "custom_frog_gdd_fs2_v2" in result.scalars
-        assert "frog_phase_gdd_fs2" not in result.scalars
+        assert scalars["phi0_rad"] == pytest.approx(expected["phi0"], abs=1e-8)
+        assert scalars["gd_fs"] == pytest.approx(expected["gd"], rel=1e-6)
+        assert scalars["gdd_fs2"] == pytest.approx(expected["gdd"], rel=1e-6)
+        assert scalars["tod_fs3"] == pytest.approx(expected["tod"], rel=1e-4)
+        assert scalars["flipped"] == 0.0
 
     def test_direct_array_fit_works_without_weights(self, tmp_path):
         file_path = tmp_path / "retrieved_lineouts.tsv"
@@ -138,4 +122,4 @@ class TestFrogSpectralPhaseAnalyzer:
         # was loaded.
         result = analyzer.analyze_image(data)
 
-        assert result.scalars["frog_phase_gdd_fs2"] == pytest.approx(180.0, rel=1e-6)
+        assert result.scalars["gdd_fs2"] == pytest.approx(180.0, rel=1e-6)

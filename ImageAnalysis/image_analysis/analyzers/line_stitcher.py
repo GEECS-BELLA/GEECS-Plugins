@@ -39,12 +39,11 @@ class LineStitcher(LineAnalyzer):
         how ties are broken when energies overlap, but the data is always
         sorted by x after concatenation.
     name : str
-        Identifier for this stitcher instance. Used as the metric prefix
-        (so scalars are named ``<name>_CoM``, ``<name>_fwhm``, etc.), as
-        the subdirectory under the scan folder where stitched lineouts
-        are saved, and as the label embedded in the output filename.
-    metric_suffix : str, optional
-        Passed through to LineAnalyzer for metric naming.
+        Identifier for this stitcher instance. Used as the subdirectory
+        under the scan folder where stitched lineouts are saved, and as
+        the label embedded in the output filename. Scalar-key prefix/suffix
+        are no longer applied here — ScanAnalysis handles those via the
+        diagnostic config's ``metric_prefix`` / ``metric_suffix`` per #412.
     """
 
     def __init__(
@@ -52,13 +51,8 @@ class LineStitcher(LineAnalyzer):
         line_config: Line1DConfig,
         sibling_devices: List[str],
         name: str,
-        metric_suffix: Optional[str] = None,
     ):
-        super().__init__(
-            line_config,
-            metric_suffix=metric_suffix,
-            metric_prefix=name,
-        )
+        super().__init__(line_config)
         self.sibling_devices = sibling_devices
         self.name = name
         self._device_in_filename: Optional[str] = None

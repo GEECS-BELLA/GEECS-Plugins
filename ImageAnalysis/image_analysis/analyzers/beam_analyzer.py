@@ -85,13 +85,16 @@ class BeamAnalyzer(StandardAnalyzer):
     ----------
     camera_config : CameraConfig
         Validated camera configuration model.
+    output_name : str, optional
+        Output identifier — forwarded to :class:`StandardAnalyzer`.
+        See its docstring for the contract.
     """
 
     def __init__(
         self,
         camera_config: cfg_2d.CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the beam analyzer with a validated camera config.
 
@@ -101,23 +104,11 @@ class BeamAnalyzer(StandardAnalyzer):
             Pre-validated camera configuration. Use
             ``image_analysis.config.loader.load_camera_config(name)`` to
             load from disk by name.
-        name_suffix : str, optional
-            Suffix to append to camera name for scalar result prefixes.
-            Useful for distinguishing multiple analysis passes on the same camera.
-            For example, use "_variation" to distinguish variation analysis results
-            from standard analysis results.
-        metric_suffix : str, optional
-            Suffix to append to all metric names (underscore is auto-prepended).
-            For example, "curtis" becomes "_curtis" in the output keys.
-            Useful for tracking different analysis variations while keeping the
-            same camera name. (e.g., "camera_x_rms_curtis").
+        output_name : str, optional
+            Output identifier; forwarded to ``StandardAnalyzer``.
         """
         # Initialize parent class
-        super().__init__(
-            camera_config=camera_config,
-            name_suffix=name_suffix,
-            metric_suffix=metric_suffix,
-        )
+        super().__init__(camera_config=camera_config, output_name=output_name)
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = BeamAnalysisConfig.model_validate(
@@ -157,23 +148,18 @@ class BeamAnalyzer(StandardAnalyzer):
         roi = self.camera_config.roi
         roi_offset = (roi.x_min, roi.y_min) if roi is not None else (0, 0)
 
-        # Always: basic beam stats (projections along x, y, x_45, y_45)
+        # Always: basic beam stats (projections along x, y, x_45, y_45).
+        # Scalars are bare-keyed; ScanAnalysis namespaces them via
+        # metric_prefix/metric_suffix when storing per-shot results (#412).
         beam_stats = beam_profile_stats(processed_image, roi_offset=roi_offset)
         scalars = flatten_beam_stats(
             beam_stats,
-            prefix=self.camera_config.name,
-            suffix=self.metric_suffix,
             include=self.analysis_config.enabled_stats,
         )
 
         # Optional: slope/straightness metrics
         if self.analysis_config.compute_slopes:
-            slope_scalars = compute_beam_slopes(
-                processed_image,
-                prefix=self.camera_config.name,
-                suffix=self.metric_suffix,
-            )
-            scalars.update(slope_scalars)
+            scalars.update(compute_beam_slopes(processed_image))
 
         # Build result with beam-specific data
         result = ImageAnalyzerResult(

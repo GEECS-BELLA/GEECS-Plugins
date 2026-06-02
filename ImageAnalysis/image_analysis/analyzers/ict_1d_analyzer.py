@@ -60,15 +60,20 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
         derived from the time column of the loaded data.
     """
 
-    def __init__(self, line_config: Line1DConfig):
-        super().__init__(line_config)
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
+        super().__init__(line_config, output_name=output_name)
 
         # Validate analysis config (if present) into a typed model
         self.analysis_config = ICTAnalysisConfig.model_validate(
             self.line_config.analysis or {}
         )
 
-        logger.info("Initialized ICT1DAnalyzer with config '%s'", line_config.name)
+        logger.info("Initialized ICT1DAnalyzer (output_name=%r)", self.output_name)
 
     # ------------------------------------------------------------------
     # Analysis
@@ -107,12 +112,14 @@ class ICT1DAnalyzer(Standard1DAnalyzer):
             charge_pC = 0.0
             peak_time_us = 0.0
 
+        # Bare scalar keys (#412 — PR #420 leftover fix). ScanAnalysis
+        # applies the output_name prefix at consumption time.
         result = ImageAnalyzerResult(
             data_type="1d",
             line_data=image,
             scalars={
-                f"{self.camera_name}_charge_pC": charge_pC,
-                f"{self.camera_name}_ICT Signal Peak_us": peak_time_us,
+                "charge_pC": charge_pC,
+                "ICT Signal Peak_us": peak_time_us,
             },
         )
 

@@ -11,7 +11,7 @@ via its ``BeamAnalysisConfig.compute_slopes`` flag.
 
 from __future__ import annotations
 
-from typing import Callable, Literal, NamedTuple, Optional, Union
+from typing import Callable, Literal, NamedTuple
 import logging
 
 import numpy as np
@@ -122,33 +122,27 @@ def compute_slope(
     return float(coeffs[0])
 
 
-def compute_beam_slopes(
-    img: np.ndarray,
-    prefix: Optional[Union[str, None]] = None,
-    suffix: Optional[Union[str, None]] = None,
-) -> dict[str, float]:
+def compute_beam_slopes(img: np.ndarray) -> dict[str, float]:
     """Compute beam slope metrics for a 2-D image.
 
     Measures how the center-of-mass and peak location vary across rows and
     columns, fitting a weighted linear slope to each.  These metrics quantify
     beam straightness — lower values indicate less tilt or shear.
 
+    Returns bare keys. Prefix/suffix application is ScanAnalysis's
+    responsibility per issue #412.
+
     Parameters
     ----------
     img : np.ndarray
         2D image array.
-    prefix : str, optional
-        Prefix to prepend to each key (e.g., camera name).
-    suffix : str, optional
-        Suffix to append to each key (underscore is auto-prepended).
 
     Returns
     -------
     dict[str, float]
         Dictionary with keys:
         ``image_com_slope_x``, ``image_com_slope_y``,
-        ``image_peak_slope_x``, ``image_peak_slope_y``
-        (with prefix/suffix applied).
+        ``image_peak_slope_x``, ``image_peak_slope_y``.
     """
     img = np.asarray(img, dtype=float)
 
@@ -157,33 +151,23 @@ def compute_beam_slopes(
             "compute_beam_slopes: Image has non-positive total intensity. "
             "Returning NaN slopes."
         )
-        raw = {
+        return {
             "image_com_slope_x": np.nan,
             "image_com_slope_y": np.nan,
             "image_peak_slope_x": np.nan,
             "image_peak_slope_y": np.nan,
         }
-    else:
-        raw = {
-            "image_com_slope_x": compute_slope(
-                *extract_line_stats(img, compute_center_of_mass, axis="x")
-            ),
-            "image_com_slope_y": compute_slope(
-                *extract_line_stats(img, compute_center_of_mass, axis="y")
-            ),
-            "image_peak_slope_x": compute_slope(
-                *extract_line_stats(img, compute_peak_location, axis="x")
-            ),
-            "image_peak_slope_y": compute_slope(
-                *extract_line_stats(img, compute_peak_location, axis="y")
-            ),
-        }
-
-    # Apply prefix/suffix
-    suffix_str = f"_{suffix}" if suffix else ""
-    result: dict[str, float] = {}
-    for k, v in raw.items():
-        key = f"{prefix}_{k}" if prefix else k
-        key = f"{key}{suffix_str}"
-        result[key] = v
-    return result
+    return {
+        "image_com_slope_x": compute_slope(
+            *extract_line_stats(img, compute_center_of_mass, axis="x")
+        ),
+        "image_com_slope_y": compute_slope(
+            *extract_line_stats(img, compute_center_of_mass, axis="y")
+        ),
+        "image_peak_slope_x": compute_slope(
+            *extract_line_stats(img, compute_peak_location, axis="x")
+        ),
+        "image_peak_slope_y": compute_slope(
+            *extract_line_stats(img, compute_peak_location, axis="y")
+        ),
+    }

@@ -104,8 +104,8 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
     def __init__(
         self,
         line_config: Line1DConfig,
-        metric_suffix: Optional[str] = None,
-        metric_prefix: Optional[str] = None,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the analyzer with a typed line configuration.
 
@@ -113,7 +113,9 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
         constructor takes a validated ``Line1DConfig`` only. String-by-name
         resolution moved to the loader layer; call
         ``image_analysis.config.load_line_config(name)`` to obtain the
-        ``Line1DConfig`` first, then pass it here.
+        ``Line1DConfig`` first, then pass it here. Scalar-key
+        prefix/suffix used to live here as kwargs; they were promoted
+        to the diagnostic-config layer per #412.
 
         Parameters
         ----------
@@ -121,20 +123,16 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
             Typed configuration. The ``analysis`` block is validated
             into a :class:`FrogSpectralPhaseConfig` and exposed as
             ``self.analysis_config``.
-        metric_suffix, metric_prefix : str, optional
-            Override the scalar-key prefix / suffix. Default behavior:
-            prefix from ``line_config.name``; no suffix.
+        output_name : str, optional
+            Output identifier; forwarded to ``Standard1DAnalyzer``.
         """
-        super().__init__(line_config=line_config)
+        super().__init__(line_config=line_config, output_name=output_name)
         self.analysis_config = FrogSpectralPhaseConfig.model_validate(
             self.line_config.analysis or {}
         )
-        self.metric_suffix = _normalize_metric_suffix(metric_suffix)
-        self.metric_prefix = metric_prefix
-
         logger.info(
-            "Initialized FrogSpectralPhaseAnalyzer for line config '%s'",
-            self.line_config.name,
+            "Initialized FrogSpectralPhaseAnalyzer (output_name=%r)",
+            self.output_name,
         )
 
     def analyze_image(
@@ -227,17 +225,8 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
         order = np.argsort(fit_wavelength_nm)
         line_data = np.column_stack([fit_wavelength_nm[order], fit_y[order]])
 
-        prefix = self.metric_prefix or self.line_config.name
-        scalars = self._build_scalars(
-            prefix=prefix,
-            coefficients=coefficients,
-            flipped=flipped,
-        )
-
-        if self.metric_suffix:
-            scalars = {
-                f"{key}{self.metric_suffix}": value for key, value in scalars.items()
-            }
+        # Bare-keyed scalars; ScanAnalysis namespaces them per #412.
+        scalars = self._build_scalars(coefficients=coefficients, flipped=flipped)
 
         metadata = self._build_input_parameters(auxiliary_data)
         metadata.update(
@@ -270,17 +259,14 @@ class FrogSpectralPhaseAnalyzer(Standard1DAnalyzer):
 
     def _build_scalars(
         self,
-        prefix: str,
         coefficients: np.ndarray,
         flipped: bool,
     ) -> dict[str, float]:
-        """Build scalar output dictionary."""
+        """Build bare-keyed scalar output dictionary."""
         scalars: dict[str, float] = {}
         by_order = coefficients_by_order(coefficients)
-
-        scalars.update(_physical_dispersion_scalars(prefix, by_order))
-
-        scalars[f"{prefix}_flipped"] = float(flipped)
+        scalars.update(_physical_dispersion_scalars(by_order))
+        scalars["flipped"] = float(flipped)
         return scalars
 
 
@@ -306,10 +292,9 @@ def omega_rad_per_fs_to_wavelength_nm(omega_rad_per_fs: np.ndarray) -> np.ndarra
 
 
 def _physical_dispersion_scalars(
-    prefix: str,
     coefficients: dict[int, float],
 ) -> dict[str, float]:
-    """Convert phase polynomial coefficients into physical derivatives."""
+    """Convert phase polynomial coefficients into bare-keyed physical derivatives."""
     scalars: dict[str, float] = {}
     names = {
         0: "phi0_rad",
@@ -323,16 +308,6 @@ def _physical_dispersion_scalars(
             converted = value
         else:
             converted = math.factorial(order) * value
-
         name = names.get(order, f"order{order}_fs{order}")
-        scalars[f"{prefix}_{name}"] = float(converted)
+        scalars[name] = float(converted)
     return scalars
-
-
-def _normalize_metric_suffix(metric_suffix: Optional[str]) -> Optional[str]:
-    """Normalize metric suffix to match LineAnalyzer behavior."""
-    if not metric_suffix:
-        return None
-    if metric_suffix.startswith("_"):
-        return metric_suffix
-    return f"_{metric_suffix}"

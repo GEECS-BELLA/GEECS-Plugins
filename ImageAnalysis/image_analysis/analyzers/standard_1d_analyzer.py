@@ -45,16 +45,22 @@ class Standard1DAnalyzer(ImageAnalyzer):
 
     Parameters
     ----------
-    line_config_name : str or Line1DConfig
-        Name of the line configuration to load (e.g., "example_spectrum_1d"),
-        or a pre-constructed ``Line1DConfig`` instance.  Passing a config
-        object bypasses YAML loading entirely — useful for testing or for
-        building configs programmatically at runtime.
+    line_config : Line1DConfig
+        Validated line configuration model. Use
+        ``image_analysis.config.loader.load_line_config(name)`` to load
+        from disk by name before constructing.
+    output_name : str, optional
+        Output identifier for this analyzer instance — analogous to
+        :class:`StandardAnalyzer.output_name`. Set by the diagnostic
+        factory from ``diag.effective_output_name``. Defaults to
+        ``None`` (no identifier; standalone notebook use).
     """
 
     def __init__(
         self,
         line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the standard 1D analyzer with a validated line config.
 
@@ -68,9 +74,8 @@ class Standard1DAnalyzer(ImageAnalyzer):
         super().__init__()
 
         self.line_config = line_config
-        # Original config name preserved for scalar-dict keys.
-        self.line_config_name = line_config.name
-        logger.info("Using provided Line1DConfig: %s", self.line_config.name)
+        self._output_name: Optional[str] = output_name
+        logger.info("Using provided Line1DConfig (output_name=%r)", self._output_name)
 
         self.run_analyze_image_asynchronously = True
 
@@ -312,12 +317,12 @@ class Standard1DAnalyzer(ImageAnalyzer):
         dict
             Input parameters dictionary with metadata and resolved units
         """
-        params = {
-            "line_name": self.line_config.name,
+        params: Dict[str, Any] = {
             "data_type": self.line_config.data_loading.data_type,
-            "config_name": self.line_config_name,
             "data_format": self.line_config.data_format,
         }
+        if self._output_name is not None:
+            params["output_name"] = self._output_name
 
         # Add metadata from read_1d_data if available, with unit resolution
         if self.data_metadata is not None:
@@ -523,18 +528,15 @@ class Standard1DAnalyzer(ImageAnalyzer):
         return fig, ax
 
     @property
-    def camera_name(self) -> str:
-        """Return line config name for ScanAnalyzer compatibility.
+    def output_name(self) -> Optional[str]:
+        """Return the output identifier for this analyzer instance.
 
-        This property provides compatibility with the ScanAnalyzer module which
-        expects a camera_name attribute.
-
-        Returns
-        -------
-        str
-            The line configuration name
+        Same contract as :attr:`StandardAnalyzer.output_name` — ``None``
+        in standalone notebook use, set by the diagnostic factory from
+        ``diag.effective_output_name`` in the scan path. Read by
+        ``SingleDeviceScanAnalyzer`` for per-analyzer output dir labels.
         """
-        return self.line_config.name
+        return self._output_name
 
 
 def _validate_auxiliary_column_data(

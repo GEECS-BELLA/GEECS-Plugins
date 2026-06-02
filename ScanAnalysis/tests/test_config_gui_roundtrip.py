@@ -34,13 +34,13 @@ from image_analysis.config.array1d_processing import Line1DConfig, Data1DConfig
 
 
 def _roundtrip_camera(config: CameraConfig, tmp_path) -> CameraConfig:
-    path = tmp_path / f"{config.name}.yaml"
+    path = tmp_path / "config.yaml"
     save_config(config, path)
     return load_config(path)
 
 
 def _roundtrip_line(config: Line1DConfig, tmp_path) -> Line1DConfig:
-    path = tmp_path / f"{config.name}.yaml"
+    path = tmp_path / "config.yaml"
     save_config(config, path)
     return load_config(path)
 
@@ -51,31 +51,25 @@ def _roundtrip_line(config: Line1DConfig, tmp_path) -> Line1DConfig:
 
 
 class TestCameraConfigRoundtrip:
+    """Round-trip CameraConfig through I/O — verify processing fields survive.
+
+    Per #412 the ``name`` field is gone; tests that previously pinned
+    ``name`` round-tripping have been dropped. ``bit_depth`` /
+    ``description`` are the remaining identity fields.
+    """
+
     def test_minimal_camera_config(self, tmp_path):
-        cfg = CameraConfig(name="UC_TestCamera", bit_depth=16)
+        cfg = CameraConfig(bit_depth=16)
         reloaded = _roundtrip_camera(cfg, tmp_path)
-        assert reloaded.name == cfg.name
         assert reloaded.bit_depth == cfg.bit_depth
 
-    def test_name_survives_roundtrip(self, tmp_path):
-        cfg = CameraConfig(name="MyCustomName", bit_depth=8)
-        reloaded = _roundtrip_camera(cfg, tmp_path)
-        assert reloaded.name == "MyCustomName"
-
     def test_description_survives_roundtrip(self, tmp_path):
-        cfg = CameraConfig(name="UC_Test", bit_depth=16, description="A test camera")
+        cfg = CameraConfig(bit_depth=16, description="A test camera")
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert reloaded.description == "A test camera"
 
-    def test_name_independent_of_filename(self, tmp_path):
-        cfg = CameraConfig(name="DeviceName", bit_depth=16)
-        path = tmp_path / "DifferentFilename.yaml"
-        save_config(cfg, path)
-        reloaded = load_config(path)
-        assert reloaded.name == "DeviceName"
-
     def test_model_dump_identical(self, tmp_path):
-        cfg = CameraConfig(name="UC_Test", bit_depth=16, description="desc")
+        cfg = CameraConfig(bit_depth=16, description="desc")
         reloaded = _roundtrip_camera(cfg, tmp_path)
         assert reloaded.model_dump() == cfg.model_dump()
 
@@ -90,7 +84,6 @@ class TestFloatPrecisionRoundtrip:
         from image_analysis.config.array2d_processing import ThresholdingConfig
 
         cfg = CameraConfig(
-            name="UC_Test",
             bit_depth=16,
             thresholding=ThresholdingConfig(enabled=True, value=0.2008),
         )
@@ -102,7 +95,6 @@ class TestFloatPrecisionRoundtrip:
 
         tiny = 1e-13
         cfg = CameraConfig(
-            name="UC_Test",
             bit_depth=16,
             thresholding=ThresholdingConfig(enabled=True, value=tiny),
         )
@@ -116,31 +108,26 @@ class TestFloatPrecisionRoundtrip:
 
 
 class TestLine1DConfigRoundtrip:
+    """Round-trip Line1DConfig through I/O — verify processing fields survive.
+
+    Per #412 the ``name`` field is gone; tests that previously pinned
+    name-round-tripping are dropped. ``description`` / ``data_loading``
+    are the remaining identity fields.
+    """
+
     def test_minimal_line_config(self, tmp_path):
         from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
-            name="U_TestSignal",
             data_loading=Data1DConfig(data_type=Data1DType.CSV),
         )
         reloaded = _roundtrip_line(cfg, tmp_path)
-        assert reloaded.name == cfg.name
-
-    def test_name_survives_roundtrip(self, tmp_path):
-        from image_analysis.config.array1d_processing import Data1DType
-
-        cfg = Line1DConfig(
-            name="MySignalName",
-            data_loading=Data1DConfig(data_type=Data1DType.CSV),
-        )
-        reloaded = _roundtrip_line(cfg, tmp_path)
-        assert reloaded.name == "MySignalName"
+        assert reloaded.data_loading.data_type == cfg.data_loading.data_type
 
     def test_model_dump_identical(self, tmp_path):
         from image_analysis.config.array1d_processing import Data1DType
 
         cfg = Line1DConfig(
-            name="U_Test",
             description="line desc",
             data_loading=Data1DConfig(data_type=Data1DType.CSV),
         )
@@ -393,3 +380,133 @@ class TestGroupEditorRoundtrip:
         m_in = AnalysisGroupConfig.model_validate(data)
         m_out = AnalysisGroupConfig.model_validate(out)
         assert m_in == m_out
+
+
+# ---------------------------------------------------------------------------
+# Scan analyzer editor (Qt) round-trip
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+class TestScanAnalyzerEditorRoundtrip:
+    """Round-trip a diagnostic YAML through the full scan-analyzer editor.
+
+    Focused on fields the editor adds beyond the I/O layer's coverage —
+    primarily the General-section ``output_name`` / ``metric_suffix``
+    decoration fields that were added when the prefix/suffix concept
+    moved from ImageAnalysis to ScanAnalysis.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _qt_app(self):
+        import os
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        pytest.importorskip("PyQt5")
+        from PyQt5.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        yield app
+
+    def _editor_roundtrip(self, data: dict) -> dict:
+        from ConfigFileGUI.scan_analyzer_editor import ScanAnalyzerEditorPanel
+
+        editor = ScanAnalyzerEditorPanel()
+        editor.load_config(data)
+        return editor.get_config_dict()
+
+    def test_output_name_survives_editor_roundtrip(self):
+        """An explicit ``output_name`` makes it through load + save."""
+        data = {
+            "name": "UC_Test",
+            "output_name": "custom_prefix",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert out.get("output_name") == "custom_prefix"
+
+    def test_metric_suffix_survives_editor_roundtrip(self):
+        """An explicit ``metric_suffix`` makes it through load + save."""
+        data = {
+            "name": "UC_Test",
+            "metric_suffix": "_roi_left",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert out.get("metric_suffix") == "_roi_left"
+
+    def test_absent_metric_keys_stay_absent(self):
+        """A YAML without output_name/suffix doesn't grow them on round-trip.
+
+        Empty edits map to "field absent" — the schema defaults
+        (``effective_output_name → name``, suffix → "") then take
+        over on consumption. We deliberately do NOT serialise empty
+        strings, so the on-disk YAML stays clean.
+        """
+        data = {
+            "name": "UC_Test",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert "output_name" not in out
+        assert "metric_suffix" not in out
+
+    def test_full_diagnostic_roundtrip_with_decoration(self):
+        """Both fields set + full diagnostic shape — validates as a
+        :class:`DiagnosticAnalysisConfig` and equals the input."""
+        from image_analysis.config import DiagnosticAnalysisConfig
+
+        data = {
+            "name": "UC_Test",
+            "output_name": "custom_pref",
+            "metric_suffix": "_v2",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        m_in = DiagnosticAnalysisConfig.model_validate(data)
+        m_out = DiagnosticAnalysisConfig.model_validate(out)
+        assert m_in.output_name == m_out.output_name == "custom_pref"
+        assert m_in.metric_suffix == m_out.metric_suffix == "_v2"
+        assert m_in.effective_output_name == "custom_pref"
+
+    def test_image_section_does_not_emit_name(self):
+        """``image.name`` is gone post-#412 — should never appear in YAML output.
+
+        ``CameraConfig.name`` was dropped from the schema. The editor
+        renders no ``Name:`` row in the image section, so saving never
+        emits an ``image.name`` key.
+        """
+        data = {
+            "name": "UC_Test",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert "name" not in out.get("image", {})
+
+    def test_legacy_image_name_dropped_on_roundtrip(self):
+        """A legacy YAML with redundant ``image.name`` loses it on save.
+
+        Pre-#412 some YAMLs carried both ``name`` and ``image.name``.
+        After the schema rewrite, ``CameraConfig`` has no ``name``
+        field — pydantic's ``extra="allow"`` keeps the key as model
+        extra during load, but the editor's form has no widget for it,
+        so it doesn't survive a round-trip.
+        """
+        data = {
+            "name": "UC_Test",
+            "image_analyzer": "image_analysis.analyzers.beam_analyzer.BeamAnalyzer",
+            "image": {"type": "camera", "name": "UC_Test", "bit_depth": 16},
+            "scan": {"priority": 50},
+        }
+        out = self._editor_roundtrip(data)
+        assert "name" not in out.get("image", {})

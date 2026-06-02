@@ -393,7 +393,9 @@ class Line1DConfig(BaseModel):
     """
 
     model_config = ConfigDict(
-        extra="allow",
+        # ``extra="forbid"`` per the #412 cleanup — see the matching
+        # rationale on :class:`CameraConfig`.
+        extra="forbid",
         arbitrary_types_allowed=True,
         use_enum_values=True,
         validate_assignment=True,
@@ -404,7 +406,12 @@ class Line1DConfig(BaseModel):
     # discriminator routes here instead of defaulting to CameraConfig.
     type: Literal["line"] = "line"
 
-    name: str = Field(..., description="Configuration name/identifier")
+    # Note: ``name`` is no longer a Line1DConfig field after #412.
+    # Identity / output naming live at the diagnostic layer
+    # (``DiagnosticAnalysisConfig.name`` for input lookup;
+    # ``DiagnosticAnalysisConfig.output_name`` for output labelling).
+    # The analyzer receives its output identifier through the
+    # constructor (``Standard1DAnalyzer(line_config, output_name=...)``).
     description: str = Field(
         default="", description="Human-readable description of this configuration"
     )

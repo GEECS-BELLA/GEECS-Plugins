@@ -65,8 +65,11 @@ class TestEmbeddedImageSection:
         analyzer = create_scan_analyzer(_diag(alias="beam"))
         # BeamAnalyzer stores its CameraConfig on self.camera_config
         assert isinstance(analyzer.image_analyzer.camera_config, CameraConfig)
-        assert analyzer.image_analyzer.camera_config.name == "UC_Test"
         assert analyzer.image_analyzer.camera_config.bit_depth == 16
+        # Identity flows through the analyzer's output_name property
+        # (#412 — CameraConfig.name is gone; output_name comes from the
+        # diagnostic's effective_output_name).
+        assert analyzer.image_analyzer.output_name == "UC_Test"
 
     def test_line_alias_produces_validated_line_config(self):
         diag = _diag(
@@ -79,7 +82,7 @@ class TestEmbeddedImageSection:
         )
         analyzer = create_scan_analyzer(diag)
         assert isinstance(analyzer.image_analyzer.line_config, Line1DConfig)
-        assert analyzer.image_analyzer.line_config.name == "UC_Test"
+        assert analyzer.image_analyzer.output_name == "UC_Test"
 
 
 # ---------------------------------------------------------------------------

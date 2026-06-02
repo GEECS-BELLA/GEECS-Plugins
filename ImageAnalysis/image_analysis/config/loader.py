@@ -122,19 +122,24 @@ def _load_camera_config_dict(
     """Internal: load raw config dict from name/path/dict.
 
     Unwraps the ``image:`` section if the YAML is a unified diagnostic,
-    so callers always receive the flat camera/line config shape.
+    so callers always receive the flat camera/line config shape. Per
+    #412, ``CameraConfig`` / ``Line1DConfig`` no longer carry a
+    ``name`` field — analyzer identity is set at construction time by
+    the diagnostic factory via the ``output_name`` kwarg.
     """
+    source_path: Optional[Path] = None
     if isinstance(config_source, str):
-        path = find_config_file(config_source, config_dir=config_dir)
-        with open(path, "r") as f:
+        source_path = find_config_file(config_source, config_dir=config_dir)
+        with open(source_path, "r") as f:
             data = yaml.safe_load(f)
-        logger.info("Loaded camera configuration from %s", path)
+        logger.info("Loaded camera configuration from %s", source_path)
     elif isinstance(config_source, Path):
         if not config_source.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_source}")
-        with open(config_source, "r") as f:
+        source_path = config_source
+        with open(source_path, "r") as f:
             data = yaml.safe_load(f)
-        logger.info("Loaded configuration from %s", config_source)
+        logger.info("Loaded configuration from %s", source_path)
     elif isinstance(config_source, dict):
         data = config_source.copy()
         logger.info("Using provided configuration dictionary")
@@ -144,7 +149,13 @@ def _load_camera_config_dict(
     if data is None:
         data = {}
 
-    return _unwrap_diagnostic_image_section(data)
+    data = _unwrap_diagnostic_image_section(data)
+    # Filename-stem name injection used to live here as a cosmetic
+    # fallback; removed in #412 along with the ``name`` field itself.
+    # If a legacy standalone YAML still carries a top-level ``name``,
+    # CameraConfig's ``extra="allow"`` policy keeps it as model_extra
+    # without affecting behavior.
+    return data
 
 
 def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -152,10 +163,12 @@ def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:
 
     A unified diagnostic config (per the schema in issue #400) lives in
     one file with both ImageAnalysis-side and ScanAnalysis-side
-    sections. ImageAnalysis only consumes the ``image:`` body; the
-    top-level ``name`` is injected as ``image.name`` so the embedded
-    config validates the same way a standalone camera/line config
-    would.
+    sections. ImageAnalysis only consumes the ``image:`` body.
+
+    Per #412, the previous "inject top-level ``name`` as ``image.name``"
+    behavior is gone — ``CameraConfig`` / ``Line1DConfig`` no longer
+    have a ``name`` field. Analyzer identity flows through the
+    diagnostic factory's ``output_name`` constructor kwarg instead.
 
     Flat configs (no ``image:`` key) pass through unchanged so legacy
     standalone files in ``image_analysis_configs/`` keep working
@@ -187,11 +200,7 @@ def _unwrap_diagnostic_image_section(data: Dict[str, Any]) -> Dict[str, Any]:
             f"got {type(image).__name__}"
         )
 
-    image = dict(image)
-    name = data.get("name")
-    if name and "name" not in image:
-        image["name"] = name
-    return image
+    return dict(image)
 
 
 # ----------------------------------------------------------------------

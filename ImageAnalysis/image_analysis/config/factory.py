@@ -27,6 +27,7 @@ it in the dimension-specific ``Array{1,2}DScanAnalyzer``.
 from __future__ import annotations
 
 import importlib
+import inspect
 import logging
 from typing import Any, Type
 
@@ -71,16 +72,57 @@ def create_image_analyzer(diag: DiagnosticAnalysisConfig) -> Any:
         If the resolved class can't be instantiated with the inferred
         kwargs.
     """
-    return _instantiate_image_analyzer(diag.image_analyzer, diag.image)
+    return _instantiate_image_analyzer(
+        diag.image_analyzer,
+        diag.image,
+        output_name=diag.effective_output_name,
+    )
 
 
-def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> Any:
+def _accepts_kwarg(cls: Type, name: str) -> bool:
+    """Return True iff ``cls.__init__`` accepts a keyword argument named ``name``.
+
+    Determined by signature introspection rather than try/except. Handles
+    both explicitly-named keyword parameters and ``**kwargs`` catchalls —
+    a permissive ``**kwargs`` signature returns True because we can't
+    statically know what it absorbs.
+
+    Errs on the side of True for classes whose signatures aren't
+    introspectable (C-implemented, builtin types). The instantiation
+    that follows will surface any real TypeError loudly, which is
+    what we want — the previous fallback hid that signal.
+    """
+    try:
+        sig = inspect.signature(cls.__init__)
+    except (TypeError, ValueError):
+        return True
+
+    for param in sig.parameters.values():
+        if param.name == name:
+            return True
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+    return False
+
+
+def _instantiate_image_analyzer(
+    spec: ImageAnalyzerSpec,
+    image_config: Any,
+    *,
+    output_name: str | None = None,
+) -> Any:
     """Import the class and instantiate with kwargs + image config.
 
     The kwarg name (``camera_config`` vs ``line_config``) is decided
     by the type of the validated image config. When ``image_config`` is
     ``None``, no image-config kwarg is injected — the analyzer takes
     only what ``spec.kwargs`` provides (HASO-style).
+
+    ``output_name`` is forwarded to analyzers whose ``__init__`` accepts
+    it (Standard family + subclasses); for out-of-family analyzers
+    (HASO etc.) the kwarg is dropped before instantiation, determined
+    by :func:`_accepts_kwarg`. No try/except retry — TypeError from the
+    constructor is a real error and surfaces with the original message.
     """
     analyzer_class = _import_class(spec.class_path)
     kwargs = dict(spec.kwargs)
@@ -90,6 +132,9 @@ def _instantiate_image_analyzer(spec: ImageAnalyzerSpec, image_config: Any) -> A
     elif isinstance(image_config, Line1DConfig):
         kwargs["line_config"] = image_config
     # image_config is None: kwargs is exactly what the YAML supplied.
+
+    if output_name is not None and _accepts_kwarg(analyzer_class, "output_name"):
+        kwargs.setdefault("output_name", output_name)
 
     logger.info(
         "Instantiating %s with kwargs %s",
