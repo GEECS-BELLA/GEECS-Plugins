@@ -164,8 +164,9 @@ class TestDiagnosticAnalysisConfig:
         assert isinstance(cfg.image, CameraConfig)
         assert cfg.image.bit_depth == 16
         assert cfg.image.background.method is BackgroundMethod.CONSTANT
-        # The top-level name is injected as ``image.name``.
-        assert cfg.image.name == "UC_GaiaMode"
+        # Per #412 the image config no longer carries a ``name`` field;
+        # identity lives on the top-level diagnostic (and on the
+        # analyzer instance via output_name).
         # ``scan`` stays a raw dict at this layer
         assert cfg.scan == {
             "priority": 45,
@@ -189,7 +190,8 @@ class TestDiagnosticAnalysisConfig:
             },
         )
         assert isinstance(cfg.image, Line1DConfig)
-        assert cfg.image.name == "U_BCaveICT"
+        # Identity lives at the diagnostic layer, not on the image config.
+        assert cfg.name == "U_BCaveICT"
 
     def test_verbose_image_analyzer_form_with_kwargs(self):
         cfg = DiagnosticAnalysisConfig(

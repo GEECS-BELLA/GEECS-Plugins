@@ -10,7 +10,7 @@ such as :mod:`image_analysis.algorithms.beam_slopes`.
 
 from __future__ import annotations
 
-from typing import NamedTuple, Optional, Set, Tuple, Union
+from typing import NamedTuple, Optional, Set, Tuple
 import logging
 
 import numpy as np
@@ -215,47 +215,37 @@ def beam_profile_stats(
 
 def flatten_beam_stats(
     stats: BeamStats,
-    prefix: Optional[Union[str, None]] = None,
-    suffix: Optional[Union[str, None]] = None,
     include: Optional[Set[str]] = None,
 ) -> dict[str, float]:
-    """Flatten a :class:`BeamStats` instance into a dictionary.
+    """Flatten a :class:`BeamStats` instance into a dictionary of bare-key scalars.
+
+    Emits keys of the form ``"{section}_{field}"`` (e.g. ``"image_total"``,
+    ``"x_CoM"``, ``"y_fwhm"``) with no prefix or suffix. Naming/disambiguation
+    across analyzers is ScanAnalysis's responsibility per issue #412 — the
+    scan-side wrapper applies ``metric_prefix`` and ``metric_suffix`` when
+    storing per-shot results.
 
     Parameters
     ----------
     stats : BeamStats
         The beam statistics to flatten.
-    prefix : str, None
-        Optional prefix to prepend to each key.
-    suffix : str, None
-        Optional suffix to append to each key (underscore is auto-prepended).
-        Useful for distinguishing multiple analysis variations (e.g., "curtis"
-        becomes "_curtis" in the key).
     include : set of str, optional
-        If provided, only emit entries whose *fragment* (the part without
-        prefix/suffix, e.g. ``"image_total"``, ``"x_CoM"``) is in this set.
-        ``None`` (the default) emits all entries.
+        If provided, only emit entries whose key is in this set. ``None``
+        (the default) emits all entries.
 
     Returns
     -------
     dict[str, float]
-        Dictionary mapping field names to values. Keys are of the form
-        ``"{prefix}_{section}_{field}{suffix}"`` when both are provided,
-        ``"{prefix}_{section}_{field}"`` when only prefix is provided,
-        ``"{section}_{field}{suffix}"`` when only suffix is provided,
-        or ``"{section}_{field}"`` when neither is provided.
+        Dictionary mapping bare field names to values.
     """
     flat: dict[str, float] = {}
-    suffix_str = f"_{suffix}" if suffix else ""
     for field in stats._fields:
         nested = getattr(stats, field)
         for k, v in nested._asdict().items():
             fragment = f"{field}_{k}"
             if include is not None and fragment not in include:
                 continue
-            key = f"{prefix}_{fragment}" if prefix else fragment
-            key = f"{key}{suffix_str}"
-            flat[key] = v
+            flat[fragment] = v
     return flat
 
 

@@ -63,40 +63,28 @@ def test_negative_total_intensity_handling():
 
 
 def test_flatten_beam_stats():
-    img = np.zeros((3, 3))
-    img[1, 1] = 5
-    stats = bbs.beam_profile_stats(img)
-    flat = bbs.flatten_beam_stats(stats, prefix="cam")
-
-    # Check all keys are prefixed and values are floats
-    assert all(k.startswith("cam_") for k in flat.keys())
-    assert all(isinstance(v, (float, int, np.floating)) for v in flat.values())
-
-    # Ensure expected fields exist (no filtering — all fields present)
-    expected_keys = {
-        "cam_image_total",
-        "cam_image_peak_value",
-        "cam_x_CoM",
-        "cam_y_CoM",
-        "cam_x_45_CoM",
-        "cam_y_45_CoM",
-    }
-    assert expected_keys.issubset(flat.keys())
-
-    # Total count: image (2 fields) + 4 projections × 4 fields = 18
-    assert len(flat) == 18
-
-
-def test_flatten_beam_stats_no_prefix():
-    """Flatten without prefix produces undecorated keys."""
+    """Bare-keyed scalars; ScanAnalysis adds namespace prefix per #412."""
     img = np.zeros((3, 3))
     img[1, 1] = 5
     stats = bbs.beam_profile_stats(img)
     flat = bbs.flatten_beam_stats(stats)
 
-    assert "image_total" in flat
-    assert "x_CoM" in flat
-    assert "y_45_fwhm" in flat
+    # All values are numeric
+    assert all(isinstance(v, (float, int, np.floating)) for v in flat.values())
+
+    # Expected bare keys exist (no filtering — all fields present)
+    expected_keys = {
+        "image_total",
+        "image_peak_value",
+        "x_CoM",
+        "y_CoM",
+        "x_45_CoM",
+        "y_45_CoM",
+    }
+    assert expected_keys.issubset(flat.keys())
+
+    # Total count: image (2 fields) + 4 projections × 4 fields = 18
+    assert len(flat) == 18
 
 
 def test_flatten_beam_stats_include_filter():
@@ -106,10 +94,10 @@ def test_flatten_beam_stats_include_filter():
     stats = bbs.beam_profile_stats(img)
 
     # Request only two fragments
-    flat = bbs.flatten_beam_stats(stats, prefix="cam", include={"image_total", "x_CoM"})
+    flat = bbs.flatten_beam_stats(stats, include={"image_total", "x_CoM"})
 
-    assert set(flat.keys()) == {"cam_image_total", "cam_x_CoM"}
-    assert flat["cam_image_total"] == 5.0
+    assert set(flat.keys()) == {"image_total", "x_CoM"}
+    assert flat["image_total"] == 5.0
 
 
 def test_flatten_beam_stats_include_empty_set():

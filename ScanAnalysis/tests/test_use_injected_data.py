@@ -56,7 +56,7 @@ class TestUseInjectedDataThroughDiagnosticFactory:
                     ),
                     "kwargs": {},
                 },
-                "image": CameraConfig(name="UC_Test"),
+                "image": CameraConfig(),
                 "scan": {"mode": "per_bin"},
             }
         )
@@ -78,7 +78,6 @@ class TestUseInjectedDataThroughDiagnosticFactory:
                     "kwargs": {},
                 },
                 "image": Line1DConfig(
-                    name="U_TestLine",
                     data_loading=Data1DConfig(data_type="tdms_scope"),
                 ),
                 "scan": {"mode": "per_shot"},

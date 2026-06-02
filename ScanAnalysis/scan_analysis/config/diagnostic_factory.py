@@ -164,6 +164,16 @@ def _wrap_in_scan_analyzer(
         "renderer_kwargs": scan_cfg.renderer_kwargs,
         "analysis_mode": scan_cfg.mode,
         "use_injected_data": use_injected_data,
+        # Output naming (#412). ImageAnalysis emits bare scalar keys;
+        # ScanAnalysis is the sole authority for naming them on the way
+        # to disk / memory consumers, and for labelling per-analyzer
+        # output directories. ``effective_output_name`` returns
+        # ``output_name`` when set on the diagnostic, otherwise falls
+        # back to ``diag.name`` — so YAMLs that don't set
+        # ``output_name`` produce columns/dirs identical to the
+        # device name.
+        "output_name": diag.effective_output_name,
+        "metric_suffix": diag.metric_suffix or "",
         save_kwarg: scan_cfg.save,
     }
     if scan_cfg.file_tail is not None:

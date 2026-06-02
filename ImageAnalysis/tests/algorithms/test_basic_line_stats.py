@@ -49,28 +49,22 @@ class TestLineBasicStats:
         assert stats.x_units is None
         assert stats.y_units is None
 
-    def test_to_dict_with_prefix_and_suffix(self):
-        """Test flattening to dict with prefix and suffix."""
+    def test_to_dict_emits_bare_keys(self):
+        """Bare-keyed scalars; ScanAnalysis adds namespace prefix per #412."""
         x = np.arange(100)
         y = np.exp(-((x - 50) ** 2) / (2 * 10**2))
         line_data = np.column_stack([x, y])
 
         stats = LineBasicStats(line_data=line_data, x_units="μm")
+        result = stats.to_dict()
 
-        # Test with prefix only
-        result = stats.to_dict(prefix="beam")
-        assert "beam_CoM" in result
-        assert "beam_fwhm" in result
-
-        # Test with suffix only
-        result = stats.to_dict(suffix="calibrated")
-        assert "CoM_calibrated" in result
-        assert "fwhm_calibrated" in result
-
-        # Test with both
-        result = stats.to_dict(prefix="beam", suffix="var")
-        assert "beam_CoM_var" in result
-        assert "beam_fwhm_var" in result
+        # Bare keys — no prefix, no suffix
+        assert "CoM" in result
+        assert "fwhm" in result
+        assert "rms" in result
+        assert "peak_location" in result
+        assert "integrated_intensity" in result
+        assert "peak_value" in result
 
     def test_nonuniform_spacing(self):
         """Test with non-uniformly spaced x-coordinates."""

@@ -12,7 +12,12 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.data]
 
 ICT_DEV = "U_BCaveICT"
-MAGSPEC_DEV = "U_BCaveMagSpec-interpSpec"
+
+# The MagSpec line config lives under a filename that differs from the
+# device's data folder name. The loader resolves YAML by filename stem,
+# not by the ``name:`` field inside the YAML.
+MAGSPEC_CONFIG = "BcaveMagSpecStitcherSpec"  # filename in configs repo
+MAGSPEC_DEV = "U_BCaveMagSpec-interpSpec"  # device subfolder under scan dir
 
 
 # ---------------------------------------------------------------------------
@@ -20,12 +25,11 @@ MAGSPEC_DEV = "U_BCaveMagSpec-interpSpec"
 # ---------------------------------------------------------------------------
 
 
-def test_array1d_ict_noscan_runs():
+def test_array1d_ict_noscan_runs(canonical_scan_tag):
     """Array1DScanAnalyzer processes an ICT noscan without error.
 
     Uses flag_save_data=False to avoid writing to the data directory.
     """
-    from geecs_data_utils import ScanTag
     from image_analysis.config.loader import load_line_config
     from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
@@ -38,15 +42,13 @@ def test_array1d_ict_noscan_runs():
         flag_save_data=False,
     )
 
-    tag = ScanTag(year=2025, month=11, day=13, number=1, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_ict"))
 
     assert len(scan_analyzer.results) > 0
 
 
-def test_array1d_ict_results_are_2d():
+def test_array1d_ict_results_are_2d(canonical_scan_tag):
     """Each per-shot ICT result contains a valid Nx2 line_data array."""
-    from geecs_data_utils import ScanTag
     from image_analysis.config.loader import load_line_config
     from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
@@ -59,8 +61,7 @@ def test_array1d_ict_results_are_2d():
         flag_save_data=False,
     )
 
-    tag = ScanTag(year=2025, month=11, day=13, number=1, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_ict"))
 
     for result in scan_analyzer.results.values():
         assert result.line_data is not None
@@ -73,17 +74,16 @@ def test_array1d_ict_results_are_2d():
 # ---------------------------------------------------------------------------
 
 
-def test_array1d_magspec_noscan_runs():
+def test_array1d_magspec_noscan_runs(canonical_scan_tag):
     """Array1DScanAnalyzer processes a MagSpec interpSpec noscan without error.
 
     Uses flag_save_data=False to avoid writing to the data directory.
     """
-    from geecs_data_utils import ScanTag
     from image_analysis.config.loader import load_line_config
     from image_analysis.analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_CONFIG))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,
@@ -91,20 +91,18 @@ def test_array1d_magspec_noscan_runs():
         flag_save_data=False,
     )
 
-    tag = ScanTag(year=2025, month=11, day=18, number=2, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_magspec"))
 
     assert len(scan_analyzer.results) > 0
 
 
-def test_array1d_magspec_results_have_com_scalar():
+def test_array1d_magspec_results_have_com_scalar(canonical_scan_tag):
     """Each per-shot MagSpec result contains the CoM scalar from LineAnalyzer."""
-    from geecs_data_utils import ScanTag
     from image_analysis.config.loader import load_line_config
     from image_analysis.analyzers.line_analyzer import LineAnalyzer
     from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
 
-    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_DEV))
+    image_analyzer = LineAnalyzer(line_config=load_line_config(MAGSPEC_CONFIG))
     scan_analyzer = Array1DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=MAGSPEC_DEV,
@@ -112,8 +110,7 @@ def test_array1d_magspec_results_have_com_scalar():
         flag_save_data=False,
     )
 
-    tag = ScanTag(year=2025, month=11, day=18, number=2, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_magspec"))
 
     expected_key = f"{MAGSPEC_DEV}_CoM"
     for result in scan_analyzer.results.values():

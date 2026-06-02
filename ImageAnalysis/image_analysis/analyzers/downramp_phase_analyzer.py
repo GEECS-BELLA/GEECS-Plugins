@@ -108,20 +108,14 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config: CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the downramp phase analyzer with a validated camera config."""
-        super().__init__(
-            camera_config=camera_config,
-            name_suffix=name_suffix,
-            metric_suffix=metric_suffix,
-        )
-
+        super().__init__(camera_config=camera_config, output_name=output_name)
         self.run_analyze_image_asynchronously = False
-
         logger.info(
-            "Initialized DownrampPhaseAnalyzer with config '%s'", camera_config.name
+            "Initialized DownrampPhaseAnalyzer (output_name=%r)", self.output_name
         )
 
     def analyze_image(
@@ -187,10 +181,6 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
                 "vertical_projection": processed_image.sum(axis=1),
             }
 
-        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
-        if getattr(result, "scalars", None):
-            result.scalars = self.apply_metric_suffix(result.scalars)
-
         return result
 
     def compile_shock_analysis(
@@ -226,8 +216,12 @@ class DownrampPhaseAnalyzer(StandardAnalyzer):
             'Plasma downramp shock location (pixel)', 'Plasma downramp plateau avg (phase)',
             'Plasma downramp peak to plateau (phase)', and figure metadata from rotation.
         """
-        slopes = compute_beam_slopes(phase_array, prefix=self.camera_name)
-        laser_angle = np.arctan(slopes[f"{self.camera_name}_image_com_slope_x"])
+        # compute_beam_slopes returns bare keys post-PR #420 (#412);
+        # the previous prefix= kwarg was removed and the analyzer
+        # reads the bare key here. ScanAnalysis applies the
+        # output_name prefix at consumption time.
+        slopes = compute_beam_slopes(phase_array)
+        laser_angle = np.arctan(slopes["image_com_slope_x"])
         laser_angle_deg = np.degrees(laser_angle)
         rotated_data = ndimage.rotate(
             phase_array, angle=laser_angle_deg, reshape=True, order=1

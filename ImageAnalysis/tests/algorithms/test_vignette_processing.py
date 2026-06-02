@@ -38,7 +38,6 @@ def test_pipeline_applies_vignette_step():
     """Pipeline runs the vignette step when VIGNETTE is in pipeline.steps."""
     image = np.full((3, 3), 10.0, dtype=float)
     camera_cfg = CameraConfig(
-        name="test_cam",
         vignette=VignetteConfig(
             method=VignetteMethod.RADIAL_POLYNOMIAL,
             full_width=3,

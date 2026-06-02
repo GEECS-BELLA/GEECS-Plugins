@@ -154,17 +154,11 @@ class TestCreateScanAnalyzer2D:
         assert analyzer.use_colon_scan_param is True
         assert analyzer.device_name == "UC_VisaEBeam1"
 
-    def test_extra_kwargs_flow_to_analyzer_constructor(self, fake_camera_config):
-        """Non-config kwargs on the diagnostic's ``image_analyzer`` reach the analyzer's __init__."""
-        diag = _diag(
-            name="UC_TestBeam",
-            image=fake_camera_config,
-            class_path=self._BEAM_PATH,
-            analyzer_kwargs={"metric_suffix": "_curtis"},
-            scan={"mode": "per_bin"},
-        )
-        analyzer = create_scan_analyzer(diag, use_injected_data=True)
-        assert analyzer.image_analyzer.metric_suffix == "_curtis"
+    # NOTE: arbitrary-kwarg forwarding via image_analyzer.kwargs used to be
+    # exercised here with metric_suffix on BeamAnalyzer. The metric_suffix
+    # kwarg was promoted to the diagnostic-config layer (#412); this
+    # mechanism is now exercised implicitly by analyzers that take real
+    # per-instance kwargs (e.g. HASOHimgHasProcessor's wavekit config path).
 
 
 # ---------------------------------------------------------------------------

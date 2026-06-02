@@ -47,17 +47,11 @@ class GrenouilleAnalyzer(StandardAnalyzer):
     def __init__(
         self,
         camera_config: CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the FROG analyzer with a validated camera config."""
-        # Initialize parent class
-        super().__init__(
-            camera_config=camera_config,
-            name_suffix=name_suffix,
-            metric_suffix=metric_suffix,
-        )
-
+        super().__init__(camera_config=camera_config, output_name=output_name)
         self.retrieval = FrogDllRetrieval.from_config()
 
         # Validate analysis config (if present) into a typed model
@@ -65,9 +59,7 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             self.camera_config.analysis or {}
         )
 
-        logger.info(
-            "Initialized GrenouilleAnalyzer with config '%s'", camera_config.name
-        )
+        logger.info("Initialized GrenouilleAnalyzer (output_name=%r)", self.output_name)
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None
@@ -109,12 +101,16 @@ class GrenouilleAnalyzer(StandardAnalyzer):
             noise_rad=self.analysis_config.noise_rad,
         )
 
+        # Bare scalar keys (#412 — PR #420 leftover fix). ScanAnalysis
+        # applies the output_name prefix at consumption time; emitting
+        # bare keys here makes the analyzer reusable standalone and
+        # avoids the double-prefix bug that existed in PR #420.
         scalar_results = {
-            f"{self.camera_name}_temporal_fwhm": result.temporal_fwhm,
-            f"{self.camera_name}_spectral_fwhm": result.spectral_fwhm,
-            f"{self.camera_name}_frog_error": result.frog_error,
-            f"{self.camera_name}_frog_iterations": result.num_iterations,
-            f"{self.camera_name}_tw_per_joule": result.tw_per_joule,
+            "temporal_fwhm": result.temporal_fwhm,
+            "spectral_fwhm": result.spectral_fwhm,
+            "frog_error": result.frog_error,
+            "frog_iterations": result.num_iterations,
+            "tw_per_joule": result.tw_per_joule,
         }
 
         # Pad shorter array with NaN to match lengths
@@ -181,9 +177,5 @@ class GrenouilleAnalyzer(StandardAnalyzer):
                 "horizontal_projection": processed_image.sum(axis=0),
                 "vertical_projection": processed_image.sum(axis=1),
             }
-
-        # Apply metric suffix to final scalars dict (no-op if empty or no suffix)
-        if getattr(result, "scalars", None):
-            result.scalars = self.apply_metric_suffix(result.scalars)
 
         return result

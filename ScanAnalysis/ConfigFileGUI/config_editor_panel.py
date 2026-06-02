@@ -67,6 +67,12 @@ class ConfigEditorPanel(QWidget):
     Dynamically creates :class:`SectionWidget` instances for each
     sub-config and a :class:`PipelineWidget` for step ordering.
 
+    Per #412 ``CameraConfig`` / ``Line1DConfig`` no longer carry a
+    ``name`` field — identity lives on the parent diagnostic and on
+    the analyzer instance. The form rendered by this panel reflects
+    that: the General Settings section contains description and
+    bit-depth / dtype fields only.
+
     Parameters
     ----------
     parent : QWidget, optional
@@ -286,14 +292,8 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/camera identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Camera/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # ``name`` is no longer a CameraConfig field (#412). Identity
+        # lives at the parent diagnostic and on the analyzer instance.
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")
@@ -415,14 +415,8 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/signal identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Signal/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # ``name`` is no longer a Line1DConfig field (#412). Identity
+        # lives at the parent diagnostic and on the analyzer instance.
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")

@@ -145,8 +145,8 @@ class TestScanFolderInvariant:
         stale = self._stale_image_file(tmp_path)
         assert not stale.parent.parent.exists(), "precondition: scan_dir missing"
 
-        # Bind the unbound method to a minimal stub: only ``camera_name`` is read.
-        fake_self = SimpleNamespace(camera_name="UC_TestCam")
+        # Bind the unbound method to a minimal stub: only ``output_name`` is read.
+        fake_self = SimpleNamespace(output_name="UC_TestCam")
 
         with pytest.raises(FileNotFoundError, match="not visible"):
             MagSpecManualCalibAnalyzer._save_calibrated_outputs(

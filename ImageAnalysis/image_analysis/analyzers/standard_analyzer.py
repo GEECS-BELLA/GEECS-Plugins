@@ -57,25 +57,42 @@ class StandardAnalyzer(ImageAnalyzer):
         Validated camera configuration model. Use
         ``image_analysis.config.loader.load_camera_config(name)`` to load
         from disk by name before constructing.
-    name_suffix : str, optional
-        Suffix to append to camera name for scalar result prefixes.
-        Useful for distinguishing multiple analysis passes on the same camera.
-        For example, use "_variation" to distinguish variation analysis results
-        from standard analysis results.
-    metric_suffix : str, optional
-        Suffix to append to all metric names (underscore is auto-prepended).
-        For example, "curtis" becomes "_curtis" in the output keys.
-        Useful for tracking different analysis variations while keeping the
-        same camera name. (e.g., "camera_x_rms_curtis").
+    output_name : str, optional
+        Output identifier for this analyzer instance — the string used
+        as the per-analyzer output directory name and (via the
+        ``output_name`` property) read by downstream consumers like
+        ``SingleDeviceScanAnalyzer`` for path construction.
+
+        The diagnostic factory passes ``diag.effective_output_name``
+        here so the analyzer's identifier matches the s-file column
+        prefix that ScanAnalysis applies. Defaults to ``None`` —
+        standalone notebook use doesn't need an identifier.
+
+        The analyzer itself **never uses this for scalar-key
+        formation**; it emits bare keys and ScanAnalysis namespaces
+        them at consumption time (#412).
     """
 
     def __init__(
         self,
         camera_config: cfg_2d.CameraConfig,
-        name_suffix: Optional[str] = None,
-        metric_suffix: Optional[str] = None,
+        *,
+        output_name: Optional[str] = None,
     ):
         """Initialize the standard analyzer with a validated camera config.
+
+        Scalar-key prefix/suffix used to live here (``name_suffix``,
+        ``metric_suffix``) but was promoted to ScanAnalysis per #412 —
+        all output-naming concerns now live on the diagnostic config
+        (``output_name`` / ``metric_suffix``) and are applied by
+        :class:`SingleDeviceScanAnalyzer` when storing per-shot
+        results. The analyzer emits bare scalar keys.
+
+        ``output_name`` is stored as analyzer state purely so
+        downstream consumers (output-dir construction in
+        ``SingleDeviceScanAnalyzer``; per-file paths in MagSpec) can
+        read a stable identifier off the analyzer instance. It is not
+        used internally for any per-shot computation.
 
         The string-by-name convenience that this constructor used to
         offer has moved to the loader layer — call
@@ -84,10 +101,8 @@ class StandardAnalyzer(ImageAnalyzer):
         ``CameraConfig`` first, then hand it here.
         """
         self.camera_config = camera_config
-        # Original config name preserved before any name_suffix mutation;
-        # used as scalar-dict key in analyze_image output.
-        self.camera_config_name = camera_config.name
-        logger.info("Using provided CameraConfig: %s", self.camera_config.name)
+        self._output_name: Optional[str] = output_name
+        logger.info("Using provided CameraConfig (output_name=%r)", self._output_name)
 
         # Path-keyed cache for ``apply_background``. Loaded backgrounds
         # are reused across analyze_image calls; the cache is rebuilt
@@ -96,14 +111,6 @@ class StandardAnalyzer(ImageAnalyzer):
 
         # Store analyzer state
         self.run_analyze_image_asynchronously = True
-
-        # Store metric suffix for use in analyze_image
-        self.metric_suffix = metric_suffix
-
-        # Apply name suffix if provided
-        if name_suffix:
-            self.camera_config.name = f"{self.camera_config.name}{name_suffix}"
-            logger.info(f"Camera name set to: {self.camera_config.name}")
 
         super().__init__()
 
@@ -136,11 +143,11 @@ class StandardAnalyzer(ImageAnalyzer):
 
     def _build_input_parameters(self) -> Dict[str, Any]:
         """Build the input parameters dictionary with camera configuration info."""
-        input_params = {
-            "camera_name": self.camera_config.name,
+        input_params: Dict[str, Any] = {
             "bit_depth": self.camera_config.bit_depth,
-            "config_name": self.camera_config_name,
         }
+        if self._output_name is not None:
+            input_params["output_name"] = self._output_name
 
         # Add ROI information if available
         if self.camera_config.roi:
@@ -157,28 +164,25 @@ class StandardAnalyzer(ImageAnalyzer):
         return input_params
 
     @property
-    def camera_name(self) -> str:
-        """Return the camera configuration name (includes any suffix like '_variation').
+    def output_name(self) -> Optional[str]:
+        """Return the output identifier configured for this analyzer instance.
 
-        This property is used by scan analyzers to create unique output directories
-        for different analysis variants of the same camera.
-
-        Returns
-        -------
-        str
-            The camera configuration name from the loaded config
+        This is the string used by scan analyzers to label per-analyzer
+        output directories, and by any analyzer that writes per-file
+        outputs (e.g. MagSpec's ``-interp/`` subdirectories). Set at
+        construction time from the diagnostic's
+        ``effective_output_name``. ``None`` in standalone notebook use
+        where no identifier was supplied.
         """
-        return self.camera_config.name
+        return self._output_name
 
     def get_camera_info(self) -> Dict[str, Any]:
         """Get comprehensive camera configuration information."""
-        return {
-            "name": self.camera_config.name,
+        info: Dict[str, Any] = {
             "description": self.camera_config.description,
             "bit_depth": self.camera_config.bit_depth,
             "processing_dtype": str(self.camera_config.processing_dtype),
             "storage_dtype": str(self.camera_config.storage_dtype),
-            "config_file": self.camera_config_name,
             "background_enabled": (
                 self.camera_config.background is not None
                 and any(
@@ -187,6 +191,9 @@ class StandardAnalyzer(ImageAnalyzer):
                 )
             ),
         }
+        if self._output_name is not None:
+            info["output_name"] = self._output_name
+        return info
 
     def set_camera_config(self, new_cfg: cfg_2d.CameraConfig) -> None:
         """Replace the entire camera configuration with a validated instance."""
@@ -196,7 +203,7 @@ class StandardAnalyzer(ImageAnalyzer):
             # Background source may have changed; drop the cache so the
             # next analyze_image reloads from the new file.
             self._bg_cache.clear()
-        logger.info("Replaced camera configuration: %s", self.camera_config.name)
+        logger.info("Replaced camera configuration (output_name=%r)", self._output_name)
 
     def update_config(
         self, **section_updates: Union[BaseModel, Dict[str, Any]]
@@ -262,13 +269,6 @@ class StandardAnalyzer(ImageAnalyzer):
                 self._bg_cache.clear()
 
             logger.info("Configuration updated: %s", list(section_updates.keys()))
-
-    def apply_metric_suffix(self, scalars: dict) -> dict:
-        """Return a new dict with the metric suffix appended to each scalar key."""
-        # no-op if no suffix configured or no scalars present
-        if not self.metric_suffix or not scalars:
-            return scalars or {}
-        return {f"{k}{self.metric_suffix}": v for k, v in scalars.items()}
 
     def analyze_image(
         self, image: np.ndarray, auxiliary_data: Optional[Dict] = None

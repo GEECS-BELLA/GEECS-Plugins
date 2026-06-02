@@ -90,6 +90,85 @@ def _init_image_analysis_config():
 
 
 # ---------------------------------------------------------------------------
+# Canonical scan registry — central source of truth for "what scan we test
+# against," so each integration test doesn't have to hardcode date/number
+# tuples and so any retired-or-relocated scan is updated in one place.
+# ---------------------------------------------------------------------------
+
+
+_CANONICAL_SCANS = {
+    # 2D beam analyzer / Array2DScanAnalyzer fixture
+    "undulator_2d": dict(year=2025, month=2, day=20, number=14, experiment="Undulator"),
+    # 1D ICT (TDMS scope) — Standard1DAnalyzer
+    "undulator_ict": dict(
+        year=2025, month=11, day=13, number=1, experiment="Undulator"
+    ),
+    # 1D MagSpec interpSpec (TSV text) — LineAnalyzer
+    "undulator_magspec": dict(
+        year=2025, month=11, day=18, number=2, experiment="Undulator"
+    ),
+}
+
+
+def _lookup_canonical(name: str) -> dict:
+    """Return registry kwargs for ``name`` or raise a helpful KeyError."""
+    try:
+        return _CANONICAL_SCANS[name]
+    except KeyError as exc:
+        raise KeyError(
+            f"Unknown canonical scan {name!r}. Registered: {sorted(_CANONICAL_SCANS)}"
+        ) from exc
+
+
+@pytest.fixture(scope="session")
+def canonical_scan(data_root):
+    """Factory: ``canonical_scan(name) -> ScanData`` for a registered scan.
+
+    Returns a fully constructed :class:`ScanData` (``append_paths=True``)
+    for tests that need the scan's data frame, columns, or paths. Use
+    :func:`canonical_scan_tag` instead when you only need a
+    :class:`ScanTag` to hand to ``scan_analyzer.run_analysis``.
+
+    Depends on ``data_root`` so the test is skipped when the data
+    drive isn't mounted.
+
+    Registered scans
+    ----------------
+    * ``"undulator_2d"`` — 2025-02-20 Scan 14 (UC_Amp4_IR_input).
+    * ``"undulator_ict"`` — 2025-11-13 Scan 1 (U_BCaveICT).
+    * ``"undulator_magspec"`` — 2025-11-18 Scan 2 (MagSpec interpSpec).
+
+    Add new canonical scans to ``_CANONICAL_SCANS`` so the registry
+    stays the single source of truth.
+    """
+    from geecs_data_utils.scan_data import ScanData
+
+    def _factory(name: str):
+        return ScanData.from_date(**_lookup_canonical(name), append_paths=True)
+
+    return _factory
+
+
+@pytest.fixture(scope="session")
+def canonical_scan_tag(data_root):
+    """Factory: ``canonical_scan_tag(name) -> ScanTag`` for a registered scan.
+
+    Lightweight sibling of :func:`canonical_scan` — returns just the
+    :class:`ScanTag` (no directory crawl, no DataFrame load) for tests
+    that pass the tag to ``scan_analyzer.run_analysis(scan_tag=...)``.
+
+    Same registry as :func:`canonical_scan`; see that fixture's
+    docstring for the registered scan names.
+    """
+    from geecs_data_utils import ScanTag
+
+    def _factory(name: str):
+        return ScanTag(**_lookup_canonical(name))
+
+    return _factory
+
+
+# ---------------------------------------------------------------------------
 # Hardware availability fixture (stub — populated in a future branch)
 # ---------------------------------------------------------------------------
 

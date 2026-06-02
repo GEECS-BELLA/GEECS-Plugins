@@ -77,12 +77,11 @@ class TestLoadDiagnostic:
         diag = load_diagnostic("UC_GaiaMode", config_dir=configs_tree)
         assert isinstance(diag, DiagnosticAnalysisConfig)
         assert diag.name == "UC_GaiaMode"
-        # image: is a typed CameraConfig at this layer — the top-level
-        # ``name`` is injected as the device identity for the embedded
-        # image section.
+        # image: is a typed CameraConfig at this layer. Per #412 it
+        # carries no ``name`` field — identity lives on the diagnostic
+        # and on the analyzer instance, not on the image config.
         assert isinstance(diag.image, CameraConfig)
         assert diag.image.bit_depth == 16
-        assert diag.image.name == "UC_GaiaMode"
         # scan: stays weakly typed at this layer (ScanAnalysis validates
         # it against its own ScanRuntimeConfig).
         assert diag.scan == {"priority": 100}
@@ -135,10 +134,11 @@ class TestCreateImageAnalyzer:
             image={"type": "camera", "bit_depth": 16},
         )
         analyzer = create_image_analyzer(diag)
-        # Sanity: the returned object is the right class, configured with
-        # a CameraConfig whose name is the diagnostic name.
+        # Sanity: the returned object is the right class, and its
+        # ``output_name`` was wired from the diagnostic's
+        # ``effective_output_name`` (= diag.name when no override).
         assert analyzer.__class__.__name__ == "BeamAnalyzer"
-        assert analyzer.camera_config.name == "UC_TestBeam"
+        assert analyzer.output_name == "UC_TestBeam"
 
     def test_line_analyzer_built_from_typed_image(self):
         # 1D analyzers are picked by ``type: line`` on the image section,
@@ -182,3 +182,83 @@ class TestCreateImageAnalyzer:
         )
         with pytest.raises(ImportError):
             create_image_analyzer(diag)
+
+
+# ---------------------------------------------------------------------------
+# output_name / metric_suffix fields (issue #412)
+# ---------------------------------------------------------------------------
+
+
+class TestOutputNameAndMetricSuffix:
+    """``DiagnosticAnalysisConfig`` exposes per-device output-naming controls.
+
+    Resolution rule: ``effective_output_name`` returns ``output_name``
+    when explicitly set; otherwise falls back to ``name``. This is the
+    field ScanAnalysis reads when prefixing scalars (and labelling
+    output directories) before storing per-shot results (issue #412 —
+    move output-naming out of ImageAnalysis).
+
+    ``metric_suffix`` is scalar-key-only (does not affect dir/file
+    names) and passes through verbatim.
+    """
+
+    def test_output_name_defaults_to_name(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.output_name is None
+        assert diag.effective_output_name == "UC_TopView"
+
+    def test_explicit_output_name_overrides_name(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            output_name="UC_TopView_left",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_output_name == "UC_TopView_left"
+
+    def test_metric_suffix_defaults_to_none(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.metric_suffix is None
+
+    def test_metric_suffix_passes_through(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            metric_suffix="_v1",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.metric_suffix == "_v1"
+
+    def test_empty_string_output_name_is_distinct_from_none(self):
+        """``output_name=""`` is an explicit choice for unprefixed output.
+
+        Resolution treats it as a real override (empty string), not as
+        "fall back to name". Edge case but worth pinning so callers
+        that want truly bare s-file columns can opt in.
+        """
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            output_name="",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_output_name == ""
+
+    def test_both_overrides_passed_through(self):
+        diag = DiagnosticAnalysisConfig(
+            name="UC_TopView",
+            output_name="UC_TopView_left",
+            metric_suffix="_v1",
+            image_analyzer=_BEAM_PATH,
+            image={"type": "camera", "bit_depth": 16},
+        )
+        assert diag.effective_output_name == "UC_TopView_left"
+        assert diag.metric_suffix == "_v1"
