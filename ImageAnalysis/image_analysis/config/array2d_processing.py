@@ -17,6 +17,7 @@ class BackgroundMethod(str, Enum):
 
     CONSTANT = "constant"
     FROM_FILE = "from_file"
+    EDGE = "edge"
 
 
 class BackgroundConfig(BaseModel):
@@ -45,6 +46,8 @@ class BackgroundConfig(BaseModel):
         Constant background level (for constant method, or fallback if file not found).
     additional_constant : float
         Additional constant to subtract AFTER primary background (default 0).
+    edge_width : int
+        Border width in pixels used by ``method="edge"``.
     """
 
     method: Optional[BackgroundMethod] = Field(
@@ -58,6 +61,9 @@ class BackgroundConfig(BaseModel):
     )
     additional_constant: float = Field(
         0.0, description="Additional constant offset applied after primary background"
+    )
+    edge_width: int = Field(
+        1, ge=1, description="Border width in pixels for edge background"
     )
 
     @model_validator(mode="after")

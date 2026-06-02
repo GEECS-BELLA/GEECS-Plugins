@@ -15,6 +15,7 @@ from image_analysis.config.array2d_processing import CameraConfig
 from scan_analysis.config.diagnostic_models import (
     AnalysisGroupConfig,
     AnalyzerRef,
+    AutodetectBackgroundSpec,
     BackgroundSource,
     FromCurrentScanSpec,
     ScanRuntimeConfig,
@@ -254,6 +255,13 @@ class TestBackgroundSource:
         src = BackgroundSource(from_current_scan={"method": "median"})
         assert src.scan_number is None
         assert src.from_current_scan.method == "median"
+        assert src.autodetect is None
+
+    def test_autodetect_only(self):
+        src = BackgroundSource(autodetect={})
+        assert src.scan_number is None
+        assert src.from_current_scan is None
+        assert isinstance(src.autodetect, AutodetectBackgroundSpec)
 
     def test_neither_set_rejected(self):
         with pytest.raises(ValidationError, match="must specify exactly one source"):
@@ -262,10 +270,14 @@ class TestBackgroundSource:
     def test_both_set_rejected(self):
         with pytest.raises(ValidationError, match="must specify exactly one source"):
             BackgroundSource(scan_number=5, from_current_scan={"method": "median"})
+        with pytest.raises(ValidationError, match="must specify exactly one source"):
+            BackgroundSource(scan_number=5, autodetect={})
 
     def test_extra_fields_rejected(self):
         with pytest.raises(ValidationError):
             BackgroundSource(scan_number=5, file_path="/x/y.npy")
+        with pytest.raises(ValidationError):
+            BackgroundSource(autodetect={"recursive": True})
 
     def test_scan_number_must_be_non_negative(self):
         with pytest.raises(ValidationError):
@@ -288,6 +300,13 @@ class TestScanRuntimeConfigBackgroundSource:
             background_source={"from_current_scan": {"method": "median"}}
         )
         assert cfg.background_source.from_current_scan.method == "median"
+
+    def test_accepts_autodetect_directive(self):
+        cfg = ScanRuntimeConfig(background_source={"autodetect": {}})
+        assert isinstance(
+            cfg.background_source.autodetect,
+            AutodetectBackgroundSpec,
+        )
 
     def test_invalid_directive_rejected_at_scan_level(self):
         with pytest.raises(ValidationError):

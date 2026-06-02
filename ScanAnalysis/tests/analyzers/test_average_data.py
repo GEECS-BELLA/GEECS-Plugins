@@ -8,7 +8,10 @@ counts per shot) rather than letting ``np.mean`` raise.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
+import pytest
 
 from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
@@ -35,3 +38,43 @@ def test_returns_none_for_inhomogeneous_shapes(caplog):
 
     assert result is None
     assert any("inhomogeneous" in record.message for record in caplog.records)
+
+
+def _autodetect_probe(tmp_path, device_name="CAM-1BL-M1", scan_number=7):
+    day_dir = tmp_path / "Y2026" / "05-May" / "26_0518"
+    scan_dir = day_dir / "scans" / f"Scan{scan_number:03d}"
+    analysis_dir = day_dir / "analysis"
+    scan_dir.mkdir(parents=True)
+    analysis_dir.mkdir()
+
+    analyzer = SimpleNamespace(
+        scan_tag=SimpleNamespace(number=scan_number),
+        scan_directory=scan_dir,
+        device_name=device_name,
+    )
+    return analyzer, analysis_dir
+
+
+def test_autodetect_background_matches_current_scan_device(tmp_path):
+    analyzer, analysis_dir = _autodetect_probe(tmp_path)
+    expected = analysis_dir / "Scan007CAM-1BL-M1_averaged.png"
+    expected.touch()
+    (analysis_dir / "Scan007CAM-1BL-M2_averaged.png").touch()
+    (analysis_dir / "Scan006CAM-1BL-M1_averaged.png").touch()
+
+    result = SingleDeviceScanAnalyzer._find_autodetected_background_path(analyzer)
+
+    assert result == expected
+
+
+def test_autodetect_background_requires_one_match(tmp_path):
+    analyzer, analysis_dir = _autodetect_probe(tmp_path)
+
+    with pytest.raises(FileNotFoundError, match="No autodetected background"):
+        SingleDeviceScanAnalyzer._find_autodetected_background_path(analyzer)
+
+    (analysis_dir / "Scan007CAM-1BL-M1_averaged.png").touch()
+    (analysis_dir / "Scan007CAM-1BL-M1_averaged.tif").touch()
+
+    with pytest.raises(ValueError, match="Multiple autodetected background"):
+        SingleDeviceScanAnalyzer._find_autodetected_background_path(analyzer)

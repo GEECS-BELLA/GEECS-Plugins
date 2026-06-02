@@ -215,3 +215,12 @@ class TestBackgroundSourceAttachment:
         assert analyzer.background_source.scan_number is None
         assert analyzer.background_source.from_current_scan.method == "percentile"
         assert analyzer.background_source.from_current_scan.percentile == 5
+
+    def test_autodetect_directive_attached(self):
+        analyzer = create_scan_analyzer(
+            _diag(scan={"background_source": {"autodetect": {}}})
+        )
+        assert analyzer.background_source is not None
+        assert analyzer.background_source.scan_number is None
+        assert analyzer.background_source.from_current_scan is None
+        assert analyzer.background_source.autodetect is not None

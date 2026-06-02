@@ -3,9 +3,12 @@
 import numpy as np
 import pytest
 
+from image_analysis.config.array2d_processing import BackgroundConfig
 from image_analysis.processing.array2d.background import (
+    _compute_edge_background_level,
     _compute_median_background,
     _compute_percentile_background,
+    apply_background,
     compute_and_cache_scan_background,
     subtract_background,
 )
@@ -38,6 +41,40 @@ class TestSubtractBackground:
         bg = np.ones((4, 4))
         with pytest.raises(ValueError):
             subtract_background(image, bg)
+
+
+class TestEdgeBackground:
+    """Tests for edge-derived scalar background subtraction."""
+
+    def test_edge_level_uses_border_pixels_only(self):
+        image = np.full((5, 5), 10.0)
+        image[1:-1, 1:-1] = 100.0
+
+        level = _compute_edge_background_level(image, edge_width=1)
+
+        assert level == 10.0
+
+    def test_apply_background_subtracts_edge_mean(self):
+        image = np.full((5, 5), 10.0)
+        image[2, 2] = 110.0
+        config = BackgroundConfig(method="edge")
+
+        result = apply_background(image, config)
+
+        assert np.allclose(result[0, :], 0.0)
+        assert result[2, 2] == 100.0
+
+    def test_edge_width_can_expand_border_region(self):
+        image = np.arange(25, dtype=float).reshape(5, 5)
+        config = BackgroundConfig(method="edge", edge_width=2)
+
+        result = apply_background(image, config)
+
+        assert np.isclose(result[2, 2], 0.0)
+
+    def test_edge_level_rejects_non_2d_input(self):
+        with pytest.raises(ValueError, match="Expected 2D image"):
+            _compute_edge_background_level(np.ones((2, 2, 2)), edge_width=1)
 
 
 class TestPercentileBackground:
