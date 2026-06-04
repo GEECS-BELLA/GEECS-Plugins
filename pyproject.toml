@@ -14,6 +14,13 @@ mkdocs-autorefs = "^1.4"
 mkdocs-git-revision-date-localized-plugin = "^1.2"  # "Last updated" footer per page
 nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
 tomli = "^2.2.1"
+# Pin griffe <2.0 until mkdocstrings + mkdocstrings-python both reach the
+# 2.x line that supports griffe 2.x. The currently-pinned mkdocstrings
+# (^0.28.2) pulls in mkdocstrings-python 1.16.x, which does
+# ``from griffe import Alias`` — gone in griffe 2.0, so the build dies
+# with ``ImportError: cannot import name 'Alias' from 'griffe'``.
+# Drop this pin when bumping mkdocstrings to ^0.29 / ^1.0 as a follow-up.
+griffe = "<2.0"
 
 [tool.poetry.group.dev.dependencies]
 geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }

@@ -135,10 +135,14 @@ analyzer = create_image_analyzer(diag)
 result = analyzer.analyze_image(my_image_array)
 
 # 2. From a programmatically-built CameraConfig
-from image_analysis.config import CameraConfig, BackgroundConfig
+from image_analysis.config import CameraConfig
 from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
-config = CameraConfig(name="my_cam", bit_depth=16)
+# CameraConfig has no ``name`` field after #412 — analyzer identity flows
+# through the diagnostic config's ``output_name`` (or the analyzer's
+# ``output_name=`` kwarg for direct construction). Standalone notebook
+# use leaves it unset; scalar keys come out bare.
+config = CameraConfig(bit_depth=16)
 analyzer = BeamAnalyzer(config)
 result = analyzer.analyze_image(my_image_array)
 

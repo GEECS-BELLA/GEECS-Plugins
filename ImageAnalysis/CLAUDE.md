@@ -112,13 +112,18 @@ from image_analysis.config import load_camera_config
 cfg = load_camera_config("UC_GaiaMode")  # finds UC_GaiaMode.yaml in configs repo
 ```
 
-`CameraConfig` fields (all processing sections are `Optional` — omit to skip):
+`CameraConfig` fields (all processing sections are `Optional` — omit to skip).
+Post-#412 the schema runs `extra="forbid"`: unknown keys are rejected at
+load time rather than silently allowed. `name` is gone — analyzer
+identity lives on the diagnostic (`output_name`); `camera_type` was
+deprecated and removed:
 
 ```python
 class CameraConfig(BaseModel):
-    name: str
+    type: Literal["camera"] = "camera"          # discriminator for the unified-diagnostic union
     description: Optional[str]
-    bit_depth: int = 16          # 8, 10, 12, 14, 16, 32
+    metadata: Optional[Dict[str, Any]]          # documentary only — location, notes, spatial_calibration, etc.
+    bit_depth: int = 16                         # 8, 10, 12, 14, 16, 32
 
     roi: Optional[ROIConfig]                    # x_min, x_max, y_min, y_max (pixels)
     background: Optional[BackgroundConfig]      # method, file_path, constant_level, additional_constant
@@ -148,9 +153,11 @@ from image_analysis.config import load_line_config
 cfg = load_line_config("U_BCaveICT")
 ```
 
+Same `extra="forbid"` policy and missing-`name` rationale as `CameraConfig`:
+
 ```python
 class Line1DConfig(BaseModel):
-    name: str
+    type: Literal["line"] = "line"  # discriminator for the unified-diagnostic union
     description: str
     data_loading: Data1DConfig      # data_type (tek_scope_hdf5, tdms_scope, csv, tsv, npy),
                                     # trace_index, x_column, y_column, delimiter
@@ -196,16 +203,25 @@ analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
 ```python
 analyzer = StandardAnalyzer(
     camera_config=cfg,       # typed CameraConfig (load via load_camera_config)
-    name_suffix=None,        # Appended to camera name
-    metric_suffix=None,      # Appended to all scalar metric keys
+    output_name=None,        # output identifier; defaults to None in Mode-1
+                             # (scalar keys are bare). Mode-2 factory passes
+                             # diag.effective_output_name automatically.
 )
 ```
+
+Post-#412 the analyzer emits **bare scalar keys** (`"x_CoM"`, `"image_total"`,
+…) regardless of `output_name`. ScanAnalysis is the sole layer that
+applies the `output_name` prefix and `metric_suffix` to scalars when it
+stores per-shot results. `output_name` is stored on the analyzer purely
+so downstream consumers (output-dir labelling in `SingleDeviceScanAnalyzer`;
+per-file paths in MagSpec) can read a stable identifier off the instance.
 
 Key methods:
 - `preprocess_image(image) -> np.ndarray` — applies full processing pipeline
 - `analyze_image(image, auxiliary_data) -> ImageAnalyzerResult` — data_type="2d"
 - `analyze_image_file(path, auxiliary_data)` — canonical scan-pipeline entry
 - `render_image(result, vmin, vmax, cmap, ...) -> (Figure, Axes)` — static method
+- `output_name` property — returns the configured output identifier (or `None`)
 
 ### `Standard1DAnalyzer` (1D foundation)
 
@@ -227,8 +243,11 @@ Adds beam-specific metrics (centroid, size, moments). Uses `analysis:` section o
 
 ### `LineAnalyzer(Standard1DAnalyzer)`
 
-Adds statistics: CoM, FWHM, RMS, peak analysis. Supports `metric_suffix` for
-distinguishing variants (e.g., "before_foil" vs "after_foil").
+Adds statistics: CoM, FWHM, RMS, peak analysis. Forwards `output_name` to
+the Standard1D parent like every other analyzer in the family. For
+"variant" use cases (e.g. before_foil vs after_foil) the diagnostic config
+declares `metric_suffix` at the diagnostic layer; ScanAnalysis applies it
+to all scalar keys.
 
 ### `ICT1DAnalyzer(Standard1DAnalyzer)`
 
@@ -281,8 +300,12 @@ Same pattern but inherit from `Standard1DAnalyzer`, take a typed
   defined in the analyzer class. Validated at `__init__` time, not at config-load time.
 - **Scale factors applied first** — `x_scale_factor` / `y_scale_factor` run before
   ROI, so ROI boundaries and thresholds should be specified in scaled units.
-- **`metric_suffix`** — Use when the same physical device has multiple analysis
-  variants in one scan (e.g., two ROI regions). Keeps scalar keys unique.
+- **Output naming lives at the diagnostic layer (#412)** — analyzers emit
+  **bare** scalar keys; `DiagnosticAnalysisConfig.output_name` and
+  `metric_suffix` (read by ScanAnalysis) namespace them on the way to disk
+  and in-memory consumers. See `ScanAnalysis/CLAUDE.md` for the full
+  contract and the override use cases (output_name=UC_TopView_left vs
+  output_name=UC_TopView_right for two variants of the same camera).
 - **Nx2 convention for 1D data** — Column 0 is always x (independent), column 1
   is always y (dependent). `read_1d_data()` enforces this.
 
