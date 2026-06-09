@@ -56,6 +56,8 @@ from typing import Any, Callable, Iterable
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 
+from geecs_bluesky.devices.scan_context import ScanContext
+
 
 def geecs_step_scan(
     motor: Any,
@@ -109,7 +111,8 @@ def geecs_step_scan(
       collected, not during motor moves.
     """
     _positions = list(positions)
-    _read_devices = list(detectors) + [motor]
+    scan_context = ScanContext()
+    _read_devices = list(detectors) + [motor, scan_context]
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
@@ -123,11 +126,18 @@ def geecs_step_scan(
 
     @bpp.run_decorator(md=_md)
     def _inner():
-        for pos in _positions:
+        scan_event_index = 0
+        for bin_number, pos in enumerate(_positions, start=1):
             yield from bps.mv(motor, pos)
             if arm_trigger is not None:
                 yield from arm_trigger()
-            for _shot in range(shots_per_step):
+            for shot_index_in_bin in range(1, shots_per_step + 1):
+                scan_event_index += 1
+                scan_context.set_context(
+                    bin_number=bin_number,
+                    shot_index_in_bin=shot_index_in_bin,
+                    scan_event_index=scan_event_index,
+                )
                 yield from bps.trigger_and_read(_read_devices)
             if disarm_trigger is not None:
                 yield from disarm_trigger()

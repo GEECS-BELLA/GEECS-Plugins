@@ -4,6 +4,23 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.5] - 2026-06-09
+
+### Added
+
+- **Plan-owned scan context** — step-scan and NOSCAN events now include
+  `bin_number`, `shot_index_in_bin`, and `scan_event_index` fields emitted by
+  the Bluesky plan at acquisition time.
+- **Asynchronous snapshot readables** — save devices with `synchronous: false`
+  are now read as snapshots in each shot event instead of being treated as
+  triggerable detectors.  They do not require `acq_timestamp` and do not emit
+  derived device shotnumbers.
+
+### Tests
+
+- Added step-scan fake-server coverage for scan-context columns and snapshot
+  readbacks recorded in the same events as triggered detector data.
+
 ## [0.3.4] - 2026-06-09
 
 ### Added

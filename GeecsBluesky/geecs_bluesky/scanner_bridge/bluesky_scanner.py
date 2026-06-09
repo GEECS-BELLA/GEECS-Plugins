@@ -50,6 +50,8 @@ from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
+from geecs_bluesky.devices.scan_context import ScanContext
+from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
@@ -583,9 +585,11 @@ class BlueskyScanner:
         for device_name, dev_cfg in self._devices_config.items():
             if isinstance(dev_cfg, dict):
                 variable_list = dev_cfg.get("variable_list", [])
+                synchronous = bool(dev_cfg.get("synchronous", False))
                 save_nonscalar = bool(dev_cfg.get("save_nonscalar_data", False))
             else:
                 variable_list = getattr(dev_cfg, "variable_list", [])
+                synchronous = bool(getattr(dev_cfg, "synchronous", False))
                 save_nonscalar = bool(getattr(dev_cfg, "save_nonscalar_data", False))
 
             if not variable_list:
@@ -593,17 +597,31 @@ class BlueskyScanner:
                 continue
             ophyd_name = safe_name(device_name)
             try:
-                det = GeecsGenericDetector.from_db(
-                    device_name,
-                    list(variable_list),
-                    name=ophyd_name,
-                    save_nonscalar_data=save_nonscalar,
-                )
-                self._connect_device(det)
-                det.configure_shot_numbering(self._rep_rate_hz)
+                if synchronous:
+                    det = GeecsGenericDetector.from_db(
+                        device_name,
+                        list(variable_list),
+                        name=ophyd_name,
+                        save_nonscalar_data=save_nonscalar,
+                    )
+                    self._connect_device(det)
+                    det.configure_shot_numbering(self._rep_rate_hz)
+                else:
+                    if save_nonscalar:
+                        logger.warning(
+                            "Ignoring save_nonscalar_data for asynchronous "
+                            "snapshot device %s",
+                            device_name,
+                        )
+                    det = GeecsSnapshotReadable.from_db(
+                        device_name,
+                        list(variable_list),
+                        name=ophyd_name,
+                    )
+                    self._connect_device(det)
                 with self._device_lock:
                     self._detectors.append(det)
-                    if save_nonscalar and scan_folder is not None:
+                    if synchronous and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
                         det.configure_nonscalar_file_logging(save_path)
                         self._saving_detectors.append((det, save_path))
@@ -748,10 +766,17 @@ class BlueskyScanner:
 
         @bpp.run_decorator(md=md)
         def _noscan_plan():
+            scan_context = ScanContext()
             if arm is not None:
                 yield from arm()
-            for _ in range(n_shots):
-                yield from bps.trigger_and_read(self._detectors)
+            read_devices = list(self._detectors) + [scan_context]
+            for shot_index_in_bin in range(1, n_shots + 1):
+                scan_context.set_context(
+                    bin_number=1,
+                    shot_index_in_bin=shot_index_in_bin,
+                    scan_event_index=shot_index_in_bin,
+                )
+                yield from bps.trigger_and_read(read_devices)
             if disarm is not None:
                 yield from disarm()
 

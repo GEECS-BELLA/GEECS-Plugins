@@ -14,6 +14,7 @@ from bluesky.protocols import Movable, Triggerable
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
+from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.devices.camera import GeecsCameraBase
 from geecs_bluesky.plans.step_scan import geecs_step_scan
@@ -304,6 +305,13 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
         name="scan_cam",
         filepath_variable="SavedFile",
     )
+    async_snapshot = GeecsSnapshotReadable(
+        "U_Combined",
+        ["Position (mm)"],
+        host,
+        port,
+        name="async_snapshot",
+    )
 
     events: list[dict] = []
     RE = RunEngine()
@@ -312,13 +320,16 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     # Connect in RE's loop (blocks until both connects complete)
     asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
     asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+    asyncio.run_coroutine_threadsafe(async_snapshot.connect(), RE._loop).result(
+        timeout=10
+    )
 
     # Run the step scan
     RE(
         geecs_step_scan(
             motor=motor,
             positions=[0.0, 1.0],
-            detectors=[cam],
+            detectors=[cam, async_snapshot],
             shots_per_step=2,
             md={"test": True},
         )
@@ -329,6 +340,14 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     for ev in events:
         assert "scan_cam-filepath" in ev["data"]
         assert "scan_motor-position" in ev["data"]
+        assert "async_snapshot-position__mm" in ev["data"]
+        assert "bin_number" in ev["data"]
+        assert "shot_index_in_bin" in ev["data"]
+        assert "scan_event_index" in ev["data"]
+
+    assert [ev["data"]["bin_number"] for ev in events] == [1, 1, 2, 2]
+    assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 1, 2]
+    assert [ev["data"]["scan_event_index"] for ev in events] == [1, 2, 3, 4]
 
 
 async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
