@@ -578,8 +578,6 @@ class BlueskyScanner:
         devices with ``save_nonscalar_data=True``) in place.  Devices that
         fail to resolve or connect are logged and skipped.
         """
-        from geecs_bluesky.db.geecs_db import GeecsDb
-
         for device_name, dev_cfg in self._devices_config.items():
             if isinstance(dev_cfg, dict):
                 variable_list = dev_cfg.get("variable_list", [])
@@ -590,18 +588,6 @@ class BlueskyScanner:
 
             if not variable_list:
                 logger.debug("Skipping %s: empty variable_list", device_name)
-                continue
-            variable_list = self._filter_available_variables(
-                device_name,
-                list(variable_list),
-                GeecsDb,
-            )
-            if not variable_list:
-                logger.warning(
-                    "Skipping %s: none of the configured save variables are "
-                    "available in the GEECS database",
-                    device_name,
-                )
                 continue
             ophyd_name = safe_name(device_name)
             try:
@@ -631,36 +617,6 @@ class BlueskyScanner:
                     device_name,
                     exc_info=True,
                 )
-
-    @staticmethod
-    def _filter_available_variables(
-        device_name: str,
-        variable_list: list[str],
-        geecs_db: Any,
-    ) -> list[str]:
-        """Drop configured variables that are not listed in the GEECS DB."""
-        try:
-            available = {
-                entry["name"] for entry in geecs_db.get_device_variables(device_name)
-            }
-        except Exception:
-            logger.warning(
-                "Could not validate save variables for %s against the GEECS DB; "
-                "using configured variable list",
-                device_name,
-                exc_info=True,
-            )
-            return variable_list
-
-        valid = [var for var in variable_list if var in available]
-        missing = [var for var in variable_list if var not in available]
-        if missing:
-            logger.warning(
-                "Ignoring unavailable save variables for %s: %s",
-                device_name,
-                missing,
-            )
-        return valid
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move motor through positions, collect shots at each step."""

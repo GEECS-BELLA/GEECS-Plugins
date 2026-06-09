@@ -12,10 +12,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   callback, exposes `current_state`, and emits lifecycle transitions for
   initializing, running, completed, and aborted scans.  This lets the Scanner GUI
   re-enable its controls when a Bluesky-backed scan finishes.
-- **Save-variable validation** — detector variable lists are checked against the
-  GEECS database before Bluesky detector creation.  Unavailable configured
-  variables are logged and skipped so stale save-device YAML entries do not
-  cascade into RunEngine tracebacks.
 
 ## [0.3.2] - 2026-06-09
 
