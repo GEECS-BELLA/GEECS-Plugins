@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.4] - 2026-06-09
+
+### Added
+
+- **Physical shotnumber metadata** — `GeecsGenericDetector` can now derive a
+  device-prefixed integer `shotnumber` from the detector's own
+  `acq_timestamp`, the first scan-read `t0_acq_timestamp`, and the configured
+  scan repetition rate.  This lets missed device triggers appear as shotnumber
+  jumps instead of being hidden by the Bluesky event counter.
+
+### Tests
+
+- Added fake-server coverage showing that a two-period `acq_timestamp` jump
+  produces a `shotnumber` jump from 1 to 3 across two detector events.
+
 ## [0.3.3] - 2026-06-09
 
 ### Changed

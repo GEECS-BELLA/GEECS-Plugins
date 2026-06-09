@@ -374,3 +374,55 @@ async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
             assert reading["scan_cam-acq_timestamp"]["value"] == pytest.approx(
                 combined_device.variables["acq_timestamp"]
             )
+
+
+async def test_generic_detector_derives_physical_shotnumber_from_acq_timestamp(
+    combined_device: FakeGeecsDevice,
+) -> None:
+    """Shotnumber follows device acq_timestamp jumps, not event count."""
+    combined_device.variables.update({"Signal": 1.0})
+    async with FakeGeecsServer(combined_device) as srv:
+        det = GeecsGenericDetector(
+            "U_Combined",
+            ["Signal"],
+            srv.host,
+            srv.port,
+            name="scan_cam",
+        )
+        await det.connect()
+        det.configure_shot_numbering(rep_rate_hz=1.0)
+
+        desc = await det.describe()
+        assert desc["scan_cam-acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-t0_acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-shotnumber"]["dtype"] == "integer"
+
+        async def fire_one_period() -> None:
+            await asyncio.sleep(0.05)
+            combined_device.fire_shot()
+
+        asyncio.create_task(fire_one_period())
+        await asyncio.wait_for(det.trigger(), timeout=2.0)
+        first_reading = await det.read()
+
+        first_acq_timestamp = combined_device.variables["acq_timestamp"]
+        assert first_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
+            first_acq_timestamp
+        )
+        assert first_reading["scan_cam-shotnumber"]["value"] == 1
+        assert isinstance(first_reading["scan_cam-shotnumber"]["value"], int)
+
+        async def fire_after_missed_period() -> None:
+            await asyncio.sleep(0.05)
+            combined_device.variables["acq_timestamp"] = (
+                float(combined_device.variables["acq_timestamp"]) + 2.0
+            )
+
+        asyncio.create_task(fire_after_missed_period())
+        await asyncio.wait_for(det.trigger(), timeout=2.0)
+        second_reading = await det.read()
+
+        assert second_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
+            first_acq_timestamp
+        )
+        assert second_reading["scan_cam-shotnumber"]["value"] == 3

@@ -203,6 +203,7 @@ class BlueskyScanner:
 
         self._scan_thread: threading.Thread | None = None
         self._scan_config: Any = None
+        self._rep_rate_hz: float = 1.0
         self._shots_per_step: int = 10
         self._devices_config: dict[str, Any] = {}
 
@@ -252,8 +253,9 @@ class BlueskyScanner:
 
         # Derive shots from rep_rate × wait_time (ScanOptions has no shots_per_step field)
         rep_rate = getattr(exec_config.options, "rep_rate_hz", 1.0)
+        self._rep_rate_hz = float(rep_rate or 1.0)
         wait_time = getattr(self._scan_config, "wait_time", 10.0)
-        self._shots_per_step = max(1, round(rep_rate * wait_time))
+        self._shots_per_step = max(1, round(self._rep_rate_hz * wait_time))
 
         # Build a plain-dict device map compatible with _build_detectors
         save_config = exec_config.save_config
@@ -598,6 +600,7 @@ class BlueskyScanner:
                     save_nonscalar_data=save_nonscalar,
                 )
                 self._connect_device(det)
+                det.configure_shot_numbering(self._rep_rate_hz)
                 with self._device_lock:
                     self._detectors.append(det)
                     if save_nonscalar and scan_folder is not None:
