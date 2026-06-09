@@ -39,7 +39,7 @@ import logging
 import os
 import queue
 import threading
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from bluesky import RunEngine
@@ -60,6 +60,17 @@ try:
     from geecs_data_utils import ScanConfig as _ScanConfig  # noqa: F401
 except Exception:
     _ScanConfig = None  # type: ignore[assignment,misc]
+
+try:
+    from geecs_scanner.engine.scan_events import (
+        ScanEvent,
+        ScanLifecycleEvent,
+        ScanState,
+    )
+except Exception:
+    ScanEvent = Any  # type: ignore[misc,assignment]
+    ScanLifecycleEvent = None  # type: ignore[assignment]
+    ScanState = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +177,7 @@ class BlueskyScanner:
         shot_control_information: dict | None = None,
         tiled_uri: str | None = None,
         tiled_api_key: str | None = None,
+        on_event: Callable[[ScanEvent], None] | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
         # context_managers=[] disables SIGINT handling, which fails when the
@@ -178,6 +190,10 @@ class BlueskyScanner:
             queue.Queue()
         )  # always empty; RE uses bps.pause()
         self.restore_failures: list = []  # no legacy device restore needed
+        self.last_reinit_error: str | None = None
+        self._on_event = on_event
+        self._current_state = self._scan_state("IDLE")
+        self._abort_requested = False
 
         self._tiled_token: int | None = None
         if tiled_uri is None:
@@ -262,6 +278,11 @@ class BlueskyScanner:
         )
         return True
 
+    @property
+    def current_state(self):
+        """Current scan lifecycle state for GUI compatibility."""
+        return self._current_state
+
     def start_scan_thread(self) -> None:
         """Launch the scan stored by :meth:`reinitialize` in a background thread."""
         if self.is_scanning_active():
@@ -271,6 +292,7 @@ class BlueskyScanner:
             return
 
         self._completed_shots = 0
+        self._abort_requested = False
         self._scan_thread = threading.Thread(
             target=self._run_scan,
             args=(self._scan_config,),
@@ -283,6 +305,8 @@ class BlueskyScanner:
     def stop_scanning_thread(self) -> None:
         """Abort the running scan and wait for the thread to finish."""
         logger.info("BlueskyScanner: abort requested")
+        self._abort_requested = True
+        self._set_state("STOPPING")
         try:
             self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
@@ -376,6 +400,24 @@ class BlueskyScanner:
     def _on_document(self, name: str, doc: dict) -> None:
         if name == "event":
             self._completed_shots += 1
+
+    @staticmethod
+    def _scan_state(state_name: str):
+        """Return a ScanState enum member when geecs_scanner is importable."""
+        if ScanState is None:
+            return state_name.lower()
+        return getattr(ScanState, state_name)
+
+    def _set_state(self, state_name: str, total_shots: int = 0) -> None:
+        """Update lifecycle state and emit a GUI scan lifecycle event if possible."""
+        state = self._scan_state(state_name)
+        self._current_state = state
+        if self._on_event is None or ScanLifecycleEvent is None:
+            return
+        try:
+            self._on_event(ScanLifecycleEvent(state=state, total_shots=total_shots))
+        except Exception:
+            logger.debug("on_event callback raised; ignoring", exc_info=True)
 
     def _connect_device(self, device) -> None:
         """Connect an ophyd-async device in the RE's persistent event loop."""
@@ -476,6 +518,7 @@ class BlueskyScanner:
 
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
+        failed = False
         try:
             mode = scan_config.scan_mode
             # Support both ScanMode enum and plain strings
@@ -491,9 +534,14 @@ class BlueskyScanner:
                     "BlueskyScanner: scan mode %r not yet supported; skipping", mode_val
                 )
         except Exception:
+            failed = True
             logger.exception("BlueskyScanner scan thread raised an exception")
         finally:
             self._disconnect_devices_sync()
+            if self._abort_requested or failed:
+                self._set_state("ABORTED")
+            else:
+                self._set_state("DONE")
             logger.info("BlueskyScanner: scan thread finished")
 
     def _claim_scan_number(self) -> tuple[int | None, str | None]:
@@ -530,6 +578,8 @@ class BlueskyScanner:
         devices with ``save_nonscalar_data=True``) in place.  Devices that
         fail to resolve or connect are logged and skipped.
         """
+        from geecs_bluesky.db.geecs_db import GeecsDb
+
         for device_name, dev_cfg in self._devices_config.items():
             if isinstance(dev_cfg, dict):
                 variable_list = dev_cfg.get("variable_list", [])
@@ -540,6 +590,18 @@ class BlueskyScanner:
 
             if not variable_list:
                 logger.debug("Skipping %s: empty variable_list", device_name)
+                continue
+            variable_list = self._filter_available_variables(
+                device_name,
+                list(variable_list),
+                GeecsDb,
+            )
+            if not variable_list:
+                logger.warning(
+                    "Skipping %s: none of the configured save variables are "
+                    "available in the GEECS database",
+                    device_name,
+                )
                 continue
             ophyd_name = safe_name(device_name)
             try:
@@ -569,6 +631,36 @@ class BlueskyScanner:
                     device_name,
                     exc_info=True,
                 )
+
+    @staticmethod
+    def _filter_available_variables(
+        device_name: str,
+        variable_list: list[str],
+        geecs_db: Any,
+    ) -> list[str]:
+        """Drop configured variables that are not listed in the GEECS DB."""
+        try:
+            available = {
+                entry["name"] for entry in geecs_db.get_device_variables(device_name)
+            }
+        except Exception:
+            logger.warning(
+                "Could not validate save variables for %s against the GEECS DB; "
+                "using configured variable list",
+                device_name,
+                exc_info=True,
+            )
+            return variable_list
+
+        valid = [var for var in variable_list if var in available]
+        missing = [var for var in variable_list if var not in available]
+        if missing:
+            logger.warning(
+                "Ignoring unavailable save variables for %s: %s",
+                device_name,
+                missing,
+            )
+        return valid
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move motor through positions, collect shots at each step."""
@@ -605,6 +697,7 @@ class BlueskyScanner:
         n_steps = len(positions)
         n_shots = n_steps * self._shots_per_step
         self._total_shots = n_shots
+        self._set_state("INITIALIZING", total_shots=n_shots)
 
         logger.info(
             "Step scan: %d steps × %d shots/step = %d total events",
@@ -651,6 +744,7 @@ class BlueskyScanner:
         # Outer finalize ensures disarm even on mid-step abort
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
+        self._set_state("RUNNING")
         self._RE(plan)
 
     def _run_noscan(self, scan_config: Any) -> None:
@@ -661,6 +755,7 @@ class BlueskyScanner:
 
         n_shots = self._shots_per_step
         self._total_shots = n_shots
+        self._set_state("INITIALIZING", total_shots=n_shots)
 
         if not self._detectors:
             logger.info(
@@ -707,4 +802,5 @@ class BlueskyScanner:
         )
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
+        self._set_state("RUNNING")
         self._RE(plan)

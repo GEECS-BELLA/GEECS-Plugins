@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.1] — 2026-06-09
+
+### Changed
+- Bluesky-mode `RunControl` now passes the GUI scan-event callback and timing
+  YAML into `BlueskyScanner`, allowing the GUI to receive lifecycle completion
+  events and letting Bluesky scans use the same shot-control configuration.
+- The Scanner GUI path dependency now requests the `geecs-bluesky[tiled]` extra,
+  so Tiled client support is installed with the GUI environment.
+
 ## [0.28.0] — 2026-06-01
 
 Companion to ImageAnalysis 1.8.0 + ScanAnalysis 1.12.0 (issue #412 —

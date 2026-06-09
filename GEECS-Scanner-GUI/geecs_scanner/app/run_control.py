@@ -47,7 +47,14 @@ class RunControl:
         if use_bluesky:
             from geecs_bluesky.scanner_bridge import BlueskyScanner
 
-            self.scan_manager = BlueskyScanner(experiment_dir=experiment_name)
+            settings = None
+            if shot_control_configuration is not None:
+                settings = read_yaml_file_to_dict(shot_control_configuration)
+            self.scan_manager = BlueskyScanner(
+                experiment_dir=experiment_name,
+                shot_control_information=settings,
+                on_event=on_event,
+            )
             self.action_control = None
             logging.info("RunControl: using Bluesky backend (BlueskyScanner)")
             return
