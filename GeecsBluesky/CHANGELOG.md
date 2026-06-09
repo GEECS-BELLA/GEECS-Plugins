@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.2] - 2026-06-09
+
+### Fixed
+
+- **Windows MySQL connector crash** — GEECS database lookups now force
+  `mysql-connector-python` to use its pure-Python implementation
+  (`use_pure=True`), matching the legacy API layer.  The connector's C extension
+  has crashed silently on lab Windows machines with 9.x.
+
+### Tests
+
+- Added a DB lookup regression test that verifies `use_pure=True` is passed to
+  `mysql.connector.connect()`.
+
 ## [0.3.1] - 2026-06-08
 
 ### Added
