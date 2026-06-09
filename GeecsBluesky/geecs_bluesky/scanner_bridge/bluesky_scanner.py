@@ -584,13 +584,16 @@ class BlueskyScanner:
         """
         for device_name, dev_cfg in self._devices_config.items():
             if isinstance(dev_cfg, dict):
-                variable_list = dev_cfg.get("variable_list", [])
+                variable_list = list(dev_cfg.get("variable_list") or [])
                 synchronous = bool(dev_cfg.get("synchronous", False))
                 save_nonscalar = bool(dev_cfg.get("save_nonscalar_data", False))
             else:
-                variable_list = getattr(dev_cfg, "variable_list", [])
+                variable_list = list(getattr(dev_cfg, "variable_list", []) or [])
                 synchronous = bool(getattr(dev_cfg, "synchronous", False))
                 save_nonscalar = bool(getattr(dev_cfg, "save_nonscalar_data", False))
+
+            if synchronous and "acq_timestamp" not in variable_list:
+                variable_list.append("acq_timestamp")
 
             if not variable_list:
                 logger.debug("Skipping %s: empty variable_list", device_name)
@@ -600,7 +603,7 @@ class BlueskyScanner:
                 if synchronous:
                     det = GeecsGenericDetector.from_db(
                         device_name,
-                        list(variable_list),
+                        variable_list,
                         name=ophyd_name,
                         save_nonscalar_data=save_nonscalar,
                     )
@@ -615,7 +618,7 @@ class BlueskyScanner:
                         )
                     det = GeecsSnapshotReadable.from_db(
                         device_name,
-                        list(variable_list),
+                        variable_list,
                         name=ophyd_name,
                     )
                     self._connect_device(det)

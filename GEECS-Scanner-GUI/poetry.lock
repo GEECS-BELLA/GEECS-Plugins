@@ -1060,7 +1060,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.3.3"
+version = "0.3.6"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"

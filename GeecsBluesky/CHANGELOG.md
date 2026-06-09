@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.6] - 2026-06-09
+
+### Fixed
+
+- **Synchronous save devices with empty variable lists** — `BlueskyScanner`
+  now mirrors the legacy scanner by adding `acq_timestamp` for synchronous
+  save devices before deciding whether the device has variables to read.  This
+  lets non-scalar cameras save files even when no scalar variables are selected
+  in the save-element editor.
+
 ## [0.3.5] - 2026-06-09
 
 ### Added

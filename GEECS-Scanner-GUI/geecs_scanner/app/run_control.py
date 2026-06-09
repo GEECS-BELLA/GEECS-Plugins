@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from geecs_scanner.app.lib.action_control import ActionControl
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
+from geecs_scanner.engine import DatabaseDictLookup
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.scan_events import ScanEvent
 from geecs_scanner.engine.scan_manager import ScanManager, get_database_dict
@@ -44,6 +45,10 @@ class RunControl:
             Callback invoked for every :class:`~geecs_scanner.engine.scan_events.ScanEvent`.
             Pass ``pyqtSignal.emit`` to route events onto the Qt main thread.
         """
+        self.experiment_name = experiment_name
+        self._use_bluesky = use_bluesky
+        self._database_lookup = DatabaseDictLookup()
+
         if use_bluesky:
             from geecs_bluesky.scanner_bridge import BlueskyScanner
 
@@ -81,6 +86,13 @@ class RunControl:
         """Return the dictionary of the entire database stored in Scan Manager."""
         if self.scan_manager is None:
             return {}
+        if self._use_bluesky:
+            try:
+                self._database_lookup.reload(experiment_name=self.experiment_name)
+                return self._database_lookup.get_database()
+            except Exception as exc:
+                logging.warning("Error retrieving database dictionary: %s", exc)
+                return {}
         else:
             return get_database_dict()
 

@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.2] — 2026-06-09
+
+### Fixed
+- Bluesky-mode `RunControl.get_database_dict()` now loads the experiment device
+  dictionary directly, so save-element editors can populate variable completers
+  without relying on the legacy `ScanManager` database cache.
+
 ## [0.28.1] — 2026-06-09
 
 ### Changed
