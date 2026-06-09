@@ -12,6 +12,7 @@ import pytest
 from bluesky import RunEngine
 from bluesky.protocols import Movable, Triggerable
 
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.devices.camera import GeecsCameraBase
@@ -328,3 +329,48 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     for ev in events:
         assert "scan_cam-filepath" in ev["data"]
         assert "scan_motor-position" in ev["data"]
+
+
+async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
+    tmp_path, combined_device: FakeGeecsDevice
+) -> None:
+    """Non-scalar detectors emit scanner save path and device acq_timestamp."""
+    combined_device.variables.update(
+        {
+            "Signal": 1.0,
+            "localsavingpath": "",
+            "save": "off",
+        }
+    )
+    async with FakeGeecsServer(combined_device) as srv:
+        save_path = tmp_path / "Scan047" / "U_Combined"
+        det = GeecsGenericDetector(
+            "U_Combined",
+            ["Signal"],
+            srv.host,
+            srv.port,
+            name="scan_cam",
+            save_nonscalar_data=True,
+        )
+        det.configure_nonscalar_file_logging(save_path)
+        await det.connect()
+
+        desc = await det.describe()
+        assert desc["scan_cam-acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-nonscalar_save_path"]["dtype"] == "string"
+
+        for _index in range(2):
+
+            async def fire() -> None:
+                await asyncio.sleep(0.05)
+                combined_device.fire_shot()
+
+            asyncio.create_task(fire())
+            await asyncio.wait_for(det.trigger(), timeout=2.0)
+            reading = await det.read()
+
+            assert reading["scan_cam-nonscalar_save_path"]["value"] == str(save_path)
+            assert "scan_cam-acq_timestamp" in reading
+            assert reading["scan_cam-acq_timestamp"]["value"] == pytest.approx(
+                combined_device.variables["acq_timestamp"]
+            )

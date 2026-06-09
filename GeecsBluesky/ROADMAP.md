@@ -1,9 +1,14 @@
 # GeecsBluesky — Roadmap
 
-Current status (2026-05-08): MVP complete and hardware-verified.
+Current status (2026-06-08): MVP complete and hardware-verified, but not yet
+integrated with the current production scanner surface on `master`.
 `BlueskyScanner` runs STANDARD and NOSCAN scans end-to-end against real lab
-hardware with per-step DG645 shot control and Tiled data persistence.
-All unit tests pass without hardware; hardware integration test passes all checks.
+hardware with per-step DG645 shot control when constructed directly with
+`shot_control_information`, and persists Bluesky documents to Tiled.  The
+`GEECS-Scanner-GUI` codebase has moved on since this package landed: it now has
+typed scan events, a `DeviceCommandExecutor`, a refactored file finalization
+path, and unified optimizer evaluators.  Treat the notes below as the current
+bridge work needed after fast-forwarding this worktree to `origin/master`.
 
 ---
 
@@ -34,6 +39,11 @@ All unit tests pass without hardware; hardware integration test passes all check
 - [x] **Per-device image saving** — `_scan_with_saving` plan wrapper sets
       `localsavingpath` and `save="on"` concurrently before scan; finalise
       wrapper sets `save="off"` even on abort.
+- [x] **Non-scalar save-path event metadata** — `save_nonscalar_data=True`
+      detectors emit per-event device `acq_timestamp` and configured save
+      directory. `BlueskyScanner` also includes per-device save paths in
+      run-start metadata.  File names remain hardware-native; downstream readers
+      should join by `acq_timestamp` rather than a synthetic shot counter.
 - [x] **Tiled integration** — `TiledWriter` subscribed to RunEngine on init;
       reads URI + API key from `~/.config/geecs_python_api/config.ini`; skips
       silently if server is unreachable.
@@ -59,9 +69,14 @@ legacy `ScanManager`.  `BlueskyScanner` writes to Tiled only.
 
 Options:
 - **Tiled reader for ScanAnalysis** — add a Tiled-backed data source alongside
-  the existing file reader; cold-turkey cutover deferred.
+  the existing file reader.  This now needs to respect the post-#412 analyzer
+  contract: ImageAnalysis emits bare scalar keys, ScanAnalysis owns
+  prefix/suffix naming, and analysis code must never create missing scan
+  folders.
 - **BlueskyScanner also writes s-files** — transitional shim; buys time for
-  ScanAnalysis migration; acknowledged as unpleasant.
+  ScanAnalysis migration.  If chosen, it must match the current scanner output
+  convention (`ScanDataScan{NNN}.txt`, `ScanInfoScan{NNN}.ini`, per-device file
+  folders under `scans/Scan{NNN}/`).
 - **Accept cold-turkey** — new scans from Bluesky path only queryable via Tiled;
   old analysis tools stop working for new data until ported.
 
@@ -70,14 +85,25 @@ No decision yet.  Defer until BlueskyScanner is actually the production path.
 ### GUI / RunControl integration
 
 `RunControl` has `use_bluesky=True` flag but `shot_control_information` is not
-yet threaded through — BlueskyScanner gets no shot control in GUI mode.
-Deferred until the parallel GUI/RunControl refactor lands in master.
+yet threaded through — BlueskyScanner gets no shot control in GUI mode.  The
+current Bluesky branch also ignores the `on_event` callback in Bluesky mode, so
+the scanner GUI's newer typed event stream does not yet apply to
+`BlueskyScanner`.
+
+The legacy scanner refactor has now landed in `master`; this is no longer
+blocked on a parallel worktree.  The next implementation pass should update
+`RunControl(use_bluesky=True)` to pass the timing YAML and decide whether
+Bluesky documents should be translated into `ScanEvent` callbacks for GUI and
+headless consumers.
 
 ### Optimization scans
 
-Bluesky + Xopt may naturally handle what `base_optimizer.py` does today.  The
-existing optimization execution could become deprecated rather than ported.
-Requires a deeper dive.
+The scanner optimizer surface changed significantly after this package landed.
+`MultiDeviceScanEvaluator` and `ScalarLogEvaluator` were folded into the unified
+`BaseEvaluator`, which now consumes diagnostic analyzers and direct s-file
+scalar columns through one hook surface.  Bluesky + Xopt may still be the right
+long-term shape, but any port should start from the current `BaseEvaluator` /
+`BaseOptimizer` contract rather than the older evaluator split.
 
 ---
 
@@ -86,15 +112,21 @@ Requires a deeper dive.
 Small, well-scoped items that don't require strategic decisions:
 
 - **Background scan mode** — BACKGROUND adds a flag to scan metadata; trivial
-  addition as a third branch in `_run_scan`.
+  addition as a third branch in `_run_scan`.  The GUI and `ScanMode` enum already
+  expose `background`, but `BlueskyScanner._run_scan()` still supports only
+  `standard` and `noscan`.
 - **Scan number error visibility** — `_claim_scan_number` should log `ERROR`
-  (not silently return `None`) when the scan folder cannot be created.
+  when the scan folder cannot be created.  It currently logs `WARNING` and
+  returns `(None, None)`.
 - **Pre/post-scan actions** — action sequences (set variable, wait, check
-  condition) are not yet supported; straightforward once the action model is
-  understood.
-- **Windows install verification** — `poetry install` in `GeecsBluesky/` has
-  not been verified on Windows; `mysql-connector-python` platform behaviour
-  worth checking before lab deployment.
+  condition) are not yet supported.  `SaveDeviceConfig` carries `setup_action`
+  and `closeout_action`, and the legacy scanner executes them through
+  `ActionManager` / `DeviceCommandExecutor`; Bluesky currently drops them.
+- **Event stream bridge** — decide whether Bluesky start/event/stop documents
+  should be surfaced directly, translated into `ScanEvent`, or both.
+- **Windows install verification** — `poetry install` in `GeecsBluesky/` should
+  be rechecked on Windows after the monorepo-wide Python 3.11 and
+  `mysql-connector-python` updates.
 
 ---
 

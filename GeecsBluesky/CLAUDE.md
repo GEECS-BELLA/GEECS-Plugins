@@ -2,8 +2,10 @@
 
 Bridges the GEECS hardware control system to the
 [Bluesky](https://blueskyproject.io/) experiment orchestration ecosystem.
-The primary product is `BlueskyScanner` — a drop-in replacement for
-`ScanManager` that routes all scan execution through a Bluesky `RunEngine`.
+The primary product is `BlueskyScanner` — a RunEngine-backed scan executor
+designed to become a `ScanManager` replacement.  It is hardware-verified for
+direct STANDARD/NOSCAN usage, but the current `GEECS-Scanner-GUI` integration is
+still partial.
 
 ## Why This Exists
 
@@ -61,9 +63,12 @@ scanner.estimate_current_completion()  # → 0.0–1.0
 scanner.stop_scanning_thread()      # RE.abort() + thread join
 ```
 
-`RunControl` in `GEECS-Scanner-GUI` switches between `ScanManager` and
-`BlueskyScanner` via a `use_bluesky=True` flag.  The API surface is intentionally
-identical so no GUI code changes are needed.
+`RunControl` in `GEECS-Scanner-GUI` can switch between `ScanManager` and
+`BlueskyScanner` via a `use_bluesky=True` flag.  That path currently constructs
+`BlueskyScanner(experiment_dir=...)` only; it does not pass the timing YAML as
+`shot_control_information`, does not create `ActionControl`, and does not wire
+the scanner `on_event` callback into Bluesky mode.  Direct construction with
+`shot_control_information=...` remains the verified path for DG645 arm/disarm.
 
 ### exec_config duck-typing
 
@@ -76,6 +81,9 @@ identical so no GUI code changes are needed.
 
 In production this is `ScanExecutionConfig`.  In the hardware integration test it
 is a `SimpleNamespace` to avoid cross-package imports.
+
+`SaveDeviceConfig.setup_action` and `SaveDeviceConfig.closeout_action` exist in
+the current scanner model, but `BlueskyScanner` does not execute them yet.
 
 ### shots_per_step derivation
 
@@ -148,7 +156,10 @@ it tracks the timestamp value, not a shot counter.
 Dynamically creates one signal per variable in `variable_list`.  Optional
 `save_nonscalar_data=True` adds `localsavingpath` and `save` signals; the
 `_scan_with_saving` plan wrapper sets these before the scan and clears them in
-a finalise wrapper.
+a finalise wrapper.  `BlueskyScanner` also configures derived event fields for
+non-scalar detectors: `<det>-acq_timestamp` and `<det>-nonscalar_save_path`.
+File names remain hardware-native; notebooks and future s-file exporters should
+join files to events by device `acq_timestamp`, not by a synthetic shot counter.
 
 ## Transport Layer
 
@@ -210,10 +221,20 @@ api_key = <key>
 
 - `shot_control_information` is not yet threaded through `RunControl` when
   `use_bluesky=True` — BlueskyScanner gets no shot control in GUI mode.
-  Deferred until the GUI/RunControl refactor in the parallel worktree lands.
+  The GUI/RunControl refactor has landed in `master`; this is now ready to wire.
+- `RunControl(use_bluesky=True)` ignores the `on_event` callback.  Decide whether
+  Bluesky documents should be exposed directly, translated to
+  `geecs_scanner.engine.scan_events.ScanEvent`, or both.
 - Scalar s-files / TDMS output not produced — Bluesky writes to Tiled only.
   `ScanAnalysis` still reads s-files; data pipeline transition is an open question.
-- Optimization and Background scan modes not implemented.
-- Pre/post-scan action sequences not implemented.
-- `_claim_scan_number()` logs an error and returns `None` silently if
-  `geecs_data_utils` is unavailable or the NetApp is not mounted.
+- Optimization and Background scan modes not implemented.  For optimization,
+  start from the current unified `BaseEvaluator` / `BaseOptimizer` surface in
+  `GEECS-Scanner-GUI`, not the removed `MultiDeviceScanEvaluator` /
+  `ScalarLogEvaluator` split.
+- Pre/post-scan action sequences not implemented.  The legacy scanner now
+  executes these through `ActionManager` / `DeviceCommandExecutor`; Bluesky drops
+  `setup_action` and `closeout_action`.
+- `_claim_scan_number()` logs a warning and returns `(None, None)` if
+  `geecs_data_utils` is unavailable or the NetApp is not mounted.  Scanner-side
+  folder creation is allowed, but analysis-side code must still never create
+  missing `scans/ScanNNN/` folders.

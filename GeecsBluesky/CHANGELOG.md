@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] - 2026-06-08
+
+### Added
+
+- **Non-scalar save-path event metadata** — `GeecsGenericDetector` now emits
+  derived per-event fields for non-scalar devices: device `acq_timestamp` and
+  the configured save directory.  `BlueskyScanner` configures these fields when
+  it assigns `localsavingpath` for `save_nonscalar_data=True` detectors, and
+  includes the per-device save paths in run-start metadata.  File names remain
+  hardware-native; downstream readers should join files to events by device
+  `acq_timestamp`, not by a synthetic shot counter.
+
+### Tests
+
+- Added offline `FakeGeecsServer` coverage for non-scalar save-path metadata.
+
 ## [0.3.0] - 2026-05-08
 
 ### Added

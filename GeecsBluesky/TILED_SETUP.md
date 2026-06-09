@@ -9,7 +9,7 @@ from any Python session on the network without touching the raw data files.
 
 ---
 
-## Infrastructure State (as of 2026-05-08)
+## Infrastructure State (last hardware-verified 2026-05-08)
 
 ### DB Server — `192.168.6.14`
 
@@ -42,6 +42,7 @@ api_key = <stable key>
 - Run start/stop metadata written to catalog ✓
 - Event documents (motor positions, detector scalars, timestamps) written ✓
 - Scan number, scan folder, device list in run start metadata ✓
+- Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
 - Hardware integration test (`test_bluesky_scanner.py`) passes all 6 checks ✓
@@ -53,6 +54,9 @@ api_key = <stable key>
   transition is an open strategic question (see `ROADMAP.md`).
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to use
   the legacy file-based path.
+- **GUI path still partial** — `RunControl(use_bluesky=True)` does not yet pass
+  shot-control YAML, setup/closeout actions, or the scanner `ScanEvent` callback
+  into `BlueskyScanner`.
 
 ---
 

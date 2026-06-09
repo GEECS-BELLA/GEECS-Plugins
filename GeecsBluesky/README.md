@@ -12,6 +12,19 @@ GEECS devices speak a custom UDP/TCP protocol.  This package provides:
 - `GeecsMotor` — settable motor device for any GEECS axis
 - `FakeGeecsServer` — in-process fake device server for offline testing
 
+## Current status
+
+`BlueskyScanner` is hardware-verified for direct STANDARD and NOSCAN scans, with
+Tiled persistence and DG645 shot control when constructed directly with
+`shot_control_information`.  For devices configured with
+`save_nonscalar_data=True`, each event includes the detector `acq_timestamp`,
+and the configured save directory; file names remain hardware-native and should
+be joined by `acq_timestamp`.  The `GEECS-Scanner-GUI` `use_bluesky=True` path
+is still incomplete: it does not yet pass shot-control YAML, execute
+setup/closeout actions, emit the scanner `ScanEvent` stream, support
+background/optimization modes, or produce legacy s-file/TDMS outputs.  See
+`ROADMAP.md` for the current bridge work.
+
 ## Requirements
 
 - Python 3.11 (ophyd-async ≥ 0.16 requires ≥ 3.11; geecs-pythonapi requires < 3.12)

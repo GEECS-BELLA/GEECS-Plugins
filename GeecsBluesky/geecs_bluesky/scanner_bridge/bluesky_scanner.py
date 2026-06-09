@@ -198,6 +198,7 @@ class BlueskyScanner:
         self._detectors: list = []
         # Subset of detectors that save per-shot files: list of (detector, path)
         self._saving_detectors: list[tuple] = []
+        self._nonscalar_save_paths: dict[str, str] = {}
 
         # Shot control — parsed from shot_control_information YAML
         self._shot_control_device_name: str | None = None
@@ -249,6 +250,7 @@ class BlueskyScanner:
         self._completed_shots = 0
         self._total_shots = 0
         self._saving_detectors = []
+        self._nonscalar_save_paths = {}
 
         # Disconnect any leftover devices from a previous scan
         self._disconnect_devices_sync()
@@ -552,7 +554,9 @@ class BlueskyScanner:
                     self._detectors.append(det)
                     if save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
+                        det.configure_nonscalar_file_logging(save_path)
                         self._saving_detectors.append((det, save_path))
+                        self._nonscalar_save_paths[device_name] = save_path
                 logger.info(
                     "Detector ready: %s (%d variables, save_nonscalar=%s)",
                     device_name,
@@ -623,6 +627,8 @@ class BlueskyScanner:
             md["scan_number"] = scan_number
         if scan_folder is not None:
             md["scan_folder"] = scan_folder
+        if self._nonscalar_save_paths:
+            md["nonscalar_save_paths"] = dict(self._nonscalar_save_paths)
         if scan_config.additional_description:
             md["description"] = scan_config.additional_description
 
@@ -680,6 +686,8 @@ class BlueskyScanner:
             md["scan_number"] = scan_number
         if scan_folder is not None:
             md["scan_folder"] = scan_folder
+        if self._nonscalar_save_paths:
+            md["nonscalar_save_paths"] = dict(self._nonscalar_save_paths)
         self._build_shot_controller()
         arm = self._arm_trigger if self._shot_control_setters else None
         disarm = self._disarm_trigger if self._shot_control_setters else None
