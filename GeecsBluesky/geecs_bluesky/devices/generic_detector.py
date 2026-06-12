@@ -33,6 +33,7 @@ from bluesky.protocols import Reading
 from event_model import DataKey
 
 from geecs_bluesky.devices.geecs_device import GeecsDevice
+from geecs_bluesky.devices.shot_id import ShotIdTracker
 from geecs_bluesky.devices.triggerable import GeecsTriggerable
 from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -90,8 +91,7 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
         self._geecs_device_name = device_name
         self._save_nonscalar_data = save_nonscalar_data
         self._nonscalar_save_path: Path | None = None
-        self._shot_number_rep_rate_hz: float | None = None
-        self._shot_number_t0_acq_timestamp: float | None = None
+        self._shot_id_tracker: ShotIdTracker | None = None
 
         if save_nonscalar_data:
             # Writable controls — not readable signals, so outside add_children_as_readables
@@ -139,65 +139,74 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
         """
         self._nonscalar_save_path = Path(save_path)
 
-    def configure_shot_numbering(
+    def configure_shot_id(
         self,
         rep_rate_hz: float,
         t0_acq_timestamp: float | None = None,
-    ) -> float | None:
-        """Configure physical shot-number derivation from device timestamps.
+    ) -> None:
+        """Enable shot-ID derivation and the sync-device companion columns.
 
         Parameters
         ----------
         rep_rate_hz:
-            Free-running external trigger repetition rate in Hz.
+            Free-running external trigger repetition rate in Hz.  Invalid
+            values disable shot IDs (with a warning) rather than raising, so
+            a misconfigured scan still collects data.
         t0_acq_timestamp:
-            Optional device acquisition timestamp for physical shot 1.  When
-            omitted, the first scan-read ``acq_timestamp`` is captured as
-            ``t0``.
-
-        Returns
-        -------
-        float or None
-            The captured device ``t0`` timestamp, or ``None`` if unavailable.
+            Optional device acquisition timestamp for physical shot 1.
+            Normally seeded later by the coordinated t0-sync stage
+            (:func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync`); when never
+            seeded, the first scan-read ``acq_timestamp`` self-seeds (strict
+            mode), at the cost of cross-device comparability.
         """
         if rep_rate_hz <= 0:
             logger.warning(
-                "Shot numbering disabled for %s: invalid rep_rate_hz=%s",
+                "Shot IDs disabled for %s: invalid rep_rate_hz=%s",
                 self.name,
                 rep_rate_hz,
             )
-            self._shot_number_rep_rate_hz = None
-            self._shot_number_t0_acq_timestamp = None
-            return None
-
-        self._shot_number_rep_rate_hz = float(rep_rate_hz)
-        self._shot_number_t0_acq_timestamp = t0_acq_timestamp
+            self._shot_id_tracker = None
+            return
+        self._shot_id_tracker = ShotIdTracker(rep_rate_hz)
         if t0_acq_timestamp is not None:
-            logger.info(
-                "Shot numbering configured for %s: t0=%s, rep_rate_hz=%s",
-                self.name,
-                t0_acq_timestamp,
-                rep_rate_hz,
+            self._shot_id_tracker.seed(t0_acq_timestamp)
+        logger.info(
+            "Shot IDs configured for %s: rep_rate_hz=%s, t0=%s",
+            self.name,
+            rep_rate_hz,
+            t0_acq_timestamp if t0_acq_timestamp is not None else "(deferred)",
+        )
+
+    def seed_shot_id(self, t0_acq_timestamp: float) -> None:
+        """Define ``t0_acq_timestamp`` as this device's physical shot 1.
+
+        Called by the coordinated t0-sync stage.  Requires
+        :meth:`configure_shot_id` first.
+        """
+        if self._shot_id_tracker is None:
+            raise RuntimeError(
+                f"{self.name}: configure_shot_id() must be called before seed_shot_id()"
             )
-        else:
-            logger.info(
-                "Shot numbering configured for %s: t0 will be captured on "
-                "the first scan read, rep_rate_hz=%s",
-                self.name,
-                rep_rate_hz,
-            )
-        return t0_acq_timestamp
+        self._shot_id_tracker.seed(t0_acq_timestamp)
 
     @property
-    def shot_number_t0_acq_timestamp(self) -> float | None:
-        """Device acquisition timestamp used as physical shot 1."""
-        return self._shot_number_t0_acq_timestamp
+    def shot_id_tracker(self) -> ShotIdTracker | None:
+        """Shot-ID tracker, or ``None`` when shot IDs are not configured."""
+        return self._shot_id_tracker
+
+    @property
+    def last_acq_timestamp(self) -> float | None:
+        """Most recent ``acq_timestamp`` from the TCP cache, if any."""
+        cache = getattr(self, "_shot_cache", None)
+        if cache is None:
+            return None
+        return self._coerce_timestamp(cache.get(self._acq_timestamp_variable))
 
     async def describe(self) -> dict[str, DataKey]:
-        """Describe hardware signals plus derived non-scalar file metadata."""
+        """Describe hardware signals plus derived sync-device companion columns."""
         desc = await super().describe()
-        has_shot_numbering = self._shot_number_rep_rate_hz is not None
-        if not self._save_nonscalar_data and not has_shot_numbering:
+        has_shot_ids = self._shot_id_tracker is not None
+        if not self._save_nonscalar_data and not has_shot_ids:
             return desc
 
         prefix = self.name
@@ -206,15 +215,26 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
             "dtype": "number",
             "shape": [],
         }
-        if has_shot_numbering:
+        if has_shot_ids:
             desc[f"{prefix}-t0_acq_timestamp"] = {
                 "source": f"derived://{prefix}/t0_acq_timestamp",
                 "dtype": "number",
                 "shape": [],
             }
-            desc[f"{prefix}-shotnumber"] = {
-                "source": f"derived://{prefix}/shotnumber",
-                "dtype": "integer",
+            # dtype "number", not "integer": the missing case is NaN
+            desc[f"{prefix}-shot_id"] = {
+                "source": f"derived://{prefix}/shot_id",
+                "dtype": "number",
+                "shape": [],
+            }
+            desc[f"{prefix}-shot_offset"] = {
+                "source": f"derived://{prefix}/shot_offset",
+                "dtype": "number",
+                "shape": [],
+            }
+            desc[f"{prefix}-valid"] = {
+                "source": f"derived://{prefix}/valid",
+                "dtype": "boolean",
                 "shape": [],
             }
         if self._save_nonscalar_data:
@@ -226,10 +246,17 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
         return desc
 
     async def read(self) -> dict[str, Reading]:
-        """Read hardware signals plus derived non-scalar file metadata."""
+        """Read hardware signals plus derived sync-device companion columns.
+
+        Every column listed by :meth:`describe` is emitted on every read
+        (stable keys); unavailable values are NaN with ``valid=False``.
+        This device is always its own row anchor — it is read only after its
+        own awaited trigger — so a derivable shot ID means ``shot_offset=0``
+        and ``valid=True``.
+        """
         reading = await super().read()
-        has_shot_numbering = self._shot_number_rep_rate_hz is not None
-        if not self._save_nonscalar_data and not has_shot_numbering:
+        tracker = self._shot_id_tracker
+        if not self._save_nonscalar_data and tracker is None:
             return reading
 
         prefix = self.name
@@ -237,30 +264,31 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
             (item["timestamp"] for item in reading.values()),
             time.monotonic(),
         )
-        acq_timestamp = self._coerce_timestamp(
-            self._shot_cache.get(self._acq_timestamp_variable)
-        )
-        if acq_timestamp is not None:
-            if has_shot_numbering and self._shot_number_t0_acq_timestamp is None:
-                self._shot_number_t0_acq_timestamp = acq_timestamp
-            reading[f"{prefix}-acq_timestamp"] = Reading(
-                value=acq_timestamp,
+        acq_timestamp = self.last_acq_timestamp
+
+        def _emit(suffix: str, value: Any) -> None:
+            reading[f"{prefix}-{suffix}"] = Reading(
+                value=value,
                 timestamp=event_timestamp,
                 alarm_severity=0,
             )
-            if self._shot_number_t0_acq_timestamp is not None:
-                reading[f"{prefix}-t0_acq_timestamp"] = Reading(
-                    value=self._shot_number_t0_acq_timestamp,
-                    timestamp=event_timestamp,
-                    alarm_severity=0,
-                )
-            shotnumber = self._derive_shotnumber(acq_timestamp)
-            if shotnumber is not None:
-                reading[f"{prefix}-shotnumber"] = Reading(
-                    value=shotnumber,
-                    timestamp=event_timestamp,
-                    alarm_severity=0,
-                )
+
+        _emit(
+            "acq_timestamp",
+            acq_timestamp if acq_timestamp is not None else float("nan"),
+        )
+        if tracker is not None:
+            if not tracker.is_seeded and acq_timestamp is not None:
+                # Strict-mode self-seeding: first awaited shot becomes shot 1
+                tracker.seed(acq_timestamp)
+            shot_id = (
+                tracker.update(acq_timestamp) if acq_timestamp is not None else None
+            )
+            t0 = tracker.t0_acq_timestamp
+            _emit("t0_acq_timestamp", t0 if t0 is not None else float("nan"))
+            _emit("shot_id", shot_id if shot_id is not None else float("nan"))
+            _emit("shot_offset", 0 if shot_id is not None else float("nan"))
+            _emit("valid", shot_id is not None)
 
         if self._save_nonscalar_data:
             save_path = (
@@ -284,30 +312,3 @@ class GeecsGenericDetector(GeecsTriggerable, GeecsDevice):
             return float(value)
         except (TypeError, ValueError):
             return None
-
-    def _derive_shotnumber(self, acq_timestamp: float) -> int | None:
-        """Compute physical trigger shot number from the device timestamp."""
-        if (
-            self._shot_number_rep_rate_hz is None
-            or self._shot_number_t0_acq_timestamp is None
-        ):
-            return None
-        shotnumber = (
-            int(
-                round(
-                    (acq_timestamp - self._shot_number_t0_acq_timestamp)
-                    * self._shot_number_rep_rate_hz
-                )
-            )
-            + 1
-        )
-        if shotnumber < 1:
-            logger.warning(
-                "Computed shotnumber < 1 for %s: acq_timestamp=%s, t0=%s, "
-                "rep_rate_hz=%s",
-                self.name,
-                acq_timestamp,
-                self._shot_number_t0_acq_timestamp,
-                self._shot_number_rep_rate_hz,
-            )
-        return shotnumber

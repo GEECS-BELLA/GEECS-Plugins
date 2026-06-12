@@ -4,6 +4,36 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-06-12
+
+### Added
+
+- **`ShotIdTracker`** (`devices/shot_id.py`) — incremental per-device shot-ID
+  derivation from `acq_timestamp` history.  IDs advance by
+  `round(Δt × rep_rate)` per event, so rep-rate mismatch never accumulates
+  (the absolute `(ts − t0) × rep_rate` method misquantizes after ~30 min at
+  1 Hz with a 0.05% rate error).  Repeated timestamps (device timeouts) are
+  idempotent; cross-device matching is shot-ID equality.
+- **Coordinated t0 sync plan stage** (`plans/t0_sync.py`) —
+  `geecs_t0_sync(devices)` seeds every sync device's tracker from one
+  physical trigger: with the shot control disarmed, cached `acq_timestamp`
+  values within the acceptance window (default 0.2 s) are the same shot.
+  Retries while frames propagate; raises `GeecsT0SyncError` rather than ever
+  proceeding unseeded.
+- **Sync-device companion columns** — `GeecsGenericDetector` now emits
+  `<dev>-shot_id`, `<dev>-shot_offset`, and `<dev>-valid` alongside
+  `<dev>-acq_timestamp` on every read (event schema contract v1 — see
+  `Planning/acquisition_modes/01_event_schema_contract.md`).  Keys are
+  stable: unavailable values are NaN / `False`, never omitted.
+
+### Changed
+
+- **`configure_shot_numbering()` → `configure_shot_id()`**, and the derived
+  `<dev>-shotnumber` column (dtype integer, absolute derivation) is replaced
+  by `<dev>-shot_id` (dtype number, incremental derivation).  Shot IDs are
+  matching machinery and diagnostics, not a file-join key — files still join
+  to events by device `acq_timestamp`.
+
 ## [0.3.6] - 2026-06-09
 
 ### Fixed

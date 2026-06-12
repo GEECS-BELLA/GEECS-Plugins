@@ -608,7 +608,7 @@ class BlueskyScanner:
                         save_nonscalar_data=save_nonscalar,
                     )
                     self._connect_device(det)
-                    det.configure_shot_numbering(self._rep_rate_hz)
+                    det.configure_shot_id(self._rep_rate_hz)
                 else:
                     if save_nonscalar:
                         logger.warning(

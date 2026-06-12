@@ -395,10 +395,10 @@ async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
             )
 
 
-async def test_generic_detector_derives_physical_shotnumber_from_acq_timestamp(
+async def test_generic_detector_derives_shot_id_from_acq_timestamp(
     combined_device: FakeGeecsDevice,
 ) -> None:
-    """Shotnumber follows device acq_timestamp jumps, not event count."""
+    """Shot ID follows device acq_timestamp jumps, not event count."""
     combined_device.variables.update({"Signal": 1.0})
     async with FakeGeecsServer(combined_device) as srv:
         det = GeecsGenericDetector(
@@ -409,12 +409,14 @@ async def test_generic_detector_derives_physical_shotnumber_from_acq_timestamp(
             name="scan_cam",
         )
         await det.connect()
-        det.configure_shot_numbering(rep_rate_hz=1.0)
+        det.configure_shot_id(rep_rate_hz=1.0)
 
         desc = await det.describe()
         assert desc["scan_cam-acq_timestamp"]["dtype"] == "number"
         assert desc["scan_cam-t0_acq_timestamp"]["dtype"] == "number"
-        assert desc["scan_cam-shotnumber"]["dtype"] == "integer"
+        assert desc["scan_cam-shot_id"]["dtype"] == "number"
+        assert desc["scan_cam-shot_offset"]["dtype"] == "number"
+        assert desc["scan_cam-valid"]["dtype"] == "boolean"
 
         async def fire_one_period() -> None:
             await asyncio.sleep(0.05)
@@ -428,8 +430,9 @@ async def test_generic_detector_derives_physical_shotnumber_from_acq_timestamp(
         assert first_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
             first_acq_timestamp
         )
-        assert first_reading["scan_cam-shotnumber"]["value"] == 1
-        assert isinstance(first_reading["scan_cam-shotnumber"]["value"], int)
+        assert first_reading["scan_cam-shot_id"]["value"] == 1
+        assert first_reading["scan_cam-shot_offset"]["value"] == 0
+        assert first_reading["scan_cam-valid"]["value"] is True
 
         async def fire_after_missed_period() -> None:
             await asyncio.sleep(0.05)
@@ -444,4 +447,5 @@ async def test_generic_detector_derives_physical_shotnumber_from_acq_timestamp(
         assert second_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
             first_acq_timestamp
         )
-        assert second_reading["scan_cam-shotnumber"]["value"] == 3
+        assert second_reading["scan_cam-shot_id"]["value"] == 3
+        assert second_reading["scan_cam-valid"]["value"] is True
