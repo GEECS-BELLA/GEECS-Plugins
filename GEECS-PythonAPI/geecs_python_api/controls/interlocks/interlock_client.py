@@ -2,12 +2,20 @@
 TCP Client for monitoring interlock flag status
 Connects to the interlock server and displays real-time status (for debugging, mostly)
 """
+
 import socket
 import time
 import struct
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+SERVER_IP = os.getenv("SERVER_IP")
+SERVER_PORT = int(os.getenv("SERVER_PORT"))
 
 
-def run_interlock_client(host="192.168.14.14", port=5001):
+def run_interlock_client(host=SERVER_IP, port=SERVER_PORT):
     """Connect to interlock server and display status"""
     print(f"Connecting to interlock server at {host}:{port}...")
 
@@ -18,7 +26,7 @@ def run_interlock_client(host="192.168.14.14", port=5001):
             print("=" * 80)
             while True:
                 # First read the 4-byte length prefix
-                length_data = b''
+                length_data = b""
                 while len(length_data) < 4:
                     chunk = client.recv(4 - len(length_data))
                     if not chunk:
@@ -27,19 +35,20 @@ def run_interlock_client(host="192.168.14.14", port=5001):
                     length_data += chunk
 
                 # unpacl the length
-                message_length = struct.unpack('>I', length_data)[0]
+                message_length = struct.unpack(">I", length_data)[0]
                 # print(f"DEBUG: Expecting {message_length} bytes")
 
                 # Safety check for unreasonable message sizes
                 if message_length > 10000:  # 10KB should be plenty for status messages
                     print(
-                        f"ERROR: Message length {message_length} is unreasonably large!")
+                        f"ERROR: Message length {message_length} is unreasonably large!"
+                    )
                     print("This likely means server and client are out of sync.")
                     print("Please restart both server and client.")
                     return
 
                 # Now read exactly message_length bytes
-                message_data = b''
+                message_data = b""
                 while len(message_data) < message_length:
                     chunk = client.recv(message_length - len(message_data))
                     if not chunk:
@@ -50,7 +59,7 @@ def run_interlock_client(host="192.168.14.14", port=5001):
                 # print(f"DEBUG: Received {len(message_data)} bytes: {message_data}")
 
                 # decode and display the message
-                status_line = message_data.decode('utf-8').strip()
+                status_line = message_data.decode("utf-8").strip()
                 timestamp = time.strftime("%H:%M:%S")
 
                 # Parse multi-device status
