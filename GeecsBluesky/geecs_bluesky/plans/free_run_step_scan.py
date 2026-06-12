@@ -58,7 +58,10 @@ def geecs_free_run_step_scan(
     Parameters
     ----------
     motor:
-        A Movable device, as in :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`.
+        Any Movable/settable device — a stage axis, power supply, pressure
+        controller, etc. (anything with ``set() → status``, e.g. built on
+        :class:`~geecs_bluesky.devices.settable.GeecsSettable`).  The name
+        follows the bluesky ``scan(detectors, motor, ...)`` convention.
     positions:
         Iterable of motor positions to visit.
     reference:

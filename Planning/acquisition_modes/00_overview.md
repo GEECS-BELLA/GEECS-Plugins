@@ -61,10 +61,19 @@ new information.
    is optional polish to raise the offset-0 fraction. An end-of-scan **flush
    read** captures lagging devices' final shot.
 
-8. **Reference device = fastest reliable short-exposure camera** for now. The
-   DG645 does not emit TCP events per output trigger; adding that to the
-   LabVIEW device driver is a nice-to-have, not blocking. Nothing in the
-   design depends on the reference being special — it is only the pacemaker.
+8. **Reference device = first synchronous device in the save list, picked
+   automatically.** No YAML field; the scanner classifies the first sync
+   device as the Triggerable pacemaker and the rest as timestamped
+   contributors, recording the choice in run metadata (`reference_device`).
+   Nothing in the design depends on the reference being special — it is
+   only the row gate, needed because Bluesky events are immutable once
+   saved (the legacy "first device to report creates the row, others
+   back-fill" scheme requires mutable rows). Known consequence: a shot the
+   reference misses produces no row (recoverable via offsets/flush). If a
+   flaky reference ever bites, the upgrade path is an any-of gate (row when
+   *any* sync device's shot ID advances) — same schema, deferred until
+   needed. The DG645 does not emit TCP events per output trigger; adding
+   that to the LabVIEW driver is a nice-to-have, not blocking.
 
 9. **Per-shot plan stubs are the unit of reuse.** The contract is enforced by
    device classes + stubs, not by BlueskyScanner or the GUI. Custom notebook

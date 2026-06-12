@@ -75,8 +75,12 @@ def geecs_step_scan(
     Parameters
     ----------
     motor:
-        A :class:`~bluesky.protocols.Movable` device (e.g.
-        :class:`~geecs_bluesky.devices.motor.GeecsMotor`).
+        Any :class:`~bluesky.protocols.Movable` device — a stage axis
+        (:class:`~geecs_bluesky.devices.motor.GeecsMotor`), power supply,
+        pressure controller, etc. (anything with ``set() → status``, e.g.
+        built on :class:`~geecs_bluesky.devices.settable.GeecsSettable`).
+        The name follows the bluesky ``scan(detectors, motor, ...)``
+        convention.
     positions:
         Iterable of motor positions to visit.
     detectors:
