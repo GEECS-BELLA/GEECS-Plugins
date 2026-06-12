@@ -68,28 +68,27 @@ class GeecsTriggerable:
     def trigger(self) -> AsyncStatus:
         """Return a status that completes once ``acq_timestamp`` has advanced.
 
-        The returned :class:`~ophyd_async.core.AsyncStatus` is called by
-        :func:`bluesky.plan_stubs.trigger_and_read` for each shot.
+        When the TCP cache is already populated, the stale-frame drain and
+        baseline capture happen synchronously *here*, not in the returned
+        coroutine — so a shot fired immediately after this call (the strict
+        single-shot pattern: ``bps.trigger`` → fire → ``bps.wait``) can never
+        land in the window between baselining and waiting and be missed.
         """
-        return AsyncStatus(self._wait_for_shot())
-
-    async def _wait_for_shot(self) -> None:
-        """Wait for the next TCP push frame that carries a new ``acq_timestamp``."""
         shot_queue: asyncio.Queue | None = getattr(self, "_shot_queue", None)
         shot_cache: dict | None = getattr(self, "_shot_cache", None)
+        var = self._acq_timestamp_variable
+        t0 = None
+        if shot_queue is not None and shot_cache is not None and var in shot_cache:
+            while not shot_queue.empty():
+                shot_queue.get_nowait()
+            t0 = shot_cache[var]
+        return AsyncStatus(self._wait_for_shot(t0))
+
+    async def _wait_for_shot(self, t0: object | None = None) -> None:
+        """Wait for the next TCP push frame that carries a new ``acq_timestamp``."""
+        shot_queue: asyncio.Queue | None = getattr(self, "_shot_queue", None)
         udp = getattr(self, "_shared_udp", None)
         var = self._acq_timestamp_variable
-
-        # Determine baseline timestamp
-        if shot_cache is not None and var in shot_cache:
-            t0 = shot_cache[var]
-        elif udp is not None:
-            t0 = await udp.get(var)
-        else:
-            raise RuntimeError(
-                "GeecsTriggerable: no shot_cache or UDP client available; "
-                "ensure device is connected"
-            )
 
         if shot_queue is None:
             raise RuntimeError(
@@ -97,9 +96,18 @@ class GeecsTriggerable:
                 "ensure GeecsDevice.connect() completed successfully"
             )
 
-        # Drain stale frames accumulated before this trigger call
-        while not shot_queue.empty():
-            shot_queue.get_nowait()
+        if t0 is None:
+            # Cache was empty at trigger() time — fall back to a UDP GET for
+            # the baseline.  Best-effort: connect() pre-populates the cache,
+            # so this path is not expected during scans.
+            if udp is None:
+                raise RuntimeError(
+                    "GeecsTriggerable: no shot_cache or UDP client available; "
+                    "ensure device is connected"
+                )
+            t0 = await udp.get(var)
+            while not shot_queue.empty():
+                shot_queue.get_nowait()
 
         logger.debug(
             "trigger: waiting for %s to advance past %s (timeout=%.1fs)",

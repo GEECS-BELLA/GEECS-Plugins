@@ -46,13 +46,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   final shot is recorded.  `geecs_step_scan` start metadata now carries
   `acquisition_mode="strict_shot_control"` and `geecs_event_schema: 1`.
 
+- **`geecs_single_shot`** (`plans/single_shot.py`) — the strict-shot-control
+  primitive: arm detector waiters → fire (DG645 `SINGLESHOT` state) → await
+  every detector → one complete event row.  `geecs_step_scan` gains a
+  `fire_shot` plan-stub parameter; when provided the plan owns every shot,
+  and a device missing the plan's own shot is a hard, attributable failure.
+  Without it, behaviour is unchanged (free-running trigger, internal-trigger
+  test mode).  `GeecsTriggerable.trigger()` now drains stale frames and
+  baselines `acq_timestamp` synchronously at call time, so a shot fired
+  immediately after `bps.trigger` can never be missed.
+
 ### Fixed
 
 - **Reference adoption** — storing the pacemaker on a contributor tripped
   ophyd-async's `Device.__setattr__` child-adoption (re-parent + rename),
   after which bluesky's `separate_devices` silently dropped the reference
-  from `trigger_and_read`.  `set_reference` now bypasses the hook; a
-  regression test pins that the reference stays an unparented peer.
+  from `trigger_and_read`.  `set_reference` now holds the pacemaker via
+  `ophyd_async.core.Reference` (the sanctioned opt-out for peer devices);
+  a regression test pins that the reference stays an unparented peer.
 
 ### Changed
 

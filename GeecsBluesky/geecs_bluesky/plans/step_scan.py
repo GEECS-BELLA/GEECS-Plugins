@@ -57,6 +57,7 @@ import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 
 from geecs_bluesky.devices.scan_context import ScanContext
+from geecs_bluesky.plans.single_shot import geecs_single_shot
 
 
 def geecs_step_scan(
@@ -66,6 +67,7 @@ def geecs_step_scan(
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
     disarm_trigger: Callable | None = None,
+    fire_shot: Callable | None = None,
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -91,6 +93,15 @@ def geecs_step_scan(
         Optional callable returning a plan generator that disarms the shot
         controller (e.g. sets DG645 outputs to STANDBY state).  Called after
         collecting shots at each step, before the next motor move.
+    fire_shot:
+        Optional plan-stub callable that fires exactly one trigger (e.g.
+        drives the DG645 ``SINGLESHOT`` state).  When provided, the plan
+        owns every shot — each row is collected via
+        :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot`
+        (arm waiters → fire → await → read) instead of waiting on a
+        free-running trigger.  This is the full strict-shot-control
+        contract; without it, detectors wait for the next free-running
+        shot (internal-trigger test mode).
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -140,7 +151,10 @@ def geecs_step_scan(
                     shot_index_in_bin=shot_index_in_bin,
                     scan_event_index=scan_event_index,
                 )
-                yield from bps.trigger_and_read(_read_devices)
+                if fire_shot is not None:
+                    yield from geecs_single_shot(_read_devices, fire_shot)
+                else:
+                    yield from bps.trigger_and_read(_read_devices)
             if disarm_trigger is not None:
                 yield from disarm_trigger()
 

@@ -37,6 +37,7 @@ import time
 
 from bluesky.protocols import Reading
 from event_model import DataKey
+from ophyd_async.core import Reference
 
 from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
@@ -59,7 +60,7 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
 
     def __init__(self, *args, name: str = "timestamped", **kwargs) -> None:
         super().__init__(*args, name=name, **kwargs)
-        self._reference: ShotIdSupport | None = None
+        self._reference: Reference[ShotIdSupport] | None = None
         self._grace_wait_s: float = 0.3
 
     def set_reference(
@@ -80,11 +81,11 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
             row's shot to arrive (~one TCP push period).  ``0`` disables;
             ``None`` keeps the current setting (default ``0.3``).
         """
-        # ophyd-async Device.__setattr__ adopts any Device-valued attribute
-        # as a *child* (re-parents and renames it, and bluesky's
-        # separate_devices then drops the reference from scans as
-        # "redundant").  The reference is a peer, not a child — bypass.
-        object.__setattr__(self, "_reference", reference)
+        # Reference opts out of ophyd-async's child adoption: assigning a
+        # bare Device attribute would re-parent and rename the pacemaker,
+        # and bluesky's separate_devices would then silently drop it from
+        # scans as "redundant".  The reference is a peer, not a child.
+        self._reference = Reference(reference)
         if grace_wait_s is not None:
             self._grace_wait_s = grace_wait_s
 
@@ -95,7 +96,7 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
         timestamp — reads happen after the reference's trigger completed, so
         this is the accepted shot regardless of device read order.
         """
-        ref = self._reference
+        ref = self._reference() if self._reference is not None else None
         if ref is None:
             return None
         tracker = ref.shot_id_tracker
