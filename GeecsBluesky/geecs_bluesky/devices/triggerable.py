@@ -61,6 +61,7 @@ class GeecsTriggerable:
         :exc:`TimeoutError`.  Default: ``3.0`` (three 1-Hz shots).
     """
 
+    _subscribe_acq_timestamp: bool = True
     _acq_timestamp_variable: str = "acq_timestamp"
     _trigger_timeout: float = 3.0
 

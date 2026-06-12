@@ -25,6 +25,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `<dev>-acq_timestamp` on every read (event schema contract v1 — see
   `Planning/acquisition_modes/01_event_schema_contract.md`).  Keys are
   stable: unavailable values are NaN / `False`, never omitted.
+- **`GeecsTimestampedReadable`** (`devices/timestamped_readable.py`) — the
+  free-run sync contributor: snapshot-style read (no blocking `trigger()`)
+  that labels its latest data with reference-relative `shot_offset` /
+  `valid`, computed by peeking the pacemaker device's cached shot.  A
+  bounded grace wait (default 0.3 s, ~one TCP push period) lets a late
+  frame for the row's shot arrive; lagging devices emit real data at
+  negative offsets for downstream realignment by `shot_id`.
+- **`ShotIdSupport` mixin** — shared shot-ID configuration, t0 seeding, and
+  companion-column emission used by both `GeecsGenericDetector` and
+  `GeecsTimestampedReadable`.  Devices opt into the `acq_timestamp` TCP
+  subscription via a `GeecsDevice._subscribe_acq_timestamp` class flag
+  (replaces the `isinstance(GeecsTriggerable)` gate).
 
 ### Changed
 

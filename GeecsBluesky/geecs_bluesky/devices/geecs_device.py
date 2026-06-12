@@ -55,7 +55,14 @@ class GeecsDevice(StandardReadable):
       registered monitoring callbacks are forwarded on each push.
     * :meth:`from_db` — construct from GEECS MySQL database lookup.
     * :meth:`disconnect` — cancels TCP task, closes signal backends, closes UDP.
+
+    Subclasses that need the device's ``acq_timestamp`` in the TCP
+    subscription without listing it as a readable signal (triggerable
+    detectors, timestamped readables) set ``_subscribe_acq_timestamp = True``.
     """
+
+    _subscribe_acq_timestamp: bool = False
+    _acq_timestamp_variable: str = "acq_timestamp"
 
     def __init__(
         self,
@@ -110,11 +117,9 @@ class GeecsDevice(StandardReadable):
                                 backend._variable,
                             )
 
-            # GeecsTriggerable devices also need acq_timestamp in the subscription
-            from geecs_bluesky.devices.triggerable import GeecsTriggerable
-
-            if isinstance(self, GeecsTriggerable):
-                ts_var = self._acq_timestamp_variable  # type: ignore[attr-defined]
+            # Shot-synchronized devices also need acq_timestamp in the subscription
+            if self._subscribe_acq_timestamp:
+                ts_var = self._acq_timestamp_variable
                 if ts_var not in self._shot_cache:
                     try:
                         raw = await self._shared_udp.get(ts_var)
@@ -128,10 +133,8 @@ class GeecsDevice(StandardReadable):
 
         # Start the shared TCP subscriber
         variables = [b._variable for b in self._signal_backends]
-        from geecs_bluesky.devices.triggerable import GeecsTriggerable
-
-        if isinstance(self, GeecsTriggerable):
-            ts_var = self._acq_timestamp_variable  # type: ignore[attr-defined]
+        if self._subscribe_acq_timestamp:
+            ts_var = self._acq_timestamp_variable
             if ts_var not in variables:
                 variables.append(ts_var)
 

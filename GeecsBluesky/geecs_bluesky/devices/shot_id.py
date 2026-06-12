@@ -24,6 +24,10 @@ never consecutiveness.
 from __future__ import annotations
 
 import logging
+from typing import Any
+
+from bluesky.protocols import Reading
+from event_model import DataKey
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,18 @@ class ShotIdTracker:
         returns the unchanged current ID.  Returns ``None`` when unseeded.
         A timestamp earlier than the last seen one is logged and ignored.
         """
+        shot_id = self.peek(acq_timestamp)
+        if shot_id is not None and float(acq_timestamp) > self._last_acq_timestamp:  # type: ignore[operator]
+            self._last_acq_timestamp = float(acq_timestamp)
+            self._last_shot_id = shot_id
+        return shot_id
+
+    def peek(self, acq_timestamp: float) -> int | None:
+        """Return the shot ID :meth:`update` would assign, without advancing.
+
+        Used by grace-wait loops to test whether a device's cache has reached
+        a target shot yet, without committing tracker state.
+        """
         if self._last_acq_timestamp is None or self._last_shot_id is None:
             return None
         ts = float(acq_timestamp)
@@ -101,6 +117,139 @@ class ShotIdTracker:
             )
             return self._last_shot_id
         delta = round((ts - self._last_acq_timestamp) * self._rep_rate_hz)
-        self._last_shot_id += max(delta, 1)
-        self._last_acq_timestamp = ts
-        return self._last_shot_id
+        return self._last_shot_id + max(delta, 1)
+
+
+class ShotIdSupport:
+    """Mixin for GEECS devices that derive shot IDs from their ``acq_timestamp``.
+
+    Cooperates with :class:`~geecs_bluesky.devices.geecs_device.GeecsDevice`
+    (uses its ``_shot_cache``).  Hosts gain ``configure_shot_id()`` /
+    ``seed_shot_id()`` and the ``last_acq_timestamp`` accessor used by the
+    coordinated t0-sync stage (:func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync`).
+    """
+
+    _acq_timestamp_variable: str = "acq_timestamp"
+    _shot_id_tracker: ShotIdTracker | None = None
+
+    def configure_shot_id(
+        self,
+        rep_rate_hz: float,
+        t0_acq_timestamp: float | None = None,
+    ) -> None:
+        """Enable shot-ID derivation and the sync-device companion columns.
+
+        Parameters
+        ----------
+        rep_rate_hz:
+            Free-running external trigger repetition rate in Hz.  Invalid
+            values disable shot IDs (with a warning) rather than raising, so
+            a misconfigured scan still collects data.
+        t0_acq_timestamp:
+            Optional device acquisition timestamp for physical shot 1.
+            Normally seeded later by the coordinated t0-sync stage.
+        """
+        name = getattr(self, "name", "?")
+        if rep_rate_hz <= 0:
+            logger.warning(
+                "Shot IDs disabled for %s: invalid rep_rate_hz=%s",
+                name,
+                rep_rate_hz,
+            )
+            self._shot_id_tracker = None
+            return
+        self._shot_id_tracker = ShotIdTracker(rep_rate_hz)
+        if t0_acq_timestamp is not None:
+            self._shot_id_tracker.seed(t0_acq_timestamp)
+        logger.info(
+            "Shot IDs configured for %s: rep_rate_hz=%s, t0=%s",
+            name,
+            rep_rate_hz,
+            t0_acq_timestamp if t0_acq_timestamp is not None else "(deferred)",
+        )
+
+    def seed_shot_id(self, t0_acq_timestamp: float) -> None:
+        """Define ``t0_acq_timestamp`` as this device's physical shot 1.
+
+        Called by the coordinated t0-sync stage.  Requires
+        :meth:`configure_shot_id` first.
+        """
+        if self._shot_id_tracker is None:
+            raise RuntimeError(
+                f"{getattr(self, 'name', '?')}: configure_shot_id() must be "
+                "called before seed_shot_id()"
+            )
+        self._shot_id_tracker.seed(t0_acq_timestamp)
+
+    @property
+    def shot_id_tracker(self) -> ShotIdTracker | None:
+        """Shot-ID tracker, or ``None`` when shot IDs are not configured."""
+        return self._shot_id_tracker
+
+    @property
+    def last_acq_timestamp(self) -> float | None:
+        """Most recent ``acq_timestamp`` from the TCP cache, if any."""
+        cache = getattr(self, "_shot_cache", None)
+        if cache is None:
+            return None
+        return coerce_timestamp(cache.get(self._acq_timestamp_variable))
+
+    def _shot_id_datakeys(self) -> dict[str, DataKey]:
+        """Describe the derived companion columns (schema contract v1).
+
+        ``shot_id`` and ``shot_offset`` are dtype ``number``, not ``integer``:
+        the missing case is NaN.
+        """
+        prefix = getattr(self, "name", "")
+        keys: dict[str, DataKey] = {}
+        for suffix, dtype in (
+            ("t0_acq_timestamp", "number"),
+            ("shot_id", "number"),
+            ("shot_offset", "number"),
+            ("valid", "boolean"),
+        ):
+            keys[f"{prefix}-{suffix}"] = {
+                "source": f"derived://{prefix}/{suffix}",
+                "dtype": dtype,
+                "shape": [],
+            }
+        return keys
+
+    def _emit_shot_id_readings(
+        self,
+        reading: dict[str, Reading],
+        event_timestamp: float,
+        shot_id: int | None,
+        shot_offset: int | None,
+    ) -> None:
+        """Add the companion-column Readings to *reading* in place.
+
+        Keys are stable: unavailable values are NaN, with ``valid=False``.
+        ``valid`` is ``shot_offset == 0`` — this device's data belongs to the
+        row's physical shot.
+        """
+        prefix = getattr(self, "name", "")
+        tracker = self._shot_id_tracker
+        t0 = tracker.t0_acq_timestamp if tracker is not None else None
+        values: dict[str, Any] = {
+            "t0_acq_timestamp": t0 if t0 is not None else float("nan"),
+            "shot_id": shot_id if shot_id is not None else float("nan"),
+            "shot_offset": shot_offset if shot_offset is not None else float("nan"),
+            "valid": shot_offset == 0,
+        }
+        for suffix, value in values.items():
+            reading[f"{prefix}-{suffix}"] = Reading(
+                value=value,
+                timestamp=event_timestamp,
+                alarm_severity=0,
+            )
+
+
+def coerce_timestamp(value: Any) -> float | None:
+    """Return ``value`` as float, or ``None`` when unavailable."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
