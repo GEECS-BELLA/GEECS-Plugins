@@ -23,7 +23,7 @@ class InterlockServer:
         server.register_monitor("device1", my_custom_check, interval=0.5)
     """
 
-    def __init__(self, host="0.0.0.0", port=9999):
+    def __init__(self, host="0.0.0.0", port=5001):
         self.host = host
         self.port = port
         self.interlock_flags: Dict[str, bool] = {}
@@ -53,7 +53,7 @@ class InterlockServer:
                 logger.info(f"[{name}] Interlock {status}")
 
     def register_monitor(
-        self, name: str, check_func: Callable[[], bool], interval: float = 0.5
+        self, name: str, check_func: Callable[[], bool], interval: float = 0.1
     ):
         """
         Register a monitoring function that will automatically update an interlock flag based on its return value. The function should return True if the interlock should be active (i.e., conditions not met).
@@ -119,8 +119,10 @@ class InterlockServer:
                 # send length as 4-byte integer followed by message
                 length_prefix = struct.pack(">I", len(message_bytes))
                 conn.sendall(length_prefix + message_bytes)
+                # print the packet
+                # print(f"{message}")
 
-                time.sleep(0.5)  # Adjust the sending interval as needed
+                time.sleep(0.1)  # Adjust the sending interval as needed
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
         finally:
