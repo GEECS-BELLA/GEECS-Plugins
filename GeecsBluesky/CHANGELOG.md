@@ -37,6 +37,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `GeecsTimestampedReadable`.  Devices opt into the `acq_timestamp` TCP
   subscription via a `GeecsDevice._subscribe_acq_timestamp` class flag
   (replaces the `isinstance(GeecsTriggerable)` gate).
+- **`geecs_free_run_step_scan`** (`plans/free_run_step_scan.py`) — the
+  free-run time-sync plan: t0-sync stage before the run opens (captured
+  `device_t0s` land in the start document), the same move/arm/shots/disarm
+  bracketing as the strict plan with only the reference Triggerable,
+  contributor auto-anchoring to the reference, and a tail-flush event on a
+  separate `flush` stream after the final disarm so lagging contributors'
+  final shot is recorded.  `geecs_step_scan` start metadata now carries
+  `acquisition_mode="strict_shot_control"` and `geecs_event_schema: 1`.
+
+### Fixed
+
+- **Reference adoption** — storing the pacemaker on a contributor tripped
+  ophyd-async's `Device.__setattr__` child-adoption (re-parent + rename),
+  after which bluesky's `separate_devices` silently dropped the reference
+  from `trigger_and_read`.  `set_reference` now bypasses the hook; a
+  regression test pins that the reference stays an unparented peer.
 
 ### Changed
 

@@ -116,6 +116,8 @@ def geecs_step_scan(
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
+        "acquisition_mode": "strict_shot_control",
+        "geecs_event_schema": 1,
         "motor": getattr(motor, "name", str(motor)),
         "detectors": [getattr(d, "name", str(d)) for d in detectors],
         "positions": _positions,

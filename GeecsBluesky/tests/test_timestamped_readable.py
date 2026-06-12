@@ -67,6 +67,20 @@ async def test_not_triggerable() -> None:
     assert not hasattr(cam, "trigger")
 
 
+async def test_set_reference_does_not_adopt_the_reference() -> None:
+    """The reference must stay a peer device.
+
+    ophyd-async adopts Device-valued attributes as renamed children, after
+    which bluesky's separate_devices silently drops the reference from
+    scans as "redundant" — this pins the object.__setattr__ bypass.
+    """
+    ref = GeecsGenericDetector("U_Ref", ["Sig"], "127.0.0.1", 0, name="ref")
+    cam = GeecsTimestampedReadable("U_Cam", ["Val"], "127.0.0.1", 0, name="cam")
+    cam.set_reference(ref)
+    assert ref.parent is None
+    assert ref.name == "ref"
+
+
 async def test_matched_shot_is_valid() -> None:
     """Both devices caught the same physical trigger → offset 0, valid."""
     async with AsyncExitStack() as stack:

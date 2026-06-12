@@ -65,7 +65,7 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
     def set_reference(
         self,
         reference: ShotIdSupport,
-        grace_wait_s: float = 0.3,
+        grace_wait_s: float | None = None,
     ) -> None:
         """Anchor validity to *reference* (the free-run pacemaker device).
 
@@ -77,10 +77,16 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
             :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`.
         grace_wait_s:
             Bounded wait at read time for this device's own frame for the
-            row's shot to arrive (~one TCP push period).  ``0`` disables.
+            row's shot to arrive (~one TCP push period).  ``0`` disables;
+            ``None`` keeps the current setting (default ``0.3``).
         """
-        self._reference = reference
-        self._grace_wait_s = grace_wait_s
+        # ophyd-async Device.__setattr__ adopts any Device-valued attribute
+        # as a *child* (re-parents and renames it, and bluesky's
+        # separate_devices then drops the reference from scans as
+        # "redundant").  The reference is a peer, not a child — bypass.
+        object.__setattr__(self, "_reference", reference)
+        if grace_wait_s is not None:
+            self._grace_wait_s = grace_wait_s
 
     def _row_shot_id(self) -> int | None:
         """Shot ID of the row being emitted, from the reference's cache.
