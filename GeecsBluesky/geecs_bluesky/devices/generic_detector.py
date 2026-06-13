@@ -26,23 +26,25 @@ from __future__ import annotations
 
 import logging
 import time
-from pathlib import Path
 from typing import Any
 
 from bluesky.protocols import Reading
 from event_model import DataKey
 
 from geecs_bluesky.devices.geecs_device import GeecsDevice
+from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.devices.triggerable import GeecsTriggerable
-from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
+from geecs_bluesky.signals import geecs_signal_r
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
 
 
-class GeecsGenericDetector(ShotIdSupport, GeecsTriggerable, GeecsDevice):
+class GeecsGenericDetector(
+    ShotIdSupport, NonScalarSaveSupport, GeecsTriggerable, GeecsDevice
+):
     """GEECS detector with dynamically created signals for each variable.
 
     Parameters
@@ -90,16 +92,7 @@ class GeecsGenericDetector(ShotIdSupport, GeecsTriggerable, GeecsDevice):
         super().__init__(name=name, shared_udp=udp)
         self._geecs_device_name = device_name
         self._save_nonscalar_data = save_nonscalar_data
-        self._nonscalar_save_path: Path | None = None
-
-        if save_nonscalar_data:
-            # Writable controls — not readable signals, so outside add_children_as_readables
-            self.localsavingpath = geecs_signal_rw(
-                str, device_name, "localsavingpath", host, port, shared_udp=udp
-            )
-            self.save = geecs_signal_rw(
-                str, device_name, "save", host, port, shared_udp=udp
-            )
+        self._init_save_signals(device_name, host, port, udp)
 
     @classmethod
     def from_db(
@@ -125,19 +118,6 @@ class GeecsGenericDetector(ShotIdSupport, GeecsTriggerable, GeecsDevice):
             **kwargs,
         )
 
-    def configure_nonscalar_file_logging(
-        self,
-        save_path: str | Path,
-    ) -> None:
-        """Configure derived file-path fields for non-scalar scan data.
-
-        The GEECS camera writes files natively once ``localsavingpath`` and
-        ``save`` are set.  Bluesky/Tiled record the scanner-owned save directory
-        and the device ``acq_timestamp`` so notebooks can join events to native
-        timestamped files without relying on a local shot counter.
-        """
-        self._nonscalar_save_path = Path(save_path)
-
     async def describe(self) -> dict[str, DataKey]:
         """Describe hardware signals plus derived sync-device companion columns."""
         desc = await super().describe()
@@ -153,12 +133,7 @@ class GeecsGenericDetector(ShotIdSupport, GeecsTriggerable, GeecsDevice):
         }
         if has_shot_ids:
             desc.update(self._shot_id_datakeys())
-        if self._save_nonscalar_data:
-            desc[f"{prefix}-nonscalar_save_path"] = {
-                "source": f"derived://{prefix}/nonscalar_save_path",
-                "dtype": "string",
-                "shape": [],
-            }
+        desc.update(self._save_path_datakey())
         return desc
 
     async def read(self) -> dict[str, Reading]:
@@ -200,15 +175,5 @@ class GeecsGenericDetector(ShotIdSupport, GeecsTriggerable, GeecsDevice):
                 shot_offset=0 if shot_id is not None else None,
             )
 
-        if self._save_nonscalar_data:
-            save_path = (
-                ""
-                if self._nonscalar_save_path is None
-                else str(self._nonscalar_save_path)
-            )
-            reading[f"{prefix}-nonscalar_save_path"] = Reading(
-                value=save_path,
-                timestamp=event_timestamp,
-                alarm_severity=0,
-            )
+        self._emit_save_path_reading(reading, event_timestamp)
         return reading

@@ -681,16 +681,11 @@ class BlueskyScanner:
             ophyd_name = safe_name(device_name)
             try:
                 if role == "contributor":
-                    if save_nonscalar:
-                        # TODO: GeecsTimestampedReadable has no save signals yet;
-                        # free-run contributor file saving is not supported.
-                        logger.warning(
-                            "save_nonscalar_data not yet supported for free-run "
-                            "contributor %s — file saving disabled",
-                            device_name,
-                        )
                     det = GeecsTimestampedReadable.from_db(
-                        device_name, variable_list, name=ophyd_name
+                        device_name,
+                        variable_list,
+                        name=ophyd_name,
+                        save_nonscalar_data=save_nonscalar,
                     )
                     self._connect_device(det)
                     det.configure_shot_id(self._rep_rate_hz)
@@ -720,7 +715,7 @@ class BlueskyScanner:
                         self._reference_detector = det
                 with self._device_lock:
                     self._detectors.append(det)
-                    saves_files = role in ("reference", "triggered")
+                    saves_files = role in ("reference", "triggered", "contributor")
                     if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
                         det.configure_nonscalar_file_logging(save_path)

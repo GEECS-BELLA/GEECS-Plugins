@@ -39,18 +39,23 @@ from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.core import Reference
 
+from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 
 logger = logging.getLogger(__name__)
 
 
-class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
+class GeecsTimestampedReadable(
+    ShotIdSupport, NonScalarSaveSupport, GeecsSnapshotReadable
+):
     """Non-blocking sync contributor with reference-relative shot validity.
 
     Parameters are those of
-    :class:`~geecs_bluesky.devices.snapshot.GeecsSnapshotReadable`.  Call
-    :meth:`configure_shot_id` (and seed via the t0-sync stage), then
+    :class:`~geecs_bluesky.devices.snapshot.GeecsSnapshotReadable`, plus
+    ``save_nonscalar_data`` (native camera file saving, like
+    :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`).
+    Call :meth:`configure_shot_id` (and seed via the t0-sync stage), then
     :meth:`set_reference` to define which device anchors each event row.
     Without a reference, ``shot_offset`` is NaN and ``valid`` is ``False`` —
     this class never claims validity it cannot establish.
@@ -58,10 +63,20 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
 
     _subscribe_acq_timestamp = True
 
-    def __init__(self, *args, name: str = "timestamped", **kwargs) -> None:
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(
+        self,
+        device_name: str,
+        variable_list: list[str],
+        host: str,
+        port: int,
+        name: str = "timestamped",
+        save_nonscalar_data: bool = False,
+    ) -> None:
+        super().__init__(device_name, variable_list, host, port, name=name)
         self._reference: Reference[ShotIdSupport] | None = None
         self._grace_wait_s: float = 0.3
+        self._save_nonscalar_data = save_nonscalar_data
+        self._init_save_signals(device_name, host, port, self._shared_udp)
 
     def set_reference(
         self,
@@ -125,6 +140,7 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
     async def describe(self) -> dict[str, DataKey]:
         """Describe hardware signals plus the sync-device companion columns."""
         desc = await super().describe()
+        desc.update(self._save_path_datakey())
         if self._shot_id_tracker is None:
             return desc
         prefix = self.name
@@ -143,19 +159,21 @@ class GeecsTimestampedReadable(ShotIdSupport, GeecsSnapshotReadable):
         emitted on every read (stable keys, NaN when underivable).
         """
         tracker = self._shot_id_tracker
-        if tracker is None:
-            return await super().read()
 
-        row_shot_id = self._row_shot_id()
+        row_shot_id = self._row_shot_id() if tracker is not None else None
         if row_shot_id is not None and self._grace_wait_s > 0:
             await self._grace_wait(row_shot_id)
 
         reading = await super().read()
-        prefix = self.name
         event_timestamp = next(
             (item["timestamp"] for item in reading.values()),
             time.monotonic(),
         )
+        self._emit_save_path_reading(reading, event_timestamp)
+        if tracker is None:
+            return reading
+
+        prefix = self.name
         acq_timestamp = self.last_acq_timestamp
         reading[f"{prefix}-acq_timestamp"] = Reading(
             value=acq_timestamp if acq_timestamp is not None else float("nan"),

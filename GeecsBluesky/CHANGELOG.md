@@ -28,9 +28,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Known gaps
 
-- Free-run contributor (`GeecsTimestampedReadable`) file saving
-  (`save_nonscalar_data`) is not yet supported — the scanner warns and
-  disables saving for those devices.
 - Free-run NOSCAN falls back to strict `trigger_and_read` semantics (no t0
   sync); the scanner warns.
 - Strict STANDARD still uses SCAN/STANDBY arm/disarm bracketing with a

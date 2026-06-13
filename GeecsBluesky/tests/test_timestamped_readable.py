@@ -152,6 +152,42 @@ async def test_no_reference_never_claims_validity() -> None:
         assert reading["cam-valid"]["value"] is False
 
 
+async def test_save_nonscalar_emits_save_path_column() -> None:
+    """A free-run contributor with save_nonscalar_data saves files like the reference."""
+    fake_cam = FakeGeecsDevice(
+        name="U_Cam",
+        variables={
+            "Val": 2.0,
+            "acq_timestamp": CAM_T0,
+            "localsavingpath": "",
+            "save": "off",
+        },
+    )
+    async with FakeGeecsServer(fake_cam) as srv:
+        cam = GeecsTimestampedReadable(
+            "U_Cam",
+            ["Val"],
+            srv.host,
+            srv.port,
+            name="cam",
+            save_nonscalar_data=True,
+        )
+        await cam.connect()
+        cam.configure_shot_id(rep_rate_hz=1.0)
+        # The writable save-control signals exist (used by the scanner's
+        # _scan_with_saving to turn saving on/off)
+        assert hasattr(cam, "localsavingpath")
+        assert hasattr(cam, "save")
+        cam.configure_nonscalar_file_logging("/data/Scan001/U_Cam")
+
+        desc = await cam.describe()
+        assert desc["cam-nonscalar_save_path"]["dtype"] == "string"
+        reading = await cam.read()
+        assert reading["cam-nonscalar_save_path"]["value"] == "/data/Scan001/U_Cam"
+        for key in desc:
+            assert key in reading, f"described key {key} missing from reading"
+
+
 async def test_t0_sync_seeds_timestamped_readables() -> None:
     """The t0-sync stage treats contributors like any other sync device."""
     async with AsyncExitStack() as stack:
