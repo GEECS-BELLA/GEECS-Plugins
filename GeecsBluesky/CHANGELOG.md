@@ -4,6 +4,40 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-06-12
+
+### Added
+
+- **Acquisition-mode dispatch in `BlueskyScanner`** — `reinitialize` resolves
+  `acquisition_mode` from `options.acquisition_mode`, overridable by the
+  `GEECS_BLUESKY_ACQUISITION_MODE` env var, defaulting to
+  `strict_shot_control`.  STANDARD scans dispatch to `geecs_free_run_step_scan`
+  vs `geecs_step_scan` accordingly.
+- **Automatic reference selection** — `_classify_device_roles` assigns the
+  first synchronous device as the free-run reference (built as a
+  `GeecsGenericDetector` pacemaker) and later synchronous devices as
+  `GeecsTimestampedReadable` contributors anchored to it; asynchronous devices
+  stay snapshots.  No YAML field; the choice is recorded in run metadata.
+
+### Changed
+
+- **Free-run plan disarms the shot control before t0 sync** so every device's
+  cache holds a settled frame from the same last physical shot (matching the
+  legacy "disable trigger, then read `acq_timestamp`" procedure).  No-op when
+  there is no shot control.
+
+### Known gaps
+
+- Free-run contributor (`GeecsTimestampedReadable`) file saving
+  (`save_nonscalar_data`) is not yet supported — the scanner warns and
+  disables saving for those devices.
+- Free-run NOSCAN falls back to strict `trigger_and_read` semantics (no t0
+  sync); the scanner warns.
+- Strict STANDARD still uses SCAN/STANDBY arm/disarm bracketing with a
+  free-running trigger; wiring `geecs_single_shot` (DG645 `SINGLESHOT` fire
+  per shot) as the strict default awaits confirmation that the shot-control
+  YAML defines a `SINGLESHOT` state.
+
 ## [0.4.0] - 2026-06-12
 
 ### Added

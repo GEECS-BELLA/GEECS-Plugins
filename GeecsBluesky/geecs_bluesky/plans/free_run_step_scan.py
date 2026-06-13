@@ -131,7 +131,12 @@ def geecs_free_run_step_scan(
     }
 
     # t0 sync runs before the run opens so the captured t0s can land in the
-    # start document.  The shot control must still be disarmed here.
+    # start document.  Disarm first so the trigger is blocked and every
+    # device's cache holds a settled frame from the same last physical shot
+    # (matches the legacy "disable trigger, then read acq_timestamps"
+    # procedure).  No-op when there is no shot control.
+    if disarm_trigger is not None:
+        yield from disarm_trigger()
     t0s = yield from geecs_t0_sync(sync_devices, window_s=t0_sync_window_s)
     _md["device_t0s"] = t0s
 

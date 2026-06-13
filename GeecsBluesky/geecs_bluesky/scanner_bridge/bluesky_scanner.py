@@ -5,7 +5,9 @@ route scan requests to either the legacy ScanManager or this Bluesky backend,
 controlled by a single flag.
 
 Supported scan modes (MVP):
-    STANDARD — step scan via :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`
+    STANDARD — step scan, dispatched by ``acquisition_mode``:
+        ``strict_shot_control`` → :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`
+        ``free_run_time_sync``  → :func:`~geecs_bluesky.plans.free_run_step_scan.geecs_free_run_step_scan`
     NOSCAN   — fixed-position data collection via ``bluesky.plans.count``
 
 The RunEngine is created once on ``__init__`` and its internal event loop
@@ -52,6 +54,8 @@ from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
+from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
+from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
@@ -78,6 +82,17 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
+
+_STRICT_MODE = "strict_shot_control"
+_FREE_RUN_MODE = "free_run_time_sync"
+_VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
+
+
+def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
+    """Read *key* from a device config that may be a dict or a Pydantic model."""
+    if isinstance(cfg, dict):
+        return cfg.get(key, default)
+    return getattr(cfg, key, default)
 
 
 class _UdpSetter:
@@ -207,6 +222,7 @@ class BlueskyScanner:
         self._scan_config: Any = None
         self._rep_rate_hz: float = 1.0
         self._shots_per_step: int = 10
+        self._acquisition_mode: str = _STRICT_MODE
         self._devices_config: dict[str, Any] = {}
 
         self._total_shots: int = 0
@@ -215,6 +231,8 @@ class BlueskyScanner:
         # Devices held open between reinitialize() and scan completion
         self._motor: GeecsMotor | None = None
         self._detectors: list = []
+        # Free-run pacemaker (first synchronous device); None in strict mode
+        self._reference_detector: GeecsGenericDetector | None = None
         # Subset of detectors that save per-shot files: list of (detector, path)
         self._saving_detectors: list[tuple] = []
         self._nonscalar_save_paths: dict[str, str] = {}
@@ -259,6 +277,8 @@ class BlueskyScanner:
         wait_time = getattr(self._scan_config, "wait_time", 10.0)
         self._shots_per_step = max(1, round(self._rep_rate_hz * wait_time))
 
+        self._acquisition_mode = self._resolve_acquisition_mode(exec_config.options)
+
         # Build a plain-dict device map compatible with _build_detectors
         save_config = exec_config.save_config
         devices_pydantic = getattr(save_config, "Devices", None) or {}
@@ -276,11 +296,65 @@ class BlueskyScanner:
         self._disconnect_devices_sync()
 
         logger.info(
-            "BlueskyScanner reinitialised — shots_per_step=%d, devices=%s",
+            "BlueskyScanner reinitialised — mode=%s, shots_per_step=%d, devices=%s",
+            self._acquisition_mode,
             self._shots_per_step,
             list(self._devices_config),
         )
         return True
+
+    @staticmethod
+    def _resolve_acquisition_mode(options: Any, env: dict | None = None) -> str:
+        """Resolve the acquisition mode from options, with an env override.
+
+        Precedence: ``GEECS_BLUESKY_ACQUISITION_MODE`` env var (quick
+        switching) > ``options.acquisition_mode`` > default
+        ``strict_shot_control``.  An unrecognised value warns and falls back
+        to strict.  *env* is injectable for testing.
+        """
+        env = os.environ if env is None else env
+        raw = (
+            env.get("GEECS_BLUESKY_ACQUISITION_MODE")
+            or getattr(options, "acquisition_mode", None)
+            or _STRICT_MODE
+        )
+        mode = str(raw).strip().lower()
+        if mode not in _VALID_ACQUISITION_MODES:
+            logger.warning(
+                "Unknown acquisition_mode %r; falling back to %s",
+                raw,
+                _STRICT_MODE,
+            )
+            return _STRICT_MODE
+        return mode
+
+    @staticmethod
+    def _classify_device_roles(
+        devices_config: dict[str, Any], mode: str
+    ) -> list[tuple[str, str]]:
+        """Assign each configured device a role from the acquisition mode.
+
+        Roles: ``"snapshot"`` (asynchronous), ``"triggered"`` (synchronous in
+        strict mode), ``"reference"`` (first synchronous device in free-run
+        mode — the pacemaker), ``"contributor"`` (later synchronous devices in
+        free-run mode).  Returns ``(device_name, role)`` pairs in config order.
+        """
+        free_run = mode == _FREE_RUN_MODE
+        roles: list[tuple[str, str]] = []
+        reference_assigned = False
+        for name, cfg in devices_config.items():
+            synchronous = bool(_cfg_field(cfg, "synchronous", False))
+            if not synchronous:
+                role = "snapshot"
+            elif not free_run:
+                role = "triggered"
+            elif not reference_assigned:
+                role = "reference"
+                reference_assigned = True
+            else:
+                role = "contributor"
+            roles.append((name, role))
+        return roles
 
     @property
     def current_state(self):
@@ -578,19 +652,25 @@ class BlueskyScanner:
     def _build_detectors(self, scan_folder: str | None = None) -> None:
         """Create and connect detector devices from ``self._devices_config``.
 
-        Populates ``self._detectors`` (and ``self._saving_detectors`` for
-        devices with ``save_nonscalar_data=True``) in place.  Devices that
-        fail to resolve or connect are logged and skipped.
+        Each device's role is decided by :meth:`_classify_device_roles` from
+        the acquisition mode.  In free-run mode the first synchronous device
+        becomes the reference (pacemaker) and later synchronous devices become
+        non-blocking :class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`
+        contributors anchored to it; in strict mode every synchronous device
+        is a triggered :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`.
+        Populates ``self._detectors``, ``self._reference_detector``, and
+        ``self._saving_detectors`` in place.  Devices that fail to resolve or
+        connect are logged and skipped.
         """
+        self._reference_detector = None
+        roles = dict(
+            self._classify_device_roles(self._devices_config, self._acquisition_mode)
+        )
         for device_name, dev_cfg in self._devices_config.items():
-            if isinstance(dev_cfg, dict):
-                variable_list = list(dev_cfg.get("variable_list") or [])
-                synchronous = bool(dev_cfg.get("synchronous", False))
-                save_nonscalar = bool(dev_cfg.get("save_nonscalar_data", False))
-            else:
-                variable_list = list(getattr(dev_cfg, "variable_list", []) or [])
-                synchronous = bool(getattr(dev_cfg, "synchronous", False))
-                save_nonscalar = bool(getattr(dev_cfg, "save_nonscalar_data", False))
+            variable_list = list(_cfg_field(dev_cfg, "variable_list", []) or [])
+            synchronous = bool(_cfg_field(dev_cfg, "synchronous", False))
+            save_nonscalar = bool(_cfg_field(dev_cfg, "save_nonscalar_data", False))
+            role = roles[device_name]
 
             if synchronous and "acq_timestamp" not in variable_list:
                 variable_list.append("acq_timestamp")
@@ -600,7 +680,34 @@ class BlueskyScanner:
                 continue
             ophyd_name = safe_name(device_name)
             try:
-                if synchronous:
+                if role == "contributor":
+                    if save_nonscalar:
+                        # TODO: GeecsTimestampedReadable has no save signals yet;
+                        # free-run contributor file saving is not supported.
+                        logger.warning(
+                            "save_nonscalar_data not yet supported for free-run "
+                            "contributor %s — file saving disabled",
+                            device_name,
+                        )
+                    det = GeecsTimestampedReadable.from_db(
+                        device_name, variable_list, name=ophyd_name
+                    )
+                    self._connect_device(det)
+                    det.configure_shot_id(self._rep_rate_hz)
+                    if self._reference_detector is not None:
+                        det.set_reference(self._reference_detector)
+                elif role == "snapshot":
+                    if save_nonscalar:
+                        logger.warning(
+                            "Ignoring save_nonscalar_data for asynchronous "
+                            "snapshot device %s",
+                            device_name,
+                        )
+                    det = GeecsSnapshotReadable.from_db(
+                        device_name, variable_list, name=ophyd_name
+                    )
+                    self._connect_device(det)
+                else:  # "reference" or "triggered"
                     det = GeecsGenericDetector.from_db(
                         device_name,
                         variable_list,
@@ -609,29 +716,20 @@ class BlueskyScanner:
                     )
                     self._connect_device(det)
                     det.configure_shot_id(self._rep_rate_hz)
-                else:
-                    if save_nonscalar:
-                        logger.warning(
-                            "Ignoring save_nonscalar_data for asynchronous "
-                            "snapshot device %s",
-                            device_name,
-                        )
-                    det = GeecsSnapshotReadable.from_db(
-                        device_name,
-                        variable_list,
-                        name=ophyd_name,
-                    )
-                    self._connect_device(det)
+                    if role == "reference":
+                        self._reference_detector = det
                 with self._device_lock:
                     self._detectors.append(det)
-                    if synchronous and save_nonscalar and scan_folder is not None:
+                    saves_files = role in ("reference", "triggered")
+                    if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
                         det.configure_nonscalar_file_logging(save_path)
                         self._saving_detectors.append((det, save_path))
                         self._nonscalar_save_paths[device_name] = save_path
                 logger.info(
-                    "Detector ready: %s (%d variables, save_nonscalar=%s)",
+                    "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
                     device_name,
+                    role,
                     len(variable_list),
                     save_nonscalar,
                 )
@@ -709,8 +807,28 @@ class BlueskyScanner:
         arm = self._arm_trigger if self._shot_control_setters else None
         disarm = self._disarm_trigger if self._shot_control_setters else None
 
-        plan = _scan_with_saving(
-            geecs_step_scan(
+        if self._acquisition_mode == _FREE_RUN_MODE:
+            if self._reference_detector is None:
+                logger.error(
+                    "free-run scan requires at least one synchronous device as "
+                    "reference; none found — aborting"
+                )
+                return
+            contributors = [
+                d for d in self._detectors if d is not self._reference_detector
+            ]
+            inner = geecs_free_run_step_scan(
+                motor=motor,
+                positions=positions,
+                reference=self._reference_detector,
+                detectors=contributors,
+                shots_per_step=self._shots_per_step,
+                arm_trigger=arm,
+                disarm_trigger=disarm,
+                md=md,
+            )
+        else:
+            inner = geecs_step_scan(
                 motor=motor,
                 positions=positions,
                 detectors=list(self._detectors),
@@ -718,7 +836,10 @@ class BlueskyScanner:
                 arm_trigger=arm,
                 disarm_trigger=disarm,
                 md=md,
-            ),
+            )
+
+        plan = _scan_with_saving(
+            inner,
             saving_detectors=list(self._saving_detectors),
         )
         # Outer finalize ensures disarm even on mid-step abort
@@ -729,6 +850,16 @@ class BlueskyScanner:
 
     def _run_noscan(self, scan_config: Any) -> None:
         """Fixed-position data collection — count plan if detectors present."""
+        if self._acquisition_mode == _FREE_RUN_MODE:
+            # NOSCAN uses trigger_and_read (strict semantics) and skips the
+            # t0-sync stage, so free-run NOSCAN would emit reference-paced rows
+            # with lazily-seeded (possibly mis-aligned) contributor shot IDs.
+            # Not yet properly supported; collect with strict semantics instead.
+            logger.warning(
+                "free-run NOSCAN not yet supported; collecting with strict "
+                "trigger_and_read semantics (no t0 sync)"
+            )
+
         scan_number, scan_folder = self._claim_scan_number()
 
         self._build_detectors(scan_folder=scan_folder)
@@ -755,6 +886,8 @@ class BlueskyScanner:
             "scan_mode": getattr(
                 scan_config.scan_mode, "value", str(scan_config.scan_mode)
             ),
+            "acquisition_mode": _STRICT_MODE,
+            "geecs_event_schema": 1,
             "bluesky_backend": True,
         }
         if scan_number is not None:
