@@ -47,10 +47,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Free-run NOSCAN falls back to strict `trigger_and_read` semantics (no t0
   sync); the scanner warns.
-- Strict STANDARD still uses SCAN/STANDBY arm/disarm bracketing with a
-  free-running trigger; wiring `geecs_single_shot` (DG645 `SINGLESHOT` fire
-  per shot) as the strict default awaits confirmation that the shot-control
-  YAML defines a `SINGLESHOT` state.
+- Strict STANDARD uses `SCAN`/`STANDBY` arm/disarm with a free-running
+  trigger + `trigger_and_read` — which is correct for the deployed
+  amplitude-gated hardware (DG645 Ch AB amplitude gates the Undulator gas
+  jet; `SINGLESHOT` fires at jet-off level and is only for t0/timing, not
+  data). `geecs_single_shot` (plan-owned fire-per-shot) is built and tested
+  but intentionally left unwired until a full-power single-shot config exists
+  or it is used on a non-gated experiment (e.g. Thomson). See
+  `Planning/acquisition_modes/03_strict_shot_control.md`.
+- General per-scan setup/teardown of arbitrary device variables (the clean
+  replacement for the amplitude-as-gas-jet-switch hack) is deferred future
+  work, not part of this branch.
 
 ## [0.4.0] - 2026-06-12
 

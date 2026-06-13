@@ -1,15 +1,50 @@
 # Mode 1 — strict_shot_control
 
-The plan owns each shot, literally: the shot controller (DG645) is put in
-**single-shot mode** and the plan fires every trigger itself.
+## Hardware reality check (June 2026) — what "strict" actually does
 
-## Contract
+The original idea was "put the DG645 in single-shot mode and have the plan fire
+every trigger." Reading the **real** shot-control configs
+(`geecs-plugins-configs/scanner_configs/experiments/<exp>/shot_control_configurations/`)
+showed that does not fit the deployed hardware:
+
+- On **Undulator**, `Amplitude.Ch AB` gates a **gas jet**, not the trigger
+  edges. `SCAN`=4.0 (jet on, data), `STANDBY`/`OFF`=0.5 (jet off). The DG645
+  free-runs on external edges the whole time; data-taking is gated by raising
+  the amplitude, not by firing single shots.
+- The `SINGLESHOT` state only sets `ExecuteSingleShot=on` — it does **not**
+  raise the amplitude — so it fires at jet-off level. That is exactly right for
+  its real purpose (advancing `acq_timestamp` to establish t0/timing without
+  firing the jet) but it is **not** a full-power data shot.
+- No existing state composes "full amplitude + single-shot source + execute,"
+  and authoring one touches shared configs used by the still-supported legacy
+  (non-Bluesky) path. The amplitude-as-gas-jet-switch is acknowledged
+  pre-existing hackiness; the proper fix (general per-scan setup/teardown of
+  arbitrary device variables) is **deferred future work**, not this branch.
+
+**Decision:** deployed strict mode = **`SCAN` (gas jet on, free-running) +
+`trigger_and_read`** during shots, `STANDBY` (jet off) during motor moves —
+which is what `geecs_step_scan` already does with `arm_trigger`/`disarm_trigger`
+and no `fire_shot`. The real strict-vs-free-run distinction on this hardware is
+therefore **`trigger_and_read` (every device must catch each free-running shot,
+else abort)** vs **reference-paced (one device gates, others contribute by
+timestamp)** — both riding on `SCAN`, not single-shot vs free-running.
+
+`geecs_single_shot` (below) is a correct, tested **primitive**, but it is left
+*unwired* in the scanner dispatch until either a full-power single-shot config
+exists or it is used on a non-amplitude-gated experiment (e.g. Thomson, whose
+YAML has no `Amplitude.Ch AB`). The rest of this document describes that
+primitive.
+
+## The geecs_single_shot primitive (built, not wired as the strict default)
+
+The plan owns each shot, literally: the shot controller is put in single-shot
+mode and the plan fires every trigger itself.
+
+### Contract
 
 - One fire → one complete event row. All sync devices are required.
 - A required device not responding to *the plan's own shot* is a hard failure
   (timeout → abort; refire/retry policy possible later).
-- Replaces the previous strict behavior (arm SCAN for a whole step while the
-  trigger free-runs). No legacy third behavior is kept.
 
 ## Per-shot stub — ordering is load-bearing
 

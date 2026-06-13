@@ -5,7 +5,7 @@ contracts but **one shared event schema**:
 
 | Mode | Contract |
 |---|---|
-| `strict_shot_control` | The plan owns each shot. Shot controller (DG645) is put in single-shot mode; the plan fires each trigger, then awaits every sync device's `acq_timestamp` advance. Every row is complete by construction. A required device failing to respond is a hard failure. |
+| `strict_shot_control` | Every sync device must catch each shot. On the deployed amplitude-gated hardware this is `SCAN` (gas jet on, free-running) + `trigger_and_read` during shots, `STANDBY` (jet off) during moves — a slow/dead required device times out and aborts. (`geecs_single_shot`, a plan-owned fire-per-shot primitive, is built and tested but left unwired pending a full-power single-shot config — see `03`.) |
 | `free_run_time_sync` | External trigger free-runs at the machine rep rate. One **reference device** (pacemaker) gates event creation: its `acq_timestamp` advance ⇒ emit a row. All other sync devices contribute their latest cached data, labeled with their own derived shot ID. Missing/slow devices never block row emission. |
 
 ## Locked design decisions
