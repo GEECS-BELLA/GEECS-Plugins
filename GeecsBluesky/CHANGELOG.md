@@ -4,6 +4,23 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] - 2026-06-13
+
+### Added
+
+- **`ShotControlConfig` model** (`models/shot_control.py`) — a Pydantic v2
+  model for the shot-controller (DG645) YAML, replacing the bare untyped
+  `{device, variables: {var: {state: value}}}` dict that was passed around.
+  `from_information()` coerces the legacy dict (or `None`); `values_for_state()`
+  returns just the non-empty writes for a state (empty = no-op);
+  `defines_state()` reports whether a state does anything.  Pure data — no
+  hardware or GEECS-engine imports — so it is reusable without dragging in the
+  legacy `TriggerController`.  `ShotControlState` enumerates `OFF` / `SCAN` /
+  `STANDBY` / `SINGLESHOT`.
+- `BlueskyScanner` now validates `shot_control_information` into a
+  `ShotControlConfig` on construction and drives trigger states through
+  `values_for_state()` instead of digging the raw dict.
+
 ## [0.5.0] - 2026-06-12
 
 ### Added

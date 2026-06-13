@@ -55,6 +55,7 @@ from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
+from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -237,14 +238,12 @@ class BlueskyScanner:
         self._saving_detectors: list[tuple] = []
         self._nonscalar_save_paths: dict[str, str] = {}
 
-        # Shot control — parsed from shot_control_information YAML
-        self._shot_control_device_name: str | None = None
-        self._shot_control_variables: dict[str, dict] = {}
+        # Shot control — validated from the shot_control_information YAML/dict
+        self._shot_control: ShotControlConfig | None = (
+            ShotControlConfig.from_information(shot_control_information)
+        )
         self._shot_control_udp: GeecsUdpClient | None = None
         self._shot_control_setters: dict[str, _UdpSetter] = {}
-        if shot_control_information:
-            self._shot_control_device_name = shot_control_information.get("device")
-            self._shot_control_variables = shot_control_information.get("variables", {})
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
@@ -539,24 +538,25 @@ class BlueskyScanner:
         lookup fails, so scans without trigger control still run (e.g. in
         internal-trigger test mode).
         """
-        if not self._shot_control_device_name or not self._shot_control_variables:
+        if self._shot_control is None or not self._shot_control.variables:
             logger.debug("No shot control device configured — trigger control disabled")
             return
         try:
             from geecs_bluesky.db.geecs_db import GeecsDb
 
-            host, port = GeecsDb.find_device(self._shot_control_device_name)
-            udp = GeecsUdpClient(host, port, device_name=self._shot_control_device_name)
+            device_name = self._shot_control.device
+            host, port = GeecsDb.find_device(device_name)
+            udp = GeecsUdpClient(host, port, device_name=device_name)
             asyncio.run_coroutine_threadsafe(udp.connect(), self._RE._loop).result(
                 timeout=_CONNECT_TIMEOUT
             )
             self._shot_control_udp = udp
             self._shot_control_setters = {
-                var: _UdpSetter(udp, var) for var in self._shot_control_variables
+                var: _UdpSetter(udp, var) for var in self._shot_control.variables
             }
             logger.info(
                 "Shot controller ready: %s (%d variables)",
-                self._shot_control_device_name,
+                device_name,
                 len(self._shot_control_setters),
             )
         except Exception:
@@ -573,24 +573,24 @@ class BlueskyScanner:
         """Bluesky plan stub: set all shot control variables to STANDBY state."""
         yield from self._set_trigger_state("STANDBY")
 
-    def _set_trigger_state(self, state: str):
+    def _set_trigger_state(self, state: str | ShotControlState):
         """Bluesky plan stub: drive all shot control variables to *state*.
 
         Uses ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv`` because
         ``bps.mv`` inspects ``.parent`` for coupled-device handling — an
         ophyd-specific attribute that ``_UdpSetter`` intentionally omits.
-        All active variables are set concurrently then waited on as a group.
+        Only the variables with a non-empty value for *state* are written
+        (the rest are no-ops); they are set concurrently then waited on.
         """
-        if not self._shot_control_setters:
+        if not self._shot_control_setters or self._shot_control is None:
             return
         group = f"shot_ctrl_{state}"
-        n_set = 0
-        for var_name, setter in self._shot_control_setters.items():
-            val = self._shot_control_variables[var_name].get(state)
-            if val:  # skip None and empty string (matches TriggerController)
+        writes = self._shot_control.values_for_state(state)
+        for var_name, val in writes.items():
+            setter = self._shot_control_setters.get(var_name)
+            if setter is not None:
                 yield from bps.abs_set(setter, val, group=group)
-                n_set += 1
-        if n_set:
+        if writes:
             yield from bps.wait(group)
             logger.info("Shot controller → %s", state)
 
