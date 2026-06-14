@@ -217,11 +217,16 @@ api_key = <key>
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
 
-## Known Gaps (as of 0.3.0)
+## Known Gaps (as of 0.6.0)
 
-- `shot_control_information` is not yet threaded through `RunControl` when
-  `use_bluesky=True` — BlueskyScanner gets no shot control in GUI mode.
-  The GUI/RunControl refactor has landed in `master`; this is now ready to wire.
+- **Shot control IS now threaded through the GUI** — `RunControl(use_bluesky=True)`
+  loads the selected shot-control YAML and passes it as
+  `shot_control_information` to `BlueskyScanner`
+  ([run_control.py:58](../GEECS-Scanner-GUI/geecs_scanner/app/run_control.py)).
+  So a GUI bluesky scan drives `SCAN`/`STANDBY` (arm/disarm) on the existing
+  experiment configs.  Acquisition mode is selected by the
+  `GEECS_BLUESKY_ACQUISITION_MODE` env var (default strict); there is no GUI
+  toggle (intentional — bluesky is experimental).
 - `RunControl(use_bluesky=True)` ignores the `on_event` callback.  Decide whether
   Bluesky documents should be exposed directly, translated to
   `geecs_scanner.engine.scan_events.ScanEvent`, or both.
