@@ -8,6 +8,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Free-run t0 sync now quiesces with a dedicated `quiesce_trigger`** that
+  *stops* the free-running trigger (DG645 `OFF` / single-shot source) before
+  reading per-device t0 timestamps — the legacy "disable the trigger, then
+  read `acq_timestamp`" procedure.  The previous disarm-to-`STANDBY` left the
+  trigger free-running on real hardware (STANDBY only drops the gas-jet
+  amplitude), so the t0 read could race advancing timestamps.  `BlueskyScanner`
+  passes `_quiesce_trigger` (OFF) for free-run scans; falls back to
+  `disarm_trigger` when no dedicated quiesce is supplied.
 - **NOSCAN unified into the step-scan path.** `motor` is now optional in
   `geecs_step_scan` / `geecs_free_run_step_scan` (a `None` position is a bin
   with no move).  Statistics collection (formerly NOSCAN) is just a motorless

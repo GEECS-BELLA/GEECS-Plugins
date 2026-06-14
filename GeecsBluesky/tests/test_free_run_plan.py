@@ -13,6 +13,7 @@ import asyncio
 import math
 import threading
 
+import bluesky.plan_stubs as bps
 from bluesky import RunEngine
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
@@ -64,12 +65,16 @@ def _run_servers_with_firer(
 
 
 def _run_free_run_scan(
-    fire_cam: bool, statistics: bool = False
+    fire_cam: bool,
+    statistics: bool = False,
+    quiesce_log: list | None = None,
 ) -> tuple[list, dict, list]:
     """Run a free-run scan; return (primary events, start doc, flush events).
 
     ``statistics=True`` runs the motorless path (motor=None, one no-move bin of
     4 shots) — the former NOSCAN — through the same free-run plan.
+    ``quiesce_log`` (if given) receives a marker when the plan's
+    ``quiesce_trigger`` runs, in order relative to the emitted events.
     """
     fake_ref = FakeGeecsDevice(
         name="U_Ref",
@@ -127,6 +132,13 @@ def _run_free_run_scan(
     else:
         plan_motor, positions, shots = motor, [0.0, 1.0], 2
 
+    quiesce = None
+    if quiesce_log is not None:
+
+        def quiesce():
+            quiesce_log.append("quiesced")
+            yield from bps.null()
+
     RE(
         geecs_free_run_step_scan(
             motor=plan_motor,
@@ -134,6 +146,7 @@ def _run_free_run_scan(
             reference=ref,
             detectors=[cam, snapshot],
             shots_per_step=shots,
+            quiesce_trigger=quiesce,
         )
     )
     return primary_events, start_docs[0], flush_events
@@ -166,6 +179,16 @@ def test_free_run_scan_with_live_contributor() -> None:
     # Tail flush emitted to its own stream
     assert len(flush) == 1
     assert "cam-shot_id" in flush[0]["data"]
+
+
+def test_free_run_quiesces_before_t0_sync() -> None:
+    """The plan stops the trigger (quiesce_trigger) before establishing t0."""
+    quiesce_log: list = []
+    events, start, _flush = _run_free_run_scan(fire_cam=True, quiesce_log=quiesce_log)
+    # quiesce ran, and t0s were captured afterward (sync succeeded)
+    assert quiesce_log == ["quiesced"]
+    assert start["device_t0s"]["U_Ref"] == REF_T0
+    assert len(events) == 4
 
 
 def test_free_run_statistics_collection() -> None:

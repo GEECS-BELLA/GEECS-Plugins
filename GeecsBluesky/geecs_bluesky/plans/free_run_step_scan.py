@@ -49,6 +49,7 @@ def geecs_free_run_step_scan(
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
     disarm_trigger: Callable | None = None,
+    quiesce_trigger: Callable | None = None,
     t0_sync_window_s: float = 0.2,
     tail_flush: bool = True,
     md: dict[str, Any] | None = None,
@@ -82,6 +83,13 @@ def geecs_free_run_step_scan(
     arm_trigger / disarm_trigger:
         Optional plan-stub callables bracketing each step's acquisition
         window (e.g. DG645 SCAN / STANDBY), as in the strict plan.
+    quiesce_trigger:
+        Optional plan-stub callable that *stops* the free-running trigger
+        before t0 sync, so every device's cache settles to the same last
+        physical shot for a clean timestamp read (the legacy "disable the
+        trigger, then read acq_timestamps" procedure — DG645 ``OFF`` state).
+        ``SCAN``/``STANDBY`` keep the trigger free-running, so they cannot
+        serve this role.  Falls back to ``disarm_trigger`` when not given.
     t0_sync_window_s:
         Acceptance window for the t0-sync stage.
     tail_flush:
@@ -136,12 +144,15 @@ def geecs_free_run_step_scan(
     }
 
     # t0 sync runs before the run opens so the captured t0s can land in the
-    # start document.  Disarm first so the trigger is blocked and every
-    # device's cache holds a settled frame from the same last physical shot
-    # (matches the legacy "disable trigger, then read acq_timestamps"
-    # procedure).  No-op when there is no shot control.
-    if disarm_trigger is not None:
-        yield from disarm_trigger()
+    # start document.  Quiesce first — actually *stop* the free-running trigger
+    # (DG645 OFF / single-shot source) so every device's cache settles to the
+    # same last physical shot before the read (the legacy "disable trigger,
+    # then read acq_timestamps" procedure).  STANDBY keeps the trigger
+    # free-running on real hardware, so fall back to it only when no dedicated
+    # quiesce action was supplied.  No-op when there is no shot control.
+    _quiesce = quiesce_trigger or disarm_trigger
+    if _quiesce is not None:
+        yield from _quiesce()
     t0s = yield from geecs_t0_sync(sync_devices, window_s=t0_sync_window_s)
     _md["device_t0s"] = t0s
 

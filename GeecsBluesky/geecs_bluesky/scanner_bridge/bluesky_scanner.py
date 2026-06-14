@@ -574,6 +574,15 @@ class BlueskyScanner:
         """Bluesky plan stub: set all shot control variables to STANDBY state."""
         yield from self._set_trigger_state("STANDBY")
 
+    def _quiesce_trigger(self):
+        """Bluesky plan stub: stop the free-running trigger (OFF state).
+
+        Used before free-run t0 sync so device caches settle to one common
+        last shot.  OFF sets the source to single-shot mode (halts the
+        free-run); SCAN/STANDBY keep it running.
+        """
+        yield from self._set_trigger_state(ShotControlState.OFF)
+
     def _set_trigger_state(self, state: str | ShotControlState):
         """Bluesky plan stub: drive all shot control variables to *state*.
 
@@ -841,6 +850,7 @@ class BlueskyScanner:
         self._build_shot_controller()
         arm = self._arm_trigger if self._shot_control_setters else None
         disarm = self._disarm_trigger if self._shot_control_setters else None
+        quiesce = self._quiesce_trigger if self._shot_control_setters else None
 
         if self._acquisition_mode == _FREE_RUN_MODE:
             if self._reference_detector is None:
@@ -860,6 +870,7 @@ class BlueskyScanner:
                 shots_per_step=self._shots_per_step,
                 arm_trigger=arm,
                 disarm_trigger=disarm,
+                quiesce_trigger=quiesce,
                 md=md,
             )
         else:
