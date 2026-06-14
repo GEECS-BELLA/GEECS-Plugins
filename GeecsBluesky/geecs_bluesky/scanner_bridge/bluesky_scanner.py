@@ -8,7 +8,9 @@ Supported scan modes (MVP):
     STANDARD — step scan, dispatched by ``acquisition_mode``:
         ``strict_shot_control`` → :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`
         ``free_run_time_sync``  → :func:`~geecs_bluesky.plans.free_run_step_scan.geecs_free_run_step_scan`
-    NOSCAN   — fixed-position data collection via ``bluesky.plans.count``
+    NOSCAN   — statistics collection: the same step-scan plan with no scan
+               variable moved (``motor=None``, one no-move bin), so it honours
+               the same ``acquisition_mode`` dispatch
 
 The RunEngine is created once on ``__init__`` and its internal event loop
 persists for the lifetime of this object.  Devices are created from the GEECS
@@ -52,7 +54,6 @@ from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
-from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
@@ -736,7 +737,7 @@ class BlueskyScanner:
                 )
 
     def _run_standard_scan(self, scan_config: Any) -> None:
-        """Step scan: move motor through positions, collect shots at each step."""
+        """Step scan: move a scan device through positions, collect shots each step."""
         if not scan_config.device_var:
             logger.error("STANDARD scan requires device_var; got None")
             return
@@ -761,33 +762,74 @@ class BlueskyScanner:
         with self._device_lock:
             self._motor = motor
 
+        positions = _build_positions(scan_config)
+        extra_md: dict[str, Any] = {"device_var": scan_config.device_var}
+        if scan_config.additional_description:
+            extra_md["description"] = scan_config.additional_description
+        self._run_step_scan(scan_config, motor, positions, extra_md)
+
+    def _run_noscan(self, scan_config: Any) -> None:
+        """Statistics collection: N shots at fixed settings, no scan variable moved.
+
+        Routed through the same plan as a motor scan with ``motor=None`` and a
+        single no-move bin, so it works identically in both acquisition modes
+        (strict and free-run) instead of being a separate code path.
+        """
+        extra_md: dict[str, Any] = {}
+        if getattr(scan_config, "additional_description", None):
+            extra_md["description"] = scan_config.additional_description
+        self._run_step_scan(
+            scan_config, motor=None, positions=[None], extra_md=extra_md
+        )
+
+    def _run_step_scan(
+        self,
+        scan_config: Any,
+        motor: Any | None,
+        positions: list[float | None],
+        extra_md: dict[str, Any] | None = None,
+    ) -> None:
+        """Shared body for motor scans and statistics collection.
+
+        ``motor=None`` with ``positions=[None]`` is statistics collection (one
+        no-move bin); a real motor with explicit positions is a step scan.
+        Either way the acquisition mode picks the plan: free-run
+        (reference-paced) or strict (``trigger_and_read``).
+        """
         # Claim scan number before building detectors so save paths are known
         scan_number, scan_folder = self._claim_scan_number()
-
         self._build_detectors(scan_folder=scan_folder)
 
-        positions = _build_positions(scan_config)
         n_steps = len(positions)
         n_shots = n_steps * self._shots_per_step
         self._total_shots = n_shots
         self._set_state("INITIALIZING", total_shots=n_shots)
 
+        # A motorless run with no detectors records nothing meaningful.
+        if not self._detectors and motor is None:
+            logger.info(
+                "Statistics collection with no detectors: nothing to collect "
+                "(%d shots requested). Add detector devices to enable collection.",
+                n_shots,
+            )
+            return
+
         logger.info(
-            "Step scan: %d steps × %d shots/step = %d total events",
+            "%s: %d step(s) × %d shots/step = %d total events",
+            "Statistics collection" if motor is None else "Step scan",
             n_steps,
             self._shots_per_step,
             n_shots,
         )
-        logger.info("Positions: %s", positions)
 
         md: dict[str, Any] = {
             "operator": "",
             "scan_mode": getattr(
                 scan_config.scan_mode, "value", str(scan_config.scan_mode)
             ),
-            "device_var": scan_config.device_var,
-            "wait_time": scan_config.wait_time,
+            "wait_time": getattr(scan_config, "wait_time", None),
             "bluesky_backend": True,
+            **(extra_md or {}),
         }
         if scan_number is not None:
             md["scan_number"] = scan_number
@@ -795,8 +837,6 @@ class BlueskyScanner:
             md["scan_folder"] = scan_folder
         if self._nonscalar_save_paths:
             md["nonscalar_save_paths"] = dict(self._nonscalar_save_paths)
-        if scan_config.additional_description:
-            md["description"] = scan_config.additional_description
 
         self._build_shot_controller()
         arm = self._arm_trigger if self._shot_control_setters else None
@@ -838,83 +878,6 @@ class BlueskyScanner:
             saving_detectors=list(self._saving_detectors),
         )
         # Outer finalize ensures disarm even on mid-step abort
-        if disarm is not None:
-            plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
-        self._set_state("RUNNING")
-        self._RE(plan)
-
-    def _run_noscan(self, scan_config: Any) -> None:
-        """Fixed-position data collection — count plan if detectors present."""
-        if self._acquisition_mode == _FREE_RUN_MODE:
-            # NOSCAN uses trigger_and_read (strict semantics) and skips the
-            # t0-sync stage, so free-run NOSCAN would emit reference-paced rows
-            # with lazily-seeded (possibly mis-aligned) contributor shot IDs.
-            # Not yet properly supported; collect with strict semantics instead.
-            logger.warning(
-                "free-run NOSCAN not yet supported; collecting with strict "
-                "trigger_and_read semantics (no t0 sync)"
-            )
-
-        scan_number, scan_folder = self._claim_scan_number()
-
-        self._build_detectors(scan_folder=scan_folder)
-
-        n_shots = self._shots_per_step
-        self._total_shots = n_shots
-        self._set_state("INITIALIZING", total_shots=n_shots)
-
-        if not self._detectors:
-            logger.info(
-                "NOSCAN with no detectors: nothing to collect (%d shots requested). "
-                "Add detector devices via the device configuration to enable data collection.",
-                n_shots,
-            )
-            return
-
-        logger.info(
-            "NOSCAN: collecting %d shots from %d detectors",
-            n_shots,
-            len(self._detectors),
-        )
-
-        md: dict[str, Any] = {
-            "scan_mode": getattr(
-                scan_config.scan_mode, "value", str(scan_config.scan_mode)
-            ),
-            "acquisition_mode": _STRICT_MODE,
-            "geecs_event_schema": 1,
-            "bluesky_backend": True,
-        }
-        if scan_number is not None:
-            md["scan_number"] = scan_number
-        if scan_folder is not None:
-            md["scan_folder"] = scan_folder
-        if self._nonscalar_save_paths:
-            md["nonscalar_save_paths"] = dict(self._nonscalar_save_paths)
-        self._build_shot_controller()
-        arm = self._arm_trigger if self._shot_control_setters else None
-        disarm = self._disarm_trigger if self._shot_control_setters else None
-
-        @bpp.run_decorator(md=md)
-        def _noscan_plan():
-            scan_context = ScanContext()
-            if arm is not None:
-                yield from arm()
-            read_devices = list(self._detectors) + [scan_context]
-            for shot_index_in_bin in range(1, n_shots + 1):
-                scan_context.set_context(
-                    bin_number=1,
-                    shot_index_in_bin=shot_index_in_bin,
-                    scan_event_index=shot_index_in_bin,
-                )
-                yield from bps.trigger_and_read(read_devices)
-            if disarm is not None:
-                yield from disarm()
-
-        plan = _scan_with_saving(
-            _noscan_plan(),
-            saving_detectors=list(self._saving_detectors),
-        )
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
         self._set_state("RUNNING")

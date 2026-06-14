@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.6.0] - 2026-06-13
 
+### Changed
+
+- **NOSCAN unified into the step-scan path.** `motor` is now optional in
+  `geecs_step_scan` / `geecs_free_run_step_scan` (a `None` position is a bin
+  with no move).  Statistics collection (formerly NOSCAN) is just a motorless
+  scan with one no-move bin, routed through the same plan — so it works
+  identically in **both** acquisition modes, including free-run with t0 sync
+  and tail flush. The separate `_run_noscan` inline plan is gone;
+  `BlueskyScanner` shares one `_run_step_scan` body for both modes.
+
 ### Added
 
 - **`ShotControlConfig` model** (`models/shot_control.py`) — a Pydantic v2
@@ -45,8 +55,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Known gaps
 
-- Free-run NOSCAN falls back to strict `trigger_and_read` semantics (no t0
-  sync); the scanner warns.
 - Strict STANDARD uses `SCAN`/`STANDBY` arm/disarm with a free-running
   trigger + `trigger_and_read` — which is correct for the deployed
   amplitude-gated hardware (DG645 Ch AB amplitude gates the Undulator gas

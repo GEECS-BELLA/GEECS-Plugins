@@ -350,6 +350,55 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     assert [ev["data"]["scan_event_index"] for ev in events] == [1, 2, 3, 4]
 
 
+def test_geecs_step_scan_statistics_collection(
+    combined_device: FakeGeecsDevice,
+) -> None:
+    """motor=None, positions=[None]: N shots at fixed settings (former NOSCAN).
+
+    Routes statistics collection through the same plan as a motor scan; the
+    only difference is no scan variable is moved and there is a single bin.
+    """
+    ready = threading.Event()
+    host_port: list = []
+    srv_thread = threading.Thread(
+        target=_run_server_with_shot_firer,
+        args=(combined_device, ready, host_port),
+        daemon=True,
+    )
+    srv_thread.start()
+    ready.wait(timeout=5.0)
+    assert host_port, "Server failed to start"
+    host, port = host_port[0], host_port[1]
+
+    cam = GeecsCameraBase(
+        "U_Combined", host, port, name="scan_cam", filepath_variable="SavedFile"
+    )
+
+    events: list[dict] = []
+    RE = RunEngine()
+    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
+    asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+
+    RE(
+        geecs_step_scan(
+            motor=None,
+            positions=[None],
+            detectors=[cam],
+            shots_per_step=3,
+            md={"test": True},
+        )
+    )
+
+    assert len(events) == 3, f"Expected 3 events, got {len(events)}"
+    for ev in events:
+        assert "scan_cam-filepath" in ev["data"]
+        # No scan variable was moved — no motor column
+        assert not any(k.endswith("-position") for k in ev["data"])
+        assert ev["data"]["bin_number"] == 1
+    assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 3]
+    assert [ev["data"]["scan_event_index"] for ev in events] == [1, 2, 3]
+
+
 async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
     tmp_path, combined_device: FakeGeecsDevice
 ) -> None:

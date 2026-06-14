@@ -63,8 +63,14 @@ def _run_servers_with_firer(
         loop.close()
 
 
-def _run_free_run_scan(fire_cam: bool) -> tuple[list, dict, list]:
-    """Run a 2×2 free-run scan; return (primary events, start doc, flush events)."""
+def _run_free_run_scan(
+    fire_cam: bool, statistics: bool = False
+) -> tuple[list, dict, list]:
+    """Run a free-run scan; return (primary events, start doc, flush events).
+
+    ``statistics=True`` runs the motorless path (motor=None, one no-move bin of
+    4 shots) — the former NOSCAN — through the same free-run plan.
+    """
     fake_ref = FakeGeecsDevice(
         name="U_Ref",
         variables={"Position (mm)": 0.0, "Sig": 1.0, "acq_timestamp": REF_T0},
@@ -116,13 +122,18 @@ def _run_free_run_scan(fire_cam: bool) -> tuple[list, dict, list]:
     for dev in (motor, ref, cam, snapshot):
         asyncio.run_coroutine_threadsafe(dev.connect(), RE._loop).result(timeout=10)
 
+    if statistics:
+        plan_motor, positions, shots = None, [None], 4
+    else:
+        plan_motor, positions, shots = motor, [0.0, 1.0], 2
+
     RE(
         geecs_free_run_step_scan(
-            motor=motor,
-            positions=[0.0, 1.0],
+            motor=plan_motor,
+            positions=positions,
             reference=ref,
             detectors=[cam, snapshot],
-            shots_per_step=2,
+            shots_per_step=shots,
         )
     )
     return primary_events, start_docs[0], flush_events
@@ -155,6 +166,24 @@ def test_free_run_scan_with_live_contributor() -> None:
     # Tail flush emitted to its own stream
     assert len(flush) == 1
     assert "cam-shot_id" in flush[0]["data"]
+
+
+def test_free_run_statistics_collection() -> None:
+    """Motorless free-run (former NOSCAN) — reference-paced rows, t0 sync, flush."""
+    events, start, flush = _run_free_run_scan(fire_cam=True, statistics=True)
+
+    assert len(events) == 4, "one bin × 4 shots"
+    for ev in events:
+        data = ev["data"]
+        assert data["bin_number"] == 1
+        assert data["cam-valid"] is True
+        assert data["cam-shot_id"] == data["ref-shot_id"]
+        assert "scan_motor-position" not in data  # no scan variable moved
+    assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 3, 4]
+    # Free-run contract still applies: t0 sync ran, flush emitted
+    assert start["acquisition_mode"] == "free_run_time_sync"
+    assert start["device_t0s"]["U_Ref"] == REF_T0
+    assert len(flush) == 1
 
 
 def test_free_run_scan_with_dead_contributor() -> None:

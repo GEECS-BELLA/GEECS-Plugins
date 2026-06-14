@@ -61,8 +61,8 @@ from geecs_bluesky.plans.single_shot import geecs_single_shot
 
 
 def geecs_step_scan(
-    motor: Any,
-    positions: Iterable[float],
+    motor: Any | None,
+    positions: Iterable[float | None],
     detectors: list[Any],
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
@@ -80,9 +80,12 @@ def geecs_step_scan(
         pressure controller, etc. (anything with ``set() → status``, e.g.
         built on :class:`~geecs_bluesky.devices.settable.GeecsSettable`).
         The name follows the bluesky ``scan(detectors, motor, ...)``
-        convention.
+        convention.  ``None`` means no scan variable is moved — statistics
+        collection (the former "NOSCAN" mode); pass ``positions=[None]`` for a
+        single no-move bin.
     positions:
-        Iterable of motor positions to visit.
+        Iterable of motor positions to visit.  A ``None`` entry is a bin with
+        no motor move (used with ``motor=None``).
     detectors:
         List of :class:`~bluesky.protocols.Readable` / Triggerable devices
         to read at each shot (e.g. camera devices).  The motor is included
@@ -127,13 +130,15 @@ def geecs_step_scan(
     """
     _positions = list(positions)
     scan_context = ScanContext()
-    _read_devices = list(detectors) + [motor, scan_context]
+    _read_devices = (
+        list(detectors) + ([motor] if motor is not None else []) + [scan_context]
+    )
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
         "acquisition_mode": "strict_shot_control",
         "geecs_event_schema": 1,
-        "motor": getattr(motor, "name", str(motor)),
+        "motor": getattr(motor, "name", None) if motor is not None else None,
         "detectors": [getattr(d, "name", str(d)) for d in detectors],
         "positions": _positions,
         "shots_per_step": shots_per_step,
@@ -145,7 +150,8 @@ def geecs_step_scan(
     def _inner():
         scan_event_index = 0
         for bin_number, pos in enumerate(_positions, start=1):
-            yield from bps.mv(motor, pos)
+            if motor is not None and pos is not None:
+                yield from bps.mv(motor, pos)
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):
