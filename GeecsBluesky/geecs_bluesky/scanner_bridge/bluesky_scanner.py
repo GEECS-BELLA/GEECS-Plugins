@@ -58,6 +58,7 @@ from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
+from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -122,40 +123,6 @@ class _UdpSetter:
 # ---------------------------------------------------------------------------
 # Plan helpers
 # ---------------------------------------------------------------------------
-
-
-def _save_cleanup_plan(saving_detectors: list[tuple]):
-    """Turn saving off for all saving detectors (runs even on abort)."""
-    if not saving_detectors:
-        return
-    mv_args: list = []
-    for det, _path in saving_detectors:
-        mv_args.extend([det.save, "off"])
-        logger.debug("Saving disabled for %s", det.name)
-    yield from bps.mv(*mv_args)
-
-
-def _scan_with_saving(inner_plan, saving_detectors: list[tuple]):
-    """Wrap *inner_plan* with per-detector save enable/disable.
-
-    For each detector in *saving_detectors* (list of ``(det, path)`` tuples):
-    - Creates the save directory
-    - Sets ``localsavingpath`` and ``save = "on"`` before the scan
-    - Sets ``save = "off"`` in a finalise wrapper (runs even on abort)
-    """
-    if saving_detectors:
-        mv_args: list = []
-        for det, path in saving_detectors:
-            os.makedirs(path, exist_ok=True)
-            logger.info("Save path for %s: %s", det.name, path)
-            mv_args.extend([det.localsavingpath, path, det.save, "on"])
-        # Single bps.mv fans out via asyncio.gather — all devices set concurrently
-        yield from bps.mv(*mv_args)
-
-    yield from bpp.finalize_wrapper(
-        inner_plan,
-        _save_cleanup_plan(saving_detectors),
-    )
 
 
 def _build_positions(scan_config: Any) -> list[float]:
@@ -651,31 +618,12 @@ class BlueskyScanner:
             logger.info("BlueskyScanner: scan thread finished")
 
     def _claim_scan_number(self) -> tuple[int | None, str | None]:
-        """Claim the next scan number from the filesystem via ScanPaths.
+        """Claim the next day-scoped scan number/folder for this experiment.
 
-        Returns ``(scan_number, scan_folder_str)`` on success, or
-        ``(None, None)`` if ``geecs_data_utils`` is not installed, the NetApp
-        is unreachable, or the call fails for any other reason.
+        Thin wrapper over :func:`~geecs_bluesky.plans.run_wrapper.claim_scan_number`
+        (the shared scanner-side claim used by both the scanner and notebooks).
         """
-        try:
-            from geecs_data_utils import ScanPaths
-        except Exception:
-            logger.debug("geecs_data_utils not available; scan numbering disabled")
-            return None, None
-
-        try:
-            if ScanPaths.paths_config is None:
-                ScanPaths.reload_paths_config(
-                    default_experiment=self._experiment_dir or None
-                )
-            tag = ScanPaths.get_next_scan_tag(experiment=self._experiment_dir or None)
-            scan_data = ScanPaths(tag=tag, read_mode=False)
-            folder = scan_data.get_folder()
-            logger.info("Claimed scan number %d → %s", tag.number, folder)
-            return tag.number, str(folder) if folder else None
-        except Exception:
-            logger.warning("Could not claim scan number", exc_info=True)
-            return None, None
+        return claim_scan_number(self._experiment_dir)
 
     def _build_detectors(self, scan_folder: str | None = None) -> None:
         """Create and connect detector devices from ``self._devices_config``.
@@ -849,21 +797,16 @@ class BlueskyScanner:
             n_shots,
         )
 
-        md: dict[str, Any] = {
+        # Scanner-contributed run metadata (the plan owns its own intrinsic md:
+        # plan_name, acquisition_mode, geecs_event_schema, positions, …).
+        run_md: dict[str, Any] = {
             "operator": "",
             "scan_mode": getattr(
                 scan_config.scan_mode, "value", str(scan_config.scan_mode)
             ),
             "wait_time": getattr(scan_config, "wait_time", None),
-            "bluesky_backend": True,
             **(extra_md or {}),
         }
-        if scan_number is not None:
-            md["scan_number"] = scan_number
-        if scan_folder is not None:
-            md["scan_folder"] = scan_folder
-        if self._nonscalar_save_paths:
-            md["nonscalar_save_paths"] = dict(self._nonscalar_save_paths)
 
         self._build_shot_controller()
         arm = self._arm_trigger if self._shot_control_setters else None
@@ -889,7 +832,6 @@ class BlueskyScanner:
                 arm_trigger=arm,
                 disarm_trigger=disarm,
                 quiesce_trigger=quiesce,
-                md=md,
             )
         elif (
             self._shot_control is not None
@@ -907,7 +849,6 @@ class BlueskyScanner:
                 shots_per_step=self._shots_per_step,
                 setup_trigger=self._arm_single_shot,
                 fire_shot=self._fire_single_shot,
-                md=md,
             )
         else:
             # No ARMED state available — fall back to the strict contract on the
@@ -923,12 +864,17 @@ class BlueskyScanner:
                 shots_per_step=self._shots_per_step,
                 arm_trigger=arm,
                 disarm_trigger=disarm,
-                md=md,
             )
 
-        plan = _scan_with_saving(
+        # Shared run bookkeeping: scan-number metadata (incl. scan_id) + native
+        # file saving.  The same wrapper a notebook plan would use.
+        plan = geecs_run_wrapper(
             inner,
+            experiment=self._experiment_dir,
+            scan_number=scan_number,
+            scan_folder=scan_folder,
             saving_detectors=list(self._saving_detectors),
+            extra_md=run_md,
         )
         # Outer finalize ensures disarm even on mid-step abort
         if disarm is not None:

@@ -4,6 +4,27 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] - 2026-06-14
+
+### Added
+
+- **`geecs_run_wrapper`** (`plans/run_wrapper.py`) — reusable run bookkeeping
+  shared by the scanner and notebook workflows: injects the scan-number
+  metadata (`scan_number`, `scan_folder`, `experiment`, and **`scan_id` set to
+  the GEECS scan number**) into the run's start document and brackets the plan
+  with per-detector native file saving (save on before, off in a finalize that
+  runs even on abort).  `claim_scan_number(experiment)` is the shared
+  scanner-side claim.  `BlueskyScanner` now dogfoods both — its inline
+  `_scan_with_saving` / metadata assembly are removed in favour of the wrapper.
+- **`EVENT_SCHEMA.md`** — the canonical in-package event-schema v1 contract
+  (start-doc metadata + per-device companion columns), graduated from
+  `Planning/acquisition_modes/01_event_schema_contract.md`.
+
+### Changed
+
+- Bluesky `scan_id` is now set to the claimed GEECS day-scoped scan number
+  (via the run wrapper) instead of the RunEngine's internal counter.
+
 ## [0.7.0] - 2026-06-13
 
 ### Added
