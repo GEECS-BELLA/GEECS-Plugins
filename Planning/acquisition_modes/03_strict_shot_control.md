@@ -54,6 +54,23 @@ Trigger.ExecuteSingleShot:
 shots fire at full power.  The rest of this document describes the
 `geecs_single_shot` primitive that backs this.
 
+### `ARMED` is config-specific: internal vs external single-shot
+
+`ARMED` means different things depending on whether the laser (external
+trigger source) is running, so its `Trigger.Source` value differs per config:
+
+| Config | `ARMED` → `Trigger.Source` | why |
+|---|---|---|
+| laser on (`HTU-Normal`) | `Single shot external rising edges` | a real external edge fires each single shot |
+| laser off (`HTU-LaserOFF`) | `Single shot` | no external edge exists; the DG645 must self-generate the shot internally (mirrors `SCAN: Internal` in the laser-off config) |
+
+This distinction lives **entirely in the YAML** — the Python is agnostic.
+`BlueskyScanner` applies whatever `values_for_state(ARMED)` /
+`values_for_state(SINGLESHOT)` contain, and `geecs_confirm_quiescent` only
+watches `acq_timestamp` stop advancing; neither cares whether the single-shot
+source is internal or external.  So adding the right `ARMED` per config is the
+only thing needed — no code change distinguishes laser on/off.
+
 ## The geecs_single_shot primitive (built, not wired as the strict default)
 
 The plan owns each shot, literally: the shot controller is put in single-shot
