@@ -78,9 +78,12 @@ class ShotControlConfig(BaseModel):
 
         Accepts an existing :class:`ShotControlConfig` (returned as-is), the
         ``{"device": ..., "variables": ...}`` dict the GUI/YAML produces, or
-        ``None`` (no shot control configured → returns ``None``).
+        ``None``.  An empty/falsy value (``None``, ``{}`` — e.g. a blank
+        shot-control YAML like Bella's) means "no shot control configured" and
+        returns ``None`` rather than raising, matching the legacy
+        ``if shot_control_information:`` guard.
         """
-        if information is None:
+        if not information:
             return None
         if isinstance(information, ShotControlConfig):
             return information

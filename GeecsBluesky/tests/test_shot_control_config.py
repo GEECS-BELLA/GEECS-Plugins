@@ -40,6 +40,11 @@ def test_from_information_passthrough_and_none() -> None:
     assert ShotControlConfig.from_information(None) is None
 
 
+def test_from_information_empty_is_no_shot_control() -> None:
+    """Empty/blank config (e.g. Bella's `{}` YAML) → None, not a crash."""
+    assert ShotControlConfig.from_information({}) is None
+
+
 def test_from_information_rejects_unknown_keys() -> None:
     with pytest.raises(ValidationError):
         ShotControlConfig.from_information({"device": "X", "variables": {}, "junk": 1})
