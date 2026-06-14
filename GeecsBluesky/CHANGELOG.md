@@ -108,10 +108,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Known gaps
 
-- Strict plan-owned single-shot is wired (0.7.0) but **needs an `ARMED` state
-  in the shot-control YAML** to engage; without it strict mode keeps the
-  free-running `trigger_and_read` fallback.  `ARMED` is not yet added to the
-  shared experiment configs (separate, additive config change).  See
+- Strict plan-owned single-shot needs an `ARMED` state in the shot-control
+  YAML; the experiment configs gained one on the `geecs-plugins-configs`
+  branch `add-bluesky-armed-shot-control` (pending merge).  Until that merges,
+  configs on `main` lack `ARMED` and strict uses the free-running
+  `trigger_and_read` fallback.  See
   `Planning/acquisition_modes/03_strict_shot_control.md`.
 - General per-scan setup/teardown of arbitrary device variables (the clean
   replacement for the amplitude-as-gas-jet-switch hack) is deferred future

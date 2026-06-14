@@ -112,11 +112,25 @@ new information.
 9. Tests accompany each commit (FakeGeecsServer; see mode test matrices in
    `03`/`04`).
 
+## Status (2026-06-14)
+
+All planned build steps are **done** and on branch
+`geecs-bluesky-acquisition-modes` (GeecsBluesky 0.8.0): shot-id/t0 sync,
+free-run readable + plan, strict single-shot (fire-and-wait, gated on an
+`ARMED` config state), scanner dispatch + config plumbing, NOSCAN unified as a
+motorless scan, `ShotControlConfig` model, `geecs_run_wrapper`, and
+`EVENT_SCHEMA.md`.  Experiment configs gained `ARMED` on the
+`geecs-plugins-configs` branch `add-bluesky-armed-shot-control`.  Acquisition
+mode is env-selected (`GEECS_BLUESKY_ACQUISITION_MODE`, default strict).
+Remaining work is all in the "Deferred" list below — nothing is partially
+finished.
+
 ## Deferred (deliberately)
 
 - **Tiled → clean-DataFrame / s-file exporter** — only after the free-run
   event shape has survived real use.
-- **GUI exposure of acquisition mode** — YAML/env toggle first.
+- **GUI exposure of acquisition mode** — env toggle only for now (bluesky is
+  experimental; the user explicitly does not want GUI wiring yet).
 - **Persistent t0 registry / central subscription daemon** ("event-builder
   service") — per-scan t0 sync is self-healing against rep-rate changes and
   device restarts; revisit when per-scan build/teardown actually hurts.
