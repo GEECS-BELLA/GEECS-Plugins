@@ -21,19 +21,38 @@ showed that does not fit the deployed hardware:
   pre-existing hackiness; the proper fix (general per-scan setup/teardown of
   arbitrary device variables) is **deferred future work**, not this branch.
 
-**Decision:** deployed strict mode = **`SCAN` (gas jet on, free-running) +
-`trigger_and_read`** during shots, `STANDBY` (jet off) during motor moves —
-which is what `geecs_step_scan` already does with `arm_trigger`/`disarm_trigger`
-and no `fire_shot`. The real strict-vs-free-run distinction on this hardware is
-therefore **`trigger_and_read` (every device must catch each free-running shot,
-else abort)** vs **reference-paced (one device gates, others contribute by
-timestamp)** — both riding on `SCAN`, not single-shot vs free-running.
+**Decision (updated 0.7.0):** strict mode now has **two** behaviors, chosen by
+whether the shot-control config defines an `ARMED` state:
 
-`geecs_single_shot` (below) is a correct, tested **primitive**, but it is left
-*unwired* in the scanner dispatch until either a full-power single-shot config
-exists or it is used on a non-amplitude-gated experiment (e.g. Thomson, whose
-YAML has no `Amplitude.Ch AB`). The rest of this document describes that
-primitive.
+- **With `ARMED`** → plan-owned single-shot (fire-and-wait): arm `ARMED`
+  (jet on + single-shot source, halting the free-run) once, confirm the
+  trigger has stopped (`geecs_confirm_quiescent`), then fire one shot per row
+  and await every device (`geecs_single_shot`).  This is the real strict
+  contract.
+- **Without `ARMED`** → fall back to **`SCAN` (jet on, free-running) +
+  `trigger_and_read`**, `STANDBY` (jet off) between moves.  Every device must
+  still catch each free-running shot or the scan aborts; the plan just doesn't
+  own the firing.
+
+The deployed experiment configs do **not** yet define `ARMED`, so they get the
+fallback today.  To enable true single-shot, add this state to the shot-control
+YAML (additive — the legacy non-Bluesky path ignores unknown states):
+
+```yaml
+# add an ARMED column alongside the existing OFF/SCAN/STANDBY/SINGLESHOT
+Amplitude.Ch AB:
+  ARMED: '4.0'                               # gas jet ON (full output)
+Trigger.Source:
+  ARMED: Single shot external rising edges   # single-shot mode (stops free-run)
+Trigger.ExecuteSingleShot:
+  ARMED: ''                                  # no-op; SINGLESHOT does the firing
+  SINGLESHOT: 'on'                           # (already present) fires one shot
+```
+
+`ARMED` arms; `SINGLESHOT` (already in the configs) fires.  Amplitude set in
+`ARMED` carries through the `SINGLESHOT` fire (which leaves it untouched), so
+shots fire at full power.  The rest of this document describes the
+`geecs_single_shot` primitive that backs this.
 
 ## The geecs_single_shot primitive (built, not wired as the strict default)
 

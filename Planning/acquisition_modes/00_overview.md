@@ -5,7 +5,7 @@ contracts but **one shared event schema**:
 
 | Mode | Contract |
 |---|---|
-| `strict_shot_control` | Every sync device must catch each shot. On the deployed amplitude-gated hardware this is `SCAN` (gas jet on, free-running) + `trigger_and_read` during shots, `STANDBY` (jet off) during moves — a slow/dead required device times out and aborts. (`geecs_single_shot`, a plan-owned fire-per-shot primitive, is built and tested but left unwired pending a full-power single-shot config — see `03`.) |
+| `strict_shot_control` | Every sync device must catch each shot. With an `ARMED` state in the shot-control YAML → plan-owned single-shot: arm (jet on + single-shot source) → confirm trigger stopped → fire one shot per row → await all devices. Without `ARMED` → fall back to `SCAN` (jet on, free-running) + `trigger_and_read`, `STANDBY` (jet off) between moves. A slow/dead required device aborts. See `03`. |
 | `free_run_time_sync` | External trigger free-runs at the machine rep rate. One **reference device** (pacemaker) gates event creation: its `acq_timestamp` advance ⇒ emit a row. All other sync devices contribute their latest cached data, labeled with their own derived shot ID. Missing/slow devices never block row emission. |
 
 ## Locked design decisions

@@ -4,6 +4,30 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.7.0] - 2026-06-13
+
+### Added
+
+- **True plan-owned single-shot for strict mode (fire-and-wait).** When the
+  shot-control config defines an `ARMED` state, strict STANDARD/statistics
+  scans now: arm the controller into single-shot mode at data-taking output
+  (`ARMED` — e.g. gas jet on + `Trigger.Source` → single-shot, halting the
+  free-run), confirm the trigger has stopped, then fire one shot per row and
+  await every device (`geecs_single_shot`).  A device that misses the plan's
+  shot is a hard, attributable failure.
+  - `geecs_confirm_quiescent` (`plans/single_shot.py`) — the inverse of
+    `trigger()`: waits until no sync device's `acq_timestamp` advances for a
+    quiet window, raising `GeecsQuiescenceTimeoutError` if the trigger never
+    stops.  This is the "watch acq_timestamp go quiet" confirmation.
+  - `geecs_step_scan` gains a `setup_trigger` hook (run once at scan start)
+    and records `fires_own_shots` in run metadata.
+  - `ShotControlState.ARMED` added; `BlueskyScanner` dispatches strict to
+    single-shot when `ARMED` is defined, else falls back to the free-running
+    `trigger_and_read` contract (logged).
+  - **Requires a config addition** to use: add an `ARMED` state to the
+    shot-control YAML (see `Planning/acquisition_modes/03_strict_shot_control.md`).
+    Configs without `ARMED` keep the free-running fallback unchanged.
+
 ## [0.6.0] - 2026-06-13
 
 ### Changed
@@ -63,13 +87,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Known gaps
 
-- Strict STANDARD uses `SCAN`/`STANDBY` arm/disarm with a free-running
-  trigger + `trigger_and_read` — which is correct for the deployed
-  amplitude-gated hardware (DG645 Ch AB amplitude gates the Undulator gas
-  jet; `SINGLESHOT` fires at jet-off level and is only for t0/timing, not
-  data). `geecs_single_shot` (plan-owned fire-per-shot) is built and tested
-  but intentionally left unwired until a full-power single-shot config exists
-  or it is used on a non-gated experiment (e.g. Thomson). See
+- Strict plan-owned single-shot is wired (0.7.0) but **needs an `ARMED` state
+  in the shot-control YAML** to engage; without it strict mode keeps the
+  free-running `trigger_and_read` fallback.  `ARMED` is not yet added to the
+  shared experiment configs (separate, additive config change).  See
   `Planning/acquisition_modes/03_strict_shot_control.md`.
 - General per-scan setup/teardown of arbitrary device variables (the clean
   replacement for the amplitude-as-gas-jet-switch hack) is deferred future

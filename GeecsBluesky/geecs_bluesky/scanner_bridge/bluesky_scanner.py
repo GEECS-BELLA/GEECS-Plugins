@@ -58,6 +58,7 @@ from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
+from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
@@ -583,6 +584,23 @@ class BlueskyScanner:
         """
         yield from self._set_trigger_state(ShotControlState.OFF)
 
+    def _arm_single_shot(self):
+        """Bluesky plan stub: arm full-power single-shot mode, confirm quiescent.
+
+        Drives the controller to the ``ARMED`` state (data-taking output +
+        single-shot source, halting the free-run), then watches every sync
+        device's ``acq_timestamp`` until it stops advancing — so plan-owned
+        firing can begin without racing a residual free-running shot.  Run once
+        at scan start (``setup_trigger``).
+        """
+        yield from self._set_trigger_state(ShotControlState.ARMED)
+        quiet_s = max(1.5, 2.5 / self._rep_rate_hz) if self._rep_rate_hz else 1.5
+        yield from geecs_confirm_quiescent(list(self._detectors), quiet_s=quiet_s)
+
+    def _fire_single_shot(self):
+        """Bluesky plan stub: fire exactly one shot (SINGLESHOT state)."""
+        yield from self._set_trigger_state(ShotControlState.SINGLESHOT)
+
     def _set_trigger_state(self, state: str | ShotControlState):
         """Bluesky plan stub: drive all shot control variables to *state*.
 
@@ -873,7 +891,31 @@ class BlueskyScanner:
                 quiesce_trigger=quiesce,
                 md=md,
             )
+        elif (
+            self._shot_control is not None
+            and self._shot_control_setters
+            and self._shot_control.defines_state(ShotControlState.ARMED)
+        ):
+            # Plan-owned single-shot: arm ARMED + confirm quiescent once, then
+            # fire one shot per row and await every device.  Teardown (disarm
+            # to STANDBY) is the outer finalize below.  No per-step arm/disarm.
+            logger.info("strict mode: plan-owned single-shot (ARMED + fire SINGLESHOT)")
+            inner = geecs_step_scan(
+                motor=motor,
+                positions=positions,
+                detectors=list(self._detectors),
+                shots_per_step=self._shots_per_step,
+                setup_trigger=self._arm_single_shot,
+                fire_shot=self._fire_single_shot,
+                md=md,
+            )
         else:
+            # No ARMED state available — fall back to the strict contract on the
+            # free-running trigger (every device must catch each shot).
+            logger.info(
+                "strict mode: free-running trigger_and_read "
+                "(no ARMED state in shot control)"
+            )
             inner = geecs_step_scan(
                 motor=motor,
                 positions=positions,

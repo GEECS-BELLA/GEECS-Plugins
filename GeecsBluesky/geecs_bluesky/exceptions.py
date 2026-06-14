@@ -103,6 +103,25 @@ class GeecsTriggerTimeoutError(GeecsError):
         super().__init__(message or f"{device_name}: no shot within {timeout:.1f}s")
 
 
+class GeecsQuiescenceTimeoutError(GeecsError):
+    """Free-running trigger did not stop within the timeout.
+
+    Raised by :func:`~geecs_bluesky.plans.single_shot.geecs_confirm_quiescent`
+    when device ``acq_timestamp`` values keep advancing after the shot
+    controller was put in single-shot (``ARMED``) mode — so plan-owned
+    single-shot firing cannot safely begin (a residual free-running shot would
+    be mistaken for the plan's fired shot).  Typical cause: the ``ARMED`` state
+    did not actually switch the trigger source to single-shot mode.
+    """
+
+    def __init__(self, timeout: float, message: str = "") -> None:
+        self.timeout = timeout
+        super().__init__(
+            message
+            or f"trigger still firing after {timeout:.1f}s; single-shot arm failed"
+        )
+
+
 class GeecsMotorTimeoutError(GeecsError):
     """Motor did not reach the target position within ``move_timeout``.
 

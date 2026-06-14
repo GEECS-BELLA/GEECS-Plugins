@@ -78,6 +78,33 @@ def test_defines_state() -> None:
     assert not cfg2.defines_state("STANDBY")
 
 
+def test_armed_state_for_full_power_single_shot() -> None:
+    """An ARMED state (jet on + single-shot source) drives full-power single-shot."""
+    cfg = ShotControlConfig.from_information(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Amplitude.Ch AB": {"SCAN": "4.0", "STANDBY": "0.5", "ARMED": "4.0"},
+                "Trigger.Source": {
+                    "SCAN": "External rising edges",
+                    "ARMED": "Single shot external rising edges",
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": "on"},
+            },
+        }
+    )
+    assert cfg.defines_state(ShotControlState.ARMED)
+    # ARMED = jet on (full amplitude) + single-shot source (stops free-run)
+    assert cfg.values_for_state(ShotControlState.ARMED) == {
+        "Amplitude.Ch AB": "4.0",
+        "Trigger.Source": "Single shot external rising edges",
+    }
+    # SINGLESHOT fires; amplitude is left at the ARMED value (no-op here)
+    assert cfg.values_for_state(ShotControlState.SINGLESHOT) == {
+        "Trigger.ExecuteSingleShot": "on"
+    }
+
+
 def test_state_enum_values() -> None:
     assert ShotControlState.SINGLESHOT.value == "SINGLESHOT"
     assert {s.value for s in ShotControlState} == {
@@ -85,4 +112,5 @@ def test_state_enum_values() -> None:
         "SCAN",
         "STANDBY",
         "SINGLESHOT",
+        "ARMED",
     }

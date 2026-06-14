@@ -40,16 +40,22 @@ from pydantic import BaseModel, ConfigDict, Field
 class ShotControlState(str, Enum):
     """Named states a shot controller can be driven to.
 
-    ``OFF`` / ``SCAN`` / ``STANDBY`` are the legacy trigger-window states;
-    ``SINGLESHOT`` is the plan-owned single-shot fire used by strict
-    acquisition.  Which states a given controller actually implements depends
-    on its YAML — query with :meth:`ShotControlConfig.defines_state`.
+    ``OFF`` / ``SCAN`` / ``STANDBY`` are the legacy trigger-window states.
+    ``ARMED`` and ``SINGLESHOT`` drive plan-owned single-shot acquisition:
+    ``ARMED`` puts the controller in single-shot mode at data-taking output
+    (e.g. gas jet on + ``Trigger.Source`` → single-shot, halting the
+    free-run), and ``SINGLESHOT`` fires one shot.  A config without an
+    ``ARMED`` state cannot do full-power plan-owned single-shot; strict mode
+    then falls back to ``trigger_and_read`` on the free-running trigger.
+    Which states a given controller implements depends on its YAML — query
+    with :meth:`ShotControlConfig.defines_state`.
     """
 
     OFF = "OFF"
     SCAN = "SCAN"
     STANDBY = "STANDBY"
     SINGLESHOT = "SINGLESHOT"
+    ARMED = "ARMED"
 
 
 class ShotControlConfig(BaseModel):
