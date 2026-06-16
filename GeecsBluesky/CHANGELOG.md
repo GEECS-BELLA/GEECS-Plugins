@@ -36,6 +36,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pins are removed.  This also resolves the pandas version skew that surfaced
   when both packages were installed side by side.
 
+## [0.8.2] - 2026-06-16
+
+### Fixed
+
+- TCP subscriptions now warn and continue when a subscribed variable is absent
+  from a push frame instead of letting the listener fail.
+
+## [0.8.1] - 2026-06-16
+
+### Removed
+
+- Removed the unused `GeecsCameraBase` device wrapper and its camera-specific
+  tests. Scanner-created detectors now use `GeecsGenericDetector`,
+  `GeecsTimestampedReadable`, or `GeecsSnapshotReadable`.
+
+### Changed
+
+- Updated step-scan examples and detector tests to use the active generic
+  detector path.
+
 ## [0.8.0] - 2026-06-14
 
 ### Added

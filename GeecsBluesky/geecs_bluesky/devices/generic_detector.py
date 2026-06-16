@@ -5,9 +5,9 @@ gated on ``acq_timestamp`` via :class:`~geecs_bluesky.devices.triggerable.GeecsT
 This is the default detector type used by :class:`~geecs_bluesky.scanner_bridge.BlueskyScanner`
 when constructing detectors from the GUI device table.
 
-All variables are read as ``float``.  For devices with string-valued variables
-(e.g. image file paths) use a specialised subclass such as
-:class:`~geecs_bluesky.devices.camera.GeecsCameraBase`.
+All variables are read as ``float``.  Devices that save native image files
+should use ``save_nonscalar_data=True`` so events record the scanner-owned save
+directory and acquisition timestamp for downstream file joins.
 
 Typical usage::
 
