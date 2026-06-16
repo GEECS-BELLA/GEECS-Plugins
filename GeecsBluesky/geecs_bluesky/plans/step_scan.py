@@ -25,8 +25,8 @@ Example::
 
     import numpy as np
     from bluesky import RunEngine
+    from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
     from geecs_bluesky.devices.motor import GeecsMotor
-    from geecs_bluesky.devices.camera import GeecsCameraBase
     from geecs_bluesky.plans.step_scan import geecs_step_scan
 
     RE = RunEngine()
@@ -34,16 +34,17 @@ Example::
     motor = GeecsMotor("U_ESP_JetXYZ", "Position.Axis 1",
                        "192.168.8.198", 65158,
                        name="jet_x", units="mm")
-    cam = GeecsCameraBase("U_ProbeCam", "192.168.8.50", 64000,
-                          name="probe_cam")
+    det = GeecsGenericDetector("U_ProbeCam", ["MeanCounts"],
+                               "192.168.8.50", 64000,
+                               name="probe_cam")
 
     await motor.connect()
-    await cam.connect()
+    await det.connect()
 
     RE(geecs_step_scan(
         motor=motor,
         positions=np.linspace(0, 5, 6),
-        detectors=[cam],
+        detectors=[det],
         shots_per_step=5,
         md={"sample": "He jet", "operator": "jdoe"},
     ))
@@ -89,7 +90,7 @@ def geecs_step_scan(
         no motor move (used with ``motor=None``).
     detectors:
         List of :class:`~bluesky.protocols.Readable` / Triggerable devices
-        to read at each shot (e.g. camera devices).  The motor is included
+        to read at each shot.  The motor is included
         automatically so its position is recorded in every event document.
     shots_per_step:
         Number of shots to collect at each motor position.  Default: ``5``.

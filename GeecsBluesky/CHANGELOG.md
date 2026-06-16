@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] - 2026-06-16
+
+### Removed
+
+- Removed the unused `GeecsCameraBase` device wrapper and its camera-specific
+  tests. Scanner-created detectors now use `GeecsGenericDetector`,
+  `GeecsTimestampedReadable`, or `GeecsSnapshotReadable`.
+
+### Changed
+
+- Updated step-scan examples and detector tests to use the active generic
+  detector path.
+
 ## [0.8.0] - 2026-06-14
 
 ### Added
