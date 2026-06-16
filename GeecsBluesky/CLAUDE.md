@@ -68,7 +68,6 @@ geecs_bluesky/
     shot_id.py              # ShotIdTracker (incremental shot ids) + ShotIdSupport mixin
     nonscalar_save.py       # NonScalarSaveSupport mixin — localsavingpath/save + save-path column
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
-    camera.py               # GeecsCameraBase — thin camera subclass
   models/
     shot_control.py         # ShotControlConfig / ShotControlState — validated shot-control YAML
   transport/
