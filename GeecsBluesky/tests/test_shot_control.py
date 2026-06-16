@@ -19,6 +19,7 @@ from ophyd_async.core import AsyncStatus
 from geecs_bluesky.devices.camera import GeecsCameraBase
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner, _UdpSetter
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -64,7 +65,9 @@ def _make_scanner_with_mock_setters() -> tuple[BlueskyScanner, dict[str, _MockSe
     """Build a BlueskyScanner shell with injected mock setters (no __init__)."""
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._RE = RunEngine()
-    scanner._shot_control_variables = SHOT_CONTROL_VARS
+    scanner._shot_control = ShotControlConfig(
+        device="U_DG645_ShotControl", variables=SHOT_CONTROL_VARS
+    )
     mock_setters = {var: _MockSetter(var) for var in SHOT_CONTROL_VARS}
     scanner._shot_control_setters = mock_setters
     return scanner, mock_setters
@@ -161,7 +164,7 @@ class TestSetTriggerState:
         """Empty setters dict produces an empty plan without error."""
         scanner = BlueskyScanner.__new__(BlueskyScanner)
         scanner._RE = RunEngine()
-        scanner._shot_control_variables = {}
+        scanner._shot_control = None
         scanner._shot_control_setters = {}
         scanner._RE(scanner._set_trigger_state("SCAN"))  # must not raise
 

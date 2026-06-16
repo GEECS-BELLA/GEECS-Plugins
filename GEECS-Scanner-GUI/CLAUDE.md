@@ -155,20 +155,26 @@ sessions. Validate with Pydantic schemas in `engine/models/`.
 `optimization/base_optimizer.py` wraps [Xopt](https://github.com/ChristopherMayes/Xopt)
 for Bayesian and genetic optimization loops.
 
-- `BaseEvaluator` — template-method base; subclasses implement `_get_value()`.
-  Owns the shared hook API: `compute_objective`, `compute_objective_from_shots`
-  (default mean-aggregation), `compute_observables` (default empty), and
-  `_compute_outputs` which merges objective + observables into the final dict.
-  Loaded from a YAML config via `BaseOptimizer.from_config_file()`; `DataLogger`
-  and `ScanDataManager` are injected at that point — evaluators are purely reactive
-  (they read whatever `DataLogger.bin_num` says is current).
-- `MultiDeviceScanEvaluator` — runs one or more `SingleDeviceScanAnalyzer`s and
-  builds a per-shot scalar list for `_compute_outputs`; supports `per_bin` and
-  `per_shot` analysis modes per analyzer, with mixed-mode merging.
-- `ScalarLogEvaluator` — reads scalars directly from `DataLogger.log_entries`
-  columns; no image analysis required. Same hook API as above.
+- `BaseEvaluator` — concrete unified evaluator for both diagnostic-driven
+  analyzers and direct s-file scalar columns.  Subclasses usually implement
+  `compute_objective()` and/or `compute_observables()`; per-shot variants exist
+  for custom aggregation or filtering.  Loaded from a YAML config via
+  `BaseOptimizer.from_config_file()`; `DataLogger` and `ScanDataManager` are
+  injected at that point, so evaluators are reactive consumers of the current
+  `DataLogger.bin_num`.
+- Diagnostic data sources are configured with `analyzers: [...]` in evaluator
+  kwargs.  Entries may be bare diagnostic stems or dict entries with
+  `{diagnostic: X, ...overrides}`; they are loaded through
+  `image_analysis.config.load_diagnostic()` and wrapped with
+  `scan_analysis.config.create_scan_analyzer(..., use_injected_data=True)`.
+- Direct scalar data sources are configured with `scalars: [...]` in evaluator
+  kwargs and read directly from the current-bin `DataLogger.log_entries`
+  DataFrame.  Analyzer output keys are already namespaced by ScanAnalysis;
+  scalar column names are used verbatim.
 - Generators in `optimization/generators/` select next scan parameters
 - Configured via Pydantic models in `optimization/config_models.py`
+- `MultiDeviceScanEvaluator` and `ScalarLogEvaluator` were removed in 0.27.0;
+  do not build new code or YAML around those names.
 
 ## Dependency Notes
 

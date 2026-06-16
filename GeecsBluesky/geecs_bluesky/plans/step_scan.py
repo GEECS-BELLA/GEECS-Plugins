@@ -56,14 +56,19 @@ from typing import Any, Callable, Iterable
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 
+from geecs_bluesky.devices.scan_context import ScanContext
+from geecs_bluesky.plans.single_shot import geecs_single_shot
+
 
 def geecs_step_scan(
-    motor: Any,
-    positions: Iterable[float],
+    motor: Any | None,
+    positions: Iterable[float | None],
     detectors: list[Any],
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
     disarm_trigger: Callable | None = None,
+    fire_shot: Callable | None = None,
+    setup_trigger: Callable | None = None,
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -71,10 +76,17 @@ def geecs_step_scan(
     Parameters
     ----------
     motor:
-        A :class:`~bluesky.protocols.Movable` device (e.g.
-        :class:`~geecs_bluesky.devices.motor.GeecsMotor`).
+        Any :class:`~bluesky.protocols.Movable` device — a stage axis
+        (:class:`~geecs_bluesky.devices.motor.GeecsMotor`), power supply,
+        pressure controller, etc. (anything with ``set() → status``, e.g.
+        built on :class:`~geecs_bluesky.devices.settable.GeecsSettable`).
+        The name follows the bluesky ``scan(detectors, motor, ...)``
+        convention.  ``None`` means no scan variable is moved — statistics
+        collection (the former "NOSCAN" mode); pass ``positions=[None]`` for a
+        single no-move bin.
     positions:
-        Iterable of motor positions to visit.
+        Iterable of motor positions to visit.  A ``None`` entry is a bin with
+        no motor move (used with ``motor=None``).
     detectors:
         List of :class:`~bluesky.protocols.Readable` / Triggerable devices
         to read at each shot (e.g. camera devices).  The motor is included
@@ -89,6 +101,22 @@ def geecs_step_scan(
         Optional callable returning a plan generator that disarms the shot
         controller (e.g. sets DG645 outputs to STANDBY state).  Called after
         collecting shots at each step, before the next motor move.
+    fire_shot:
+        Optional plan-stub callable that fires exactly one trigger (e.g.
+        drives the DG645 ``SINGLESHOT`` state).  When provided, the plan
+        owns every shot — each row is collected via
+        :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot`
+        (arm waiters → fire → await → read) instead of waiting on a
+        free-running trigger.  This is the full strict-shot-control
+        contract; without it, detectors wait for the next free-running
+        shot (internal-trigger test mode).
+    setup_trigger:
+        Optional plan-stub callable run *once* at the start of the run (after
+        ``open_run``, before the first step).  Used by plan-owned single-shot
+        strict mode to arm the controller into single-shot mode and confirm
+        the free-run has stopped (``ARMED`` + quiescence check) — a one-time
+        action, distinct from per-step ``arm_trigger``.  Teardown is the
+        caller's outer finalize (e.g. disarm to STANDBY).
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -109,11 +137,19 @@ def geecs_step_scan(
       collected, not during motor moves.
     """
     _positions = list(positions)
-    _read_devices = list(detectors) + [motor]
+    scan_context = ScanContext()
+    _read_devices = (
+        list(detectors) + ([motor] if motor is not None else []) + [scan_context]
+    )
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
-        "motor": getattr(motor, "name", str(motor)),
+        "acquisition_mode": "strict_shot_control",
+        "geecs_event_schema": 1,
+        # True when the plan fires each shot (single-shot); False when it waits
+        # on the free-running trigger via trigger_and_read.
+        "fires_own_shots": fire_shot is not None,
+        "motor": getattr(motor, "name", None) if motor is not None else None,
         "detectors": [getattr(d, "name", str(d)) for d in detectors],
         "positions": _positions,
         "shots_per_step": shots_per_step,
@@ -123,12 +159,25 @@ def geecs_step_scan(
 
     @bpp.run_decorator(md=_md)
     def _inner():
-        for pos in _positions:
-            yield from bps.mv(motor, pos)
+        if setup_trigger is not None:
+            yield from setup_trigger()
+        scan_event_index = 0
+        for bin_number, pos in enumerate(_positions, start=1):
+            if motor is not None and pos is not None:
+                yield from bps.mv(motor, pos)
             if arm_trigger is not None:
                 yield from arm_trigger()
-            for _shot in range(shots_per_step):
-                yield from bps.trigger_and_read(_read_devices)
+            for shot_index_in_bin in range(1, shots_per_step + 1):
+                scan_event_index += 1
+                scan_context.set_context(
+                    bin_number=bin_number,
+                    shot_index_in_bin=shot_index_in_bin,
+                    scan_event_index=scan_event_index,
+                )
+                if fire_shot is not None:
+                    yield from geecs_single_shot(_read_devices, fire_shot)
+                else:
+                    yield from bps.trigger_and_read(_read_devices)
             if disarm_trigger is not None:
                 yield from disarm_trigger()
 

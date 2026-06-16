@@ -12,7 +12,9 @@ import pytest
 from bluesky import RunEngine
 from bluesky.protocols import Movable, Triggerable
 
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
+from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.devices.camera import GeecsCameraBase
 from geecs_bluesky.plans.step_scan import geecs_step_scan
@@ -303,6 +305,13 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
         name="scan_cam",
         filepath_variable="SavedFile",
     )
+    async_snapshot = GeecsSnapshotReadable(
+        "U_Combined",
+        ["Position (mm)"],
+        host,
+        port,
+        name="async_snapshot",
+    )
 
     events: list[dict] = []
     RE = RunEngine()
@@ -311,13 +320,16 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     # Connect in RE's loop (blocks until both connects complete)
     asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
     asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+    asyncio.run_coroutine_threadsafe(async_snapshot.connect(), RE._loop).result(
+        timeout=10
+    )
 
     # Run the step scan
     RE(
         geecs_step_scan(
             motor=motor,
             positions=[0.0, 1.0],
-            detectors=[cam],
+            detectors=[cam, async_snapshot],
             shots_per_step=2,
             md={"test": True},
         )
@@ -328,3 +340,161 @@ def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> No
     for ev in events:
         assert "scan_cam-filepath" in ev["data"]
         assert "scan_motor-position" in ev["data"]
+        assert "async_snapshot-position__mm" in ev["data"]
+        assert "bin_number" in ev["data"]
+        assert "shot_index_in_bin" in ev["data"]
+        assert "scan_event_index" in ev["data"]
+
+    assert [ev["data"]["bin_number"] for ev in events] == [1, 1, 2, 2]
+    assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 1, 2]
+    assert [ev["data"]["scan_event_index"] for ev in events] == [1, 2, 3, 4]
+
+
+def test_geecs_step_scan_statistics_collection(
+    combined_device: FakeGeecsDevice,
+) -> None:
+    """motor=None, positions=[None]: N shots at fixed settings (former NOSCAN).
+
+    Routes statistics collection through the same plan as a motor scan; the
+    only difference is no scan variable is moved and there is a single bin.
+    """
+    ready = threading.Event()
+    host_port: list = []
+    srv_thread = threading.Thread(
+        target=_run_server_with_shot_firer,
+        args=(combined_device, ready, host_port),
+        daemon=True,
+    )
+    srv_thread.start()
+    ready.wait(timeout=5.0)
+    assert host_port, "Server failed to start"
+    host, port = host_port[0], host_port[1]
+
+    cam = GeecsCameraBase(
+        "U_Combined", host, port, name="scan_cam", filepath_variable="SavedFile"
+    )
+
+    events: list[dict] = []
+    RE = RunEngine()
+    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
+    asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+
+    RE(
+        geecs_step_scan(
+            motor=None,
+            positions=[None],
+            detectors=[cam],
+            shots_per_step=3,
+            md={"test": True},
+        )
+    )
+
+    assert len(events) == 3, f"Expected 3 events, got {len(events)}"
+    for ev in events:
+        assert "scan_cam-filepath" in ev["data"]
+        # No scan variable was moved — no motor column
+        assert not any(k.endswith("-position") for k in ev["data"])
+        assert ev["data"]["bin_number"] == 1
+    assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 3]
+    assert [ev["data"]["scan_event_index"] for ev in events] == [1, 2, 3]
+
+
+async def test_nonscalar_generic_detector_logs_save_path_and_acq_timestamp(
+    tmp_path, combined_device: FakeGeecsDevice
+) -> None:
+    """Non-scalar detectors emit scanner save path and device acq_timestamp."""
+    combined_device.variables.update(
+        {
+            "Signal": 1.0,
+            "localsavingpath": "",
+            "save": "off",
+        }
+    )
+    async with FakeGeecsServer(combined_device) as srv:
+        save_path = tmp_path / "Scan047" / "U_Combined"
+        det = GeecsGenericDetector(
+            "U_Combined",
+            ["Signal"],
+            srv.host,
+            srv.port,
+            name="scan_cam",
+            save_nonscalar_data=True,
+        )
+        det.configure_nonscalar_file_logging(save_path)
+        await det.connect()
+
+        desc = await det.describe()
+        assert desc["scan_cam-acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-nonscalar_save_path"]["dtype"] == "string"
+
+        for _index in range(2):
+
+            async def fire() -> None:
+                await asyncio.sleep(0.05)
+                combined_device.fire_shot()
+
+            asyncio.create_task(fire())
+            await asyncio.wait_for(det.trigger(), timeout=2.0)
+            reading = await det.read()
+
+            assert reading["scan_cam-nonscalar_save_path"]["value"] == str(save_path)
+            assert "scan_cam-acq_timestamp" in reading
+            assert reading["scan_cam-acq_timestamp"]["value"] == pytest.approx(
+                combined_device.variables["acq_timestamp"]
+            )
+
+
+async def test_generic_detector_derives_shot_id_from_acq_timestamp(
+    combined_device: FakeGeecsDevice,
+) -> None:
+    """Shot ID follows device acq_timestamp jumps, not event count."""
+    combined_device.variables.update({"Signal": 1.0})
+    async with FakeGeecsServer(combined_device) as srv:
+        det = GeecsGenericDetector(
+            "U_Combined",
+            ["Signal"],
+            srv.host,
+            srv.port,
+            name="scan_cam",
+        )
+        await det.connect()
+        det.configure_shot_id(rep_rate_hz=1.0)
+
+        desc = await det.describe()
+        assert desc["scan_cam-acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-t0_acq_timestamp"]["dtype"] == "number"
+        assert desc["scan_cam-shot_id"]["dtype"] == "number"
+        assert desc["scan_cam-shot_offset"]["dtype"] == "number"
+        assert desc["scan_cam-valid"]["dtype"] == "boolean"
+
+        async def fire_one_period() -> None:
+            await asyncio.sleep(0.05)
+            combined_device.fire_shot()
+
+        asyncio.create_task(fire_one_period())
+        await asyncio.wait_for(det.trigger(), timeout=2.0)
+        first_reading = await det.read()
+
+        first_acq_timestamp = combined_device.variables["acq_timestamp"]
+        assert first_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
+            first_acq_timestamp
+        )
+        assert first_reading["scan_cam-shot_id"]["value"] == 1
+        assert first_reading["scan_cam-shot_offset"]["value"] == 0
+        assert first_reading["scan_cam-valid"]["value"] is True
+
+        async def fire_after_missed_period() -> None:
+            await asyncio.sleep(0.05)
+            combined_device.variables["acq_timestamp"] = (
+                float(combined_device.variables["acq_timestamp"]) + 2.0
+            )
+
+        asyncio.create_task(fire_after_missed_period())
+        await asyncio.wait_for(det.trigger(), timeout=2.0)
+        second_reading = await det.read()
+
+        assert second_reading["scan_cam-t0_acq_timestamp"]["value"] == pytest.approx(
+            first_acq_timestamp
+        )
+        assert second_reading["scan_cam-shot_id"]["value"] == 3
+        assert second_reading["scan_cam-valid"]["value"] is True
