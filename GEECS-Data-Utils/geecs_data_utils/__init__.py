@@ -39,6 +39,10 @@ from geecs_data_utils.scan_log_loader import (
     parse_lines,
     parse_scan_log,
 )
+from geecs_data_utils.tiled_export import (
+    build_legacy_scalar_dataframe,
+    write_scalar_files_from_tiled,
+)
 
 __all__ = [
     "ScanData",
@@ -62,4 +66,7 @@ __all__ = [
     "load_scan_log",
     "parse_lines",
     "parse_scan_log",
+    # tiled export
+    "build_legacy_scalar_dataframe",
+    "write_scalar_files_from_tiled",
 ]
