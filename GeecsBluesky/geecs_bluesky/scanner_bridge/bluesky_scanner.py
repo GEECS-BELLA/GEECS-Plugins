@@ -197,6 +197,8 @@ class BlueskyScanner:
 
         self._total_shots: int = 0
         self._completed_shots: int = 0
+        # uid of the most recent run's start document (for the Tiled exporter)
+        self._last_run_uid: str | None = None
 
         # Devices held open between reinitialize() and scan completion
         self._motor: GeecsMotor | None = None
@@ -444,7 +446,9 @@ class BlueskyScanner:
             )
 
     def _on_document(self, name: str, doc: dict) -> None:
-        if name == "event":
+        if name == "start":
+            self._last_run_uid = doc.get("uid")
+        elif name == "event":
             self._completed_shots += 1
 
     @staticmethod
@@ -625,6 +629,79 @@ class BlueskyScanner:
         """
         return claim_scan_number(self._experiment_dir)
 
+    def _write_scan_info_ini(
+        self, scan_config: Any, scan_number: int, scan_folder: str
+    ) -> None:
+        """Write ``ScanInfoScanNNN.ini`` into the claimed scan folder.
+
+        Replicates the legacy ``ScanDataManager.write_scan_info_ini`` ``[Scan
+        Info]`` format so existing analysis tooling parses Bluesky scans
+        unchanged.  Writes only into the already-claimed ``scans/ScanNNN/``
+        folder — it never creates the scan folder (cross-package invariant).
+        """
+        from pathlib import Path
+
+        folder = Path(scan_folder)
+        if not folder.is_dir():
+            logger.warning(
+                "Scan folder %s does not exist; skipping ScanInfo write", folder
+            )
+            return
+
+        scan_var = scan_config.device_var or "Shotnumber"
+        description = scan_config.additional_description or ""
+        scan_mode = getattr(scan_config.scan_mode, "value", str(scan_config.scan_mode))
+        background = bool(getattr(scan_config, "background", False))
+        scan_info = f"Bluesky scan. scanning {scan_var}. {description}".strip()
+
+        lines = [
+            "[Scan Info]\n",
+            f"Scan No = {scan_number}\n",
+            f'ScanStartInfo = "{scan_info}"\n',
+            f'Scan Parameter = "{scan_var}"\n',
+            f"Start = {scan_config.start}\n",
+            f"End = {scan_config.end}\n",
+            f"Step size = {scan_config.step}\n",
+            f"Shots per step = {scan_config.wait_time}\n",
+            'ScanEndInfo = ""\n',
+            f"Background = {str(background).lower()}\n",
+            f'ScanMode = "{scan_mode}"\n',
+        ]
+        path = folder / f"ScanInfo{folder.name}.ini"
+        try:
+            with path.open("w") as f:
+                f.writelines(lines)
+            logger.info("Scan info written to %s", path)
+        except OSError:
+            logger.warning("Could not write ScanInfo to %s", path, exc_info=True)
+
+    def _export_scalar_files(self, scan_number: int) -> None:
+        """Write legacy ScanData/s-file from the just-recorded Tiled run.
+
+        Best-effort: any failure (Tiled unreachable, missing run, export bug)
+        is logged and swallowed so it never crashes the scan thread.
+        """
+        uid = self._last_run_uid
+        if uid is None:
+            logger.warning(
+                "No run uid captured; skipping scalar-file export for scan %s",
+                scan_number,
+            )
+            return
+        try:
+            from geecs_data_utils import write_scalar_files_from_tiled
+
+            result = write_scalar_files_from_tiled(uid)
+            if result is not None:
+                logger.info("Wrote legacy scalar files: %s, %s", *result)
+        except Exception:
+            logger.warning(
+                "Could not export legacy scalar files for scan %s (uid=%s)",
+                scan_number,
+                uid,
+                exc_info=True,
+            )
+
     def _build_detectors(self, scan_folder: str | None = None) -> None:
         """Create and connect detector devices from ``self._devices_config``.
 
@@ -773,6 +850,8 @@ class BlueskyScanner:
         """
         # Claim scan number before building detectors so save paths are known
         scan_number, scan_folder = self._claim_scan_number()
+        if scan_number is not None and scan_folder is not None:
+            self._write_scan_info_ini(scan_config, scan_number, scan_folder)
         self._build_detectors(scan_folder=scan_folder)
 
         n_steps = len(positions)
@@ -868,16 +947,25 @@ class BlueskyScanner:
 
         # Shared run bookkeeping: scan-number metadata (incl. scan_id) + native
         # file saving.  The same wrapper a notebook plan would use.
+        scalar_devices = list(self._detectors)
+        if motor is not None:
+            scalar_devices.append(motor)
         plan = geecs_run_wrapper(
             inner,
             experiment=self._experiment_dir,
             scan_number=scan_number,
             scan_folder=scan_folder,
             saving_detectors=list(self._saving_detectors),
+            devices=scalar_devices,
             extra_md=run_md,
         )
         # Outer finalize ensures disarm even on mid-step abort
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
         self._set_state("RUNNING")
+        self._last_run_uid = None
         self._RE(plan)
+
+        # After the run completes, export legacy scalar files from Tiled.
+        if scan_number is not None and scan_folder is not None:
+            self._export_scalar_files(scan_number)
