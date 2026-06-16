@@ -75,7 +75,9 @@ class FakeGeecsDevice:
         """Format the 5-Hz push message for the requested variables."""
         parts = []
         for v in var_names:
-            val = self.variables.get(v, 0.0)
+            if v not in self.variables:
+                continue
+            val = self.variables[v]
             parts.append(f"{v} nval,{val} nvar")
         return f"{self.name}>>{shot}>>" + ",".join(parts)
 

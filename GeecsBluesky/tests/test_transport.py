@@ -4,6 +4,8 @@ All tests run against ``FakeGeecsServer`` on localhost — no real hardware requ
 """
 
 import asyncio
+import logging
+
 import pytest
 
 from geecs_bluesky.exceptions import GeecsCommandFailedError
@@ -152,3 +154,52 @@ class TestTcpSubscriber:
         assert len(received) >= 1
         assert "Position (mm)" in received[0]
         assert "Velocity (mm/s)" in received[0]
+
+    async def test_missing_variable_warns_and_continues(
+        self, fake_device: FakeGeecsDevice, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Missing subscribed variables should warn without stopping updates."""
+        received: list[dict] = []
+
+        def on_update(update: dict) -> None:
+            received.append(update)
+
+        caplog.set_level(logging.WARNING, logger="geecs_bluesky.transport")
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
+                await sub.subscribe(["Position (mm)", "Not In Frame"], on_update)
+                await asyncio.sleep(0.5)
+
+        assert len(received) >= 2
+        assert all("Position (mm)" in update for update in received)
+        assert all("Not In Frame" not in update for update in received)
+        missing_warnings = [
+            record
+            for record in caplog.records
+            if "missing variable(s) in push frame" in record.message
+        ]
+        assert len(missing_warnings) == 1
+        assert "Not In Frame" in missing_warnings[0].message
+
+    async def test_callback_keyerror_does_not_stop_listener(
+        self, fake_device: FakeGeecsDevice, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A callback assuming a missing key should not kill the TCP listener."""
+        calls = 0
+
+        def on_update(update: dict) -> None:
+            nonlocal calls
+            calls += 1
+            update["Not In Frame"]
+
+        caplog.set_level(logging.WARNING, logger="geecs_bluesky.transport")
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
+                await sub.subscribe(["Position (mm)", "Not In Frame"], on_update)
+                await asyncio.sleep(0.5)
+
+        assert calls >= 2
+        assert any(
+            "TCP subscription callback failed" in record.message
+            for record in caplog.records
+        )
