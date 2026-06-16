@@ -4,6 +4,13 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.2] - 2026-06-16
+
+### Fixed
+
+- TCP subscriptions now warn and continue when a subscribed variable is absent
+  from a push frame instead of letting the listener fail.
+
 ## [0.8.1] - 2026-06-16
 
 ### Removed

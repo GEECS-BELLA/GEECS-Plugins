@@ -61,6 +61,7 @@ class GeecsTcpSubscriber:
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._listen_task: asyncio.Task | None = None
+        self._warned_missing_variables: set[str] = set()
 
     async def connect(self) -> None:
         """Open the TCP connection."""
@@ -122,15 +123,17 @@ class GeecsTcpSubscriber:
         self._writer.write(struct.pack(">i", len(cmd)) + cmd)
         await self._writer.drain()
         logger.debug("TCP subscribed: %s", variables)
+        self._warned_missing_variables.clear()
 
         self._listen_task = asyncio.create_task(
-            self._listen_loop(callback),
+            self._listen_loop(callback, variables),
             name=f"tcp-sub[{self._host}:{self._port}]",
         )
 
-    async def _listen_loop(self, callback: Callback) -> None:
+    async def _listen_loop(self, callback: Callback, variables: list[str]) -> None:
         """Read framed messages in a loop and dispatch to callback."""
         assert self._reader is not None
+        subscribed = tuple(variables)
         try:
             while True:
                 # Read 4-byte header
@@ -143,10 +146,20 @@ class GeecsTcpSubscriber:
                 logger.debug("TCP rx: %r", msg)
 
                 parsed = _parse_subscription(msg)
+                self._warn_missing_variables(subscribed, parsed)
                 if parsed:
-                    result = callback(parsed)
-                    if asyncio.iscoroutine(result):
-                        await result
+                    try:
+                        result = callback(parsed)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    except Exception:
+                        logger.warning(
+                            "TCP subscription callback failed for %s:%s; "
+                            "continuing listener",
+                            self._host,
+                            self._port,
+                            exc_info=True,
+                        )
 
         except asyncio.IncompleteReadError:
             logger.debug("TCP connection closed by server")
@@ -154,6 +167,25 @@ class GeecsTcpSubscriber:
             pass
         except Exception:
             logger.exception("unexpected error in TCP listener")
+
+    def _warn_missing_variables(
+        self, variables: tuple[str, ...], frame: dict[str, Any]
+    ) -> None:
+        """Warn once for subscribed variables absent from a TCP push frame."""
+        missing = [
+            var
+            for var in variables
+            if var not in frame and var not in self._warned_missing_variables
+        ]
+        if not missing:
+            return
+        self._warned_missing_variables.update(missing)
+        logger.warning(
+            "TCP subscription from %s:%s missing variable(s) in push frame: %s",
+            self._host,
+            self._port,
+            ", ".join(missing),
+        )
 
 
 def _parse_subscription(msg: str) -> dict[str, Any]:
