@@ -31,7 +31,16 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 | `scan_id` | Same value as `scan_number` (Bluesky-native display field; see note) |
 | `scan_folder` | Absolute path of the claimed `scans/ScanNNN/` folder |
 | `nonscalar_save_paths` | device → save dir map (when non-scalar saving is active) |
+| `geecs_scalar_headers` | event data-key → legacy `Device Variable` header map (see note) |
 | `bluesky_backend` | `true` |
+
+**`geecs_scalar_headers` note:** maps each scalar event-stream data key
+(`<ophyd>-<safe_var>`, e.g. `uc_wavemeter-wavelength_nm`) to its original GEECS
+`Device Variable` header (`UC_Wavemeter Wavelength (nm)`). `safe_name()` mangling
+is irreversible, so this map is the only way to recover legacy headers; it backs
+the Tiled→s-file exporter (`geecs_data_utils.tiled_export`). Only true device
+signals appear — derived companion columns (`-acq_timestamp`, `-shot_id`, …) are
+excluded by construction.
 
 Strict mode adds:
 

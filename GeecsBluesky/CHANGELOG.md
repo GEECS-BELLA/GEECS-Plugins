@@ -4,6 +4,38 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] - 2026-06-15
+
+### Added
+
+- **Legacy GEECS scalar files for Bluesky scans.** A scan now writes the
+  on-disk files downstream GEECS analysis still consumes:
+  - `ScanInfoScanNNN.ini` is written into the claimed `scans/ScanNNN/` folder at
+    scan start, replicating the legacy `[Scan Info]` format
+    (`BlueskyScanner._write_scan_info_ini`).
+  - `ScanDataScanNNN.txt` and the mutable `analysis/sNNN.txt` are written at
+    scan end by reading the run back from Tiled via the new
+    `geecs_data_utils.write_scalar_files_from_tiled` exporter
+    (`BlueskyScanner._export_scalar_files`, best-effort: failures are logged,
+    never fatal).
+- **`geecs_scalar_headers` start-doc metadata** — `geecs_run_wrapper` now
+  collects each device's `_column_headers` (event data key → legacy
+  `Device Variable`) and injects them so the exporter can recover legacy headers
+  despite `safe_name()` mangling being irreversible.  Documented in
+  `EVENT_SCHEMA.md`.
+- **`build_signal_attrs`** (`utils.py`) — centralises the device signal
+  attr-naming/disambiguation loop so signal creation and the header map cannot
+  drift; adopted by the generic-detector and snapshot device classes.
+
+### Changed
+
+- **`geecs_data_utils` is now a declared path dependency** (`../GEECS-Data-Utils`,
+  `develop = true`) rather than a manual install.  It supplies scan numbering
+  (`claim_scan_number`), the Tiled→s-file exporter, and `pandas` / `nptdms`
+  transitively — so the previously declared (and unused) `pandas` and `nptdms`
+  pins are removed.  This also resolves the pandas version skew that surfaced
+  when both packages were installed side by side.
+
 ## [0.8.2] - 2026-06-16
 
 ### Fixed

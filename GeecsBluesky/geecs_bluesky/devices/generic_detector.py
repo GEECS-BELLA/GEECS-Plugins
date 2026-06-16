@@ -37,7 +37,7 @@ from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.devices.triggerable import GeecsTriggerable
 from geecs_bluesky.signals import geecs_signal_r
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
-from geecs_bluesky.utils import safe_name
+from geecs_bluesky.utils import build_signal_attrs
 
 logger = logging.getLogger(__name__)
 
@@ -74,23 +74,21 @@ class GeecsGenericDetector(
         save_nonscalar_data: bool = False,
     ) -> None:
         udp = GeecsUdpClient(host, port, device_name=device_name)
-        used_attrs: set[str] = set()
+        attrs = build_signal_attrs(variable_list)
         with self.add_children_as_readables():
-            for var in variable_list:
-                attr = safe_name(var)
-                # Resolve name conflicts by appending an index
-                if attr in used_attrs:
-                    i = 2
-                    while f"{attr}_{i}" in used_attrs:
-                        i += 1
-                    attr = f"{attr}_{i}"
-                used_attrs.add(attr)
+            for attr, var in attrs:
                 sig = geecs_signal_r(
                     float, device_name, var, host, port, shared_udp=udp
                 )
                 setattr(self, attr, sig)
         super().__init__(name=name, shared_udp=udp)
         self._geecs_device_name = device_name
+        # Map each event-document data key to its legacy "Device Variable"
+        # header for the Tiled→s-file exporter.  Derived companion columns
+        # (-acq_timestamp, -shot_id, …) are intentionally excluded.
+        self._column_headers = {
+            f"{name}-{attr}": f"{device_name} {var}" for attr, var in attrs
+        }
         self._save_nonscalar_data = save_nonscalar_data
         self._init_save_signals(device_name, host, port, udp)
 

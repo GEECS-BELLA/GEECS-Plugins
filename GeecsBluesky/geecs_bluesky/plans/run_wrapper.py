@@ -67,6 +67,22 @@ def _save_cleanup_plan(saving_detectors: list[tuple]):
     yield from bps.mv(*mv_args)
 
 
+def _collect_scalar_headers(devices: list) -> dict[str, str]:
+    """Merge each device's ``_column_headers`` into one event-key → header map.
+
+    The map lets the Tiled→s-file exporter rename Bluesky's irreversibly
+    mangled ``<ophyd>-<safe_var>`` columns back to the legacy
+    ``Device Variable`` headers.  Devices without ``_column_headers`` (or a
+    falsy one) contribute nothing.
+    """
+    headers: dict[str, str] = {}
+    for dev in devices:
+        dev_headers = getattr(dev, "_column_headers", None)
+        if dev_headers:
+            headers.update(dev_headers)
+    return headers
+
+
 def geecs_run_wrapper(
     plan,
     *,
@@ -74,6 +90,7 @@ def geecs_run_wrapper(
     scan_number: int | None = None,
     scan_folder: str | None = None,
     saving_detectors: list[tuple] | None = None,
+    devices: list | None = None,
     extra_md: dict[str, Any] | None = None,
 ):
     """Wrap *plan* with GEECS scan-number metadata and native file saving.
@@ -93,6 +110,11 @@ def geecs_run_wrapper(
         ``(detector, save_path)`` tuples for devices that write native files.
         Each gets ``localsavingpath`` + ``save="on"`` before the run and
         ``save="off"`` in a finalize wrapper (runs even on abort).
+    devices:
+        All devices contributing scalar columns (detectors + scan motor).
+        Their ``_column_headers`` are merged into a ``geecs_scalar_headers``
+        start-doc key so the Tiled→s-file exporter can recover legacy
+        ``Device Variable`` headers (see ``EVENT_SCHEMA.md``).
     extra_md:
         Additional run metadata to inject (e.g. ``device_var``, ``description``).
 
@@ -121,6 +143,9 @@ def geecs_run_wrapper(
         md["nonscalar_save_paths"] = {
             getattr(det, "_geecs_device_name", det.name): path for det, path in saving
         }
+    scalar_headers = _collect_scalar_headers(devices or [])
+    if scalar_headers:
+        md["geecs_scalar_headers"] = scalar_headers
     md.update(extra_md or {})
 
     wrapped = bpp.inject_md_wrapper(plan, md)

@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.0] — 2026-06-15
+
+### Added
+- New `geecs_data_utils.tiled_export` module: reads a Bluesky scan back from a
+  Tiled catalog and writes the legacy GEECS scalar files
+  (`scans/ScanNNN/ScanDataScanNNN.txt` and the mutable `analysis/sNNN.txt`).
+  - `write_scalar_files_from_tiled(uid, ...)` — fetch a run by uid and write
+    both files; resolves Tiled connection from `~/.config/geecs_python_api/
+    config.ini [tiled]` when not passed explicitly.
+  - `build_legacy_scalar_dataframe(start_doc, primary_df)` — the pure transform
+    (renames Bluesky `<ophyd>-<safe_var>` columns to legacy `Device Variable`
+    via the run's `geecs_scalar_headers`, drops companion columns, emits
+    `Bin #` / `scan` / `Shotnumber`), unit-testable without a live server.
+  - Consumer-only: writes into an existing `scans/ScanNNN/` folder, never
+    creates one (cross-package scan-folder invariant).
+- New optional `tiled` extra (`pip install 'geecs-data-utils[tiled]'`); the
+  module lazy-imports the Tiled client so the dependency is only needed for
+  export.
+
 ## [0.7.0] — 2026-05-20
 
 ### Added

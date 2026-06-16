@@ -101,6 +101,10 @@ class GeecsSettable(GeecsDevice):
         self._readback_attr_name = _readback_attr
         self._geecs_device_name = device_name
         self._variable = variable
+        # Map the readback event-document data key to its legacy "Device
+        # Variable" header for the Tiled→s-file exporter (the scan-device
+        # column in a step scan).
+        self._column_headers = {f"{name}-{_readback_attr}": f"{device_name} {variable}"}
         self._settle_time = settle_time
 
     # ------------------------------------------------------------------
