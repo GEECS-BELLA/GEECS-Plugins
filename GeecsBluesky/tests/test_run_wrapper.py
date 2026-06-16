@@ -54,6 +54,14 @@ class _FakeSavingDetector:
         self.save = _RecordingSignal(f"{name}-save")
 
 
+class _FakeHeaderedDevice:
+    """Minimal stand-in carrying a ``_column_headers`` map."""
+
+    def __init__(self, name: str, column_headers: dict[str, str]) -> None:
+        self.name = name
+        self._column_headers = column_headers
+
+
 def test_wrapper_injects_scan_metadata_and_scan_id() -> None:
     start = _run_capture_start(
         geecs_run_wrapper(
@@ -98,3 +106,24 @@ def test_wrapper_brackets_native_saving(tmp_path) -> None:
     assert det.save.sets == ["on", "off"]
     assert save_dir.is_dir()
     assert start["nonscalar_save_paths"] == {"TOPCAM": str(save_dir)}
+
+
+def test_wrapper_injects_merged_scalar_headers() -> None:
+    dev_a = _FakeHeaderedDevice(
+        "wavemeter", {"wavemeter-wavelength_nm": "UC_Wavemeter Wavelength (nm)"}
+    )
+    dev_b = _FakeHeaderedDevice(
+        "jet_x", {"jet_x-position": "U_ESP_JetXYZ Position.Axis 1"}
+    )
+    start = _run_capture_start(
+        geecs_run_wrapper(_tiny_run(), scan_number=3, devices=[dev_a, dev_b])
+    )
+    assert start["geecs_scalar_headers"] == {
+        "wavemeter-wavelength_nm": "UC_Wavemeter Wavelength (nm)",
+        "jet_x-position": "U_ESP_JetXYZ Position.Axis 1",
+    }
+
+
+def test_wrapper_omits_scalar_headers_when_no_devices() -> None:
+    start = _run_capture_start(geecs_run_wrapper(_tiny_run(), scan_number=3))
+    assert "geecs_scalar_headers" not in start
