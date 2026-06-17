@@ -36,12 +36,12 @@ cam1 = interlock.add_device(
     "CAM-PL1-TapeDrivePointing",
     [
         "MaxCounts",
-        # "MeanCounts",
-        # "acq_timestamp",
-        # "Target.X",
-        # "Target.Y",
-        # "centroidx",
-        # "centroidy",
+        "MeanCounts",
+        "acq_timestamp",
+        "Target.X",
+        "Target.Y",
+        "centroidx",
+        "centroidy",
     ],
 )
 
@@ -49,38 +49,40 @@ cam1 = interlock.add_device(
 cam1.use_alias_in_TCP_subscription = False
 
 # # Create condition builders for each check
+max_counts_check = ThresholdCheck(
+    interlock.device_group, "cam1", "MaxCounts", 1000, operator="<"
+)
+
+mean_counts_check = ThresholdCheck(
+    interlock.device_group, "cam1", "MeanCounts", 0, operator="<"
+)
+
+centroid_x_check = AlignmentCheck(
+    interlock.device_group, "cam1", "centroidx", "Target.X", tolerance=5
+)
+
+centroid_y_check = AlignmentCheck(
+    interlock.device_group, "cam1", "centroidy", "Target.Y", tolerance=5
+)
+
+# Combine conditions into single multi-check
+camera_multi_check = MultiCheck(
+    [
+        max_counts_check,
+        mean_counts_check,
+        centroid_x_check,
+        centroid_y_check,
+    ]
+)
+
 # max_counts_check = ThresholdCheck(
-#     interlock.device_group, "cam1", "MaxCounts", 4000, operator=">"
+#     interlock.device_group, "cam1", "MaxCounts", 170, operator=">"
 # )
-
-# mean_counts_check = ThresholdCheck(
-#     interlock.device_group, "cam1", "MeanCounts", 0, operator="<"
-# )
-
-# centroid_x_check = AlignmentCheck(
-#     interlock.device_group, "cam1", "centroidx", "Target.X", tolerance=5
-# )
-
-# centroid_y_check = AlignmentCheck(
-#     interlock.device_group, "cam1", "centroidy", "Target.Y", tolerance=5
-# )
-
-# # Combine conditions into single multi-check
-# camera_multi_check = MultiCheck(
-#     [
-#         max_counts_check,
-#         mean_counts_check,
-#         centroid_x_check,
-#         centroid_y_check,
-#     ]
-# )
-
-max_counts_check = ThresholdCheck(interlock.device_group, "cam1", "MaxCounts", 170, operator=">")
 
 # Register monitor with interlock server
-# interlock.add_monitor("Camera Multi Check", camera_multi_check, interval=0.1)
+interlock.add_monitor("Camera Multi Check", camera_multi_check, interval=0.1)
 
-interlock.add_monitor("Camera MaxCounts Check", max_counts_check, interval=0.1)
+# interlock.add_monitor("Camera MaxCounts Check", max_counts_check, interval=0.1)
 
 # Start server (subscribes devices, starts monitor threads)
 interlock.start()
@@ -88,10 +90,12 @@ interlock.start()
 # Main loop - server runs in background threads
 try:
     while True:
-        # Can inspect monitor state if needed
+        # # Can inspect monitor state and get diagnostic info
         # state = interlock.get_monitor_state('Camera Multi Check')
-        # print(f"Monitor state: {state}")
-        time.sleep(0.02)
+        # if state:  # unsafe
+        #     diagnostic = interlock.get_diagnostic_info('Camera Multi Check')
+        #     print(f"WARNING: Camera Multi Check UNSAFE - {diagnostic}")
+        time.sleep(0.1)
 
 except KeyboardInterrupt:
     # Stop server (unsubscribes devices, stops threads)

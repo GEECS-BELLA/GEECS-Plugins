@@ -9,6 +9,7 @@ import struct
 from dotenv import load_dotenv
 import os
 
+# from geecs_python_api.controls.interlocks.interlock_constructor import InterlockConstructor
 load_dotenv()
 
 SERVER_IP = os.getenv("SERVER_IP")
@@ -69,6 +70,7 @@ def run_interlock_client(host=SERVER_IP, port=SERVER_PORT):
                 for dev_status in devices:
                     print(f"{dev_status} ", end="")
                 print(flush=True)
+
     except ConnectionRefusedError:
         print("Error: Could not connect to server. Is it running?")
     except KeyboardInterrupt:

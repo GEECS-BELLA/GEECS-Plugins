@@ -111,6 +111,7 @@ class ThresholdCheck:
                     "operator": self.operator,
                 }
             else:
+                print(f"DEBUG ThresholdCheck: {self.variable_name}={value} is SAFE, clearing last_failure_info")
                 self.last_failure_info = None
 
             return is_unsafe
@@ -295,21 +296,24 @@ class MultiCheck:
             True if ANY condition returns True, False if ALL return False
         """
         try:
-            self.last_failure_info = None  # Reset before checking
+            # self.last_failure_info = None  # Reset before checking
+            is_unsafe = False
 
             # Evaluate all conditions; short-circuit on first unsafe
             for condition in self.conditions:
                 try:
                     if condition():
+                        is_unsafe = True
                         # Store which condition failed
                         if hasattr(condition, "get_diagnostic_info"):
                             self.last_failure_info = condition.get_diagnostic_info()
-                        return True
+                        break  # No need to check further if already unsafe
                 except Exception as e:
                     logger.error(f"Error evaluating condition: {e}")
-                    return True  # Fail-safe: return unsafe on error
+                    is_unsafe = True
+                    break  # Fail-safe: return unsafe on error
 
-            return False  # All conditions safe
+            return is_unsafe  # All conditions safe
 
         except Exception as e:
             logger.error(f"Error in MultiCheck: {e}")

@@ -79,9 +79,8 @@ class InterlockServer:
             while self.server_running:
                 try:
                     result = check_func()
-                    diagnostic = (
-                        diagnostic_func() if (result and diagnostic_func) else ""
-                    )
+                    diagnostic = diagnostic_func() if (result and diagnostic_func) else ""
+                    print(f"DEBUG: Monitor '{name}' check_func returned {result} with diagnostic '{diagnostic}'")
                     self.set_interlock(name, result, diagnostic)
                 except Exception as e:
                     logger.error(f"Error in monitor '{name}': {e}")
@@ -129,7 +128,7 @@ class InterlockServer:
                         if status_lines
                         else "WARNING! No monitors registered"
                     )
-                    
+
                 # encode the message
                 message_bytes = message.encode("utf-8")
 
