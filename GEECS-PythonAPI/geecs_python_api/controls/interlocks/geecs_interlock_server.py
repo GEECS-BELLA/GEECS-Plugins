@@ -57,7 +57,11 @@ class InterlockServer:
                 # logger.info(f"[{name}] Interlock {status}")
 
     def register_monitor(
-        self, name: str, check_func: Callable[[], bool], interval: float = 0.1, diagnostic_func: Optional[Callable[[], str]] = None
+        self,
+        name: str,
+        check_func: Callable[[], bool],
+        interval: float = 0.1,
+        diagnostic_func: Optional[Callable[[], str]] = None,
     ):
         """
         Register a monitoring function that will automatically update an interlock flag based on its return value. The function should return True if the interlock should be active (i.e., conditions not met).
@@ -75,7 +79,9 @@ class InterlockServer:
             while self.server_running:
                 try:
                     result = check_func()
-                    diagnostic = diagnostic_func() if (result and diagnostic_func) else ""
+                    diagnostic = (
+                        diagnostic_func() if (result and diagnostic_func) else ""
+                    )
                     self.set_interlock(name, result, diagnostic)
                 except Exception as e:
                     logger.error(f"Error in monitor '{name}': {e}")
@@ -92,7 +98,7 @@ class InterlockServer:
         """Get the current state of an interlock flag."""
         with self.flags_lock:
             return self.interlock_flags.get(name, False)
-        
+
     def get_diagnostic(self, name: str) -> str:
         """Get the current diagnostic info for an interlock flag."""
         with self.flags_lock:
@@ -115,7 +121,7 @@ class InterlockServer:
                     for name, flag in self.interlock_flags.items():
                         if flag:
                             diagnostic = self.interlock_diagnostics.get(name, "")
-                            status_lines.append(f"WARNING! {name} UNSAFE - {diagnostic}") if diagnostic else f"{name}: UNSAFE"
+                            status_lines.append(f"WARNING! {name} UNSAFE - {diagnostic}" if diagnostic else f"WARNING: {name} UNSAFE")
                         else:
                             status_lines.append(f"SAFE: {name}")
                     message = (
@@ -123,7 +129,7 @@ class InterlockServer:
                         if status_lines
                         else "WARNING! No monitors registered"
                     )
-
+                    
                 # encode the message
                 message_bytes = message.encode("utf-8")
 
