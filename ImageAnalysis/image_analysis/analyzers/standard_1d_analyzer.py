@@ -1,0 +1,586 @@
+"""Standard 1D Data Analyzer using configurable processing pipeline.
+
+This module provides a general-purpose foundation for 1D data analysis (spectra,
+lineouts, traces, etc.) using:
+- Type-safe line configuration via Pydantic models
+- Externalized configuration in YAML files
+- Unified processing pipeline
+- Clean separation of concerns
+
+This class is designed to be inherited by specialized analyzers that add
+domain-specific analysis capabilities (e.g., peak finding, spectral analysis).
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Optional, Dict, Any, Tuple, Union
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+from image_analysis.base import ImageAnalyzer
+from image_analysis.config.array1d_processing import Line1DConfig, PipelineStepType
+from image_analysis.data_1d_utils import read_1d_data
+from image_analysis.processing.array1d.pipeline import apply_line_processing_pipeline
+from image_analysis.processing.array1d.roi import build_roi_mask_1d
+from image_analysis.types import Array1D, ImageAnalyzerResult
+
+logger = logging.getLogger(__name__)
+
+
+class Standard1DAnalyzer(ImageAnalyzer):
+    """
+    Standard 1D data analyzer with configurable processing pipeline.
+
+    This analyzer provides a general-purpose foundation for 1D data analysis using:
+    - Type-safe line configuration via Pydantic models
+    - Externalized configuration in YAML files
+    - Unified processing pipeline
+    - Clean separation of concerns
+
+    This class is designed to be inherited by specialized analyzers that add
+    domain-specific analysis capabilities (e.g., spectral analysis, peak finding).
+
+    Parameters
+    ----------
+    line_config : Line1DConfig
+        Validated line configuration model. Use
+        ``image_analysis.config.loader.load_line_config(name)`` to load
+        from disk by name before constructing.
+    output_name : str, optional
+        Output identifier for this analyzer instance — analogous to
+        :class:`StandardAnalyzer.output_name`. Set by the diagnostic
+        factory from ``diag.effective_output_name``. Defaults to
+        ``None`` (no identifier; standalone notebook use).
+    """
+
+    def __init__(
+        self,
+        line_config: Line1DConfig,
+        *,
+        output_name: Optional[str] = None,
+    ):
+        """Initialize the standard 1D analyzer with a validated line config.
+
+        The string-by-name convenience that this constructor used to
+        offer has moved to the loader layer — call
+        ``image_analysis.config.loader.load_line_config(name)`` (or
+        ``image_analysis.config.load_image_analyzer(name)``) to get a
+        ``Line1DConfig`` first, then hand it here.
+        """
+        # Initialize base class first so any defaults it sets can be overridden below.
+        super().__init__()
+
+        self.line_config = line_config
+        self._output_name: Optional[str] = output_name
+        logger.info("Using provided Line1DConfig (output_name=%r)", self._output_name)
+
+        self.run_analyze_image_asynchronously = True
+
+        # Storage for metadata from read_1d_data.
+        # Note: only descriptive metadata (units, labels) persists on self —
+        # per-shot data (loaded aux columns, raw arrays) does not. Aux
+        # columns flow through ``auxiliary_data["_aux_columns"]`` instead,
+        # so atomic ``analyze_image_file`` calls don't leak per-shot state
+        # between scan-pipeline tasks.
+        self.data_metadata: Optional[Dict[str, str]] = None
+
+    def analyze_image_file(
+        self,
+        image_filepath: Union[Path, list[Path]],
+        auxiliary_data: Optional[Dict] = None,
+    ) -> ImageAnalyzerResult:
+        """Atomically load and analyze a 1D data file.
+
+        The load and analyze steps are fused into one task so per-shot
+        data — including loaded auxiliary columns — flows through the
+        local ``auxiliary_data`` dict rather than through analyzer
+        instance state. This matches the post-PR-E ``SingleDeviceScanAnalyzer``
+        contract (per-shot data never travels through analyzer state).
+
+        Auxiliary columns loaded by ``read_1d_data`` (as configured by
+        ``line_config.data_loading.auxiliary_columns``) are stashed under
+        the namespaced ``auxiliary_data["_aux_columns"]`` key — a dict of
+        ``{name: np.ndarray}``. Subclasses (e.g.
+        ``FrogSpectralPhaseAnalyzer``) read them from there. Row-alignment
+        with the primary Nx2 line data is the loader's responsibility;
+        ROI filtering downstream filters both consistently via
+        ``_preprocess_line_data``.
+        """
+        data_config = self.line_config.data_loading
+        data_result = read_1d_data(image_filepath, data_config)
+
+        # Stash descriptive metadata (units, labels) for input-parameter
+        # construction. This is config-derived, not per-shot data.
+        self.data_metadata = {
+            "x_units": data_result.x_units,
+            "y_units": data_result.y_units,
+            "x_label": data_result.x_label,
+            "y_label": data_result.y_label,
+        }
+
+        logger.info(
+            "Loaded 1D data from %s (type: %s, shape: %s)",
+            image_filepath,
+            data_config.data_type,
+            data_result.data.shape,
+        )
+
+        aux = dict(auxiliary_data or {})
+        if not isinstance(image_filepath, list):
+            aux.setdefault("file_path", Path(image_filepath))
+
+        # Aux columns flow through the local call dict. The copy isolates
+        # the analyzer from external mutation; downstream subclasses get
+        # the same arrays the loader emitted.
+        if data_result.auxiliary_column_data:
+            aux["_aux_columns"] = {
+                name: np.asarray(values, dtype=float).copy()
+                for name, values in data_result.auxiliary_column_data.items()
+            }
+
+        return self.analyze_image(data_result.data, aux)
+
+    def load_image(self, file_path: Path) -> Array1D:
+        """Load 1D data from file using configured data loader.
+
+        Overrides the base class to use ``read_1d_data`` instead of
+        ``read_imaq_image``. Uses the ``data_loading`` configuration
+        stored in ``self.line_config`` and stashes descriptive metadata
+        (units, labels) on ``self.data_metadata`` for later use.
+
+        Returns only the primary Nx2 array; any auxiliary columns are
+        dropped on the floor. Callers that need aux columns should go
+        through :meth:`analyze_image_file` instead, which routes them
+        through the local ``auxiliary_data`` dict.
+
+        Parameters
+        ----------
+        file_path : Path
+            Path to the data file
+
+        Returns
+        -------
+        Array1D
+            Nx2 array where column 0 is x values and column 1 is y values
+        """
+        data_config = self.line_config.data_loading
+        result = read_1d_data(file_path, data_config)
+
+        self.data_metadata = {
+            "x_units": result.x_units,
+            "y_units": result.y_units,
+            "x_label": result.x_label,
+            "y_label": result.y_label,
+        }
+
+        logger.info(
+            "Loaded 1D data from %s (type: %s, shape: %s)",
+            file_path,
+            data_config.data_type,
+            result.data.shape,
+        )
+
+        return result.data  # Return Nx2 array
+
+    def preprocess_data(self, data: np.ndarray) -> np.ndarray:
+        """Apply processing pipeline to 1D data, including optional axis scaling.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Input Nx2 array (column 0: x, column 1: y)
+
+        Returns
+        -------
+        np.ndarray
+            Processed Nx2 array with optional axis scaling applied
+        """
+        processed, _ = self._preprocess_line_data(data)
+        return processed
+
+    def _preprocess_line_data(
+        self,
+        data: np.ndarray,
+        auxiliary_column_data: Optional[Dict[str, np.ndarray]] = None,
+    ) -> tuple[np.ndarray, Dict[str, np.ndarray]]:
+        """Preprocess primary line data and row-aligned auxiliary columns."""
+        scaled_data = data.copy()
+
+        if self.line_config.x_scale_factor is not None:
+            scaled_data[:, 0] *= self.line_config.x_scale_factor
+
+        if self.line_config.y_scale_factor is not None:
+            scaled_data[:, 1] *= self.line_config.y_scale_factor
+
+        auxiliary_columns = _validate_auxiliary_column_data(
+            auxiliary_column_data or {}, expected_length=scaled_data.shape[0]
+        )
+        steps = _pipeline_steps(self.line_config)
+
+        if auxiliary_columns and _interpolation_enabled(self.line_config, steps):
+            raise ValueError(
+                "1D auxiliary columns do not support interpolation yet; "
+                "disable interpolation or omit auxiliary_columns"
+            )
+
+        if (
+            auxiliary_columns
+            and self.line_config.roi is not None
+            and PipelineStepType.ROI in steps
+        ):
+            roi_mask = build_roi_mask_1d(scaled_data[:, 0], self.line_config.roi)
+            auxiliary_columns = {
+                name: values[roi_mask].copy()
+                for name, values in auxiliary_columns.items()
+            }
+
+        processed = apply_line_processing_pipeline(scaled_data, self.line_config)
+        return processed, auxiliary_columns
+
+    def analyze_image(
+        self, image: Array1D, auxiliary_data: Optional[Dict] = None
+    ) -> ImageAnalyzerResult:
+        """Analyze 1D data.
+
+        Note: method is named ``analyze_image`` for compatibility with the
+        base class, but it processes 1D data.
+
+        Aux columns are read from ``auxiliary_data["_aux_columns"]`` if
+        present (populated by ``analyze_image_file`` from the loader
+        output) and applied through the preprocessing pipeline alongside
+        the primary line data — ROI filtering trims both consistently.
+        The processed aux columns are not re-emitted on the result;
+        subclasses that need them should call
+        :meth:`_preprocess_line_data` directly.
+
+        Parameters
+        ----------
+        image : Array1D
+            Input Nx2 array (column 0: x, column 1: y)
+        auxiliary_data : dict, optional
+            Per-call data: ``file_path`` for late metadata population
+            (when called outside ``analyze_image_file``), and
+            ``_aux_columns`` for row-aligned auxiliary arrays.
+
+        Returns
+        -------
+        ImageAnalyzerResult
+            Structured result with processed 1D data and metadata.
+        """
+        # When ``analyze_image`` is called directly (not via
+        # ``analyze_image_file``), populate metadata from the file
+        # referenced in auxiliary_data if available.
+        if (
+            self.data_metadata is None
+            and auxiliary_data
+            and "file_path" in auxiliary_data
+        ):
+            self.load_image(auxiliary_data["file_path"])
+
+        raw_auxiliary_columns = (auxiliary_data or {}).get("_aux_columns", {})
+
+        # Apply processing pipeline
+        processed, _ = self._preprocess_line_data(
+            image,
+            auxiliary_column_data=raw_auxiliary_columns,
+        )
+
+        # Build input parameters
+        input_params = self._build_input_parameters(auxiliary_data)
+
+        # Build and return result with 1D data
+        return ImageAnalyzerResult(
+            data_type="1d",
+            line_data=processed,  # Nx2 array
+            scalars={},  # No scalars by default; subclasses can add them
+            metadata=input_params,
+        )
+
+    def _build_input_parameters(
+        self, auxiliary_data: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """Build input parameters dictionary including metadata from data loading.
+
+        This method implements unit resolution where config units take precedence
+        over file metadata units, allowing for override/fallback functionality.
+
+        Parameters
+        ----------
+        auxiliary_data : dict, optional
+            Additional auxiliary data to include
+
+        Returns
+        -------
+        dict
+            Input parameters dictionary with metadata and resolved units
+        """
+        params: Dict[str, Any] = {
+            "data_type": self.line_config.data_loading.data_type,
+            "data_format": self.line_config.data_format,
+        }
+        if self._output_name is not None:
+            params["output_name"] = self._output_name
+
+        # Add metadata from read_1d_data if available, with unit resolution
+        if self.data_metadata is not None:
+            # Unit resolution: config units override file metadata
+            # This allows config to provide fallback units (for NPY files)
+            # or override incorrect file metadata
+            x_units = self.line_config.x_units or self.data_metadata.get("x_units")
+            y_units = self.line_config.y_units or self.data_metadata.get("y_units")
+
+            params.update(
+                {
+                    "x_units": x_units,
+                    "y_units": y_units,
+                    "x_label": self.data_metadata.get("x_label"),
+                    "y_label": self.data_metadata.get("y_label"),
+                }
+            )
+        else:
+            # Fallback to config-only units if file wasn't loaded yet
+            params.update(
+                {
+                    "x_units": self.line_config.x_units,
+                    "y_units": self.line_config.y_units,
+                }
+            )
+
+        if auxiliary_data:
+            params.update(auxiliary_data)
+
+        return params
+
+    def render_image(
+        self,
+        result: ImageAnalyzerResult,
+        figsize: Tuple[float, float] = (8, 4),
+        dpi: int = 150,
+        ax: Optional[plt.Axes] = None,
+        **plot_kwargs,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render 1D data from ImageAnalyzerResult.
+
+        Parameters
+        ----------
+        result : ImageAnalyzerResult
+            Complete analysis result with line_data and metadata
+        figsize : tuple, default=(8, 4)
+            Figure size in inches (width, height)
+        dpi : int, default=150
+            Figure DPI
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to plot on. If None, creates new figure.
+        **plot_kwargs
+            Additional keyword arguments passed to ax.plot()
+
+        Returns
+        -------
+        tuple
+            (figure, axes) matplotlib objects
+
+        Raises
+        ------
+        ValueError
+            If result.data_type is not "1d" or line_data is None.
+        """
+        # Validate input
+        if result.data_type != "1d":
+            raise ValueError(
+                f"render_image requires data_type='1d', got '{result.data_type}'"
+            )
+
+        if result.line_data is None:
+            raise ValueError("line_data cannot be None for 1d data_type")
+
+        # Create figure/axes if needed
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize, dpi=dpi, constrained_layout=True)
+        else:
+            fig = ax.figure
+
+        # Extract data
+        x_data = result.line_data[:, 0]
+        y_data = result.line_data[:, 1]
+
+        # Plot
+        ax.plot(x_data, y_data, **plot_kwargs)
+
+        # Set labels from metadata
+        metadata = result.metadata or {}
+
+        # Build axis labels with units
+        x_label = metadata.get("x_label", "X")
+        x_units = metadata.get("x_units")
+        if x_units:
+            x_label = f"{x_label} ({x_units})"
+
+        y_label = metadata.get("y_label", "Y")
+        y_units = metadata.get("y_units")
+        if y_units:
+            y_label = f"{y_label} ({y_units})"
+
+        ax.set_xlabel(x_label, fontsize=10)
+        ax.set_ylabel(y_label, fontsize=10)
+        ax.tick_params(axis="both", labelsize=9)
+
+        # Optional title from line name
+        line_name = metadata.get("line_name")
+        if line_name:
+            ax.set_title(line_name)
+
+        ax.grid(True, alpha=0.3)
+
+        return fig, ax
+
+    @staticmethod
+    def render_data(
+        data: np.ndarray,
+        analysis_results_dict: Optional[Dict] = None,
+        input_params_dict: Optional[Dict] = None,
+        figsize: Tuple[float, float] = (8, 4),
+        ax: Optional[plt.Axes] = None,
+        **plot_kwargs,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Render 1D data as a line plot.
+
+        Parameters
+        ----------
+        data : np.ndarray
+            Nx2 array to plot (column 0: x, column 1: y)
+        analysis_results_dict : dict, optional
+            Analysis results (currently unused, for future extensions)
+        input_params_dict : dict, optional
+            Input parameters including labels and format info
+        figsize : tuple, default=(8, 4)
+            Figure size in inches (width, height)
+        ax : matplotlib.axes.Axes, optional
+            Existing axes to plot on. If None, creates new figure.
+        **plot_kwargs
+            Additional keyword arguments passed to ax.plot()
+
+        Returns
+        -------
+        tuple
+            (figure, axes) matplotlib objects
+        """
+        # Create figure if needed
+        if ax is None:
+            fig, ax = plt.subplots(figsize=figsize)
+        else:
+            fig = ax.figure
+
+        # Extract x and y data
+        x_data = data[:, 0]
+        y_data = data[:, 1]
+
+        # Plot
+        ax.plot(x_data, y_data, **plot_kwargs)
+
+        # Set labels if available
+        if input_params_dict:
+            # Try to use metadata labels first (from read_1d_data)
+            x_label = input_params_dict.get("x_label")
+            y_label = input_params_dict.get("y_label")
+            x_units = input_params_dict.get("x_units")
+            y_units = input_params_dict.get("y_units")
+
+            # Build axis labels with units if available
+            if x_label:
+                xlabel = f"{x_label} ({x_units})" if x_units else x_label
+                ax.set_xlabel(xlabel)
+            elif "data_format" in input_params_dict:
+                # Fallback to parsing data_format string
+                data_format = input_params_dict.get("data_format", "x vs y")
+                if " vs " in data_format:
+                    parts = data_format.split(" vs ")
+                    ax.set_xlabel(parts[0].strip())
+                else:
+                    ax.set_xlabel("X")
+            else:
+                ax.set_xlabel("X")
+
+            if y_label:
+                ylabel = f"{y_label} ({y_units})" if y_units else y_label
+                ax.set_ylabel(ylabel)
+            elif "data_format" in input_params_dict:
+                # Fallback to parsing data_format string
+                data_format = input_params_dict.get("data_format", "x vs y")
+                if " vs " in data_format:
+                    parts = data_format.split(" vs ")
+                    ax.set_ylabel(parts[1].strip())
+                else:
+                    ax.set_ylabel("Y")
+            else:
+                ax.set_ylabel("Y")
+
+            # Add title if line name is available
+            line_name = input_params_dict.get("line_name")
+            if line_name:
+                ax.set_title(line_name)
+
+        # Grid
+        ax.grid(True, alpha=0.3)
+
+        return fig, ax
+
+    @property
+    def output_name(self) -> Optional[str]:
+        """Return the output identifier for this analyzer instance.
+
+        Same contract as :attr:`StandardAnalyzer.output_name` — ``None``
+        in standalone notebook use, set by the diagnostic factory from
+        ``diag.effective_output_name`` in the scan path. Read by
+        ``SingleDeviceScanAnalyzer`` for per-analyzer output dir labels.
+        """
+        return self._output_name
+
+
+def _validate_auxiliary_column_data(
+    auxiliary_column_data: Dict[str, np.ndarray],
+    expected_length: int,
+) -> Dict[str, np.ndarray]:
+    """Return validated copies of named auxiliary column arrays."""
+    validated: Dict[str, np.ndarray] = {}
+    for name, values in auxiliary_column_data.items():
+        if not name.strip():
+            raise ValueError("auxiliary column names must be non-empty")
+
+        array = np.asarray(values, dtype=float).reshape(-1)
+        if array.shape[0] != expected_length:
+            raise ValueError(
+                f"auxiliary column '{name}' has {array.shape[0]} samples, "
+                f"expected {expected_length}"
+            )
+        validated[name] = array.copy()
+    return validated
+
+
+def _pipeline_steps(config: Line1DConfig) -> list[PipelineStepType]:
+    """Return configured pipeline steps, including the default order."""
+    if config.pipeline is not None:
+        return list(config.pipeline.steps)
+
+    return [
+        PipelineStepType.ROI,
+        PipelineStepType.BACKGROUND,
+        PipelineStepType.FILTERING,
+        PipelineStepType.THRESHOLDING,
+        PipelineStepType.INTERPOLATION,
+    ]
+
+
+def _interpolation_enabled(
+    config: Line1DConfig,
+    steps: list[PipelineStepType],
+) -> bool:
+    """Return whether interpolation will modify the primary line grid.
+
+    Post-PR-F semantics: ``pipeline.steps`` is the single source of
+    truth — if the step is in the list and the sub-config is present,
+    it runs. There is no separate ``enabled`` flag on the sub-config.
+    """
+    return PipelineStepType.INTERPOLATION in steps and config.interpolation is not None

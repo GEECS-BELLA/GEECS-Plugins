@@ -10,7 +10,7 @@ This module provides all processing operations for 2D image data, including:
 """
 
 # Config models
-from .config_models import (
+from image_analysis.config.array2d_processing import (
     CameraConfig,
     BackgroundConfig,
     FilteringConfig,
@@ -26,15 +26,13 @@ from .config_models import (
     VignetteMethod,
 )
 
-# backgroudn operations
+# Background operations
 from .background import (
-    compute_background,
+    apply_background,
     subtract_background,
     load_background_from_file,
     save_background_to_file,
 )
-
-from .background_manager import BackgroundManager
 
 
 # Masking operations
@@ -72,11 +70,7 @@ from .vignette import (
 )
 
 # Pipeline
-from .pipeline import (
-    apply_camera_processing_pipeline,
-    apply_non_background_processing,
-    create_background_manager_from_config,
-)
+from .pipeline import apply_camera_processing_pipeline
 
 # Registry for dynamic function lookup
 PROCESSING_FUNCTIONS = {
@@ -91,11 +85,10 @@ PROCESSING_FUNCTIONS = {
 
 __all__ = [
     # Background processing
-    "compute_background",
+    "apply_background",
     "subtract_background",
     "load_background_from_file",
     "save_background_to_file",
-    "BackgroundManager",
     # Masking operations
     "apply_crosshair_masking",
     "apply_roi_cropping",
@@ -118,8 +111,6 @@ __all__ = [
     "apply_vignette_config",
     # Unified processing pipeline
     "apply_camera_processing_pipeline",
-    "create_background_manager_from_config",
-    "apply_non_background_processing",
     # Configuration models
     "CameraConfig",
     "BackgroundConfig",

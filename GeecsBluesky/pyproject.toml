@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.3.0"
+version = "0.9.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -14,12 +14,15 @@ python = ">=3.11,<3.12"
 ophyd-async = ">=0.16,<1.0"
 bluesky = ">=1.12"
 
+# Scan numbering (claim_scan_number) and the Tiled→s-file exporter
+# (write_scalar_files_from_tiled) live here; it also supplies pandas/nptdms
+# transitively, so they are not pinned separately above.
+geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+
 # Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but
 # that package uses a separate Poetry env (Python <3.12).  Install it manually:
 #   pip install -e ../GEECS-PythonAPI
 # It is intentionally omitted here to keep the build-system dependency-free.
-pandas = ">=2.1.1"
-nptdms = "^1.10.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 mysql-connector-python = "^9.7.0"
 

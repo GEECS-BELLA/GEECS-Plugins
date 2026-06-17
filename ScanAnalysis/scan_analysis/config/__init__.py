@@ -1,170 +1,93 @@
-"""
-Configuration system for scan analysis.
+"""Configuration system for scan analysis.
 
-This package provides a modern, YAML-based configuration system for defining
-scan analyzers, replacing the older hardcoded map_*.py files.
+This package provides the unified diagnostic config schema and
+loader for scan analyzers. Each diagnostic is one YAML file under
+``scan_analysis_configs/analyzers/<namespace>/<id>.yaml`` carrying
+both an ``image:`` section (consumed by ImageAnalysis) and a
+``scan:`` section (consumed by ScanAnalysis). Diagnostics are
+collected into analysis groups under
+``scan_analysis_configs/groups/<namespace>/<group>.yaml``, which
+LiveWatch and the task queue consume directly.
 
-Main Components
----------------
-- Pydantic models for analyzer configuration (analyzer_config_models)
-- Config file loader with recursive search (config_loader)
-- Factory for instantiating analyzers from config (analyzer_factory)
-
-Quick Start
+Quick start
 -----------
-1. Set up config directory:
 
-    >>> from geecs_data_utils.config_roots import scan_analysis_config
-    >>> scan_analysis_config.set_base_dir("/path/to/scan_analysis_configs")
+Load a group, instantiate its analyzers, run::
 
-2. Load experiment configuration:
-
-    >>> from scan_analysis.config import load_experiment_config
-    >>> config = load_experiment_config("undulator")
-
-3. Create analyzers:
-
-    >>> from scan_analysis.config import create_analyzer
-    >>> analyzers = [create_analyzer(cfg) for cfg in config.active_analyzers]
-
-4. Sort by priority and run:
-
-    >>> analyzers.sort(key=lambda a: a.priority)
-    >>> for analyzer in analyzers:
-    ...     analyzer.run_analysis(scan_tag)
-
-Environment Variables
---------------------
-SCAN_ANALYSIS_CONFIG_DIR : str
-    Directory containing scan analysis YAML configs. If set, automatically
-    initializes the config base directory on import.
-
-Public API
-----------
-Configuration Models:
-    - ImageAnalyzerConfig
-    - Array2DAnalyzerConfig
-    - Array1DAnalyzerConfig
-    - ScanAnalyzerConfig (Union type)
-    - ExperimentAnalysisConfig
-
-Config Loading:
-    - load_experiment_config
-    - find_config_file
-    - list_available_configs
-
-Analyzer Creation:
-    - create_analyzer
-    - create_image_analyzer
-
-Examples
---------
-Example YAML configuration file (undulator_analysis.yaml):
-
-    experiment: Undulator
-    description: Standard analysis for Undulator experiment
-    version: "1.0"
-    upload_to_scanlog: true
-
-    analyzers:
-      # High priority (analyze first)
-      - type: array2d
-        device_name: UC_GaiaMode
-        priority: 0
-        image_analyzer:
-          analyzer_class: image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer
-          camera_config_name: UC_GaiaMode
-
-      - type: array2d
-        device_name: UC_ExpanderIn1_Pulsed
-        priority: 10
-        image_analyzer:
-          analyzer_class: image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer
-          camera_config_name: UC_ExpanderIn1_Pulsed
-
-      # Medium priority
-      - type: array2d
-        device_name: UC_ALineEbeam1
-        priority: 50
-        image_analyzer:
-          analyzer_class: image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer
-          camera_config_name: UC_ALineEbeam1
-
-      # Background priority (default)
-      - type: array1d
-        device_name: U_BCaveICT
-        priority: 100
-        image_analyzer:
-          analyzer_class: image_analysis.offline_analyzers.standard_1d_analyzer.Standard1DAnalyzer
-          kwargs:
-            data_type: tdms
-
-Complete workflow example:
-
-    >>> from scan_analysis.config import (
-    ...     load_experiment_config,
-    ...     create_analyzer
-    ... )
-    >>> from geecs_data_utils.config_roots import scan_analysis_config
+    >>> from scan_analysis.config import load_analysis_group, create_scan_analyzer
     >>>
-    >>> # Set up config directory
-    >>> scan_analysis_config.set_base_dir("/data/configs/scan_analysis")
-    >>>
-    >>> # Load experiment configuration
-    >>> config = load_experiment_config("undulator")
-    >>> print(f"Loaded {len(config.active_analyzers)} analyzers")
-    >>>
-    >>> # Get high-priority analyzers only
-    >>> priority_configs = config.get_analyzers_by_priority(max_priority=10)
-    >>> priority_analyzers = [create_analyzer(cfg) for cfg in priority_configs]
-    >>>
-    >>> # Run high-priority analysis
-    >>> for analyzer in priority_analyzers:
-    ...     analyzer.run_analysis(scan_tag)
-    >>>
-    >>> # Later, run remaining analyzers
-    >>> remaining_configs = [
-    ...     cfg for cfg in config.active_analyzers
-    ...     if cfg.priority > 10
+    >>> group = load_analysis_group("baseline", config_dir=<scan_analysis_configs>)
+    >>> analyzers = [
+    ...     create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+    ...     for r in group.analyzers
     ... ]
-    >>> remaining_analyzers = [create_analyzer(cfg) for cfg in remaining_configs]
+    >>> for a in analyzers:
+    ...     a.run_analysis(scan_tag)
+
+Or build a single diagnostic directly::
+
+    >>> from image_analysis.config import load_diagnostic
+    >>> from scan_analysis.config import create_scan_analyzer
+    >>> diag = load_diagnostic("UC_VisaEBeam1")
+    >>> diag.image.roi.x_max = 200    # optional notebook tweak
+    >>> analyzer = create_scan_analyzer(diag)
+
+Environment
+-----------
+
+``SCAN_ANALYSIS_CONFIG_DIR`` (env var) or ``scan_analysis_configs_path``
+in ``~/.config/geecs_python_api/config.ini`` sets the configs root.
+ImageAnalysis derives its own search root as
+``<scan_analysis_configs_path>/analyzers`` automatically.
 """
 
-# Configuration models
-from .analyzer_config_models import (
-    Array1DAnalyzerConfig,
-    Array2DAnalyzerConfig,
-    ExperimentAnalysisConfig,
-    ImageAnalyzerConfig,
-    PlotParameterConfig,
-    ScatterAnalyzerConfig,
-    ScanAnalyzerConfig,
+# Unified diagnostic schema — the top-level model lives in ImageAnalysis
+# (it owns the image_analyzer + image: shape), re-exported here for
+# back-compat with callers used to importing from scan_analysis.config.
+from image_analysis.config import (
+    DiagnosticAnalysisConfig,
+    ImageAnalyzerSpec,
+    resolve_image_analyzer_value,
+)
+from .diagnostic_models import (
+    AnalysisGroupConfig,
+    AnalyzerRef,
+    AutodetectBackgroundSpec,
+    BackgroundSource,
+    FromCurrentScanSpec,
+    ResolvedDiagnosticConfig,
+    ScanRuntimeConfig,
 )
 
-# Config loading
-from .config_loader import (
-    find_config_file,
-    list_available_configs,
-    load_experiment_config,
+# Loader + factory for unified diagnostics
+from .analysis_group_loader import (
+    LoadedAnalysisGroup,
+    discover_analyzers,
+    discover_groups,
+    load_analysis_group,
+    resolve_group,
 )
-
-# Analyzer factory
-from .analyzer_factory import create_analyzer, create_image_analyzer
+from .diagnostic_factory import create_scan_analyzer
 
 __all__ = [
-    # Models
-    "ImageAnalyzerConfig",
-    "Array2DAnalyzerConfig",
-    "Array1DAnalyzerConfig",
-    "PlotParameterConfig",
-    "ScatterAnalyzerConfig",
-    "ScanAnalyzerConfig",
-    "ExperimentAnalysisConfig",
-    # Config loading
-    "load_experiment_config",
-    "find_config_file",
-    "list_available_configs",
+    # Unified diagnostic models
+    "DiagnosticAnalysisConfig",
+    "ScanRuntimeConfig",
+    "ResolvedDiagnosticConfig",
+    "AnalyzerRef",
+    "AnalysisGroupConfig",
+    "BackgroundSource",
+    "AutodetectBackgroundSpec",
+    "FromCurrentScanSpec",
+    # image_analyzer field model + helpers
+    "ImageAnalyzerSpec",
+    "resolve_image_analyzer_value",
+    # Loader
+    "load_analysis_group",
+    "discover_analyzers",
+    "discover_groups",
+    "resolve_group",
+    "LoadedAnalysisGroup",
     # Factory
-    "create_analyzer",
-    "create_image_analyzer",
+    "create_scan_analyzer",
 ]

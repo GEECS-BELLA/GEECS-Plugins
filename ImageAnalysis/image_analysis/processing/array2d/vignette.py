@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 
 from ...types import Array2D
-from .config_models import VignetteConfig, VignetteMethod
+from image_analysis.config.array2d_processing import VignetteConfig, VignetteMethod
 
 
 def build_radial_vignette_map(
@@ -133,14 +133,7 @@ def apply_vignette_map(image: Array2D, vignette_map: Array2D) -> Array2D:
 
 
 def apply_vignette_config(image: Array2D, config: VignetteConfig) -> Array2D:
-    """
-    Apply vignette correction according to configuration.
-
-    Returns the original image unchanged when correction is disabled.
-    """
-    if not config.enabled:
-        return image
-
+    """Apply vignette correction according to configuration."""
     if config.method == VignetteMethod.RADIAL_POLYNOMIAL:
         vignette_map = build_radial_vignette_map(
             image_shape=image.shape,

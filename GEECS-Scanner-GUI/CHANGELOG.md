@@ -3,6 +3,498 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.2] — 2026-06-09
+
+### Fixed
+- Bluesky-mode `RunControl.get_database_dict()` now loads the experiment device
+  dictionary directly, so save-element editors can populate variable completers
+  without relying on the legacy `ScanManager` database cache.
+
+## [0.28.1] — 2026-06-09
+
+### Changed
+- Bluesky-mode `RunControl` now passes the GUI scan-event callback and timing
+  YAML into `BlueskyScanner`, allowing the GUI to receive lifecycle completion
+  events and letting Bluesky scans use the same shot-control configuration.
+- The Scanner GUI path dependency now requests the `geecs-bluesky[tiled]` extra,
+  so Tiled client support is installed with the GUI environment.
+
+## [0.28.0] — 2026-06-01
+
+Companion to ImageAnalysis 1.8.0 + ScanAnalysis 1.12.0 (issue #412 —
+scalar-key prefix/suffix moves to ScanAnalysis). The contract the
+optimizer evaluator sees is unchanged: ``analyzer.results[N].scalars``
+keys are still ``{prefix}_{key}{suffix}``-shaped (defaulting to
+``{device_name}_{key}`` when no overrides are set). What changed is
+*which layer* applies the namespacing. The pass-through behaviour in
+``BaseEvaluator._get_value`` shipped in 0.27.0 stays correct.
+
+### Changed
+- Doc-only refresh of the ``BaseEvaluator._get_value`` slot-merge
+  inline comment and the ``BaseEvaluator`` class docstring. The earlier
+  "inversion pending when #412 lands" note is replaced by the
+  post-#412 explanation: ImageAnalysis emits bare keys, ScanAnalysis's
+  ``SingleDeviceScanAnalyzer._consume_result`` adds the prefix/suffix,
+  the evaluator just forwards.
+
+### Test count
+- 67 tests pass unchanged.
+
+## [0.27.0] — 2026-06-01
+
+Unified evaluator architecture. `MultiDeviceScanEvaluator` and
+`ScalarLogEvaluator` collapse into a single `BaseEvaluator` class that
+handles both diagnostic-driven analyzers and direct s-file scalar
+columns. The minimum viable subclass for a new objective is now ~5
+lines of Python, down from ~30. Observables and objectives are peer
+first-class hooks; the BAX (observables-only) path is no longer a
+degenerate special case.
+
+### Changed (breaking)
+- `BaseEvaluator` is now a concrete class (not abstract) that absorbs
+  the data-source orchestration that previously lived in
+  `MultiDeviceScanEvaluator` and `ScalarLogEvaluator`. Construction
+  accepts:
+    - `analyzers: List[str | dict]` — diagnostic stems with optional
+      `{diagnostic: X, ...patch}` override entries (unchanged from
+      0.26.0)
+    - `scalars: List[str]` — s-file column names pulled per-shot from
+      `current_data_bin` (new — was `scalar_keys` on the old
+      `ScalarLogEvaluator`)
+    - `objective_tag: str | None` — human-readable label written to
+      `log_entries` under `Objective:<tag>`. Defaults to the subclass
+      name; override via YAML kwarg or subclass class attribute
+- `compute_objective(self, scalars, bin_number)` — the parameter is
+  now a flat dict with **device-prefixed keys for analyzer outputs**
+  (`scalars["UC_TopView_x_fwhm"]`) and bare column names for s-file
+  scalars (`scalars["U_Laser:Energy"]`). The previous loose `get_scalar`
+  helper with three-naming-convention fallback is gone — just dict access.
+  No collisions possible because analyzer keys are always device-prefixed.
+- `compute_objective` defaults to returning `None` (was: `NotImplementedError`).
+  Returning `None` signals "this evaluator has no objective" — the BAX
+  case where `output_key = None`. Subclasses with an objective must
+  override this OR `compute_objective_from_shots`.
+- `compute_observables_from_shots(self, scalars_list, bin_number)` — new
+  per-shot hook, peer to `compute_objective_from_shots`. Mean-aggregates
+  and delegates to `compute_observables` by default; override for custom
+  observable statistics or shot-level filtering (e.g. weighted median).
+- s-file scalars are always per-shot (one slot per shot row in
+  `current_data_bin`). Per-bin aggregation is purely an
+  image-analyzer concern (analyzer's own `scan.mode`); for raw scalars
+  the subclass decides how to aggregate the per-shot list (mean, median,
+  filtered, …) via `compute_*_from_shots` — no framework-level mean
+  policy on scalar data.
+
+### Removed
+- `MultiDeviceScanEvaluator` class. Absorbed into `BaseEvaluator`. All
+  concrete subclasses (`BeamSizeEvaluator`, `MaxCountsEvaluator`,
+  `BeamPositionEvaluator`, `BeamPositionSimulationEvaluator`,
+  `EBeamSourceOpt`) now inherit from `BaseEvaluator` directly.
+- `ScalarLogEvaluator` class and its `observables_only` classmethod
+  factory. Same capability is now `BaseEvaluator` with `analyzers=[]`
+  and a subclass implementing `compute_observables`.
+- `get_scalar(device, metric, results)` helper with three-naming-convention
+  fallback. Replaced by direct dict access on the prefixed scalars dict.
+- `primary_device` is still exposed on `BaseEvaluator` as a convenience
+  for single-analyzer subclasses, but reads from `self.diagnostics[0].name`
+  rather than `self.analyzer_refs[0].device_name`.
+
+### Fixed
+- `BaseEvaluator._get_value` no longer double-prefixes analyzer scalars.
+  The image analyzer already emits scalars with keys like
+  `"UC_TopView_x_fwhm"` (the prefix comes from
+  ``camera_config.name``); the earlier draft of `_get_value` added the
+  prefix again, producing `"UC_TopView_UC_TopView_x_fwhm"` and a
+  `KeyError` on every objective lookup. `result.scalars` keys are now
+  forwarded through unchanged.
+- RFC #412 will move prefixing from ImageAnalysis to ScanAnalysis. When
+  that lands, this layer's pass-through behaviour reverses — the
+  framework will need to prefix bare keys with the device name itself.
+  Comment in `_get_value` flags the line that will need to change.
+
+### Net
+- Files: 9 → 7 in `evaluators/`
+- Public classes: 3 evaluator-base classes (`BaseEvaluator`,
+  `MultiDeviceScanEvaluator`, `ScalarLogEvaluator`) → 1 (`BaseEvaluator`)
+- LoC (production code): 995 → ~800
+
+### Migration
+No production YAMLs need changes — all currently subclass
+`MultiDeviceScanEvaluator`, which is replaced by `BaseEvaluator` but
+the subclass names are preserved. The only optimizer YAML feature that
+required `ScalarLogEvaluator` directly was the simulation evaluator's
+column reads, which now use the new `scalars:` config block (auto-added
+by the subclass `__init__`).
+
+## [0.26.0] — 2026-05-30
+
+Reintroduce per-analyzer overrides on the optimizer YAML — but as a
+generic `scan:` (or any-field) patch routed through the loader, not as
+a magic single-field knob. Companion to ImageAnalysis 1.7.0.
+
+### Added
+- Optimizer YAML's `evaluator.kwargs.analyzers` accepts dict-form
+  entries alongside bare strings:
+  ```yaml
+  analyzers:
+    - UC_TopView                          # diagnostic as-is
+    - diagnostic: UC_FROG                 # patch scan block
+      scan:
+        mode: per_bin
+  ```
+  Any field on the diagnostic can be overridden; the patch is
+  deep-merged via `load_diagnostic`'s new `overrides` kwarg
+  (ImageAnalysis 1.7.0) and re-validated. No code change here is
+  optimization-specific — the override mechanism lives on the loader.
+- `OptimizerAnalyzerEntry` — three-line envelope model
+  (`diagnostic: str` + `ConfigDict(extra="allow")`) that validates the
+  dict form's shape and surfaces the override patch via
+  `model_extra`. Deliberately does not enumerate override fields, so
+  future per-context overrides (priority, save flag, anything) need no
+  code changes here.
+- `_split_analyzer_entry(entry) -> (name, overrides)` — single
+  envelope decoder used by both `BaseOptimizerConfig._load_and_check`
+  (for `device_requirements` auto-generation) and
+  `MultiDeviceScanEvaluator.__init__` (for analyzer construction).
+  Keeps the two call sites in lockstep.
+
+### Migration
+Production optimizer YAMLs that previously needed `per_bin` and were
+flattened to bare strings in 0.25.0 — and lost their override — are
+restored to dict form with `scan: {mode: per_bin}` patches in
+[GEECS-Plugins-Configs@148e222](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/148e222).
+Bare-string entries are still accepted and behave as before (use
+diagnostic as-is).
+
+### Note
+This release reverses the override removal in 0.25.0. The reintroduced
+mechanism is structurally cleaner than the 0.24.0 form it replaced:
+the override capability lives in `image_analysis.config.load_diagnostic`
+(generic, available to any consumer), the optimizer-side surface is a
+three-line envelope model instead of the previous 95-LoC computed-field
+wrapper, and the YAML vocabulary matches the diagnostic's own shape
+(`scan:` block as the patch).
+
+## [0.25.0] — 2026-05-30
+
+Drop the optimizer's per-analyzer override surface. The diagnostic YAML
+is now the single source of truth for how each analyzer runs, in both
+canonical scan analysis and optimization. To change an analyzer's mode
+for optimization, edit the diagnostic.
+
+### Changed (breaking)
+- Optimizer YAML's `evaluator.kwargs.analyzers` is now a flat list of
+  diagnostic stems. The `{diagnostic: <stem>, analysis_mode: <mode>}`
+  dict form from 0.24.0 is gone:
+  ```yaml
+  analyzers:
+    - UC_TopView                   # was: {diagnostic: UC_TopView}
+    - U_BCaveICT
+  ```
+- `OptimizerAnalyzerRef` (and its `to_device_requirement` method) and
+  `_build_device_requirements` helper are gone from `config_models.py`.
+  Device-requirements aggregation now happens inline in
+  `BaseOptimizerConfig._load_and_check` — for each diagnostic stem the
+  validator loads the YAML, reads `diag.name`, and templates a per-analyzer
+  device block under that key.
+- `MultiDeviceScanEvaluator.__init__` takes `analyzers: List[str]` instead
+  of `List[dict]`. The evaluator stashes the loaded diagnostics on
+  `self.diagnostics`; the `analyzer_refs` attribute is gone.
+  `primary_device` now reads `self.diagnostics[0].name`. Downstream
+  subclasses that touched `analyzer_refs[0].device_name` should use
+  `primary_device` instead (`bcavemagspec_opt.EBeamSourceOpt` updated).
+- The `analysis_mode` keyword on `create_scan_analyzer` (added in
+  ScanAnalysis 1.10.0) is also gone — see ScanAnalysis 1.11.0.
+
+### Migration
+Production optimizer YAMLs under `scanner_configs/experiments/<exp>/optimizer_configs/`
+need to drop their `analysis_mode:` lines and may collapse `{diagnostic: X}`
+entries to bare `X` strings. Done in
+[GEECS-Plugins-Configs@b2c14b1](https://github.com/GEECS-BELLA/GEECS-Plugins-Configs/commit/b2c14b1)
+for the 10 Undulator YAMLs in production. If an analyzer needs a different mode in optimization than
+in scan analysis, edit the diagnostic's `scan.mode` (or fork the
+diagnostic if the modes legitimately differ between contexts).
+
+## [0.24.0] — 2026-05-29
+
+Optimizer-side modernization that exploits the post-PR-E unified-diagnostic
+surface. Drops the heavyweight wrapper config the previous release introduced
+in favour of a thin reference model that defers to the canonical scan-analyzer
+factory.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` is gone. Replaced by
+  `OptimizerAnalyzerRef` (~20 LoC vs the prior 170+) — just `diagnostic` +
+  optional `analysis_mode`. The replaced model used `computed_field`
+  shims (`device_name`, `analyzer_type`, `file_tail`, `image_analyzer`,
+  `data_device_name`, plus an `image_config` property) to re-expose
+  everything on the diagnostic; none of that earns its keep after
+  `scan_analysis.config.create_scan_analyzer(diag)` became the canonical
+  factory used by the task queue + LiveWatch. The optimizer now hands
+  the loaded diagnostic straight to that factory with
+  `use_injected_data=True`.
+- `MultiDeviceScanEvaluatorConfig` is gone. Its only consumer
+  (`BaseOptimizerConfig._load_and_check`) inlines into a small
+  `_build_device_requirements` helper that walks the analyzer entries,
+  validates each as `OptimizerAnalyzerRef`, and merges the per-analyzer
+  device blocks. No public-API change for the optimizer YAML shape; the
+  field disappearing is internal.
+- `MultiDeviceScanEvaluator._create_scan_analyzer` is gone. The
+  evaluator now calls
+  `create_scan_analyzer(ref.diag, analysis_mode=ref.analysis_mode,
+  use_injected_data=True)` directly — no manual analyzer-class
+  importing, no kwarg-splicing of the typed image config into the
+  analyzer's constructor, no `live_analysis` / `use_colon_scan_param`
+  setattr lines (the latter were broken anyway after ScanAnalysis 1.10.0
+  removed those attributes).
+- Evaluator attribute renamed `analyzer_configs` → `analyzer_refs` to
+  reflect the thinner role. The `_get_value` dispatch reads each
+  analyzer's effective mode straight off `analyzer.analysis_mode` (the
+  factory resolved `ref.analysis_mode` ↔ `scan.mode` at construction);
+  no parallel cache to keep in sync. Subclasses + tests that touched
+  the old attribute were updated (`bcavemagspec_opt.EBeamSourceOpt`,
+  `test_multi_device_scan_evaluator.py`, `test_evaluator_bax_mode.py`,
+  `test_concrete_evaluators.py`).
+
+### Migration
+The optimizer YAML shape from 0.23.0 is unchanged externally — analyzer
+entries are still `diagnostic: <stem>` (+ optional `analysis_mode`).
+Existing 0.23.0-style YAMLs work without edits.
+
+## [0.23.0] — 2026-05-29
+
+Diagnostic-driven optimizer analyzer configs.
+
+### Changed (breaking)
+- `SingleDeviceScanAnalyzerConfig` now references a unified diagnostic
+  YAML by name (`diagnostic: <stem>`) instead of duplicating every
+  field the diagnostic already defines. The model validator calls
+  `image_analysis.config.load_diagnostic(stem)` at construction and
+  exposes `device_name`, `analyzer_type`, `file_tail`,
+  `image_analyzer`, `image_config`, and `data_device_name` as
+  computed properties derived from the diagnostic's `image:` /
+  `scan:` sections. The single override knob is `analysis_mode`,
+  which beats the diagnostic's `scan.mode` when set (the common
+  `per_shot` ↔ `per_bin` toggle you actually want per optimization
+  run).
+- `MultiDeviceScanEvaluator._create_scan_analyzer` consumes the
+  diagnostic's typed image config directly (no second on-disk lookup
+  via `load_camera_config` / `load_line_config`). Drops the
+  `image_analysis_config.set_base_dir(...)` side effect entirely
+  since `load_diagnostic` resolves its own base dir.
+- The legacy optimizer YAML shape (`device_name`, `analyzer_type`,
+  `file_tail`, `image_analyzer.{module, class, kwargs}`,
+  `analysis_mode`, `data_device_name` as top-level analyzer fields)
+  is gone. Existing optimizer YAMLs must migrate to the
+  one-diagnostic-per-analyzer form:
+
+  ```yaml
+  # Before:
+  analyzers:
+    - device_name: UC_TopView
+      analyzer_type: Array2DScanAnalyzer
+      file_tail: .png
+      image_analyzer:
+        class_path: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
+      analysis_mode: per_bin
+
+  # After:
+  analyzers:
+    - diagnostic: UC_TopView      # everything else inherited
+      analysis_mode: per_bin      # optional override
+  ```
+
+Net win: optimizer YAMLs drop from ~8 fields per analyzer to 1–2,
+analyzer configuration lives in one place (the diagnostic YAML)
+instead of being copy-pasted between scan-analysis and optimization
+contexts, and per-optimization-run tuning (specifically per_shot vs
+per_bin) stays a one-line override.
+
+## [0.22.1] — 2026-05-29
+
+### Fixed
+- `MultiDeviceScanEvaluator._create_scan_analyzer` now points the
+  image-analysis loader at the unified diagnostic-config root
+  (`scan_analysis_configs_path`) instead of the legacy
+  `image_analysis_configs_path`. The optimizer code missed the
+  base-dir migration that the PR-E loader-API refactor + unified-
+  configs cutover landed: optimizer YAMLs were resolving
+  `camera_config_name` against the empty/legacy
+  `image_analysis_configs/` directory and raising `FileNotFoundError`
+  on any real run. `load_camera_config` / `load_line_config` unwrap
+  the `image:` subsection from unified diagnostic YAMLs transparently,
+  so the new base dir works for the unified files that production
+  configs have migrated to.
+
+## [0.22.0] — 2026-05-27
+
+Loader API consolidation (PR-E). Companion to ImageAnalysis 1.5.0 and
+ScanAnalysis 1.7.0. The optimizer-side scan-analyzer construction path
+now goes through the same resolved-spec shape that the diagnostic
+factory uses.
+
+### Changed
+- `MultiDeviceScanEvaluator._create_scan_analyzer` reworked to consume
+  the resolved `ImageAnalyzerSpec` (`class_path` + `kwargs`) directly
+  and the new `image_analysis.analyzers.*` module layout. The evaluator
+  no longer carries an ad-hoc local construction path; it shares the
+  same spec resolution the diagnostic factory uses.
+- `optimization/config_models.py` simplified: the `image_analyzer`
+  field defers to the shared `ImageAnalyzerSpec` validator rather than
+  re-implementing analyzer-class resolution locally.
+
+### Added
+- `tests/optimization/test_evaluator_create_scan_analyzer.py` — 264
+  lines covering `MultiDeviceScanEvaluator._create_scan_analyzer`
+  against the new spec-resolution path. This evaluator method was
+  previously untested.
+
+### Breaking
+- Optimizer YAMLs that still reference
+  `image_analysis.offline_analyzers.*` class paths must migrate to
+  `image_analysis.analyzers.*` (PR-E rename).
+
+## [0.21.0] — 2026-05-24
+
+Companion release to the ScanAnalysis 1.6.0 unified-configs cutover.
+Optimizer YAMLs that embed a `SingleDeviceScanAnalyzer` now use the
+unified `ImageAnalyzerSpec` shape (string alias / alias-dict / verbose
+`class_path` form) instead of the old separate `{module, class}` pair.
+
+### Changed
+- `SingleDeviceScanAnalyzerConfig.image_analyzer` now accepts the
+  unified `ImageAnalyzerSpec` shape, with a `resolve_image_analyzer_value`
+  field validator. The optimizer-side `_create_scan_analyzer` path uses
+  the resolved `spec.class_path` / `spec.kwargs` directly — it doesn't
+  go through the disk-loaded diagnostic factory, because optimizer YAMLs
+  don't carry an embedded `image:` section.
+
+### Removed
+- The duplicate `ImageAnalyzerConfig` model in
+  `optimization.config_models`. The single source of truth is now
+  `scan_analysis.config.aliases.ImageAnalyzerSpec`.
+
+### Breaking
+- Optimizer YAMLs that embed `image_analyzer: {module: ..., class: ...}`
+  must migrate to one of the unified forms — e.g.
+  `image_analyzer: beam` (alias) or
+  `image_analyzer: {class_path: image_analysis.analyzers.beam.BeamAnalyzer, kwargs: {...}}`.
+
+## [0.20.0] — 2026-05-13
+
+### Added
+
+- **`move_to_best_on_finish` option for optimization scans.**
+  `BaseOptimizerConfig` gains a `move_to_best_on_finish: bool` field (default
+  `False`).  When `True`, at scan end — whether the scan completed normally or
+  was stopped early via the GUI — `ScanManager.stop_scan()` calls
+  `BaseOptimizer.best_observed_setpoint()` and sets each control device to that
+  row's values instead of restoring the pre-scan state.  Useful for leaving the
+  beamline at the empirically-best configuration the run found.  Falls back to
+  initial-state restoration (with a warning log) if `X.data` is empty, not yet
+  initialized, or all rows are errored / have a NaN objective.  Device-set
+  failures are logged and emitted as `ScanRestoreFailedEvent` (same pattern as
+  `restore_initial_state`), so the GUI accumulates them without aborting cleanup.
+- **`BaseOptimizer.best_observed_setpoint()`** — returns
+  `{variable_name: float}` for the best row in `X.data` (filtered for errors
+  and NaN objective), or `None` if no usable rows exist.  Objective direction
+  (`MAXIMIZE` / `MINIMIZE`) is respected.
+
+## [0.19.0] — 2026-05-13
+
+### Added
+
+- **`bayes_ucb_explore` generator** — UCB preset with default ``beta=10.0``.
+  As β grows, UCB's acquisition is dominated by predictive σ, so this
+  configuration approximates pure exploration on single-objective problems
+  (the surrogate-building workflow). xopt's own `BayesianExplorationGenerator`
+  does **not** support single-objective VOCS — it's for constraint /
+  observable exploration only — so a high-β UCB preset is the practical
+  alternative.
+- **`bayes_ucb` and `bayes_turbo_ucb` generators in `PREDEFINED_GENERATORS`.**
+  Upper Confidence Bound (`UpperConfidenceBoundGenerator`) wired into the
+  generator factory in two flavours: bare UCB and UCB inside a TuRBO trust
+  region. The `beta` parameter is overridable via the standard config dict
+  for both — `{"name": "bayes_ucb", "beta": 4.0}` for more exploration in
+  noisy regimes where EI flattens. Default `beta=2.0`. UCB stays peaked
+  under high observation noise where EI's improvement formulation goes
+  flat (because expected improvement collapses when σ_noise is comparable
+  to the objective signal range), making both UCB variants useful for
+  comparing acquisition behaviour on the same model and data.
+- **Inspection helpers promoted into `optimization/inspection`.**  The
+  visualization, slicing, and GP-introspection helpers that previously lived
+  inline in the example notebooks (`xopt_run_inspection.ipynb`,
+  `xopt_from_scans.ipynb`) are now first-class modules:
+  - `surfaces.evaluate_model_on_grid` — posterior mean/σ over a 2D slice of
+    an N-D model.
+  - `surfaces.acquisition_surface` — generator-specific acquisition surface
+    over the same 2D slice.
+  - `candidates.next_candidate` / `next_candidate_xy` — ask a generator for
+    its proposed next point, optionally projected to two named variables.
+  - `slicing.pick_top_varied_pair` / `best_observed_point` /
+    `resolve_slice_and_fixed` / `print_slice_summary` — choose which two
+    variables to slice over and how to pin the rest.
+  - `column_match.match_vocs_to_sfile_column` — alias-tolerant VOCS-to-s-file
+    column resolution.
+  - `hypers.gp_hypers` / `gp_summary` — read GP noise / lengthscale /
+    output-scale from any fitted xopt generator (handles `ModelListGP`).
+  All are re-exported from `geecs_scanner.optimization.inspection` so each
+  notebook collapses to a single import block.
+
+### Changed
+
+- **Inspection notebooks now import from the module.**  The three notebooks
+  under `docs/geecs_scanner/examples/optimization/` (xopt_run_inspection,
+  xopt_from_scans, magspec_objective_tuning) drop their inline copies of the
+  promoted helpers in favour of the module imports.
+
+## [0.18.0] — 2026-05-13
+
+### Added
+
+- **Warm-start optimization from prior dump files.**  `BaseOptimizerConfig` gains an
+  optional `seed_dump_files` field (list of paths, resolved relative to the config
+  YAML).  When set, `BaseOptimizer` loads each file's evaluated data, checks VOCS
+  compatibility (hard error on variable or objective mismatch; warning on differing
+  bounds), filters error and NaN-objective rows, then injects the combined history
+  into `Xopt` via `add_data` before the scan loop begins.  The generator (e.g., a
+  Bayesian GP) is pre-trained on this data so exploration starts informed rather than
+  cold.  Multiple dump files are accepted; pairwise bound consistency is logged.
+  Duplicate input rows that appear more than five times trigger a warning.
+- **`optimization/inspection` sub-package.**  New
+  `geecs_scanner.optimization.inspection` module containing:
+  - `load_xopt_dump(path)` — parse an Xopt YAML dump into `(VOCS, DataFrame)`;
+    used by both `BaseOptimizer.seed_from_dumps` and the inspection notebook.
+  - `check_vocs_compatible(target, source, source_path)` — hard/soft VOCS
+    compatibility checks with structured error messages.
+  - `check_cross_dump_consistency(dump_vocs)` — pairwise bound-drift logging
+    across multiple seed files.
+- **Seed-aware initialization in `ScanStepExecutor`.**  `num_initialization_steps`
+  is now `max(0, 2 - optimizer.n_seeded)`: runs seeded with ≥ 2 prior points skip
+  random warm-up entirely and use the GP from step one.
+- **`xopt_run_inspection.ipynb` updated.**  Cell 5 (dump load + Xopt rebuild) now
+  delegates to `load_xopt_dump` from the new inspection module instead of inlining
+  the parse logic.
+
+## [0.17.2] — 2026-05-11
+
+### Changed
+- `ActionManager.add_action` no longer emits a WARNING when overwriting an
+  existing action — this fires on every scan after the first and is expected
+  behaviour. Downgraded to INFO so it remains visible in scan logs.
+
+## [0.17.1] — 2026-05-11
+
+### Changed
+- **Improved scan log context**: shot control name/variables, full device list
+  (sync / non-scalar / async), estimated acquisition time, and scan options are
+  now logged at INFO level at the start of every scan log, making post-hoc
+  troubleshooting easier without changing the log file's INFO threshold.
+- **Clearer ECS dump messaging**: `generate_live_ECS_dump` now logs an INFO
+  line before attempting the MC command and a descriptive WARNING (naming the
+  MC IP) when the command goes unacknowledged, replacing the generic debug/warning
+  messages that gave no indication of what was failing or why.
+
 ## [0.17.0] — 2026-05-11
 
 ### Changed

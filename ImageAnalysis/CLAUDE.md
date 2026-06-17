@@ -6,9 +6,14 @@ classes. The output of every analyzer is a standardized `ImageAnalyzerResult`.
 
 ## Scope Note
 
-The `analyzers/` directory contains older LabVIEW-era analyzers that are
-**not** the focus of active development. The `offline_analyzers/` directory
-contains the modern, actively maintained classes. Focus here.
+The `analyzers/` directory is the modern, actively maintained home for all
+image and 1D analyzer classes. Before the PR-E loader-API refactor
+(ImageAnalysis 1.5.0) this directory held LabVIEW-era code and the modern
+classes lived under `offline_analyzers/`; the rename inverted that. The
+`offline_qualifier` was a holdover from a never-built online counterpart.
+A nearly-empty `offline_analyzers/` directory may still exist with a couple
+of subpackage remnants (`Thomson/`, `Undulator/`); it is deprecated and
+should not be imported from.
 
 ## Package Layout
 
@@ -16,22 +21,27 @@ contains the modern, actively maintained classes. Focus here.
 image_analysis/
   base.py                          # ImageAnalyzer abstract base; ImageAnalyzerResult in types.py
   types.py                         # ImageAnalyzerResult, Array1D, Array2D type aliases
-  config_loader.py                 # load_camera_config(), load_line_config() — YAML entry points
+  config/                          # Public configuration API — single entry point
+    __init__.py                    # Exports: load_camera_config, load_line_config,
+                                   #          load_diagnostic, create_image_analyzer,
+                                   #          CameraConfig, Line1DConfig + all sub-models
+    loader.py                      # YAML → typed model loaders
+    factory.py                     # create_image_analyzer(DiagnosticAnalysisConfig)
+    diagnostic.py                  # DiagnosticAnalysisConfig + type-discriminated image:
+    array2d_processing.py          # CameraConfig + 2D sub-models (re-exported)
+    array1d_processing.py          # Line1DConfig + 1D sub-models (re-exported)
   processing/
     array2d/
-      config_models.py             # CameraConfig and all sub-models (ROI, Background, etc.)
-      background.py                # Background subtraction implementations
-      background_manager.py        # BackgroundManager orchestrator
+      background.py                # apply_background(image, config, *, cache=None)
       filtering.py                 # Gaussian / median filters
       masking.py                   # Crosshair and circular masking
       transforms.py                # Rotation, flip, distortion
-      pipeline.py (or inline)      # apply_camera_processing_pipeline()
+      pipeline.py                  # apply_camera_processing_pipeline()
     array1d/
-      config_models.py             # Line1DConfig and sub-models (ROI1D, Filtering, etc.)
       background.py                # 1D background subtraction
       roi.py                       # 1D ROI (x-value range, not pixel)
       thresholding.py              # 1D thresholding
-  offline_analyzers/
+  analyzers/                       # Modern analyzer classes (was offline_analyzers/ pre-PR-E)
     __init__.py                    # Exports: StandardAnalyzer, Standard1DAnalyzer, BeamAnalyzer, LineAnalyzer
     standard_analyzer.py           # StandardAnalyzer — 2D foundation
     standard_1d_analyzer.py        # Standard1DAnalyzer — 1D foundation
@@ -39,6 +49,10 @@ image_analysis/
     line_analyzer.py               # LineAnalyzer(Standard1DAnalyzer)
     ict_1d_analyzer.py             # ICT1DAnalyzer(Standard1DAnalyzer)
     density_from_phase_analysis.py # DensityFromPhaseAnalyzer(ImageAnalyzer)
+    line_stitcher.py               # LineStitcher
+    magspec_manual_calib_analyzer.py
+    grenouille_analyzer.py         # FROG / Grenouille
+    HASO_himg_has_processor.py     # HASOHimgHasProcessor
     ...
 ```
 
@@ -55,16 +69,15 @@ class ImageAnalyzer:
     def load_image(self, file_path: Path) -> Array1D | Array2D:
         # Default: read_imaq_image() — override for custom formats (TDMS, HDF5, CSV)
 
-    def analyze_image_batch(self, images: list) -> tuple[list, dict]:
-        # Optional batch-level hook (e.g., dynamic background computation)
-        # Returns (original_images, metadata_dict)
-        # Called once per scan before per-shot analysis
-
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
         # Must implement — the main per-shot analysis method
 
     def analyze_image_file(self, file_path, auxiliary_data=None) -> ImageAnalyzerResult:
-        # Convenience: load_image() then analyze_image()
+        # Canonical entry point for scan-level pipelines:
+        # load_image() then analyze_image() — atomically, in one task.
+        # Override only if your analyzer needs to thread state between
+        # load and analyze (rare; the base composition is correct for
+        # almost all cases).
 ```
 
 ### `ImageAnalyzerResult` (types.py)
@@ -95,20 +108,25 @@ Key methods:
 YAML files live in the **GEECS-Plugins-configs** repo. Loaded via:
 
 ```python
-from image_analysis.config_loader import load_camera_config
+from image_analysis.config import load_camera_config
 cfg = load_camera_config("UC_GaiaMode")  # finds UC_GaiaMode.yaml in configs repo
 ```
 
-`CameraConfig` fields (all processing sections are `Optional` — omit to skip):
+`CameraConfig` fields (all processing sections are `Optional` — omit to skip).
+Post-#412 the schema runs `extra="forbid"`: unknown keys are rejected at
+load time rather than silently allowed. `name` is gone — analyzer
+identity lives on the diagnostic (`output_name`); `camera_type` was
+deprecated and removed:
 
 ```python
 class CameraConfig(BaseModel):
-    name: str
+    type: Literal["camera"] = "camera"          # discriminator for the unified-diagnostic union
     description: Optional[str]
-    bit_depth: int = 16          # 8, 10, 12, 14, 16, 32
+    metadata: Optional[Dict[str, Any]]          # documentary only — location, notes, spatial_calibration, etc.
+    bit_depth: int = 16                         # 8, 10, 12, 14, 16, 32
 
     roi: Optional[ROIConfig]                    # x_min, x_max, y_min, y_max (pixels)
-    background: Optional[BackgroundConfig]      # method, file_path, constant_level, dynamic_computation
+    background: Optional[BackgroundConfig]      # method, file_path, constant_level, additional_constant
     crosshair_masking: Optional[CrosshairMaskingConfig]
     circular_mask: Optional[CircularMaskConfig]
     vignette: Optional[VignetteConfig]          # radial_polynomial or map_file method
@@ -120,19 +138,26 @@ class CameraConfig(BaseModel):
     analysis: Optional[Dict[str, Any]]          # Analyzer-specific (validated per-analyzer)
 ```
 
-`BackgroundConfig.method` options: `constant`, `percentile_dataset`, `from_file`, `median`
-`BackgroundConfig.dynamic_computation` — for batch background computed per scan.
+`BackgroundConfig.method` options: `constant`, `from_file`. Scan-context
+backgrounds (cross-scan dark via `scan.background_source.scan_number`, or
+dynamic from-current-scan via `scan.background_source.from_current_scan`)
+are expressed at the diagnostic config layer in ScanAnalysis. The scan
+analyzer computes / caches the resulting `.npy`, then rewrites this
+config to a static `FROM_FILE` background pointing at the cache before
+the per-shot pipeline runs.
 
 ### 1D Line Configs (`Line1DConfig`)
 
 ```python
-from image_analysis.config_loader import load_line_config
+from image_analysis.config import load_line_config
 cfg = load_line_config("U_BCaveICT")
 ```
 
+Same `extra="forbid"` policy and missing-`name` rationale as `CameraConfig`:
+
 ```python
 class Line1DConfig(BaseModel):
-    name: str
+    type: Literal["line"] = "line"  # discriminator for the unified-diagnostic union
     description: str
     data_loading: Data1DConfig      # data_type (tek_scope_hdf5, tdms_scope, csv, tsv, npy),
                                     # trace_index, x_column, y_column, delimiter
@@ -150,28 +175,58 @@ class Line1DConfig(BaseModel):
     analysis: Optional[Dict[str, Any]]
 ```
 
-## Offline Analyzers
+## Analyzers
+
+Analyzer constructors take **typed config models** (`CameraConfig` /
+`Line1DConfig`) rather than string names. The string-by-name convenience
+moved to the loader layer in PR-E. Two patterns:
+
+```python
+# Mode 1: direct construction for exploration
+from image_analysis.config import load_camera_config
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+
+cfg = load_camera_config("UC_GaiaMode")
+analyzer = StandardAnalyzer(camera_config=cfg)
+```
+
+```python
+# Mode 2: config-driven factory (production scan path)
+from image_analysis.config import load_diagnostic, create_image_analyzer
+
+diag = load_diagnostic("UC_GaiaMode")          # → DiagnosticAnalysisConfig
+analyzer = create_image_analyzer(diag)         # → ImageAnalyzer instance
+```
 
 ### `StandardAnalyzer` (2D foundation)
 
 ```python
 analyzer = StandardAnalyzer(
-    camera_config_name="UC_GaiaMode",
-    name_suffix=None,       # Appended to camera name
-    metric_suffix=None,     # Appended to all scalar metric keys
+    camera_config=cfg,       # typed CameraConfig (load via load_camera_config)
+    output_name=None,        # output identifier; defaults to None in Mode-1
+                             # (scalar keys are bare). Mode-2 factory passes
+                             # diag.effective_output_name automatically.
 )
 ```
 
+Post-#412 the analyzer emits **bare scalar keys** (`"x_CoM"`, `"image_total"`,
+…) regardless of `output_name`. ScanAnalysis is the sole layer that
+applies the `output_name` prefix and `metric_suffix` to scalars when it
+stores per-shot results. `output_name` is stored on the analyzer purely
+so downstream consumers (output-dir labelling in `SingleDeviceScanAnalyzer`;
+per-file paths in MagSpec) can read a stable identifier off the instance.
+
 Key methods:
 - `preprocess_image(image) -> np.ndarray` — applies full processing pipeline
-- `analyze_image_batch(images)` — computes dynamic background if configured
 - `analyze_image(image, auxiliary_data) -> ImageAnalyzerResult` — data_type="2d"
+- `analyze_image_file(path, auxiliary_data)` — canonical scan-pipeline entry
 - `render_image(result, vmin, vmax, cmap, ...) -> (Figure, Axes)` — static method
+- `output_name` property — returns the configured output identifier (or `None`)
 
 ### `Standard1DAnalyzer` (1D foundation)
 
 ```python
-analyzer = Standard1DAnalyzer(line_config_name="U_BCaveICT")
+analyzer = Standard1DAnalyzer(line_config=cfg)   # typed Line1DConfig
 ```
 
 Key methods:
@@ -188,8 +243,11 @@ Adds beam-specific metrics (centroid, size, moments). Uses `analysis:` section o
 
 ### `LineAnalyzer(Standard1DAnalyzer)`
 
-Adds statistics: CoM, FWHM, RMS, peak analysis. Supports `metric_suffix` for
-distinguishing variants (e.g., "before_foil" vs "after_foil").
+Adds statistics: CoM, FWHM, RMS, peak analysis. Forwards `output_name` to
+the Standard1D parent like every other analyzer in the family. For
+"variant" use cases (e.g. before_foil vs after_foil) the diagnostic config
+declares `metric_suffix` at the diagnostic layer; ScanAnalysis applies it
+to all scalar keys.
 
 ### `ICT1DAnalyzer(Standard1DAnalyzer)`
 
@@ -203,12 +261,13 @@ Direct subclass of `ImageAnalyzer` (not Standard). Plasma density from wavefront
 phase data — Abel inversion, background removal, rotation alignment, Gaussian
 masking.
 
-## Adding a New Offline Analyzer
+## Adding a New Analyzer
 
 ### 2D analyzer
 
 ```python
-from image_analysis.offline_analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.analyzers.standard_analyzer import StandardAnalyzer
+from image_analysis.config import CameraConfig
 from image_analysis.types import ImageAnalyzerResult
 from pydantic import BaseModel
 
@@ -217,8 +276,8 @@ class MyAnalysisConfig(BaseModel):
     # ... typed config fields from analysis: section of CameraConfig
 
 class MyAnalyzer(StandardAnalyzer):
-    def __init__(self, camera_config_name: str, **kwargs):
-        super().__init__(camera_config_name, **kwargs)
+    def __init__(self, camera_config: CameraConfig, **kwargs):
+        super().__init__(camera_config=camera_config, **kwargs)
         self._my_cfg = MyAnalysisConfig(**(self.camera_config.analysis or {}))
 
     def analyze_image(self, image, auxiliary_data=None) -> ImageAnalyzerResult:
@@ -230,7 +289,8 @@ class MyAnalyzer(StandardAnalyzer):
 
 ### 1D analyzer
 
-Same pattern but inherit from `Standard1DAnalyzer` and use `self.line_config.analysis`.
+Same pattern but inherit from `Standard1DAnalyzer`, take a typed
+`Line1DConfig`, and use `self.line_config.analysis`.
 
 ## Key Design Decisions
 
@@ -240,7 +300,48 @@ Same pattern but inherit from `Standard1DAnalyzer` and use `self.line_config.ana
   defined in the analyzer class. Validated at `__init__` time, not at config-load time.
 - **Scale factors applied first** — `x_scale_factor` / `y_scale_factor` run before
   ROI, so ROI boundaries and thresholds should be specified in scaled units.
-- **`metric_suffix`** — Use when the same physical device has multiple analysis
-  variants in one scan (e.g., two ROI regions). Keeps scalar keys unique.
+- **Output naming lives at the diagnostic layer (#412)** — analyzers emit
+  **bare** scalar keys; `DiagnosticAnalysisConfig.output_name` and
+  `metric_suffix` (read by ScanAnalysis) namespace them on the way to disk
+  and in-memory consumers. See `ScanAnalysis/CLAUDE.md` for the full
+  contract and the override use cases (output_name=UC_TopView_left vs
+  output_name=UC_TopView_right for two variants of the same camera).
 - **Nx2 convention for 1D data** — Column 0 is always x (independent), column 1
   is always y (dependent). `read_1d_data()` enforces this.
+
+## Filesystem invariants for analyzers that write inside `scans/ScanNNN/`
+
+Some analyzers (`LineStitcher`, `MagSpecManualCalibAnalyzer`,
+`HASOHimgHasProcessor`, `GrenouilleAnalyzer`) save derived per-shot outputs
+into a subfolder of the source scan dir — e.g. `<scan_dir>/<device>-interp/`.
+This is intentional and mirrors notebook workflows. **But analysis code never
+creates the scan folder itself.** See
+[Cross-package invariants](../CLAUDE.md#cross-package-invariants) in the root
+for the full background and the production incident that motivated this rule.
+
+When you write a new analyzer that emits files inside the scan dir:
+
+1. Compute `scan_dir` (typically `file_path.parent.parent`).
+2. **Guard before any `mkdir`:**
+   ```python
+   if not scan_dir.is_dir():
+       raise FileNotFoundError(
+           f"Scan folder {scan_dir} is not visible; refusing to create "
+           f"output subfolder. ..."
+       )
+   ```
+3. Create the output subfolder with `mkdir(exist_ok=True)` only — **never**
+   `parents=True` on a path that traverses through `scans/`. If `scan_dir` is
+   real but the subfolder is missing, that's the one and only level you may
+   create.
+
+If your analyzer's save logic instead lives in a utility like
+`save_background_to_file`, the utility must require its parent dir to exist
+(raise `FileNotFoundError` otherwise) — the caller is responsible for the
+guard above. `image_analysis.processing.array1d.background.save_background_to_file`
+is the canonical example.
+
+Invariant is pinned by tests:
+- `tests/analyzers/test_line_stitcher.py::TestLineStitcherScanFolderInvariant`
+- `tests/analyzers/test_magspec_calib.py::TestScanFolderInvariant`
+- `tests/processing/test_array1d_background.py`

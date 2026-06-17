@@ -53,30 +53,49 @@ _LEVEL_COLOURS = {
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
-def _try_list_experiments(config_dir: Optional[Path] = None) -> list[str]:
-    """Return available experiment config names, or an empty list on failure.
+def _try_list_groups(config_dir: Optional[Path] = None) -> list[str]:
+    """Return available analysis-group names, or an empty list on failure.
+
+    Walks ``<config_dir>/groups`` and returns the **path-like** index
+    keys produced by :func:`scan_analysis.config.discover_groups`
+    (e.g. ``"HTU/baseline"``). The stem-only duplicates that
+    ``discover_groups`` also emits are filtered out so the dropdown
+    doesn't show ``baseline`` and ``HTU/baseline`` as separate items.
+    Both forms remain acceptable input to
+    :func:`scan_analysis.config.load_analysis_group`; we just don't
+    surface them both in the UI.
 
     Parameters
     ----------
     config_dir : Path, optional
-        Explicit scan analysis config directory to search.  When *None*,
+        Explicit scan analysis config directory to search. When *None*,
         falls back to the globally configured base directory.
     """
     try:
-        from scan_analysis.config.config_loader import list_available_configs
+        from scan_analysis.config import discover_groups
+        from geecs_data_utils import ScanPaths
 
-        configs = list_available_configs(config_dir=config_dir)
-        # Filter to experiment-level configs (those under experiments/ dir)
-        names = []
-        for name, paths in configs.items():
-            for p in paths:
-                if "experiments" in p.parts or "experiment" in p.parts:
-                    names.append(name)
-                    break
-        return sorted(set(names), key=str.lower)
+        base_dir = config_dir or ScanPaths.paths_config.scan_analysis_configs_path
+        if base_dir is None:
+            return []
+        groups = discover_groups(Path(base_dir))
+        # Keep only path-like keys (those containing a '/'); drop the
+        # stem-only aliases that share the same target.
+        path_like = [k for k in groups.keys() if "/" in k]
+        return sorted(path_like, key=str.lower)
     except Exception as exc:
-        logger.warning("Could not list experiment configs: %s", exc)
+        logger.warning("Could not list analysis-group configs: %s", exc)
         return []
+
+
+def _extract_namespaces(group_keys: list[str]) -> list[str]:
+    """Return the unique top-level namespaces from a list of path-like group keys.
+
+    For input ``["HTU/baseline", "HTU/full", "PW/dark"]`` returns
+    ``["HTU", "PW"]``. Used to populate the namespace-filter dropdown.
+    """
+    namespaces = {key.split("/", 1)[0] for key in group_keys if "/" in key}
+    return sorted(namespaces, key=str.lower)
 
 
 def _try_get_default_paths() -> tuple[Optional[Path], Optional[Path]]:
@@ -119,6 +138,9 @@ class LiveWatchWindow(QMainWindow):
         self._log_handler: Optional[QtLogHandler] = None
         self._doc_id_lookup: Optional[DocIDLookup] = None
         self._status_dialog: Optional[StatusDialog] = None
+        # Full list of discovered analyzer-group keys (path-like only).
+        # ``combo_experiment`` shows a subset filtered by ``combo_namespace``.
+        self._all_groups: list[str] = []
 
         # Build UI
         central = QWidget()
@@ -154,8 +176,8 @@ class LiveWatchWindow(QMainWindow):
         # Pre-fill config paths first (so analyzer groups can use the config directory)
         self._populate_default_paths()
 
-        # Then populate experiment dropdown using the now-available config directory
-        self._populate_experiments()
+        # Then populate analyzer-group dropdown using the now-available config directory
+        self._populate_groups()
 
         # Install log handler
         self._install_log_handler()
@@ -182,7 +204,9 @@ class LiveWatchWindow(QMainWindow):
 
         # Experiment (for Google Docs and Z Drive Navigation)
         self.combo_facility = QComboBox()
-        self.combo_facility.addItems(["Undulator", "Thomson"])
+        self.combo_facility.addItems(
+            ["Undulator", "Thomson", "PWlaserData", "p2", "ControlRoom", "(none)"]
+        )
         self.combo_facility.setToolTip(
             "Select the experiment for Google Docs integration.\n"
             "This corresponds to the Data Storage Drive Location.\n"
@@ -190,6 +214,18 @@ class LiveWatchWindow(QMainWindow):
         )
         self.combo_facility.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addRow("Experiment (for Google Docs):", self.combo_facility)
+
+        # Namespace filter — narrows the Analyzer Group dropdown to one
+        # facility's groups (HTU / HTT / PW / ...). "(all)" disables the
+        # filter.
+        self.combo_namespace = QComboBox()
+        self.combo_namespace.setToolTip(
+            "Filter the Analyzer Group list to a single facility namespace.\n"
+            "Select '(all)' to show every group across all namespaces."
+        )
+        self.combo_namespace.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.combo_namespace.currentTextChanged.connect(self._on_namespace_changed)
+        layout.addRow("Namespace:", self.combo_namespace)
 
         # Analyzer Group (combo + refresh button)
         analyzer_group_row = QHBoxLayout()
@@ -418,34 +454,82 @@ class LiveWatchWindow(QMainWindow):
     # Initialization helpers
     # ------------------------------------------------------------------
 
-    def _populate_experiments(self, config_dir: Optional[Path] = None) -> None:
-        """Fill the experiment combo box from available configs.
+    def _populate_groups(self, config_dir: Optional[Path] = None) -> None:
+        """Fill the analyzer-group combo box from available group YAMLs.
+
+        Also rebuilds the namespace filter from the discovered groups.
+        The currently-displayed analyzer-group list reflects whatever
+        the namespace combo is set to.
 
         Parameters
         ----------
         config_dir : Path, optional
-            Explicit scan analysis config directory.  When *None*, uses the
-            path currently entered in the Scan Config Dir field (if any),
-            falling back to the globally configured default.
+            Explicit scan analysis config directory. When *None*, uses
+            the path currently entered in the Scan Config Dir field (if
+            any), falling back to the globally configured default.
         """
         if config_dir is None:
             text = self.line_scan_config.text().strip()
             if text:
                 config_dir = Path(text)
 
-        experiments = _try_list_experiments(config_dir=config_dir)
+        # Stash the full list on the instance so the namespace-filter
+        # handler can re-derive a view without re-walking the configs tree.
+        self._all_groups = _try_list_groups(config_dir=config_dir)
+
+        # Repopulate the namespace combo (defer signals so it doesn't
+        # fire the change handler mid-setup).
+        namespaces = _extract_namespaces(self._all_groups)
+        previous_ns = self.combo_namespace.currentText()
+        self.combo_namespace.blockSignals(True)
+        self.combo_namespace.clear()
+        self.combo_namespace.addItem("(all)")
+        if namespaces:
+            self.combo_namespace.addItems(namespaces)
+        # Restore previous namespace selection if still present, else
+        # default to "(all)".
+        idx = self.combo_namespace.findText(previous_ns) if previous_ns else 0
+        self.combo_namespace.setCurrentIndex(idx if idx >= 0 else 0)
+        self.combo_namespace.blockSignals(False)
+
+        # Now apply the current namespace filter to populate combo_experiment.
+        self._apply_namespace_filter()
+
+        if self._all_groups:
+            logger.info(
+                "Loaded %d analyzer-group config(s) across %d namespace(s).",
+                len(self._all_groups),
+                len(namespaces),
+            )
+        else:
+            logger.info(
+                "No analyzer-group configs found under %s.", config_dir or "<default>"
+            )
+
+    def _apply_namespace_filter(self) -> None:
+        """Repopulate combo_experiment with groups matching the current namespace.
+
+        Filters ``self._all_groups`` by the value of ``combo_namespace``:
+        ``(all)`` keeps everything, otherwise only keeps groups whose
+        leading path segment matches.
+        """
+        ns = self.combo_namespace.currentText()
+        if ns == "(all)" or not ns:
+            visible = list(self._all_groups)
+        else:
+            prefix = f"{ns}/"
+            visible = [g for g in self._all_groups if g.startswith(prefix)]
+
         previous = self.combo_experiment.currentText()
         self.combo_experiment.clear()
-        if experiments:
-            self.combo_experiment.addItems(experiments)
-            # Restore previous selection if still available
-            idx = self.combo_experiment.findText(previous)
-            if idx >= 0:
-                self.combo_experiment.setCurrentIndex(idx)
-            logger.info("Loaded %d experiment config(s).", len(experiments))
-        else:
-            self.combo_experiment.addItem("Undulator")
-            logger.info("No experiment configs found; added default 'Undulator'.")
+        self.combo_experiment.addItems(visible)
+        idx = self.combo_experiment.findText(previous)
+        if idx >= 0:
+            self.combo_experiment.setCurrentIndex(idx)
+
+    def _on_namespace_changed(self, _ns: str) -> None:
+        """Re-filter the analyzer-group list when the namespace selector changes."""
+        self._apply_namespace_filter()
 
     def _populate_default_paths(self) -> None:
         """Pre-fill config path fields from ScanPaths defaults."""
@@ -572,7 +656,8 @@ class LiveWatchWindow(QMainWindow):
     def _build_config(self) -> LiveWatchConfig:
         """Read current widget values and return a :class:`LiveWatchConfig`."""
         qdate = self.date_edit.date()
-        facility = self.combo_facility.currentText().strip()
+        facility_text = self.combo_facility.currentText().strip()
+        facility = None if facility_text == "(none)" else (facility_text or None)
         analyzer_group = self.combo_experiment.currentText().strip()
 
         scan_config_text = self.line_scan_config.text().strip()
@@ -786,8 +871,8 @@ class LiveWatchWindow(QMainWindow):
         )
         if chosen:
             self.line_scan_config.setText(chosen)
-            # Auto-refresh experiments when the scan config dir changes
-            self._populate_experiments(config_dir=Path(chosen))
+            # Auto-refresh analyzer groups when the scan config dir changes
+            self._populate_groups(config_dir=Path(chosen))
 
     def _on_browse_image_config(self) -> None:
         """Open a directory picker for the image analysis config directory."""
@@ -800,8 +885,8 @@ class LiveWatchWindow(QMainWindow):
             self.line_image_config.setText(chosen)
 
     def _on_refresh_experiments(self) -> None:
-        """Reload the experiment list from the current scan config directory."""
-        self._populate_experiments()
+        """Reload the analyzer-group list from the current scan config directory."""
+        self._populate_groups()
 
     # ------------------------------------------------------------------
     # UI state management
@@ -813,6 +898,7 @@ class LiveWatchWindow(QMainWindow):
         self.btn_start_stop.setEnabled(True)  # re-enable after _stop_worker disabled it
 
         # Disable config fields while running to prevent mid-run changes
+        self.combo_namespace.setEnabled(not running)
         self.combo_experiment.setEnabled(not running)
         self.btn_refresh_experiments.setEnabled(not running)
         self.date_edit.setEnabled(not running)

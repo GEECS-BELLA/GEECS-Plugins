@@ -103,6 +103,25 @@ class GeecsTriggerTimeoutError(GeecsError):
         super().__init__(message or f"{device_name}: no shot within {timeout:.1f}s")
 
 
+class GeecsQuiescenceTimeoutError(GeecsError):
+    """Free-running trigger did not stop within the timeout.
+
+    Raised by :func:`~geecs_bluesky.plans.single_shot.geecs_confirm_quiescent`
+    when device ``acq_timestamp`` values keep advancing after the shot
+    controller was put in single-shot (``ARMED``) mode — so plan-owned
+    single-shot firing cannot safely begin (a residual free-running shot would
+    be mistaken for the plan's fired shot).  Typical cause: the ``ARMED`` state
+    did not actually switch the trigger source to single-shot mode.
+    """
+
+    def __init__(self, timeout: float, message: str = "") -> None:
+        self.timeout = timeout
+        super().__init__(
+            message
+            or f"trigger still firing after {timeout:.1f}s; single-shot arm failed"
+        )
+
+
 class GeecsMotorTimeoutError(GeecsError):
     """Motor did not reach the target position within ``move_timeout``.
 
@@ -129,6 +148,27 @@ class GeecsMotorTimeoutError(GeecsError):
             f"{device_name}/{variable}: position {current} did not reach "
             f"{target} within {timeout:.1f}s"
         )
+
+
+class GeecsT0SyncError(GeecsError):
+    """Coordinated t0 capture could not establish a common physical shot.
+
+    Raised by :func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync` when device
+    ``acq_timestamp`` values are spread wider than the acceptance window (the
+    cached frames do not all come from the same physical trigger) or when a
+    device has no cached ``acq_timestamp`` at all.  Never proceed unseeded —
+    shot IDs from unsynchronized t0s are not comparable across devices.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        timestamps: dict[str, float | None] | None = None,
+        window_s: float | None = None,
+    ) -> None:
+        self.timestamps = timestamps or {}
+        self.window_s = window_s
+        super().__init__(message)
 
 
 # ---------------------------------------------------------------------------

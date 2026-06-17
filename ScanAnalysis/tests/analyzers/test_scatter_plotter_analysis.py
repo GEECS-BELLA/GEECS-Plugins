@@ -20,11 +20,6 @@ from scan_analysis.analyzers.common.scatter_plotter_analysis import (
     PlotParameter,
     ScatterPlotterAnalysis,
 )
-from scan_analysis.config.analyzer_config_models import (
-    PlotParameterConfig,
-    ScatterAnalyzerConfig,
-)
-from scan_analysis.config.analyzer_factory import create_analyzer
 
 SCAN_FOLDER = Path("Z:/data/Undulator/Y2026/05-May/26_0505/scans/Scan018")
 
@@ -88,34 +83,3 @@ class TestScatterPlotterAnalysisIntegration:
 
     def test_png_path_in_display_contents(self, scatter_result):
         assert str(EXPECTED_PNG) in scatter_result
-
-
-@pytest.mark.integration
-class TestScatterAnalyzerConfigFactory:
-    """Verify that ScatterAnalyzerConfig → create_analyzer produces a working analyzer."""
-
-    def test_factory_creates_analyzer(self):
-        cfg = ScatterAnalyzerConfig(
-            title="ModeImager Beam Properties",
-            filename=FILENAME,
-            x_column=X_COLUMN,
-            parameters=[
-                PlotParameterConfig(
-                    key_name="UC_ModeImager_x_rms", label="x RMS (px)", color="blue"
-                ),
-                PlotParameterConfig(
-                    key_name="UC_ModeImager_y_rms", label="y RMS (px)", color="red"
-                ),
-                PlotParameterConfig(
-                    key_name="UC_ModeImager_image_peak_value",
-                    label="Peak Value",
-                    color="green",
-                ),
-            ],
-        )
-        analyzer = create_analyzer(cfg)
-        assert isinstance(analyzer, ScatterPlotterAnalysis)
-        assert analyzer.id == FILENAME
-        assert analyzer.priority == 200
-        assert analyzer.x_column == X_COLUMN
-        assert len(analyzer.parameters) == 3

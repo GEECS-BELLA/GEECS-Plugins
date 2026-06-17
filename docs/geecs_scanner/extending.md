@@ -8,17 +8,15 @@ If you want to extend the engine itself — add a new scan mode, change the life
 
 An **evaluator** turns the scalar log of a scan step into a single objective value (and optionally a dictionary of observables) that an optimizer can use. Evaluators are the bridge between "the scan ran and produced data" and "Xopt knows whether the result was good or bad."
 
-The base class is `BaseEvaluator` in `geecs_scanner/optimization/base_evaluator.py`. There's also `MultiDeviceScanEvaluator`, which is the right starting point when the objective comes from camera scalars (like beam size or counts), and `ScalarLogEvaluator`, which is the right starting point when the objective comes from variables already in the s-file.
+The base class is `BaseEvaluator` in `geecs_scanner/optimization/base_evaluator.py`. It handles both diagnostic-driven image analyzers and direct s-file scalar columns. Use `analyzers: [...]` in the evaluator YAML when the objective comes from camera or line-analysis scalars, and `scalars: [...]` when it comes from columns already present in the s-file.
 
 The minimum interface is two methods:
 
 ```python
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 
-class BeamSizeEvaluator(MultiDeviceScanEvaluator):
+class BeamSizeEvaluator(BaseEvaluator):
     """Minimize beam size: (x_fwhm * calibration)² + (y_fwhm * calibration)²."""
 
     def __init__(self, calibration: float = 24.4e-3, **kwargs):
@@ -27,13 +25,15 @@ class BeamSizeEvaluator(MultiDeviceScanEvaluator):
         self.objective_tag = "BeamSize"
 
     def compute_objective(self, scalar_results: dict, bin_number: int) -> float:
-        x = self.get_scalar(self.primary_device, "x_fwhm", scalar_results)
-        y = self.get_scalar(self.primary_device, "y_fwhm", scalar_results)
+        prefix = self.primary_device
+        x = scalar_results[f"{prefix}_x_fwhm"]
+        y = scalar_results[f"{prefix}_y_fwhm"]
         return (x * self.calibration) ** 2 + (y * self.calibration) ** 2
 
     def compute_observables(self, scalar_results: dict, bin_number: int) -> dict:
-        x = self.get_scalar(self.primary_device, "x_fwhm", scalar_results)
-        y = self.get_scalar(self.primary_device, "y_fwhm", scalar_results)
+        prefix = self.primary_device
+        x = scalar_results[f"{prefix}_x_fwhm"]
+        y = scalar_results[f"{prefix}_y_fwhm"]
         x_cal = x * self.calibration
         y_cal = y * self.calibration
         return {
@@ -47,25 +47,26 @@ class BeamSizeEvaluator(MultiDeviceScanEvaluator):
 
 `compute_objective` returns the scalar that the optimizer minimizes. `compute_observables` (optional) returns extra context that gets logged alongside each evaluation — handy for after-the-fact analysis.
 
-`scalar_results` is the dictionary the multi-device evaluator builds for one bin (one set of variable values). Keys are `(device_name, variable)` tuples; values are the scalar from analyzing the bin's images. `bin_number` is the index of the current evaluation within the optimization run.
+`scalar_results` is the dictionary `BaseEvaluator` builds for one bin (one set of variable values). Analyzer outputs arrive with ScanAnalysis-applied namespacing such as `UC_TopView_x_fwhm`; direct s-file scalar columns keep their original column names such as `U_Laser:Energy`. `bin_number` is the index of the current evaluation within the optimization run.
 
-The `self.primary_device` and `self.get_scalar(...)` helpers come from `MultiDeviceScanEvaluator` and shield you from the dictionary structure.
+`self.primary_device` is a convenience for the first diagnostic listed in `analyzers`. There is no `get_scalar(...)` helper in the current evaluator surface; access the dictionary keys directly so YAML/output naming stays explicit.
 
 ### Per-shot vs per-bin evaluation
 
-By default `MultiDeviceScanEvaluator` averages per-shot scalars across each bin and calls `compute_objective` once per bin. If you need access to individual shots — for example to compute a noise estimate or a median — override `compute_objective_from_shots` instead:
+By default `BaseEvaluator` mean-aggregates per-shot outputs and calls `compute_objective` once per bin. If you need access to individual shots — for example to compute a noise estimate or a median — override `compute_objective_from_shots` instead:
 
 ```python
 def compute_objective_from_shots(self, scalar_results_list: list[dict], bin_number: int) -> float:
-    values = [self.get_scalar(self.primary_device, "fwhm", r) for r in scalar_results_list]
+    key = f"{self.primary_device}_fwhm"
+    values = [r[key] for r in scalar_results_list]
     return float(np.median(values))   # robust to single-shot outliers
 ```
 
-Set `analysis_mode: per_shot` in your evaluator's analyzer config to enable this path. The default `per_bin` mode is faster and is the right choice for most objectives.
+Set the diagnostic's `scan.mode` to `per_shot` when the analyzer itself must run per shot. The default `per_bin` mode is faster and is the right choice for most image-derived objectives. Direct s-file scalar columns are always passed through per shot; your `compute_*_from_shots` hook decides how to aggregate them.
 
 ### Registering an evaluator in a scan
 
-Evaluators are referenced by import path from a YAML config. Look at `geecs_scanner/optimization/example_configs/` for working examples and at the [Optimization Example notebook](examples/optimization/optimization_example.ipynb) for the end-to-end flow.
+Evaluators are referenced by import path from a YAML config. Look at the optimization notebooks under `docs/geecs_scanner/examples/optimization/` and the concrete evaluator tests in `GEECS-Scanner-GUI/tests/optimization/` for current examples.
 
 ## Writing a custom scan analyzer
 
@@ -98,8 +99,6 @@ class MyAnalyzer(ScanAnalyzer):
 The base class handles scan folder location, s-file loading, and the overall execution flow. You implement only the analysis. Display files (typically `.png`) get returned and either displayed interactively, stored in the analysis status YAML, or uploaded to a Google Doc — depending on which mode you're running in.
 
 There are two specialized base classes for common cases. `Array2DScanAnalyzer` wraps an `ImageAnalyzer` (from the [Image Analysis package](../image_analysis/overview.md)) and runs it across every shot in every bin, producing both per-bin summary plots and an updated s-file. `Array1DScanAnalyzer` is the equivalent for 1D data. If your analysis fits one of those patterns, inherit from the specialized class — you'll write much less code.
-
-For the full pattern with config-driven instantiation, see the [Config-Based Scan Analysis notebook](../scan_analysis/examples/config_based_scan_analysis.ipynb).
 
 ## Writing a custom action
 

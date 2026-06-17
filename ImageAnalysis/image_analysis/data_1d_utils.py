@@ -8,14 +8,14 @@ is specified via a configuration dataclass rather than relying solely on file ex
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
 
 # Import config models from the centralized location
-from image_analysis.processing.array1d.config_models import Data1DType, Data1DConfig
+from image_analysis.config.array1d_processing import Data1DType, Data1DConfig
 
 
 @dataclass
@@ -38,6 +38,9 @@ class Data1DResult:
         Descriptive label for x-axis (e.g., 'Time', 'Wavelength', 'Energy')
     y_label : Optional[str]
         Descriptive label for y-axis (e.g., 'Voltage', 'Intensity', 'Power')
+    auxiliary_column_data : dict[str, np.ndarray]
+        Named auxiliary dependent-variable columns loaded alongside the
+        primary ``x``/``y`` data. Arrays are row-aligned with ``data``.
     """
 
     data: np.ndarray
@@ -45,6 +48,7 @@ class Data1DResult:
     y_units: Optional[str] = None
     x_label: Optional[str] = None
     y_label: Optional[str] = None
+    auxiliary_column_data: dict[str, np.ndarray] = field(default_factory=dict)
 
 
 def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DResult:
@@ -86,19 +90,23 @@ def read_1d_data(file_path: Union[Path, str], config: Data1DConfig) -> Data1DRes
 
     # Dispatch to appropriate reader based on data type
     if config.data_type == Data1DType.TEK_SCOPE_HDF5:
-        data, metadata = _read_tek_scope_hdf5(file_path, config)
+        data, metadata, auxiliary_column_data = _read_tek_scope_hdf5(file_path, config)
     elif config.data_type == Data1DType.TDMS_SCOPE:
-        data, metadata = _read_tdms_scope(file_path, config)
+        data, metadata, auxiliary_column_data = _read_tdms_scope(file_path, config)
     elif config.data_type == Data1DType.CSV:
-        data, metadata = _read_csv(file_path, config)
+        data, metadata, auxiliary_column_data = _read_csv(file_path, config)
     elif config.data_type == Data1DType.TSV:
-        data, metadata = _read_tsv(file_path, config)
+        data, metadata, auxiliary_column_data = _read_tsv(file_path, config)
     elif config.data_type == Data1DType.NPY:
-        data, metadata = _read_npy(file_path, config)
+        data, metadata, auxiliary_column_data = _read_npy(file_path, config)
     else:
         raise ValueError(f"Unsupported data type: {config.data_type}")
 
-    return Data1DResult(data=data, **metadata)
+    return Data1DResult(
+        data=data,
+        auxiliary_column_data=auxiliary_column_data,
+        **metadata,
+    )
 
 
 def _parse_column_header(header: str) -> tuple[str, Optional[str]]:
@@ -116,8 +124,9 @@ def _parse_column_header(header: str) -> tuple[str, Optional[str]]:
 
 def _read_tek_scope_hdf5(
     file_path: Path, config: Data1DConfig
-) -> tuple[np.ndarray, dict]:
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read Tektronix oscilloscope HDF5 file, returning Nx2 array [time, voltage] with metadata."""
+    _raise_if_auxiliary_columns_requested(config, "tek_scope_hdf5")
     try:
         import h5py
     except ImportError:
@@ -164,10 +173,12 @@ def _read_tek_scope_hdf5(
             "y_label": "Voltage",
         }
 
-        return data, metadata
+        return data, metadata, {}
 
 
-def _read_tdms_scope(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
+def _read_tdms_scope(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read TDMS oscilloscope file, extracting x and y data from channels or waveform properties.
 
     The x-axis data is determined in the following priority order:
@@ -187,6 +198,7 @@ def _read_tdms_scope(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray,
     tuple[np.ndarray, dict]
         Nx2 array of [x, y] data and metadata dictionary
     """
+    _raise_if_auxiliary_columns_requested(config, "tdms_scope")
     try:
         from nptdms import TdmsFile
     except ImportError:
@@ -279,21 +291,25 @@ def _read_tdms_scope(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray,
     # Create data array
     data = np.column_stack([x_data, y_data])
 
-    return data, metadata
+    return data, metadata, {}
 
 
-def _read_csv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
+def _read_csv(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read CSV file, parsing header for metadata and returning Nx2 array [x, y]."""
     delimiter = config.delimiter if config.delimiter is not None else ","
 
     # Try to read header for metadata
     metadata = {"x_units": None, "y_units": None, "x_label": None, "y_label": None}
+    skip_header = 0
 
     try:
         with open(file_path, "r") as f:
             first_line = f.readline().strip()
             # Check if it looks like a header (not starting with a number)
             if first_line and not first_line[0].isdigit() and first_line[0] != "-":
+                skip_header = 1
                 headers = first_line.split(delimiter)
                 if len(headers) > max(config.x_column, config.y_column):
                     # Parse x column header
@@ -313,33 +329,47 @@ def _read_csv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
         data = np.genfromtxt(
             file_path,
             delimiter=delimiter,
-            skip_header=1,  # Skip header row
-            comments="#",
+            skip_header=skip_header,
         )
+
     except Exception as e:
         raise RuntimeError(f"Failed to load CSV file {file_path}: {e}") from e
 
     # Handle 1D vs 2D data
     if data.ndim == 1:
+        if config.auxiliary_columns:
+            raise ValueError("auxiliary_columns require a 2D columnar data file")
         # Single column, create index-based x-axis
         x_data = np.arange(len(data))
         y_data = data
+        auxiliary_column_data = {}
         if metadata["x_label"] is None:
             metadata["x_label"] = "Index"
     else:
         # Extract specified columns
-        if data.shape[1] <= max(config.x_column, config.y_column):
+        requested_columns = [
+            config.x_column,
+            config.y_column,
+            *config.auxiliary_columns.values(),
+        ]
+        if data.shape[1] <= max(requested_columns):
             raise ValueError(
                 f"File has {data.shape[1]} columns, but requested columns "
-                f"{config.x_column} and {config.y_column}"
+                f"{requested_columns}"
             )
         x_data = data[:, config.x_column]
         y_data = data[:, config.y_column]
+        auxiliary_column_data = {
+            name: data[:, column].copy()
+            for name, column in config.auxiliary_columns.items()
+        }
 
-    return np.column_stack([x_data, y_data]), metadata
+    return np.column_stack([x_data, y_data]), metadata, auxiliary_column_data
 
 
-def _read_tsv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
+def _read_tsv(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read TSV (tab-separated) file, delegating to CSV reader with tab delimiter."""
     # Use tab as default delimiter for TSV
     delimiter = config.delimiter if config.delimiter is not None else "\t"
@@ -350,35 +380,55 @@ def _read_tsv(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
         delimiter=delimiter,
         x_column=config.x_column,
         y_column=config.y_column,
+        auxiliary_columns=config.auxiliary_columns,
     )
 
     # Reuse CSV reader with tab delimiter
     return _read_csv(file_path, tsv_config)
 
 
-def _read_npy(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
+def _read_npy(
+    file_path: Path, config: Data1DConfig
+) -> tuple[np.ndarray, dict, dict[str, np.ndarray]]:
     """Read NumPy .npy file, converting to Nx2 array (creates index-based x-axis if 1D)."""
     data = np.load(file_path)
 
     if data.ndim == 1:
+        if config.auxiliary_columns:
+            raise ValueError("auxiliary_columns require a 2D columnar array")
         # Create index-based x-axis
         x_data = np.arange(len(data))
         y_data = data
         result_data = np.column_stack([x_data, y_data])
+        auxiliary_column_data = {}
     elif data.ndim == 2:
         if data.shape[1] == 2:
+            if config.auxiliary_columns:
+                raise ValueError(
+                    "auxiliary_columns require an array with additional columns"
+                )
             # Already in correct format
             result_data = data
+            auxiliary_column_data = {}
         else:
             # Extract specified columns
-            if data.shape[1] <= max(config.x_column, config.y_column):
+            requested_columns = [
+                config.x_column,
+                config.y_column,
+                *config.auxiliary_columns.values(),
+            ]
+            if data.shape[1] <= max(requested_columns):
                 raise ValueError(
                     f"Array has {data.shape[1]} columns, but requested columns "
-                    f"{config.x_column} and {config.y_column}"
+                    f"{requested_columns}"
                 )
             x_data = data[:, config.x_column]
             y_data = data[:, config.y_column]
             result_data = np.column_stack([x_data, y_data])
+            auxiliary_column_data = {
+                name: data[:, column].copy()
+                for name, column in config.auxiliary_columns.items()
+            }
     else:
         raise ValueError(
             f"Expected 1D or 2D array, got {data.ndim}D array with shape {data.shape}"
@@ -387,4 +437,10 @@ def _read_npy(file_path: Path, config: Data1DConfig) -> tuple[np.ndarray, dict]:
     # NPY files don't have metadata
     metadata = {"x_units": None, "y_units": None, "x_label": None, "y_label": None}
 
-    return result_data, metadata
+    return result_data, metadata, auxiliary_column_data
+
+
+def _raise_if_auxiliary_columns_requested(config: Data1DConfig, data_type: str) -> None:
+    """Raise when named column extraction is requested for non-columnar formats."""
+    if config.auxiliary_columns:
+        raise ValueError(f"auxiliary_columns are not supported for {data_type}")

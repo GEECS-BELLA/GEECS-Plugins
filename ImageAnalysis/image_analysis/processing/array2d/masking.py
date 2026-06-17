@@ -11,7 +11,11 @@ import cv2
 import logging
 from typing import Tuple
 from ...types import Array2D
-from .config_models import CrosshairMaskingConfig, ROIConfig, CircularMaskConfig
+from image_analysis.config.array2d_processing import (
+    CrosshairMaskingConfig,
+    ROIConfig,
+    CircularMaskConfig,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +39,6 @@ def apply_crosshair_masking(image: Array2D, config: CrosshairMaskingConfig) -> A
         Image with crosshairs masked out.
 
     """
-    if not config.enabled:
-        return image.copy()
-
     # Create a copy to avoid modifying the original image
     masked_image = image.copy()
 
@@ -219,9 +220,6 @@ def apply_circular_mask(image: Array2D, config: CircularMaskConfig) -> Array2D:
     Array2D
         Image with circular mask applied.
     """
-    if not config.enabled:
-        return image.copy()
-
     # Create a copy to avoid modifying the original image
     masked_image = image.copy()
 

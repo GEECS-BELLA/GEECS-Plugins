@@ -67,6 +67,12 @@ class ConfigEditorPanel(QWidget):
     Dynamically creates :class:`SectionWidget` instances for each
     sub-config and a :class:`PipelineWidget` for step ordering.
 
+    Per #412 ``CameraConfig`` / ``Line1DConfig`` no longer carry a
+    ``name`` field — identity lives on the parent diagnostic and on
+    the analyzer instance. The form rendered by this panel reflects
+    that: the General Settings section contains description and
+    bit-depth / dtype fields only.
+
     Parameters
     ----------
     parent : QWidget, optional
@@ -235,13 +241,13 @@ class ConfigEditorPanel(QWidget):
 
         try:
             if self._config_type == "camera_2d":
-                from image_analysis.processing.array2d.config_models import (
+                from image_analysis.config.array2d_processing import (
                     CameraConfig,
                 )
 
                 CameraConfig.model_validate(data)
             elif self._config_type == "line_1d":
-                from image_analysis.processing.array1d.config_models import (
+                from image_analysis.config.array1d_processing import (
                     Line1DConfig,
                 )
 
@@ -269,7 +275,7 @@ class ConfigEditorPanel(QWidget):
         config : CameraConfig
             The loaded 2D camera configuration model.
         """
-        from image_analysis.processing.array2d.config_models import (
+        from image_analysis.config.array2d_processing import (
             BackgroundConfig,
             CircularMaskConfig,
             CrosshairMaskingConfig,
@@ -286,14 +292,8 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/camera identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Camera/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # ``name`` is no longer a CameraConfig field (#412). Identity
+        # lives at the parent diagnostic and on the analyzer instance.
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")
@@ -339,23 +339,22 @@ class ConfigEditorPanel(QWidget):
             field_value = getattr(config, section_name, None)
 
             if field_value is not None:
+                # Section is present on the typed config → render its
+                # values and check the header (active).
                 section.set_values(field_value.model_dump())
-            elif "enabled" not in model_class.model_fields:
-                # Models without an ``enabled`` field cannot be toggled via
-                # a checkbox, so the SectionWidget has no enable/disable
-                # control.  Populate with defaults so the step remains
-                # visible and can be included in the pipeline order.
-                section.set_values(model_class().model_dump())
             else:
+                # Section is absent on the typed config → leave the
+                # header unchecked and the form blank. The user can
+                # check it to materialise a default-valued section.
+                # (Don't pre-populate with model_class() — some
+                # sub-configs have required fields and an empty default
+                # construction fails validation.)
                 section.set_enabled(False)
 
             section.sectionEnabledChanged.connect(self._on_value_changed)
             section.valueChanged.connect(self._on_value_changed)
             self._sections[section_name] = section
             self._content_layout.addWidget(section)
-
-        # --- Wire dynamic_computation auto-population for background ---
-        self._connect_dynamic_computation_defaults()
 
         # --- Analysis (Dict field) ---
         self._build_analysis_widget(getattr(config, "analysis", None))
@@ -402,7 +401,7 @@ class ConfigEditorPanel(QWidget):
         config : Line1DConfig
             The loaded 1D line configuration model.
         """
-        from image_analysis.processing.array1d.config_models import (
+        from image_analysis.config.array1d_processing import (
             BackgroundConfig as BG1D,
             Data1DConfig,
             FilteringConfig as Filter1D,
@@ -416,14 +415,8 @@ class ConfigEditorPanel(QWidget):
         top_group = QGroupBox("General Settings")
         top_layout = QFormLayout(top_group)
 
-        # Name (device/signal identifier — used as metric key prefix in results)
-        name_edit = QLineEdit(getattr(config, "name", "") or "")
-        name_edit.setPlaceholderText(
-            "Signal/device identifier (used as metric key prefix)"
-        )
-        name_edit.textChanged.connect(self._on_value_changed)
-        top_layout.addRow("Name:", name_edit)
-        self._top_widgets["name"] = name_edit
+        # ``name`` is no longer a Line1DConfig field (#412). Identity
+        # lives at the parent diagnostic and on the analyzer instance.
 
         # Description
         desc_edit = QLineEdit(getattr(config, "description", "") or "")
@@ -584,51 +577,6 @@ class ConfigEditorPanel(QWidget):
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _connect_dynamic_computation_defaults(self) -> None:
-        """Wire the background dynamic_computation toggle to auto-populate fields.
-
-        When the ``dynamic_computation`` nested section inside the
-        background section is toggled **on**, this automatically sets:
-
-        * ``background.method`` → ``"from_file"``
-        * ``background.file_path`` → ``"{scan_dir}/computed_background.npy"``
-        * ``dynamic_computation.auto_save_path`` →
-          ``"{scan_dir}/computed_background.npy"``
-
-        This matches the well-established convention across all config
-        files and saves the user from manually typing these values.
-        """
-        bg_section = self._sections.get("background")
-        if bg_section is None:
-            return
-
-        dc_section = bg_section._nested_sections.get("dynamic_computation")
-        if dc_section is None:
-            return
-
-        default_path = "{scan_dir}/computed_background.npy"
-
-        def _on_dynamic_computation_toggled(_section_name: str, checked: bool) -> None:
-            if not checked:
-                return
-
-            # Set background.method to "from_file"
-            method_widget = bg_section._field_widgets.get("method")
-            if method_widget is not None:
-                method_widget.set_value("from_file")
-
-            # Set background.file_path to the conventional path
-            file_path_widget = bg_section._field_widgets.get("file_path")
-            if file_path_widget is not None:
-                file_path_widget.set_value(default_path)
-
-            # Set dynamic_computation.auto_save_path
-            auto_save_widget = dc_section._field_widgets.get("auto_save_path")
-            if auto_save_widget is not None:
-                auto_save_widget.set_value(default_path)
-
-        dc_section.sectionEnabledChanged.connect(_on_dynamic_computation_toggled)
 
     def _set_pipeline_from_enabled_sections(self) -> None:
         """Populate the pipeline widget from currently enabled sections."""

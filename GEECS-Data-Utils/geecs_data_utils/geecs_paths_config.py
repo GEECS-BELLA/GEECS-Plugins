@@ -23,14 +23,6 @@ logger.addHandler(logging.NullHandler())
 logger.propagate = False
 
 
-EXPERIMENT_TO_SERVER_DICT: dict[str, Path] = {
-    "Undulator": Path("Z:/data"),
-    "Thomson": Path("Z:/data"),
-    "DataLogging": Path("N:/data/PWlaserData"),
-    "PWlaserData": Path("N:/data"),
-}
-
-
 class GeecsPathsConfig:
     """
     Manages configuration for GEECS-related paths and experiment settings.
@@ -39,8 +31,9 @@ class GeecsPathsConfig:
     ----------
     base_path : Path
         The base directory for storing GEECS data locally.
-    experiment : str
-        The default experiment name.
+    experiment : str, optional
+        The default experiment name. May be None on analysis-only machines where
+        the experiment is always supplied at runtime (e.g. via LiveWatch GUI).
     image_analysis_configs_path : Path
         path to directory containing image analysis configs
     scan_analysis_configs_path : Path
@@ -87,13 +80,7 @@ class GeecsPathsConfig:
             base_path = Path(set_base_path)
         experiment = default_experiment
 
-        # See if the server address can be extracted from the experiment name without loading config file
-        if experiment is not None and base_path is None:
-            base_path = self._validate_path(
-                self._get_default_server_address(experiment)
-            )
-
-        # If either was not set in arguments, then open up the config file and read its contents
+        # If base path or experiment not yet resolved, read the config file
         if experiment is None or base_path is None:
             config = ConfigParser()
             if config_path.exists():
@@ -104,30 +91,25 @@ class GeecsPathsConfig:
                     if experiment is None:
                         experiment = config["Experiment"].get("expt")
 
-                    # Then, if no base path specified first try the default server path for the given experiment
                     if base_path is None:
-                        base_path = self._validate_path(
-                            self._get_default_server_address(experiment)
+                        local_path_str = config["Paths"].get(
+                            "GEECS_DATA_LOCAL_BASE_PATH", None
                         )
+                        if local_path_str is not None:
+                            base_path = self._validate_path(Path(local_path_str))
 
-                    # If not connected to server path, then default to the local base path defined in the config file
-                    if base_path is None:
-                        local_path = Path(
-                            config["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH", None)
-                        )
-                        base_path = self._validate_path(local_path)
-
-                    if image_analysis_configs_path is None:
-                        local_path = Path(
-                            config["Paths"].get("image_analysis_configs_path", None)
-                        )
-                        image_analysis_configs_path = self._validate_path(local_path)
-
+                    # Resolve scan_analysis_configs_path FIRST so the
+                    # image-side path can derive from it.
                     if scan_analysis_configs_path is None:
                         local_path = Path(
                             config["Paths"].get("scan_analysis_configs_path", None)
                         )
                         scan_analysis_configs_path = self._validate_path(local_path)
+
+                    if image_analysis_configs_path is None:
+                        image_analysis_configs_path = self._resolve_image_path(
+                            config, scan_analysis_configs_path
+                        )
 
                 except Exception as e:
                     logger.error(f"Error reading config file {config_path}: {e}")
@@ -136,9 +118,12 @@ class GeecsPathsConfig:
                     f"Config file {config_path} not found. Using default paths."
                 )
 
-        if experiment is None or base_path is None:
+        # Experiment is optional — base_path alone is sufficient for path-only usage.
+        # Callers that need the experiment (e.g. GDoc integration) supply it via ScanTag.
+        if base_path is None:
             raise ConfigurationError(
-                f"Could not set experiment name and base path. Check config file {config_path}"
+                f"Could not determine base data path. "
+                f"Set GEECS_DATA_LOCAL_BASE_PATH = <path> under [Paths] in {config_path}."
             )
 
         self.base_path = base_path  # .resolve()
@@ -170,36 +155,6 @@ class GeecsPathsConfig:
             except Exception as e:
                 logger.debug(f"Could not read tool paths from config: {e}")
 
-    def _is_default_server_address(self) -> bool:
-        """
-        Check if base directory matches the default server address.
-
-        Returns
-        -------
-        bool
-            True if the base directory is equivalent to the default server address
-        """
-        default_path = self._get_default_server_address(self.experiment)  # .resolve()
-        return self.base_path == default_path
-
-    @staticmethod
-    def _get_default_server_address(experiment_name: str) -> Optional[Path]:
-        """
-        Get the default server path for a given experiment.
-
-        Parameters
-        ----------
-        experiment_name : str
-            Name of the experiment
-
-        Returns
-        -------
-        Optional[Path]
-            The corresponding base path on the server for the given experiment,
-            None if experiment is unknown
-        """
-        return EXPERIMENT_TO_SERVER_DICT.get(experiment_name, None)
-
     @staticmethod
     def _validate_path(input_path) -> Optional[Path]:
         """
@@ -219,6 +174,56 @@ class GeecsPathsConfig:
             return input_path
         else:
             logger.warning("%s path was not found", input_path)
+        return None
+
+    @classmethod
+    def _resolve_image_path(
+        cls, config: ConfigParser, scan_analysis_configs_path: Optional[Path]
+    ) -> Optional[Path]:
+        """Resolve the image-analysis config path with unified-configs awareness.
+
+        After the unified-configs migration, image and scan analysis
+        share one config tree: the per-diagnostic YAMLs under
+        ``scan_analysis_configs_path/analyzers`` carry both an
+        ``image:`` section and a ``scan:`` section. ImageAnalysis
+        searches that subtree recursively to find a camera or line
+        config by name.
+
+        The legacy ``image_analysis_configs_path`` key in ``config.ini``
+        is honoured (with a deprecation warning) for users who haven't
+        yet updated their config file. When the legacy key is absent,
+        the image path derives from ``scan_analysis_configs_path /
+        "analyzers"``.
+
+        Parameters
+        ----------
+        config : ConfigParser
+            Loaded ``config.ini``.
+        scan_analysis_configs_path : Path, optional
+            Already-resolved scan-analysis configs root.
+
+        Returns
+        -------
+        Path or None
+            Resolved image-analysis configs path, or ``None`` if neither
+            the legacy key nor the derived path exists.
+        """
+        legacy = config["Paths"].get("image_analysis_configs_path", None)
+        if legacy is not None:
+            logger.warning(
+                "image_analysis_configs_path in config.ini is deprecated. "
+                "After the unified-configs migration, ImageAnalysis reads "
+                "from scan_analysis_configs_path/analyzers (which holds "
+                "the embedded image: section of each diagnostic). Remove "
+                "the line from config.ini to use auto-derivation."
+            )
+            resolved = cls._validate_path(Path(legacy))
+            if resolved is not None:
+                return resolved
+
+        if scan_analysis_configs_path is not None:
+            return cls._validate_path(Path(scan_analysis_configs_path) / "analyzers")
+
         return None
 
 

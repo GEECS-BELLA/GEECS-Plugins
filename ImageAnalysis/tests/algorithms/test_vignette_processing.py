@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.config.array2d_processing import (
     CameraConfig,
     PipelineConfig,
     ProcessingStepType,
@@ -20,7 +20,6 @@ def test_radial_vignette_constant_model():
     """Radial vignette map should be uniform when only vgnt0 is used."""
     image = np.ones((4, 5), dtype=float)
     cfg = VignetteConfig(
-        enabled=True,
         method=VignetteMethod.RADIAL_POLYNOMIAL,
         full_width=5,
         full_height=4,
@@ -36,12 +35,10 @@ def test_radial_vignette_constant_model():
 
 
 def test_pipeline_applies_vignette_step():
-    """Pipeline should apply vignette when VIGNETTE step is enabled."""
+    """Pipeline runs the vignette step when VIGNETTE is in pipeline.steps."""
     image = np.full((3, 3), 10.0, dtype=float)
     camera_cfg = CameraConfig(
-        name="test_cam",
         vignette=VignetteConfig(
-            enabled=True,
             method=VignetteMethod.RADIAL_POLYNOMIAL,
             full_width=3,
             full_height=3,
@@ -52,7 +49,7 @@ def test_pipeline_applies_vignette_step():
         pipeline=PipelineConfig(steps=[ProcessingStepType.VIGNETTE]),
     )
 
-    out = apply_camera_processing_pipeline(image, camera_cfg, background_manager=None)
+    out = apply_camera_processing_pipeline(image, camera_cfg, background_cache=None)
     np.testing.assert_allclose(out, 5.0 * np.ones_like(image))
 
 

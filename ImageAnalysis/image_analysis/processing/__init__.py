@@ -16,8 +16,8 @@ All 2D processing operations are in the `array2d` submodule.
 Import directly from there:
 
     from image_analysis.processing.array2d import apply_gaussian_filter
-    from image_analysis.processing.array2d.config_models import CameraConfig
-    from image_analysis.processing.array2d import BackgroundManager
+    from image_analysis.config.array2d_processing import CameraConfig
+    from image_analysis.processing.array2d import apply_background
 """
 
 __all__ = []

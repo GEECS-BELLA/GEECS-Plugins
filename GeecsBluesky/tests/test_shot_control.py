@@ -16,9 +16,10 @@ import pytest
 from bluesky import RunEngine
 from ophyd_async.core import AsyncStatus
 
-from geecs_bluesky.devices.camera import GeecsCameraBase
+from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner, _UdpSetter
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -64,7 +65,9 @@ def _make_scanner_with_mock_setters() -> tuple[BlueskyScanner, dict[str, _MockSe
     """Build a BlueskyScanner shell with injected mock setters (no __init__)."""
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._RE = RunEngine()
-    scanner._shot_control_variables = SHOT_CONTROL_VARS
+    scanner._shot_control = ShotControlConfig(
+        device="U_DG645_ShotControl", variables=SHOT_CONTROL_VARS
+    )
     mock_setters = {var: _MockSetter(var) for var in SHOT_CONTROL_VARS}
     scanner._shot_control_setters = mock_setters
     return scanner, mock_setters
@@ -161,7 +164,7 @@ class TestSetTriggerState:
         """Empty setters dict produces an empty plan without error."""
         scanner = BlueskyScanner.__new__(BlueskyScanner)
         scanner._RE = RunEngine()
-        scanner._shot_control_variables = {}
+        scanner._shot_control = None
         scanner._shot_control_setters = {}
         scanner._RE(scanner._set_trigger_state("SCAN"))  # must not raise
 
@@ -210,7 +213,7 @@ def combined_device() -> FakeGeecsDevice:
         name="U_Combined",
         variables={
             "Position (mm)": 0.0,
-            "SavedFile": "/data/shot001.tif",
+            "Signal": 1.0,
             "acq_timestamp": 1000.0,
         },
     )
@@ -238,7 +241,9 @@ class TestStepScanArmDisarmOrdering:
         host, port = host_port[0], host_port[1]
 
         motor = GeecsMotor("U_Combined", "Position (mm)", host, port, name="test_motor")
-        cam = GeecsCameraBase("U_Combined", host, port, name="test_cam")
+        det = GeecsGenericDetector(
+            "U_Combined", ["Signal"], host, port, name="test_det"
+        )
 
         events: list[dict] = []
         arm_at: list[int] = []
@@ -256,13 +261,13 @@ class TestStepScanArmDisarmOrdering:
         RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
 
         asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
-        asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+        asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
 
         RE(
             geecs_step_scan(
                 motor=motor,
                 positions=[0.0, 1.0],
-                detectors=[cam],
+                detectors=[det],
                 shots_per_step=2,
                 arm_trigger=mock_arm,
                 disarm_trigger=mock_disarm,
@@ -292,19 +297,21 @@ class TestStepScanArmDisarmOrdering:
         motor = GeecsMotor(
             "U_Combined", "Position (mm)", host, port, name="test_motor2"
         )
-        cam = GeecsCameraBase("U_Combined", host, port, name="test_cam2")
+        det = GeecsGenericDetector(
+            "U_Combined", ["Signal"], host, port, name="test_det2"
+        )
 
         events: list[dict] = []
         RE = RunEngine()
         RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
         asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
-        asyncio.run_coroutine_threadsafe(cam.connect(), RE._loop).result(timeout=10)
+        asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
 
         RE(
             geecs_step_scan(
                 motor=motor,
                 positions=[0.0],
-                detectors=[cam],
+                detectors=[det],
                 shots_per_step=3,
             )
         )

@@ -14,38 +14,40 @@ pytestmark = [pytest.mark.integration, pytest.mark.data]
 DEV_NAME = "UC_Amp4_IR_input"
 
 
-def _make_beam_config(name: str):
-    """Construct a minimal CameraConfig for beam analysis (no YAML required)."""
-    from image_analysis.processing.array2d.config_models import (
+def _make_beam_config():
+    """Construct a minimal CameraConfig for beam analysis (no YAML required).
+
+    ``CameraConfig.name`` was removed in #412 — identity lives on the
+    analyzer instance (``output_name``) and on the wrapping
+    ``Array2DScanAnalyzer`` (``device_name`` → ``output_name`` fallback).
+    """
+    from image_analysis.config.array2d_processing import (
         BackgroundConfig,
         CameraConfig,
     )
 
     return CameraConfig(
-        name=name,
         bit_depth=16,
         background=BackgroundConfig(method="constant", constant_level=0),
     )
 
 
-def test_array2d_beam_analyzer_noscan():
+def test_array2d_beam_analyzer_noscan(canonical_scan_tag):
     """Array2DScanAnalyzer runs BeamAnalyzer on a noscan and produces results.
 
     Uses flag_save_images=False to avoid writing to the data directory.
     """
-    from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+    from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
-    image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
+    image_analyzer = BeamAnalyzer(_make_beam_config())
     scan_analyzer = Array2DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=DEV_NAME,
         flag_save_images=False,
     )
 
-    tag = ScanTag(year=2025, month=2, day=20, number=14, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_2d"))
 
     assert len(scan_analyzer.results) > 0
     result = next(iter(scan_analyzer.results.values()))
@@ -53,21 +55,19 @@ def test_array2d_beam_analyzer_noscan():
     assert result.processed_image.ndim == 2
 
 
-def test_array2d_results_have_scalars():
+def test_array2d_results_have_scalars(canonical_scan_tag):
     """Each per-shot result contains the expected beam scalar keys."""
-    from geecs_data_utils import ScanTag
     from scan_analysis.analyzers.common.array2D_scan_analysis import Array2DScanAnalyzer
-    from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
+    from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
 
-    image_analyzer = BeamAnalyzer(_make_beam_config(DEV_NAME))
+    image_analyzer = BeamAnalyzer(_make_beam_config())
     scan_analyzer = Array2DScanAnalyzer(
         image_analyzer=image_analyzer,
         device_name=DEV_NAME,
         flag_save_images=False,
     )
 
-    tag = ScanTag(year=2025, month=2, day=20, number=14, experiment="Undulator")
-    scan_analyzer.run_analysis(scan_tag=tag)
+    scan_analyzer.run_analysis(scan_tag=canonical_scan_tag("undulator_2d"))
 
     for result in scan_analyzer.results.values():
         assert f"{DEV_NAME}_x_CoM" in result.scalars

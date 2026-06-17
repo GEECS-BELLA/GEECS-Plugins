@@ -1,13 +1,13 @@
-"""
-Simulation evaluator for BAX multipoint alignment testing.
+"""Simulation evaluator for BAX multipoint alignment testing.
 
 Derives beam centroid from corrector/quadrupole setpoints via a parametric
-ray-tracing model, enabling offline convergence testing without hardware.
+ray-tracing model — no analyzer needed. The setpoints come from the
+DataLogger as s-file scalars (declared via the ``scalars:`` config block).
 
 Classes
 -------
 BeamPositionSimulationEvaluator
-    Computes x_CoM from corrector/quadrupole setpoints.
+    Computes ``x_CoM`` from corrector/quadrupole setpoints.
 """
 
 from __future__ import annotations
@@ -17,38 +17,25 @@ from typing import Dict
 
 import numpy as np
 
-from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-    MultiDeviceScanEvaluator,
-)
+from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 
 logger = logging.getLogger(__name__)
 
 
-class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
-    """
-    Simulation-mode evaluator that publishes x_CoM derived from setpoints.
+class BeamPositionSimulationEvaluator(BaseEvaluator):
+    """Simulation-mode BAX evaluator: ``x_CoM`` from setpoints, no hardware.
 
     The centroid model is::
 
-        x_CoM = scale_factor * (S1H - reference_setpoint) * (1 + EMQ) + noise
+        x_CoM = scale_factor * (control - reference_setpoint) * (1 + measure) + noise
 
-    Parameters
-    ----------
-    control_variable_name : str
-        Horizontal corrector column name in ``current_data_bin``.
-    measurement_variable_name : str
-        Quadrupole current column name in ``current_data_bin``.
-    scale_factor : float
-        Pixels per unit corrector offset.
-    reference_setpoint : float
-        Corrector setpoint that produces zero offset.
-    noise_amplitude : float
-        Peak-to-peak pixel noise (±noise_amplitude/2).
-    calibration : float
-        Pixel-to-physical-unit scale applied after simulation.
-    **kwargs
-        Forwarded to :class:`MultiDeviceScanEvaluator`.
+    Both ``control`` and ``measure`` are read from the s-file via the
+    ``scalars`` config block (so the YAML declares them explicitly rather
+    than the Python class hardcoding the column names).
     """
+
+    # BAX: observables only, no objective.
+    output_key = None
 
     def __init__(
         self,
@@ -60,7 +47,15 @@ class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
         calibration: float = 1.0,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        # Auto-add the two simulation inputs to the ``scalars`` config so
+        # they get pulled into the per-shot scalars dict by the base class.
+        # Caller-supplied ``scalars`` are preserved and extended.
+        scalars = list(kwargs.pop("scalars", None) or [])
+        for name in (control_variable_name, measurement_variable_name):
+            if name not in scalars:
+                scalars.append(name)
+
+        super().__init__(scalars=scalars, **kwargs)
         self.control_variable_name = control_variable_name
         self.measurement_variable_name = measurement_variable_name
         self.scale_factor = scale_factor
@@ -68,24 +63,13 @@ class BeamPositionSimulationEvaluator(MultiDeviceScanEvaluator):
         self.noise_amplitude = noise_amplitude
         self.calibration = calibration
 
-        self.objective_tag = "BeamPosition"
-        self.output_key = None  # BAX — observables only, no objective
-
-    def compute_observables(
-        self, scalar_results: dict, bin_number: int
-    ) -> Dict[str, float]:
-        """Compute x_CoM from corrector and quadrupole setpoints via simulation."""
+    def compute_observables(self, scalars, bin_number) -> Dict[str, float]:
+        """Compute ``x_CoM`` from the corrector + quadrupole setpoints."""
         try:
-            control_val = float(
-                np.mean(self.current_data_bin[self.control_variable_name])
-            )
-            measure_val = float(
-                np.mean(self.current_data_bin[self.measurement_variable_name])
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to read simulation inputs from current_data_bin: %s", e
-            )
+            control_val = scalars[self.control_variable_name]
+            measure_val = scalars[self.measurement_variable_name]
+        except KeyError as e:
+            logger.warning("Simulation evaluator: missing input column %s", e)
             return {}
 
         offset = control_val - self.reference_setpoint

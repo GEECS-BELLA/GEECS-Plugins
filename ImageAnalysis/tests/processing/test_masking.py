@@ -10,7 +10,7 @@ from image_analysis.processing.array2d.masking import (
     apply_roi_cropping,
     create_mask_from_threshold,
 )
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.config.array2d_processing import (
     CircularMaskConfig,
     ROIConfig,
 )
@@ -123,11 +123,9 @@ class TestCircularMask:
         assert result[25, 25] == 0.0
         assert result[0, 0] == 100.0
 
-    def test_disabled_returns_copy_unchanged(self):
-        image = np.ones((10, 10), dtype=np.float64) * 42.0
-        config = CircularMaskConfig(enabled=False, center=(5, 5), radius=3)
-        result = apply_circular_mask(image, config)
-        assert np.all(result == 42.0)
+    # Note: the previous ``test_disabled_returns_copy_unchanged`` checked
+    # the ``enabled=False`` no-op behavior. That field is gone; skipping
+    # is now done by removing the step from ``pipeline.steps``.
 
 
 class TestRectangularMask:

@@ -26,8 +26,8 @@ import yaml
 
 from geecs_data_utils import ScanPaths, ScanTag
 from scan_analysis.base import DataUnavailableWarning
-from scan_analysis.config.analyzer_factory import create_analyzer
-from scan_analysis.config.config_loader import load_experiment_config
+from scan_analysis.config.analysis_group_loader import load_analysis_group
+from scan_analysis.config.diagnostic_factory import create_scan_analyzer
 from scan_analysis.gdoc_upload import upload_links_to_gdoc, upload_summary_to_gdoc
 
 logger = logging.getLogger(__name__)
@@ -95,6 +95,26 @@ def _status_path(scan_folder: Path, analyzer_id: str) -> Path:
     return _status_dir(scan_folder) / f"{analyzer_id}.yaml"
 
 
+def _require_scan_folder(scan_folder: Path) -> bool:
+    """Return True iff ``scan_folder`` is a visible directory.
+
+    The analysis stack is a consumer of scan folders, never a producer. If the
+    folder isn't visible we log loudly and bail — *never* auto-create it.
+    Silent creation here masks two real failure modes: an upstream timing bug
+    where the scanner hasn't written the folder yet, and an SMB/NetApp
+    visibility blip that — if we plant an empty directory entry during the
+    window — converts a recoverable transient into permanent data loss.
+    """
+    if not scan_folder.is_dir():
+        logger.error(
+            "Scan folder %s is not visible; analysis code will not create it. "
+            "Skipping write. The next poll cycle will retry if visibility returns.",
+            scan_folder,
+        )
+        return False
+    return True
+
+
 def _parse_ts(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -158,8 +178,10 @@ def init_status_for_scan(
     scan_folder = ScanPaths.get_scan_folder_path(
         tag=scan_tag, base_directory=base_directory
     )
+    if not _require_scan_folder(scan_folder):
+        return
     status_dir = _status_dir(scan_folder)
-    status_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(exist_ok=True)
 
     for analyzer in analyzers:
         analyzer_id = getattr(
@@ -276,8 +298,10 @@ def update_status(
     display_files: Optional[List[str]] = None,
 ) -> None:
     """Update status file for a given analyzer in a scan folder."""
+    if not _require_scan_folder(scan_folder):
+        return
     status_dir = _status_dir(scan_folder)
-    status_dir.mkdir(parents=True, exist_ok=True)
+    status_dir.mkdir(exist_ok=True)
     path = _status_path(scan_folder, analyzer_id)
     if path.exists():
         current = TaskStatus.from_file(path)
@@ -565,11 +589,31 @@ def run_worklist(
 
 
 def load_analyzers_from_config(
-    experiment: str, *, config_dir: Optional[Path] = None
+    group_name: str, *, config_dir: Optional[Path] = None
 ) -> List[object]:
-    """Load analyzers (sorted by priority) for an experiment config."""
-    cfg = load_experiment_config(experiment, config_dir=config_dir)
-    return [create_analyzer(a) for a in cfg.get_analyzers_by_priority()]
+    """Load and instantiate analyzers for an analysis group, sorted by priority.
+
+    Parameters
+    ----------
+    group_name : str
+        Group name from ``scan_analysis_configs/groups/<namespace>/``.
+        Either the stem (``"baseline"``) or path-like form
+        (``"HTU/baseline"``) when the stem is ambiguous across
+        namespaces.
+    config_dir : Path, optional
+        Root of the scan-analysis configs tree. Falls back to the
+        ``scan_analysis_config`` manager's resolved base directory.
+
+    Returns
+    -------
+    list
+        Runnable :class:`ScanAnalyzer` instances in execution order.
+    """
+    group = load_analysis_group(group_name, config_dir=config_dir)
+    return [
+        create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+        for r in group.analyzers
+    ]
 
 
 def _heartbeat_updater(

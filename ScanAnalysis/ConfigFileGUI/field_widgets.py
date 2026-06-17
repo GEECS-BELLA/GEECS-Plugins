@@ -15,7 +15,18 @@ import re
 import typing
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union, get_args, get_origin
+from typing import (
+    Any,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    get_args,
+    get_origin,
+)
 
 import yaml
 from pydantic import BaseModel
@@ -574,16 +585,98 @@ class EnumFieldWidget(BaseFieldWidget):
 
 
 # ---------------------------------------------------------------------------
+# Concrete widget: Literal[...]
+# ---------------------------------------------------------------------------
+
+
+class LiteralFieldWidget(BaseFieldWidget):
+    """Widget for ``Literal[...]`` fields using a ``QComboBox``.
+
+    For Pydantic fields typed as e.g. ``Literal["median", "percentile"]``.
+    Each Literal argument becomes a dropdown entry, with the raw value
+    stored as item data so :meth:`get_value` returns the original
+    ``str`` / ``int`` / etc. unchanged.
+
+    Parameters
+    ----------
+    field_name : str
+        Pydantic field name.
+    field_info : FieldInfo
+        Pydantic field descriptor.
+    choices : tuple
+        The ``typing.get_args`` of the Literal annotation — the
+        allowed values.
+    parent : QWidget, optional
+        Parent widget.
+    """
+
+    def __init__(
+        self,
+        field_name: str,
+        field_info: FieldInfo,
+        choices: Tuple[Any, ...],
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(field_name, field_info, parent)
+        self._choices = choices
+        self._combo = QComboBox()
+
+        for choice in choices:
+            self._combo.addItem(str(choice), choice)
+
+        self._row_layout.addWidget(self._combo, stretch=1)
+        self._combo.currentIndexChanged.connect(self.valueChanged.emit)
+
+        # Apply default
+        default = getattr(field_info, "default", PydanticUndefined)
+        if default is not PydanticUndefined and default is not None:
+            self.set_value(default)
+
+    def get_value(self) -> Any:
+        """Return the raw value of the currently selected literal.
+
+        Returns
+        -------
+        Any
+            The selected Literal argument exactly as declared
+            (str / int / etc.), or ``None`` if no selection.
+        """
+        return self._combo.currentData()
+
+    def set_value(self, value: Any) -> None:
+        """Set the combo box to the entry matching ``value``.
+
+        Parameters
+        ----------
+        value : Any
+            One of the Literal arguments, or a string representation
+            of one. No-op if no match.
+        """
+        if value is None:
+            return
+        for i in range(self._choices.__len__()):
+            stored = self._combo.itemData(i)
+            if stored == value or str(stored) == str(value):
+                self._combo.setCurrentIndex(i)
+                return
+
+
+# ---------------------------------------------------------------------------
 # Concrete widget: Optional[X] wrapper
 # ---------------------------------------------------------------------------
 
 
 class OptionalFieldWidget(BaseFieldWidget):
-    """Wraps another field widget with an enable/disable checkbox.
+    """Wraps another field widget with a "value is set" checkbox.
 
-    When the checkbox is unchecked the inner widget is disabled and
-    :meth:`get_value` returns ``None``.  When checked, it delegates
-    to the inner widget.
+    For Pydantic fields typed ``Optional[X]``. When the checkbox is
+    unchecked the inner widget is disabled and :meth:`get_value`
+    returns ``None``. When checked, it delegates to the inner widget.
+
+    The checkbox is unlabelled because the field's own label (rendered
+    by ``BaseFieldWidget``) already identifies the field. Adding a
+    second word like "Enabled" next to it was confusing — especially
+    after the per-step ``enabled`` flag was removed from the schema.
 
     Parameters
     ----------
@@ -611,7 +704,8 @@ class OptionalFieldWidget(BaseFieldWidget):
         inner_label = inner_widget._label
         inner_label.hide()
 
-        self._enable_cb = QCheckBox("Enabled")
+        self._enable_cb = QCheckBox()  # unlabelled — see class docstring
+        self._enable_cb.setToolTip("Set this value (uncheck to leave as None)")
         self._row_layout.addWidget(self._enable_cb)
         self._row_layout.addWidget(self._inner, stretch=1)
 
@@ -1092,16 +1186,18 @@ def create_field_widget(
     The resolution order is:
 
     1. ``Optional[X]`` → wrap the inner widget in :class:`OptionalFieldWidget`
-    2. ``Enum`` subclass → :class:`EnumFieldWidget`
-    3. ``bool`` → :class:`BoolFieldWidget`  (checked before ``int``!)
-    4. ``int`` → :class:`IntFieldWidget`
-    5. ``float`` → :class:`FloatFieldWidget`
-    6. ``str`` → :class:`StringFieldWidget`
-    7. ``Tuple[int, int]`` → :class:`TupleFieldWidget`
-    8. ``List[BaseModel]`` → :class:`ListFieldWidget`
-    9. ``Dict`` → :class:`DictFieldWidget`
-    10. ``Path`` or union containing ``Path`` → :class:`PathFieldWidget`
-    11. Fallback → :class:`StringFieldWidget` with ``str()`` conversion
+    2. ``Literal[...]`` → :class:`LiteralFieldWidget`  (checked before
+       ``Enum`` since Literal has no class to subclass-check against)
+    3. ``Enum`` subclass → :class:`EnumFieldWidget`
+    4. ``bool`` → :class:`BoolFieldWidget`  (checked before ``int``!)
+    5. ``int`` → :class:`IntFieldWidget`
+    6. ``float`` → :class:`FloatFieldWidget`
+    7. ``str`` → :class:`StringFieldWidget`
+    8. ``Tuple[int, int]`` → :class:`TupleFieldWidget`
+    9. ``List[BaseModel]`` → :class:`ListFieldWidget`
+    10. ``Dict`` → :class:`DictFieldWidget`
+    11. ``Path`` or union containing ``Path`` → :class:`PathFieldWidget`
+    12. Fallback → :class:`StringFieldWidget` with ``str()`` conversion
     """
     # --- 1. Optional[X] ---------------------------------------------------
     if _is_optional(field_type):
@@ -1151,6 +1247,14 @@ def _create_inner_widget(
     """
     origin = get_origin(field_type)
     args = get_args(field_type)
+
+    # --- Literal[...] ------------------------------------------------------
+    # Must come before Enum (Literal has no class to subclass-check against
+    # but its origin is the Literal special form). Handles both bare
+    # Literal["a", "b"] and the inner type of Optional[Literal["a", "b"]]
+    # since the Optional case unwraps and recurses.
+    if origin is Literal:
+        return LiteralFieldWidget(field_name, field_info, args, parent)
 
     # --- Enum --------------------------------------------------------------
     if isinstance(field_type, type) and issubclass(field_type, Enum):

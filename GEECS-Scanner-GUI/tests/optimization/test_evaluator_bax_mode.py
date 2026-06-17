@@ -15,28 +15,29 @@ from tests.optimization.conftest import FakeDataLogger, make_log_entries
 
 def _make_bax_evaluator(observable_results: dict):
     """
-    Build a MultiDeviceScanEvaluator shell with output_key=None.
+    Build a BaseEvaluator shell with output_key=None.
 
     compute_observables returns *observable_results*.
     _get_value is patched to bypass real analysis.
     """
-    from geecs_scanner.optimization.evaluators.multi_device_scan_evaluator import (
-        MultiDeviceScanEvaluator,
+    from geecs_scanner.optimization.base_evaluator import (
+        BaseEvaluator,
     )
 
-    class _BaxConcrete(MultiDeviceScanEvaluator):
-        def compute_objective(self, scalar_results, bin_number):
+    class _BaxConcrete(BaseEvaluator):
+        def compute_objective(self, scalars, bin_number):
             # Should never be called in BAX mode
             raise AssertionError(
                 "compute_objective must not be called when output_key=None"
             )
 
-        def compute_observables(self, scalar_results, bin_number):
+        def compute_observables(self, scalars, bin_number):
             return observable_results
 
     obj = object.__new__(_BaxConcrete)
-    obj.analyzer_configs = []
+    obj.diagnostics = []
     obj.scan_analyzers = {}
+    obj.scalar_keys = []
     obj.output_key = None
     obj.objective_tag = "BAX"
     obj.bin_number = 1

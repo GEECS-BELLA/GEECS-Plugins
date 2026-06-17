@@ -28,7 +28,7 @@ from scan_analysis.analyzers.common.single_device_scan_analyzer import (
     SingleDeviceScanAnalyzer,
 )
 from scan_analysis.analyzers.renderers import Line1DRenderer, Line1DRendererConfig
-from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
 
 # --- Type-Checking Imports ---
 if TYPE_CHECKING:
@@ -50,7 +50,6 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     - ``load_image(path) -> np.ndarray`` returning Nx2 array (x, y pairs)
     - ``analyze_image(image, auxiliary_data: dict|None) -> AnalyzerResultDict``
-    - Optionally ``analyze_image_batch(images: list[np.ndarray]) -> (list[np.ndarray], dict)``
 
     Parameters
     ----------
@@ -88,9 +87,12 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
 
     With custom analyzer::
 
-        from image_analysis.offline_analyzers.standard_1d_analyzer import Standard1DAnalyzer
+        from image_analysis.config.loader import load_line_config
+        from image_analysis.analyzers.standard_1d_analyzer import Standard1DAnalyzer
 
-        custom_analyzer = Standard1DAnalyzer(line_config_name="my_scope_config")
+        custom_analyzer = Standard1DAnalyzer(
+            line_config=load_line_config("my_scope_config"),
+        )
         analyzer = Array1DScanAnalyzer(
             device_name="TekScope",
             image_analyzer=custom_analyzer,
@@ -109,6 +111,9 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         renderer_kwargs: Optional[Dict[str, Any]] = None,
         analysis_mode: Literal["per_shot", "per_bin"] = "per_shot",
         data_device_name: Optional[str] = None,
+        use_injected_data: bool = False,
+        output_name: Optional[str] = None,
+        metric_suffix: str = "",
     ):
         """Initialize the analyzer with an ImageAnalyzer and Line1DRenderer.
 
@@ -175,6 +180,9 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             flag_save_data=flag_save_data,
             analysis_mode=analysis_mode,
             data_device_name=data_device_name,
+            use_injected_data=use_injected_data,
+            output_name=output_name,
+            metric_suffix=metric_suffix,
         )
 
     def _get_renderer_config(self):
@@ -238,27 +246,37 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
             # Safely get render_image method if it exists
             render_func = getattr(self.image_analyzer, "render_image", None)
 
-            # Create ImageAnalyzerResult for averaged data
-            avg_result = ImageAnalyzerResult(
-                data_type="1d",
-                line_data=avg_data,
-                scalars=avg_scalars,
-                metadata={"analyzer_return_dictionary": avg_scalars},
-                render_function=render_func,
-            )
-
-            # Create RenderContext for average
-            avg_context = RenderContext.from_analyzer_result(
-                shot_number="average",
-                result=avg_result,
-                device_name=self.device_name,
-                render_function=render_func,
-            )
-
             config = self._get_renderer_config()
 
-            # Save average using renderer
-            self.renderer.render_single(avg_context, config, self.path_dict["save"])
+            # The averaged-line figure only makes sense when shots share a
+            # common x-axis. For analyzers whose per-shot lineouts have
+            # variable shape (e.g. FROG spectral phase, where ROI/weight
+            # masking yields different sample counts per shot),
+            # `average_data` returns None and we skip the averaged figure
+            # without losing per-shot scalars or the waterfall summary.
+            if avg_data is not None:
+                avg_result = ImageAnalyzerResult(
+                    data_type="1d",
+                    line_data=avg_data,
+                    scalars=avg_scalars,
+                    metadata={"analyzer_return_dictionary": avg_scalars},
+                    render_function=render_func,
+                )
+
+                avg_context = RenderContext.from_analyzer_result(
+                    shot_number="average",
+                    result=avg_result,
+                    device_name=self.device_name,
+                    render_function=render_func,
+                )
+
+                self.renderer.render_single(avg_context, config, self.path_dict["save"])
+            else:
+                logger.info(
+                    "Skipping averaged-line figure for %s; per-shot scalars "
+                    "and waterfall summary are unaffected.",
+                    self.device_name,
+                )
 
             # Create waterfall plot from all results
             # Resolve optional sort key from renderer_kwargs
@@ -277,8 +295,13 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                         row = self.auxiliary_data.loc[
                             self.auxiliary_data["Shotnumber"] == shot_num, sort_column
                         ]
+                        # Use NaN as the sentinel for "no value"; the filter
+                        # below drops any shot whose sort value isn't finite.
+                        # Falling back to float(shot_num) would mix scales
+                        # (shot indices vs. real sort-key values), which
+                        # breaks mean/std-based outlier filtering.
                         ctx.parameter_value = (
-                            float(row.iloc[0]) if not row.empty else float(shot_num)
+                            float(row.iloc[0]) if not row.empty else float("nan")
                         )
                         ctx.scan_parameter = sort_column
                     else:
@@ -287,6 +310,24 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
                     contexts.append(ctx)
 
             if sort_column is not None:
+                # Drop shots whose sort-key value is missing or non-finite.
+                # Without this, even a single NaN poisons mean()/std() and
+                # the outlier filter rejects every shot.
+                n_before = len(contexts)
+                contexts = [c for c in contexts if np.isfinite(c.parameter_value)]
+                n_invalid = n_before - len(contexts)
+                if n_invalid:
+                    logger.warning(
+                        f"Waterfall sort: dropped {n_invalid} shot(s) with "
+                        f"non-finite {sort_column!r} values."
+                    )
+                if not contexts:
+                    logger.warning(
+                        f"Waterfall sort: no shots have a valid {sort_column!r} "
+                        "value; skipping summary figure."
+                    )
+                    return
+
                 sort_bounds = self.renderer_kwargs.get("waterfall_sort_bounds")
                 sort_sigma = self.renderer_kwargs.get("waterfall_sort_sigma", 3.0)
                 n_before = len(contexts)
@@ -330,9 +371,29 @@ class Array1DScanAnalyzer(SingleDeviceScanAnalyzer):
         For 1D line/spectrum data with a scanned parameter, this creates:
         - Individual averaged spectra per bin
         - A waterfall plot showing all bins sorted by scan parameter
+
+        When ``waterfall_sort_key`` is set in ``renderer_kwargs``, the
+        binning step is bypassed entirely and rendering falls through to
+        :meth:`_postprocess_noscan`, which produces a per-shot waterfall
+        sorted by the chosen s-file column. Use this when you want to see
+        every shot ordered by a different observable than the scan
+        parameter (e.g. a downstream diagnostic) — the per-bin averaged
+        spectra are not generated in this mode.
         """
         from scan_analysis.analyzers.renderers.config import RenderContext
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # When a sort key is provided, treat the scan as if it were a
+        # noscan for rendering purposes: every shot becomes a waterfall
+        # row ordered by the chosen s-file column rather than by bin.
+        if self.renderer_kwargs.get("waterfall_sort_key"):
+            logger.info(
+                "waterfall_sort_key=%r set; bypassing binning and rendering "
+                "per-shot waterfall via _postprocess_noscan",
+                self.renderer_kwargs["waterfall_sort_key"],
+            )
+            self._postprocess_noscan()
+            return
 
         # Get binned data (handles both per_shot and per_bin modes)
         binned_data = self.get_binned_data()

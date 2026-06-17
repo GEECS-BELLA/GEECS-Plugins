@@ -6,19 +6,27 @@ authors = ["Sam Barber <sbarber@lbl.gov>"]
 package-mode = false
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.11"
+python = ">=3.11,<3.12"
 mkdocs = "^1.5"
 mkdocs-material = "^9.5"
 mkdocstrings = { extras = ["python"], version = "^0.28.2" }
 mkdocs-autorefs = "^1.4"
+mkdocs-git-revision-date-localized-plugin = "^1.2"  # "Last updated" footer per page
 nbconvert = "^7.0"  # Needed for Jupyter notebook output stripping
 tomli = "^2.2.1"
+# Pin griffe <2.0 until mkdocstrings + mkdocstrings-python both reach the
+# 2.x line that supports griffe 2.x. The currently-pinned mkdocstrings
+# (^0.28.2) pulls in mkdocstrings-python 1.16.x, which does
+# ``from griffe import Alias`` — gone in griffe 2.0, so the build dies
+# with ``ImportError: cannot import name 'Alias' from 'griffe'``.
+# Drop this pin when bumping mkdocstrings to ^0.29 / ^1.0 as a follow-up.
+griffe = "<2.0"
 
 [tool.poetry.group.dev.dependencies]
 geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
 geecs-pythonapi = {path = "GEECS-PythonAPI", develop = true}
 imageanalysis = { path = "ImageAnalysis", develop = true }
-geecs_data_utils = { path = "GEECS-Data-Utils", develop = true }
+geecs_data_utils = { path = "GEECS-Data-Utils", develop = true, extras = ["ml"] }
 scananalysis = {path = "ScanAnalysis", develop = true}
 LogMaker4GoogleDocs = {path = "LogMaker4GoogleDocs", develop = true}
 
@@ -40,6 +48,11 @@ build-backend = "poetry.core.masonry.api"
 # -------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests"]
+# importlib import mode avoids collisions between identically-named test
+# directories across subpackages (e.g. ImageAnalysis/tests/conftest.py and
+# GEECS-Data-Utils/tests/conftest.py both being imported as
+# `tests.conftest` under pytest's default rootdir-prepend mode).
+addopts = "--import-mode=importlib"
 markers = [
     "integration: requires external resources (data or hardware) — skipped in CI",
     "data: requires network-mounted GEECS data (combine with integration)",

@@ -4,14 +4,19 @@ Tests PolynomialCalibration and ArrayCalibration in isolation — no YAML
 config files or real camera images required.
 """
 
+from pathlib import Path
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
-from image_analysis.offline_analyzers.magspec_manual_calib_analyzer import (
+from image_analysis.analyzers.magspec_manual_calib_analyzer import (
     ArrayCalibration,
     MagSpecAnalyzerConfig,
+    MagSpecManualCalibAnalyzer,
     PolynomialCalibration,
 )
+from image_analysis.types import ImageAnalyzerResult
 
 
 class TestPolynomialCalibration:
@@ -111,3 +116,44 @@ class TestMagSpecAnalyzerConfig:
                 calibration={"kind": "polynomial", "coeffs": [1.0]},
                 energy_range=(100.0, 100.0),
             )
+
+
+class TestScanFolderInvariant:
+    """Pin: ``_save_calibrated_outputs`` must never create a missing scan folder.
+
+    Regression guard. The previous implementation used ``mkdir(parents=True,
+    exist_ok=True)`` to bring ``ScanXXX/<camera>-interp/`` into existence,
+    which silently re-created the scan folder during transient SMB/NetApp
+    visibility blips — converting a recoverable blip into permanent data loss
+    by planting an empty directory over the real scan contents.
+    """
+
+    def _stale_image_file(self, tmp_path: Path) -> Path:
+        """Return a path under a non-existent scan folder (the failure mode)."""
+        return (
+            tmp_path / "scans" / "Scan015" / "UC_TestCam" / "Scan015_UC_TestCam_001.png"
+        )
+
+    def _minimal_result(self) -> ImageAnalyzerResult:
+        return ImageAnalyzerResult(
+            data_type="2d",
+            processed_image=np.zeros((4, 4), dtype=np.float64),
+            render_data={"energy_axis": np.linspace(0.0, 1.0, 4)},
+        )
+
+    def test_save_refuses_when_scan_folder_missing(self, tmp_path):
+        stale = self._stale_image_file(tmp_path)
+        assert not stale.parent.parent.exists(), "precondition: scan_dir missing"
+
+        # Bind the unbound method to a minimal stub: only ``output_name`` is read.
+        fake_self = SimpleNamespace(output_name="UC_TestCam")
+
+        with pytest.raises(FileNotFoundError, match="not visible"):
+            MagSpecManualCalibAnalyzer._save_calibrated_outputs(
+                fake_self, self._minimal_result(), stale
+            )
+
+        # The scan folder must not have been created as a side effect.
+        assert not stale.parent.parent.exists()
+        assert not (stale.parent.parent / "UC_TestCam-interp").exists()
+        assert not (stale.parent.parent / "UC_TestCam-interpSpec").exists()

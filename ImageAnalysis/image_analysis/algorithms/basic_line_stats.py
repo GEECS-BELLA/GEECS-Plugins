@@ -230,12 +230,13 @@ class LineBasicStats(BaseModel):
             else:
                 self.peak_location = np.nan
 
-    def to_dict(
-        self,
-        prefix: Optional[str] = None,
-        suffix: Optional[str] = None,
-    ) -> dict[str, float]:
-        """Flatten statistics to a dictionary for scalar output."""
+    def to_dict(self) -> dict[str, float]:
+        """Flatten statistics to a bare-keyed dict.
+
+        Returns keys ``CoM``, ``rms``, ``fwhm``, ``peak_location``,
+        ``integrated_intensity``, ``peak_value``. Naming/disambiguation
+        across analyzers is ScanAnalysis's responsibility per #412.
+        """
         fields = [
             "CoM",
             "rms",
@@ -244,19 +245,4 @@ class LineBasicStats(BaseModel):
             "integrated_intensity",
             "peak_value",
         ]
-
-        scalars = {}
-        suffix_str = f"_{suffix}" if suffix else ""
-
-        for field in fields:
-            value = getattr(self, field)
-
-            # Build key: [prefix_]field[_suffix]
-            if prefix:
-                key = f"{prefix}_{field}{suffix_str}"
-            else:
-                key = f"{field}{suffix_str}"
-
-            scalars[key] = value
-
-        return scalars
+        return {field: getattr(self, field) for field in fields}

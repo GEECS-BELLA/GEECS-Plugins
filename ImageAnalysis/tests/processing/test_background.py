@@ -3,10 +3,13 @@
 import numpy as np
 import pytest
 
+from image_analysis.config.array2d_processing import BackgroundConfig
 from image_analysis.processing.array2d.background import (
-    _compute_constant_background,
+    _compute_edge_background_level,
     _compute_median_background,
     _compute_percentile_background,
+    apply_background,
+    compute_and_cache_scan_background,
     subtract_background,
 )
 
@@ -40,24 +43,38 @@ class TestSubtractBackground:
             subtract_background(image, bg)
 
 
-class TestConstantBackground:
-    """Tests for _compute_constant_background()."""
+class TestEdgeBackground:
+    """Tests for edge-derived scalar background subtraction."""
 
-    def test_returns_correct_shape(self):
-        bg = _compute_constant_background((8, 12), level=50.0)
-        assert bg.shape == (8, 12)
+    def test_edge_level_uses_border_pixels_only(self):
+        image = np.full((5, 5), 10.0)
+        image[1:-1, 1:-1] = 100.0
 
-    def test_returns_correct_value(self):
-        bg = _compute_constant_background((4, 4), level=123.0)
-        assert np.all(bg == 123.0)
+        level = _compute_edge_background_level(image, edge_width=1)
 
-    def test_dtype_is_float64(self):
-        bg = _compute_constant_background((4, 4), level=0.0)
-        assert bg.dtype == np.float64
+        assert level == 10.0
 
-    def test_zero_level(self):
-        bg = _compute_constant_background((3, 3), level=0.0)
-        assert np.all(bg == 0.0)
+    def test_apply_background_subtracts_edge_mean(self):
+        image = np.full((5, 5), 10.0)
+        image[2, 2] = 110.0
+        config = BackgroundConfig(method="edge")
+
+        result = apply_background(image, config)
+
+        assert np.allclose(result[0, :], 0.0)
+        assert result[2, 2] == 100.0
+
+    def test_edge_width_can_expand_border_region(self):
+        image = np.arange(25, dtype=float).reshape(5, 5)
+        config = BackgroundConfig(method="edge", edge_width=2)
+
+        result = apply_background(image, config)
+
+        assert np.isclose(result[2, 2], 0.0)
+
+    def test_edge_level_rejects_non_2d_input(self):
+        with pytest.raises(ValueError, match="Expected 2D image"):
+            _compute_edge_background_level(np.ones((2, 2, 2)), edge_width=1)
 
 
 class TestPercentileBackground:
@@ -103,3 +120,170 @@ class TestMedianBackground:
         img = np.arange(16, dtype=float).reshape(4, 4)
         bg = _compute_median_background([img])
         assert np.allclose(bg, img)
+
+
+# ---------------------------------------------------------------------------
+# compute_and_cache_scan_background
+# ---------------------------------------------------------------------------
+
+
+def _write_image(path, value):
+    """Write a tiny .npy as a stand-in for a real image file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.save(path, np.full((4, 4), float(value)))
+
+
+def _npy_loader(path):
+    return np.load(path)
+
+
+class TestComputeAndCacheScanBackground:
+    """End-to-end discover → load → aggregate → cache behavior."""
+
+    def test_median_aggregation_writes_npy(self, tmp_path):
+        img_dir = tmp_path / "images"
+        for i, v in enumerate([1.0, 2.0, 3.0], start=1):
+            _write_image(img_dir / f"shot_{i:03d}.npy", v)
+
+        output = tmp_path / "analysis" / "bg.npy"
+        result = compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=output,
+            method="median",
+        )
+
+        assert result == output
+        loaded = np.load(output)
+        assert np.allclose(loaded, 2.0)  # median of [1, 2, 3]
+
+    def test_mean_aggregation_matches_np_mean(self, tmp_path):
+        img_dir = tmp_path / "images"
+        for i, v in enumerate([1.0, 2.0, 3.0], start=1):
+            _write_image(img_dir / f"shot_{i:03d}.npy", v)
+
+        output = tmp_path / "analysis" / "bg.npy"
+        compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=output,
+            method="mean",
+        )
+        assert np.allclose(np.load(output), 2.0)
+
+    def test_percentile_aggregation_requires_value(self, tmp_path):
+        img_dir = tmp_path / "images"
+        _write_image(img_dir / "shot_001.npy", 1.0)
+
+        with pytest.raises(ValueError, match="percentile aggregation requires"):
+            compute_and_cache_scan_background(
+                image_dir=img_dir,
+                file_tail=".npy",
+                image_loader=_npy_loader,
+                output_path=tmp_path / "bg.npy",
+                method="percentile",
+            )
+
+    def test_percentile_value_used(self, tmp_path):
+        img_dir = tmp_path / "images"
+        for i, v in enumerate([1.0, 2.0, 3.0, 4.0], start=1):
+            _write_image(img_dir / f"shot_{i:03d}.npy", v)
+
+        output = tmp_path / "bg.npy"
+        compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=output,
+            method="percentile",
+            percentile=0,  # min
+        )
+        assert np.allclose(np.load(output), 1.0)
+
+    def test_cache_hit_skips_recompute(self, tmp_path):
+        img_dir = tmp_path / "images"
+        _write_image(img_dir / "shot_001.npy", 1.0)
+        output = tmp_path / "bg.npy"
+
+        # Pre-write a sentinel; the function should NOT overwrite it.
+        np.save(output, np.full((4, 4), 999.0))
+
+        result = compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=output,
+            method="median",
+        )
+
+        assert result == output
+        assert np.allclose(np.load(output), 999.0), "cache was overwritten"
+
+    def test_missing_files_raises(self, tmp_path):
+        img_dir = tmp_path / "empty"
+        img_dir.mkdir()
+        with pytest.raises(FileNotFoundError, match="No background source images"):
+            compute_and_cache_scan_background(
+                image_dir=img_dir,
+                file_tail=".png",
+                image_loader=_npy_loader,
+                output_path=tmp_path / "bg.npy",
+            )
+
+    def test_loader_failures_skipped(self, tmp_path):
+        img_dir = tmp_path / "images"
+        _write_image(img_dir / "good_001.npy", 5.0)
+        # Empty file — loader should fail and the function should skip it.
+        (img_dir / "bad_002.npy").touch()
+
+        result = compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=tmp_path / "bg.npy",
+            method="mean",
+        )
+        assert np.allclose(np.load(result), 5.0)
+
+    def test_all_loads_fail_raises(self, tmp_path):
+        img_dir = tmp_path / "images"
+        (img_dir).mkdir()
+        (img_dir / "bad_001.npy").touch()
+
+        with pytest.raises(ValueError, match="No usable images"):
+            compute_and_cache_scan_background(
+                image_dir=img_dir,
+                file_tail=".npy",
+                image_loader=_npy_loader,
+                output_path=tmp_path / "bg.npy",
+            )
+
+    def test_unknown_method_raises(self, tmp_path):
+        img_dir = tmp_path / "images"
+        _write_image(img_dir / "shot_001.npy", 1.0)
+
+        with pytest.raises(ValueError, match="Unknown background aggregation method"):
+            compute_and_cache_scan_background(
+                image_dir=img_dir,
+                file_tail=".npy",
+                image_loader=_npy_loader,
+                output_path=tmp_path / "bg.npy",
+                method="bogus",
+            )
+
+    def test_output_parent_directory_is_created(self, tmp_path):
+        img_dir = tmp_path / "images"
+        _write_image(img_dir / "shot_001.npy", 1.0)
+
+        output = tmp_path / "deeply" / "nested" / "path" / "bg.npy"
+        result = compute_and_cache_scan_background(
+            image_dir=img_dir,
+            file_tail=".npy",
+            image_loader=_npy_loader,
+            output_path=output,
+            method="median",
+        )
+        assert result.exists()
+        assert result.parent.is_dir()

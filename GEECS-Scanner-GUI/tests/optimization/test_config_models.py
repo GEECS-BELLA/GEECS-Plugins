@@ -2,121 +2,257 @@
 
 Tests validate schema correctness, auto-generation of device_requirements,
 BaseOptimizerConfig validation logic, and the generator factory.
-No live connections or scan files required.
+No live connections or scan files required — the diagnostic loader is
+patched to return synthesised ``DiagnosticAnalysisConfig`` fakes.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from unittest.mock import patch
+
 import pytest
 
 from geecs_scanner.optimization.config_models import (
-    MultiDeviceScanEvaluatorConfig,
-    SingleDeviceScanAnalyzerConfig,
+    OptimizerAnalyzerEntry,
+    _split_analyzer_entry,
 )
 
 
 # ---------------------------------------------------------------------------
-# SingleDeviceScanAnalyzerConfig
+# Diagnostic fakes
 # ---------------------------------------------------------------------------
 
 
-class TestSingleDeviceScanAnalyzerConfig:
-    """to_device_requirement must produce the expected dict shape."""
+_BEAM_PATH = "image_analysis.analyzers.beam_analyzer.BeamAnalyzer"
 
-    def _make_config(self, device_name="UC_Device", mode="per_bin", **extra):
-        return SingleDeviceScanAnalyzerConfig.model_validate(
+
+def _camera_image(name: str):
+    """Return a minimal CameraConfig for embedding in fake diagnostics."""
+    from image_analysis.config import CameraConfig
+
+    return CameraConfig(name=name)
+
+
+def _diag(*, name: str, scan: dict | None = None):
+    """Build a ``DiagnosticAnalysisConfig`` for stubbing ``load_diagnostic``.
+
+    Uses BeamAnalyzer + a trivial CameraConfig so every test gets a 2D-style
+    diagnostic by default; bespoke variants are still constructed inline
+    when a test needs them.
+    """
+    from image_analysis.config.diagnostic import DiagnosticAnalysisConfig
+
+    return DiagnosticAnalysisConfig.model_validate(
+        {
+            "name": name,
+            "image_analyzer": {"class_path": _BEAM_PATH, "kwargs": {}},
+            "image": _camera_image(name),
+            "scan": scan or {},
+        }
+    )
+
+
+@contextmanager
+def _stub_loader_by_name(per_name: dict):
+    """Return a ``load_diagnostic`` mock that dispatches by the requested name.
+
+    Lets a single test build multiple analyzer configs that each resolve
+    to their own diagnostic without re-patching for every call.
+    """
+
+    def _fake(name: str, **_kwargs):
+        return per_name[name]
+
+    with patch(
+        "geecs_scanner.optimization.config_models.load_diagnostic",
+        side_effect=_fake,
+    ):
+        yield
+
+
+# ---------------------------------------------------------------------------
+# Auto device_requirements via BaseOptimizerConfig
+# ---------------------------------------------------------------------------
+
+
+class TestOptimizerAnalyzerEntry:
+    """Envelope model — validates shape, captures everything else as overrides."""
+
+    def test_bare_diagnostic_field_validates(self):
+        entry = OptimizerAnalyzerEntry.model_validate({"diagnostic": "UC_Test"})
+        assert entry.diagnostic == "UC_Test"
+        assert entry.model_extra in (None, {})
+
+    def test_missing_diagnostic_field_rejected(self):
+        with pytest.raises(Exception, match="diagnostic"):
+            OptimizerAnalyzerEntry.model_validate({"scan": {"mode": "per_bin"}})
+
+    def test_override_fields_captured_in_model_extra(self):
+        entry = OptimizerAnalyzerEntry.model_validate(
             {
-                "device_name": device_name,
-                "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": {"module": "m", "class": "C"},
-                "analysis_mode": mode,
-                **extra,
+                "diagnostic": "UC_Test",
+                "scan": {"mode": "per_bin"},
             }
         )
+        assert entry.model_extra == {"scan": {"mode": "per_bin"}}
 
-    def test_device_requirement_shape(self):
-        cfg = self._make_config("UC_ALineEBeam3")
-        req = cfg.to_device_requirement()
+    def test_multiple_override_fields_all_captured(self):
+        """Model deliberately doesn't enumerate fields — anything goes in extras."""
+        entry = OptimizerAnalyzerEntry.model_validate(
+            {
+                "diagnostic": "UC_Test",
+                "scan": {"mode": "per_bin", "priority": 5},
+                "image": {"bit_depth": 12},
+            }
+        )
+        assert entry.model_extra == {
+            "scan": {"mode": "per_bin", "priority": 5},
+            "image": {"bit_depth": 12},
+        }
 
-        assert "UC_ALineEBeam3" in req
-        dev = req["UC_ALineEBeam3"]
+
+class TestSplitAnalyzerEntry:
+    """Single envelope decoder used by both validator and evaluator."""
+
+    def test_bare_string_returns_name_and_none(self):
+        assert _split_analyzer_entry("UC_Test") == ("UC_Test", None)
+
+    def test_dict_form_returns_name_and_overrides(self):
+        name, overrides = _split_analyzer_entry(
+            {"diagnostic": "UC_Test", "scan": {"mode": "per_bin"}}
+        )
+        assert name == "UC_Test"
+        assert overrides == {"scan": {"mode": "per_bin"}}
+
+    def test_dict_form_no_overrides_returns_none(self):
+        """Dict form with only ``diagnostic:`` and no extras returns None overrides."""
+        name, overrides = _split_analyzer_entry({"diagnostic": "UC_Test"})
+        assert name == "UC_Test"
+        assert overrides is None
+
+    def test_dict_form_missing_diagnostic_rejected(self):
+        with pytest.raises(Exception, match="diagnostic"):
+            _split_analyzer_entry({"scan": {"mode": "per_bin"}})
+
+
+class TestAutoDeviceRequirements:
+    """``BaseOptimizerConfig`` synthesises device_requirements from the analyzer list.
+
+    The optimizer YAML's ``evaluator.kwargs.analyzers`` is a list of
+    diagnostic stems (bare strings) or dict-form entries with override
+    patches. For each, the validator loads the diagnostic to discover
+    its GEECS device name and templates a per-analyzer device block.
+    """
+
+    def _build(self, analyzers):
+        from pydantic import BaseModel
+        from xopt import VOCS
+
+        from geecs_scanner.optimization.config_models import (
+            BaseOptimizerConfig,
+            EvaluatorConfig,
+            GeneratorConfig,
+        )
+
+        class _FakeSaveDeviceConfig(BaseModel):
+            model_config = {"extra": "allow"}
+
+        BaseOptimizerConfig.model_rebuild(
+            force=True, _types_namespace={"SaveDeviceConfig": _FakeSaveDeviceConfig}
+        )
+
+        return BaseOptimizerConfig(
+            vocs=VOCS(variables={"x": [0.0, 1.0]}, objectives={"f": "MINIMIZE"}),
+            evaluator=EvaluatorConfig.model_validate(
+                {"module": "m", "class": "C", "kwargs": {"analyzers": analyzers}}
+            ),
+            generator=GeneratorConfig(name="random"),
+        )
+
+    def test_single_device(self):
+        per_name = {"Dev_A": _diag(name="Dev_A")}
+        with _stub_loader_by_name(per_name):
+            cfg = self._build(["Dev_A"])
+
+        assert "Devices" in cfg.device_requirements
+        assert "Dev_A" in cfg.device_requirements["Devices"]
+        dev = cfg.device_requirements["Devices"]["Dev_A"]
         assert dev["save_nonscalar_data"] is True
         assert dev["synchronous"] is True
         assert "acq_timestamp" in dev["variable_list"]
 
-    def test_default_analysis_mode(self):
-        cfg = self._make_config()
-        assert cfg.analysis_mode == "per_bin"
+    def test_multiple_devices_all_present(self):
+        names = ["Dev_A", "Dev_B", "Dev_C"]
+        per_name = {n: _diag(name=n) for n in names}
+        with _stub_loader_by_name(per_name):
+            cfg = self._build(names)
 
-    def test_per_shot_mode_accepted(self):
-        cfg = self._make_config(mode="per_shot")
-        assert cfg.analysis_mode == "per_shot"
+        assert set(cfg.device_requirements["Devices"].keys()) == set(names)
 
-    def test_invalid_mode_rejected(self):
-        with pytest.raises(Exception):
-            SingleDeviceScanAnalyzerConfig.model_validate(
-                {
-                    "device_name": "D",
-                    "analyzer_type": "Array2DScanAnalyzer",
-                    "image_analyzer": {"module": "m", "class": "C"},
-                    "analysis_mode": "invalid_mode",
-                }
+    def test_requirement_key_is_geecs_device_name(self):
+        """Auto-built device key is ``diag.name``, not the diagnostic stem.
+
+        The diagnostic stem can differ from the GEECS device name for
+        stitched / post-processed analyzers (e.g. stem
+        ``BcaveMagSpecStitcherSpec`` carries
+        ``name: U_BCaveMagSpec-interpSpec``). The DataLogger subscribes
+        by GEECS device name, so the requirements dict must key on
+        ``diag.name``.
+        """
+        per_name = {"my_stem": _diag(name="UC_RealDevice")}
+        with _stub_loader_by_name(per_name):
+            cfg = self._build(["my_stem"])
+
+        assert "UC_RealDevice" in cfg.device_requirements["Devices"]
+        assert "my_stem" not in cfg.device_requirements["Devices"]
+
+    def test_dict_form_entry_passes_overrides_to_loader(self):
+        """Dict-form entries forward their override patch to ``load_diagnostic``.
+
+        The auto-generated device_requirements still keys on the
+        diagnostic's ``name`` (which the override could in principle
+        affect, but usually doesn't — overrides target ``scan:`` not
+        ``name:``).
+        """
+        received_overrides: list = []
+
+        def _fake_loader(name, **kwargs):
+            received_overrides.append(kwargs.get("overrides"))
+            return _diag(name=name)
+
+        with patch(
+            "geecs_scanner.optimization.config_models.load_diagnostic",
+            side_effect=_fake_loader,
+        ):
+            cfg = self._build(
+                [
+                    "Dev_A",  # bare → overrides=None
+                    {"diagnostic": "Dev_B", "scan": {"mode": "per_bin"}},
+                ]
             )
 
-    def test_data_device_name_defaults_to_none(self):
-        cfg = self._make_config()
-        assert cfg.data_device_name is None
+        # Loader called with overrides=None for the bare entry, and the
+        # patch dict for the dict-form entry.
+        assert received_overrides == [None, {"scan": {"mode": "per_bin"}}]
+        # Both devices present in requirements regardless.
+        assert set(cfg.device_requirements["Devices"].keys()) == {"Dev_A", "Dev_B"}
 
-    def test_data_device_name_can_be_set(self):
-        cfg = self._make_config(data_device_name="UC_Device-processed")
-        assert cfg.data_device_name == "UC_Device-processed"
+    def test_no_analyzers_produces_empty_devices_shell(self):
+        """Evaluators that use only s-file scalars still get a Devices: {} shell.
 
-    def test_requirement_key_is_device_name_not_data_device_name(self):
-        """to_device_requirement must key on device_name, not data_device_name."""
-        cfg = self._make_config(
-            device_name="UC_Dev", data_device_name="UC_Dev-interpSpec"
-        )
-        req = cfg.to_device_requirement()
-        assert "UC_Dev" in req
-        assert "UC_Dev-interpSpec" not in req
-
-
-# ---------------------------------------------------------------------------
-# MultiDeviceScanEvaluatorConfig
-# ---------------------------------------------------------------------------
-
-
-class TestMultiDeviceScanEvaluatorConfig:
-    """generate_device_requirements must merge all analyzer requirements."""
-
-    def _make_evaluator_config(self, device_names):
-        analyzers = [
-            {
-                "device_name": name,
-                "analyzer_type": "Array2DScanAnalyzer",
-                "image_analyzer": {"module": "m", "class": "C"},
-            }
-            for name in device_names
-        ]
-        return MultiDeviceScanEvaluatorConfig(analyzers=analyzers)
-
-    def test_single_device(self):
-        cfg = self._make_evaluator_config(["Dev_A"])
-        req = cfg.generate_device_requirements()
-
-        assert "Devices" in req
-        assert "Dev_A" in req["Devices"]
-
-    def test_multiple_devices_all_present(self):
-        cfg = self._make_evaluator_config(["Dev_A", "Dev_B", "Dev_C"])
-        req = cfg.generate_device_requirements()
-
-        assert set(req["Devices"].keys()) == {"Dev_A", "Dev_B", "Dev_C"}
-
-    def test_empty_analyzers_produces_empty_devices(self):
-        cfg = MultiDeviceScanEvaluatorConfig(analyzers=[])
-        req = cfg.generate_device_requirements()
-        assert req == {"Devices": {}}
+        Regression for #419 / live test: BAX simulation evaluator's YAML has
+        no ``analyzers:`` key at all (the synthetic centroid is computed
+        from setpoint columns the scanner already logs). Before this fix
+        the validator left ``device_requirements`` as None, and
+        ``device_manager.load_from_dictionary`` then AttributeError'd
+        iterating ``Devices.items()``. The contract is now: always provide
+        the ``{"Devices": {...}}`` shell — empty when no analyzers, but
+        never None.
+        """
+        cfg = self._build([])  # zero analyzers
+        # Always returns a dict, never None
+        assert cfg.device_requirements == {"Devices": {}}
 
 
 # ---------------------------------------------------------------------------

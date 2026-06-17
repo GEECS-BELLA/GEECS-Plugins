@@ -16,7 +16,7 @@ import logging
 import numpy as np
 
 from .background import compute_background, subtract_background
-from .config_models import Line1DConfig, PipelineStepType
+from image_analysis.config.array1d_processing import Line1DConfig, PipelineStepType
 from .filtering import apply_filtering
 from .interpolation import apply_interpolation
 from .roi import apply_roi_1d
@@ -98,7 +98,9 @@ def apply_line_processing_pipeline(
 
         elif step == PipelineStepType.BACKGROUND:
             if config.background is not None:
-                background = compute_background(processed, config.background)
+                background = compute_background(
+                    processed, config.background, config.data_loading
+                )
                 processed = subtract_background(processed, background)
                 if return_intermediate:
                     intermediate["background"] = processed.copy()

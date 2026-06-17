@@ -8,19 +8,20 @@ import math
 
 import pytest
 
-from image_analysis.offline_analyzers.beam_analyzer import BeamAnalyzer
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
+    PipelineConfig,
+    ProcessingStepType,
     ROIConfig,
 )
 from image_analysis.tools.synthetic_generators import gaussian_beam_2d
 
 
-def _make_config(name: str = "test_cam") -> CameraConfig:
+def _make_config() -> CameraConfig:
     """Minimal CameraConfig with no processing steps."""
     return CameraConfig(
-        name=name,
         bit_depth=16,
         background=BackgroundConfig(method="constant", constant_level=0),
     )
@@ -37,17 +38,21 @@ class TestBeamAnalyzerInstantiation:
 
     def test_accepts_config_object(self):
         """BeamAnalyzer can be constructed from a CameraConfig directly."""
-        analyzer = BeamAnalyzer(_make_config("my_cam"))
-        assert analyzer.camera_config.name == "my_cam"
+        analyzer = BeamAnalyzer(_make_config())
+        # ``output_name`` defaults to None when not explicitly passed
+        # (standalone notebook construction). The diagnostic factory
+        # passes a value in the scan path.
+        assert analyzer.output_name is None
 
     def test_accepts_analysis_config(self):
         """BeamAnalyzer exposes a typed analysis_config after construction."""
         analyzer = BeamAnalyzer(_make_config())
         assert analyzer.analysis_config is not None
 
-    def test_camera_name_property(self):
-        analyzer = BeamAnalyzer(_make_config("cam_x"))
-        assert analyzer.camera_name == "cam_x"
+    def test_output_name_property(self):
+        """``output_name`` reflects the value passed at construction time."""
+        analyzer = BeamAnalyzer(_make_config(), output_name="cam_x")
+        assert analyzer.output_name == "cam_x"
 
 
 class TestBeamAnalyzerScalars:
@@ -64,13 +69,13 @@ class TestBeamAnalyzerScalars:
         img = gaussian_beam_2d(shape=(128, 128), center=(64.0, 64.0), seed=0)
         result = analyzer.analyze_image(img)
         for key in self.SCALARS_ALWAYS_PRESENT:
-            assert f"test_cam_{key}" in result.scalars, f"Missing: test_cam_{key}"
+            assert key in result.scalars, f"Missing: test_cam_{key}"
 
     def test_all_scalars_finite(self, analyzer):
         img = gaussian_beam_2d(shape=(128, 128), center=(64.0, 64.0), seed=0)
         result = analyzer.analyze_image(img)
         for key in self.SCALARS_ALWAYS_PRESENT:
-            prefixed = f"test_cam_{key}"
+            prefixed = key
             assert math.isfinite(result.scalars[prefixed]), f"Non-finite: {prefixed}"
 
 
@@ -95,8 +100,8 @@ class TestBeamAnalyzerCentroidAccuracy:
         result = analyzer.analyze_image(img)
 
         # BeamAnalyzer reports x=column, y=row
-        assert abs(result.scalars["test_cam_x_CoM"] - col) < 1.0
-        assert abs(result.scalars["test_cam_y_CoM"] - row) < 1.0
+        assert abs(result.scalars["x_CoM"] - col) < 1.0
+        assert abs(result.scalars["y_CoM"] - row) < 1.0
 
     def test_image_total_scales_with_peak(self):
         """Higher peak_value → higher image_total."""
@@ -109,10 +114,7 @@ class TestBeamAnalyzerCentroidAccuracy:
         analyzer = BeamAnalyzer(_make_config())
         r_low = analyzer.analyze_image(low)
         r_high = analyzer.analyze_image(high)
-        assert (
-            r_high.scalars["test_cam_image_total"]
-            > r_low.scalars["test_cam_image_total"]
-        )
+        assert r_high.scalars["image_total"] > r_low.scalars["image_total"]
 
 
 class TestBeamAnalyzerResult:
@@ -149,13 +151,17 @@ class TestBeamAnalyzerROICoordinates:
 
         # ROI that contains the beam; origin at (x_min=100, y_min=60)
         roi = ROIConfig(x_min=100, x_max=200, y_min=60, y_max=140)
-        config = CameraConfig(name="roi_cam", bit_depth=16, roi=roi)
+        config = CameraConfig(
+            bit_depth=16,
+            roi=roi,
+            pipeline=PipelineConfig(steps=[ProcessingStepType.ROI]),
+        )
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)
 
         # CoM should be close to the global position, not local (20, 20)
-        assert abs(result.scalars["roi_cam_x_CoM"] - global_col) < 1.5
-        assert abs(result.scalars["roi_cam_y_CoM"] - global_row) < 1.5
+        assert abs(result.scalars["x_CoM"] - global_col) < 1.5
+        assert abs(result.scalars["y_CoM"] - global_row) < 1.5
 
     def test_roi_offset_not_applied_without_roi(self):
         """Without ROI, CoM is in the full-image frame (offset is trivially 0)."""
@@ -163,12 +169,12 @@ class TestBeamAnalyzerROICoordinates:
         img = gaussian_beam_2d(
             shape=(128, 128), center=(global_row, global_col), sigma=(8.0, 8.0), seed=11
         )
-        config = CameraConfig(name="no_roi_cam", bit_depth=16)
+        config = CameraConfig(bit_depth=16)
         analyzer = BeamAnalyzer(config)
         result = analyzer.analyze_image(img)
 
-        assert abs(result.scalars["no_roi_cam_x_CoM"] - global_col) < 1.5
-        assert abs(result.scalars["no_roi_cam_y_CoM"] - global_row) < 1.5
+        assert abs(result.scalars["x_CoM"] - global_col) < 1.5
+        assert abs(result.scalars["y_CoM"] - global_row) < 1.5
 
     def test_roi_width_stats_unchanged_by_offset(self):
         """rms and fwhm are identical with or without a non-zero ROI origin."""
@@ -177,7 +183,7 @@ class TestBeamAnalyzerROICoordinates:
         )
 
         # No ROI — full image
-        cfg_full = CameraConfig(name="full", bit_depth=16)
+        cfg_full = CameraConfig(bit_depth=16)
         result_full = BeamAnalyzer(cfg_full).analyze_image(img)
 
         # ROI that covers the same area but with a non-zero origin
@@ -186,14 +192,14 @@ class TestBeamAnalyzerROICoordinates:
             shape=(200, 200), center=(150.0, 150.0), sigma=(6.0, 6.0), seed=12
         )
         roi = ROIConfig(x_min=100, x_max=200, y_min=100, y_max=200)
-        cfg_roi = CameraConfig(name="roi", bit_depth=16, roi=roi)
+        cfg_roi = CameraConfig(bit_depth=16, roi=roi)
         result_roi = BeamAnalyzer(cfg_roi).analyze_image(img_large)
 
-        assert result_roi.scalars["roi_x_rms"] == pytest.approx(
-            result_full.scalars["full_x_rms"], rel=0.01
+        assert result_roi.scalars["x_rms"] == pytest.approx(
+            result_full.scalars["x_rms"], rel=0.01
         )
-        assert result_roi.scalars["roi_y_rms"] == pytest.approx(
-            result_full.scalars["full_y_rms"], rel=0.01
+        assert result_roi.scalars["y_rms"] == pytest.approx(
+            result_full.scalars["y_rms"], rel=0.01
         )
 
     def test_oversized_roi_is_clamped_not_raised(self):
@@ -202,7 +208,7 @@ class TestBeamAnalyzerROICoordinates:
 
         # ROI claims a 200x200 region on a 50x50 image — should be clamped
         roi = ROIConfig(x_min=0, x_max=200, y_min=0, y_max=200)
-        config = CameraConfig(name="big_roi_cam", bit_depth=16, roi=roi)
+        config = CameraConfig(bit_depth=16, roi=roi)
         analyzer = BeamAnalyzer(config)
 
         result = analyzer.analyze_image(img)  # must not raise
@@ -214,7 +220,7 @@ class TestBeamAnalyzerUpdateConfig:
     """Tests for update_config()."""
 
     def test_update_background_does_not_raise(self, analyzer):
-        from image_analysis.processing.array2d import config_models as cfg
+        from image_analysis.config import array2d_processing as cfg
 
         new_bkg = cfg.BackgroundConfig(method="constant", constant_level=200)
         analyzer.update_config(background=new_bkg)

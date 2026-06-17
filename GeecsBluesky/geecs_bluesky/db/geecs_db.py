@@ -78,6 +78,16 @@ def _find_credentials() -> dict:
     return _credentials
 
 
+def _connect_mysql(mysql_connector):
+    """Open a MySQL connection using the pure-Python connector implementation.
+
+    The mysql-connector-python 9.x C extension has crashed silently on Windows in
+    the legacy API layer.  GeecsBluesky runs on the same lab machines, so use the
+    pure implementation here too.
+    """
+    return mysql_connector.connect(**_find_credentials(), use_pure=True)
+
+
 class GeecsDb:
     """Namespace for GEECS database queries.
 
@@ -109,8 +119,7 @@ class GeecsDb:
                 "Install with: pip install mysql-connector-python"
             ) from exc
 
-        creds = _find_credentials()
-        conn = mysql.connector.connect(**creds)
+        conn = _connect_mysql(mysql.connector)
         try:
             cur = conn.cursor()
             cur.execute(
@@ -144,8 +153,7 @@ class GeecsDb:
                 "mysql-connector-python is required for DB lookups."
             ) from exc
 
-        creds = _find_credentials()
-        conn = mysql.connector.connect(**creds)
+        conn = _connect_mysql(mysql.connector)
         try:
             cur = conn.cursor()
             if experiment is not None:
@@ -177,8 +185,7 @@ class GeecsDb:
                 "mysql-connector-python is required for DB lookups."
             ) from exc
 
-        creds = _find_credentials()
-        conn = mysql.connector.connect(**creds)
+        conn = _connect_mysql(mysql.connector)
         try:
             cur = conn.cursor()
             cur.execute(

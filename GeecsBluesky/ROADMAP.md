@@ -1,9 +1,15 @@
 # GeecsBluesky — Roadmap
 
-Current status (2026-05-08): MVP complete and hardware-verified.
-`BlueskyScanner` runs STANDARD and NOSCAN scans end-to-end against real lab
-hardware with per-step DG645 shot control and Tiled data persistence.
-All unit tests pass without hardware; hardware integration test passes all checks.
+Current status (2026-06-14): the **two-acquisition-mode architecture is complete
+and hardware-verified** (GeecsBluesky 0.8.0, branch
+`geecs-bluesky-acquisition-modes`).  `BlueskyScanner` runs STANDARD and
+statistics (NOSCAN) scans from the `GEECS-Scanner-GUI` (`use_bluesky=True`) in
+both `free_run_time_sync` and `strict_shot_control` modes — including true
+plan-owned single-shot (DG645 `ARMED` state) — with DG645 shot control, Tiled
+persistence, scan numbering, and native file saving.  Both modes write one
+versioned event schema (`EVENT_SCHEMA.md`).  Remaining work (below) is features /
+tuning / data-pipeline, not architecture; see
+`Planning/acquisition_modes/00_overview.md` for the design of record.
 
 ---
 
@@ -31,9 +37,15 @@ All unit tests pass without hardware; hardware integration test passes all check
       `arm_trigger` / `disarm_trigger` parameters.
 - [x] **Scan numbering** — `ScanPaths.get_next_scan_tag()` claimed before
       detectors are built so save paths are known at device-build time.
-- [x] **Per-device image saving** — `_scan_with_saving` plan wrapper sets
-      `localsavingpath` and `save="on"` concurrently before scan; finalise
-      wrapper sets `save="off"` even on abort.
+- [x] **Per-device image saving** — sets `localsavingpath` and `save="on"`
+      concurrently before scan; finalise wrapper sets `save="off"` even on
+      abort.  (Now part of `geecs_run_wrapper`; the device-side signals live in
+      the `NonScalarSaveSupport` mixin.)
+- [x] **Non-scalar save-path event metadata** — `save_nonscalar_data=True`
+      detectors emit per-event device `acq_timestamp` and configured save
+      directory. `BlueskyScanner` also includes per-device save paths in
+      run-start metadata.  File names remain hardware-native; downstream readers
+      should join by `acq_timestamp` rather than a synthetic shot counter.
 - [x] **Tiled integration** — `TiledWriter` subscribed to RunEngine on init;
       reads URI + API key from `~/.config/geecs_python_api/config.ini`; skips
       silently if server is unreachable.
@@ -45,6 +57,29 @@ All unit tests pass without hardware; hardware integration test passes all check
 - [x] **Hardware integration test** — `test_bluesky_scanner.py`; 3 scenarios,
       6 checks; all pass on real lab hardware (UC_TopView, U_ESP_JetXYZ,
       U_DG645_ShotControl).
+
+### Acquisition modes (0.4.0 → 0.8.0)
+
+- [x] **Two acquisition modes** — `free_run_time_sync` and
+      `strict_shot_control`, env-selected (`GEECS_BLUESKY_ACQUISITION_MODE`),
+      dispatched by `BlueskyScanner`; one shared event schema (`EVENT_SCHEMA.md`).
+- [x] **Incremental shot IDs + coordinated t0 sync** — `ShotIdTracker`,
+      `ShotIdSupport`, `geecs_t0_sync`; cross-device matching by shot-id equality.
+- [x] **Free-run plan** — `geecs_free_run_step_scan`: reference pacemaker,
+      `GeecsTimestampedReadable` contributors with offset/valid + grace wait,
+      quiesce-to-`OFF` before t0 sync, end-of-scan tail flush.
+- [x] **Strict plan-owned single-shot** — `geecs_single_shot` +
+      `geecs_confirm_quiescent`; engages on an `ARMED` shot-control state,
+      else falls back to free-running `trigger_and_read`.
+- [x] **NOSCAN unified** as a motorless step scan (works in both modes).
+- [x] **`ShotControlConfig` / `ShotControlState`** — validated shot-control YAML.
+- [x] **`geecs_run_wrapper` + `claim_scan_number`** — reusable scan-number
+      metadata (incl. `scan_id` = GEECS scan number) + native file saving.
+- [x] **`EVENT_SCHEMA.md`** — canonical v1 data contract.
+- [x] **GUI integration** — `RunControl(use_bluesky=True)` threads the
+      shot-control YAML and `on_event` (lifecycle events emitted).
+- [x] **`ARMED` config state** — added to the experiment shot-control YAMLs in
+      `geecs-plugins-configs` (external single-shot laser-on, internal laser-off).
 
 ---
 
@@ -59,25 +94,42 @@ legacy `ScanManager`.  `BlueskyScanner` writes to Tiled only.
 
 Options:
 - **Tiled reader for ScanAnalysis** — add a Tiled-backed data source alongside
-  the existing file reader; cold-turkey cutover deferred.
+  the existing file reader.  This now needs to respect the post-#412 analyzer
+  contract: ImageAnalysis emits bare scalar keys, ScanAnalysis owns
+  prefix/suffix naming, and analysis code must never create missing scan
+  folders.
 - **BlueskyScanner also writes s-files** — transitional shim; buys time for
-  ScanAnalysis migration; acknowledged as unpleasant.
+  ScanAnalysis migration.  If chosen, it must match the current scanner output
+  convention (`ScanDataScan{NNN}.txt`, `ScanInfoScan{NNN}.ini`, per-device file
+  folders under `scans/Scan{NNN}/`).
 - **Accept cold-turkey** — new scans from Bluesky path only queryable via Tiled;
   old analysis tools stop working for new data until ported.
 
 No decision yet.  Defer until BlueskyScanner is actually the production path.
 
-### GUI / RunControl integration
+### GUI / RunControl integration — mostly done
 
-`RunControl` has `use_bluesky=True` flag but `shot_control_information` is not
-yet threaded through — BlueskyScanner gets no shot control in GUI mode.
-Deferred until the parallel GUI/RunControl refactor lands in master.
+`RunControl(use_bluesky=True)` now loads the selected shot-control YAML and
+passes it as `shot_control_information`, and passes the `on_event` callback;
+`BlueskyScanner` emits `ScanLifecycleEvent`s through it.  Acquisition mode is
+chosen by the `GEECS_BLUESKY_ACQUISITION_MODE` env var (no GUI toggle —
+intentional while bluesky is experimental).
+
+Remaining: only **lifecycle** events are emitted — per-shot/step Bluesky
+documents are not translated into the richer `ScanStepEvent` /
+`DeviceCommandEvent` stream (decide if that's even wanted).  And the
+arm/disarm/quiesce/fire shot-control callables still live inside
+`BlueskyScanner`; extracting a reusable `ShotController` would give notebook
+workflows full parity.
 
 ### Optimization scans
 
-Bluesky + Xopt may naturally handle what `base_optimizer.py` does today.  The
-existing optimization execution could become deprecated rather than ported.
-Requires a deeper dive.
+The scanner optimizer surface changed significantly after this package landed.
+`MultiDeviceScanEvaluator` and `ScalarLogEvaluator` were folded into the unified
+`BaseEvaluator`, which now consumes diagnostic analyzers and direct s-file
+scalar columns through one hook surface.  Bluesky + Xopt may still be the right
+long-term shape, but any port should start from the current `BaseEvaluator` /
+`BaseOptimizer` contract rather than the older evaluator split.
 
 ---
 
@@ -86,15 +138,28 @@ Requires a deeper dive.
 Small, well-scoped items that don't require strategic decisions:
 
 - **Background scan mode** — BACKGROUND adds a flag to scan metadata; trivial
-  addition as a third branch in `_run_scan`.
-- **Scan number error visibility** — `_claim_scan_number` should log `ERROR`
-  (not silently return `None`) when the scan folder cannot be created.
+  addition as a third branch in `_run_scan`.  The GUI and `ScanMode` enum already
+  expose `background`, but `BlueskyScanner._run_scan()` still supports only
+  `standard` and `noscan`.
+- **Scan number error visibility** — `claim_scan_number`
+  (`plans/run_wrapper.py`) should log `ERROR` when the scan folder cannot be
+  created.  It currently logs `WARNING` and returns `(None, None)`.
 - **Pre/post-scan actions** — action sequences (set variable, wait, check
-  condition) are not yet supported; straightforward once the action model is
-  understood.
-- **Windows install verification** — `poetry install` in `GeecsBluesky/` has
-  not been verified on Windows; `mysql-connector-python` platform behaviour
-  worth checking before lab deployment.
+  condition) are not yet supported.  `SaveDeviceConfig` carries `setup_action`
+  and `closeout_action`, and the legacy scanner executes them through
+  `ActionManager` / `DeviceCommandExecutor`; Bluesky currently drops them.
+- **Event stream bridge** — lifecycle `ScanEvent`s are emitted via `on_event`;
+  decide whether per-shot/step Bluesky documents should also be translated into
+  `ScanStepEvent` / `DeviceCommandEvent`, or left as raw Bluesky docs.
+- **Reusable `ShotController`** — extract the arm/disarm/quiesce/fire plan-stub
+  callables out of `BlueskyScanner` so notebook workflows get shot-control
+  parity (jet gating / single-shot) with the GUI path.
+- **Requested rep-rate throttling** — in strict single-shot, fire software
+  triggers slower than the external rate (gas-jet economy); a per-shot
+  inter-fire delay.  Free-run could subsample every Nth reference shot.
+- **Windows install verification** — `poetry install` in `GeecsBluesky/` should
+  be rechecked on Windows after the monorepo-wide Python 3.11 and
+  `mysql-connector-python` updates.
 
 ---
 

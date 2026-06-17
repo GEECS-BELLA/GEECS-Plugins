@@ -17,13 +17,19 @@ from typing import Optional
 
 import numpy as np
 
-from .config_models import BackgroundConfig, BackgroundMethod
+from image_analysis.config.array1d_processing import (
+    BackgroundConfig,
+    BackgroundMethod,
+    Data1DConfig,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def compute_background(
-    data: np.ndarray, config: BackgroundConfig
+    data: np.ndarray,
+    config: BackgroundConfig,
+    data_loading: Optional[Data1DConfig] = None,
 ) -> Optional[np.ndarray]:
     """Compute background for 1D data based on configuration.
 
@@ -33,6 +39,11 @@ def compute_background(
         Input data in Nx2 format (x, y)
     config : BackgroundConfig
         Background configuration
+    data_loading : Data1DConfig, optional
+        Loader config used when ``method == FROM_FILE`` to read the
+        background file. Typically the same ``data_loading`` config the
+        line itself uses, passed through by the pipeline. Required when
+        ``method == FROM_FILE``.
 
     Returns
     -------
@@ -60,8 +71,13 @@ def compute_background(
         return background
 
     elif config.method == BackgroundMethod.FROM_FILE:
-        # Load background from file
-        background = load_background_from_file(config.background_file)
+        if data_loading is None:
+            raise ValueError(
+                "FROM_FILE background requires a data_loading config to know "
+                "how to read the file. Pipeline callers should pass through "
+                "the Line1DConfig.data_loading."
+            )
+        background = load_background_from_file(config.background_file, data_loading)
         logger.info(f"Loaded background from file: {config.background_file}")
         return background
 
@@ -114,15 +130,22 @@ def subtract_background(
     return result
 
 
-def load_background_from_file(file_path: Path) -> np.ndarray:
-    """Load background data from a file.
+def load_background_from_file(
+    file_path: Path, data_loading: Data1DConfig
+) -> np.ndarray:
+    """Load background data from a file using the shared 1D loader.
 
-    Supports NPY and NPZ formats.
+    Delegates to :func:`image_analysis.data_1d_utils.read_1d_data`, so any
+    format the line analyzer can read (npy, csv, tsv, tek_scope_hdf5,
+    tdms_scope) is also a valid background file.
 
     Parameters
     ----------
     file_path : Path
         Path to background file
+    data_loading : Data1DConfig
+        Loader config describing how to read the file. Pass the same
+        ``data_loading`` config the line itself uses.
 
     Returns
     -------
@@ -133,31 +156,17 @@ def load_background_from_file(file_path: Path) -> np.ndarray:
     ------
     FileNotFoundError
         If file doesn't exist
-    ValueError
-        If file format is unsupported or data format is invalid
     """
-    file_path = Path(file_path)
+    # Local import to avoid the package init cycle between data_1d_utils
+    # and processing.array1d.config_models.
+    from image_analysis.data_1d_utils import read_1d_data
 
+    file_path = Path(file_path)
     if not file_path.exists():
         raise FileNotFoundError(f"Background file not found: {file_path}")
 
-    suffix = file_path.suffix.lower()
+    background = read_1d_data(file_path, data_loading).data
 
-    if suffix == ".npy":
-        background = np.load(file_path)
-    elif suffix == ".npz":
-        # For NPZ files, assume the array is stored with key 'background'
-        # or use the first array if no 'background' key exists
-        npz_data = np.load(file_path)
-        if "background" in npz_data:
-            background = npz_data["background"]
-        else:
-            # Use first array
-            background = npz_data[npz_data.files[0]]
-    else:
-        raise ValueError(f"Unsupported file format: {suffix}. Use .npy or .npz")
-
-    # Validate format
     if background.ndim != 2 or background.shape[1] != 2:
         raise ValueError(
             f"Background file must contain Nx2 array, got shape {background.shape}"
@@ -191,8 +200,17 @@ def save_background_to_file(background: np.ndarray, file_path: Path) -> None:
     file_path = Path(file_path)
     suffix = file_path.suffix.lower()
 
-    # Create parent directory if it doesn't exist
-    file_path.parent.mkdir(parents=True, exist_ok=True)
+    # Caller is responsible for ensuring the parent directory exists. This
+    # function previously did ``file_path.parent.mkdir(parents=True,
+    # exist_ok=True)``, but ``parents=True`` could silently re-create a
+    # missing scan folder if the caller's path resolved into ``scans/ScanXXX/``
+    # — masking transient SMB visibility blips as permanent data loss.
+    if not file_path.parent.is_dir():
+        raise FileNotFoundError(
+            f"Parent directory {file_path.parent} does not exist. "
+            f"save_background_to_file does not create scan folders; the caller "
+            f"must ensure the destination directory exists before calling."
+        )
 
     if suffix == ".npy":
         np.save(file_path, background)

@@ -43,10 +43,6 @@ class ScanPaths:
     ----------
     scan_info : dict[str, str]
         Dictionary containing scan configuration information loaded from scan info file
-    data_dict : dict
-        Dictionary containing loaded device data
-    data_frame : pandas.DataFrame or None
-        DataFrame representation of the scan data
     paths_config : GeecsPathsConfig
         Class-level configuration object for managing GEECS data paths
     """
@@ -75,7 +71,16 @@ class ScanPaths:
             The base path for the data, e/g/ "Z:/data/"
             If not given, will default to the path located by GeecsPathsConfig
         read_mode: bool
-            Flag that determines if ScanData should create the directory if it does not exist
+            If True (the default), raise if the scan folder does not exist.
+            If False, silently create the folder (including any missing parents).
+
+            ``read_mode=False`` is for *scanner-side* callers only — the GEECS
+            scanner and BlueskyScanner, which legitimately bring new scan folders
+            into existence. Analysis code (ScanAnalysis, ImageAnalysis, anything
+            that consumes existing scans) must always leave this at the default.
+            Silent creation from the consumer side has caused data loss: a
+            transient SMB/NetApp visibility blip looks like a missing folder, and
+            auto-creating it plants an empty directory over the real one.
         """
         self.scan_info: dict[str, str] = {}
 
@@ -83,9 +88,6 @@ class ScanPaths:
         self._tag: Optional[ScanTag] = None
         self._tag_date: Optional[date] = None
         self._analysis_folder: Optional[Path] = None
-
-        self.data_dict = {}
-        self.data_frame = None  # use tdms.geecs_tdms_dict_to_panda
 
         # Handle folder initialization
         if folder is None and tag is not None:
@@ -282,7 +284,7 @@ class ScanPaths:
                 experiment=experiment,
             )
 
-        folder = Path(base) / tag.experiment
+        folder = Path(base) / tag.experiment if tag.experiment else Path(base)
         folder = (
             folder / f"Y{tag.year}" / f"{tag.month:02d}-{cal.month_name[tag.month][:3]}"
         )
@@ -565,13 +567,6 @@ class ScanPaths:
         top_content = next(os.walk(self._folder))
         return {"devices": top_content[1], "files": top_content[2]}
 
-    def get_device_data(self, device_name: str):
-        """Get data for a specific device from the loaded data dictionary."""
-        if device_name in self.data_dict:
-            return self.data_dict[device_name]
-        else:
-            return {}
-
     def load_scan_info(self):
         """Load scan configuration information from the scan info file."""
         config_parser = ConfigParser()
@@ -611,16 +606,29 @@ class ScanPaths:
 
         return ecs_file if ecs_file.exists() else None
 
-    def build_device_file_map(self, device: str, file_tail: str) -> dict[int, Path]:
+    def build_device_file_map(
+        self,
+        device: str,
+        file_tail: str,
+        *,
+        device_file_stem: Optional[str] = None,
+    ) -> dict[int, Path]:
         """
         Build a mapping from shot number to file path for a given device.
 
         Parameters
         ----------
         device : str
-            Device name (subfolder of scan directory).
+            Device name; also the subfolder of the scan directory containing
+            the files.
         file_tail : str
             Suffix and extension, e.g., '.png', '_avg.h5'.
+        device_file_stem : str, optional
+            Token used in the filename between ``Scan<NNN>_`` and ``_<shot>``.
+            Defaults to ``device``. Use this when the folder name and the
+            in-filename stem differ — for example, folder
+            ``U_BCaveMagSpec-interpSpec`` containing files named
+            ``Scan042_U_BCaveMagSpec_001.csv``.
 
         Returns
         -------
@@ -636,8 +644,9 @@ class ScanPaths:
             logger.warning(f"Device folder missing: {device_folder}")
             return {}
 
+        stem = device_file_stem if device_file_stem is not None else device
         pattern = re.compile(
-            rf"Scan\d{{3,}}_{re.escape(device)}_(\d{{3,}}){re.escape(file_tail)}$"
+            rf"Scan\d{{3,}}_{re.escape(stem)}_(\d{{3,}}){re.escape(file_tail)}$"
         )
 
         file_map = {}
@@ -737,21 +746,62 @@ class ScanPaths:
 
     @staticmethod
     def build_asset_filename(
-        *, scan: int, shot: int, device: str, ext: str, variant: Optional[str] = None
+        *,
+        scan: int,
+        shot: int,
+        device: str,
+        ext: str,
+        variant: Optional[str] = None,
+        device_file_stem: Optional[str] = None,
     ) -> str:
-        """Build canonical expected file naming."""
+        """Build canonical expected file naming.
+
+        Parameters
+        ----------
+        scan, shot
+            Scan and shot numbers.
+        device : str
+            Device name (also the in-filename stem unless overridden).
+        ext : str
+            File extension (with or without leading dot).
+        variant : str, optional
+            Variant segment appended after the shot index.
+        device_file_stem : str, optional
+            Token to use in the filename between ``Scan<NNN>_`` and
+            ``_<shot>``. Defaults to ``device``. Use this when the folder
+            name and the in-filename stem differ — for example, folder
+            ``U_BCaveMagSpec-interpSpec`` containing files named
+            ``Scan042_U_BCaveMagSpec_001.csv``.
+        """
         ext = ext.lstrip(".").lower()
         shot_str = ScanPaths._shot_str(shot)
         variant_seg = "" if not variant else f"{variant}"
-        return f"Scan{scan:03d}_{device}_{shot_str}{variant_seg}.{ext}"
+        stem = device_file_stem if device_file_stem is not None else device
+        return f"Scan{scan:03d}_{stem}_{shot_str}{variant_seg}.{ext}"
 
     def build_asset_path(
-        self, *, shot: int, device: str, ext: str, variant: Optional[str] = None
+        self,
+        *,
+        shot: int,
+        device: str,
+        ext: str,
+        variant: Optional[str] = None,
+        device_file_stem: Optional[str] = None,
     ) -> Path:
-        """Full expected path for one asset."""
+        """Full expected path for one asset.
+
+        ``device`` is the subfolder name. ``device_file_stem`` overrides the
+        in-filename token if it differs from the folder name (defaults to
+        ``device``). See :meth:`build_asset_filename` for details.
+        """
         tag = self.get_tag()
         fname = self.build_asset_filename(
-            scan=tag.number, shot=shot, device=device, ext=ext, variant=variant
+            scan=tag.number,
+            shot=shot,
+            device=device,
+            ext=ext,
+            variant=variant,
+            device_file_stem=device_file_stem,
         )
         return self.device_folder(device) / fname
 

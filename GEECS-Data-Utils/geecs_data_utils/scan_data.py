@@ -23,11 +23,9 @@ from typing import (
     Sequence,
     Tuple,
     Union,
-    TypeAlias,
     Hashable,
 )
 import logging
-import re
 
 import numpy as np
 import pandas as pd
@@ -35,6 +33,11 @@ import nptdms as tdms
 
 from geecs_data_utils.scan_paths import ScanPaths
 from geecs_data_utils.type_defs import parse_ecs_dump, ECSDump
+from geecs_data_utils.data.columns import (
+    ColumnMatchMode,
+    find_cols,
+    resolve_col_detailed,
+)
 
 
 # ----------------------------- Types & Config ---------------------------------
@@ -43,14 +46,11 @@ AggT = Literal["mean", "median"]
 ErrT = Literal["std", "stderr", "iqr", "percentile", "mad"]
 DropT = Literal["any", "all"]
 
-ColumnMatchMode: TypeAlias = Literal[
-    "contains", "startswith", "endswith", "regex", "exact"
-]
-
 
 @dataclass(frozen=True)
 class BinningConfig:
-    """Configuration for per-bin aggregation.
+    """
+    Configuration for per-bin aggregation.
 
     The binner computes, for each selected value column in each bin,
     three subcolumns:
@@ -196,7 +196,8 @@ def geecs_tdms_dict_to_panda(
 
 
 class ScanData:
-    """Container for a single scan: paths + scalar DataFrame + lazy asset index.
+    """
+    Container for a single scan: paths + scalar DataFrame + lazy asset index.
 
     This class composes a :class:`ScanPaths` (path logic) and provides:
     - Optional scalar DataFrame loading (s-file or TDMS→DataFrame).
@@ -240,13 +241,15 @@ class ScanData:
         month: int,
         day: int,
         number: int,
-        experiment: str,
+        experiment: Optional[str] = None,
         base_directory: Optional[Path] = None,
         load_scalars: bool = True,
         source: Literal["sfile", "tdms"] = "sfile",
         append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> "ScanData":
-        """Construct a :class:`ScanData` from date/number.
+        """
+        Construct a :class:`ScanData` from date/number.
 
         Parameters
         ----------
@@ -260,6 +263,12 @@ class ScanData:
             ``"sfile"`` (default) or ``"tdms"`` for scalar source.
         append_paths
             If true, ad device/shot paths to df.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`load_scalars`. Use when a device's folder name differs
+            from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
 
         Returns
         -------
@@ -269,13 +278,17 @@ class ScanData:
         paths = ScanPaths(tag=tag, base_directory=base_directory)
         sd = cls(paths=paths)
         if load_scalars:
-            sd.load_scalars(source=source, append_paths=append_paths)
+            sd.load_scalars(
+                source=source,
+                append_paths=append_paths,
+                stem_override=stem_override,
+            )
         return sd
 
     @classmethod
     def latest(
         cls,
-        experiment: str,
+        experiment: Optional[str] = None,
         *,
         year: Optional[int] = None,
         month: Optional[int] = None,
@@ -284,7 +297,8 @@ class ScanData:
         load_scalars: bool = True,
         source: Literal["sfile", "tdms"] = "sfile",
     ) -> "ScanData":
-        """Construct a :class:`ScanData` for the latest scan on a date.
+        """
+        Construct a :class:`ScanData` for the latest scan on a date.
 
         Parameters
         ----------
@@ -321,9 +335,14 @@ class ScanData:
     # ------------------------------ Scalars I/O --------------------------------
 
     def load_scalars(
-        self, *, source: Literal["sfile", "tdms"] = "sfile", append_paths: bool = True
+        self,
+        *,
+        source: Literal["sfile", "tdms"] = "sfile",
+        append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> None:
-        """Load the scalar DataFrame (s-file or TDMS converted).
+        """
+        Load the scalar DataFrame (s-file or TDMS converted).
 
         Parameters
         ----------
@@ -332,6 +351,12 @@ class ScanData:
             read ``ScanNNN.tdms`` and convert to a DataFrame if possible.
         append_paths
             If true, add device/shot paths to dataframe.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`set_data_frame`. Use when a device's folder name differs
+            from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
 
         Raises
         ------
@@ -344,7 +369,9 @@ class ScanData:
             if not sfile.exists():
                 raise FileNotFoundError(f"No sfile for scan {tag}")
             df = pd.read_csv(sfile, delimiter="\t")
-            self.set_data_frame(df, append_paths=append_paths)
+            self.set_data_frame(
+                df, append_paths=append_paths, stem_override=stem_override
+            )
 
         elif source == "tdms":
             tag = self.paths.get_tag()
@@ -355,12 +382,20 @@ class ScanData:
             if not dct:
                 raise ValueError(f"TDMS file could not be parsed: {tdms_path}")
             df = geecs_tdms_dict_to_panda(dct)
-            self.set_data_frame(df, append_paths=append_paths)
+            self.set_data_frame(
+                df, append_paths=append_paths, stem_override=stem_override
+            )
 
         else:
             raise ValueError(f"Unsupported source: {source!r}")
 
-    def set_data_frame(self, df: pd.DataFrame, *, append_paths: bool = True) -> None:
+    def set_data_frame(
+        self,
+        df: pd.DataFrame,
+        *,
+        append_paths: bool = True,
+        stem_override: Optional[dict[str, str]] = None,
+    ) -> None:
         """Attach a scalar DataFrame and invalidate dependent caches.
 
         Parameters
@@ -369,9 +404,15 @@ class ScanData:
             Scalar table for the scan (typically from s-file).
         append_paths
             If true, add device shot paths to dataframe.
+        stem_override
+            Optional ``{device: in_filename_stem}`` mapping forwarded to
+            :meth:`_append_expected_asset_columns`. Use when a device's folder
+            name differs from the in-filename token (e.g., folder
+            ``U_BCaveMagSpec-interpSpec`` with files named
+            ``Scan042_U_BCaveMagSpec_001.csv``).
         """
         if append_paths:
-            df = self._append_expected_asset_columns(df)
+            df = self._append_expected_asset_columns(df, stem_override=stem_override)
         self.data_frame = df
         self._df_version += 1
         self._binned_cache = None
@@ -380,7 +421,8 @@ class ScanData:
     # ------------------------- Flexible Column Resolution ----------------------
 
     def list_columns(self) -> List[str]:
-        """List column names as strings (flattens MultiIndex columns if present).
+        """
+        List column names as strings (flattens MultiIndex columns if present).
 
         Returns
         -------
@@ -395,7 +437,10 @@ class ScanData:
         mode: ColumnMatchMode = "contains",
         case_sensitive: bool = False,
     ) -> List[str]:
-        """Flexible column search.
+        """
+        Flexible column search.
+
+        Wrapper for find_cols in geecs_data_utils/data/columns.py.
 
         Parameters
         ----------
@@ -414,34 +459,9 @@ class ScanData:
         """
         if self.data_frame is None:
             return []
-
-        cols = self._flatten_columns()
-        originals = cols
-        hay = originals if case_sensitive else [c.lower() for c in originals]
-        queries = [query] if isinstance(query, str) else list(query)
-
-        matches: set[str] = set()
-        for q in queries:
-            needle = q if case_sensitive else str(q).lower()
-            if mode == "regex":
-                flags = 0 if case_sensitive else re.IGNORECASE
-                pat = re.compile(str(q), flags=flags)
-                for orig in originals:
-                    if pat.search(orig):
-                        matches.add(orig)
-                continue
-
-            for orig, h in zip(originals, hay):
-                s = orig if case_sensitive else h
-                if (
-                    (mode == "contains" and needle in s)
-                    or (mode == "startswith" and s.startswith(needle))
-                    or (mode == "endswith" and s.endswith(needle))
-                    or (mode == "exact" and s == needle)
-                ):
-                    matches.add(orig)
-
-        return sorted(matches)
+        return find_cols(
+            self.data_frame, query, mode=mode, case_sensitive=case_sensitive
+        )
 
     def resolve_col(
         self,
@@ -451,7 +471,8 @@ class ScanData:
         case_sensitive: bool = False,
         prefer_exact_ci: bool = True,
     ) -> str:
-        """Resolve a loose column spec to a single best column name.
+        """
+        Resolve a loose column spec to a single best column name.
 
         Parameters
         ----------
@@ -478,50 +499,30 @@ class ScanData:
         if self.data_frame is None:
             raise ValueError("No scalar dataframe loaded.")
 
-        # 0) local alias wins immediately
         if spec in self.column_aliases:
             return self.column_aliases[spec]
 
-        cols = self._flatten_columns()
-
-        # 1) exact (case-insensitive) preferred
-        if prefer_exact_ci:
-            eq = [c for c in cols if c.lower() == spec.lower()]
-            if len(eq) == 1:
-                return eq[0]
-            # fall through if 0 or >1
-
-        # 2) search using requested mode
-        hits = self.find_cols(spec, mode=mode, case_sensitive=case_sensitive)
-
-        # 3) last-resort: also try 'contains' if the requested mode found nothing
-        if not hits and mode != "contains":
-            hits = self.find_cols(spec, mode="contains", case_sensitive=case_sensitive)
-
-        if not hits:
-            raise ValueError(
-                f"No columns match spec {spec!r}. "
-                f"Available (showing up to 6): {cols[:6]}..."
-            )
-
-        # 4) deterministic tie-break: prefer exact-ci, else shortest then lexicographic
-        exact_ci = [h for h in hits if h.lower() == spec.lower()]
-        if len(exact_ci) == 1:
-            return exact_ci[0]
-        if len(hits) > 1:
-            winner = sorted(hits, key=lambda s: (len(s), s))[0]
+        result = resolve_col_detailed(
+            self.data_frame,
+            spec,
+            mode=mode,
+            case_sensitive=case_sensitive,
+            prefer_exact_ci=prefer_exact_ci,
+        )
+        if result.ambiguous and result.candidates is not None:
+            c = result.candidates
             logging.warning(
                 "Spec %r matched multiple columns (%d): %s; using %r",
                 spec,
-                len(hits),
-                hits,
-                winner,
+                len(c),
+                list(c),
+                result.column,
             )
-            return winner
-        return hits[0]
+        return result.column
 
     def add_local_alias(self, alias: str, actual_col: str) -> None:
-        """Register a user-defined shorthand for a column name.
+        """
+        Register a user-defined shorthand for a column name.
 
         Parameters
         ----------
@@ -535,7 +536,8 @@ class ScanData:
     # ----------------------------- Binned Scalars ------------------------------
 
     def set_binning_config(self, **updates) -> None:
-        """Update binning configuration and invalidate cache.
+        """
+        Update binning configuration and invalidate cache.
 
         Parameters
         ----------
@@ -807,7 +809,8 @@ class ScanData:
     # ------------------------------- Internals ---------------------------------
 
     def _flatten_columns(self) -> List[str]:
-        """Flatten DataFrame columns to strings, joining MultiIndex with ':'.
+        """
+        Flatten DataFrame columns to strings, joining MultiIndex with ':'.
 
         Returns
         -------
@@ -914,6 +917,7 @@ class ScanData:
         *,
         ext_override: Optional[dict[str, str]] = None,
         variants_override: Optional[dict[str, list[Optional[str]]]] = None,
+        stem_override: Optional[dict[str, str]] = None,
     ) -> pd.DataFrame:
         """
         Add wide columns of expected paths for each device (and optional variant).
@@ -938,6 +942,13 @@ class ScanData:
         variants_override
             Optional mapping ``{device: [variant1, variant2, None, ...]}`` to
             control which variant-specific columns are created.
+        stem_override
+            Optional mapping ``{device: in_filename_stem}`` for devices whose
+            data folder name differs from the token used in the per-shot
+            filename — e.g., ``{"U_BCaveMagSpec-interpSpec": "U_BCaveMagSpec"}``
+            for files named ``Scan042_U_BCaveMagSpec_001.csv`` inside the
+            ``U_BCaveMagSpec-interpSpec`` folder. Devices not in the mapping
+            keep the default ``stem == device`` behavior.
 
         Returns
         -------
@@ -958,16 +969,19 @@ class ScanData:
         # Resolve per-device ext and variants
         ext_map: dict[str, str] = {}
         var_map: dict[str, list[Optional[str]]] = {}
+        stem_map: dict[str, Optional[str]] = {}
         for dev in devs:
             ext_map[dev] = (ext_override or {}).get(dev) or self.paths.infer_device_ext(
                 dev
             )
             var_map[dev] = (variants_override or {}).get(dev, [None])
+            stem_map[dev] = (stem_override or {}).get(dev)
 
         # Build and attach columns
         out = df.copy()
         for dev in devs:
             ext = ext_map[dev]
+            stem = stem_map[dev]
             for variant in var_map[dev]:
                 col = (
                     f"{dev}_expected_path"
@@ -978,7 +992,11 @@ class ScanData:
                 paths = [
                     str(
                         self.paths.build_asset_path(
-                            shot=s, device=dev, ext=ext, variant=variant
+                            shot=s,
+                            device=dev,
+                            ext=ext,
+                            variant=variant,
+                            device_file_stem=stem,
                         )
                     )
                     for s in shots
@@ -1038,7 +1056,8 @@ class ScanData:
 
     # ------------------------------extras---------------------
     def reload_sfile(self) -> None:
-        """Re-read the analysis s-file into ``self.data_frame``.
+        """
+        Re-read the analysis s-file into ``self.data_frame``.
 
         Notes
         -----
@@ -1047,7 +1066,8 @@ class ScanData:
         self.load_scalars(source="sfile")
 
     def copy_fresh_sfile_to_analysis(self) -> None:
-        """Replace the analysis s-file with the fresh copy from the scan folder.
+        """
+        Replace the analysis s-file with the fresh copy from the scan folder.
 
         Copies:
             ``<scan>/scans/ScanDataScanNNN.txt`` → ``<scan>/analysis/../sNNN.txt``
@@ -1069,7 +1089,8 @@ class ScanData:
         shutil.copy2(src=scan_txt, dst=analysis_txt)
 
     def load_ecs_live_dump(self) -> ECSDump:
-        """Load and parse the ECS Live Dump file for this scan via ``ScanPaths``.
+        """
+        Load and parse the ECS Live Dump file for this scan via ``ScanPaths``.
 
         Returns
         -------

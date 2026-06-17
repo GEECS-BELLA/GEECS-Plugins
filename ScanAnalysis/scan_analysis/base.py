@@ -93,7 +93,11 @@ class ScanAnalyzer:
     """
 
     def __init__(
-        self, skip_plt_show: bool = True, device_name: Optional[str] = None, **kwargs
+        self,
+        skip_plt_show: bool = True,
+        device_name: Optional[str] = None,
+        use_injected_data: bool = False,
+        **kwargs,
     ):
         """Initialize the analyzer and default state.
 
@@ -105,6 +109,24 @@ class ScanAnalyzer:
         device_name : str, optional
             Logical device name the analyzer is associated with. Purely informational
             here; concrete analyzers may use it to locate files.
+        use_injected_data : bool, default=False
+            When ``False`` (default, post-scan path), ``load_auxiliary_data``
+            reads the s-file from disk and the scan-parameter column name
+            follows MasterControl's space-separated disk convention.
+
+            When ``True`` (mid-scan/optimizer path), ``load_auxiliary_data``
+            is a no-op — the caller must set ``self.auxiliary_data``
+            to the in-memory DataLogger DataFrame *before* calling
+            ``run_analysis``. The scan-parameter column name automatically
+            uses the in-memory ``device:variable`` colon convention,
+            and per-shot scalar results stay on
+            ``self._pending_aux_updates`` instead of being appended to
+            the s-file.
+
+            Contract is intentionally tight: the base class never reaches
+            out to any in-memory data source itself (that would invert
+            the dep graph through Scanner-GUI's ``ScanManager``). The
+            caller owns the data injection.
         **kwargs
             Additional analyzer-specific options (ignored by the base class).
         """
@@ -116,12 +138,17 @@ class ScanAnalyzer:
         self.scan_path: Optional[Path] = None
         self.auxiliary_file_path: Optional[Path] = None
         self.scan_parameter: Optional[str] = None  # the one you’ll *use*
-        self.use_colon_scan_param: bool = False  # default is file-style
+
+        # Single switch. Disk vs in-memory data source is the underlying
+        # distinction; the colon vs space scan-parameter convention is a
+        # derived consequence (in-memory DataLogger uses colons,
+        # MasterControl's disk s-file uses spaces).
+        self.use_injected_data: bool = use_injected_data
+        self.use_colon_scan_param: bool = use_injected_data
 
         self.noscan = False
         self.device_name = device_name
         self.skip_plt_show = skip_plt_show
-        self.live_analysis = False
 
         self.bins = None
         self.auxiliary_data: Optional[pd.DataFrame] = None
@@ -254,14 +281,15 @@ class ScanAnalyzer:
 
         Notes
         -----
-        - When `live_analysis` is True, callers are expected to set
-          `self.auxiliary_data` directly; this method does nothing.
-        - For non-`noscan` cases, the per-bin mean of the scan parameter column
-          is computed into `self.binned_param_values`.
+        - When ``use_injected_data`` is True, callers are expected to set
+          ``self.auxiliary_data`` directly; this method does nothing.
+        - For non-``noscan`` cases, the per-bin mean of the scan parameter
+          column is computed into ``self.binned_param_values``.
         """
-        # if not doing live analysis, load the data directly from the sFile. If live_analysis
-        # is true, it is expected that that self.auxiliary_data is set directly and externally
-        if not self.live_analysis:
+        # When use_injected_data is True the caller (e.g. the optimizer's
+        # MultiDeviceScanEvaluator) supplies self.auxiliary_data from the
+        # in-memory DataLogger before run_analysis; nothing to load here.
+        if not self.use_injected_data:
             try:
                 self.auxiliary_data = pd.read_csv(
                     self.auxiliary_file_path, delimiter="\t"

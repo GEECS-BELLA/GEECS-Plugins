@@ -93,10 +93,10 @@ class ActionManager:
         """Add or overwrite an action sequence in the in-memory library."""
         try:
             if action_name in self.actions:
-                logger.warning("Overwriting existing action: %s", action_name)
+                logger.info("Overwriting existing action: %s", action_name)
 
             self.actions[action_name] = action_seq
-            logger.debug("Added action sequence: %s", action_name)
+            logger.info("Added action sequence: %s", action_name)
 
         except Exception:
             logger.exception("Failed to add action %s", action_name)

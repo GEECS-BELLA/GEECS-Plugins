@@ -18,7 +18,7 @@ from typing import Optional
 import numpy as np
 from scipy import ndimage, signal
 
-from .config_models import FilteringConfig, FilterMethod
+from image_analysis.config.array1d_processing import FilteringConfig, FilterMethod
 
 logger = logging.getLogger(__name__)
 

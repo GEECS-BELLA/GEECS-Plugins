@@ -386,7 +386,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 10.0,
+        exec_timeout: Optional[float] = 60.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Any:
@@ -409,7 +409,7 @@ class GeecsDevice:
         self,
         variable: str,
         value: Any,
-        exec_timeout: Optional[float] = 10.0,
+        exec_timeout: Optional[float] = 60.0,
         attempts_max: int = 5,
         sync: bool = True,
     ) -> Optional["AsyncResult"]:

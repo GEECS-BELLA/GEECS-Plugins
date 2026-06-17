@@ -18,7 +18,7 @@ import pytest
 from pathlib import Path
 
 from geecs_data_utils import ScanTag, ScanPaths
-from image_analysis.offline_analyzers.density_from_phase_analysis import (
+from image_analysis.analyzers.density_from_phase_analysis import (
     PhaseAnalysisConfig,
     PhaseDownrampProcessor,
 )

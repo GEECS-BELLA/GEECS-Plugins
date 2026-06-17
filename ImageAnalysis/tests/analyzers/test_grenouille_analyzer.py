@@ -17,9 +17,10 @@ import math
 from pathlib import Path
 
 import pytest
+from geecs_data_utils import ScanPaths, ScanTag
 
-from image_analysis.offline_analyzers.grenouille_analyzer import GrenouilleAnalyzer
-from image_analysis.processing.array2d.config_models import (
+from image_analysis.analyzers.grenouille_analyzer import GrenouilleAnalyzer
+from image_analysis.config.array2d_processing import (
     BackgroundConfig,
     CameraConfig,
     FilteringConfig,
@@ -28,10 +29,21 @@ from image_analysis.processing.array2d.config_models import (
 
 CAMERA_NAME = "U_FROG_Grenouille-Temporal"
 
-DATA_FILE = Path(
-    "Z:/data/Undulator/Y2026/02-Feb/26_0210/scans/Scan015"
-    "/U_FROG_Grenouille-Temporal/Scan015_U_FROG_Grenouille_010.png"
-)
+# Resolve the test data path via ScanPaths so it works on any machine where
+# the user's config.ini points to an accessible data share (Windows Z:/,
+# macOS /Volumes/..., etc.). On a machine without the data, ScanPaths raises
+# and DATA_FILE falls back to a sentinel that won't .exists() — the
+# fixture's pytest.skip() then fires cleanly.
+try:
+    DATA_FILE = (
+        ScanPaths(
+            tag=ScanTag(year=2026, month=2, day=10, number=15, experiment="Undulator")
+        ).get_folder()
+        / CAMERA_NAME
+        / "Scan015_U_FROG_Grenouille_010.png"
+    )
+except Exception:
+    DATA_FILE = Path("__data_not_available__")
 
 EXPECTED_SCALARS = [
     f"{CAMERA_NAME}_temporal_fwhm",
@@ -72,7 +84,7 @@ def grenouille_result():
         pytest.skip(f"Data file not found: {DATA_FILE}")
 
     try:
-        analyzer = GrenouilleAnalyzer(camera_config_name=_make_config())
+        analyzer = GrenouilleAnalyzer(camera_config=_make_config())
     except Exception as exc:
         pytest.skip(f"Could not initialise GrenouilleAnalyzer: {exc}")
 
@@ -126,6 +138,9 @@ class TestGrenouilleAnalyzerIntegration:
         assert "horizontal_projection" in grenouille_result.render_data
         assert "vertical_projection" in grenouille_result.render_data
 
-    def test_sidecar_lineouts_tsv_created(self):
+    def test_sidecar_lineouts_tsv_created(self, grenouille_result):
+        # Takes ``grenouille_result`` only to trigger the fixture's skip-when-
+        # DATA_FILE-missing behaviour; the analyzer side-effect is what creates
+        # the sidecar TSV, so consuming the fixture also guarantees it ran.
         expected = DATA_FILE.parent / f"{DATA_FILE.stem}_retrieved_lineouts.tsv"
         assert expected.exists(), f"Expected sidecar TSV not found: {expected}"
