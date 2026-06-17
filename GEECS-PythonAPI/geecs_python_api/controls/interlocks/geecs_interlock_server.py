@@ -4,7 +4,7 @@ import logging
 import socket
 import threading
 import time
-from typing import Dict, Callable
+from typing import Dict, Callable, Optional
 import struct
 
 logger = logging.getLogger(__name__)
@@ -27,12 +27,13 @@ class InterlockServer:
         self.host = host
         self.port = port
         self.interlock_flags: Dict[str, bool] = {}
+        self.interlock_diagnostics: Dict[str, str] = {}
         self.flags_lock = threading.Lock()
         self.server_running = False
         self._server_thread = None
         self._monitor_threads = []
 
-    def set_interlock(self, name: str, is_active: bool):
+    def set_interlock(self, name: str, is_active: bool, diagnostic: str = ""):
         """Set the state of an interlock flag and print status.
 
         Use this to manually set interlock states or from within registered monitor functions.
@@ -42,18 +43,21 @@ class InterlockServer:
         ----
             name: indentifier for the interlock
             is_active: boolean indicating if the interlock is active.
+            diagnostic: string containing diagnostic information for the interlock.
         """
         with self.flags_lock:
             # Get old state, default to False since we need to initialize.
             old_state = self.interlock_flags.get(name, False)
             self.interlock_flags[name] = is_active  # Set new state
+            # store diagnostic when unsafe, clear when safe
+            self.interlock_diagnostics[name] = diagnostic if is_active else ""
             if is_active != old_state:
                 # Use more descriptive status for logging
                 status = "ACTIVE" if is_active else "NOT ACTIVE"
-                logger.info(f"[{name}] Interlock {status}")
+                # logger.info(f"[{name}] Interlock {status}")
 
     def register_monitor(
-        self, name: str, check_func: Callable[[], bool], interval: float = 0.1
+        self, name: str, check_func: Callable[[], bool], interval: float = 0.1, diagnostic_func: Optional[Callable[[], str]] = None
     ):
         """
         Register a monitoring function that will automatically update an interlock flag based on its return value. The function should return True if the interlock should be active (i.e., conditions not met).
@@ -71,7 +75,8 @@ class InterlockServer:
             while self.server_running:
                 try:
                     result = check_func()
-                    self.set_interlock(name, result)
+                    diagnostic = diagnostic_func() if (result and diagnostic_func) else ""
+                    self.set_interlock(name, result, diagnostic)
                 except Exception as e:
                     logger.error(f"Error in monitor '{name}': {e}")
                     # Set interlock active on error (check w Tony)
@@ -87,6 +92,11 @@ class InterlockServer:
         """Get the current state of an interlock flag."""
         with self.flags_lock:
             return self.interlock_flags.get(name, False)
+        
+    def get_diagnostic(self, name: str) -> str:
+        """Get the current diagnostic info for an interlock flag."""
+        with self.flags_lock:
+            return self.interlock_diagnostics.get(name, "")
 
     def get_all_interlocks(self) -> Dict[str, bool]:
         """Get all interlock flags."""
@@ -103,14 +113,15 @@ class InterlockServer:
                 with self.flags_lock:
                     status_lines = []
                     for name, flag in self.interlock_flags.items():
-                        status = (
-                            "WARNING! Interlock conditions not met." if flag else "SAFE"
-                        )
-                        status_lines.append(f"{name}: {status}")
+                        if flag:
+                            diagnostic = self.interlock_diagnostics.get(name, "")
+                            status_lines.append(f"WARNING! {name} UNSAFE - {diagnostic}") if diagnostic else f"{name}: UNSAFE"
+                        else:
+                            status_lines.append(f"SAFE: {name}")
                     message = (
                         " | ".join(status_lines)
                         if status_lines
-                        else "No monitors active"
+                        else "WARNING! No monitors registered"
                     )
 
                 # encode the message

@@ -143,7 +143,7 @@ class DeviceMonitorGroup:
         """
         Unsubscribe all registered devices.
         Called during cleanup/shutdown.
-        
+
         """
         for alias, device in self.devices.items():
             try:

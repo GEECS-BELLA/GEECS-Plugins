@@ -40,7 +40,7 @@ logging.basicConfig(level=logging.INFO)
 builder = InterlockBuilder('BELLA', host='127.0.0.1', port=5001)
 
 # Register device
-cam1 = builder.add_device('cam1', 'CAM-PL1-TapeDrivePointing', 
+cam1 = builder.add_device('cam1', 'CAM-PL1-TapeDrivePointing',
     ['MaxCounts', 'MeanCounts', 'acq_timestamp'])
 
 # Create condition builders
@@ -86,14 +86,14 @@ cam1.subscribe_var_values(['MaxCounts', 'MeanCounts', 'acq_timestamp'])
 def camera_thresh_check(camera, variable_name, thresh, timeout=5000):
     last_device_timestamp = None
     last_check_time = time.time()
-    
+
     def check():
         nonlocal last_device_timestamp, last_check_time
         current_time = time.time()
         device_state = camera.state
         value = device_state[variable_name]
         device_timestamp = device_state["acq_timestamp"]
-        
+
         if device_timestamp is not None:
             if device_timestamp == last_device_timestamp:
                 time_frozen = current_time - last_check_time
@@ -103,13 +103,13 @@ def camera_thresh_check(camera, variable_name, thresh, timeout=5000):
             else:
                 last_device_timestamp = device_timestamp
                 last_check_time = current_time
-        
+
         if value is None:
             print(f"WARNING: No {variable_name} data received")
             return True
-        
+
         return value < thresh
-    
+
     return check
 
 # Create server and register
@@ -315,9 +315,9 @@ with InterlockBuilder('BELLA', host, port) as builder:
     cam1 = builder.add_device('cam1', 'CAM-PL1-TapeDrivePointing', [...])
     builder.add_monitor('Check', multi_check)
     # Server auto-starts here
-    
+
     time.sleep(10)
-    
+
 # Server auto-stops here on exit
 ```
 
@@ -348,7 +348,7 @@ For complex logic:
 def complex_logic(device_state):
     max_counts = device_state.get('MaxCounts', 0)
     mean_counts = device_state.get('MeanCounts', 0)
-    
+
     # Custom: both must be above threshold
     return not (max_counts > 3000 and mean_counts > 100)
 

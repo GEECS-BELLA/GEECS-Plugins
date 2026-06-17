@@ -117,6 +117,7 @@ class InterlockConstructor:
                 f"Queued monitor '{name}' for registration (server not started)"
             )
 
+
     def start(self) -> None:
         """
         Subscribe all devices and start the TCP server and monitor threads.
@@ -142,6 +143,14 @@ class InterlockConstructor:
             for name, check_func in self.monitor_registrations.items():
                 self.server.register_monitor(name, check_func, interval=0.1)
                 logger.debug(f"Registered monitor '{name}'")
+                # pass get_diagnostic_info as the diagnostic callable if available
+                diagnostic_func = (
+                    getattr(check_func, 'get_diagnostic_info', None)
+                    if hasattr(check_func, 'get_diagnostic_info')
+                    else None
+                )
+
+                self.server.register_monitor(name, check_func, interval=0.1, diagnostic_func=diagnostic_func)
 
             self.server.start()
             logger.info(
@@ -197,6 +206,22 @@ class InterlockConstructor:
         except Exception as e:
             logger.error(f"Error getting monitor state for '{name}': {e}")
             return None
+    
+    def get_diagnostic_info(self, monitor_name: str) -> str:
+        """
+        Get diagnostic info for a specific monitor (what variable triggered the unsafe state).
+
+        Args:
+            monitor_name: Monitor name as registered with add_monitor()
+
+        Returns:
+            String describing what failed (e.g., "MaxCounts=1500 (threshold: 4000)"),
+            or empty string if monitor is safe or not found
+        """
+        check_func = self.monitor_registrations.get(monitor_name)
+        if check_func and hasattr(check_func, 'get_diagnostic_info'):
+            return check_func.get_diagnostic_info()
+        return ""
 
     def get_all_monitors(self) -> Dict[str, Optional[bool]]:
         """
