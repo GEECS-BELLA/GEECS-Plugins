@@ -21,16 +21,18 @@ geecs_log_triage/
 
 ## Log Format Source of Truth
 
-The parser targets the per-scan log format defined in
-`GEECS-Scanner-GUI/geecs_scanner/logging_setup.py::attach_scan_log`:
+The per-scan log parse/write contract is owned by
+`GEECS-Data-Utils/geecs_data_utils/scan_log_loader.py`:
 
 ```
 %(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] shot=%(shot_id)s - %(message)s
 ```
 
-Where `asctime` uses `datefmt="%Y-%m-%d %H:%M:%S"`. If the format string changes
-in `logging_setup.py`, update the regex in `parser.HEADER_RE` and bump a minor
-version.
+Where `asctime` uses `datefmt="%Y-%m-%d %H:%M:%S"`. Writers should build their
+`logging.Formatter` from `SCAN_LOG_FORMAT` and `SCAN_LOG_DATEFMT`, also defined
+in `geecs_data_utils.scan_log_loader`, so Scanner-GUI, GeecsBluesky, and the
+parser stay aligned. If the shared format string changes, update `HEADER_RE`
+and bump a minor version of the affected packages.
 
 Multi-line tracebacks: when a log record contains an exception, the formatter
 appends the traceback as additional lines that do not start with a header

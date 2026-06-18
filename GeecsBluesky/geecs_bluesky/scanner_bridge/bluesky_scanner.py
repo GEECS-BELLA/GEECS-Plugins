@@ -61,6 +61,7 @@ from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.scan_logging import scan_log_file
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.utils import safe_name
 
@@ -852,6 +853,29 @@ class BlueskyScanner:
         scan_number, scan_folder = self._claim_scan_number()
         if scan_number is not None and scan_folder is not None:
             self._write_scan_info_ini(scan_config, scan_number, scan_folder)
+
+        # Capture the whole run (detector build, RE execution, file export) to a
+        # per-scan scans/ScanNNN/scan.log — the legacy triage-readable trail.
+        with scan_log_file(scan_folder):
+            self._execute_scan_body(
+                scan_config, motor, positions, extra_md, scan_number, scan_folder
+            )
+
+    def _execute_scan_body(
+        self,
+        scan_config: Any,
+        motor: Any | None,
+        positions: list[float | None],
+        extra_md: dict[str, Any] | None,
+        scan_number: int | None,
+        scan_folder: str | None,
+    ) -> None:
+        """Build detectors, run the plan, and export files for one scan.
+
+        Split from :meth:`_run_step_scan` so the latter can wrap this body in a
+        per-scan ``scan.log`` context manager; the scan number/folder are
+        already claimed by the caller.
+        """
         self._build_detectors(scan_folder=scan_folder)
 
         n_steps = len(positions)

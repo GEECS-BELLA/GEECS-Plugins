@@ -1,15 +1,15 @@
-"""Read and parse `scan.log` files written by `geecs_scanner.logging_setup`.
+"""Read and parse GEECS per-scan `scan.log` files.
 
-The per-scan log format is owned by
-``GEECS-Scanner-GUI/geecs_scanner/logging_setup.py::attach_scan_log``::
+The per-scan log format is owned by this module and shared by all scan-log
+writers. Build writer ``logging.Formatter`` instances from
+:data:`SCAN_LOG_FORMAT` and :data:`SCAN_LOG_DATEFMT`::
 
     "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
     "shot=%(shot_id)s - %(message)s"
 
-with ``datefmt="%Y-%m-%d %H:%M:%S"``. Multi-line tracebacks (or any
-continuation text) appear as additional lines that do **not** start with a
-header matching :data:`HEADER_RE`; those are aggregated into the previous
-record's ``traceback`` field.
+Multi-line tracebacks (or any continuation text) appear as additional lines
+that do **not** start with a header matching :data:`HEADER_RE`; those are
+aggregated into the previous record's ``traceback`` field.
 
 This module deliberately lives in `geecs_data_utils` (not in a triage-specific
 package) so that any consumer — interactive notebooks, plotting helpers,
@@ -95,6 +95,24 @@ class LogEntry(BaseModel):
     traceback: Optional[str] = None
     source_file: Optional[Path] = None
     line_number: Optional[int] = None
+
+
+# --------------------------------------------------------------------------
+# Canonical per-scan log format
+# --------------------------------------------------------------------------
+#
+# This is the single source of truth for the per-scan ``scan.log`` line format,
+# shared by every *writer* (``geecs_scanner.logging_setup.attach_scan_log`` for
+# the legacy scanner, ``geecs_bluesky.scan_logging`` for the Bluesky backend)
+# and this *reader* (:data:`HEADER_RE` below).  A writer should build its
+# ``logging.Formatter`` from these constants so the two can never drift; a
+# round-trip test (write a record, parse it back) pins the contract.
+#
+SCAN_LOG_FORMAT = (
+    "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
+    "shot=%(shot_id)s - %(message)s"
+)
+SCAN_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
 # --------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 # GEECS-LogTriage
 
 Harvest, group, and classify error/warning entries from GEECS scan execution
-logs (`scan.log` files written by `geecs_scanner.logging_setup`).
+logs (`scan.log` files written by Scanner-GUI or GeecsBluesky using the shared
+`geecs_data_utils.scan_log_loader` format contract).
 
 The package is the **Stage 1** floor of an auto-debugger pipeline: a
 deterministic Python utility that walks a date's worth of scans, parses each
@@ -54,8 +55,9 @@ folder path, and the `ErrorFingerprint` (with classification).
 
 ## How it composes
 
-- Reads logs via `geecs_data_utils.load_scan_log(scan_path)` — owned by
-  Data-Utils so anyone can use it (notebooks, plotting, etc.).
+- Reads logs via `geecs_data_utils.load_scan_log(scan_path)` — Data-Utils owns
+  the shared scan-log parser and formatter constants so anyone can use them
+  (Scanner-GUI, GeecsBluesky, notebooks, plotting, etc.).
 - Walks scans via `geecs_data_utils.ScanPaths` — already knows the
   `Y{YYYY}/{MM-Month}/{YY_MMDD}/scans/Scan{NNN}/` convention.
 - All output models are Pydantic v2.

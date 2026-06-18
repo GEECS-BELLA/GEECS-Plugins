@@ -15,7 +15,7 @@ from geecs_data_utils.scan_log_loader import (
 
 
 # ---------------------------------------------------------------------------
-# Sample log text (matches the format string from logging_setup.py)
+# Sample log text (matches geecs_data_utils.scan_log_loader.SCAN_LOG_FORMAT)
 # ---------------------------------------------------------------------------
 
 SIMPLE_LINE = (
