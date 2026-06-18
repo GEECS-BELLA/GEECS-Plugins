@@ -4,6 +4,27 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] - 2026-06-17
+
+### Added
+
+- **Per-scan `scan.log` file.** Each scan now writes a human-readable,
+  triage-parseable log to `scans/ScanNNN/scan.log`, restoring the legacy
+  scanner behaviour that `use_bluesky` mode had dropped (the legacy
+  `ScanManager`, which owned that file, is bypassed).
+  - New `geecs_bluesky.scan_logging.scan_log_file(scan_folder)` context manager
+    attaches a `FileHandler` (at INFO) to the **root** logger for the scan, so
+    the file captures `geecs_bluesky.*` plus `bluesky.*` / `ophyd_async.*`
+    warnings and errors and tracebacks.  It detaches and closes on exit, even
+    on error, and never creates the scan folder (consumer invariant).
+  - The line format is imported from `geecs_data_utils`
+    (`SCAN_LOG_FORMAT` / `SCAN_LOG_DATEFMT`) — the same module that owns the
+    triage parser — so the existing `triage` CLI/skill reads Bluesky scan logs
+    unchanged.  A round-trip test pins the writer/parser contract.
+  - `BlueskyScanner._run_step_scan` wraps the run (detector build, RunEngine
+    execution, scalar-file export) in the context manager; the scan body is
+    extracted to `_execute_scan_body`.
+
 ## [0.9.0] - 2026-06-15
 
 ### Added

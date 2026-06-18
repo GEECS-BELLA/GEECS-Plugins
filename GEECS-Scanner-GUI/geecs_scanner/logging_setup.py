@@ -25,15 +25,18 @@ Typical usage
 """
 
 from __future__ import annotations
+
+import atexit
+import errno
 import logging
 import logging.handlers
-import errno
-from pathlib import Path
-from threading import Lock
 from contextlib import contextmanager
+from pathlib import Path
 from queue import Queue
+from threading import Lock
 from typing import Optional
-import atexit
+
+from geecs_data_utils import SCAN_LOG_DATEFMT, SCAN_LOG_FORMAT
 
 
 # --- internal globals ---
@@ -388,9 +391,8 @@ def attach_scan_log(
     fh.setLevel(logging.DEBUG)
     fh.setFormatter(
         logging.Formatter(
-            "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] "
-            "shot=%(shot_id)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+            SCAN_LOG_FORMAT,
+            datefmt=SCAN_LOG_DATEFMT,
         )
     )
     fh.addFilter(ScanFilter(str(scan_id)))

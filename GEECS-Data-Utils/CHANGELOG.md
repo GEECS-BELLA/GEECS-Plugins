@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.8.1] — 2026-06-17
+
+### Added
+- `SCAN_LOG_FORMAT` and `SCAN_LOG_DATEFMT` constants in
+  `geecs_data_utils.scan_log_loader` (exported from the package root): the
+  canonical per-scan `scan.log` line format, now a single source of truth
+  shared by every *writer* (legacy scanner, Bluesky backend) and the `HEADER_RE`
+  *reader* in the same module, so they cannot drift.
+
 ## [0.8.0] — 2026-06-15
 
 ### Added

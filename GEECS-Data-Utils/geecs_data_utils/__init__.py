@@ -33,6 +33,8 @@ from geecs_data_utils.config_roots import (
 )
 from geecs_data_utils.doc_id_lookup import DocIDLookup, EXPERIMENT_FILE_IDS
 from geecs_data_utils.scan_log_loader import (
+    SCAN_LOG_DATEFMT,
+    SCAN_LOG_FORMAT,
     LogEntry,
     Severity,
     load_scan_log,
@@ -66,6 +68,8 @@ __all__ = [
     "load_scan_log",
     "parse_lines",
     "parse_scan_log",
+    "SCAN_LOG_FORMAT",
+    "SCAN_LOG_DATEFMT",
     # tiled export
     "build_legacy_scalar_dataframe",
     "write_scalar_files_from_tiled",

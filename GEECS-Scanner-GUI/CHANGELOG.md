@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.3] — 2026-06-18
+
+### Changed
+- Per-scan `scan.log` formatting now imports the shared
+  `SCAN_LOG_FORMAT` / `SCAN_LOG_DATEFMT` constants from `geecs_data_utils`,
+  making Data-Utils the single source of truth for the Scanner-GUI,
+  GeecsBluesky, and LogTriage parse/write contract.
+
 ## [0.28.2] — 2026-06-09
 
 ### Fixed

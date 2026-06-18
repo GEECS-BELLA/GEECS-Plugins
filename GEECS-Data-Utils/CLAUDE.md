@@ -15,6 +15,7 @@ geecs_data_utils/
   geecs_paths_config.py        # GeecsPathsConfig: base path + experiment resolution
   config_base.py               # ConfigDirManager: generic config directory management
   config_roots.py              # Singleton instances for image/scan analysis config dirs
+  scan_log_loader.py           # Shared scan.log parser + canonical formatter constants
   utils.py                     # month_to_int, SysPath, ConfigurationError
   plotting_utils.py            # Simple matplotlib helpers for binned data
   scans_database/
@@ -193,6 +194,10 @@ month_to_int(3)           # → 3
 
 from geecs_data_utils.utils import read_geecs_tdms
 data = read_geecs_tdms(path)  # → dict[device][variable] → np.ndarray
+
+from geecs_data_utils import SCAN_LOG_FORMAT, SCAN_LOG_DATEFMT
+# Shared per-scan scan.log formatter contract used by Scanner-GUI,
+# GeecsBluesky, and the scan-log parser / triage tools.
 
 from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 ```
