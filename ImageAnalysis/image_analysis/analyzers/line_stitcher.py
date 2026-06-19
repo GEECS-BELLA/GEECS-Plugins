@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 import numpy as np
 
@@ -136,6 +136,34 @@ class LineStitcher(LineAnalyzer):
         )
 
         return combined
+
+    def analyze_image_file(
+        self,
+        image_filepath: Union[Path, list[Path]],
+        auxiliary_data: Optional[Dict] = None,
+    ) -> ImageAnalyzerResult:
+        """Atomically load (multi-device) + analyze.
+
+        Overrides :meth:`Standard1DAnalyzer.analyze_image_file`. The
+        Standard1D version calls ``read_1d_data`` on a single file and
+        bypasses ``load_image`` entirely — fine for vanilla 1D
+        analyzers but it leaves :meth:`load_image` (which does the
+        multi-device concatenation) unused for a LineStitcher. This
+        override goes through ``self.load_image`` so sibling-device
+        files actually get stitched in before downstream analysis.
+
+        ``LineStitcher.load_image`` populates ``self.data_metadata``
+        from the master device's result, so the inherited
+        ``_build_input_parameters`` keeps producing the right units /
+        labels.
+        """
+        image_filepath = Path(image_filepath)
+        combined = self.load_image(image_filepath)
+
+        aux = dict(auxiliary_data or {})
+        aux.setdefault("file_path", image_filepath)
+
+        return self.analyze_image(combined, aux)
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None
