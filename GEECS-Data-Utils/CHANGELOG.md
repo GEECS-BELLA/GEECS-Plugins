@@ -3,6 +3,25 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.0] — 2026-06-18
+
+### Added
+- New `geecs_data_utils.io` subpackage owning generic `path -> numpy.ndarray`
+  file readers, relocated from `image_analysis.utils`:
+  - `geecs_data_utils.io.images.read_imaq_image` (format dispatcher),
+    `read_imaq_png_image` (NI IMAQ 16-bit PNG), `read_tsv_file`,
+    `load_image_from_h5`.
+  - Gives ImageAnalysis, post-run analysis tools, and Bluesky external-asset
+    handlers a shared reader foundation without depending on the
+    `image_analysis` package.
+- New hard dependencies for the readers: `pypng`, `imageio`, `h5py` (kept
+  light; heavier image libs such as opencv / scikit-image deliberately stay
+  out of this package).
+
+### Notes
+- These readers are consumer-only file loaders; they read existing files and
+  never create scan folders (cross-package scan-folder invariant unaffected).
+
 ## [0.8.0] — 2026-06-15
 
 ### Added
