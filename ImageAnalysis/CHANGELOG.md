@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.0] — 2026-06-18
+
+The generic file readers move to `geecs_data_utils.io.images`. ImageAnalysis
+keeps a deprecation shim at the old import location for one release.
+
+(Version jumps 1.7.0 → 1.9.0: the `pyproject.toml` version was never bumped
+to the already-documented 1.8.0, so this release advances past it rather than
+colliding with that changelog entry.)
+
+### Changed
+- `read_imaq_image`, `read_imaq_png_image`, `read_tsv_file`, and
+  `load_image_from_h5` moved out of `image_analysis.utils` into
+  `geecs_data_utils.io.images`. These were never image-*analysis* logic —
+  they are lower-level `path -> numpy.ndarray` readers — and relocating them
+  lets Bluesky asset handlers and other consumers load files without
+  depending on the `image_analysis` package.
+- Internal callers (`base.py`, `processing/array2d/background.py`,
+  `analyzers/density_from_phase_analysis.py`) now import the readers from
+  `geecs_data_utils.io.images` directly.
+
+### Deprecated
+- Importing the four readers from `image_analysis.utils` still works via a
+  module-level `__getattr__` shim, but now emits a `DeprecationWarning`
+  pointing at the new location. The shim will be removed in a future release;
+  update imports to `geecs_data_utils.io.images`.
+
+### Notes
+- `image_analysis.utils` retains its non-reader members (`ROI`, `NotAPath`,
+  `extract_shot_number`, `ensure_float64_processing`).
+
 ## [1.8.0] — 2026-06-01
 
 Single source of truth for output naming (issue #412). All scalar-key

@@ -11,7 +11,7 @@ import logging
 from typing import Callable, Dict, List, Optional, Union
 from pathlib import Path
 from ...types import Array2D
-from image_analysis.utils import read_imaq_image
+from geecs_data_utils.io.images import read_imaq_image
 from image_analysis.config.array2d_processing import BackgroundConfig, BackgroundMethod
 
 logger = logging.getLogger(__name__)

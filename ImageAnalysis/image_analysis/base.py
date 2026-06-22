@@ -15,7 +15,7 @@ else:
 
 import logging
 
-from image_analysis.utils import read_imaq_image
+from geecs_data_utils.io.images import read_imaq_image
 
 logger = logging.getLogger(__name__)
 

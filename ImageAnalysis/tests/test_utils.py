@@ -1,39 +1,43 @@
+"""Tests for ``image_analysis.utils``.
+
+The generic file readers moved to ``geecs_data_utils.io.images``. These tests
+pin the backwards-compatibility shim: importing the readers from the old
+location still works but emits a ``DeprecationWarning`` and resolves to the
+same function objects as the new location.
+"""
+
 from __future__ import annotations
 
-import unittest
-from pathlib import Path
-from itertools import chain, cycle
+import warnings
 
-import numpy as np
+import pytest
 
-from image_analysis.utils import read_imaq_image
+from geecs_data_utils.io import images
 
-class TestReadIMAQImage(unittest.TestCase):
-    image_folder = Path(__file__).parent / 'data'
-    
-    def test_tif_image(self):
-        pass
+MOVED_READERS = [
+    "read_imaq_image",
+    "read_imaq_png_image",
+    "read_tsv_file",
+    "load_image_from_h5",
+]
 
-    def test_regular_png_image(self):
-        """ A basic png image.
-        
-        From http://www.schaik.com/pngsuite/
-        """
-        img = read_imaq_image(self.image_folder / 'basn0g08.png')
-        def generate_ref_image():
-            it = cycle(chain(range(0, 256), range(254, 0, -1)))
-            for c in range(32*32):
-                yield next(it)
-        ref_img = np.reshape(np.fromiter(generate_ref_image(), int), (32, 32))
-        self.assertTrue((img == ref_img).all())
 
-    def test_NI_png_image(self):
-        """ An image with a weird number of significant bits
-        
-        From http://www.schaik.com/pngsuite/
-        """
-        # TODO: create NI test png
-        pass
+@pytest.mark.parametrize("name", MOVED_READERS)
+def test_relocated_reader_warns_and_resolves(name):
+    """Accessing a moved reader via the shim warns and returns the new object."""
+    import image_analysis.utils as utils
 
-if __name__ == "__main__":
-    unittest.main()
+    with pytest.warns(DeprecationWarning, match="geecs_data_utils.io.images"):
+        shimmed = getattr(utils, name)
+
+    assert shimmed is getattr(images, name)
+
+
+def test_unknown_attribute_still_raises():
+    """The shim does not mask genuinely missing attributes."""
+    import image_analysis.utils as utils
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # any spurious warning would fail here
+        with pytest.raises(AttributeError):
+            utils.does_not_exist
