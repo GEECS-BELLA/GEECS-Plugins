@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.12.1] — 2026-06-18
+
+### Changed
+- `ConfigFileGUI/analysis_preview.py` now imports `read_imaq_image` from
+  `geecs_data_utils.io.images` instead of the deprecated
+  `image_analysis.utils` location (the readers moved to GEECS-Data-Utils).
+
 ## [1.12.0] — 2026-06-02
 
 ### Added

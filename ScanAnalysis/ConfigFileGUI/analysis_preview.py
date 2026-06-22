@@ -174,7 +174,7 @@ class AnalysisWorker(QThread):
             apply_camera_processing_pipeline,
         )
         from image_analysis.types import ImageAnalyzerResult
-        from image_analysis.utils import read_imaq_image
+        from geecs_data_utils.io.images import read_imaq_image
 
         # 1. Load raw image
         raw_image = read_imaq_image(self._image_path)
