@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   emitting formal Bluesky external asset docs for native GEECS camera files.
 - `GeecsDb.get_device_type(device_name)` to query the database
   `device.devicetype` value without depending on `GEECS-PythonAPI`.
+- Real-database integration coverage for the `UC_TopView` device type so
+  database string mismatches are caught when tests run with lab DB access.
 
 ## [0.9.0] - 2026-06-15
 
