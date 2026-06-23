@@ -31,8 +31,9 @@ def camera_image_filename(
 ) -> str:
     """Return the native GEECS camera image filename.
 
-    GEECS camera files are named by scan number, device name, and the device
-    acquisition timestamp rounded to milliseconds.
+    GEECS device servers write native files by device name and acquisition
+    timestamp. Legacy scan finalization may rename files later, but external
+    assets should point at the native direct-save filename.
     """
     return native_file_filename(
         scan_number=scan_number,
@@ -50,9 +51,7 @@ def native_file_filename(
 ) -> str:
     """Return the native GEECS filename for one timestamped device file."""
     normalized_extension = extension if extension.startswith(".") else f".{extension}"
-    return (
-        f"Scan{scan_number:03d}_{device_name}_{acq_timestamp:.3f}{normalized_extension}"
-    )
+    return f"{device_name}_{acq_timestamp:.3f}{normalized_extension}"
 
 
 def _camera_image_path(

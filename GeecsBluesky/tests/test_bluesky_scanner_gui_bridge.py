@@ -11,6 +11,7 @@ from geecs_bluesky.scanner_bridge.bluesky_scanner import (
     BlueskyScanner,
     _prepare_descriptor_for_tiled,
     _SafeDocumentCallback,
+    _translate_save_path_for_device_server,
 )
 
 
@@ -91,6 +92,17 @@ def test_safe_document_callback_warns_and_disables(caplog) -> None:
 
     assert calls == ["start", "event"]
     assert "Storage failed while handling event document" in caplog.text
+
+
+def test_translate_save_path_for_device_server() -> None:
+    """Mac/Linux scan paths should translate to the configured device path."""
+    path = _translate_save_path_for_device_server(
+        "/Volumes/hdna2/data/Undulator/Y2026/06-Jun/26_0623/scans/Scan011/UC_Cam",
+        local_base_path="/Volumes/hdna2/data",
+        device_server_base_path="Z:/data",
+    )
+
+    assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
 
 
 # ---------------------------------------------------------------------------

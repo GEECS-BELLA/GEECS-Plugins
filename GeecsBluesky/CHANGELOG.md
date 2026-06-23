@@ -24,6 +24,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Tiled persistence failures no longer abort scans. GEECS native-file asset
   datum IDs are stored as ordinary Tiled event metadata until the Tiled server
   has readers for the custom GEECS asset specs.
+- Native-save device commands now translate scanner-local save folders to
+  `geecs_device_server_data_base_path` from the user config before writing
+  `localsavingpath`, so tests run from macOS/Linux can still command
+  Windows-visible device paths such as `Z:\data`.
+- External asset paths now use the direct native device filename
+  (`Device_<acq_timestamp>.<ext>`) rather than the legacy post-move renamed
+  filename.
 
 ## [0.11.0] - 2026-06-23
 

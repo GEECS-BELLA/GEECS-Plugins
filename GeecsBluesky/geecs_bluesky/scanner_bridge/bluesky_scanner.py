@@ -43,6 +43,8 @@ import logging
 import os
 import queue
 import threading
+from configparser import ConfigParser
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
 import numpy as np
@@ -108,6 +110,27 @@ def _prepare_descriptor_for_tiled(doc: dict) -> dict:
             data_key.pop("external", None)
             data_key["geecs_external_asset"] = True
     return doc
+
+
+def _translate_save_path_for_device_server(
+    save_path: str | Path,
+    *,
+    local_base_path: str | Path,
+    device_server_base_path: str,
+) -> str:
+    """Translate a local scan path to the path understood by GEECS devices."""
+    local_path = Path(save_path)
+    local_base = Path(local_base_path)
+    try:
+        relative_path = local_path.relative_to(local_base)
+    except ValueError:
+        logger.warning(
+            "Native save path %s is not under local base path %s; using local path",
+            local_path,
+            local_base,
+        )
+        return str(local_path)
+    return str(PureWindowsPath(device_server_base_path, *relative_path.parts))
 
 
 def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
@@ -458,6 +481,46 @@ class BlueskyScanner:
         api_key = cfg["tiled"].get("api_key") or None
         logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
         return uri, api_key
+
+    @staticmethod
+    def _read_device_server_data_base_path() -> str | None:
+        """Read the data base path visible from GEECS device-server hosts."""
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None
+
+        cfg = ConfigParser()
+        cfg.read(config_path)
+        if "Paths" not in cfg:
+            return None
+        return cfg["Paths"].get("geecs_device_server_data_base_path") or None
+
+    @staticmethod
+    def _device_server_save_path(save_path: str) -> str:
+        """Return the path to send to device ``localsavingpath`` controls."""
+        device_server_base_path = BlueskyScanner._read_device_server_data_base_path()
+        if not device_server_base_path:
+            return save_path
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.warning(
+                "Could not import geecs_data_utils; using local save path for device"
+            )
+            return save_path
+
+        paths_config = getattr(ScanPaths, "paths_config", None)
+        local_base_path = getattr(paths_config, "base_path", None)
+        if local_base_path is None:
+            logger.warning(
+                "ScanPaths.paths_config is not loaded; using local save path for device"
+            )
+            return save_path
+        return _translate_save_path_for_device_server(
+            save_path,
+            local_base_path=local_base_path,
+            device_server_base_path=device_server_base_path,
+        )
 
     def _subscribe_tiled(self, tiled_uri: str, api_key: str | None = None) -> None:
         """Subscribe a TiledWriter to the RunEngine.
@@ -821,6 +884,7 @@ class BlueskyScanner:
                     saves_files = role in ("reference", "triggered", "contributor")
                     if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
+                        device_save_path = self._device_server_save_path(save_path)
                         det.configure_nonscalar_file_logging(save_path)
                         if scan_number is not None:
                             asset_definitions = self._asset_definitions_for_device(
@@ -832,7 +896,9 @@ class BlueskyScanner:
                                     asset_definitions=asset_definitions,
                                     root_path=scan_folder,
                                 )
-                        self._saving_detectors.append((det, save_path))
+                        self._saving_detectors.append(
+                            (det, save_path, device_save_path)
+                        )
                         self._nonscalar_save_paths[device_name] = save_path
                 logger.info(
                     "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
