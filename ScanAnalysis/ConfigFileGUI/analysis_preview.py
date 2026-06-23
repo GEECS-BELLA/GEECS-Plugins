@@ -41,7 +41,6 @@ try:
     import matplotlib
 
     matplotlib.use("Qt5Agg")
-    import matplotlib.pyplot as plt
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
     from matplotlib.figure import Figure
 
@@ -49,7 +48,6 @@ try:
 except ImportError:
     FigureCanvasQTAgg = None  # type: ignore[assignment,misc]
     Figure = None  # type: ignore[assignment,misc]
-    plt = None  # type: ignore[assignment]
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -136,147 +134,60 @@ class AnalysisWorker(QThread):
     def __init__(
         self,
         config_dict: Dict[str, Any],
-        config_type: str,
         image_path: Path,
         parent: Optional[QThread] = None,
     ) -> None:
         super().__init__(parent)
         self._config_dict = config_dict
-        self._config_type = config_type
         self._image_path = image_path
 
     # ------------------------------------------------------------------
-    def run(self) -> None:  # noqa: C901 – unavoidable branching
-        """Execute the analysis pipeline in a background thread."""
+    def run(self) -> None:
+        """Execute the analysis pipeline in a background thread.
+
+        Builds the *configured* analyzer from the diagnostic dict and
+        drives it through its own ``load_image`` → ``analyze_image`` →
+        ``render_image`` path. This keeps the preview faithful to
+        whatever analyzer the diagnostic names (Beam, Standard, Line,
+        ICT, …) rather than hard-coding one analyzer's behaviour, and
+        avoids re-implementing the processing pipeline here.
+        """
         try:
-            if self._config_type == "camera_2d":
-                self._run_2d()
-            elif self._config_type == "line_1d":
-                self._run_1d()
-            else:
+            from image_analysis.config import (
+                DiagnosticAnalysisConfig,
+                create_image_analyzer,
+            )
+
+            # 1. Validate the editor's diagnostic dict and build the
+            #    analyzer it names. model_validate works on the live,
+            #    possibly-unsaved dict — no disk round-trip needed.
+            diag = DiagnosticAnalysisConfig.model_validate(self._config_dict)
+            analyzer = create_image_analyzer(diag)
+
+            # 2. Load raw image/data via the analyzer's own loader
+            #    (2D image readers for cameras, read_1d_data for lines).
+            raw = analyzer.load_image(self._image_path)
+            self.raw_image_ready.emit(raw)
+
+            # 3. Run the analyzer (preprocessing happens inside).
+            result = analyzer.analyze_image(raw)
+
+            # 4. Render with the analyzer's own renderer. 2D analyzers
+            #    expose render_image as a staticmethod, 1D as an instance
+            #    method; calling via the instance handles both. Analyzers
+            #    that define no renderer (e.g. plain ImageAnalyzer
+            #    subclasses) can't be previewed here.
+            if not hasattr(analyzer, "render_image"):
                 self.analysis_error.emit(
-                    f"Unsupported config type: {self._config_type}"
+                    f"{type(analyzer).__name__} provides no render_image(); "
+                    "this analyzer cannot be previewed."
                 )
+                return
+
+            fig, _ax = analyzer.render_image(result)
+            self.analysis_complete.emit(result, fig)
         except Exception:
             self.analysis_error.emit(traceback.format_exc())
-
-    # ------------------------------------------------------------------
-    # 2D (camera / beam) path
-    # ------------------------------------------------------------------
-    def _run_2d(self) -> None:
-        from image_analysis.algorithms.basic_beam_stats import (
-            beam_profile_stats,
-            flatten_beam_stats,
-        )
-        from image_analysis.config.loader import load_camera_config
-        from image_analysis.analyzers.beam_analyzer import BeamAnalyzer
-        from image_analysis.processing.array2d.pipeline import (
-            apply_camera_processing_pipeline,
-        )
-        from image_analysis.types import ImageAnalyzerResult
-        from geecs_data_utils.io.images import read_imaq_image
-
-        # 1. Load raw image
-        raw_image = read_imaq_image(self._image_path)
-        self.raw_image_ready.emit(raw_image)
-
-        # 2. Build validated CameraConfig from the dict
-        camera_config = load_camera_config(self._config_dict)
-
-        # 3. Apply processing pipeline (one-shot preview; no cache needed)
-        processed_image = apply_camera_processing_pipeline(
-            raw_image, camera_config, background_cache=None
-        )
-
-        # 4. Beam statistics
-        beam_stats = beam_profile_stats(processed_image)
-        scalars = flatten_beam_stats(beam_stats, prefix=camera_config.name)
-
-        # 5. Build result object
-        result = ImageAnalyzerResult(
-            data_type="2d",
-            processed_image=processed_image,
-            scalars=scalars,
-            metadata={},
-        )
-
-        # Add projection overlays for rendering
-        if processed_image is not None:
-            result.render_data = {
-                "horizontal_projection": processed_image.sum(axis=0),
-                "vertical_projection": processed_image.sum(axis=1),
-            }
-
-        # 6. Render analysed figure
-        fig, _ax = BeamAnalyzer.render_image(result)
-        self.analysis_complete.emit(result, fig)
-
-    # ------------------------------------------------------------------
-    # 1D (line / spectrum) path
-    # ------------------------------------------------------------------
-    def _run_1d(self) -> None:
-        from image_analysis.config.loader import load_line_config
-        from image_analysis.data_1d_utils import read_1d_data
-        from image_analysis.processing.array1d.pipeline import (
-            apply_line_processing_pipeline,
-        )
-        from image_analysis.types import ImageAnalyzerResult
-
-        # 1. Build validated Line1DConfig from the dict
-        line_config = load_line_config(self._config_dict)
-
-        # 2. Load raw data
-        data_result = read_1d_data(self._image_path, line_config.data_loading)
-        raw_data = data_result.data  # Nx2 array
-        self.raw_image_ready.emit(raw_data)
-
-        # 3. Scale + process
-        scaled = raw_data.copy()
-        if line_config.x_scale_factor is not None:
-            scaled[:, 0] *= line_config.x_scale_factor
-        if line_config.y_scale_factor is not None:
-            scaled[:, 1] *= line_config.y_scale_factor
-
-        processed = apply_line_processing_pipeline(scaled, line_config)
-
-        # 4. Build metadata
-        metadata = {
-            "line_name": line_config.name,
-            "x_units": line_config.x_units or data_result.x_units,
-            "y_units": line_config.y_units or data_result.y_units,
-            "x_label": data_result.x_label,
-            "y_label": data_result.y_label,
-        }
-
-        # 5. Build result
-        result = ImageAnalyzerResult(
-            data_type="1d",
-            line_data=processed,
-            scalars={},
-            metadata=metadata,
-        )
-
-        # 6. Render using a fresh figure
-        fig, ax = plt.subplots(figsize=(6, 3), dpi=100, constrained_layout=True)
-        ax.plot(processed[:, 0], processed[:, 1], linewidth=0.8)
-
-        x_label = metadata.get("x_label", "X")
-        x_units = metadata.get("x_units")
-        if x_units:
-            x_label = f"{x_label} ({x_units})"
-        y_label = metadata.get("y_label", "Y")
-        y_units = metadata.get("y_units")
-        if y_units:
-            y_label = f"{y_label} ({y_units})"
-
-        ax.set_xlabel(x_label, fontsize=10)
-        ax.set_ylabel(y_label, fontsize=10)
-        ax.tick_params(axis="both", labelsize=9)
-        if line_config.name:
-            ax.set_title(line_config.name)
-        ax.grid(True, alpha=0.3)
-
-        self.analysis_complete.emit(result, fig)
 
 
 # ======================================================================
@@ -532,7 +443,6 @@ class AnalysisPreviewDialog(QDialog):
 
         self._worker = AnalysisWorker(
             config_dict=config_dict,
-            config_type=config_type,
             image_path=image_path,
         )
         self._worker.raw_image_ready.connect(self._on_raw_ready)
