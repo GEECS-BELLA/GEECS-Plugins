@@ -210,12 +210,10 @@ def _tdms_asset(device_type: str) -> AssetDefinition:
 
 
 FROG_ASSETS = (
-    _camera_asset(
-        FROG_DEVICE_TYPE, event_field="spatial_image", directory_suffix="-Spatial"
-    ),
+    _camera_asset(FROG_DEVICE_TYPE, event_field="Spatial", directory_suffix="-Spatial"),
     _camera_asset(
         FROG_DEVICE_TYPE,
-        event_field="temporal_image",
+        event_field="Temporal",
         directory_suffix="-Temporal",
     ),
 )
@@ -229,12 +227,12 @@ MAGSPEC_CAMERA_ASSETS = (
     ),
     _text_array_asset(
         MAGSPEC_CAMERA_DEVICE_TYPE,
-        event_field="interp_spec",
+        event_field="interpSpec",
         directory_suffix="-interpSpec",
     ),
     _text_array_asset(
         MAGSPEC_CAMERA_DEVICE_TYPE,
-        event_field="interp_div",
+        event_field="interpDiv",
         directory_suffix="-interpDiv",
     ),
 )
@@ -243,12 +241,12 @@ MAGSPEC_STITCHER_ASSETS = (
     _camera_asset(MAGSPEC_STITCHER_DEVICE_TYPE),
     _text_array_asset(
         MAGSPEC_STITCHER_DEVICE_TYPE,
-        event_field="interp_spec",
+        event_field="interpSpec",
         directory_suffix="-interpSpec",
     ),
     _text_array_asset(
         MAGSPEC_STITCHER_DEVICE_TYPE,
-        event_field="interp_div",
+        event_field="interpDiv",
         directory_suffix="-interpDiv",
     ),
 )

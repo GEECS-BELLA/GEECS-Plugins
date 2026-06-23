@@ -125,9 +125,17 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
     by_field = {definition.event_field: definition for definition in definitions}
     save_path = tmp_path / "scans" / "Scan015" / "U_FROG_Grenouille"
 
-    assert set(by_field) == {"spatial_image", "temporal_image"}
+    assert set(by_field) == {"Spatial", "Temporal"}
     assert get_single_asset_definition(FROG_DEVICE_TYPE) is None
-    assert by_field["spatial_image"].file_path(
+    assert (
+        by_field["Spatial"].event_key("U_FROG_Grenouille")
+        == "u_frog_grenouille-spatial"
+    )
+    assert (
+        by_field["Temporal"].event_key("U_FROG_Grenouille")
+        == "u_frog_grenouille-temporal"
+    )
+    assert by_field["Spatial"].file_path(
         save_path=save_path,
         scan_number=15,
         device_name="U_FROG_Grenouille",
@@ -139,7 +147,7 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
         / "U_FROG_Grenouille-Spatial"
         / "Scan015_U_FROG_Grenouille_10.000.png"
     )
-    assert by_field["temporal_image"].file_path(
+    assert by_field["Temporal"].file_path(
         save_path=save_path,
         scan_number=15,
         device_name="U_FROG_Grenouille",
@@ -159,14 +167,21 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
     by_field = {definition.event_field: definition for definition in definitions}
     save_path = tmp_path / "scans" / "Scan042" / "U_BCaveMagSpec"
 
-    assert set(by_field) == {"image", "interp_image", "interp_spec", "interp_div"}
+    assert set(by_field) == {"image", "interp_image", "interpSpec", "interpDiv"}
     assert by_field["image"].spec == GEECS_CAMERA_IMAGE
     assert by_field["interp_image"].spec == GEECS_CAMERA_IMAGE
-    assert by_field["interp_spec"].spec == GEECS_TEXT_ARRAY
-    assert by_field["interp_div"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpSpec"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpDiv"].spec == GEECS_TEXT_ARRAY
     assert by_field["interp_image"].directory_suffix == "-interp"
-    assert by_field["interp_spec"].directory_suffix == "-interpSpec"
-    assert by_field["interp_div"].directory_suffix == "-interpDiv"
+    assert by_field["interpSpec"].directory_suffix == "-interpSpec"
+    assert by_field["interpDiv"].directory_suffix == "-interpDiv"
+    assert (
+        by_field["interpSpec"].event_key("U_BCaveMagSpec")
+        == "u_bcavemagspec-interpspec"
+    )
+    assert (
+        by_field["interpDiv"].event_key("U_BCaveMagSpec") == "u_bcavemagspec-interpdiv"
+    )
     assert by_field["interp_image"].file_path(
         save_path=save_path,
         scan_number=42,
@@ -179,7 +194,7 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
         / "U_BCaveMagSpec-interp"
         / "Scan042_U_BCaveMagSpec_1000.500.png"
     )
-    assert by_field["interp_spec"].file_path(
+    assert by_field["interpSpec"].file_path(
         save_path=save_path,
         scan_number=42,
         device_name="U_BCaveMagSpec",
@@ -198,10 +213,10 @@ def test_magspec_stitcher_omits_interp_image_asset() -> None:
     definitions = get_asset_definitions(MAGSPEC_STITCHER_DEVICE_TYPE)
     by_field = {definition.event_field: definition for definition in definitions}
 
-    assert set(by_field) == {"image", "interp_spec", "interp_div"}
+    assert set(by_field) == {"image", "interpSpec", "interpDiv"}
     assert by_field["image"].spec == GEECS_CAMERA_IMAGE
-    assert by_field["interp_spec"].spec == GEECS_TEXT_ARRAY
-    assert by_field["interp_div"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpSpec"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpDiv"].spec == GEECS_TEXT_ARRAY
     assert "interp_image" not in by_field
 
 
