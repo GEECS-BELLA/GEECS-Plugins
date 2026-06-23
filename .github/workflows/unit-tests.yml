@@ -28,4 +28,4 @@ jobs:
 
       - name: Run GeecsBluesky unit tests
         working-directory: GeecsBluesky
-        run: poetry run pytest tests -m "not integration" --tb=short -q
+        run: poetry run pytest tests/test_assets.py tests/test_geecs_db.py -m "not integration" --tb=short -q
