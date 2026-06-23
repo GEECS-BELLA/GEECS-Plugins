@@ -72,7 +72,7 @@ def test_get_device_type_queries_device_table(monkeypatch) -> None:
             queries.append((query, params))
 
         def fetchone(self) -> tuple[str]:
-            return ("PointGreyCamera",)
+            return ("Point Grey Camera",)
 
     class _DeviceTypeConnection:
         def cursor(self) -> _DeviceTypeCursor:
@@ -92,7 +92,7 @@ def test_get_device_type_queries_device_table(monkeypatch) -> None:
         lambda _connector: _DeviceTypeConnection(),
     )
 
-    assert GeecsDb.get_device_type("UC_TopView") == "PointGreyCamera"
+    assert GeecsDb.get_device_type("UC_TopView") == "Point Grey Camera"
     assert queries == [
         ("SELECT devicetype FROM device WHERE name = %s", ("UC_TopView",))
     ]

@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **External asset foundation.** Added `geecs_bluesky.assets` with a
-  device-type registry, `GEECS_CAMERA_IMAGE` spec, `PointGreyCamera` native PNG
+  device-type registry, `GEECS_CAMERA_IMAGE` spec, `Point Grey Camera` native PNG
   path construction, and `GeecsCameraImageHandler` backed by
   `geecs_data_utils.io.images.read_imaq_image`. This is the first step toward
   emitting formal Bluesky external asset docs for native GEECS camera files.

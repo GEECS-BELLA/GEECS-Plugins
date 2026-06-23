@@ -17,15 +17,15 @@ from geecs_bluesky.assets import (
 
 
 def test_pointgrey_camera_registry_entry() -> None:
-    """PointGreyCamera should register one native camera-image asset."""
+    """Point Grey Camera should register one native camera-image asset."""
     [definition] = get_asset_definitions(POINTGREY_CAMERA_DEVICE_TYPE)
-    assert definition.device_type == "PointGreyCamera"
+    assert definition.device_type == "Point Grey Camera"
     assert definition.spec == GEECS_CAMERA_IMAGE
     assert definition.extensions == (".png",)
     assert definition.handler_class == "GeecsCameraImageHandler"
     assert definition.event_key("UC_TopView") == "uc_topview-image"
-    assert get_single_asset_definition("PointGreyCamera") == definition
-    assert supports_device_type("PointGreyCamera")
+    assert get_single_asset_definition("Point Grey Camera") == definition
+    assert supports_device_type("Point Grey Camera")
     assert not supports_device_type("UnknownDeviceType")
 
 
@@ -43,7 +43,7 @@ def test_camera_image_filename_uses_geecs_convention() -> None:
 
 def test_camera_definition_builds_file_and_resource_paths(tmp_path) -> None:
     """Registry entries should build native file paths and relative resource paths."""
-    definition = get_single_asset_definition("PointGreyCamera")
+    definition = get_single_asset_definition("Point Grey Camera")
     assert definition is not None
 
     root = tmp_path / "Undulator" / "Y2026" / "06-Jun" / "26_0623"
