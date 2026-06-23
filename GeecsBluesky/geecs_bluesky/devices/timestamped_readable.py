@@ -141,6 +141,7 @@ class GeecsTimestampedReadable(
         """Describe hardware signals plus the sync-device companion columns."""
         desc = await super().describe()
         desc.update(self._save_path_datakey())
+        desc.update(self._asset_datakeys())
         if self._shot_id_tracker is None:
             return desc
         prefix = self.name
@@ -170,11 +171,12 @@ class GeecsTimestampedReadable(
             time.monotonic(),
         )
         self._emit_save_path_reading(reading, event_timestamp)
+        acq_timestamp = self.last_acq_timestamp
+        self._emit_asset_readings(reading, event_timestamp, acq_timestamp)
         if tracker is None:
             return reading
 
         prefix = self.name
-        acq_timestamp = self.last_acq_timestamp
         reading[f"{prefix}-acq_timestamp"] = Reading(
             value=acq_timestamp if acq_timestamp is not None else float("nan"),
             timestamp=event_timestamp,

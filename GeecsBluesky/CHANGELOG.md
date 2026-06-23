@@ -4,6 +4,17 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - 2026-06-23
+
+### Added
+
+- Native-file-saving sync devices now emit Bluesky external asset references
+  when their database device type is registered in `geecs_bluesky.assets`.
+  Acquisition still records the existing `nonscalar_save_path` string column;
+  registered assets add datum-id event fields plus matching Resource/Datum docs.
+- `NonScalarSaveSupport.collect_asset_docs()` queues one Resource/Datum pair per
+  native file and records `.tdms_index` companion paths for TDMS assets.
+
 ## [0.11.0] - 2026-06-23
 
 ### Added
