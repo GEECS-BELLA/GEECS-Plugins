@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.0] — 2026-06-21
+
+### Fixed
+- `ConfigFileGUI` Analysis Preview now runs the analyzer the diagnostic
+  actually names instead of always running a hand-rolled `BeamAnalyzer`
+  pipeline. The 2D path previously reimplemented beam stats inline and
+  referenced `CameraConfig.name`, which no longer exists post-#412, so the
+  preview crashed with `AttributeError` for current configs. Non-beam
+  analyzers (Standard, Line, ICT, …) were silently misrepresented as beam
+  results.
+
+### Changed
+- `AnalysisWorker` collapses its separate `_run_2d` / `_run_1d` paths into a
+  single path: validate the editor's diagnostic dict into a
+  `DiagnosticAnalysisConfig`, build the analyzer via
+  `image_analysis.config.create_image_analyzer`, then drive it through its own
+  `load_image` → `analyze_image` → `render_image`. The preview is now faithful
+  to the configured analyzer by construction, and the inline beam-stats /
+  processing-pipeline duplication is gone. Analyzers that define no
+  `render_image` (plain `ImageAnalyzer` subclasses) report a clear
+  "cannot be previewed" message rather than rendering wrong output.
+
 ## [1.12.1] — 2026-06-18
 
 ### Changed
