@@ -6,6 +6,7 @@ import numpy as np
 import png
 from bluesky import RunEngine
 import bluesky.plan_stubs as bps
+from event_model import Filler
 
 from geecs_bluesky.assets import (
     FROG_DEVICE_TYPE,
@@ -20,10 +21,14 @@ from geecs_bluesky.assets import (
     THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE,
     THORLABS_WFS_DEVICE_TYPE,
     GeecsCameraImageHandler,
+    build_camera_shot_documents,
     camera_image_filename,
+    fill_geecs_documents,
+    geecs_asset_handler_registry,
     get_asset_definitions,
     get_single_asset_definition,
     native_file_filename,
+    register_geecs_handlers,
     supports_device_type,
 )
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
@@ -269,6 +274,20 @@ def test_camera_image_handler_loads_png(tmp_path) -> None:
     np.testing.assert_array_equal(handler(), expected)
 
 
+def test_geecs_handler_registry_maps_camera_spec() -> None:
+    """The public readback registry should expose the camera image handler."""
+    registry = geecs_asset_handler_registry()
+    assert registry == {GEECS_CAMERA_IMAGE: GeecsCameraImageHandler}
+
+
+def test_register_geecs_handlers_adds_camera_spec_to_filler() -> None:
+    """The registration helper should configure an existing filler."""
+    filler = Filler({}, inplace=False, retry_intervals=[])
+    register_geecs_handlers(filler, overwrite=True)
+
+    assert filler.handler_registry[GEECS_CAMERA_IMAGE] is GeecsCameraImageHandler
+
+
 def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
     """NonScalarSaveSupport should pair datum readings with Resource/Datum docs."""
     scan_folder = tmp_path / "scans" / "Scan042"
@@ -373,3 +392,79 @@ def test_run_engine_emits_external_asset_docs_from_readable(tmp_path) -> None:
     assert event["filled"]["uc_topview-image"] is False
     assert resource["root"] == str(scan_folder)
     assert resource["resource_path"] == "UC_TopView/UC_TopView_1000.500.png"
+
+
+def test_geecs_documents_fill_camera_image_asset(tmp_path) -> None:
+    """GEECS Resource/Datum docs should fill camera datum IDs into arrays."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    image_path = scan_folder / "UC_TopView" / "UC_TopView_1000.500.png"
+    image_path.parent.mkdir(parents=True)
+    expected = np.array([[10, 20], [30, 40]], dtype=np.uint8)
+    with image_path.open("wb") as stream:
+        png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+            stream, expected.tolist()
+        )
+
+    emitter = _ReadableAssetEmitter()
+    emitter.configure_nonscalar_file_logging(scan_folder / "UC_TopView")
+    emitter.configure_external_asset_logging(
+        scan_number=42,
+        asset_definitions=get_asset_definitions(POINTGREY_CAMERA_DEVICE_TYPE),
+        root_path=scan_folder,
+    )
+    docs = []
+
+    def plan():
+        yield from bps.open_run()
+        yield from bps.create()
+        yield from bps.read(emitter)
+        yield from bps.save()
+        yield from bps.close_run()
+
+    RunEngine({})(plan(), lambda name, doc: docs.append((name, doc)))
+
+    filled_docs = fill_geecs_documents(docs, retry_intervals=[])
+    event = next(doc for name, doc in filled_docs if name == "event")
+    original_event = next(doc for name, doc in docs if name == "event")
+
+    assert original_event["filled"]["uc_topview-image"] is False
+    assert (
+        event["filled"]["uc_topview-image"]
+        == original_event["data"]["uc_topview-image"]
+    )
+    np.testing.assert_array_equal(event["data"]["uc_topview-image"], expected)
+
+
+def test_build_camera_shot_documents_resolves_legacy_scan_file(tmp_path) -> None:
+    """Camera shot helper should resolve existing legacy scan-folder images."""
+    scan_folder = (
+        tmp_path / "Undulator" / "Y2026" / "06-Jun" / "26_0623" / "scans" / "Scan042"
+    )
+    image_path = scan_folder / "UC_TopView" / "Scan042_UC_TopView_001.png"
+    image_path.parent.mkdir(parents=True)
+    expected = np.array([[5, 6], [7, 8]], dtype=np.uint8)
+    with image_path.open("wb") as stream:
+        png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+            stream, expected.tolist()
+        )
+
+    docs, resolved_path = build_camera_shot_documents(
+        year=2026,
+        month=6,
+        day=23,
+        scan_number=42,
+        device_name="UC_TopView",
+        shot_number=1,
+        experiment="Undulator",
+        base_directory=tmp_path,
+        device_type=POINTGREY_CAMERA_DEVICE_TYPE,
+    )
+
+    assert resolved_path == image_path
+    resource = next(doc for name, doc in docs if name == "resource")
+    assert resource["root"] == str(scan_folder)
+    assert resource["resource_path"] == "UC_TopView/Scan042_UC_TopView_001.png"
+
+    filled_docs = fill_geecs_documents(docs, retry_intervals=[])
+    event = next(doc for name, doc in filled_docs if name == "event")
+    np.testing.assert_array_equal(event["data"]["uc_topview-image"], expected)

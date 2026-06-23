@@ -22,6 +22,8 @@ class GeecsCameraImageHandler:
         resource_path: str | Path,
         *,
         root: str | Path | None = None,
+        data_key: str | None = None,
+        **resource_kwargs: object,
     ) -> None:
         """Create a handler for a resource path.
 
@@ -31,11 +33,17 @@ class GeecsCameraImageHandler:
             Absolute path to the image, or path relative to *root*.
         root:
             Optional storage root used when *resource_path* is relative.
+        data_key:
+            Optional event data key recorded in the Resource document metadata.
+        **resource_kwargs:
+            Additional Resource metadata ignored by this thin file reader.
         """
         path = Path(resource_path)
         if root is not None and not path.is_absolute():
             path = Path(root) / path
         self.path = path
+        self.data_key = data_key
+        self.resource_kwargs = resource_kwargs
 
     def __call__(self) -> np.ndarray:
         """Return the image payload as a NumPy array."""

@@ -9,6 +9,13 @@ from geecs_bluesky.assets.registry import (
     native_file_filename,
     supports_device_type,
 )
+from geecs_bluesky.assets.readback import (
+    build_camera_shot_documents,
+    fill_geecs_documents,
+    geecs_asset_handler_registry,
+    make_geecs_filler,
+    register_geecs_handlers,
+)
 from geecs_bluesky.assets.specs import (
     FROG_DEVICE_TYPE,
     GEECS_CAMERA_IMAGE,
@@ -38,8 +45,13 @@ __all__ = [
     "THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE",
     "THORLABS_WFS_DEVICE_TYPE",
     "camera_image_filename",
+    "build_camera_shot_documents",
+    "fill_geecs_documents",
+    "geecs_asset_handler_registry",
     "get_asset_definitions",
     "get_single_asset_definition",
+    "make_geecs_filler",
     "native_file_filename",
+    "register_geecs_handlers",
     "supports_device_type",
 ]

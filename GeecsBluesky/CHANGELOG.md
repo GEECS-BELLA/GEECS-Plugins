@@ -4,6 +4,24 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.1] - 2026-06-23
+
+### Added
+
+- Local external asset readback helpers for registering GEECS handlers with
+  `event_model.Filler` and filling ordered Bluesky document streams.
+- Camera shot document helpers for building fillable Resource/Datum docs from
+  existing legacy scan folders by date, scan number, device, and shot number.
+- `external_asset_readback.ipynb` to demonstrate local camera asset filling,
+  including a parameterized existing-scan lookup and a no-hardware synthetic
+  PNG smoke test.
+
+### Fixed
+
+- `GeecsCameraImageHandler` now accepts Resource document metadata such as
+  `data_key`, matching how `event_model.Filler` instantiates handlers from
+  GEECS Resource documents.
+
 ## [0.12.0] - 2026-06-23
 
 ### Added
