@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] - 2026-06-23
+
+### Added
+
+- Expanded `geecs_bluesky.assets` registry coverage for native multi-file save
+  devices: `FROG`, `PicoscopeV2`, `Thorlabs CCS175 Spectrometer`,
+  `RohdeSchwarz_RTA4000`, `ThorlabsWFS`, `MagSpecCamera`, and
+  `MagSpecStitcher`.
+- Added asset specs for TDMS primary files and text-array variant files. TDMS
+  assets record `.tdms_index` as a companion extension while treating the
+  `.tdms` file as the primary resource.
+- Added registry path builders for FROG `-Spatial` / `-Temporal` image
+  directories and MagSpec `-interp`, `-interpSpec`, and `-interpDiv` variant
+  directories.
+
 ## [0.10.0] - 2026-06-23
 
 ### Added
