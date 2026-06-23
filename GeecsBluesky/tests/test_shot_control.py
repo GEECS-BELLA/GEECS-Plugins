@@ -78,6 +78,7 @@ def _make_scanner_with_mock_setters() -> tuple[BlueskyScanner, dict[str, _MockSe
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fake_server
 class TestUdpSetter:
     async def test_set_string_value(self) -> None:
         """set() delivers a string value to the fake device."""
@@ -219,6 +220,7 @@ def combined_device() -> FakeGeecsDevice:
     )
 
 
+@pytest.mark.fake_server
 class TestStepScanArmDisarmOrdering:
     def test_arm_disarm_ordering(self, combined_device: FakeGeecsDevice) -> None:
         """arm runs after move, disarm runs after shots — verified per step.

@@ -19,6 +19,8 @@ from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
+pytestmark = pytest.mark.fake_server
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

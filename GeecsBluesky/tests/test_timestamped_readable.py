@@ -81,6 +81,7 @@ async def test_set_reference_does_not_adopt_the_reference() -> None:
     assert ref.name == "ref"
 
 
+@pytest.mark.fake_server
 async def test_matched_shot_is_valid() -> None:
     """Both devices caught the same physical trigger → offset 0, valid."""
     async with AsyncExitStack() as stack:
@@ -102,6 +103,7 @@ async def test_matched_shot_is_valid() -> None:
             assert key in reading, f"described key {key} missing from reading"
 
 
+@pytest.mark.fake_server
 async def test_missed_shots_are_invalid_with_real_offset() -> None:
     """Contributor stuck while the reference advances → negative offset, invalid."""
     async with AsyncExitStack() as stack:
@@ -119,6 +121,7 @@ async def test_missed_shots_are_invalid_with_real_offset() -> None:
         assert reading["cam-val"]["value"] == pytest.approx(2.0)
 
 
+@pytest.mark.fake_server
 async def test_grace_wait_recovers_late_frame() -> None:
     """A frame arriving within the grace window flips the row to valid."""
     async with AsyncExitStack() as stack:
@@ -139,6 +142,7 @@ async def test_grace_wait_recovers_late_frame() -> None:
         assert reading["cam-acq_timestamp"]["value"] == pytest.approx(CAM_T0 + 1.0)
 
 
+@pytest.mark.fake_server
 async def test_no_reference_never_claims_validity() -> None:
     """Without a reference the offset is NaN and valid is False."""
     async with AsyncExitStack() as stack:
@@ -152,6 +156,7 @@ async def test_no_reference_never_claims_validity() -> None:
         assert reading["cam-valid"]["value"] is False
 
 
+@pytest.mark.fake_server
 async def test_save_nonscalar_emits_save_path_column() -> None:
     """A free-run contributor with save_nonscalar_data saves files like the reference."""
     fake_cam = FakeGeecsDevice(
@@ -188,6 +193,7 @@ async def test_save_nonscalar_emits_save_path_column() -> None:
             assert key in reading, f"described key {key} missing from reading"
 
 
+@pytest.mark.fake_server
 async def test_t0_sync_seeds_timestamped_readables() -> None:
     """The t0-sync stage treats contributors like any other sync device."""
     async with AsyncExitStack() as stack:

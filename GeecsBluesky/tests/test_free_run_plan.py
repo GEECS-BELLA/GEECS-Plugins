@@ -14,6 +14,7 @@ import math
 import threading
 
 import bluesky.plan_stubs as bps
+import pytest
 from bluesky import RunEngine
 
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
@@ -22,6 +23,8 @@ from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+
+pytestmark = pytest.mark.fake_server
 
 REF_T0 = 1000.0
 CAM_T0 = 1000.05

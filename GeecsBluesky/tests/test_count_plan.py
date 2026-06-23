@@ -19,6 +19,8 @@ from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
+pytestmark = pytest.mark.fake_server
+
 _DEV = "U_TestDevice"
 
 

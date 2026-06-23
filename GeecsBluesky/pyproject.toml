@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.11.0"
+version = "0.11.1"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -41,4 +41,6 @@ build-backend = "poetry.core.masonry.api"
 asyncio_mode = "auto"
 markers = [
     "integration: tests that touch external lab services such as the GEECS database",
+    "hardware: tests that require live GEECS devices",
+    "fake_server: tests that use local FakeGeecsServer TCP/UDP sockets",
 ]

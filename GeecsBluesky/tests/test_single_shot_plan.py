@@ -122,6 +122,7 @@ def _setup_scan() -> tuple[
     return fake, motor, cam, RE, events
 
 
+@pytest.mark.fake_server
 def test_strict_scan_fires_each_shot_itself() -> None:
     """One fire → one complete row; no free-running trigger required."""
     fake, motor, cam, RE, events = _setup_scan()
@@ -152,6 +153,7 @@ def test_strict_scan_fires_each_shot_itself() -> None:
         assert ev["data"]["cam-shot_offset"] == 0
 
 
+@pytest.mark.fake_server
 def test_strict_scan_setup_trigger_runs_once_before_shots() -> None:
     """setup_trigger (arm + confirm) runs once at scan start, not per shot."""
     fake, motor, cam, RE, events = _setup_scan()
@@ -184,6 +186,7 @@ def test_strict_scan_setup_trigger_runs_once_before_shots() -> None:
     assert all(ev["data"]["cam-valid"] for ev in events)
 
 
+@pytest.mark.fake_server
 def test_strict_scan_hard_fails_when_device_misses_the_shot() -> None:
     """A device not responding to the plan's own shot aborts the scan."""
     fake, motor, cam, RE, events = _setup_scan()

@@ -137,16 +137,21 @@ internal `asyncio.Lock` serialises them automatically.
 ## Running the tests
 
 ```bash
-poetry run pytest tests/ -v
+poetry run pytest tests -m "not integration and not fake_server" -v
+poetry run pytest tests -m "fake_server and not integration" -v
 ```
 
-All tests run against `FakeGeecsServer` on localhost — no real hardware required.
+Pure unit tests do not open sockets. Tests marked `fake_server` use
+`FakeGeecsServer` on localhost TCP/UDP sockets and require no real hardware.
+Tests marked `integration` touch external lab services and are skipped by
+default in CI.
 
 A hardware integration test (`test_bluesky_scanner.py`) exercises NOSCAN, STANDARD
 step scan, and DG645 shot control against real lab devices:
 
 ```bash
 poetry run python test_bluesky_scanner.py
+poetry run pytest test_bluesky_scanner.py -m "integration and hardware" -v
 ```
 
 ## Architecture notes

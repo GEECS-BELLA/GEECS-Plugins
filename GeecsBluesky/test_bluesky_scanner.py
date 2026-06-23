@@ -23,6 +23,8 @@ import logging
 import time
 from types import SimpleNamespace
 
+import pytest
+
 from geecs_bluesky.scanner_bridge import BlueskyScanner
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
@@ -81,21 +83,6 @@ def _make_exec_config(
     )
 
 
-passed: list[str] = []
-failed: list[str] = []
-
-
-def check(label: str, condition: bool, detail: str = "") -> None:
-    """Print pass/fail and accumulate results."""
-    if condition:
-        print(f"  ✓  {label}")
-        passed.append(label)
-    else:
-        msg = label + (f" — {detail}" if detail else "")
-        print(f"  ✗  {msg}")
-        failed.append(msg)
-
-
 def poll(scanner: BlueskyScanner) -> None:
     """Block until the scanner finishes, printing progress."""
     while scanner.is_scanning_active():
@@ -105,135 +92,157 @@ def poll(scanner: BlueskyScanner) -> None:
     print()
 
 
-# ---------------------------------------------------------------------------
-# Scenario 1: NOSCAN (no shot control)
-# ---------------------------------------------------------------------------
-print("\n=== Scenario 1: NOSCAN — UC_TopView, no shot control ===")
+def run_hardware_scan_checks() -> list[str]:
+    """Run the hardware checks and return any failed labels."""
+    passed: list[str] = []
+    failed: list[str] = []
 
-scanner1 = BlueskyScanner(experiment_dir="Undulator")
-scanner1.reinitialize(
-    exec_config=_make_exec_config(
-        "noscan",
-        description="BlueskyScanner NOSCAN test",
+    def check(label: str, condition: bool, detail: str = "") -> None:
+        """Print pass/fail and accumulate results."""
+        if condition:
+            print(f"  ✓  {label}")
+            passed.append(label)
+        else:
+            msg = label + (f" — {detail}" if detail else "")
+            print(f"  ✗  {msg}")
+            failed.append(msg)
+
+    # -----------------------------------------------------------------------
+    # Scenario 1: NOSCAN (no shot control)
+    # -----------------------------------------------------------------------
+    print("\n=== Scenario 1: NOSCAN — UC_TopView, no shot control ===")
+
+    scanner1 = BlueskyScanner(experiment_dir="Undulator")
+    scanner1.reinitialize(
+        exec_config=_make_exec_config(
+            "noscan",
+            description="BlueskyScanner NOSCAN test",
+        )
     )
-)
-scanner1.start_scan_thread()
-poll(scanner1)
+    scanner1.start_scan_thread()
+    poll(scanner1)
 
-check(
-    "NOSCAN: event count",
-    scanner1._completed_shots == SHOTS_PER_STEP,
-    f"expected {SHOTS_PER_STEP}, got {scanner1._completed_shots}",
-)
-
-# ---------------------------------------------------------------------------
-# Scenario 2: STANDARD step scan (no shot control)
-# ---------------------------------------------------------------------------
-print("\n=== Scenario 2: STANDARD — JetXYZ 4→5 mm, UC_TopView ===")
-
-POSITIONS = 3  # 4.0, 4.5, 5.0
-EXPECTED = POSITIONS * SHOTS_PER_STEP
-
-scanner2 = BlueskyScanner(experiment_dir="Undulator")
-events2: list[dict] = []
-scanner2._RE.subscribe(
-    lambda name, doc: events2.append(doc) if name == "event" else None
-)
-
-scanner2.reinitialize(
-    exec_config=_make_exec_config(
-        "standard",
-        device_var="U_ESP_JetXYZ:Position.Axis 1",
-        start=4.0,
-        end=5.0,
-        step=0.5,
-        description="BlueskyScanner STANDARD test",
-    )
-)
-scanner2.start_scan_thread()
-poll(scanner2)
-
-check(
-    "STANDARD: event count",
-    len(events2) == EXPECTED,
-    f"expected {EXPECTED}, got {len(events2)}",
-)
-motor_key = next(
-    (k for k in (events2[0]["data"] if events2 else {}) if "position" in k), None
-)
-check(
-    "STANDARD: motor readback in every event",
-    motor_key is not None and all(motor_key in e["data"] for e in events2),
-)
-check(
-    "STANDARD: acq_timestamp in every event",
-    all(any("acq_timestamp" in k for k in e["data"]) for e in events2),
-)
-
-# ---------------------------------------------------------------------------
-# Scenario 3: NOSCAN with shot control (U_DG645_ShotControl)
-# ---------------------------------------------------------------------------
-print("\n=== Scenario 3: NOSCAN with shot control (U_DG645_ShotControl) ===")
-
-scanner3 = BlueskyScanner(
-    experiment_dir="Undulator",
-    shot_control_information=SHOT_CONTROL_INFO,
-)
-scanner3.reinitialize(
-    exec_config=_make_exec_config(
-        "noscan",
-        description="BlueskyScanner shot-control test",
-    )
-)
-
-# Subscribe to see what's happening
-events3: list[dict] = []
-scanner3._RE.subscribe(
-    lambda name, doc: events3.append(doc) if name == "event" else None
-)
-
-scanner3.start_scan_thread()
-poll(scanner3)
-
-check(
-    "SHOT CTRL NOSCAN: event count",
-    scanner3._completed_shots == SHOTS_PER_STEP,
-    f"expected {SHOTS_PER_STEP}, got {scanner3._completed_shots}",
-)
-
-# Verify DG645 returned to STANDBY after scan.
-# Query the device directly via its UDP client (re-use geecs_data_utils DB lookup).
-try:
-    import asyncio
-
-    from geecs_bluesky.db.geecs_db import GeecsDb
-    from geecs_bluesky.transport.udp_client import GeecsUdpClient
-
-    host, port = GeecsDb.find_device("U_DG645_ShotControl")
-    udp = GeecsUdpClient(host, port, device_name="U_DG645_ShotControl")
-
-    async def _read_trigger_source() -> str:
-        await udp.connect()
-        val = await udp.get("Trigger.Source")
-        await udp.close()
-        return str(val)
-
-    trigger_source = asyncio.run(_read_trigger_source())
-    print(f"  DG645 Trigger.Source after scan: {trigger_source!r}")
     check(
-        "SHOT CTRL NOSCAN: Trigger.Source returned to STANDBY value",
-        trigger_source == "External rising edges",
-        f"got {trigger_source!r}",
+        "NOSCAN: event count",
+        scanner1._completed_shots == SHOTS_PER_STEP,
+        f"expected {SHOTS_PER_STEP}, got {scanner1._completed_shots}",
     )
-except Exception as exc:
-    print(f"  Could not verify DG645 state: {exc}")
-    failed.append("SHOT CTRL NOSCAN: DG645 post-scan readback (exception)")
 
-# ---------------------------------------------------------------------------
-# Summary
-# ---------------------------------------------------------------------------
-print(f"\n=== Results: {len(passed)} passed, {len(failed)} failed ===")
-for f in failed:
-    print(f"  FAILED: {f}")
-if not failed:
-    print("ALL CHECKS PASSED")
+    # -----------------------------------------------------------------------
+    # Scenario 2: STANDARD step scan (no shot control)
+    # -----------------------------------------------------------------------
+    print("\n=== Scenario 2: STANDARD — JetXYZ 4→5 mm, UC_TopView ===")
+
+    positions = 3  # 4.0, 4.5, 5.0
+    expected = positions * SHOTS_PER_STEP
+
+    scanner2 = BlueskyScanner(experiment_dir="Undulator")
+    events2: list[dict] = []
+    scanner2._RE.subscribe(
+        lambda name, doc: events2.append(doc) if name == "event" else None
+    )
+
+    scanner2.reinitialize(
+        exec_config=_make_exec_config(
+            "standard",
+            device_var="U_ESP_JetXYZ:Position.Axis 1",
+            start=4.0,
+            end=5.0,
+            step=0.5,
+            description="BlueskyScanner STANDARD test",
+        )
+    )
+    scanner2.start_scan_thread()
+    poll(scanner2)
+
+    check(
+        "STANDARD: event count",
+        len(events2) == expected,
+        f"expected {expected}, got {len(events2)}",
+    )
+    motor_key = next(
+        (k for k in (events2[0]["data"] if events2 else {}) if "position" in k),
+        None,
+    )
+    check(
+        "STANDARD: motor readback in every event",
+        motor_key is not None and all(motor_key in e["data"] for e in events2),
+    )
+    check(
+        "STANDARD: acq_timestamp in every event",
+        all(any("acq_timestamp" in k for k in e["data"]) for e in events2),
+    )
+
+    # -----------------------------------------------------------------------
+    # Scenario 3: NOSCAN with shot control (U_DG645_ShotControl)
+    # -----------------------------------------------------------------------
+    print("\n=== Scenario 3: NOSCAN with shot control (U_DG645_ShotControl) ===")
+
+    scanner3 = BlueskyScanner(
+        experiment_dir="Undulator",
+        shot_control_information=SHOT_CONTROL_INFO,
+    )
+    scanner3.reinitialize(
+        exec_config=_make_exec_config(
+            "noscan",
+            description="BlueskyScanner shot-control test",
+        )
+    )
+
+    events3: list[dict] = []
+    scanner3._RE.subscribe(
+        lambda name, doc: events3.append(doc) if name == "event" else None
+    )
+
+    scanner3.start_scan_thread()
+    poll(scanner3)
+
+    check(
+        "SHOT CTRL NOSCAN: event count",
+        scanner3._completed_shots == SHOTS_PER_STEP,
+        f"expected {SHOTS_PER_STEP}, got {scanner3._completed_shots}",
+    )
+
+    try:
+        import asyncio
+
+        from geecs_bluesky.db.geecs_db import GeecsDb
+        from geecs_bluesky.transport.udp_client import GeecsUdpClient
+
+        host, port = GeecsDb.find_device("U_DG645_ShotControl")
+        udp = GeecsUdpClient(host, port, device_name="U_DG645_ShotControl")
+
+        async def _read_trigger_source() -> str:
+            await udp.connect()
+            val = await udp.get("Trigger.Source")
+            await udp.close()
+            return str(val)
+
+        trigger_source = asyncio.run(_read_trigger_source())
+        print(f"  DG645 Trigger.Source after scan: {trigger_source!r}")
+        check(
+            "SHOT CTRL NOSCAN: Trigger.Source returned to STANDBY value",
+            trigger_source == "External rising edges",
+            f"got {trigger_source!r}",
+        )
+    except Exception as exc:
+        print(f"  Could not verify DG645 state: {exc}")
+        failed.append("SHOT CTRL NOSCAN: DG645 post-scan readback (exception)")
+
+    print(f"\n=== Results: {len(passed)} passed, {len(failed)} failed ===")
+    for failure in failed:
+        print(f"  FAILED: {failure}")
+    if not failed:
+        print("ALL CHECKS PASSED")
+    return failed
+
+
+@pytest.mark.integration
+@pytest.mark.hardware
+def test_bluesky_scanner_hardware_integration() -> None:
+    """Run the real-lab BlueskyScanner hardware smoke checks."""
+    assert not run_hardware_scan_checks()
+
+
+if __name__ == "__main__":
+    raise SystemExit(1 if run_hardware_scan_checks() else 0)
