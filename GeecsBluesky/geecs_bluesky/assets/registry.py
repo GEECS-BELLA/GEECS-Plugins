@@ -7,8 +7,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from geecs_bluesky.assets.specs import (
+    FROG_DEVICE_TYPE,
     GEECS_CAMERA_IMAGE,
+    GEECS_TDMS_FILE,
+    GEECS_TEXT_ARRAY,
+    MAGSPEC_CAMERA_DEVICE_TYPE,
+    MAGSPEC_STITCHER_DEVICE_TYPE,
+    PICOSCOPE_V2_DEVICE_TYPE,
     POINTGREY_CAMERA_DEVICE_TYPE,
+    ROHDE_SCHWARZ_RTA4000_DEVICE_TYPE,
+    THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE,
+    THORLABS_WFS_DEVICE_TYPE,
 )
 from geecs_bluesky.utils import safe_name
 
@@ -25,7 +34,25 @@ def camera_image_filename(
     GEECS camera files are named by scan number, device name, and the device
     acquisition timestamp rounded to milliseconds.
     """
-    return f"Scan{scan_number:03d}_{device_name}_{acq_timestamp:.3f}.png"
+    return native_file_filename(
+        scan_number=scan_number,
+        device_name=device_name,
+        acq_timestamp=acq_timestamp,
+        extension=".png",
+    )
+
+
+def native_file_filename(
+    scan_number: int,
+    device_name: str,
+    acq_timestamp: float,
+    extension: str,
+) -> str:
+    """Return the native GEECS filename for one timestamped device file."""
+    normalized_extension = extension if extension.startswith(".") else f".{extension}"
+    return (
+        f"Scan{scan_number:03d}_{device_name}_{acq_timestamp:.3f}{normalized_extension}"
+    )
 
 
 def _camera_image_path(
@@ -41,6 +68,30 @@ def _camera_image_path(
     )
 
 
+def _native_file_path_builder(
+    *,
+    extension: str,
+    directory_suffix: str = "",
+) -> FilePathBuilder:
+    def build_path(
+        save_path: str | Path,
+        scan_number: int,
+        device_name: str,
+        acq_timestamp: float,
+    ) -> Path:
+        directory = Path(save_path)
+        if directory_suffix:
+            directory = directory.parent / f"{device_name}{directory_suffix}"
+        return directory / native_file_filename(
+            scan_number=scan_number,
+            device_name=device_name,
+            acq_timestamp=acq_timestamp,
+            extension=extension,
+        )
+
+    return build_path
+
+
 @dataclass(frozen=True)
 class AssetDefinition:
     """External-asset behavior for one GEECS device type."""
@@ -49,8 +100,10 @@ class AssetDefinition:
     spec: str
     event_field: str
     extensions: tuple[str, ...]
-    handler_class: str
     path_builder: FilePathBuilder
+    handler_class: str | None = None
+    directory_suffix: str = ""
+    companion_extensions: tuple[str, ...] = ()
 
     def event_key(self, device_name: str) -> str:
         """Return the Bluesky event data key for this asset."""
@@ -71,18 +124,139 @@ class AssetDefinition:
         """Return the POSIX resource path for *file_path* relative to *root*."""
         return Path(file_path).relative_to(root).as_posix()
 
+    def companion_file_paths(
+        self,
+        *,
+        save_path: str | Path,
+        scan_number: int,
+        device_name: str,
+        acq_timestamp: float,
+    ) -> tuple[Path, ...]:
+        """Return expected companion paths for the primary native file."""
+        file_path = self.file_path(
+            save_path=save_path,
+            scan_number=scan_number,
+            device_name=device_name,
+            acq_timestamp=acq_timestamp,
+        )
+        return tuple(file_path.with_suffix(ext) for ext in self.companion_extensions)
+
 
 POINTGREY_CAMERA_ASSET = AssetDefinition(
     device_type=POINTGREY_CAMERA_DEVICE_TYPE,
     spec=GEECS_CAMERA_IMAGE,
     event_field="image",
     extensions=(".png",),
-    handler_class="GeecsCameraImageHandler",
     path_builder=_camera_image_path,
+    handler_class="GeecsCameraImageHandler",
+)
+
+TDMS_DEVICE_TYPES = (
+    PICOSCOPE_V2_DEVICE_TYPE,
+    THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE,
+    ROHDE_SCHWARZ_RTA4000_DEVICE_TYPE,
+    THORLABS_WFS_DEVICE_TYPE,
+)
+
+
+def _camera_asset(
+    device_type: str,
+    *,
+    event_field: str = "image",
+    directory_suffix: str = "",
+) -> AssetDefinition:
+    return AssetDefinition(
+        device_type=device_type,
+        spec=GEECS_CAMERA_IMAGE,
+        event_field=event_field,
+        extensions=(".png",),
+        path_builder=_native_file_path_builder(
+            extension=".png",
+            directory_suffix=directory_suffix,
+        ),
+        handler_class="GeecsCameraImageHandler",
+        directory_suffix=directory_suffix,
+    )
+
+
+def _text_array_asset(
+    device_type: str,
+    *,
+    event_field: str,
+    directory_suffix: str,
+) -> AssetDefinition:
+    return AssetDefinition(
+        device_type=device_type,
+        spec=GEECS_TEXT_ARRAY,
+        event_field=event_field,
+        extensions=(".txt",),
+        path_builder=_native_file_path_builder(
+            extension=".txt",
+            directory_suffix=directory_suffix,
+        ),
+        directory_suffix=directory_suffix,
+    )
+
+
+def _tdms_asset(device_type: str) -> AssetDefinition:
+    return AssetDefinition(
+        device_type=device_type,
+        spec=GEECS_TDMS_FILE,
+        event_field="tdms",
+        extensions=(".tdms",),
+        path_builder=_native_file_path_builder(extension=".tdms"),
+        companion_extensions=(".tdms_index",),
+    )
+
+
+FROG_ASSETS = (
+    _camera_asset(FROG_DEVICE_TYPE, event_field="Spatial", directory_suffix="-Spatial"),
+    _camera_asset(
+        FROG_DEVICE_TYPE,
+        event_field="Temporal",
+        directory_suffix="-Temporal",
+    ),
+)
+
+MAGSPEC_CAMERA_ASSETS = (
+    _camera_asset(MAGSPEC_CAMERA_DEVICE_TYPE),
+    _camera_asset(
+        MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interp_image",
+        directory_suffix="-interp",
+    ),
+    _text_array_asset(
+        MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interpSpec",
+        directory_suffix="-interpSpec",
+    ),
+    _text_array_asset(
+        MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interpDiv",
+        directory_suffix="-interpDiv",
+    ),
+)
+
+MAGSPEC_STITCHER_ASSETS = (
+    _camera_asset(MAGSPEC_STITCHER_DEVICE_TYPE),
+    _text_array_asset(
+        MAGSPEC_STITCHER_DEVICE_TYPE,
+        event_field="interpSpec",
+        directory_suffix="-interpSpec",
+    ),
+    _text_array_asset(
+        MAGSPEC_STITCHER_DEVICE_TYPE,
+        event_field="interpDiv",
+        directory_suffix="-interpDiv",
+    ),
 )
 
 _REGISTRY: dict[str, tuple[AssetDefinition, ...]] = {
+    FROG_DEVICE_TYPE: FROG_ASSETS,
+    MAGSPEC_CAMERA_DEVICE_TYPE: MAGSPEC_CAMERA_ASSETS,
+    MAGSPEC_STITCHER_DEVICE_TYPE: MAGSPEC_STITCHER_ASSETS,
     POINTGREY_CAMERA_DEVICE_TYPE: (POINTGREY_CAMERA_ASSET,),
+    **{device_type: (_tdms_asset(device_type),) for device_type in TDMS_DEVICE_TYPES},
 }
 
 
