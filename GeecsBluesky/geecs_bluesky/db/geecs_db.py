@@ -137,6 +137,45 @@ class GeecsDb:
         return ip.strip(), int(port_str)
 
     @classmethod
+    def get_device_type(cls, device_name: str) -> str:
+        """Return the GEECS database device type for *device_name*.
+
+        Parameters
+        ----------
+        device_name:
+            GEECS device name exactly as it appears in the database
+            (e.g. ``"UC_TopView"``).
+
+        Raises
+        ------
+        GeecsDeviceNotFoundError
+            If the device is not found in the database.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups. "
+                "Install with: pip install mysql-connector-python"
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT devicetype FROM device WHERE name = %s",
+                (device_name,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise GeecsDeviceNotFoundError(device_name)
+
+        return str(row[0]).strip()
+
+    @classmethod
     def list_devices(cls, experiment: Optional[str] = None) -> list[str]:
         """Return all device names, optionally filtered by experiment.
 

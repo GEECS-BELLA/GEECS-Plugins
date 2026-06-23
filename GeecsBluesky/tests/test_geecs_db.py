@@ -61,3 +61,38 @@ def test_find_device_uses_pure_python_mysql_connector(monkeypatch) -> None:
 
     assert GeecsDb.find_device("U_TestDevice") == ("192.168.1.10", 12345)
     assert calls and calls[0]["use_pure"] is True
+
+
+def test_get_device_type_queries_device_table(monkeypatch) -> None:
+    """Device type lookup should return the database ``device.devicetype`` value."""
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    class _DeviceTypeCursor:
+        def execute(self, query: str, params: tuple[str, ...]) -> None:
+            queries.append((query, params))
+
+        def fetchone(self) -> tuple[str]:
+            return ("PointGreyCamera",)
+
+    class _DeviceTypeConnection:
+        def cursor(self) -> _DeviceTypeCursor:
+            return _DeviceTypeCursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(
+        geecs_db,
+        "_connect_mysql",
+        lambda _connector: _DeviceTypeConnection(),
+    )
+
+    assert GeecsDb.get_device_type("UC_TopView") == "PointGreyCamera"
+    assert queries == [
+        ("SELECT devicetype FROM device WHERE name = %s", ("UC_TopView",))
+    ]
