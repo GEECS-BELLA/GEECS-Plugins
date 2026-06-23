@@ -15,7 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `NonScalarSaveSupport.collect_asset_docs()` queues one Resource/Datum pair per
   native file and records `.tdms_index` companion paths for TDMS assets.
 - The standalone `test_bluesky_scanner.py` hardware script now preflights the
-  required lab devices and reports unreachable hardware before running scenarios.
+  required lab devices and reports unreachable hardware before running
+  scenarios. Its camera device can be overridden with
+  `GEECS_BLUESKY_TEST_CAMERA`.
 
 ### Fixed
 
