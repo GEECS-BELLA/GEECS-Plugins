@@ -16,8 +16,16 @@ jobs:
       - name: Install Poetry
         run: pip install poetry
 
-      - name: Install dependencies
+      - name: Install root dependencies
         run: poetry install --with dev
 
-      - name: Run unit tests
+      - name: Run root unit tests
         run: poetry run pytest -m "not integration and not gui" --tb=short -q
+
+      - name: Install GeecsBluesky dependencies
+        working-directory: GeecsBluesky
+        run: poetry install --with dev
+
+      - name: Run GeecsBluesky unit tests
+        working-directory: GeecsBluesky
+        run: poetry run pytest tests/test_assets.py tests/test_geecs_db.py -m "not integration" --tb=short -q

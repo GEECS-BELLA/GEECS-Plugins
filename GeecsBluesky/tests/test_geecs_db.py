@@ -5,6 +5,9 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
+
+from geecs_bluesky.assets import POINTGREY_CAMERA_DEVICE_TYPE, supports_device_type
 from geecs_bluesky.db import geecs_db
 from geecs_bluesky.db.geecs_db import GeecsDb
 
@@ -61,3 +64,53 @@ def test_find_device_uses_pure_python_mysql_connector(monkeypatch) -> None:
 
     assert GeecsDb.find_device("U_TestDevice") == ("192.168.1.10", 12345)
     assert calls and calls[0]["use_pure"] is True
+
+
+def test_get_device_type_queries_device_table(monkeypatch) -> None:
+    """Device type lookup should return the database ``device.devicetype`` value."""
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    class _DeviceTypeCursor:
+        def execute(self, query: str, params: tuple[str, ...]) -> None:
+            queries.append((query, params))
+
+        def fetchone(self) -> tuple[str]:
+            return ("Point Grey Camera",)
+
+    class _DeviceTypeConnection:
+        def cursor(self) -> _DeviceTypeCursor:
+            return _DeviceTypeCursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(
+        geecs_db,
+        "_connect_mysql",
+        lambda _connector: _DeviceTypeConnection(),
+    )
+
+    assert GeecsDb.get_device_type("UC_TopView") == "Point Grey Camera"
+    assert queries == [
+        ("SELECT devicetype FROM device WHERE name = %s", ("UC_TopView",))
+    ]
+
+
+@pytest.mark.integration
+def test_uc_topview_device_type_matches_real_database(monkeypatch) -> None:
+    """Real DB lookup should match the registered camera device-type string."""
+    mysql_connector = pytest.importorskip("mysql.connector")
+    monkeypatch.setattr(geecs_db, "_credentials", None)
+
+    try:
+        device_type = GeecsDb.get_device_type("UC_TopView")
+    except (FileNotFoundError, KeyError, OSError, mysql_connector.Error) as exc:
+        pytest.skip(f"Real GEECS database is unavailable: {exc}")
+
+    assert device_type == POINTGREY_CAMERA_DEVICE_TYPE
+    assert supports_device_type(device_type)
