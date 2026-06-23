@@ -94,11 +94,51 @@ _FREE_RUN_MODE = "free_run_time_sync"
 _VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
 
 
+def _prepare_descriptor_for_tiled(doc: dict) -> dict:
+    """Store GEECS external asset datum IDs as internal Tiled metadata.
+
+    The RunEngine document stream still emits formal Resource/Datum docs for
+    GEECS native files.  The current lab Tiled server does not yet have readers
+    for those custom asset specs, so letting TiledWriter register them as
+    external data sources aborts the scan on ``stop``.  Until the server has
+    GEECS-aware adapters, Tiled stores the datum-id strings in its event table.
+    """
+    for data_key in doc.get("data_keys", {}).values():
+        if str(data_key.get("source", "")).startswith("geecs://"):
+            data_key.pop("external", None)
+            data_key["geecs_external_asset"] = True
+    return doc
+
+
 def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     """Read *key* from a device config that may be a dict or a Pydantic model."""
     if isinstance(cfg, dict):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
+
+
+class _SafeDocumentCallback:
+    """Document callback wrapper that logs and disables itself on failure."""
+
+    def __init__(self, callback: Callable[[str, dict], None], label: str) -> None:
+        self._callback = callback
+        self._label = label
+        self._enabled = True
+
+    def __call__(self, name: str, doc: dict) -> None:
+        """Forward one document unless the wrapped callback has already failed."""
+        if not self._enabled:
+            return
+        try:
+            self._callback(name, doc)
+        except Exception:
+            self._enabled = False
+            logger.warning(
+                "%s failed while handling %s document; disabling callback",
+                self._label,
+                name,
+                exc_info=True,
+            )
 
 
 class _UdpSetter:
@@ -437,7 +477,13 @@ class BlueskyScanner:
 
         try:
             client = from_uri(tiled_uri, api_key=api_key)
-            writer = TiledWriter(client)
+            writer = _SafeDocumentCallback(
+                TiledWriter(
+                    client,
+                    patches={"descriptor": _prepare_descriptor_for_tiled},
+                ),
+                label="TiledWriter",
+            )
             self._tiled_token = self._RE.subscribe(writer)
             logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
         except Exception:

@@ -14,6 +14,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   registered assets add datum-id event fields plus matching Resource/Datum docs.
 - `NonScalarSaveSupport.collect_asset_docs()` queues one Resource/Datum pair per
   native file and records `.tdms_index` companion paths for TDMS assets.
+- The standalone `test_bluesky_scanner.py` hardware script now preflights the
+  required lab devices and reports unreachable hardware before running scenarios.
+
+### Fixed
+
+- Tiled persistence failures no longer abort scans. GEECS native-file asset
+  datum IDs are stored as ordinary Tiled event metadata until the Tiled server
+  has readers for the custom GEECS asset specs.
 
 ## [0.11.0] - 2026-06-23
 

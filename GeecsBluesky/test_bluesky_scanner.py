@@ -19,11 +19,15 @@ Run from GeecsBluesky/:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
 import time
 from types import SimpleNamespace
 
+from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.scanner_bridge import BlueskyScanner
+from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -53,6 +57,12 @@ SHOT_CONTROL_INFO = {
 
 SHOTS_PER_STEP = 3
 REP_RATE_HZ = 1.0
+
+PREFLIGHT_READS = {
+    "UC_TopView": ("acq_timestamp",),
+    "U_ESP_JetXYZ": ("Position.Axis 1",),
+    "U_DG645_ShotControl": ("Trigger.Source",),
+}
 
 
 def _make_exec_config(
@@ -103,6 +113,39 @@ def poll(scanner: BlueskyScanner) -> None:
         print(f"  {pct:.0f}%", end="\r")
         time.sleep(0.5)
     print()
+
+
+async def _preflight_device(device_name: str, variables: tuple[str, ...]) -> None:
+    """Verify one required hardware device is reachable before scan scenarios."""
+    host, port = GeecsDb.find_device(device_name)
+    udp = GeecsUdpClient(host, port, device_name=device_name)
+    await udp.connect()
+    try:
+        for variable in variables:
+            await udp.get(variable)
+    finally:
+        await udp.close()
+
+
+def preflight_hardware() -> bool:
+    """Return whether all required hardware devices are reachable."""
+    ok = True
+    print("\n=== Hardware preflight ===")
+    for device_name, variables in PREFLIGHT_READS.items():
+        try:
+            asyncio.run(_preflight_device(device_name, variables))
+        except Exception as exc:
+            ok = False
+            print(f"  ✗  {device_name}: unavailable ({exc})")
+        else:
+            print(f"  ✓  {device_name}: reachable")
+    if not ok:
+        print("\nHardware preflight failed; turn on the devices above and rerun.")
+    return ok
+
+
+if not preflight_hardware():
+    sys.exit(2)
 
 
 # ---------------------------------------------------------------------------
