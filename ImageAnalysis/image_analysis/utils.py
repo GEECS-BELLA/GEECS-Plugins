@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .types import Array2D
@@ -11,116 +11,40 @@ if TYPE_CHECKING:
 from warnings import warn
 
 import numpy as np
-import h5py
-import png
-from imageio.v3 import imread
 
 import re
 
-
-def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
-    """
-    Read a PNG file saved by NI IMAQ.
-
-    Parameters
-    ----------
-    file_path : Union[Path, str]
-        Path to the PNG file.
-
-    Returns
-    -------
-    np.ndarray
-        Image data as a NumPy array with appropriate bit depth handling.
-    """
-    with file_path.open("rb") as f:
-        png_reader = png.Reader(f)
-
-        # read operations returns rows as a generator. it also adds png headers
-        # as attributes to png_reader, including sbit
-        width, height, rows, info = png_reader.read()
-        significant_bits = png_reader.sbit
-
-        # NI IMAQ images use 16 bits per pixel (uncompressed) but often only
-        # the left 12 bits for the data, which is given in the sbit header.
-        # PNG readers don't account for this, so we right shift manually.
-        bitdepth = info["bitdepth"]
-        image = np.array(list(rows), f"uint{bitdepth:d}")
-
-    if significant_bits is None:
-        return image
-    else:
-        significant_bits = ord(significant_bits)
-        return np.right_shift(image, bitdepth - significant_bits)
+# The generic file readers (``read_imaq_image``, ``read_imaq_png_image``,
+# ``read_tsv_file``, ``load_image_from_h5``) moved to
+# ``geecs_data_utils.io.images``. Importing them from here still works via the
+# module-level ``__getattr__`` shim below, which emits a DeprecationWarning.
+# This shim is temporary and will be removed in a future ImageAnalysis release;
+# import the readers from ``geecs_data_utils.io.images`` directly.
+_MOVED_READERS = frozenset(
+    {
+        "read_imaq_image",
+        "read_imaq_png_image",
+        "read_tsv_file",
+        "load_image_from_h5",
+    }
+)
 
 
-def read_tsv_file(file_path: Union[str, Path]) -> np.ndarray:
-    """
-    Load a .tsv file as a 2D NumPy array of floats.
+def __getattr__(name: str):
+    """Re-export relocated readers with a deprecation warning (PEP 562)."""
+    if name in _MOVED_READERS:
+        warn(
+            f"image_analysis.utils.{name} has moved to "
+            f"geecs_data_utils.io.images.{name}. Importing it from "
+            f"image_analysis.utils is deprecated and the shim will be removed "
+            f"in a future release; update your import.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        from geecs_data_utils.io import images
 
-    Parameters
-    ----------
-    file_path : Union[str, Path]
-        Path to the .tsv file.
-
-    Returns
-    -------
-    np.ndarray
-        2D float64 array with data.
-    """
-    file_path = Path(file_path)
-    try:
-        data = np.genfromtxt(file_path, delimiter="\t")
-    except Exception as e:
-        raise RuntimeError(f"Failed to load .tsv file {file_path}: {e}")
-
-    return data.astype(np.float64)
-
-
-def read_imaq_image(file_path: Union[Path, str]) -> np.ndarray:
-    """
-    Read a BELLA camera image, handling various file formats.
-
-    Parameters
-    ----------
-    file_path : Union[Path, str]
-        Path to the image file. Supported extensions: .png, .npy, .tsv, .h5, others.
-
-    Returns
-    -------
-    np.ndarray
-        Loaded image data as a NumPy array.
-    """
-    file_path = Path(file_path)
-
-    if file_path.suffix.lower() == ".png":
-        return read_imaq_png_image(file_path)
-    elif file_path.suffix.lower() == ".npy":
-        return np.load(file_path)
-    elif file_path.suffix.lower() == ".tsv":
-        return read_tsv_file(file_path)
-    elif file_path.suffix.lower() == ".h5":
-        return load_image_from_h5(h5_path=file_path)
-    else:
-        return imread(file_path)
-
-
-def load_image_from_h5(h5_path: Path | str) -> np.ndarray:
-    """
-    Load an image stored in an HDF5 file.
-
-    Parameters
-    ----------
-    h5_path : Path | str
-        Path to the .h5 file containing an ``image`` dataset.
-
-    Returns
-    -------
-    np.ndarray
-        The image data extracted from the HDF5 file.
-    """
-    with h5py.File(h5_path, "r") as f:
-        image = f["image"][()]  # Load the dataset into a NumPy array
-    return image
+        return getattr(images, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def extract_shot_number(filename):

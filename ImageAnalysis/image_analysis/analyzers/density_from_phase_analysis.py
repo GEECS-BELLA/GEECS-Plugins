@@ -29,7 +29,7 @@ import scipy.ndimage as ndimage
 import logging
 
 from image_analysis.base import ImageAnalyzer
-from image_analysis.utils import read_imaq_image
+from geecs_data_utils.io.images import read_imaq_image
 from image_analysis.types import ImageAnalyzerResult
 
 if TYPE_CHECKING:
