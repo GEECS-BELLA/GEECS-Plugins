@@ -43,6 +43,8 @@ import logging
 import os
 import queue
 import threading
+from configparser import ConfigParser
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
 import numpy as np
@@ -52,6 +54,8 @@ import bluesky.preprocessors as bpp
 
 from ophyd_async.core import AsyncStatus
 
+from geecs_bluesky.assets import AssetDefinition, get_asset_definitions
+from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
@@ -92,11 +96,72 @@ _FREE_RUN_MODE = "free_run_time_sync"
 _VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
 
 
+def _prepare_descriptor_for_tiled(doc: dict) -> dict:
+    """Store GEECS external asset datum IDs as internal Tiled metadata.
+
+    The RunEngine document stream still emits formal Resource/Datum docs for
+    GEECS native files.  The current lab Tiled server does not yet have readers
+    for those custom asset specs, so letting TiledWriter register them as
+    external data sources aborts the scan on ``stop``.  Until the server has
+    GEECS-aware adapters, Tiled stores the datum-id strings in its event table.
+    """
+    for data_key in doc.get("data_keys", {}).values():
+        if str(data_key.get("source", "")).startswith("geecs://"):
+            data_key.pop("external", None)
+            data_key["geecs_external_asset"] = True
+    return doc
+
+
+def _translate_save_path_for_device_server(
+    save_path: str | Path,
+    *,
+    local_base_path: str | Path,
+    device_server_base_path: str,
+) -> str:
+    """Translate a local scan path to the path understood by GEECS devices."""
+    local_path = Path(save_path)
+    local_base = Path(local_base_path)
+    try:
+        relative_path = local_path.relative_to(local_base)
+    except ValueError:
+        logger.warning(
+            "Native save path %s is not under local base path %s; using local path",
+            local_path,
+            local_base,
+        )
+        return str(local_path)
+    return str(PureWindowsPath(device_server_base_path, *relative_path.parts))
+
+
 def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     """Read *key* from a device config that may be a dict or a Pydantic model."""
     if isinstance(cfg, dict):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
+
+
+class _SafeDocumentCallback:
+    """Document callback wrapper that logs and disables itself on failure."""
+
+    def __init__(self, callback: Callable[[str, dict], None], label: str) -> None:
+        self._callback = callback
+        self._label = label
+        self._enabled = True
+
+    def __call__(self, name: str, doc: dict) -> None:
+        """Forward one document unless the wrapped callback has already failed."""
+        if not self._enabled:
+            return
+        try:
+            self._callback(name, doc)
+        except Exception:
+            self._enabled = False
+            logger.warning(
+                "%s failed while handling %s document; disabling callback",
+                self._label,
+                name,
+                exc_info=True,
+            )
 
 
 class _UdpSetter:
@@ -417,6 +482,46 @@ class BlueskyScanner:
         logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
         return uri, api_key
 
+    @staticmethod
+    def _read_device_server_data_base_path() -> str | None:
+        """Read the data base path visible from GEECS device-server hosts."""
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None
+
+        cfg = ConfigParser()
+        cfg.read(config_path)
+        if "Paths" not in cfg:
+            return None
+        return cfg["Paths"].get("geecs_device_server_data_base_path") or None
+
+    @staticmethod
+    def _device_server_save_path(save_path: str) -> str:
+        """Return the path to send to device ``localsavingpath`` controls."""
+        device_server_base_path = BlueskyScanner._read_device_server_data_base_path()
+        if not device_server_base_path:
+            return save_path
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.warning(
+                "Could not import geecs_data_utils; using local save path for device"
+            )
+            return save_path
+
+        paths_config = getattr(ScanPaths, "paths_config", None)
+        local_base_path = getattr(paths_config, "base_path", None)
+        if local_base_path is None:
+            logger.warning(
+                "ScanPaths.paths_config is not loaded; using local save path for device"
+            )
+            return save_path
+        return _translate_save_path_for_device_server(
+            save_path,
+            local_base_path=local_base_path,
+            device_server_base_path=device_server_base_path,
+        )
+
     def _subscribe_tiled(self, tiled_uri: str, api_key: str | None = None) -> None:
         """Subscribe a TiledWriter to the RunEngine.
 
@@ -435,7 +540,13 @@ class BlueskyScanner:
 
         try:
             client = from_uri(tiled_uri, api_key=api_key)
-            writer = TiledWriter(client)
+            writer = _SafeDocumentCallback(
+                TiledWriter(
+                    client,
+                    patches={"descriptor": _prepare_descriptor_for_tiled},
+                ),
+                label="TiledWriter",
+            )
             self._tiled_token = self._RE.subscribe(writer)
             logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
         except Exception:
@@ -702,7 +813,9 @@ class BlueskyScanner:
                 exc_info=True,
             )
 
-    def _build_detectors(self, scan_folder: str | None = None) -> None:
+    def _build_detectors(
+        self, scan_folder: str | None = None, scan_number: int | None = None
+    ) -> None:
         """Create and connect detector devices from ``self._devices_config``.
 
         Each device's role is decided by :meth:`_classify_device_roles` from
@@ -771,8 +884,21 @@ class BlueskyScanner:
                     saves_files = role in ("reference", "triggered", "contributor")
                     if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
+                        device_save_path = self._device_server_save_path(save_path)
                         det.configure_nonscalar_file_logging(save_path)
-                        self._saving_detectors.append((det, save_path))
+                        if scan_number is not None:
+                            asset_definitions = self._asset_definitions_for_device(
+                                device_name
+                            )
+                            if asset_definitions:
+                                det.configure_external_asset_logging(
+                                    scan_number=scan_number,
+                                    asset_definitions=asset_definitions,
+                                    root_path=scan_folder,
+                                )
+                        self._saving_detectors.append(
+                            (det, save_path, device_save_path)
+                        )
                         self._nonscalar_save_paths[device_name] = save_path
                 logger.info(
                     "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
@@ -787,6 +913,29 @@ class BlueskyScanner:
                     device_name,
                     exc_info=True,
                 )
+
+    def _asset_definitions_for_device(
+        self, device_name: str
+    ) -> tuple[AssetDefinition, ...]:
+        """Return registered external asset definitions for *device_name*."""
+        try:
+            device_type = GeecsDb.get_device_type(device_name)
+        except Exception:
+            logger.warning(
+                "Could not resolve device type for %s; external asset docs disabled",
+                device_name,
+                exc_info=True,
+            )
+            return ()
+
+        definitions = get_asset_definitions(device_type)
+        if not definitions:
+            logger.debug(
+                "No external asset registry entry for %s device type %r",
+                device_name,
+                device_type,
+            )
+        return definitions
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move a scan device through positions, collect shots each step."""
@@ -852,7 +1001,7 @@ class BlueskyScanner:
         scan_number, scan_folder = self._claim_scan_number()
         if scan_number is not None and scan_folder is not None:
             self._write_scan_info_ini(scan_config, scan_number, scan_folder)
-        self._build_detectors(scan_folder=scan_folder)
+        self._build_detectors(scan_folder=scan_folder, scan_number=scan_number)
 
         n_steps = len(positions)
         n_shots = n_steps * self._shots_per_step

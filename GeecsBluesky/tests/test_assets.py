@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 import png
+from bluesky import RunEngine
+import bluesky.plan_stubs as bps
 
 from geecs_bluesky.assets import (
     FROG_DEVICE_TYPE,
@@ -24,6 +26,34 @@ from geecs_bluesky.assets import (
     native_file_filename,
     supports_device_type,
 )
+from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
+
+
+class _AssetEmitter(NonScalarSaveSupport):
+    """Minimal object exposing the NonScalarSaveSupport asset-doc methods."""
+
+    name = "uc_topview"
+    parent = None
+    _geecs_device_name = "UC_TopView"
+    _save_nonscalar_data = True
+
+
+class _ReadableAssetEmitter(_AssetEmitter):
+    """Minimal Bluesky-readable object backed by an external asset."""
+
+    def describe(self):
+        """Return the external asset data keys."""
+        return self._asset_datakeys()
+
+    def read(self):
+        """Return one datum id and queue the matching Resource/Datum docs."""
+        reading = {}
+        self._emit_asset_readings(
+            reading,
+            event_timestamp=123.0,
+            acq_timestamp=1000.5,
+        )
+        return reading
 
 
 def test_pointgrey_camera_registry_entry() -> None:
@@ -40,14 +70,14 @@ def test_pointgrey_camera_registry_entry() -> None:
 
 
 def test_camera_image_filename_uses_geecs_convention() -> None:
-    """Camera filenames are based on scan number, device name, and timestamp."""
+    """Camera filenames are based on device name and timestamp."""
     assert (
         camera_image_filename(
             scan_number=7,
             device_name="UC_TopView",
             acq_timestamp=1234567890.1234,
         )
-        == "Scan007_UC_TopView_1234567890.123.png"
+        == "UC_TopView_1234567890.123.png"
     )
 
 
@@ -60,7 +90,7 @@ def test_native_file_filename_normalizes_extension() -> None:
             acq_timestamp=1234567890.1234,
             extension="tdms",
         )
-        == "Scan007_U_PicoScope_1234567890.123.tdms"
+        == "U_PicoScope_1234567890.123.tdms"
     )
 
 
@@ -78,10 +108,10 @@ def test_camera_definition_builds_file_and_resource_paths(tmp_path) -> None:
         acq_timestamp=1000.5,
     )
 
-    assert file_path == save_path / "Scan042_UC_TopView_1000.500.png"
+    assert file_path == save_path / "UC_TopView_1000.500.png"
     assert (
         definition.resource_path(root=root, file_path=file_path)
-        == "scans/Scan042/UC_TopView/Scan042_UC_TopView_1000.500.png"
+        == "scans/Scan042/UC_TopView/UC_TopView_1000.500.png"
     )
 
 
@@ -109,13 +139,13 @@ def test_tdms_device_types_register_primary_file_with_index_companion(tmp_path) 
         assert definition.extensions == (".tdms",)
         assert definition.companion_extensions == (".tdms_index",)
         assert definition.handler_class is None
-        assert file_path == save_path / "Scan003_U_Scope_42.125.tdms"
+        assert file_path == save_path / "U_Scope_42.125.tdms"
         assert definition.companion_file_paths(
             save_path=save_path,
             scan_number=3,
             device_name="U_Scope",
             acq_timestamp=42.125,
-        ) == (save_path / "Scan003_U_Scope_42.125.tdms_index",)
+        ) == (save_path / "U_Scope_42.125.tdms_index",)
         assert supports_device_type(device_type)
 
 
@@ -145,7 +175,7 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
         / "scans"
         / "Scan015"
         / "U_FROG_Grenouille-Spatial"
-        / "Scan015_U_FROG_Grenouille_10.000.png"
+        / "U_FROG_Grenouille_10.000.png"
     )
     assert by_field["Temporal"].file_path(
         save_path=save_path,
@@ -157,7 +187,7 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
         / "scans"
         / "Scan015"
         / "U_FROG_Grenouille-Temporal"
-        / "Scan015_U_FROG_Grenouille_10.000.png"
+        / "U_FROG_Grenouille_10.000.png"
     )
 
 
@@ -192,7 +222,7 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
         / "scans"
         / "Scan042"
         / "U_BCaveMagSpec-interp"
-        / "Scan042_U_BCaveMagSpec_1000.500.png"
+        / "U_BCaveMagSpec_1000.500.png"
     )
     assert by_field["interpSpec"].file_path(
         save_path=save_path,
@@ -204,7 +234,7 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
         / "scans"
         / "Scan042"
         / "U_BCaveMagSpec-interpSpec"
-        / "Scan042_U_BCaveMagSpec_1000.500.txt"
+        / "U_BCaveMagSpec_1000.500.txt"
     )
 
 
@@ -223,7 +253,7 @@ def test_magspec_stitcher_omits_interp_image_asset() -> None:
 def test_camera_image_handler_loads_png(tmp_path) -> None:
     """The camera handler should delegate PNG decoding to geecs_data_utils.io."""
     root = tmp_path / "root"
-    image_path = root / "Scan001" / "UC_TopView" / "Scan001_UC_TopView_1.000.png"
+    image_path = root / "Scan001" / "UC_TopView" / "UC_TopView_1.000.png"
     image_path.parent.mkdir(parents=True)
 
     expected = np.array([[1, 2], [3, 4]], dtype=np.uint8)
@@ -233,7 +263,113 @@ def test_camera_image_handler_loads_png(tmp_path) -> None:
         )
 
     handler = GeecsCameraImageHandler(
-        "Scan001/UC_TopView/Scan001_UC_TopView_1.000.png",
+        "Scan001/UC_TopView/UC_TopView_1.000.png",
         root=root,
     )
     np.testing.assert_array_equal(handler(), expected)
+
+
+def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
+    """NonScalarSaveSupport should pair datum readings with Resource/Datum docs."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    save_path = scan_folder / "UC_TopView"
+    emitter = _AssetEmitter()
+    emitter.configure_nonscalar_file_logging(save_path)
+    emitter.configure_external_asset_logging(
+        scan_number=42,
+        asset_definitions=get_asset_definitions(POINTGREY_CAMERA_DEVICE_TYPE),
+        root_path=scan_folder,
+    )
+
+    data_key = "uc_topview-image"
+    data_keys = emitter._asset_datakeys()
+    assert data_keys[data_key]["external"] == "OLD:"
+
+    reading = {}
+    emitter._emit_asset_readings(
+        reading,
+        event_timestamp=123.0,
+        acq_timestamp=1000.5,
+    )
+    datum_id = reading[data_key]["value"]
+    assert datum_id
+
+    docs = list(emitter.collect_asset_docs())
+    assert [name for name, _doc in docs] == ["resource", "datum"]
+    resource = docs[0][1]
+    datum = docs[1][1]
+    assert resource["root"] == str(scan_folder)
+    assert resource["resource_path"] == "UC_TopView/UC_TopView_1000.500.png"
+    assert resource["spec"] == GEECS_CAMERA_IMAGE
+    assert resource["resource_kwargs"] == {"data_key": data_key}
+    assert datum["datum_id"] == datum_id
+    assert datum["resource"] == resource["uid"]
+    assert datum["datum_kwargs"] == {}
+    assert list(emitter.collect_asset_docs()) == []
+
+
+def test_nonscalar_save_support_records_tdms_companion_paths(tmp_path) -> None:
+    """TDMS assets should include their index file as resource metadata."""
+    scan_folder = tmp_path / "scans" / "Scan003"
+    save_path = scan_folder / "U_Scope"
+    emitter = _AssetEmitter()
+    emitter._geecs_device_name = "U_Scope"
+    emitter.configure_nonscalar_file_logging(save_path)
+    emitter.configure_external_asset_logging(
+        scan_number=3,
+        asset_definitions=get_asset_definitions(PICOSCOPE_V2_DEVICE_TYPE),
+        root_path=scan_folder,
+    )
+
+    reading = {}
+    emitter._emit_asset_readings(
+        reading,
+        event_timestamp=123.0,
+        acq_timestamp=42.125,
+    )
+    docs = list(emitter.collect_asset_docs())
+    resource = docs[0][1]
+
+    assert reading["u_scope-tdms"]["value"]
+    assert resource["resource_path"] == "U_Scope/U_Scope_42.125.tdms"
+    assert resource["resource_kwargs"]["companion_resource_paths"] == [
+        "U_Scope/U_Scope_42.125.tdms_index"
+    ]
+
+
+def test_run_engine_emits_external_asset_docs_from_readable(tmp_path) -> None:
+    """RunEngine should emit queued Resource/Datum docs with the event."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    emitter = _ReadableAssetEmitter()
+    emitter.configure_nonscalar_file_logging(scan_folder / "UC_TopView")
+    emitter.configure_external_asset_logging(
+        scan_number=42,
+        asset_definitions=get_asset_definitions(POINTGREY_CAMERA_DEVICE_TYPE),
+        root_path=scan_folder,
+    )
+    docs = []
+
+    def plan():
+        yield from bps.open_run()
+        yield from bps.create()
+        yield from bps.read(emitter)
+        yield from bps.save()
+        yield from bps.close_run()
+
+    RunEngine({})(plan(), lambda name, doc: docs.append((name, doc)))
+
+    assert [name for name, _doc in docs] == [
+        "start",
+        "descriptor",
+        "resource",
+        "datum",
+        "event",
+        "stop",
+    ]
+    event = next(doc for name, doc in docs if name == "event")
+    resource = next(doc for name, doc in docs if name == "resource")
+    datum = next(doc for name, doc in docs if name == "datum")
+    assert event["data"]["uc_topview-image"] == datum["datum_id"]
+    assert event["filled"]["uc_topview-image"] is False
+    assert resource["root"] == str(scan_folder)
+    assert resource["resource_path"] == "UC_TopView/UC_TopView_1000.500.png"

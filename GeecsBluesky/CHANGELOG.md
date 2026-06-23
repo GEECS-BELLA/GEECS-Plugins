@@ -4,6 +4,34 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] - 2026-06-23
+
+### Added
+
+- Native-file-saving sync devices now emit Bluesky external asset references
+  when their database device type is registered in `geecs_bluesky.assets`.
+  Acquisition still records the existing `nonscalar_save_path` string column;
+  registered assets add datum-id event fields plus matching Resource/Datum docs.
+- `NonScalarSaveSupport.collect_asset_docs()` queues one Resource/Datum pair per
+  native file and records `.tdms_index` companion paths for TDMS assets.
+- The standalone `test_bluesky_scanner.py` hardware script now preflights the
+  required lab devices and reports unreachable hardware before running
+  scenarios. Its camera device can be overridden with
+  `GEECS_BLUESKY_TEST_CAMERA`.
+
+### Fixed
+
+- Tiled persistence failures no longer abort scans. GEECS native-file asset
+  datum IDs are stored as ordinary Tiled event metadata until the Tiled server
+  has readers for the custom GEECS asset specs.
+- Native-save device commands now translate scanner-local save folders to
+  `geecs_device_server_data_base_path` from the user config before writing
+  `localsavingpath`, so tests run from macOS/Linux can still command
+  Windows-visible device paths such as `Z:\data`.
+- External asset paths now use the direct native device filename
+  (`Device_<acq_timestamp>.<ext>`) rather than the legacy post-move renamed
+  filename.
+
 ## [0.11.0] - 2026-06-23
 
 ### Added

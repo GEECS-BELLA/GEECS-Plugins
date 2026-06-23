@@ -108,6 +108,25 @@ def test_wrapper_brackets_native_saving(tmp_path) -> None:
     assert start["nonscalar_save_paths"] == {"TOPCAM": str(save_dir)}
 
 
+def test_wrapper_uses_device_command_path_separately(tmp_path) -> None:
+    """Native-save metadata path and device-visible path may differ."""
+    det = _FakeSavingDetector("topcam")
+    save_dir = tmp_path / "Scan007" / "UC_TopCam"
+    device_path = r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan007\UC_TopCam"
+    start = _run_capture_start(
+        geecs_run_wrapper(
+            _tiny_run(),
+            scan_number=7,
+            saving_detectors=[(det, str(save_dir), device_path)],
+        )
+    )
+
+    assert det.localsavingpath.sets == [device_path]
+    assert det.save.sets == ["on", "off"]
+    assert save_dir.is_dir()
+    assert start["nonscalar_save_paths"] == {"TOPCAM": str(save_dir)}
+
+
 def test_wrapper_injects_merged_scalar_headers() -> None:
     dev_a = _FakeHeaderedDevice(
         "wavemeter", {"wavemeter-wavelength_nm": "UC_Wavemeter Wavelength (nm)"}

@@ -132,6 +132,7 @@ class GeecsGenericDetector(
         if has_shot_ids:
             desc.update(self._shot_id_datakeys())
         desc.update(self._save_path_datakey())
+        desc.update(self._asset_datakeys())
         return desc
 
     async def read(self) -> dict[str, Reading]:
@@ -174,4 +175,5 @@ class GeecsGenericDetector(
             )
 
         self._emit_save_path_reading(reading, event_timestamp)
+        self._emit_asset_readings(reading, event_timestamp, acq_timestamp)
         return reading

@@ -1,34 +1,43 @@
 """BlueskyScanner bridge — hardware integration test.
 
 Exercises the ScanManager-compatible API that RunControl uses, without launching
-the GUI.  Requires lab network access (GEECS DB + UC_TopView + U_ESP_JetXYZ +
-U_DG645_ShotControl).
+the GUI.  Requires lab network access (GEECS DB + one camera + U_ESP_JetXYZ +
+U_DG645_ShotControl).  The camera defaults to UC_TopView and can be overridden
+with ``GEECS_BLUESKY_TEST_CAMERA``.
 
 Scenarios
 ---------
-1. NOSCAN  — fixed-position collection from UC_TopView (acq_timestamp only)
+1. NOSCAN  — fixed-position collection from the camera (acq_timestamp only)
              Verifies: N events collected.
-2. STANDARD — step scan U_ESP_JetXYZ 4→5 mm with UC_TopView as detector
+2. STANDARD — step scan U_ESP_JetXYZ 4→5 mm with the camera as detector
              Verifies: N positions × M shots events, motor readback in each event.
 3. NOSCAN with shot control — as scenario 1 but with U_DG645_ShotControl wired;
              Verifies: DG645 Trigger.Source returns to STANDBY after scan.
 
 Run from GeecsBluesky/:
     poetry run python test_bluesky_scanner.py
+    GEECS_BLUESKY_TEST_CAMERA=UC_Amp2_IR_input poetry run python test_bluesky_scanner.py
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import sys
 import time
 from types import SimpleNamespace
 
+from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.scanner_bridge import BlueskyScanner
+from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
+TEST_CAMERA_DEVICE = os.environ.get("GEECS_BLUESKY_TEST_CAMERA", "UC_TopView")
+
 DETECTOR_DEVICES = {
-    "UC_TopView": {
+    TEST_CAMERA_DEVICE: {
         "variable_list": ["acq_timestamp"],
         "save_nonscalar_data": False,
     },
@@ -53,6 +62,12 @@ SHOT_CONTROL_INFO = {
 
 SHOTS_PER_STEP = 3
 REP_RATE_HZ = 1.0
+
+PREFLIGHT_READS = {
+    TEST_CAMERA_DEVICE: ("acq_timestamp",),
+    "U_ESP_JetXYZ": ("Position.Axis 1",),
+    "U_DG645_ShotControl": ("Trigger.Source",),
+}
 
 
 def _make_exec_config(
@@ -105,10 +120,43 @@ def poll(scanner: BlueskyScanner) -> None:
     print()
 
 
+async def _preflight_device(device_name: str, variables: tuple[str, ...]) -> None:
+    """Verify one required hardware device is reachable before scan scenarios."""
+    host, port = GeecsDb.find_device(device_name)
+    udp = GeecsUdpClient(host, port, device_name=device_name)
+    await udp.connect()
+    try:
+        for variable in variables:
+            await udp.get(variable)
+    finally:
+        await udp.close()
+
+
+def preflight_hardware() -> bool:
+    """Return whether all required hardware devices are reachable."""
+    ok = True
+    print("\n=== Hardware preflight ===")
+    for device_name, variables in PREFLIGHT_READS.items():
+        try:
+            asyncio.run(_preflight_device(device_name, variables))
+        except Exception as exc:
+            ok = False
+            print(f"  ✗  {device_name}: unavailable ({exc})")
+        else:
+            print(f"  ✓  {device_name}: reachable")
+    if not ok:
+        print("\nHardware preflight failed; turn on the devices above and rerun.")
+    return ok
+
+
+if not preflight_hardware():
+    sys.exit(2)
+
+
 # ---------------------------------------------------------------------------
 # Scenario 1: NOSCAN (no shot control)
 # ---------------------------------------------------------------------------
-print("\n=== Scenario 1: NOSCAN — UC_TopView, no shot control ===")
+print(f"\n=== Scenario 1: NOSCAN — {TEST_CAMERA_DEVICE}, no shot control ===")
 
 scanner1 = BlueskyScanner(experiment_dir="Undulator")
 scanner1.reinitialize(
@@ -129,7 +177,7 @@ check(
 # ---------------------------------------------------------------------------
 # Scenario 2: STANDARD step scan (no shot control)
 # ---------------------------------------------------------------------------
-print("\n=== Scenario 2: STANDARD — JetXYZ 4→5 mm, UC_TopView ===")
+print(f"\n=== Scenario 2: STANDARD — JetXYZ 4→5 mm, {TEST_CAMERA_DEVICE} ===")
 
 POSITIONS = 3  # 4.0, 4.5, 5.0
 EXPECTED = POSITIONS * SHOTS_PER_STEP
