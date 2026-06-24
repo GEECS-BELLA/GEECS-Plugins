@@ -25,3 +25,6 @@ Before committing notebook changes:
 - `bluesky_hardware_smoke.ipynb` — run `BlueskyScanner` NOSCAN and optional
   STANDARD scans from a notebook, collect event documents, and confirm scan
   folder metadata.
+- `external_asset_readback.ipynb` — fill GEECS camera external asset
+  Resource/Datum documents locally into NumPy arrays, including a parameterized
+  existing-scan lookup and a synthetic no-hardware smoke test.
