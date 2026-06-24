@@ -69,8 +69,8 @@ tuning / data-pipeline, not architecture; see
       `GeecsTimestampedReadable` contributors with offset/valid + grace wait,
       quiesce-to-`OFF` before t0 sync, end-of-scan tail flush.
 - [x] **Strict plan-owned single-shot** — `geecs_single_shot` +
-      `geecs_confirm_quiescent`; engages on an `ARMED` shot-control state,
-      else falls back to free-running `trigger_and_read`.
+      `geecs_confirm_quiescent`; requires a reachable shot-control device with
+      an `ARMED` state.
 - [x] **NOSCAN unified** as a motorless step scan (works in both modes).
 - [x] **`ShotControlConfig` / `ShotControlState`** — validated shot-control YAML.
 - [x] **`geecs_run_wrapper` + `claim_scan_number`** — reusable scan-number

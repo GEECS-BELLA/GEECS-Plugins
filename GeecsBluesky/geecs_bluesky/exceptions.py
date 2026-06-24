@@ -176,6 +176,10 @@ class GeecsT0SyncError(GeecsError):
 # ---------------------------------------------------------------------------
 
 
+class GeecsConfigurationError(GeecsError):
+    """Runtime configuration is incomplete or inconsistent."""
+
+
 class GeecsDeviceNotFoundError(GeecsError):
     """Device name could not be resolved in the GEECS database.
 

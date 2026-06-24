@@ -44,9 +44,9 @@ class ShotControlState(str, Enum):
     ``ARMED`` and ``SINGLESHOT`` drive plan-owned single-shot acquisition:
     ``ARMED`` puts the controller in single-shot mode at data-taking output
     (e.g. gas jet on + ``Trigger.Source`` → single-shot, halting the
-    free-run), and ``SINGLESHOT`` fires one shot.  A config without an
-    ``ARMED`` state cannot do full-power plan-owned single-shot; strict mode
-    then falls back to ``trigger_and_read`` on the free-running trigger.
+    free-run), and ``SINGLESHOT`` fires one shot.  Strict acquisition requires
+    a config with a non-empty ``ARMED`` state; use explicit free-run mode for
+    free-running trigger acquisition.
     Which states a given controller implements depends on its YAML — query
     with :meth:`ShotControlConfig.defines_state`.
     """

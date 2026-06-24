@@ -108,9 +108,7 @@ def geecs_step_scan(
         owns every shot — each row is collected via
         :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot`
         (arm waiters → fire → await → read) instead of waiting on a
-        free-running trigger.  This is the full strict-shot-control
-        contract; without it, detectors wait for the next free-running
-        shot (internal-trigger test mode).
+        free-running trigger.  This is the strict-shot-control contract.
     setup_trigger:
         Optional plan-stub callable run *once* at the start of the run (after
         ``open_run``, before the first step).  Used by plan-owned single-shot
@@ -147,8 +145,7 @@ def geecs_step_scan(
         "plan_name": "geecs_step_scan",
         "acquisition_mode": "strict_shot_control",
         "geecs_event_schema": 1,
-        # True when the plan fires each shot (single-shot); False when it waits
-        # on the free-running trigger via trigger_and_read.
+        # True when the plan fires each shot (strict single-shot).
         "fires_own_shots": fire_shot is not None,
         "motor": getattr(motor, "name", None) if motor is not None else None,
         "detectors": [getattr(d, "name", str(d)) for d in detectors],

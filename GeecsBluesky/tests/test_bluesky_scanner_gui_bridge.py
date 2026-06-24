@@ -6,6 +6,10 @@ import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge import bluesky_scanner
 from geecs_bluesky.scanner_bridge.bluesky_scanner import (
     BlueskyScanner,
@@ -130,10 +134,81 @@ def test_resolve_acquisition_mode_env_overrides_options() -> None:
     assert mode == "free_run_time_sync"
 
 
-def test_resolve_acquisition_mode_unknown_falls_back_to_strict() -> None:
+def test_resolve_acquisition_mode_unknown_raises() -> None:
     options = SimpleNamespace(acquisition_mode="nonsense")
-    mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
-    assert mode == "strict_shot_control"
+    with pytest.raises(GeecsConfigurationError, match="Unknown acquisition_mode"):
+        BlueskyScanner._resolve_acquisition_mode(options, env={})
+
+
+# ---------------------------------------------------------------------------
+# Strict shot-control validation
+# ---------------------------------------------------------------------------
+
+
+def _scanner_with_shot_control(
+    information: dict | None, setters: dict | None = None
+) -> BlueskyScanner:
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._shot_control = ShotControlConfig.from_information(information)
+    scanner._shot_control_setters = setters or {}
+    return scanner
+
+
+def test_strict_single_shot_requires_shot_control_config() -> None:
+    scanner = _scanner_with_shot_control(None)
+
+    with pytest.raises(GeecsConfigurationError, match="shot_control_information"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_requires_nonempty_armed_state() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "SCAN": "External rising edges",
+                    "ARMED": "",
+                }
+            },
+        },
+        setters={"Trigger.Source": object()},
+    )
+
+    with pytest.raises(GeecsConfigurationError, match="non-empty ARMED"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_requires_reachable_setters() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                }
+            },
+        }
+    )
+
+    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                }
+            },
+        },
+        setters={"Trigger.Source": object()},
+    )
+
+    scanner._require_strict_single_shot()
 
 
 # ---------------------------------------------------------------------------
