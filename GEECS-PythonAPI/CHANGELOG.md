@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-06-23
+
+### Added
+- `geecs_python_api.controls.devices.camera.latest_image(device)` (also exported
+  as `geecs_python_api.controls.devices.latest_image`): lazily decodes a camera
+  device's most recent streamed frame (`device.state["image"]`) to a 2-D NumPy
+  array via `geecs_data_utils.io.decode_imaq_image_string`. Returns `None` for
+  non-camera devices and before the first frame arrives, so it is safe to call on
+  any device. Kept as a free function in a side-effect-free module (not a method
+  on the generic `GeecsDevice`, and importable without hardware/DB) pending a
+  dedicated camera device class.
+
 ## [0.5.3] — 2026-06-23
 
 ### Fixed
