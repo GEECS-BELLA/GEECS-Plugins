@@ -6,14 +6,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.6.0] — 2026-06-23
 
 ### Added
-- `geecs_python_api.controls.devices.camera.latest_image(device)` (also exported
-  as `geecs_python_api.controls.devices.latest_image`): lazily decodes a camera
-  device's most recent streamed frame (`device.state["image"]`) to a 2-D NumPy
-  array via `geecs_data_utils.io.decode_imaq_image_string`. Returns `None` for
-  non-camera devices and before the first frame arrives, so it is safe to call on
-  any device. Kept as a free function in a side-effect-free module (not a method
-  on the generic `GeecsDevice`, and importable without hardware/DB) pending a
-  dedicated camera device class.
+- Camera frame helpers in `geecs_python_api.controls.devices.camera` (both also
+  exported from `geecs_python_api.controls.devices`), giving consumers a decoded
+  image from a camera device without hand-rolling the wire-format handling. Both
+  return/skip gracefully for non-camera devices, and live in a side-effect-free
+  module (not methods on the generic `GeecsDevice`, and importable without
+  hardware/DB) pending a dedicated camera device class:
+  - `latest_image(device)` — **pull**: lazily decode the device's most recent
+    frame (`device.state["image"]`) to a 2-D NumPy array via
+    `geecs_data_utils.io.decode_imaq_image_string`. Returns `None` for non-camera
+    devices and before the first frame arrives.
+  - `on_image(device, callback)` — **push**: register an update listener that
+    decodes each incoming frame and invokes `callback(image)`. Decodes from the
+    raw message (the update listener fires before `state` is parsed, so reading
+    `state["image"]` there would be one frame stale). Returns the listener name
+    for `unregister_update_listener`. The callback runs on the TCP listener
+    thread, so it should hand frames to a queue rather than block.
 
 ## [0.5.3] — 2026-06-23
 

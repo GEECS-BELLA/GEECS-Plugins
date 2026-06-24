@@ -12,7 +12,8 @@ import struct
 import numpy as np
 
 from geecs_data_utils.io.images import _IMAQ_CLASS_MARKER
-from geecs_python_api.controls.devices.camera import latest_image
+from geecs_python_api.controls.devices.camera import latest_image, on_image
+from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 
 _NAME = b"UC_TestCam"
 
@@ -22,6 +23,32 @@ class _FakeDevice:
 
     def __init__(self, state: dict):
         self.state = state
+
+
+class _FakeStreamDevice:
+    """Stand-in for ``on_image``: records listeners and replays the real parser.
+
+    Mirrors the bits of ``GeecsDevice`` that ``on_image`` touches —
+    ``register_update_listener`` / ``unregister_update_listener`` and the
+    ``_subscription_parser`` static method — so the push path can be exercised
+    by feeding synthetic raw messages through :meth:`emit`.
+    """
+
+    _subscription_parser = staticmethod(GeecsDevice._subscription_parser)
+
+    def __init__(self):
+        self._listeners: dict = {}
+
+    def register_update_listener(self, name, fn):
+        self._listeners[name] = fn
+
+    def unregister_update_listener(self, name):
+        self._listeners.pop(name, None)
+
+    def emit(self, message: str):
+        """Simulate one TCP frame arriving (pre-parse, as the real callback fires)."""
+        for fn in list(self._listeners.values()):
+            fn(message)
 
 
 def _uncompressed_flatten(
@@ -77,3 +104,60 @@ def test_decodes_frame_present_in_state():
     assert out is not None
     assert out.shape == (4, 5)
     np.testing.assert_array_equal(out, expected)
+
+
+def _message_with_image(blob: str, dev: str = "UC_TestCam", shot: int = 0) -> str:
+    """Wrap an image payload in a full subscription message (with a scalar too)."""
+    return (
+        f"{dev}>>{shot}>>Device Status nval,Initialized nvar,\r\nimage nval,{blob} nvar"
+    )
+
+
+def test_on_image_pushes_decoded_frames():
+    """``on_image`` decodes each frame from the raw message and calls back."""
+    dev = _FakeStreamDevice()
+    received: list = []
+    name = on_image(dev, received.append)
+    assert name == "image"
+
+    blob, expected = _uncompressed_flatten(width=5, height=4, border=1)
+    dev.emit(_message_with_image(blob))
+
+    assert len(received) == 1
+    np.testing.assert_array_equal(received[0], expected)
+
+
+def test_on_image_skips_frames_without_image():
+    """Frames carrying no image variable never reach the callback (guardrail)."""
+    dev = _FakeStreamDevice()
+    received: list = []
+    on_image(dev, received.append)
+
+    dev.emit("UC_TestCam>>0>>Device Status nval,Initialized nvar")
+
+    assert received == []
+
+
+def test_on_image_decode_false_passes_raw_payload():
+    """With ``decode=False`` the callback receives the undecoded payload str."""
+    dev = _FakeStreamDevice()
+    received: list = []
+    on_image(dev, received.append, decode=False)
+
+    blob, _ = _uncompressed_flatten(width=5, height=4, border=1)
+    dev.emit(_message_with_image(blob))
+
+    assert received == [blob]
+
+
+def test_on_image_unregister_stops_callbacks():
+    """Unregistering by the returned name stops further callbacks."""
+    dev = _FakeStreamDevice()
+    received: list = []
+    name = on_image(dev, received.append)
+    dev.unregister_update_listener(name)
+
+    blob, _ = _uncompressed_flatten(width=5, height=4, border=1)
+    dev.emit(_message_with_image(blob))
+
+    assert received == []
