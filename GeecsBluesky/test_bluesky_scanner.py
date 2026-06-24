@@ -49,6 +49,7 @@ TEST_CAMERA_DEVICE = os.environ.get("GEECS_BLUESKY_TEST_CAMERA", "UC_TopView")
 DETECTOR_DEVICES = {
     TEST_CAMERA_DEVICE: {
         "variable_list": ["acq_timestamp"],
+        "synchronous": True,
         "save_nonscalar_data": False,
     },
 }
@@ -59,12 +60,14 @@ SHOT_CONTROL_INFO = {
         "Trigger.ExecuteSingleShot": {
             "OFF": "",
             "SCAN": "",
+            "ARMED": "",
             "SINGLESHOT": "on",
             "STANDBY": "",
         },
         "Trigger.Source": {
             "OFF": "Single shot external rising edges",
             "SCAN": "External rising edges",
+            "ARMED": "Single shot external rising edges",
             "STANDBY": "External rising edges",
         },
     },
@@ -89,6 +92,7 @@ def _make_exec_config(
     step: float = 0.5,
     description: str = "",
     detector_devices: dict | None = None,
+    acquisition_mode: str = "free_run_time_sync",
 ) -> SimpleNamespace:
     """Build a fully duck-typed ScanExecutionConfig — no geecs_scanner import needed."""
     scan_config = SimpleNamespace(
@@ -102,7 +106,10 @@ def _make_exec_config(
     )
     return SimpleNamespace(
         scan_config=scan_config,
-        options=SimpleNamespace(rep_rate_hz=REP_RATE_HZ),
+        options=SimpleNamespace(
+            rep_rate_hz=REP_RATE_HZ,
+            acquisition_mode=acquisition_mode,
+        ),
         save_config=SimpleNamespace(Devices=detector_devices or DETECTOR_DEVICES),
     )
 
@@ -233,6 +240,7 @@ def run_hardware_scan_checks() -> list[str]:
         exec_config=_make_exec_config(
             "noscan",
             description="BlueskyScanner shot-control test",
+            acquisition_mode="strict_shot_control",
         )
     )
 
@@ -350,7 +358,10 @@ def run_hardware_full_output_checks() -> list[str]:
             "save_nonscalar_data": True,
         },
     }
-    scanner = BlueskyScanner(experiment_dir="Undulator")
+    scanner = BlueskyScanner(
+        experiment_dir="Undulator",
+        shot_control_information=SHOT_CONTROL_INFO,
+    )
     events: list[dict] = []
     scanner._RE.subscribe(
         lambda name, doc: events.append(doc) if name == "event" else None
@@ -364,6 +375,7 @@ def run_hardware_full_output_checks() -> list[str]:
             step=0.5,
             description="BlueskyScanner full-output hardware test",
             detector_devices=detector_devices,
+            acquisition_mode="strict_shot_control",
         )
     )
 

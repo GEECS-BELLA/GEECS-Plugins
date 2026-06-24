@@ -61,6 +61,7 @@ from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
+from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
@@ -225,8 +226,9 @@ class BlueskyScanner:
         Shot-controller YAML config dict with keys ``"device"`` (GEECS device
         name) and ``"variables"`` (mapping of variable name → state → value,
         where states are ``"OFF"``, ``"SCAN"``, ``"STANDBY"``,
-        ``"SINGLESHOT"``).  When provided, the DG645 is armed before each
-        acquisition step and disarmed after.
+        ``"SINGLESHOT"``, ``"ARMED"``).  Required for
+        ``strict_shot_control`` acquisition, which uses ``ARMED`` +
+        ``SINGLESHOT`` for plan-owned shots.
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
@@ -357,8 +359,8 @@ class BlueskyScanner:
 
         Precedence: ``GEECS_BLUESKY_ACQUISITION_MODE`` env var (quick
         switching) > ``options.acquisition_mode`` > default
-        ``strict_shot_control``.  An unrecognised value warns and falls back
-        to strict.  *env* is injectable for testing.
+        ``strict_shot_control``.  An unrecognised value raises instead of
+        silently changing scan semantics.  *env* is injectable for testing.
         """
         env = os.environ if env is None else env
         raw = (
@@ -368,12 +370,10 @@ class BlueskyScanner:
         )
         mode = str(raw).strip().lower()
         if mode not in _VALID_ACQUISITION_MODES:
-            logger.warning(
-                "Unknown acquisition_mode %r; falling back to %s",
-                raw,
-                _STRICT_MODE,
+            raise GeecsConfigurationError(
+                f"Unknown acquisition_mode {raw!r}; expected one of "
+                f"{', '.join(_VALID_ACQUISITION_MODES)}"
             )
-            return _STRICT_MODE
         return mode
 
     @staticmethod
@@ -717,6 +717,29 @@ class BlueskyScanner:
             yield from bps.wait(group)
             logger.info("Shot controller → %s", state)
 
+    def _require_strict_single_shot(self) -> None:
+        """Raise unless strict mode can fire plan-owned single shots."""
+        guidance = (
+            "Use acquisition_mode='free_run_time_sync' for free-running "
+            "trigger acquisition."
+        )
+        if self._shot_control is None:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information with a "
+                f"non-empty ARMED state. {guidance}"
+            )
+        if not self._shot_control.defines_state(ShotControlState.ARMED):
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information to "
+                f"define a non-empty ARMED state. {guidance}"
+            )
+        if not self._shot_control_setters:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires a reachable shot-control device "
+                "with configured setters before acquisition can start. "
+                f"{guidance}"
+            )
+
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
         failed = False
@@ -1047,7 +1070,7 @@ class BlueskyScanner:
         ``motor=None`` with ``positions=[None]`` is statistics collection (one
         no-move bin); a real motor with explicit positions is a step scan.
         Either way the acquisition mode picks the plan: free-run
-        (reference-paced) or strict (``trigger_and_read``).
+        (reference-paced) or strict plan-owned single-shot.
         """
         # Claim scan number before building detectors so save paths are known
         scan_number, scan_folder = self._claim_scan_number()
@@ -1113,11 +1136,8 @@ class BlueskyScanner:
                 disarm_trigger=disarm,
                 quiesce_trigger=quiesce,
             )
-        elif (
-            self._shot_control is not None
-            and self._shot_control_setters
-            and self._shot_control.defines_state(ShotControlState.ARMED)
-        ):
+        else:
+            self._require_strict_single_shot()
             # Plan-owned single-shot: arm ARMED + confirm quiescent once, then
             # fire one shot per row and await every device.  Teardown (disarm
             # to STANDBY) is the outer finalize below.  No per-step arm/disarm.
@@ -1129,21 +1149,6 @@ class BlueskyScanner:
                 shots_per_step=self._shots_per_step,
                 setup_trigger=self._arm_single_shot,
                 fire_shot=self._fire_single_shot,
-            )
-        else:
-            # No ARMED state available — fall back to the strict contract on the
-            # free-running trigger (every device must catch each shot).
-            logger.info(
-                "strict mode: free-running trigger_and_read "
-                "(no ARMED state in shot control)"
-            )
-            inner = geecs_step_scan(
-                motor=motor,
-                positions=positions,
-                detectors=list(self._detectors),
-                shots_per_step=self._shots_per_step,
-                arm_trigger=arm,
-                disarm_trigger=disarm,
             )
 
         # Shared run bookkeeping: scan-number metadata (incl. scan_id) + native

@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.13.0] - 2026-06-24
 
+### Changed
+
+- `strict_shot_control` now requires a reachable shot-control device with a
+  non-empty `ARMED` state and aborts configuration when that requirement is not
+  met, instead of falling back to free-running `trigger_and_read`.
+- Unknown acquisition-mode values now raise a configuration error instead of
+  silently falling back to strict mode.
+- The standalone hardware smoke harness now runs no-shot-control scenarios in
+  explicit `free_run_time_sync` mode and uses true ARMED strict mode for
+  shot-control/full-output checks.
 ### Added
 
 - Added Tiled-backed local camera asset readback helpers. Archived Bluesky runs

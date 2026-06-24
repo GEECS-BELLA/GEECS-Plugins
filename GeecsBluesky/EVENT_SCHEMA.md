@@ -46,7 +46,7 @@ Strict mode adds:
 
 | Key | Meaning |
 |---|---|
-| `fires_own_shots` | `true` when the plan fires each shot (single-shot / `ARMED`); `false` for the free-running `trigger_and_read` fallback |
+| `fires_own_shots` | `true` when the strict plan fires each shot (single-shot / `ARMED`) |
 
 Free-run mode adds:
 

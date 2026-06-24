@@ -23,10 +23,10 @@ the canonical data contract.
   row's columns, each labeled with a derived `shot_id` / `shot_offset` /
   `valid` so late/slow devices are tolerated and realignable downstream.
 - **`strict_shot_control`** — every device must be present on each shot.  With
-  an `ARMED` state in the shot-control config it does true plan-owned
-  single-shot (arm → confirm trigger quiescent → fire one shot → await all);
-  without `ARMED` it falls back to `SCAN` + `trigger_and_read` on the
-  free-running trigger.
+  a reachable shot-control device and an `ARMED` state in the shot-control
+  config it does true plan-owned single-shot (arm → confirm trigger quiescent
+  → fire one shot → await all).  Strict mode aborts when those requirements are
+  not met; use `free_run_time_sync` for free-running trigger acquisition.
 
 NOSCAN ("statistics collection") is just a motorless step scan (one no-move
 bin), so it honours the same mode dispatch.
@@ -157,8 +157,7 @@ exposes plan-stub callables built from it:
 How they compose per mode:
 ```
 free-run:  quiesce[OFF] → t0_sync → per step: mv → arm[SCAN] → N×(ref-paced read) → disarm[STANDBY] → tail flush
-strict SS: setup once: arm[ARMED] → confirm quiescent → per shot: trigger→fire[SINGLESHOT]→await→read
-strict TR: per step: mv → arm[SCAN] → N×trigger_and_read → disarm[STANDBY]   (no ARMED state)
+strict:    setup once: arm[ARMED] → confirm quiescent → per shot: trigger→fire[SINGLESHOT]→await→read
 ```
 
 A `bpp.finalize_wrapper` around the plan guarantees the disarm (→ `STANDBY`)
@@ -320,8 +319,8 @@ architecture — see `Planning/acquisition_modes/00_overview.md` "Deferred".
 
 - **Strict single-shot needs an `ARMED` state** in the shot-control YAML to
   engage.  The experiment configs gained one on the `geecs-plugins-configs`
-  branch `add-bluesky-armed-shot-control`.  Without `ARMED`, strict uses the
-  free-running `trigger_and_read` fallback.
+  branch `add-bluesky-armed-shot-control`.  Without `ARMED` or a reachable
+  shot-control device, strict aborts before acquisition.
 - **Only lifecycle `ScanEvent`s are emitted** via `on_event` (through
   `_set_state`).  Per-shot/step Bluesky documents are not translated into the
   richer `ScanStepEvent` / `DeviceCommandEvent` stream (and may not need to be).

@@ -23,8 +23,9 @@ shot control:
   paces event rows and other devices contribute timestamp-matched data
   (tolerant of late/missing devices).
 - **`strict_shot_control`** — every device required per shot; true plan-owned
-  single-shot when the shot-control config defines an `ARMED` state, else a
-  free-running `trigger_and_read` fallback.
+  single-shot.  This mode requires a reachable shot-control device and a
+  non-empty `ARMED` state; use `free_run_time_sync` for free-running trigger
+  acquisition.
 
 Both modes write the same versioned event schema (see `EVENT_SCHEMA.md`) and are
 hardware-verified.  For `save_nonscalar_data=True` devices, each event records
