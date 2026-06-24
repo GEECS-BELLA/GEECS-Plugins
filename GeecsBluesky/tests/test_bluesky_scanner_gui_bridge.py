@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
 from geecs_bluesky.scanner_bridge import bluesky_scanner
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+from geecs_bluesky.scanner_bridge.bluesky_scanner import (
+    BlueskyScanner,
+    _prepare_descriptor_for_tiled,
+    _SafeDocumentCallback,
+    _translate_save_path_for_device_server,
+)
 
 
 @dataclass
@@ -39,6 +45,64 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
 
     assert scanner.current_state == "done"
     assert events == [_FakeLifecycleEvent(state="done", total_shots=12)]
+
+
+def test_prepare_descriptor_for_tiled_internalizes_geecs_assets() -> None:
+    """Tiled should store GEECS asset datum ids without registering readers."""
+    doc = {
+        "data_keys": {
+            "uc_topview-image": {
+                "source": "geecs://UC_TopView/image",
+                "external": "OLD:",
+                "dtype": "array",
+            },
+            "external-hdf5": {
+                "source": "AD_HDF5",
+                "external": "STREAM:",
+                "dtype": "array",
+            },
+            "scalar": {"source": "sim://scalar", "dtype": "number"},
+        }
+    }
+
+    patched = _prepare_descriptor_for_tiled(doc)
+
+    geecs_key = patched["data_keys"]["uc_topview-image"]
+    assert "external" not in geecs_key
+    assert geecs_key["geecs_external_asset"] is True
+    assert patched["data_keys"]["external-hdf5"]["external"] == "STREAM:"
+    assert "external" not in patched["data_keys"]["scalar"]
+
+
+def test_safe_document_callback_warns_and_disables(caplog) -> None:
+    """Persistence callbacks should not be able to abort acquisition."""
+    calls: list[str] = []
+
+    def callback(name: str, _doc: dict) -> None:
+        calls.append(name)
+        if name == "event":
+            raise RuntimeError("storage failed")
+
+    safe_callback = _SafeDocumentCallback(callback, label="Storage")
+
+    with caplog.at_level(logging.WARNING):
+        safe_callback("start", {})
+        safe_callback("event", {})
+        safe_callback("stop", {})
+
+    assert calls == ["start", "event"]
+    assert "Storage failed while handling event document" in caplog.text
+
+
+def test_translate_save_path_for_device_server() -> None:
+    """Mac/Linux scan paths should translate to the configured device path."""
+    path = _translate_save_path_for_device_server(
+        "/Volumes/hdna2/data/Undulator/Y2026/06-Jun/26_0623/scans/Scan011/UC_Cam",
+        local_base_path="/Volumes/hdna2/data",
+        device_server_base_path="Z:/data",
+    )
+
+    assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
 
 
 # ---------------------------------------------------------------------------
