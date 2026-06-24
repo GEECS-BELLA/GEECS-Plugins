@@ -4,6 +4,24 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] - 2026-06-24
+
+### Added
+
+- Added Tiled-backed local camera asset readback helpers. Archived Bluesky runs
+  can now be found by GEECS scan identity, a shot can be selected by
+  `scan_event_index`, and the event's device `acq_timestamp` is used with the
+  asset registry to fill the native camera PNG through local handlers.
+- Added `tiled_external_asset_readback.ipynb`, a thin notebook for querying a
+  Tiled run by date, scan number, device, and shot, then loading the camera
+  image locally.
+
+### Fixed
+
+- Missing-shot Tiled readback errors now report the available
+  `scan_event_index` values, and the notebook prints lookup failures without a
+  traceback.
+
 ## [0.12.2] - 2026-06-24
 
 ### Changed
