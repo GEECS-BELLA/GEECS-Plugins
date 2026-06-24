@@ -6,7 +6,6 @@ All tests use FakeGeecsServer — no real hardware required.
 from __future__ import annotations
 
 import asyncio
-import threading
 
 import pytest
 from bluesky import RunEngine
@@ -18,6 +17,11 @@ from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from tests.fake_server_helpers import (
+    BackgroundFakeServers,
+    connect_devices,
+    disconnect_devices,
+)
 
 pytestmark = pytest.mark.fake_server
 
@@ -224,98 +228,51 @@ class TestGeecsTriggerable:
 # ---------------------------------------------------------------------------
 
 
-def _run_server_with_shot_firer(
-    device: FakeGeecsDevice,
-    ready: threading.Event,
-    host_port: list,
-    shot_interval: float = 0.15,
-) -> None:
-    """Background thread: run the fake server and fire shots periodically."""
-
-    async def _main() -> None:
-        async with FakeGeecsServer(device) as srv:
-            host_port.extend([srv.host, srv.port])
-            ready.set()
-            try:
-                while True:
-                    await asyncio.sleep(shot_interval)
-                    device.fire_shot()
-            except asyncio.CancelledError:
-                pass
-
-    loop = asyncio.new_event_loop()
-    task_holder: list = []
-
-    async def _wrapper() -> None:
-        task = loop.create_task(_main())
-        task_holder.append(task)
-        await task
-
-    try:
-        loop.run_until_complete(_wrapper())
-    except Exception:
-        pass
-    finally:
-        loop.close()
-
-
 def test_geecs_step_scan_collects_events(combined_device: FakeGeecsDevice) -> None:
     """End-to-end: step scan over 2 positions × 2 shots = 4 event documents."""
-    ready = threading.Event()
-    host_port: list = []
+    with BackgroundFakeServers(
+        combined_device,
+        fire=lambda devices: devices[0].fire_shot(),
+        interval=0.15,
+    ) as server:
+        host, port = server.endpoint
 
-    srv_thread = threading.Thread(
-        target=_run_server_with_shot_firer,
-        args=(combined_device, ready, host_port),
-        daemon=True,
-    )
-    srv_thread.start()
-    ready.wait(timeout=5.0)
-    assert host_port, "Server failed to start"
-
-    host, port = host_port[0], host_port[1]
-
-    # The RunEngine owns a persistent asyncio loop running in a background thread.
-    # Devices must be connected in *that* loop so their transports are registered
-    # with the same selector the RE uses for all I/O.  Use run_coroutine_threadsafe
-    # to schedule the connect coroutines into the RE's loop synchronously.
-    motor = GeecsMotor("U_Combined", "Position (mm)", host, port, name="scan_motor")
-    det = GeecsGenericDetector(
-        "U_Combined",
-        ["Signal"],
-        host,
-        port,
-        name="scan_det",
-    )
-    async_snapshot = GeecsSnapshotReadable(
-        "U_Combined",
-        ["Position (mm)"],
-        host,
-        port,
-        name="async_snapshot",
-    )
-
-    events: list[dict] = []
-    RE = RunEngine()
-    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-
-    # Connect in RE's loop (blocks until both connects complete)
-    asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
-    asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
-    asyncio.run_coroutine_threadsafe(async_snapshot.connect(), RE._loop).result(
-        timeout=10
-    )
-
-    # Run the step scan
-    RE(
-        geecs_step_scan(
-            motor=motor,
-            positions=[0.0, 1.0],
-            detectors=[det, async_snapshot],
-            shots_per_step=2,
-            md={"test": True},
+        # The RunEngine owns a persistent asyncio loop running in a background thread.
+        # Devices must be connected in that loop so their transports are registered
+        # with the same selector the RE uses for all I/O.
+        motor = GeecsMotor("U_Combined", "Position (mm)", host, port, name="scan_motor")
+        det = GeecsGenericDetector(
+            "U_Combined",
+            ["Signal"],
+            host,
+            port,
+            name="scan_det",
         )
-    )
+        async_snapshot = GeecsSnapshotReadable(
+            "U_Combined",
+            ["Position (mm)"],
+            host,
+            port,
+            name="async_snapshot",
+        )
+
+        events: list[dict] = []
+        RE = RunEngine()
+        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
+
+        connect_devices(RE, motor, det, async_snapshot)
+        try:
+            RE(
+                geecs_step_scan(
+                    motor=motor,
+                    positions=[0.0, 1.0],
+                    detectors=[det, async_snapshot],
+                    shots_per_step=2,
+                    md={"test": True},
+                )
+            )
+        finally:
+            disconnect_devices(RE, motor, det, async_snapshot)
 
     # 2 positions × 2 shots = 4 events
     assert len(events) == 4, f"Expected 4 events, got {len(events)}"
@@ -340,34 +297,34 @@ def test_geecs_step_scan_statistics_collection(
     Routes statistics collection through the same plan as a motor scan; the
     only difference is no scan variable is moved and there is a single bin.
     """
-    ready = threading.Event()
-    host_port: list = []
-    srv_thread = threading.Thread(
-        target=_run_server_with_shot_firer,
-        args=(combined_device, ready, host_port),
-        daemon=True,
-    )
-    srv_thread.start()
-    ready.wait(timeout=5.0)
-    assert host_port, "Server failed to start"
-    host, port = host_port[0], host_port[1]
+    with BackgroundFakeServers(
+        combined_device,
+        fire=lambda devices: devices[0].fire_shot(),
+        interval=0.15,
+    ) as server:
+        host, port = server.endpoint
 
-    det = GeecsGenericDetector("U_Combined", ["Signal"], host, port, name="scan_det")
-
-    events: list[dict] = []
-    RE = RunEngine()
-    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-    asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
-
-    RE(
-        geecs_step_scan(
-            motor=None,
-            positions=[None],
-            detectors=[det],
-            shots_per_step=3,
-            md={"test": True},
+        det = GeecsGenericDetector(
+            "U_Combined", ["Signal"], host, port, name="scan_det"
         )
-    )
+
+        events: list[dict] = []
+        RE = RunEngine()
+        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
+        connect_devices(RE, det)
+
+        try:
+            RE(
+                geecs_step_scan(
+                    motor=None,
+                    positions=[None],
+                    detectors=[det],
+                    shots_per_step=3,
+                    md={"test": True},
+                )
+            )
+        finally:
+            disconnect_devices(RE, det)
 
     assert len(events) == 3, f"Expected 3 events, got {len(events)}"
     for ev in events:

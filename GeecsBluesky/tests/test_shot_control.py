@@ -8,8 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-import asyncio
-import threading
 from typing import Any
 
 import pytest
@@ -23,6 +21,11 @@ from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner, _UdpSetter
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from tests.fake_server_helpers import (
+    BackgroundFakeServers,
+    connect_devices,
+    disconnect_devices,
+)
 
 # Shot control config matching the real U_DG645_ShotControl YAML
 SHOT_CONTROL_VARS = {
@@ -175,39 +178,6 @@ class TestSetTriggerState:
 # ---------------------------------------------------------------------------
 
 
-def _run_server_with_shot_firer(
-    device: FakeGeecsDevice,
-    ready: threading.Event,
-    host_port: list,
-    shot_interval: float = 0.15,
-) -> None:
-    """Background thread: run the fake server and fire shots periodically."""
-
-    async def _main() -> None:
-        async with FakeGeecsServer(device) as srv:
-            host_port.extend([srv.host, srv.port])
-            ready.set()
-            try:
-                while True:
-                    await asyncio.sleep(shot_interval)
-                    device.fire_shot()
-            except asyncio.CancelledError:
-                pass
-
-    loop = asyncio.new_event_loop()
-
-    async def _wrapper() -> None:
-        task = loop.create_task(_main())
-        await task
-
-    try:
-        loop.run_until_complete(_wrapper())
-    except Exception:
-        pass
-    finally:
-        loop.close()
-
-
 @pytest.fixture
 def combined_device() -> FakeGeecsDevice:
     return FakeGeecsDevice(
@@ -229,52 +199,51 @@ class TestStepScanArmDisarmOrdering:
           step 1: arm(events=0) → 2 shots → disarm(events=2)
           step 2: arm(events=2) → 2 shots → disarm(events=4)
         """
-        ready = threading.Event()
-        host_port: list = []
+        with BackgroundFakeServers(
+            combined_device,
+            fire=lambda devices: devices[0].fire_shot(),
+            interval=0.15,
+        ) as server:
+            host, port = server.endpoint
 
-        srv_thread = threading.Thread(
-            target=_run_server_with_shot_firer,
-            args=(combined_device, ready, host_port),
-            daemon=True,
-        )
-        srv_thread.start()
-        ready.wait(timeout=5.0)
-        assert host_port, "FakeGeecsServer failed to start"
-        host, port = host_port[0], host_port[1]
-
-        motor = GeecsMotor("U_Combined", "Position (mm)", host, port, name="test_motor")
-        det = GeecsGenericDetector(
-            "U_Combined", ["Signal"], host, port, name="test_det"
-        )
-
-        events: list[dict] = []
-        arm_at: list[int] = []
-        disarm_at: list[int] = []
-
-        def mock_arm():
-            arm_at.append(len(events))
-            yield from []
-
-        def mock_disarm():
-            disarm_at.append(len(events))
-            yield from []
-
-        RE = RunEngine()
-        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-
-        asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
-        asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
-
-        RE(
-            geecs_step_scan(
-                motor=motor,
-                positions=[0.0, 1.0],
-                detectors=[det],
-                shots_per_step=2,
-                arm_trigger=mock_arm,
-                disarm_trigger=mock_disarm,
+            motor = GeecsMotor(
+                "U_Combined", "Position (mm)", host, port, name="test_motor"
             )
-        )
+            det = GeecsGenericDetector(
+                "U_Combined", ["Signal"], host, port, name="test_det"
+            )
+
+            events: list[dict] = []
+            arm_at: list[int] = []
+            disarm_at: list[int] = []
+
+            def mock_arm():
+                arm_at.append(len(events))
+                yield from []
+
+            def mock_disarm():
+                disarm_at.append(len(events))
+                yield from []
+
+            RE = RunEngine()
+            RE.subscribe(
+                lambda name, doc: events.append(doc) if name == "event" else None
+            )
+
+            connect_devices(RE, motor, det)
+            try:
+                RE(
+                    geecs_step_scan(
+                        motor=motor,
+                        positions=[0.0, 1.0],
+                        detectors=[det],
+                        shots_per_step=2,
+                        arm_trigger=mock_arm,
+                        disarm_trigger=mock_disarm,
+                    )
+                )
+            finally:
+                disconnect_devices(RE, motor, det)
 
         assert len(events) == 4, f"Expected 4 events, got {len(events)}"
         assert arm_at == [0, 2], f"arm called at wrong event counts: {arm_at}"
@@ -284,38 +253,36 @@ class TestStepScanArmDisarmOrdering:
         self, combined_device: FakeGeecsDevice
     ) -> None:
         """arm_trigger=None runs normally — backward compat with internal trigger."""
-        ready = threading.Event()
-        host_port: list = []
+        with BackgroundFakeServers(
+            combined_device,
+            fire=lambda devices: devices[0].fire_shot(),
+            interval=0.15,
+        ) as server:
+            host, port = server.endpoint
 
-        srv_thread = threading.Thread(
-            target=_run_server_with_shot_firer,
-            args=(combined_device, ready, host_port),
-            daemon=True,
-        )
-        srv_thread.start()
-        ready.wait(timeout=5.0)
-        host, port = host_port[0], host_port[1]
-
-        motor = GeecsMotor(
-            "U_Combined", "Position (mm)", host, port, name="test_motor2"
-        )
-        det = GeecsGenericDetector(
-            "U_Combined", ["Signal"], host, port, name="test_det2"
-        )
-
-        events: list[dict] = []
-        RE = RunEngine()
-        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-        asyncio.run_coroutine_threadsafe(motor.connect(), RE._loop).result(timeout=10)
-        asyncio.run_coroutine_threadsafe(det.connect(), RE._loop).result(timeout=10)
-
-        RE(
-            geecs_step_scan(
-                motor=motor,
-                positions=[0.0],
-                detectors=[det],
-                shots_per_step=3,
+            motor = GeecsMotor(
+                "U_Combined", "Position (mm)", host, port, name="test_motor2"
             )
-        )
+            det = GeecsGenericDetector(
+                "U_Combined", ["Signal"], host, port, name="test_det2"
+            )
+
+            events: list[dict] = []
+            RE = RunEngine()
+            RE.subscribe(
+                lambda name, doc: events.append(doc) if name == "event" else None
+            )
+            connect_devices(RE, motor, det)
+            try:
+                RE(
+                    geecs_step_scan(
+                        motor=motor,
+                        positions=[0.0],
+                        detectors=[det],
+                        shots_per_step=3,
+                    )
+                )
+            finally:
+                disconnect_devices(RE, motor, det)
 
         assert len(events) == 3

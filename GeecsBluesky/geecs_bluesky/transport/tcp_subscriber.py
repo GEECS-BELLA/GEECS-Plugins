@@ -83,9 +83,13 @@ class GeecsTcpSubscriber:
         if self._writer is not None:
             try:
                 self._writer.close()
-                await self._writer.wait_closed()
+                await asyncio.wait_for(self._writer.wait_closed(), timeout=1.0)
             except Exception:
-                pass
+                transport = getattr(self._writer, "transport", None) or getattr(
+                    self._writer, "_transport", None
+                )
+                if transport is not None:
+                    transport.abort()
             self._writer = None
         self._reader = None
 

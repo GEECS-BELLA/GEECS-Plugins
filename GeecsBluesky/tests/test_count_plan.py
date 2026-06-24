@@ -8,7 +8,6 @@ Two levels of testing:
 from __future__ import annotations
 
 import asyncio
-import threading
 
 import pytest
 import bluesky.plans as bp
@@ -18,6 +17,11 @@ from geecs_bluesky.devices.geecs_device import GeecsDevice
 from geecs_bluesky.signals import geecs_signal_r, geecs_signal_rw
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from tests.fake_server_helpers import (
+    BackgroundFakeServers,
+    connect_devices,
+    disconnect_devices,
+)
 
 pytestmark = pytest.mark.fake_server
 
@@ -139,70 +143,23 @@ class TestDeviceAPI:
             assert "fake_motor-position" in reading
 
 
-# ---------------------------------------------------------------------------
-# RunEngine integration test (synchronous, server in background thread)
-# ---------------------------------------------------------------------------
-
-
-def _run_server(
-    device: FakeGeecsDevice, ready: threading.Event, host_port: list
-) -> None:
-    """Target for the background thread: run the fake server until stop is requested."""
-
-    async def _main() -> None:
-        async with FakeGeecsServer(device) as srv:
-            host_port.extend([srv.host, srv.port])
-            ready.set()
-            # Run until cancelled from outside
-            try:
-                await asyncio.Event().wait()
-            except asyncio.CancelledError:
-                pass
-
-    loop = asyncio.new_event_loop()
-    task_holder: list[asyncio.Task] = []
-
-    async def _wrapper() -> None:
-        task = loop.create_task(_main())
-        task_holder.append(task)
-        await task
-
-    try:
-        loop.run_until_complete(_wrapper())
-    except Exception:
-        pass
-    finally:
-        loop.close()
-
-
 def test_bluesky_count_plan(sim_device: FakeGeecsDevice) -> None:
     """Smoke test: ``count([motor], num=3)`` collects 3 events."""
-    ready = threading.Event()
-    host_port: list = []
+    with BackgroundFakeServers(sim_device) as server:
+        host, port = server.endpoint
+        motor = FakeMotor(host, port)
 
-    srv_thread = threading.Thread(
-        target=_run_server,
-        args=(sim_device, ready, host_port),
-        daemon=True,
-    )
-    srv_thread.start()
-    ready.wait(timeout=5.0)
-    assert host_port, "Server failed to start"
+        events: list[dict] = []
+        RE = RunEngine()
+        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
 
-    host, port = host_port[0], host_port[1]
+        connect_devices(RE, motor)
+        try:
+            RE(bp.count([motor], num=3))
+        finally:
+            disconnect_devices(RE, motor)
 
-    # Connect the device in its own event loop (ophyd-async requires this)
-    motor = FakeMotor(host, port)
-    asyncio.run(motor.connect())
-
-    # Collect data
-    events: list[dict] = []
-    RE = RunEngine()
-    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-
-    RE(bp.count([motor], num=3))
-
-    assert len(events) == 3, f"Expected 3 events, got {len(events)}"
-    for ev in events:
-        assert "fake_motor-position" in ev["data"]
-        assert "fake_motor-velocity" in ev["data"]
+        assert len(events) == 3, f"Expected 3 events, got {len(events)}"
+        for ev in events:
+            assert "fake_motor-position" in ev["data"]
+            assert "fake_motor-velocity" in ev["data"]

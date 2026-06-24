@@ -50,6 +50,15 @@ async def _setup(stack: AsyncExitStack):
     )
     await ref.connect()
     await cam.connect()
+
+    async def disconnect_devices() -> None:
+        await asyncio.gather(
+            asyncio.wait_for(ref.disconnect(), timeout=3.0),
+            asyncio.wait_for(cam.disconnect(), timeout=3.0),
+            return_exceptions=True,
+        )
+
+    stack.push_async_callback(disconnect_devices)
     ref.configure_shot_id(rep_rate_hz=1.0)
     cam.configure_shot_id(rep_rate_hz=1.0)
     cam.set_reference(ref)
@@ -91,7 +100,7 @@ async def test_matched_shot_is_valid() -> None:
         await _wait_for_ts(ref, REF_T0 + 1.0)
         await _wait_for_ts(cam, CAM_T0 + 1.0)
 
-        reading = await cam.read()
+        reading = await asyncio.wait_for(cam.read(), timeout=3.0)
         assert reading["cam-shot_id"]["value"] == 2
         assert reading["cam-shot_offset"]["value"] == 0
         assert reading["cam-valid"]["value"] is True
@@ -113,7 +122,7 @@ async def test_missed_shots_are_invalid_with_real_offset() -> None:
         fake_ref.variables["acq_timestamp"] = REF_T0 + 2.0
         await _wait_for_ts(ref, REF_T0 + 2.0)
 
-        reading = await cam.read()
+        reading = await asyncio.wait_for(cam.read(), timeout=3.0)
         assert reading["cam-shot_id"]["value"] == 1
         assert reading["cam-shot_offset"]["value"] == -2
         assert reading["cam-valid"]["value"] is False
@@ -135,7 +144,7 @@ async def test_grace_wait_recovers_late_frame() -> None:
             fake_cam.variables["acq_timestamp"] = CAM_T0 + 1.0
 
         task = asyncio.create_task(deliver_late_frame())
-        reading = await cam.read()
+        reading = await asyncio.wait_for(cam.read(), timeout=3.0)
         await task
         assert reading["cam-shot_offset"]["value"] == 0
         assert reading["cam-valid"]["value"] is True
@@ -150,7 +159,7 @@ async def test_no_reference_never_claims_validity() -> None:
         cam.set_reference(ref, grace_wait_s=0.0)
         cam._reference = None  # simulate unanchored standalone use
 
-        reading = await cam.read()
+        reading = await asyncio.wait_for(cam.read(), timeout=3.0)
         assert reading["cam-shot_id"]["value"] == 1
         assert math.isnan(reading["cam-shot_offset"]["value"])
         assert reading["cam-valid"]["value"] is False
@@ -178,19 +187,22 @@ async def test_save_nonscalar_emits_save_path_column() -> None:
             save_nonscalar_data=True,
         )
         await cam.connect()
-        cam.configure_shot_id(rep_rate_hz=1.0)
-        # The writable save-control signals exist (used by the scanner's
-        # _scan_with_saving to turn saving on/off)
-        assert hasattr(cam, "localsavingpath")
-        assert hasattr(cam, "save")
-        cam.configure_nonscalar_file_logging("/data/Scan001/U_Cam")
+        try:
+            cam.configure_shot_id(rep_rate_hz=1.0)
+            # The writable save-control signals exist (used by the scanner's
+            # _scan_with_saving to turn saving on/off)
+            assert hasattr(cam, "localsavingpath")
+            assert hasattr(cam, "save")
+            cam.configure_nonscalar_file_logging("/data/Scan001/U_Cam")
 
-        desc = await cam.describe()
-        assert desc["cam-nonscalar_save_path"]["dtype"] == "string"
-        reading = await cam.read()
-        assert reading["cam-nonscalar_save_path"]["value"] == "/data/Scan001/U_Cam"
-        for key in desc:
-            assert key in reading, f"described key {key} missing from reading"
+            desc = await asyncio.wait_for(cam.describe(), timeout=3.0)
+            assert desc["cam-nonscalar_save_path"]["dtype"] == "string"
+            reading = await asyncio.wait_for(cam.read(), timeout=3.0)
+            assert reading["cam-nonscalar_save_path"]["value"] == "/data/Scan001/U_Cam"
+            for key in desc:
+                assert key in reading, f"described key {key} missing from reading"
+        finally:
+            await asyncio.wait_for(cam.disconnect(), timeout=3.0)
 
 
 @pytest.mark.fake_server

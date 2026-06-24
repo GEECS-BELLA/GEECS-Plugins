@@ -12,6 +12,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `FakeGeecsServer` TCP/UDP integration tests via a dedicated `fake_server`
   marker, so unit-test CI can avoid opening localhost sockets.
 
+### Fixed
+
+- Hardened fake-server tests and socket teardown with bounded per-test timeouts,
+  explicit background server shutdown, TCP subscriber cleanup, and retry logic
+  for local UDP/TCP port collisions.
+
 ## [0.12.1] - 2026-06-23
 
 ### Added

@@ -9,9 +9,7 @@ static pre-scan caches.
 
 from __future__ import annotations
 
-import asyncio
 import math
-import threading
 
 import bluesky.plan_stubs as bps
 import pytest
@@ -22,49 +20,17 @@ from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice
+from tests.fake_server_helpers import (
+    BackgroundFakeServers,
+    connect_devices,
+    disconnect_devices,
+)
 
 pytestmark = pytest.mark.fake_server
 
 REF_T0 = 1000.0
 CAM_T0 = 1000.05
-
-
-def _run_servers_with_firer(
-    fake_ref: FakeGeecsDevice,
-    fake_cam: FakeGeecsDevice,
-    ready: threading.Event,
-    host_port: list,
-    fire_cam: bool = True,
-    initial_delay: float = 1.0,
-    interval: float = 0.3,
-) -> None:
-    """Thread target: serve both fakes; fire shots together after a delay."""
-
-    async def _main() -> None:
-        async with (
-            FakeGeecsServer(fake_ref) as s_ref,
-            FakeGeecsServer(fake_cam) as s_cam,
-        ):
-            host_port.extend([s_ref.host, s_ref.port, s_cam.host, s_cam.port])
-            ready.set()
-            try:
-                await asyncio.sleep(initial_delay)
-                while True:
-                    fake_ref.fire_shot()
-                    if fire_cam:
-                        fake_cam.fire_shot()
-                    await asyncio.sleep(interval)
-            except asyncio.CancelledError:
-                pass
-
-    loop = asyncio.new_event_loop()
-    try:
-        loop.run_until_complete(_main())
-    except Exception:
-        pass
-    finally:
-        loop.close()
 
 
 def _run_free_run_scan(
@@ -87,29 +53,11 @@ def _run_free_run_scan(
         name="U_Cam",
         variables={"Val": 2.0, "acq_timestamp": CAM_T0},
     )
-    ready = threading.Event()
-    host_port: list = []
-    srv_thread = threading.Thread(
-        target=_run_servers_with_firer,
-        args=(fake_ref, fake_cam, ready, host_port),
-        kwargs={"fire_cam": fire_cam},
-        daemon=True,
-    )
-    srv_thread.start()
-    ready.wait(timeout=5.0)
-    assert len(host_port) == 4, "Servers failed to start"
-    ref_host, ref_port, cam_host, cam_port = host_port
 
-    motor = GeecsMotor("U_Ref", "Position (mm)", ref_host, ref_port, name="scan_motor")
-    ref = GeecsGenericDetector("U_Ref", ["Sig"], ref_host, ref_port, name="ref")
-    cam = GeecsTimestampedReadable("U_Cam", ["Val"], cam_host, cam_port, name="cam")
-    snapshot = GeecsSnapshotReadable(
-        "U_Ref", ["Position (mm)"], ref_host, ref_port, name="async_snapshot"
-    )
-    ref.configure_shot_id(rep_rate_hz=1.0)
-    cam.configure_shot_id(rep_rate_hz=1.0)
-    if not fire_cam:
-        cam.set_reference(ref, grace_wait_s=0.05)  # don't pay grace on a dead camera
+    def fire(devices: list[FakeGeecsDevice]) -> None:
+        devices[0].fire_shot()
+        if fire_cam:
+            devices[1].fire_shot()
 
     descriptors: dict[str, str] = {}  # descriptor uid → stream name
     primary_events: list[dict] = []
@@ -125,33 +73,64 @@ def _run_free_run_scan(
             stream = descriptors.get(doc["descriptor"], "")
             (flush_events if stream == "flush" else primary_events).append(doc)
 
-    RE = RunEngine()
-    RE.subscribe(collect)
-    for dev in (motor, ref, cam, snapshot):
-        asyncio.run_coroutine_threadsafe(dev.connect(), RE._loop).result(timeout=10)
+    with BackgroundFakeServers(
+        [fake_ref, fake_cam],
+        fire=fire,
+        initial_delay=1.0,
+        interval=0.3,
+    ) as server:
+        (ref_host, ref_port), (cam_host, cam_port) = server.endpoints
 
-    if statistics:
-        plan_motor, positions, shots = None, [None], 4
-    else:
-        plan_motor, positions, shots = motor, [0.0, 1.0], 2
-
-    quiesce = None
-    if quiesce_log is not None:
-
-        def quiesce():
-            quiesce_log.append("quiesced")
-            yield from bps.null()
-
-    RE(
-        geecs_free_run_step_scan(
-            motor=plan_motor,
-            positions=positions,
-            reference=ref,
-            detectors=[cam, snapshot],
-            shots_per_step=shots,
-            quiesce_trigger=quiesce,
+        motor = GeecsMotor(
+            "U_Ref", "Position (mm)", ref_host, ref_port, name="scan_motor"
         )
-    )
+        ref = GeecsGenericDetector("U_Ref", ["Sig"], ref_host, ref_port, name="ref")
+        cam = GeecsTimestampedReadable("U_Cam", ["Val"], cam_host, cam_port, name="cam")
+        snapshot = GeecsSnapshotReadable(
+            "U_Ref", ["Position (mm)"], ref_host, ref_port, name="async_snapshot"
+        )
+        ref.configure_shot_id(rep_rate_hz=1.0)
+        cam.configure_shot_id(rep_rate_hz=1.0)
+        if not fire_cam:
+            cam.set_reference(
+                ref, grace_wait_s=0.05
+            )  # don't pay grace on a dead camera
+
+        RE = RunEngine()
+        RE.subscribe(collect)
+        connect_devices(RE, motor, ref, cam, snapshot)
+
+        if statistics:
+            plan_motor, positions, shots = None, [None], 4
+        else:
+            plan_motor, positions, shots = motor, [0.0, 1.0], 2
+
+        quiesce = None
+        if quiesce_log is not None:
+
+            def quiesce():
+                quiesce_log.append("quiesced")
+                yield from bps.null()
+
+        try:
+            RE(
+                geecs_free_run_step_scan(
+                    motor=plan_motor,
+                    positions=positions,
+                    reference=ref,
+                    detectors=[cam, snapshot],
+                    shots_per_step=shots,
+                    quiesce_trigger=quiesce,
+                )
+            )
+        finally:
+            disconnect_devices(
+                RE,
+                motor,
+                ref,
+                cam,
+                snapshot,
+            )
     return primary_events, start_docs[0], flush_events
 
 
