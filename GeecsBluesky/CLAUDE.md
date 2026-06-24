@@ -290,6 +290,12 @@ simulate hardware shot events in tests.
 `test_bluesky_scanner.py` (top-level, run with `poetry run python
 test_bluesky_scanner.py`) requires lab network access.  Tests three scenarios
 against real hardware: NOSCAN, STANDARD step scan, NOSCAN with DG645 shot control.
+The opt-in pytest case
+`test_bluesky_scanner_full_output_hardware_integration` requires
+`GEECS_BLUESKY_FULL_OUTPUT_TEST=1` and `poetry install --extras tiled`; it runs a
+real STANDARD scan with native camera saving enabled and verifies the scan
+folder, `ScanInfo`, `scan.log`, legacy scalar files, analysis s-file, saved
+camera images, and event save-path metadata.
 
 ## Configuration
 
@@ -324,9 +330,9 @@ architecture — see `Planning/acquisition_modes/00_overview.md` "Deferred".
   `_UdpSetter` + `ShotControlConfig`).  Plans, devices, `geecs_run_wrapper`, and
   the schema are reusable; a future `ShotController` helper would give notebooks
   full parity (jet gating / single-shot firing).
-- **Scalar s-files / TDMS output not produced** — Bluesky writes to Tiled only.
-  `ScanAnalysis` still reads s-files; a Tiled→s-file exporter is deferred until
-  the free-run event shape has survived real use.
+- **Scalar s-files are exported from Tiled best-effort** after a scan when the
+  Tiled client extra is installed and the run can be read back.  Legacy TDMS
+  output is not produced.
 - **Optimization and Background scan modes not implemented.**  For optimization,
   start from the unified `BaseEvaluator` / `BaseOptimizer` surface in
   `GEECS-Scanner-GUI`, not the removed `MultiDeviceScanEvaluator` /

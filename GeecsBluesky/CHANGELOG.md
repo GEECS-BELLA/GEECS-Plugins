@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.2] - 2026-06-24
+
+### Changed
+
+- Split GeecsBluesky pytest selection into pure unit tests and socket-based
+  `FakeGeecsServer` TCP/UDP integration tests via a dedicated `fake_server`
+  marker, so unit-test CI can avoid opening localhost sockets.
+
+### Fixed
+
+- Hardened fake-server tests and socket teardown with bounded per-test timeouts,
+  explicit background server shutdown, TCP subscriber cleanup, and retry logic
+  for local UDP/TCP port collisions.
+
 ## [0.12.1] - 2026-06-23
 
 ### Added

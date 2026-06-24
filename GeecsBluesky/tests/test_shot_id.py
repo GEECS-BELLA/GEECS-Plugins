@@ -122,6 +122,7 @@ def _sync_device(name: str, acq_timestamp: float) -> FakeGeecsDevice:
     )
 
 
+@pytest.mark.fake_server
 class TestGeecsT0Sync:
     async def test_seeds_all_devices_from_common_shot(self) -> None:
         """Timestamps within the window seed every tracker with its own t0."""
@@ -231,6 +232,7 @@ class TestGeecsT0Sync:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.fake_server
 async def test_detector_emits_nan_companions_before_first_shot() -> None:
     """All described companion columns appear even with no shot data yet."""
     # Empty value → push frame pair never parses → cache never gets the key

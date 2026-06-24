@@ -44,6 +44,7 @@ import os
 import queue
 import threading
 from configparser import ConfigParser
+from contextlib import contextmanager, nullcontext
 from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
@@ -162,6 +163,18 @@ class _SafeDocumentCallback:
                 name,
                 exc_info=True,
             )
+
+
+class _ScanLogContextFilter(logging.Filter):
+    """Add scan id context to records written to one scan log."""
+
+    def __init__(self, scan_id: str) -> None:
+        super().__init__()
+        self._scan_id = scan_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.scan_id = self._scan_id
+        return True
 
 
 class _UdpSetter:
@@ -786,6 +799,45 @@ class BlueskyScanner:
         except OSError:
             logger.warning("Could not write ScanInfo to %s", path, exc_info=True)
 
+    @contextmanager
+    def _scan_log(self, scan_number: int | None, scan_folder: str | None):
+        """Attach a per-scan log file for Bluesky scanner runs."""
+        if scan_number is None or scan_folder is None:
+            yield
+            return
+
+        folder = Path(scan_folder)
+        if not folder.is_dir():
+            logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
+            yield
+            return
+
+        scan_id = f"Scan{scan_number:03d}"
+        handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
+                "[%(threadName)s] scan=%(scan_id)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        handler.addFilter(_ScanLogContextFilter(scan_id))
+
+        package_logger = logging.getLogger("geecs_bluesky")
+        old_level = package_logger.level
+        if old_level == logging.NOTSET or old_level > logging.INFO:
+            package_logger.setLevel(logging.INFO)
+        package_logger.addHandler(handler)
+        try:
+            logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
+            yield
+            logger.info("scan %s: finished", scan_id)
+        finally:
+            package_logger.removeHandler(handler)
+            handler.close()
+            package_logger.setLevel(old_level)
+
     def _export_scalar_files(self, scan_number: int) -> None:
         """Write legacy ScanData/s-file from the just-recorded Tiled run.
 
@@ -1111,10 +1163,16 @@ class BlueskyScanner:
         # Outer finalize ensures disarm even on mid-step abort
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
-        self._set_state("RUNNING")
-        self._last_run_uid = None
-        self._RE(plan)
+        log_context = (
+            self._scan_log(scan_number, scan_folder)
+            if scan_number is not None and scan_folder is not None
+            else nullcontext()
+        )
+        with log_context:
+            self._set_state("RUNNING")
+            self._last_run_uid = None
+            self._RE(plan)
 
-        # After the run completes, export legacy scalar files from Tiled.
-        if scan_number is not None and scan_folder is not None:
-            self._export_scalar_files(scan_number)
+            # After the run completes, export legacy scalar files from Tiled.
+            if scan_number is not None and scan_folder is not None:
+                self._export_scalar_files(scan_number)
