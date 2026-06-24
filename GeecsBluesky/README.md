@@ -32,8 +32,8 @@ the detector `acq_timestamp` and the configured save directory; file names
 remain hardware-native and should be joined by `acq_timestamp`.
 
 Still open (features, not architecture): setup/closeout actions,
-background/optimization modes, legacy s-file/TDMS output, and a reusable
-shot-controller for notebook parity.  See `ROADMAP.md` and
+background/optimization modes, legacy TDMS output, and a reusable shot-controller
+for notebook parity.  See `ROADMAP.md` and
 `Planning/acquisition_modes/`.
 
 ## Requirements
@@ -152,6 +152,18 @@ step scan, and DG645 shot control against real lab devices:
 ```bash
 poetry run python test_bluesky_scanner.py
 poetry run pytest test_bluesky_scanner.py -m "integration and hardware" -v
+```
+
+An opt-in full-output hardware test runs a real STANDARD scan with native camera
+saving enabled and verifies the scan folder, `ScanInfo`, `scan.log`, legacy
+scalar files, analysis s-file, saved camera images, and event save-path metadata.
+It requires the Tiled client extra because scalar/s-file export reads the run
+back from Tiled:
+
+```bash
+poetry install --extras tiled
+GEECS_BLUESKY_TEST_CAMERA=UC_Amp2_IR_input GEECS_BLUESKY_FULL_OUTPUT_TEST=1 \
+  poetry run pytest test_bluesky_scanner.py::test_bluesky_scanner_full_output_hardware_integration -v -s
 ```
 
 ## Architecture notes
