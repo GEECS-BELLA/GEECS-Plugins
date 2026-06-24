@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — 2026-06-23
+
+### Added
+- `geecs_data_utils.io.decode_imaq_image_string`: decodes an in-memory NI IMAQ
+  "Flatten Image to String" payload (as received live over the device TCP stream
+  and stored in `device.state["image"]`) to a 2-D NumPy array. Handles both
+  device modes for any camera/ROI — compressed (embedded JFIF JPEG, 8-bit) and
+  uncompressed raw (8/16-bit), deriving width, height, IMAQ border, row-stride
+  padding and pixel depth from the message and cropping out the border. This is a
+  wire-format decoder, distinct from the file readers like `read_imaq_image`.
+
 ## [0.9.0] — 2026-06-18
 
 ### Added
