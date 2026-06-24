@@ -87,24 +87,38 @@ predates this policy and would be expensive to relocate).
 
 ## Package Dependency Graph
 
+Arrows read **"depends on / imports"** — `X → Y` means X imports Y. Verified
+against each package's `[tool.poetry.dependencies]` (intra-repo path deps).
+
 ```
-GEECS-PythonAPI  ←─── GEECS-Scanner-GUI
-                 ←─── GEECS-Data-Utils
-                 ←─── ScanAnalysis (optional)
+GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
+LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 
-GEECS-Data-Utils ←─── ScanAnalysis
-                 ←─── ImageAnalysis (optional)
-
-ImageAnalysis    ←─── ScanAnalysis
-                 ←─── GEECS-Scanner-GUI (optimization evaluators)
-
-ScanAnalysis     ←─── LogMaker4GoogleDocs (optional, for gdoc upload)
-LogMaker4GoogleDocs  (no GEECS deps — pure Google API wrapper)
+ImageAnalysis        →  GEECS-Data-Utils
+GeecsBluesky         →  GEECS-Data-Utils
+GEECS-PythonAPI      →  GEECS-Data-Utils
+ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
+GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
+                        GEECS-Data-Utils, GeecsBluesky
 ```
 
-`ScanAnalysis` and `ImageAnalysis` are the most actively developed packages.
-`LogMaker4GoogleDocs` is optional everywhere — missing it causes silent skips,
-not errors.
+`GEECS-Data-Utils` is the foundational layer — everything depends on it and it
+depends on nothing else in the repo. `GEECS-Scanner-GUI` sits at the top and
+pulls in everything. `ScanAnalysis` and `ImageAnalysis` are the most actively
+developed packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
+causes silent skips, not errors.
+
+Two declaration quirks worth knowing (both verified against the pyprojects):
+
+- **`GEECS-PythonAPI` declares a dependency on `ImageAnalysis` but never imports
+  it** — a stale/unused entry in `GEECS-PythonAPI/pyproject.toml`. It's an
+  architecturally backwards edge (the low-level device layer pointing at the
+  high-level analysis package) and is a candidate for removal whenever the
+  python-api refactor next touches its dependencies. It is intentionally omitted
+  from the graph above because no code relies on it.
+- **`ScanAnalysis`'s dependency on `GEECS-PythonAPI` is currently commented out**
+  in its `pyproject.toml`, so ScanAnalysis does not depend on python-api. (An
+  earlier version of this graph claimed it did.)
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
