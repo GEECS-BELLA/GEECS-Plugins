@@ -16,6 +16,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Tiled run by date, scan number, device, and shot, then loading the camera
   image locally.
 
+### Fixed
+
+- Missing-shot Tiled readback errors now report the available
+  `scan_event_index` values, and the notebook prints lookup failures without a
+  traceback.
+
 ## [0.12.2] - 2026-06-24
 
 ### Changed

@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 import png
+import pytest
 
 from geecs_bluesky.assets.specs import POINTGREY_CAMERA_DEVICE_TYPE
 from geecs_bluesky.assets.tiled_readback import (
@@ -69,6 +70,46 @@ def test_event_by_scan_event_index_returns_matching_row() -> None:
     )
 
     assert event_by_scan_event_index(table, 2)["value"] == "second"
+
+
+def test_event_by_scan_event_index_reports_available_range() -> None:
+    """Missing event lookup should report available contiguous event indices."""
+    table = pd.DataFrame(
+        [
+            {"scan_event_index": 1, "value": "first"},
+            {"scan_event_index": 2, "value": "second"},
+            {"scan_event_index": 3, "value": "third"},
+        ]
+    )
+
+    with pytest.raises(
+        LookupError,
+        match=(
+            "No event row found for scan_event_index=5. "
+            "Available scan_event_index values: 1-3 \\(3 events\\)."
+        ),
+    ):
+        event_by_scan_event_index(table, 5)
+
+
+def test_event_by_scan_event_index_reports_sparse_values() -> None:
+    """Missing event lookup should report sparse event indices explicitly."""
+    table = pd.DataFrame(
+        [
+            {"scan_event_index": 1, "value": "first"},
+            {"scan_event_index": 3, "value": "third"},
+            {"scan_event_index": 8, "value": "eighth"},
+        ]
+    )
+
+    with pytest.raises(
+        LookupError,
+        match=(
+            "No event row found for scan_event_index=5. "
+            "Available scan_event_index values: 1, 3, 8 \\(3 events\\)."
+        ),
+    ):
+        event_by_scan_event_index(table, 5)
 
 
 def test_resolve_camera_asset_from_tiled_event_fills_native_file(

@@ -166,7 +166,11 @@ def event_by_scan_event_index(primary_table: Any, shot_number: int) -> dict[str,
 
     matches = primary_table[primary_table["scan_event_index"] == shot_number]
     if len(matches) == 0:
-        raise LookupError(f"No event row found for scan_event_index={shot_number}.")
+        available = _scan_event_index_summary(primary_table)
+        raise LookupError(
+            f"No event row found for scan_event_index={shot_number}. "
+            f"Available scan_event_index values: {available}."
+        )
     if len(matches) > 1:
         raise LookupError(
             f"Multiple event rows found for scan_event_index={shot_number}."
@@ -464,6 +468,32 @@ def _mapping_from_row(row: Any) -> dict[str, Any]:
     if hasattr(row, "to_dict"):
         return dict(row.to_dict())
     return dict(row)
+
+
+def _scan_event_index_summary(primary_table: Any) -> str:
+    values = primary_table["scan_event_index"]
+    if hasattr(values, "dropna"):
+        values = values.dropna()
+    if hasattr(values, "unique"):
+        raw_indices = list(values.unique())
+    else:
+        raw_indices = list(values)
+
+    indices = sorted({int(value) for value in raw_indices})
+    if not indices:
+        return "none"
+
+    contiguous = indices == list(range(indices[0], indices[-1] + 1))
+    if contiguous:
+        if len(indices) == 1:
+            return f"{indices[0]} (1 event)"
+        return f"{indices[0]}-{indices[-1]} ({len(indices)} events)"
+
+    max_listed = 12
+    listed = ", ".join(str(index) for index in indices[:max_listed])
+    if len(indices) > max_listed:
+        listed = f"{listed}, ... {indices[-1]}"
+    return f"{listed} ({len(indices)} events)"
 
 
 def _is_missing(value: Any) -> bool:
