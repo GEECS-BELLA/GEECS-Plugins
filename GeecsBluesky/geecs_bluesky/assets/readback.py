@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+import re
 import time
 from typing import Protocol, TypeAlias
 from uuid import uuid4
@@ -16,6 +17,49 @@ from geecs_bluesky.assets.specs import GEECS_CAMERA_IMAGE
 
 HandlerRegistry: TypeAlias = dict[str, type[GeecsCameraImageHandler]]
 Document: TypeAlias = tuple[str, dict[str, object]]
+
+
+def _timestamp_token(acq_timestamp: float | str) -> str:
+    """Return the native GEECS timestamp filename token."""
+    return f"{float(acq_timestamp):.3f}"
+
+
+def _native_timestamp_path(
+    scan_folder: Path,
+    *,
+    device_name: str,
+    acq_timestamp: float | str,
+) -> Path:
+    """Return the native Bluesky/GEECS camera file path for a timestamp."""
+    return (
+        scan_folder
+        / device_name
+        / f"{device_name}_{_timestamp_token(acq_timestamp)}.png"
+    )
+
+
+def _native_timestamp_file_map(scan_folder: Path, device_name: str) -> dict[int, Path]:
+    """Return 1-based shot index to native timestamp-named camera files."""
+    device_folder = scan_folder / device_name
+    if not device_folder.exists():
+        return {}
+
+    pattern = re.compile(rf"^{re.escape(device_name)}_(\d+(?:\.\d+)?).png$")
+    timestamped_files: list[tuple[float, Path]] = []
+    for file_path in device_folder.iterdir():
+        if not file_path.is_file():
+            continue
+        match = pattern.match(file_path.name)
+        if match:
+            timestamped_files.append((float(match.group(1)), file_path))
+
+    return {
+        index: file_path
+        for index, (_timestamp, file_path) in enumerate(
+            sorted(timestamped_files, key=lambda item: item[0]),
+            start=1,
+        )
+    }
 
 
 class HandlerRegistrar(Protocol):
@@ -137,7 +181,8 @@ def build_camera_shot_documents(
     day: int,
     scan_number: int,
     device_name: str,
-    shot_number: int,
+    shot_number: int | None = None,
+    acq_timestamp: float | str | None = None,
     experiment: str | None = None,
     base_directory: str | Path | None = None,
     device_type: str | None = None,
@@ -145,9 +190,9 @@ def build_camera_shot_documents(
     """Build fillable Resource/Datum/Event docs for an existing camera shot.
 
     This is intended for notebook readback tests against historical scan
-    folders. It resolves the legacy post-filemover camera filename such as
-    ``Scan042_UC_TopView_001.png`` and represents it as a
-    ``GEECS_CAMERA_IMAGE`` external asset.
+    folders. It supports both legacy post-filemover camera filenames such as
+    ``Scan042_UC_TopView_001.png`` and direct Bluesky/native filenames such as
+    ``UC_TopView_1234567890.123.png``.
 
     Parameters
     ----------
@@ -159,7 +204,13 @@ def build_camera_shot_documents(
     device_name:
         Camera device name and scan-folder subdirectory.
     shot_number:
-        Legacy shot number in the device image filename.
+        Shot number to resolve. For legacy files, this is the zero-padded number
+        in ``ScanNNN_Device_001.png``. For native timestamp files without an
+        explicit ``acq_timestamp``, this is interpreted as a 1-based index into
+        the device folder's timestamp-sorted native files.
+    acq_timestamp:
+        Optional native acquisition timestamp. When supplied, this is used to
+        construct the direct Bluesky/native filename first.
     experiment:
         Optional experiment name. If omitted, ``ScanPaths`` uses the configured
         default experiment.
@@ -182,6 +233,9 @@ def build_camera_shot_documents(
         If the resolved device type is not registered as a single camera asset.
     """
     from geecs_data_utils.scan_paths import ScanPaths
+
+    if shot_number is None and acq_timestamp is None:
+        raise ValueError("Either shot_number or acq_timestamp must be provided.")
 
     if device_type is None:
         from geecs_bluesky.db.geecs_db import GeecsDb
@@ -207,21 +261,44 @@ def build_camera_shot_documents(
     if scan_folder is None:
         raise FileNotFoundError(f"Could not resolve scan folder for {tag}")
 
-    file_path = scan_paths.build_asset_path(
-        shot=shot_number,
-        device=device_name,
-        ext="png",
-    )
-    if not file_path.exists():
-        file_map = scan_paths.build_device_file_map(device_name, ".png")
-        try:
-            file_path = file_map[shot_number]
-        except KeyError as exc:
-            raise FileNotFoundError(
-                "Could not find camera shot file for "
-                f"{tag}, device={device_name!r}, shot={shot_number}. "
-                f"Expected {file_path}."
-            ) from exc
+    attempted_paths: list[Path] = []
+    file_path: Path | None = None
+
+    if acq_timestamp is not None:
+        candidate = _native_timestamp_path(
+            scan_folder,
+            device_name=device_name,
+            acq_timestamp=acq_timestamp,
+        )
+        attempted_paths.append(candidate)
+        if candidate.exists():
+            file_path = candidate
+
+    if file_path is None and shot_number is not None:
+        legacy_candidate = scan_paths.build_asset_path(
+            shot=shot_number,
+            device=device_name,
+            ext="png",
+        )
+        attempted_paths.append(legacy_candidate)
+        if legacy_candidate.exists():
+            file_path = legacy_candidate
+
+    if file_path is None and shot_number is not None:
+        legacy_file_map = scan_paths.build_device_file_map(device_name, ".png")
+        file_path = legacy_file_map.get(shot_number)
+
+    if file_path is None and shot_number is not None:
+        native_file_map = _native_timestamp_file_map(scan_folder, device_name)
+        file_path = native_file_map.get(shot_number)
+
+    if file_path is None:
+        attempted = ", ".join(str(path) for path in attempted_paths) or "(none)"
+        raise FileNotFoundError(
+            "Could not find camera image file for "
+            f"{tag}, device={device_name!r}, shot={shot_number}, "
+            f"acq_timestamp={acq_timestamp!r}. Tried {attempted}."
+        )
 
     data_key = definition.event_key(device_name)
     resource_uid = str(uuid4())

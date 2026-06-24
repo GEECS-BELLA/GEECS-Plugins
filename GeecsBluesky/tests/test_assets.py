@@ -468,3 +468,77 @@ def test_build_camera_shot_documents_resolves_legacy_scan_file(tmp_path) -> None
     filled_docs = fill_geecs_documents(docs, retry_intervals=[])
     event = next(doc for name, doc in filled_docs if name == "event")
     np.testing.assert_array_equal(event["data"]["uc_topview-image"], expected)
+
+
+def test_build_camera_shot_documents_resolves_native_timestamp_file(tmp_path) -> None:
+    """Camera shot helper should resolve direct Bluesky timestamp filenames."""
+    scan_folder = (
+        tmp_path / "Undulator" / "Y2026" / "06-Jun" / "26_0623" / "scans" / "Scan014"
+    )
+    image_path = scan_folder / "UC_Amp2_IR_input" / "UC_Amp2_IR_input_1000.500.png"
+    image_path.parent.mkdir(parents=True)
+    expected = np.array([[1, 3], [5, 7]], dtype=np.uint8)
+    with image_path.open("wb") as stream:
+        png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+            stream, expected.tolist()
+        )
+
+    docs, resolved_path = build_camera_shot_documents(
+        year=2026,
+        month=6,
+        day=23,
+        scan_number=14,
+        device_name="UC_Amp2_IR_input",
+        shot_number=1,
+        acq_timestamp=1000.5,
+        experiment="Undulator",
+        base_directory=tmp_path,
+        device_type=POINTGREY_CAMERA_DEVICE_TYPE,
+    )
+
+    assert resolved_path == image_path
+    resource = next(doc for name, doc in docs if name == "resource")
+    assert resource["resource_path"] == "UC_Amp2_IR_input/UC_Amp2_IR_input_1000.500.png"
+
+    filled_docs = fill_geecs_documents(docs, retry_intervals=[])
+    event = next(doc for name, doc in filled_docs if name == "event")
+    np.testing.assert_array_equal(event["data"]["uc_amp2_ir_input-image"], expected)
+
+
+def test_build_camera_shot_documents_maps_shot_to_native_timestamp_file(
+    tmp_path,
+) -> None:
+    """Camera shot helper should map shot number onto sorted native files."""
+    scan_folder = (
+        tmp_path / "Undulator" / "Y2026" / "06-Jun" / "26_0623" / "scans" / "Scan014"
+    )
+    device_folder = scan_folder / "UC_Amp2_IR_input"
+    device_folder.mkdir(parents=True)
+
+    first = np.array([[1, 1], [1, 1]], dtype=np.uint8)
+    second = np.array([[2, 2], [2, 2]], dtype=np.uint8)
+    for image_path, image in (
+        (device_folder / "UC_Amp2_IR_input_1000.500.png", first),
+        (device_folder / "UC_Amp2_IR_input_1001.500.png", second),
+    ):
+        with image_path.open("wb") as stream:
+            png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+                stream, image.tolist()
+            )
+
+    docs, resolved_path = build_camera_shot_documents(
+        year=2026,
+        month=6,
+        day=23,
+        scan_number=14,
+        device_name="UC_Amp2_IR_input",
+        shot_number=2,
+        experiment="Undulator",
+        base_directory=tmp_path,
+        device_type=POINTGREY_CAMERA_DEVICE_TYPE,
+    )
+
+    assert resolved_path == device_folder / "UC_Amp2_IR_input_1001.500.png"
+    filled_docs = fill_geecs_documents(docs, retry_intervals=[])
+    event = next(doc for name, doc in filled_docs if name == "event")
+    np.testing.assert_array_equal(event["data"]["uc_amp2_ir_input-image"], second)

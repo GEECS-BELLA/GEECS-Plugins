@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.3] - 2026-06-24
+
+### Fixed
+
+- Existing-scan camera asset readback now resolves both legacy
+  `ScanNNN_Device_001.png` files and Bluesky/native `Device_<acq_timestamp>.png`
+  files. The notebook helper accepts an explicit acquisition timestamp or maps
+  a shot number to timestamp-sorted native files when no legacy shot-number file
+  exists.
+
 ## [0.12.2] - 2026-06-24
 
 ### Changed
