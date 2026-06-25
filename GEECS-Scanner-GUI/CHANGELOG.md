@@ -3,6 +3,37 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.0] — 2026-06-24
+
+### Changed (BREAKING — Xopt 2.6 → 3.1 upgrade)
+- Upgraded the `xopt` dependency from `^2.6` to `^3.1` (pulls `gest-api`,
+  `botorch>=0.17`, `pydantic>=2.12`, `numpy>=2.3`). Xopt 3.x adopts the
+  cross-package [GEST standard](https://github.com/campa-consortium/gest-api):
+  `VOCS` now lives in `gest_api`, variables/objectives/constraints are typed
+  objects (not bare lists/strings), and the generator — not the `Xopt` object —
+  owns the VOCS.
+- `BaseOptimizer._setup_xopt` no longer passes `vocs=` to `Xopt(...)` (the
+  generator carries it); `BaseOptimizer.generate()` now uses the GEST
+  `generator.suggest()` verb.
+- `ScanStepExecutor.generate_next_step` uses the free function
+  `xopt.vocs.random_inputs(vocs, n)` — the `VOCS.random_inputs()` method was
+  removed in 3.x.
+- New `optimization/vocs_utils.py` centralises typed-VOCS access
+  (`is_maximize`, `variable_bounds`, `bounds_of`); inspection helpers
+  (`slicing.py`, `surfaces.py`) and `dump_loader.py` now use it instead of
+  unpacking `vocs.variables[name]` as `[lo, hi]` or comparing
+  `str(objective) == "MAXIMIZE"` (which silently broke under typed objectives).
+- `inspection/dump_loader.load_xopt_dump` reads VOCS from the 3.x dump layout
+  (`generator.vocs`); 2.x top-level-`vocs` dumps are no longer supported.
+- BAX: `MultipointBAXGenerator` overrides `validate_vocs` to allow a single
+  bookkeeping objective (3.x `BaxGenerator` otherwise requires zero objectives);
+  modernised the `MultipointProbeConfig` after-validator to an instance method.
+
+### Added
+- `tests/optimization/test_xopt3_migration.py` — pins typed-VOCS access, the
+  3.x dump round-trip + seeding, the generate/evaluate loop, and BAX
+  construction/generation.
+
 ## [0.28.2] — 2026-06-09
 
 ### Fixed

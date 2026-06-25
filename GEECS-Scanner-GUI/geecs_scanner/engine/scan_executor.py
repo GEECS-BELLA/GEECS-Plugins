@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from geecs_scanner.engine.scan_events import ScanEvent
 
 import numpy as np
+from xopt.vocs import random_inputs
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
@@ -372,7 +373,7 @@ class ScanStepExecutor:
         try:
             if next_index <= num_initialization_steps:
                 logger.debug("Running optimizer initialization")
-                next_variables = self.optimizer.vocs.random_inputs(1)[0]
+                next_variables = random_inputs(self.optimizer.vocs, 1)[0]
                 logger.debug(
                     "Initializer generated random variables: %s", next_variables
                 )

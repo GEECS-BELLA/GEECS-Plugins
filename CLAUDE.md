@@ -66,7 +66,8 @@ predates this policy and would be expensive to relocate).
 
 ## Python & Tooling
 
-- **Python:** `>=3.10, <3.12` across all packages (Scanner GUI is `<3.11`)
+- **Python:** `>=3.10, <3.12` across all packages (Scanner GUI, GeecsBluesky,
+  and GEECS-PythonAPI require `>=3.11, <3.12`)
 - **Package manager:** Poetry — `poetry install` at the repo root installs the
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)

@@ -31,6 +31,7 @@ import yaml
 from xopt import Xopt, VOCS
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
+from geecs_scanner.optimization.vocs_utils import is_maximize
 from geecs_scanner.optimization.generators.generator_factory import (
     build_generator_from_config,
 )
@@ -196,8 +197,7 @@ class BaseOptimizer:
         if len(df) == 0:
             return None
 
-        direction = str(self.vocs.objectives[obj]).upper()
-        idx = df[obj].idxmax() if direction == "MAXIMIZE" else df[obj].idxmin()
+        idx = df[obj].idxmax() if is_maximize(self.vocs, obj) else df[obj].idxmin()
 
         return {name: float(df.loc[idx, name]) for name in self.vocs.variable_names}
 
@@ -206,10 +206,13 @@ class BaseOptimizer:
         generator_config.update(overrides)
         generator = build_generator_from_config(config=generator_config, vocs=self.vocs)
 
+        # Xopt 3.x: the generator owns the VOCS, so it is no longer passed to
+        # (nor stored on) the Xopt object.  ``self.vocs`` remains the wrapper's
+        # authoritative copy for bookkeeping; it is the same object the
+        # generator was built with above.
         self.xopt = Xopt(
             evaluator={"function": self.evaluate_function},
             generator=generator,
-            vocs=self.vocs,
         )
 
     def seed_from_dumps(self, dump_paths: List[Path]) -> int:
@@ -346,7 +349,10 @@ class BaseOptimizer:
             List of parameter dictionaries, each representing a set of
             control variable values to be evaluated.
         """
-        return self.xopt.generator.generate(n)
+        # GEST standard surface (Xopt 3.x): ``suggest()`` is the cross-package
+        # verb that aliases ``generate()``.  Using it keeps the wrapper aligned
+        # with the gest-api generator standard.
+        return self.xopt.generator.suggest(n)
 
     def evaluate(self, inputs: List[dict]):
         """

@@ -12,6 +12,8 @@ from typing import Dict, Optional, Tuple
 import pandas as pd
 from xopt.vocs import VOCS
 
+from geecs_scanner.optimization.vocs_utils import is_maximize, variable_bounds
+
 
 def pick_top_varied_pair(data: pd.DataFrame, vocs: VOCS) -> Tuple[str, str]:
     """Return the pair of VOCS variables that varied the most in the data.
@@ -46,10 +48,9 @@ def best_observed_point(data: pd.DataFrame, vocs: VOCS) -> Dict[str, float]:
     with the highest objective; otherwise the lowest.
     """
     obj = vocs.objective_names[0]
-    direction = vocs.objectives[obj]
     row = (
         data.loc[data[obj].idxmax()]
-        if str(direction).upper() == "MAXIMIZE"
+        if is_maximize(vocs, obj)
         else data.loc[data[obj].idxmin()]
     )
     return {name: float(row[name]) for name in vocs.variable_names if name in row}
@@ -94,7 +95,7 @@ def resolve_slice_and_fixed(
     if fixed_default == "best":
         base = best_observed_point(data, vocs)
     elif fixed_default == "midpoint":
-        base = {n: 0.5 * (lo + hi) for n, (lo, hi) in vocs.variables.items()}
+        base = {n: 0.5 * (lo + hi) for n, (lo, hi) in variable_bounds(vocs).items()}
     else:
         raise ValueError(f"Unknown fixed_default: {fixed_default!r}")
 
