@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.1] — 2026-06-25
+
+### Fixed
+- numpy 2.4 compatibility: `np.trapz` was removed in numpy 2.4.0, breaking
+  `ict_algorithms.py` and `grenouille.py`. Switched both to `np.trapezoid`
+  (available since numpy 2.0, so safe across all supported envs).
+- `qwlsi.py` now imports the optional, stale `PyAbel` dependency lazily (inside
+  `calculate_density`, the only consumer) instead of at module load. PyAbel is
+  not numpy-2.4 compatible (it uses the removed `np.trapz`), and importing it at
+  module top broke collection of `test_qwlsi_analysis.py` even though the
+  wavefront paths under test never touch Abel transforms.
+
 ## [1.9.0] — 2026-06-18
 
 The generic file readers move to `geecs_data_utils.io.images`. ImageAnalysis
