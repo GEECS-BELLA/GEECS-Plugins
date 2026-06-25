@@ -175,22 +175,22 @@ class BaseOptimizer:
         """Number of evaluations loaded from dump files before the scan started."""
         return self._n_seeded
 
-    def best_observed_setpoint(self) -> Optional[Dict[str, float]]:
-        """Return the VOCS-variable values of the best-observed row in X.data.
+    def _best_row_index(self) -> Optional[int]:
+        """Return the X.data index of the best feasible, non-errored row.
 
+        Shared core for :meth:`best_observed_setpoint` and :meth:`get_best`.
         Delegates direction and feasibility handling to Xopt's native
         :func:`xopt.vocs.select_best`, which derives the optimization direction
         from the (typed) objective and ignores constraint-violating rows.
         Errored rows are dropped first; ``select_best`` raises on degenerate
-        cases, which are mapped to ``None`` so the engine can fall back to
-        initial-state restoration.
+        cases, which are mapped to ``None``.
 
         Returns
         -------
-        dict or None
-            ``{variable_name: value}`` for the best feasible, non-errored row,
-            or None if X.data is empty/uninitialized, the problem has no
-            objective (observables-only, e.g. BAX), or no usable row exists.
+        int or None
+            Index into ``self.xopt.data`` of the best row, or None if X.data is
+            empty/uninitialized, the problem has no objective (observables-only,
+            e.g. BAX), or no usable row exists.
         """
         if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
             return None
@@ -207,12 +207,27 @@ class BaseOptimizer:
             return None
 
         try:
-            _, _, params = select_best(self.vocs, df, n=1)
+            index, _, _ = select_best(self.vocs, df, n=1)
         except (FeasibilityError, RuntimeError, NotImplementedError):
             # No feasible/non-NaN row, or a multi-/explore-objective problem.
             return None
 
-        return {name: float(params[name]) for name in self.vocs.variable_names}
+        return int(index[0])
+
+    def best_observed_setpoint(self) -> Optional[Dict[str, float]]:
+        """Return the VOCS-variable values of the best-observed row in X.data.
+
+        Returns
+        -------
+        dict or None
+            ``{variable_name: value}`` for the best feasible, non-errored row,
+            or None if no usable row exists (see :meth:`_best_row_index`).
+        """
+        idx = self._best_row_index()
+        if idx is None:
+            return None
+        row = self.xopt.data.loc[idx]
+        return {name: float(row[name]) for name in self.vocs.variable_names}
 
     def _setup_xopt(self, overrides: dict[str, Any]):
         generator_config: dict[str, Any] = {"name": self.generator_name}
@@ -431,22 +446,24 @@ class BaseOptimizer:
         """
         Return the best observed parameter set.
 
-        Identifies and returns the parameter combination that achieved
-        the best objective function value according to the optimization
-        criteria (minimize or maximize).
+        Identifies and returns the parameter combination that achieved the best
+        objective value, respecting the optimization direction (minimize or
+        maximize) and any constraints via Xopt's native
+        :func:`xopt.vocs.select_best`.
 
         Returns
         -------
-        pandas.DataFrame
-            Single-row DataFrame containing the best parameter set and
-            its corresponding objective and constraint values, or ``None`` for
-            observables-only problems (e.g. BAX) that define no objective.
+        pandas.DataFrame or None
+            Single-row DataFrame containing the best parameter set and its
+            corresponding objective and constraint values, or ``None`` if no
+            usable row exists — e.g. observables-only problems (BAX) that define
+            no objective (see :meth:`_best_row_index`).
 
         """
-        objective_names = list(self.vocs.objectives.keys())
-        if not objective_names:
+        idx = self._best_row_index()
+        if idx is None:
             return None
-        return self.xopt.data.sort_values(by=objective_names)[:1]
+        return self.xopt.data.loc[[idx]]
 
     @classmethod
     def from_config_file(

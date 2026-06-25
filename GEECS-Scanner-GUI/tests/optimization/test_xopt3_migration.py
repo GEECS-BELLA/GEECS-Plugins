@@ -148,6 +148,12 @@ class TestOptimizerAndDump:
         best = opt.best_observed_setpoint()
         assert best == {"a": pytest.approx(0.1), "b": pytest.approx(0.3)}
 
+        # get_best() returns the same row as a single-row DataFrame, and now
+        # respects direction (MAXIMIZE -> obj=3.0, not the old ascending-sort 1.0).
+        best_row = opt.get_best()
+        assert len(best_row) == 1
+        assert best_row.iloc[0]["obj"] == pytest.approx(3.0)
+
     def test_best_observed_setpoint_none_without_objective(self, tmp_path):
         """Observables-only (BAX) problems have no 'best' -> None."""
         import pandas as pd
