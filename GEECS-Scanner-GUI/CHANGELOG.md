@@ -34,6 +34,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   3.x dump round-trip + seeding, the generate/evaluate loop, and BAX
   construction/generation.
 
+### Fixed
+- Optimization test fakes no longer pass a `name=` kwarg to `CameraConfig` /
+  `Line1DConfig`; those models dropped the `name` field in an ImageAnalysis
+  refactor, so the fakes were raising `extra_forbidden` at collection. Device
+  identity already lives on `DiagnosticAnalysisConfig.name`. Restores 14
+  previously-erroring tests in `test_config_models.py` and
+  `test_evaluator_create_scan_analyzer.py`.
+
 ## [0.28.2] — 2026-06-09
 
 ### Fixed
