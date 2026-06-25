@@ -25,9 +25,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `str(objective) == "MAXIMIZE"` (which silently broke under typed objectives).
 - `inspection/dump_loader.load_xopt_dump` reads VOCS from the 3.x dump layout
   (`generator.vocs`); 2.x top-level-`vocs` dumps are no longer supported.
-- BAX: `MultipointBAXGenerator` overrides `validate_vocs` to allow a single
-  bookkeeping objective (3.x `BaxGenerator` otherwise requires zero objectives);
-  modernised the `MultipointProbeConfig` after-validator to an instance method.
+- BAX: removed the `MultipointBAXGenerator` subclass. Xopt 3.x `BaxGenerator`
+  is observables-only (requires zero objectives), which the GEECS BAX evaluator
+  already matches (`output_key=None` returns observables, never an objective).
+  The `make_multipoint_bax_alignment[_l2]` factories now return a stock
+  `BaxGenerator`. **Config change:** `multipoint_bax_alignment[_l2]` optimizer
+  YAMLs must use an observables-only VOCS — drop the (previously vestigial,
+  2.x-only) `objectives:` block and keep `observables:`. `BaseOptimizer`'s
+  `best_observed_setpoint()` / `get_best()` now return `None` for objective-less
+  problems. Modernised the `MultipointProbeConfig` after-validator to an
+  instance method.
 
 ### Added
 - `tests/optimization/test_xopt3_migration.py` — pins typed-VOCS access, the

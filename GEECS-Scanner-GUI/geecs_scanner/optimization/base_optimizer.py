@@ -187,6 +187,11 @@ class BaseOptimizer:
         if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
             return None
 
+        # Observables-only problems (e.g. BAX) have no objective, so "best
+        # observed" is undefined — let the caller fall back to initial state.
+        if not self.vocs.objective_names:
+            return None
+
         df = self.xopt.data.copy()
         obj = self.vocs.objective_names[0]
 
@@ -426,10 +431,14 @@ class BaseOptimizer:
         -------
         pandas.DataFrame
             Single-row DataFrame containing the best parameter set and
-            its corresponding objective and constraint values.
+            its corresponding objective and constraint values, or ``None`` for
+            observables-only problems (e.g. BAX) that define no objective.
 
         """
-        return self.xopt.data.sort_values(by=list(self.vocs.objectives.keys()))[:1]
+        objective_names = list(self.vocs.objectives.keys())
+        if not objective_names:
+            return None
+        return self.xopt.data.sort_values(by=objective_names)[:1]
 
     @classmethod
     def from_config_file(

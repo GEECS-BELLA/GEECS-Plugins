@@ -16,6 +16,7 @@ import geecs_scanner.engine  # noqa: F401
 import numpy as np
 import pytest
 from xopt import VOCS
+from xopt.generators.bayesian.bax_generator import BaxGenerator
 from xopt.vocs import random_inputs
 
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
@@ -158,9 +159,10 @@ class TestGenerators:
         ],
     )
     def test_bax_construct_and_generate(self, factory, key, tmp_path):
+        # Xopt 3.x BAX is observables-only: the VOCS carries NO objective
+        # (the optimization target is the algorithm's virtual objective).
         bax_vocs = VOCS(
             variables={"ctrl1": [-1.0, 1.0], "ctrl2": [-1.0, 1.0], "meas": [-2.0, 2.0]},
-            objectives={"slope": "MINIMIZE"},
             observables=["x_CoM"],
         )
         overrides = {
@@ -174,7 +176,9 @@ class TestGenerators:
             }
         }
         gen = factory(bax_vocs, overrides)
-        assert gen.supports_single_objective is True
+        # Stock BaxGenerator, no GEECS subclass / single-objective workaround.
+        assert isinstance(gen, BaxGenerator)
+        assert gen.vocs.n_objectives == 0
 
         rng = np.random.default_rng(0)
         import pandas as pd
@@ -185,7 +189,6 @@ class TestGenerators:
                 "ctrl2": rng.uniform(-1, 1, 8),
                 "meas": rng.uniform(-2, 2, 8),
                 "x_CoM": rng.uniform(-1, 1, 8),
-                "slope": rng.uniform(0, 1, 8),
             }
         )
         gen.add_data(data)

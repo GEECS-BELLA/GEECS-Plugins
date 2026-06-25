@@ -11,14 +11,13 @@ from typing import Callable, Dict, List, Optional, Sequence
 
 import torch
 from torch import Tensor
-from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from botorch.models import ModelListGP
 from botorch.models.model import Model
-from xopt.errors import VOCSError
 from xopt.generators.bayesian.bax.algorithms import GridOptimize
 from xopt.generators.bayesian.bax_generator import BaxGenerator
-from xopt.vocs import VOCS, has_discrete_variables
+from xopt.vocs import VOCS
 
 from geecs_scanner.optimization.vocs_utils import bounds_of
 
@@ -329,41 +328,18 @@ class MultipointProbeAlgorithm(GridOptimize):
         return result
 
 
-class MultipointBAXGenerator(BaxGenerator):
-    """BAX generator variant that allows a single-objective VOCS.
-
-    Stock ``BaxGenerator`` (Xopt 3.x) requires ``n_objectives == 0`` because the
-    optimization target is the virtual objective computed by the algorithm.  The
-    GEECS framework, however, carries a single bookkeeping objective through the
-    VOCS for reporting and best-setpoint logic, so this subclass relaxes that one
-    rule while preserving the inherited Bayesian validation (constraints /
-    discrete variables).
-    """
-
-    supports_single_objective: bool = True
-
-    @field_validator("vocs", mode="after")
-    def validate_vocs(cls, v: VOCS, info: ValidationInfo) -> VOCS:
-        """Allow zero or one objective; otherwise mirror Bayesian validation."""
-        if v.n_constraints > 0 and not info.data["supports_constraints"]:
-            raise VOCSError("this generator does not support constraints")
-        if has_discrete_variables(v) and not info.data["supports_discrete_variables"]:
-            raise VOCSError("this generator does not support discrete variables")
-        if v.n_objectives > 1:
-            raise VOCSError(
-                "MultipointBAXGenerator supports at most one objective "
-                f"(got {v.n_objectives})"
-            )
-        return v
-
-
 def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
-    """Factory function for the slope-minimisation variant."""
+    """Factory function for the slope-minimisation variant.
+
+    The VOCS must be observables-only (no objectives): in Xopt 3.x the BAX
+    optimization target is the virtual objective computed by the algorithm, so
+    ``BaxGenerator`` requires ``n_objectives == 0``.
+    """
     cfg = MultipointProbeConfig.model_validate(
         overrides.get("multipoint_bax_alignment", {})
     )
     algorithm = MultipointProbeAlgorithm(vocs, cfg, slope_virtual_objective)
-    generator = MultipointBAXGenerator(
+    generator = BaxGenerator(
         vocs=vocs,
         algorithm=algorithm,
         algorithm_results_file=cfg.algorithm_results_file,
@@ -374,12 +350,16 @@ def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
 
 
 def make_multipoint_bax_alignment_l2(vocs: VOCS, overrides: Dict) -> BaxGenerator:
-    """Factory function for the L2 slope minimisation variant."""
+    """Factory function for the L2 slope minimisation variant.
+
+    Requires an observables-only VOCS (no objectives); see
+    :func:`make_multipoint_bax_alignment`.
+    """
     cfg = MultipointProbeConfig.model_validate(
         overrides.get("multipoint_bax_alignment_l2", {})
     )
     algorithm = MultipointProbeAlgorithm(vocs, cfg, l2_slope_virtual_objective)
-    generator = MultipointBAXGenerator(
+    generator = BaxGenerator(
         vocs=vocs,
         algorithm=algorithm,
         algorithm_results_file=cfg.algorithm_results_file,
