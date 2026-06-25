@@ -128,6 +128,51 @@ class TestOptimizerAndDump:
         with pytest.raises(ValueError, match="variable mismatch"):
             check_vocs_compatible(vocs, other, tmp_path / "x.yaml")
 
+    def test_best_observed_setpoint_uses_native_select_best(self, vocs):
+        """Delegates to xopt.vocs.select_best: right direction, errored rows dropped."""
+        import pandas as pd
+
+        opt = BaseOptimizer(
+            vocs=vocs, evaluate_function=_paraboloid, generator_name="random"
+        )
+        # MAXIMIZE: row b is the true best (3.0); the errored row a has a higher
+        # objective (9.0) but must be ignored.
+        opt.xopt.data = pd.DataFrame(
+            {
+                "a": [0.9, 0.1, -0.5],
+                "b": [0.2, 0.3, 0.4],
+                "obj": [9.0, 3.0, 1.0],
+                "xopt_error": [True, False, False],
+            }
+        )
+        best = opt.best_observed_setpoint()
+        assert best == {"a": pytest.approx(0.1), "b": pytest.approx(0.3)}
+
+    def test_best_observed_setpoint_none_without_objective(self, tmp_path):
+        """Observables-only (BAX) problems have no 'best' -> None."""
+        import pandas as pd
+
+        bax_vocs = VOCS(
+            variables={"ctrl": [-1.0, 1.0], "meas": [-2.0, 2.0]},
+            observables=["x_CoM"],
+        )
+        opt = BaseOptimizer(
+            vocs=bax_vocs,
+            evaluate_function=lambda d: {"x_CoM": d["ctrl"]},
+            generator_name="multipoint_bax_alignment",
+            xopt_config_overrides={
+                "multipoint_bax_alignment": {
+                    "control_names": ["ctrl"],
+                    "measurement_name": "meas",
+                    "observable_names": ["x_CoM"],
+                    "n_control_mesh": 5,
+                    "algorithm_results_file": str(tmp_path / "bax_probe_results"),
+                }
+            },
+        )
+        opt.xopt.data = pd.DataFrame({"ctrl": [0.1, 0.2], "x_CoM": [0.1, 0.2]})
+        assert opt.best_observed_setpoint() is None
+
 
 # ---------------------------------------------------------------------------
 # Generator factory + BAX

@@ -29,9 +29,10 @@ import pandas as pd
 import yaml
 
 from xopt import Xopt, VOCS
+from xopt.errors import FeasibilityError
+from xopt.vocs import select_best
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
-from geecs_scanner.optimization.vocs_utils import is_maximize
 from geecs_scanner.optimization.generators.generator_factory import (
     build_generator_from_config,
 )
@@ -177,12 +178,19 @@ class BaseOptimizer:
     def best_observed_setpoint(self) -> Optional[Dict[str, float]]:
         """Return the VOCS-variable values of the best-observed row in X.data.
 
+        Delegates direction and feasibility handling to Xopt's native
+        :func:`xopt.vocs.select_best`, which derives the optimization direction
+        from the (typed) objective and ignores constraint-violating rows.
+        Errored rows are dropped first; ``select_best`` raises on degenerate
+        cases, which are mapped to ``None`` so the engine can fall back to
+        initial-state restoration.
+
         Returns
         -------
         dict or None
-            ``{variable_name: value}`` for the row with the best objective.
-            None if X.data is empty, uninitialized, or all rows are errored /
-            have a NaN objective.
+            ``{variable_name: value}`` for the best feasible, non-errored row,
+            or None if X.data is empty/uninitialized, the problem has no
+            objective (observables-only, e.g. BAX), or no usable row exists.
         """
         if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
             return None
@@ -192,19 +200,19 @@ class BaseOptimizer:
         if not self.vocs.objective_names:
             return None
 
-        df = self.xopt.data.copy()
-        obj = self.vocs.objective_names[0]
-
+        df = self.xopt.data
         if "xopt_error" in df.columns:
             df = df[df["xopt_error"] != True]  # noqa: E712
-        df = df[df[obj].notna()]
-
-        if len(df) == 0:
+        if df.empty:
             return None
 
-        idx = df[obj].idxmax() if is_maximize(self.vocs, obj) else df[obj].idxmin()
+        try:
+            _, _, params = select_best(self.vocs, df, n=1)
+        except (FeasibilityError, RuntimeError, NotImplementedError):
+            # No feasible/non-NaN row, or a multi-/explore-objective problem.
+            return None
 
-        return {name: float(df.loc[idx, name]) for name in self.vocs.variable_names}
+        return {name: float(params[name]) for name in self.vocs.variable_names}
 
     def _setup_xopt(self, overrides: dict[str, Any]):
         generator_config: dict[str, Any] = {"name": self.generator_name}

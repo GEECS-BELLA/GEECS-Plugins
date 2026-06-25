@@ -35,6 +35,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `best_observed_setpoint()` / `get_best()` now return `None` for objective-less
   problems. Modernised the `MultipointProbeConfig` after-validator to an
   instance method.
+- `BaseOptimizer.best_observed_setpoint()` now delegates to Xopt's native
+  `xopt.vocs.select_best` instead of hand-rolled idxmax/idxmin logic. Besides
+  removing duplicated code, this makes "move to best on finish" **respect
+  constraints** — the previous version only filtered errored/NaN rows and would
+  happily return a constraint-violating point.
 
 ### Added
 - `tests/optimization/test_xopt3_migration.py` — pins typed-VOCS access, the
