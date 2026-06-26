@@ -17,11 +17,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - numpy 2.4 compatibility: `np.trapz` was removed in numpy 2.4.0, breaking
   `ict_algorithms.py` and `grenouille.py`. Switched both to `np.trapezoid`
   (available since numpy 2.0, so safe across all supported envs).
-- `qwlsi.py` now imports the optional, stale `PyAbel` dependency lazily (inside
-  `calculate_density`, the only consumer) instead of at module load. PyAbel is
-  not numpy-2.4 compatible (it uses the removed `np.trapz`), and importing it at
-  module top broke collection of `test_qwlsi_analysis.py` even though the
-  wavefront paths under test never touch Abel transforms.
+- numpy 2.4 compatibility for `qwlsi.py`'s Abel-transform path: pinned
+  `pyabel >=0.9.1` (earlier PyAbel releases used the removed `np.trapz`); 0.9.1
+  is numpy-2.4 compatible. `import abel` is kept inside `calculate_density` (its
+  only consumer) so importing the module — and the wavefront paths that don't
+  need an Abel transform — stays light.
 
 ## [1.9.0] — 2026-06-18
 
