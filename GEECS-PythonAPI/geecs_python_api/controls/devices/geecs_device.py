@@ -890,15 +890,50 @@ class GeecsDevice:
     # ---- Parsers ------------------------------------------------------------
     @staticmethod
     def _subscription_parser(msg: str = "") -> tuple[str, int, dict[str, str]]:
-        """Parse subscription message into (device, shot, {var: val})."""
-        pattern = re.compile(r"[^,]+nval,[^,]+nvar")
-        blocks = msg.split(">>")
-        dev_name = blocks[0]
-        shot_nb = int(blocks[1])
-        vars_vals = pattern.findall(blocks[-1])
-        dict_vals = {
-            s.split(",")[0][:-5].strip(): s.split(",")[1][:-5] for s in vars_vals
-        }
+        r"""Parse a subscription message into ``(device, shot, {var: val})``.
+
+        The message has the shape::
+
+            <device>>><shot>>><var> nval,<value> nvar,\r\n<var> nval,<value> nvar,...
+
+        Variable values are delimited by the literal ``nval,`` and ``nvar``
+        tokens, which never occur inside a value. The body is therefore tokenised
+        on those anchors rather than split on commas (or on ``>>``). This keeps
+        binary values intact — e.g. IMAQ flattened images, whose pixel/JPEG bytes
+        routinely contain comma (``0x2C``) and ``>>`` (``0x3E3E``) bytes that a
+        comma/``>>``-splitting parse would truncate, silently dropping the
+        variable.
+
+        Parameters
+        ----------
+        msg : str
+            Raw decoded subscription message.
+
+        Returns
+        -------
+        tuple[str, int, dict[str, str]]
+            Device name, shot number, and a mapping of variable name to value.
+        """
+        i1 = msg.find(">>")
+        i2 = msg.find(">>", i1 + 2)
+        if i1 < 0 or i2 < 0:
+            return "", 0, {}
+        dev_name = msg[:i1]
+        shot_nb = int(msg[i1 + 2 : i2])
+
+        body = msg[i2 + 2 :]
+        dict_vals: dict[str, str] = {}
+        pos = 0
+        while True:
+            a = body.find(" nval,", pos)
+            if a < 0:
+                break
+            b = body.find(" nvar", a + 6)
+            if b < 0:
+                break
+            name = body[pos:a].strip(" ,\r\n")
+            dict_vals[name] = body[a + 6 : b]
+            pos = b + 5
         return dev_name, shot_nb, dict_vals
 
     @staticmethod

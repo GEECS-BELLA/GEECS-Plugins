@@ -185,7 +185,10 @@ class TcpSubscriber:
                 if payload is None:
                     logger.debug("socket closed while reading payload")
                     return
-                this_msg = payload.decode("ascii", errors="replace")
+                # Decode as latin-1 (lossless byte<->char map, superset of ASCII)
+                # so binary payloads such as JPEG-compressed images survive intact.
+                # Recover the original bytes downstream with this_msg.encode("latin-1").
+                this_msg = payload.decode("latin-1")
 
                 # Fire optional raw-message callback.
                 if self.message_callback is not None:
