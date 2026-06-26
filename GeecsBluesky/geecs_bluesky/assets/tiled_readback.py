@@ -52,6 +52,24 @@ def read_tiled_config() -> tuple[str | None, str | None]:
     return cfg["tiled"].get("uri") or None, cfg["tiled"].get("api_key") or None
 
 
+def read_geecs_root_map() -> dict[str, str]:
+    """Read a device-server to local data-root map from the GEECS config."""
+    config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+    if not config_path.exists():
+        return {}
+
+    cfg = configparser.ConfigParser()
+    cfg.read(config_path)
+    if "Paths" not in cfg:
+        return {}
+
+    remote_root = cfg["Paths"].get("geecs_device_server_data_base_path")
+    local_root = cfg["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH")
+    if not remote_root or not local_root:
+        return {}
+    return {remote_root: local_root}
+
+
 def load_tiled_client(
     *,
     tiled_uri: str | None = None,
@@ -185,6 +203,7 @@ def resolve_camera_asset_from_event(
     event: Mapping[str, Any],
     device_name: str,
     device_type: str | None = None,
+    root_map: Mapping[str, str] | None = None,
 ) -> TiledCameraAsset:
     """Resolve a camera asset from archived Tiled run metadata and one event.
 
@@ -207,7 +226,11 @@ def resolve_camera_asset_from_event(
     event_dict = dict(event)
     start_dict = dict(start_doc)
     scan_number = _required_int(start_dict, "scan_number")
-    scan_folder = _required_path(start_dict, "scan_folder")
+    effective_root_map = dict(root_map or read_geecs_root_map())
+    scan_folder = _mapped_path(
+        _required_str(start_dict, "scan_folder"),
+        effective_root_map,
+    )
     data_key = definition.event_key(device_name)
     acq_key = f"{safe_name(device_name)}-acq_timestamp"
     save_path_key = f"{safe_name(device_name)}-nonscalar_save_path"
@@ -215,7 +238,7 @@ def resolve_camera_asset_from_event(
     acq_timestamp = _required_float(event_dict, acq_key)
     save_path_value = event_dict.get(save_path_key)
     save_path = (
-        Path(str(save_path_value))
+        _mapped_path(str(save_path_value), effective_root_map)
         if not _is_missing(save_path_value)
         else scan_folder / device_name
     )
@@ -272,10 +295,11 @@ def load_camera_image_from_tiled_run(
         event=event,
         device_name=device_name,
         device_type=device_type,
+        root_map=root_map,
     )
     filled_docs = fill_geecs_documents(
         asset.documents,
-        root_map=root_map,
+        root_map=root_map or read_geecs_root_map(),
         include=[asset.data_key],
         retry_intervals=retry_intervals,
     )
@@ -439,11 +463,32 @@ def _required_float(mapping: Mapping[str, Any], key: str) -> float:
     return float(value)
 
 
-def _required_path(mapping: Mapping[str, Any], key: str) -> Path:
+def _required_str(mapping: Mapping[str, Any], key: str) -> str:
     value = mapping.get(key)
     if _is_missing(value):
         raise KeyError(f"start document is missing {key!r}")
-    return Path(str(value))
+    return str(value)
+
+
+def _mapped_path(value: str, root_map: Mapping[str, str]) -> Path:
+    """Return *value* as a local path after applying a tolerant root map."""
+    normalized_value = _normalize_path_string(value)
+    for remote_root, local_root in root_map.items():
+        normalized_remote = _normalize_path_string(str(remote_root))
+        if normalized_value == normalized_remote or normalized_value.startswith(
+            f"{normalized_remote}/"
+        ):
+            relative = normalized_value.removeprefix(normalized_remote).lstrip("/")
+            return Path(str(local_root)).joinpath(*relative.split("/"))
+    return Path(value)
+
+
+def _normalize_path_string(value: str) -> str:
+    """Normalize Windows/POSIX separators for prefix comparisons."""
+    normalized = value.replace("\\", "/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    return normalized.rstrip("/")
 
 
 def _datum_id_from_event(value: Any) -> str:

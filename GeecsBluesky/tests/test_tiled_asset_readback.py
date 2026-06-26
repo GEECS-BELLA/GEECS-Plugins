@@ -12,6 +12,7 @@ import png
 import pytest
 
 from geecs_bluesky.assets.specs import POINTGREY_CAMERA_DEVICE_TYPE
+from geecs_bluesky.assets import tiled_readback
 from geecs_bluesky.assets.tiled_readback import (
     event_by_scan_event_index,
     find_geecs_run,
@@ -207,6 +208,73 @@ def test_load_camera_image_from_tiled_run_uses_event_timestamp(
 
     assert loaded.asset.file_path == device_folder / "UC_Amp2_IR_input_1001.500.png"
     np.testing.assert_array_equal(loaded.image, second)
+
+
+def test_load_camera_image_from_tiled_run_maps_windows_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows scan metadata should fill from the configured local root map."""
+    local_data_root = tmp_path / "hdna2" / "data"
+    local_scan_folder = (
+        local_data_root
+        / "Undulator"
+        / "Y2026"
+        / "06-Jun"
+        / "26_0625"
+        / "scans"
+        / "Scan001"
+    )
+    device_folder = local_scan_folder / "UC_Amp4_IR_input"
+    device_folder.mkdir(parents=True)
+    expected = np.array([[4, 4], [8, 8]], dtype=np.uint8)
+    image_path = device_folder / "UC_Amp4_IR_input_3865254648.364.png"
+    with image_path.open("wb") as stream:
+        png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+            stream, expected.tolist()
+        )
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 6, 25, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 1,
+        "scan_folder": (r"Z:\data\Undulator\Y2026\06-Jun\26_0625\scans\Scan001"),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 5,
+                "uc_amp4_ir_input-acq_timestamp": 3865254648.364,
+                "uc_amp4_ir_input-nonscalar_save_path": (
+                    r"Z:\data\Undulator\Y2026\06-Jun\26_0625\scans"
+                    r"\Scan001\UC_Amp4_IR_input"
+                ),
+                "uc_amp4_ir_input-image": "resource-uid/0",
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        tiled_readback,
+        "read_geecs_root_map",
+        lambda: {"Z:/data": str(local_data_root)},
+    )
+
+    loaded = load_camera_image_from_tiled_run(
+        _FakeRun(start_doc, table),
+        device_name="UC_Amp4_IR_input",
+        shot_number=5,
+        device_type=POINTGREY_CAMERA_DEVICE_TYPE,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.file_path == image_path
+    assert loaded.asset.resource_path == (
+        "UC_Amp4_IR_input/UC_Amp4_IR_input_3865254648.364.png"
+    )
+    np.testing.assert_array_equal(loaded.image, expected)
 
 
 def test_find_geecs_run_matches_scan_identity_by_date() -> None:
