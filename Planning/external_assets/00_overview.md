@@ -45,6 +45,10 @@ Implemented pieces:
 - Device-server save paths are translated from the scanner-local mount path to
   the configured LabVIEW/device-server base path before writing
   `localsavingpath`.
+- Resource documents use a canonical data root from
+  `geecs_device_server_data_base_path` when available and POSIX
+  `resource_path` values below that root. The scanner-local data root is used
+  only to compute the relative path.
 - Tiled ingestion is guarded so an external-asset persistence failure warns and
   disables that callback instead of aborting a scan.
 - `tiled_external_asset_readback.ipynb` demonstrates the local-first archive
@@ -102,6 +106,11 @@ The main remaining gap is Tiled-side support for these custom GEECS asset specs.
 Until the lab Tiled server has matching readers/adapters, GEECS datum IDs are
 stored as ordinary event metadata there rather than being fully fillable through
 Tiled.
+
+The current Tiled catalog contents are pre-production/test data. Once the asset
+schema and acquisition behavior settle, it is reasonable to purge those test
+runs and start the production catalog from the finalized Resource/Datum
+contract.
 
 ## Validation Snapshot
 
@@ -283,8 +292,8 @@ Conceptually:
 Resource
   uid: ...
   spec: GEECS_CAMERA_IMAGE
-  root: /Volumes/hdna2/data/Undulator/Y2026/.../scans/Scan042
-  resource_path: UC_Amp2_IR_input/UC_Amp2_IR_input_1234567890.123.png
+  root: Z:/data
+  resource_path: Undulator/Y2026/.../scans/Scan042/UC_Amp2_IR_input/UC_Amp2_IR_input_1234567890.123.png
   resource_kwargs: {}
   path_semantics: posix
 
@@ -304,10 +313,11 @@ Use `root` + `resource_path` rather than storing only absolute strings in the
 event. This gives future clients a clean place to handle mount differences
 between lab machines, analysis workstations, and archives.
 
-For the first implementation, choose `root` so a normal consumer with the
-NetApp mapped can access the file directly from `root / resource_path`. The
-exact split can be adjusted, but it should not require consumers to know GEECS
-scan-folder conventions just to resolve the file.
+For Bluesky-written runs, prefer a canonical data root rather than the scan
+folder as `root`. In the current lab configuration that canonical root is the
+device-server data root, typically `Z:/data`. The `resource_path` is then the
+POSIX-style path below that root. Consumers that see the NetApp through a
+different mount point use `root_map` to translate only the root.
 
 ### File Completion
 
@@ -455,8 +465,9 @@ a later PR explicitly scopes it:
 
 Resolved choices:
 
-- `root` should be the scan folder, so `root / resource_path` directly resolves
-  to the native file for a consumer with the NetApp mounted.
+- Resource docs for Bluesky-written runs should use the canonical data root as
+  `root` and a POSIX path below that root as `resource_path`. Local readers use
+  `root_map` when their mount point differs from the canonical root.
 - Event field names should follow the current GeecsBluesky safe-name convention:
   `<safe_device_name>-<safe_asset_field>`, for example `uc_topview-image`.
 - Asset docs should be emitted during acquisition for deterministic native file
@@ -479,16 +490,14 @@ that Tiled ingestion/readback works in the lab environment.
 
 ## Recommended Next PRs
 
-1. Promote the notebook-proven Tiled camera readback path into a stable, small
-   API surface for "date/scan/device/shot -> filled camera asset"; keep the
-   notebook as a thin example.
-2. Add opt-in integration coverage for that API using a known archived run and
-   local root mapping.
-3. Run a fresh strict `ARMED` native-save hardware check after PR #441 and
+1. Add opt-in integration coverage for the Tiled camera readback API using a
+   known archived run and local root mapping.
+2. Run a fresh strict `ARMED` native-save hardware check after canonical
+   Resource writing lands and
    confirm event count, file count, and asset fill agree.
-4. Define the minimal post-run feature-extraction result schema for analysis and
+3. Define the minimal post-run feature-extraction result schema for analysis and
    optimization consumers.
-5. Implement a small post-run analysis runner that consumes Bluesky runs, fills
+4. Implement a small post-run analysis runner that consumes Bluesky runs, fills
    image assets in chunks, and writes derived results linked to the raw run.
-6. Add HASO/scope-specific handlers only after the camera/Tiled path is proven
+5. Add HASO/scope-specific handlers only after the camera/Tiled path is proven
    end-to-end.

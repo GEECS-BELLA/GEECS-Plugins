@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.2] - 2026-06-26
+
+### Changed
+
+- External asset Resource documents now use the configured device-server data
+  root as their canonical `root` when available, with POSIX `resource_path`
+  values below that root, instead of always using the scan folder as root.
+- Resource path construction now normalizes Windows and POSIX separators before
+  computing relative paths.
+
+### Documentation
+
+- Updated the external-assets roadmap to describe canonical Resource writing,
+  reader-side root mapping, and the pre-production/test status of current Tiled
+  data.
+
 ## [0.13.1] - 2026-06-25
 
 ### Fixed
