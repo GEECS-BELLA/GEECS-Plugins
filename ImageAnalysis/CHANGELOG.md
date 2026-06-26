@@ -6,10 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [1.9.1] — 2026-06-25
 
 ### Changed
-- Dropped the Python 3.7-3.9 / numpy 1.x support claim. The minimum is now
-  `python >=3.10,<3.12` (the monorepo standard), matching the numpy 2.0+ APIs
-  the analyzers actually use (e.g. `np.trapezoid`). The per-Python version
-  splits for numpy/scipy/pandas/Pint collapse to single modern pins.
+- Dropped the Python 3.7-3.10 / numpy 1.x support claim. The minimum is now
+  `python >=3.11,<3.12`, matching the integrated monorepo environment (the root
+  project and the GUI/PythonAPI/Bluesky packages all require >=3.11) and the
+  numpy 2.0+ APIs the analyzers actually use (e.g. `np.trapezoid`). The
+  per-Python version splits for numpy/scipy/pandas/Pint collapse to single
+  modern pins.
 
 ### Fixed
 - numpy 2.4 compatibility: `np.trapz` was removed in numpy 2.4.0, breaking

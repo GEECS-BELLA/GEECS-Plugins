@@ -7,10 +7,11 @@ readme = "README.md"
 packages = [{include = "image_analysis"}]
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.12"
+python = ">=3.11,<3.12"
 
-# numeric libraries (Python 3.7-3.9 / numpy 1.x support was dropped; the
-# analyzers use numpy 2.0+ APIs such as np.trapezoid)
+# numeric libraries (Python 3.7-3.10 / numpy 1.x support was dropped; the
+# analyzers use numpy 2.0+ APIs such as np.trapezoid, and the integrated
+# monorepo environment is Python 3.11)
 numpy = ">=2.0,<3.0"
 scipy = ">=1.11,<2.0"
 pandas = "^2.2.3"

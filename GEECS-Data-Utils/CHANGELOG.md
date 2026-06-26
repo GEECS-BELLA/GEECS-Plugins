@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.9.1] — 2026-06-26
+
+### Changed
+- Dropped the Python 3.10 support claim; minimum is now `python >=3.11,<3.12`,
+  matching the integrated monorepo environment (the root project and the
+  GUI/PythonAPI/Bluesky packages all require >=3.11).
+
 ## [0.9.0] — 2026-06-18
 
 ### Added

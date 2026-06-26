@@ -3,6 +3,14 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.13.1] — 2026-06-26
+
+### Changed
+- Dropped the Python 3.10 support claim and fixed a malformed pin
+  (`>=3.10 <3.12`, missing comma) → `python >=3.11,<3.12`, matching the
+  integrated monorepo environment (the root project and the GUI/PythonAPI/
+  Bluesky packages all require >=3.11).
+
 ## [1.13.0] — 2026-06-21
 
 ### Fixed
