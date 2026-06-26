@@ -1494,7 +1494,7 @@ numpy = ">=2.0,<3.0"
 opencv-python = "^4.9.0.80"
 pandas = "^2.2.3"
 Pint = ">=0.24,<=0.28"
-pyabel = ">=0.9,<1.0"
+pyabel = ">=0.9.1,<1.0"
 pypng = "^0.20220715.0"
 pytest = "^7.4"
 scikit-image = ">=0.19,<1.0"
@@ -3569,13 +3569,25 @@ files = [
 
 [[package]]
 name = "pyabel"
-version = "0.9.0"
+version = "0.9.1"
 description = "A Python package for forward and inverse Abel transforms"
 optional = false
 python-versions = "*"
 groups = ["main"]
 files = [
-    {file = "PyAbel-0.9.0.tar.gz", hash = "sha256:4052143de9da19be13bb321fb0524090ffc8cdc56e0e990e5d6f557f18109f08"},
+    {file = "pyabel-0.9.1-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:1b247e205ca438b91d7af76509fed524fd53c4eca0b198522d4be2ecc68895d8"},
+    {file = "pyabel-0.9.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:4af8b6cafcdddae068e998cef3a32121b11bbe9a6b341636a990a52e663a927f"},
+    {file = "pyabel-0.9.1-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:c513bc4d29e0c3cbe4f725af4276cb573f45d27b50b3fdbbc689366dcc78e92c"},
+    {file = "pyabel-0.9.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:46f6c6919b1b9e04e8a146b78da6172c63e8b38d3e4e4a1f9e7b6cf5464ccbf8"},
+    {file = "pyabel-0.9.1-cp312-cp312-win_amd64.whl", hash = "sha256:e550da7d48a2209282e5ea62bd524144d5d5f480db97b9a0b891e1f9337ebc47"},
+    {file = "pyabel-0.9.1-cp312-cp312-win_arm64.whl", hash = "sha256:187bfb6aea9b19f2a465857b915c075011c12de97a6f4ea2bce6166e6fda8182"},
+    {file = "pyabel-0.9.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:2e2214d026b7b8a51497a48a8114ec9ff6ce62b95e3b8e6fb607ffd6f91987df"},
+    {file = "pyabel-0.9.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:82b8bdb367e55f4ae2d046763ad468b24a744767099776182c51a705f4e6e65c"},
+    {file = "pyabel-0.9.1-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:f4c5e847052e80c11be9c9b8261640c589b5d0376e6a6d86467248fa61be997f"},
+    {file = "pyabel-0.9.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:005745341f20532fb04a4e6506d324eb6a5bf08db73278fb322b373586e91a98"},
+    {file = "pyabel-0.9.1-cp313-cp313-win_amd64.whl", hash = "sha256:903a60c66440f0b5a4a57a1f89faa2ddeb47c216893e333f7d0c3afe3242ac17"},
+    {file = "pyabel-0.9.1-cp313-cp313-win_arm64.whl", hash = "sha256:8626e9aae6b5e82e9c8cc982f8b730540d849db6f27a314dc7baa8682a7dc287"},
+    {file = "pyabel-0.9.1.tar.gz", hash = "sha256:59652a2d8474d53523617c8fa442b18e5384c525f1895a3c43eb1261bb2a339c"},
 ]
 
 [package.dependencies]

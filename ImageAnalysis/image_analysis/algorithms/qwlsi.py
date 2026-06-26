@@ -686,10 +686,8 @@ class QWLSIImageAnalyzer:
         if image_resolution is None:
             image_resolution = self.CAMERA_RESOLUTION
 
-        # Imported lazily: PyAbel is a stale/optional dependency that is not
-        # compatible with numpy >= 2.4 (it uses the removed np.trapz). Keeping
-        # the import inside this method means merely importing qwlsi.py — and the
-        # wavefront paths that don't need an Abel transform — stays clean.
+        # Imported lazily so importing qwlsi.py, and the wavefront paths that
+        # don't need an Abel transform, stay clean when PyAbel is unavailable.
         import abel
 
         # unit-aware version of abel.Transform()
