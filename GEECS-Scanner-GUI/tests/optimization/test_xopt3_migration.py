@@ -8,9 +8,11 @@ and use plain-Python evaluators, so they do not depend on ImageAnalysis.
 
 from __future__ import annotations
 
-# Importing the engine package first resolves the pre-existing engine<->
-# optimization import cycle (config_models eagerly rebuilds engine models),
-# so that ``base_optimizer`` can be imported at module scope below.
+# Import the engine package first to resolve the pre-existing engine<->
+# optimization import cycle (config_models eagerly rebuilds engine models) so
+# ``base_optimizer`` can be imported at module scope below. The package-level
+# tests/conftest.py patches GeecsDatabase.collect_exp_info before collection, so
+# this import does not touch the lab network.
 import geecs_scanner.engine  # noqa: F401
 
 import numpy as np
@@ -127,6 +129,52 @@ class TestOptimizerAndDump:
         other = VOCS(variables={"a": [-1.0, 1.0]}, objectives={"obj": "MAXIMIZE"})
         with pytest.raises(ValueError, match="variable mismatch"):
             check_vocs_compatible(vocs, other, tmp_path / "x.yaml")
+
+    def test_check_vocs_compatible_rejects_observable_mismatch(self, tmp_path):
+        # Observables-only (BAX) dumps: differing observable names are a hard
+        # incompatibility, the same as a variable/objective mismatch.
+        target = VOCS(variables={"a": [-1.0, 1.0]}, observables=["obs_target"])
+        source = VOCS(variables={"a": [-1.0, 1.0]}, observables=["obs_source"])
+        with pytest.raises(ValueError, match="observable mismatch"):
+            check_vocs_compatible(target, source, tmp_path / "x.yaml")
+
+    def test_seed_from_dumps_filters_nan_observables(self, tmp_path):
+        """BAX seeding drops rows with NaN observables (there is no objective)."""
+        import pandas as pd
+
+        bax_vocs = VOCS(
+            variables={"ctrl": [-1.0, 1.0], "meas": [-2.0, 2.0]},
+            observables=["x_CoM"],
+        )
+        overrides = {
+            "multipoint_bax_alignment": {
+                "control_names": ["ctrl"],
+                "measurement_name": "meas",
+                "observable_names": ["x_CoM"],
+                "n_control_mesh": 5,
+                "algorithm_results_file": str(tmp_path / "bax_probe_results"),
+            }
+        }
+        kwargs = dict(
+            vocs=bax_vocs,
+            evaluate_function=lambda d: {"x_CoM": d["ctrl"]},
+            generator_name="multipoint_bax_alignment",
+            xopt_config_overrides=overrides,
+        )
+        src = BaseOptimizer(**kwargs)
+        src.xopt.data = pd.DataFrame(
+            {
+                "ctrl": [0.1, 0.2, 0.3],
+                "meas": [0.0, 0.0, 0.0],
+                "x_CoM": [0.1, float("nan"), 0.3],
+                "xopt_error": [False, False, False],
+            }
+        )
+        dump_path = tmp_path / "xopt_dump.yaml"
+        src.xopt.dump(str(dump_path))
+
+        dst = BaseOptimizer(**kwargs, seed_dump_files=[dump_path])
+        assert dst.n_seeded == 2  # the NaN-observable row is filtered out
 
     def test_best_observed_setpoint_uses_native_select_best(self, vocs):
         """Delegates to xopt.vocs.select_best: right direction, errored rows dropped."""

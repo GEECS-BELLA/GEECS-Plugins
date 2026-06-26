@@ -108,6 +108,24 @@ def check_vocs_compatible(target: VOCS, source: VOCS, source_path: Path) -> None
             f"target={target.objectives}, dump={source.objectives}"
         )
 
+    # --- observables (hard) ---
+    # For observables-only problems (e.g. BAX) the modelled observables are the
+    # learning signal, so a name mismatch makes the dump incompatible — the same
+    # way a variable/objective mismatch does.
+    target_obs = set(target.observable_names)
+    source_obs = set(source.observable_names)
+    if target_obs != source_obs:
+        missing = sorted(target_obs - source_obs)
+        extra = sorted(source_obs - target_obs)
+        parts = []
+        if missing:
+            parts.append(f"missing from dump: {missing}")
+        if extra:
+            parts.append(f"extra in dump: {extra}")
+        raise ValueError(
+            f"VOCS observable mismatch in {source_path.name}: {'; '.join(parts)}"
+        )
+
     # --- bounds (soft) ---
     target_bounds_map = variable_bounds(target)
     source_bounds_map = variable_bounds(source)

@@ -248,7 +248,7 @@ class BaseOptimizer:
 
         Each file's VOCS is checked for compatibility with this optimizer's
         VOCS before any data is loaded.  Rows where ``xopt_error`` is True or
-        any objective column is NaN are filtered out.
+        any objective/observable column is NaN are filtered out.
 
         Parameters
         ----------
@@ -260,7 +260,12 @@ class BaseOptimizer:
         int
             Total number of rows added to the optimizer (after filtering).
         """
-        objective_names = list(self.vocs.objectives.keys())
+        # Filter NaNs across objectives AND observables: an observables-only
+        # VOCS (e.g. BAX) has no objectives, so the modelled observables are the
+        # columns that must be finite for a row to be a usable seed.
+        nan_filter_names = list(self.vocs.objective_names) + list(
+            self.vocs.observable_names
+        )
         all_frames: List[pd.DataFrame] = []
         dump_vocs_pairs = []
 
@@ -292,17 +297,17 @@ class BaseOptimizer:
                 if n_errors:
                     logger.info("Filtered %d error row(s) from %s", n_errors, path.name)
 
-            # Filter NaN objective rows
-            for obj_name in objective_names:
-                if obj_name in df.columns:
+            # Filter NaN objective/observable rows
+            for col_name in nan_filter_names:
+                if col_name in df.columns:
                     n_before = len(df)
-                    df = df[df[obj_name].notna()]
+                    df = df[df[col_name].notna()]
                     n_nan = n_before - len(df)
                     if n_nan:
                         logger.info(
                             "Filtered %d NaN '%s' row(s) from %s",
                             n_nan,
-                            obj_name,
+                            col_name,
                             path.name,
                         )
 

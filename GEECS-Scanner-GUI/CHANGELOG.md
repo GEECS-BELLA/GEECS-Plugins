@@ -49,6 +49,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   construction/generation.
 
 ### Fixed
+- Seed-dump compatibility now treats VOCS **observable** names as a hard check
+  (like variables/objectives), and `seed_from_dumps` filters NaN rows across
+  observables as well as objectives. Without this, an observables-only BAX VOCS
+  (no objectives) would accept dumps with mismatched observable names and load
+  rows with missing/NaN observables.
+- `tests/conftest.py` now actually patches `GeecsDatabase.collect_exp_info`
+  (the docstring had long promised this but no code did it), so importing the
+  engine package during test collection is network-free on a developer machine
+  that has a `config.ini` but is off the lab network — previously such imports
+  blocked ~75 s and failed.
 - Optimization test fakes no longer pass a `name=` kwarg to `CameraConfig` /
   `Line1DConfig`; those models dropped the `name` field in an ImageAnalysis
   refactor, so the fakes were raising `extra_forbidden` at collection. Device
