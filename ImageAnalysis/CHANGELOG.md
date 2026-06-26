@@ -5,6 +5,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [1.9.1] — 2026-06-25
 
+### Changed
+- Dropped the Python 3.7-3.9 / numpy 1.x support claim. The minimum is now
+  `python >=3.10,<3.12` (the monorepo standard), matching the numpy 2.0+ APIs
+  the analyzers actually use (e.g. `np.trapezoid`). The per-Python version
+  splits for numpy/scipy/pandas/Pint collapse to single modern pins.
+
 ### Fixed
 - numpy 2.4 compatibility: `np.trapz` was removed in numpy 2.4.0, breaking
   `ict_algorithms.py` and `grenouille.py`. Switched both to `np.trapezoid`
