@@ -509,6 +509,47 @@ class BlueskyScanner:
         return cfg["Paths"].get("geecs_device_server_data_base_path") or None
 
     @staticmethod
+    def _read_local_data_base_path() -> str | None:
+        """Read the scanner-local path for the shared GEECS data root."""
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None
+
+        cfg = ConfigParser()
+        cfg.read(config_path)
+        if "Paths" not in cfg:
+            return None
+        return cfg["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH") or None
+
+    @staticmethod
+    def _asset_resource_root_paths() -> tuple[str | None, str | None]:
+        """Return ``(canonical_root, local_root)`` for external asset docs."""
+        canonical_root = BlueskyScanner._read_device_server_data_base_path()
+        if not canonical_root:
+            return None, None
+
+        local_root = BlueskyScanner._read_local_data_base_path()
+        if local_root:
+            return canonical_root, local_root
+
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.warning(
+                "Could not import geecs_data_utils; using scan-folder asset roots"
+            )
+            return None, None
+
+        paths_config = getattr(ScanPaths, "paths_config", None)
+        base_path = getattr(paths_config, "base_path", None)
+        if base_path is None:
+            logger.warning(
+                "ScanPaths.paths_config is not loaded; using scan-folder asset roots"
+            )
+            return None, None
+        return canonical_root, str(base_path)
+
+    @staticmethod
     def _device_server_save_path(save_path: str) -> str:
         """Return the path to send to device ``localsavingpath`` controls."""
         device_server_base_path = BlueskyScanner._read_device_server_data_base_path()
@@ -966,10 +1007,14 @@ class BlueskyScanner:
                                 device_name
                             )
                             if asset_definitions:
+                                asset_root, asset_local_root = (
+                                    self._asset_resource_root_paths()
+                                )
                                 det.configure_external_asset_logging(
                                     scan_number=scan_number,
                                     asset_definitions=asset_definitions,
-                                    root_path=scan_folder,
+                                    root_path=asset_root or scan_folder,
+                                    local_root_path=asset_local_root or scan_folder,
                                 )
                         self._saving_detectors.append(
                             (det, save_path, device_save_path)

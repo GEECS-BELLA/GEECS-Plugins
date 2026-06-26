@@ -48,7 +48,8 @@ class NonScalarSaveSupport:
     _nonscalar_save_path: Path | None = None
     _asset_definitions: tuple[AssetDefinition, ...] = ()
     _asset_scan_number: int | None = None
-    _asset_root_path: Path | None = None
+    _asset_root_path: str | None = None
+    _asset_local_root_path: str | None = None
     _pending_asset_docs: deque[Asset]
 
     def _init_save_signals(
@@ -84,16 +85,22 @@ class NonScalarSaveSupport:
         scan_number: int,
         asset_definitions: tuple[AssetDefinition, ...],
         root_path: str | Path | None = None,
+        local_root_path: str | Path | None = None,
     ) -> None:
         """Configure Bluesky external asset docs for native file-saving devices."""
         self._asset_definitions = tuple(asset_definitions)
         self._asset_scan_number = scan_number
         if root_path is not None:
-            self._asset_root_path = Path(root_path)
+            self._asset_root_path = str(root_path)
         elif self._nonscalar_save_path is not None:
-            self._asset_root_path = self._nonscalar_save_path.parent
+            self._asset_root_path = str(self._nonscalar_save_path.parent)
         else:
             self._asset_root_path = None
+        self._asset_local_root_path = (
+            str(local_root_path)
+            if local_root_path is not None
+            else self._asset_root_path
+        )
         self._pending_asset_docs = deque()
 
     def _save_path_datakey(self) -> dict[str, DataKey]:
@@ -180,6 +187,7 @@ class NonScalarSaveSupport:
         if (
             self._nonscalar_save_path is None
             or self._asset_root_path is None
+            or self._asset_local_root_path is None
             or self._asset_scan_number is None
             or acq_timestamp is None
             or not math.isfinite(float(acq_timestamp))
@@ -206,7 +214,11 @@ class NonScalarSaveSupport:
         )
         if companion_paths:
             resource_kwargs["companion_resource_paths"] = [
-                definition.resource_path(root=self._asset_root_path, file_path=path)
+                definition.resource_path(
+                    root=self._asset_root_path,
+                    file_path=path,
+                    local_root=self._asset_local_root_path,
+                )
                 for path in companion_paths
             ]
 
@@ -217,7 +229,9 @@ class NonScalarSaveSupport:
             resource_path=definition.resource_path(
                 root=self._asset_root_path,
                 file_path=file_path,
+                local_root=self._asset_local_root_path,
             ),
+            path_semantics="posix",
             uid=resource_uid,
         )
         datum = Datum(

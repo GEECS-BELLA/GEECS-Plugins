@@ -120,6 +120,36 @@ def test_camera_definition_builds_file_and_resource_paths(tmp_path) -> None:
     )
 
 
+def test_camera_definition_builds_cross_os_resource_paths() -> None:
+    """Registry resource paths should not depend on the local OS path parser."""
+    definition = get_single_asset_definition("Point Grey Camera")
+    assert definition is not None
+
+    assert (
+        definition.resource_path(
+            root="Z:/data",
+            file_path=(
+                r"Z:\data\Undulator\Y2026\06-Jun\26_0625\scans"
+                r"\Scan001\UC_Amp4_IR_input\UC_Amp4_IR_input_3865254648.364.png"
+            ),
+        )
+        == "Undulator/Y2026/06-Jun/26_0625/scans/Scan001/"
+        "UC_Amp4_IR_input/UC_Amp4_IR_input_3865254648.364.png"
+    )
+    assert (
+        definition.resource_path(
+            root="Z:/data",
+            local_root="/Volumes/hdna2/data",
+            file_path=(
+                "/Volumes/hdna2/data/Undulator/Y2026/06-Jun/26_0625/scans/"
+                "Scan001/UC_Amp4_IR_input/UC_Amp4_IR_input_3865254648.364.png"
+            ),
+        )
+        == "Undulator/Y2026/06-Jun/26_0625/scans/Scan001/"
+        "UC_Amp4_IR_input/UC_Amp4_IR_input_3865254648.364.png"
+    )
+
+
 def test_tdms_device_types_register_primary_file_with_index_companion(tmp_path) -> None:
     """Scope/spectrometer TDMS devices should register a TDMS asset."""
     tdms_device_types = (
@@ -319,12 +349,46 @@ def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
     datum = docs[1][1]
     assert resource["root"] == str(scan_folder)
     assert resource["resource_path"] == "UC_TopView/UC_TopView_1000.500.png"
+    assert resource["path_semantics"] == "posix"
     assert resource["spec"] == GEECS_CAMERA_IMAGE
     assert resource["resource_kwargs"] == {"data_key": data_key}
     assert datum["datum_id"] == datum_id
     assert datum["resource"] == resource["uid"]
     assert datum["datum_kwargs"] == {}
     assert list(emitter.collect_asset_docs()) == []
+
+
+def test_nonscalar_save_support_emits_canonical_resource_root(tmp_path) -> None:
+    """Resource docs should support canonical roots distinct from local roots."""
+    data_root = tmp_path / "data"
+    scan_folder = (
+        data_root / "Undulator" / "Y2026" / "06-Jun" / "26_0625" / "scans" / "Scan001"
+    )
+    save_path = scan_folder / "UC_TopView"
+    emitter = _AssetEmitter()
+    emitter.configure_nonscalar_file_logging(save_path)
+    emitter.configure_external_asset_logging(
+        scan_number=1,
+        asset_definitions=get_asset_definitions(POINTGREY_CAMERA_DEVICE_TYPE),
+        root_path="Z:/data",
+        local_root_path=data_root,
+    )
+
+    reading = {}
+    emitter._emit_asset_readings(
+        reading,
+        event_timestamp=123.0,
+        acq_timestamp=3865254648.364,
+    )
+    resource = list(emitter.collect_asset_docs())[0][1]
+
+    assert reading["uc_topview-image"]["value"]
+    assert resource["root"] == "Z:/data"
+    assert resource["path_semantics"] == "posix"
+    assert resource["resource_path"] == (
+        "Undulator/Y2026/06-Jun/26_0625/scans/Scan001/"
+        "UC_TopView/UC_TopView_3865254648.364.png"
+    )
 
 
 def test_nonscalar_save_support_records_tdms_companion_paths(tmp_path) -> None:
