@@ -1,7 +1,8 @@
 exclude: |
   (?x)^(
     extras/|
-    .*/third_party_sdks/
+    .*/third_party_sdks/|
+    .*/image_analysis/algorithms/(grenouille|qwlsi)\.py$
   )
 
 repos:
