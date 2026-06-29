@@ -1,37 +1,23 @@
 [tool.poetry]
 name = "imageanalysis"
-version = "1.9.0"
+version = "1.9.1"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 authors = ["Reinier van Mourik <reinier.vanmourik@tausystems.com>"]
 readme = "README.md"
 packages = [{include = "image_analysis"}]
 
 [tool.poetry.dependencies]
-python = ">=3.7,<3.12"
+python = ">=3.11,<3.12"
 
-# numeric libraries
-# numpy - different versions per Python
-numpy = [
-    { version = ">=1.21,<2.0", python = ">=3.7,<3.9" },   # Legacy numpy for Py 3.7-3.8
-    { version = ">=2.0,<3.0", python = ">=3.9" }          # Modern numpy for Py 3.9+
-]
+# numeric libraries (Python 3.7-3.10 / numpy 1.x support was dropped; the
+# analyzers use numpy 2.0+ APIs such as np.trapezoid, and the integrated
+# monorepo environment is Python 3.11)
+numpy = ">=2.0,<3.0"
+scipy = ">=1.11,<2.0"
+pandas = "^2.2.3"
+Pint = ">=0.24,<=0.28"
 
-# scipy - different versions per Python
-scipy = [
-    { version = ">=1.7,<1.8", python = ">=3.7,<3.9" },    # Old scipy for Py 3.7-3.8
-    { version = ">=1.11,<2.0", python = ">=3.9" }         # Modern scipy for Py 3.9+
-]
-
-# pandas - different versions per Python
-pandas = [
-    { version = "^2.2.3", python = ">=3.9" },
-]
-
-Pint = [
-    { version = ">=0.24,<=0.28", python = ">=3.9" },
-]
-
-pyabel = ">=0.9,<1.0"
+pyabel = ">=0.9.1,<1.0"
 nptdms = "^1.7.0"
 h5py = "*"
 
@@ -46,7 +32,7 @@ boto3 = "^1.28"
 opencv-python = "^4.9.0.80"
 pytest = "^7.4"
 
-geecs-data-utils = { path = "../GEECS-Data-Utils", markers = "python_version >= '3.10'", develop=true }
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop=true }
 
 
 [tool.poetry.group.dev.dependencies]

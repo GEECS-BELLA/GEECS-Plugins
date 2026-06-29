@@ -471,7 +471,7 @@ class GrenouilleRetrieval:
         def _calculate_next_E_by_integration():
             @ureg.wraps('=A*B', ('=A', '=B', None))
             def trapz_ua(Y, x, axis=0):
-                return np.trapz(Y, x, axis=axis)
+                return np.trapezoid(Y, x, axis=axis)
             E = np.interp(self.E_t,   self.t, trapz_ua(E_sig_tτ, self.τ, axis=1))
             
             if self.nonlinear_effect == 'self_diffraction':

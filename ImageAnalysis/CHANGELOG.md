@@ -3,6 +3,26 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.9.1] — 2026-06-25
+
+### Changed
+- Dropped the Python 3.7-3.10 / numpy 1.x support claim. The minimum is now
+  `python >=3.11,<3.12`, matching the integrated monorepo environment (the root
+  project and the GUI/PythonAPI/Bluesky packages all require >=3.11) and the
+  numpy 2.0+ APIs the analyzers actually use (e.g. `np.trapezoid`). The
+  per-Python version splits for numpy/scipy/pandas/Pint collapse to single
+  modern pins.
+
+### Fixed
+- numpy 2.4 compatibility: `np.trapz` was removed in numpy 2.4.0, breaking
+  `ict_algorithms.py` and `grenouille.py`. Switched both to `np.trapezoid`
+  (available since numpy 2.0, so safe across all supported envs).
+- numpy 2.4 compatibility for `qwlsi.py`'s Abel-transform path: pinned
+  `pyabel >=0.9.1` (earlier PyAbel releases used the removed `np.trapz`); 0.9.1
+  is numpy-2.4 compatible. `import abel` is kept inside `calculate_density` (its
+  only consumer) so importing the module — and the wavefront paths that don't
+  need an Abel transform — stays light.
+
 ## [1.9.0] — 2026-06-18
 
 The generic file readers move to `geecs_data_utils.io.images`. ImageAnalysis

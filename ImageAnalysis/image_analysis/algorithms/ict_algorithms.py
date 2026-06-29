@@ -298,7 +298,7 @@ def apply_ict_analysis(
 
         # Step 8: Integrate and calibrate
         signal_data = np.array(value[signal_region_indices_clean])
-        integrated_signal = np.trapz(signal_data, x=None, dx=dt)
+        integrated_signal = np.trapezoid(signal_data, x=None, dx=dt)
         charge_pC = integrated_signal * (-calibration_factor) * 1e12
 
         # Calculate peak time in microseconds
@@ -412,7 +412,7 @@ def apply_ict_analysis_with_details(
         else:
             # Step 8: Integrate and calibrate
             signal_data = np.array(subtracted_value[signal_region_indices_clean])
-            integrated_signal = np.trapz(signal_data, x=None, dx=dt)
+            integrated_signal = np.trapezoid(signal_data, x=None, dx=dt)
             charge_pC = integrated_signal * (-calibration_factor) * 1e12
             signal_region_start = signal_region_indices_clean[0]
             signal_region_end = signal_region_indices_clean[-1]
