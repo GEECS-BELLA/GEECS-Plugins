@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.10.0] — 2026-06-30
+
+### Changed
+- `scan_analysis_config` now bootstraps from `SCAN_ANALYSIS_CONFIG_DIR` or
+  `scan_analysis_configs_path` in the shared GEECS user config, making the
+  unified Scan/ImageAnalysis config tree the canonical runtime config root.
+- `image_analysis_config` remains available for legacy callers but is treated
+  as the older ImageAnalysis-specific config root.
+
 ## [0.9.0] — 2026-06-18
 
 ### Added

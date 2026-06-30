@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] — 2026-06-30
+
+### Added
+- `ImageAnalyzerResult.feature_scalars()` returns JSON-serializable scalar
+  feature values for downstream analysis logging.
+
+### Changed
+- String-based camera/line config lookup now prefers the unified
+  ScanAnalysis config root (`SCAN_ANALYSIS_CONFIG_DIR` /
+  `scan_analysis_configs_path`) before falling back to the legacy
+  ImageAnalysis config root.
+
 ## [1.9.0] — 2026-06-18
 
 The generic file readers move to `geecs_data_utils.io.images`. ImageAnalysis

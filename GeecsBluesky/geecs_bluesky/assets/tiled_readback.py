@@ -398,6 +398,8 @@ def _run_matches(
     timezone: str,
 ) -> bool:
     start = _start_doc(run)
+    if _is_analysis_run(start):
+        return False
     if start.get("scan_number") != scan_number:
         return False
     if experiment is not None and start.get("experiment") != experiment:
@@ -411,6 +413,12 @@ def _start_doc(run: Any) -> dict[str, Any]:
 
 def _run_start_time(run: Any) -> float:
     return float(_start_doc(run).get("time") or 0.0)
+
+
+def _is_analysis_run(start_doc: Mapping[str, Any]) -> bool:
+    return start_doc.get("purpose") == "geecs_bluesky_analysis" or not _is_missing(
+        start_doc.get("analysis_of")
+    )
 
 
 def _date_matches(

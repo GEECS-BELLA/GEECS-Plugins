@@ -137,6 +137,19 @@ class TestBeamAnalyzerResult:
         assert "horizontal_projection" in result.render_data
         assert "vertical_projection" in result.render_data
 
+    def test_feature_scalars_exports_portable_values(self, analyzer):
+        """BeamAnalyzer scalars should export as persistence-friendly features."""
+        img = gaussian_beam_2d(shape=(128, 128), center=(64.0, 64.0), seed=0)
+        result = analyzer.analyze_image(img)
+        features = result.feature_scalars()
+
+        assert features["x_CoM"] == result.scalars["x_CoM"]
+        assert features["y_CoM"] == result.scalars["y_CoM"]
+        assert all(
+            isinstance(value, (int, float, str, bool)) or value is None
+            for value in features.values()
+        )
+
 
 class TestBeamAnalyzerROICoordinates:
     """CoM and peak_location are expressed in full-image coordinates when ROI is set."""

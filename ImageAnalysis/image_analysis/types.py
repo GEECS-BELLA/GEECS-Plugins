@@ -80,6 +80,7 @@ class AnalyzerResultDict(TypedDict):
 
 # Type alias for render_data values
 RenderDataValue = Union[float, List[float], NDArray]
+ScalarFeatureValue = Union[int, float, str, bool, None]
 
 
 def _safe_nanmean_arrays(arrays: List[NDArray], *, label: str) -> Optional[NDArray]:
@@ -283,6 +284,32 @@ class ImageAnalyzerResult(BaseModel):
             return h, v
         return None
 
+    def feature_scalars(self) -> Dict[str, ScalarFeatureValue]:
+        """Return scalars in a persistence-friendly feature-column form.
+
+        Image analyzers may naturally produce NumPy scalar values. This method
+        normalizes those to plain Python scalars so downstream persistence
+        layers such as GeecsBluesky feature tables, JSONL, or Parquet do not
+        need analyzer-specific conversion logic.
+
+        Returns
+        -------
+        dict
+            Scalar feature names mapped to JSON/Parquet-friendly scalar values.
+
+        Raises
+        ------
+        TypeError
+            If an analyzer places a non-scalar value in ``scalars``. Arrays,
+            lists, and other rich data should live in ``processed_image``,
+            ``line_data``, ``render_data``, or analyzer-specific derived files,
+            not scalar feature columns.
+        """
+        return {
+            key: _coerce_feature_scalar(value, key=key)
+            for key, value in self.scalars.items()
+        }
+
     @classmethod
     def average(cls, results: List["ImageAnalyzerResult"]) -> "ImageAnalyzerResult":
         """Average multiple ImageAnalyzerResult objects.
@@ -418,3 +445,15 @@ class ImageAnalyzerResult(BaseModel):
             render_data=avg_render_data,
             render_function=results[0].render_function,
         )
+
+
+def _coerce_feature_scalar(value: Any, *, key: str) -> ScalarFeatureValue:
+    """Coerce analyzer scalar values to portable feature-table values."""
+    if isinstance(value, np.generic):
+        value = value.item()
+    if value is None or isinstance(value, (str, bool, int, float)):
+        return value
+    raise TypeError(
+        f"ImageAnalyzerResult.scalars[{key!r}] must be a scalar value, "
+        f"got {type(value).__name__}"
+    )

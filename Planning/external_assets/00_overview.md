@@ -371,6 +371,9 @@ relying on them for analysis.
 After native files can be represented and filled as external assets, add a
 post-run analysis layer that consumes Bluesky/Tiled runs.
 
+The concrete first-pass result contract and sidecar camera-analysis helper are
+drafted in `Planning/external_assets/analysis_results.md`.
+
 Desired flow:
 
 ```text

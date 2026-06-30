@@ -314,3 +314,41 @@ def test_find_geecs_run_matches_scan_identity_by_date() -> None:
     )
 
     assert found is target
+
+
+def test_find_geecs_run_ignores_derived_analysis_runs() -> None:
+    """Raw run lookup should not collide with derived analysis records."""
+    target_time = datetime(
+        2026, 6, 29, 21, 0, tzinfo=ZoneInfo("America/Los_Angeles")
+    ).timestamp()
+    raw_run = _FakeRun(
+        {
+            "uid": "44b60a76-c8e2-425c-b3cf-5ef8c92c864c",
+            "time": target_time,
+            "scan_number": 1,
+            "experiment": "Undulator",
+        },
+        pd.DataFrame(),
+    )
+    analysis_run = _FakeRun(
+        {
+            "uid": "22241641-679a-44de-8670-5c6891421641",
+            "time": target_time + 60,
+            "scan_number": 1,
+            "experiment": "Undulator",
+            "purpose": "geecs_bluesky_analysis",
+            "analysis_of": "44b60a76-c8e2-425c-b3cf-5ef8c92c864c",
+        },
+        pd.DataFrame(),
+    )
+
+    found = find_geecs_run(
+        _FakeCatalog([raw_run, analysis_run]),
+        year=2026,
+        month=6,
+        day=29,
+        scan_number=1,
+        experiment="Undulator",
+    )
+
+    assert found is raw_run

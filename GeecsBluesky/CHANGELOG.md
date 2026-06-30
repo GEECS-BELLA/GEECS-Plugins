@@ -4,6 +4,30 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.14.0] - 2026-06-30
+
+### Added
+
+- Added a post-run analysis contract for Bluesky camera runs, including
+  sidecar metadata/features writers, ImageAnalysis analyzer adapters, optional
+  derived analysis-run documents, and tests for event-scope and scan-scope
+  analysis execution.
+- Added `tiled_camera_analysis_sidecar.ipynb` to exercise local Tiled camera
+  asset fill, BeamAnalyzer execution, sidecar writing, and optional analysis
+  run publication.
+
+### Changed
+
+- Analysis config resolution now prefers the unified scan-analysis config root
+  before falling back to legacy image-analysis config paths.
+- Tiled raw-run lookup now ignores derived analysis runs so analysis records do
+  not collide with acquisition runs that share the same date and scan number.
+
+### Documentation
+
+- Added planning notes for sidecar-first analysis results and linked them from
+  the external-assets roadmap.
+
 ## [0.13.2] - 2026-06-26
 
 ### Changed

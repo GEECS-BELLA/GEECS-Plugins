@@ -28,6 +28,9 @@ Before committing notebook changes:
 - `tiled_external_asset_readback.ipynb` — query an archived Bluesky run from
   Tiled by date, scan number, device, and shot, then fill the camera image
   locally through the GEECS external-asset handler.
+- `tiled_camera_analysis_sidecar.ipynb` — query an archived camera run from
+  Tiled, fill camera assets locally, run an ImageAnalysis-style analyzer, write
+  sidecar analysis artifacts, and optionally publish a derived analysis run.
 - `external_asset_readback.ipynb` — fill GEECS camera external asset
   Resource/Datum documents locally into NumPy arrays, including a parameterized
   existing-scan lookup and a synthetic no-hardware smoke test. Prefer
