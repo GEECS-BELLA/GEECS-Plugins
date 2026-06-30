@@ -109,6 +109,22 @@ RE = RunEngine()
 RE(bp.count([det], num=5))
 ```
 
+## Local sandbox
+
+Developers without BELLA/GEECS network access can run a complete fake-hardware
+RunEngine scan on localhost:
+
+```bash
+cd GeecsBluesky
+poetry install
+poetry run python examples/sandbox_run_engine_scan.py
+```
+
+The sandbox uses `FakeGeecsServer`, `GeecsMotor`, `GeecsGenericDetector`, and
+`geecs_step_scan`, then captures the emitted Bluesky documents in memory.  It
+does not require Tiled, the GEECS database, hardware, VPN, or
+`~/.config/geecs_python_api/config.ini`.  See `SANDBOX.md` for details.
+
 ## Writing a new device
 
 ```python

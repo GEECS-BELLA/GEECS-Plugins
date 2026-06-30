@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.3] - 2026-06-29
+
+### Added
+
+- Added a local fake-hardware RunEngine sandbox that runs `geecs_step_scan`
+  against `FakeGeecsServer` without requiring GEECS hardware, database access,
+  Tiled, or lab network access.
+- Promoted bounded background fake-server helpers into
+  `geecs_bluesky.testing` for reuse by examples and external sandbox users.
+
+### Documentation
+
+- Added `SANDBOX.md` and a runnable `examples/sandbox_run_engine_scan.py`
+  script documenting the offline sandbox workflow and its boundaries.
+
 ## [0.13.2] - 2026-06-26
 
 ### Changed
