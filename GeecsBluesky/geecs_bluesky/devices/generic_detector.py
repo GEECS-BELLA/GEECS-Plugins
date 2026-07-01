@@ -72,7 +72,9 @@ class GeecsGenericDetector(
         port: int,
         name: str = "detector",
         save_nonscalar_data: bool = False,
+        acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
+        self._acq_timestamp_variable = acq_timestamp_variable
         udp = GeecsUdpClient(host, port, device_name=device_name)
         attrs = build_signal_attrs(variable_list)
         with self.add_children_as_readables():
@@ -99,6 +101,7 @@ class GeecsGenericDetector(
         variable_list: list[str],
         name: str = "detector",
         save_nonscalar_data: bool = False,
+        acq_timestamp_variable: str = "acq_timestamp",
         **kwargs: Any,
     ) -> "GeecsGenericDetector":
         """Construct from a GEECS database lookup."""
@@ -113,6 +116,7 @@ class GeecsGenericDetector(
             port,
             name=name,
             save_nonscalar_data=save_nonscalar_data,
+            acq_timestamp_variable=acq_timestamp_variable,
             **kwargs,
         )
 

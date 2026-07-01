@@ -11,12 +11,20 @@ import pandas as pd
 import png
 import pytest
 
-from geecs_bluesky.assets.specs import POINTGREY_CAMERA_DEVICE_TYPE
 from geecs_bluesky.assets import tiled_readback
+from geecs_bluesky.assets.readback import EXTERNAL_ASSET_DOCUMENT_SCHEMA
+from geecs_bluesky.assets.specs import (
+    MAGSPEC_CAMERA_DEVICE_TYPE,
+    PICOSCOPE_V2_DEVICE_TYPE,
+    POINTGREY_CAMERA_DEVICE_TYPE,
+)
 from geecs_bluesky.assets.tiled_readback import (
     event_by_scan_event_index,
     find_geecs_run,
+    load_asset_from_tiled,
+    load_asset_from_tiled_run,
     load_camera_image_from_tiled_run,
+    resolve_asset_from_event,
     resolve_camera_asset_from_event,
 )
 
@@ -151,6 +159,7 @@ def test_resolve_camera_asset_from_tiled_event_fills_native_file(
     assert asset.data_key == "uc_amp2_ir_input-image"
     assert asset.datum_id == "resource-uid/0"
     assert asset.file_path == image_path
+    assert asset.resource_root == str(scan_folder)
     assert asset.resource_path == "UC_Amp2_IR_input/UC_Amp2_IR_input_1000.500.png"
 
 
@@ -271,10 +280,199 @@ def test_load_camera_image_from_tiled_run_maps_windows_root(
     )
 
     assert loaded.asset.file_path == image_path
+    assert loaded.asset.resource_root == "Z:/data"
     assert loaded.asset.resource_path == (
+        "Undulator/Y2026/06-Jun/26_0625/scans/Scan001/"
         "UC_Amp4_IR_input/UC_Amp4_IR_input_3865254648.364.png"
     )
     np.testing.assert_array_equal(loaded.image, expected)
+
+
+def test_load_asset_from_tiled_run_handles_text_array_asset(tmp_path: Path) -> None:
+    """Generic Tiled readback should fill registered non-camera assets."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    device_folder = scan_folder / "U_BCaveMagSpec"
+    text_folder = scan_folder / "U_BCaveMagSpec-interpSpec"
+    text_folder.mkdir(parents=True)
+    expected = np.array([[400.0, 1.0], [401.0, 2.0]])
+    np.savetxt(text_folder / "U_BCaveMagSpec-interpSpec_1000.500.txt", expected)
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 6, 23, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 42,
+        "scan_folder": str(scan_folder),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 7,
+                "u_bcavemagspec-acq_timestamp": 1000.5,
+                "u_bcavemagspec-nonscalar_save_path": str(device_folder),
+                "u_bcavemagspec-interpspec": "text-resource/0",
+            },
+        ]
+    )
+
+    loaded = load_asset_from_tiled_run(
+        _FakeRun(start_doc, table),
+        device_name="U_BCaveMagSpec",
+        device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interpSpec",
+        shot_number=7,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.data_key == "u_bcavemagspec-interpspec"
+    start = next(doc for name, doc in loaded.asset.documents if name == "start")
+    assert (
+        start["geecs_external_asset_document_schema"] == EXTERNAL_ASSET_DOCUMENT_SCHEMA
+    )
+    assert loaded.asset.resource_path == (
+        "U_BCaveMagSpec-interpSpec/U_BCaveMagSpec-interpSpec_1000.500.txt"
+    )
+    np.testing.assert_array_equal(loaded.data, expected)
+
+
+def test_load_asset_from_tiled_run_uses_registry_tdms_scope_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TDMS readback should use the registry-provided provenance loader config."""
+    from geecs_data_utils.io import array1d
+    from geecs_data_utils.io.array1d import Data1DResult, Data1DType
+
+    scan_folder = tmp_path / "scans" / "Scan003"
+    device_folder = scan_folder / "U_BCaveICT"
+    device_folder.mkdir(parents=True)
+    tdms_path = device_folder / "U_BCaveICT_42.125.tdms"
+    tdms_path.write_bytes(b"fake tdms payload")
+
+    captured: dict[str, object] = {}
+    expected = np.array([[0.0, 1.0], [1.0, 2.0]])
+
+    def fake_read_1d_data(file_path: Path, config: object) -> Data1DResult:
+        captured["file_path"] = file_path
+        captured["config"] = config
+        return Data1DResult(data=expected)
+
+    monkeypatch.setattr(array1d, "read_1d_data", fake_read_1d_data)
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 7, 1, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 3,
+        "scan_folder": str(scan_folder),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 1,
+                "u_bcaveict-acq_timestamp": 42.125,
+                "u_bcaveict-nonscalar_save_path": str(device_folder),
+                "u_bcaveict-tdms": "tdms-resource/0",
+            },
+        ]
+    )
+
+    loaded = load_asset_from_tiled_run(
+        _FakeRun(start_doc, table),
+        device_name="U_BCaveICT",
+        device_type=PICOSCOPE_V2_DEVICE_TYPE,
+        shot_number=1,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.file_path == tdms_path
+    assert loaded.asset.definition.loader_kind.value == "tdms_scope"
+    assert captured["file_path"] == tdms_path
+    assert captured["config"].data_type is Data1DType.TDMS_SCOPE
+    np.testing.assert_array_equal(loaded.data.data, expected)
+
+
+def test_load_asset_from_tiled_finds_run_and_loads_text_array(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Date/scan generic readback should mirror the run-level helper."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    device_folder = scan_folder / "U_BCaveMagSpec"
+    text_folder = scan_folder / "U_BCaveMagSpec-interpSpec"
+    text_folder.mkdir(parents=True)
+    expected = np.array([[400.0, 1.0], [401.0, 2.0]])
+    np.savetxt(text_folder / "U_BCaveMagSpec-interpSpec_1000.500.txt", expected)
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 6, 23, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 42,
+        "scan_folder": str(scan_folder),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 7,
+                "u_bcavemagspec-acq_timestamp": 1000.5,
+                "u_bcavemagspec-nonscalar_save_path": str(device_folder),
+                "u_bcavemagspec-interpspec": "text-resource/0",
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        tiled_readback,
+        "load_tiled_client",
+        lambda *, tiled_uri=None, tiled_api_key=None: _FakeCatalog(
+            [_FakeRun(start_doc, table)]
+        ),
+    )
+
+    loaded = load_asset_from_tiled(
+        year=2026,
+        month=6,
+        day=23,
+        scan_number=42,
+        experiment="Undulator",
+        device_name="U_BCaveMagSpec",
+        device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interpSpec",
+        shot_number=7,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.data_key == "u_bcavemagspec-interpspec"
+    np.testing.assert_array_equal(loaded.data, expected)
+
+
+def test_resolve_asset_from_event_requires_field_for_multi_asset_device() -> None:
+    """Multi-asset devices should require an event field selection."""
+    with pytest.raises(ValueError, match="Pass event_field for multi-asset devices"):
+        resolve_asset_from_event(
+            start_doc={
+                "uid": "run-uid",
+                "time": datetime(
+                    2026, 6, 23, tzinfo=ZoneInfo("America/Los_Angeles")
+                ).timestamp(),
+                "scan_number": 42,
+                "scan_folder": "/tmp/scans/Scan042",
+                "experiment": "Undulator",
+            },
+            event={
+                "scan_event_index": 1,
+                "u_bcavemagspec-acq_timestamp": 1000.5,
+                "u_bcavemagspec-interpspec": "text-resource/0",
+            },
+            device_name="U_BCaveMagSpec",
+            device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
+        )
 
 
 def test_find_geecs_run_matches_scan_identity_by_date() -> None:
@@ -314,3 +512,41 @@ def test_find_geecs_run_matches_scan_identity_by_date() -> None:
     )
 
     assert found is target
+
+
+def test_find_geecs_run_ignores_derived_analysis_runs() -> None:
+    """Raw run lookup should not collide with derived analysis records."""
+    target_time = datetime(
+        2026, 6, 29, 21, 0, tzinfo=ZoneInfo("America/Los_Angeles")
+    ).timestamp()
+    raw_run = _FakeRun(
+        {
+            "uid": "44b60a76-c8e2-425c-b3cf-5ef8c92c864c",
+            "time": target_time,
+            "scan_number": 1,
+            "experiment": "Undulator",
+        },
+        pd.DataFrame(),
+    )
+    analysis_run = _FakeRun(
+        {
+            "uid": "22241641-679a-44de-8670-5c6891421641",
+            "time": target_time + 60,
+            "scan_number": 1,
+            "experiment": "Undulator",
+            "purpose": "geecs_bluesky_analysis",
+            "analysis_of": "44b60a76-c8e2-425c-b3cf-5ef8c92c864c",
+        },
+        pd.DataFrame(),
+    )
+
+    found = find_geecs_run(
+        _FakeCatalog([raw_run, analysis_run]),
+        year=2026,
+        month=6,
+        day=29,
+        scan_number=1,
+        experiment="Undulator",
+    )
+
+    assert found is raw_run

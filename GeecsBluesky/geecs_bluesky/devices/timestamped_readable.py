@@ -71,7 +71,9 @@ class GeecsTimestampedReadable(
         port: int,
         name: str = "timestamped",
         save_nonscalar_data: bool = False,
+        acq_timestamp_variable: str = "acq_timestamp",
     ) -> None:
+        self._acq_timestamp_variable = acq_timestamp_variable
         super().__init__(device_name, variable_list, host, port, name=name)
         self._reference: Reference[ShotIdSupport] | None = None
         self._grace_wait_s: float = 0.3

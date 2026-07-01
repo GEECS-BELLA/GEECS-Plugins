@@ -163,18 +163,22 @@ ScanDatabaseBuilder.stream_to_parquet(
 ## Config Directory Management
 
 `ConfigDirManager` (config_base.py) manages a directory that can hold multiple
-YAML config files. Used by ImageAnalysis and ScanAnalysis to locate their
-config YAML repos.
+YAML config files. ImageAnalysis and ScanAnalysis now resolve through the
+unified Scan/ImageAnalysis config tree.
 
 ```python
 from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
 
 # These are pre-built singletons. Path resolved from:
-# 1. Environment variable
-# 2. GeecsPathsConfig.image_analysis_configs_path
-# 3. Raises ConfigurationError
+# 1. SCAN_ANALYSIS_CONFIG_DIR
+# 2. config.ini Paths.scan_analysis_configs_path
+# 3. Raises ValueError when no base directory is available
 
-cfg_path = image_analysis_config.get_path("UC_GaiaMode.yaml")
+cfg_path = scan_analysis_config.find_config(
+    "UC_GaiaMode",
+    patterns=["{name}.yaml", "{name}.yml"],
+    missing_base_message="Set SCAN_ANALYSIS_CONFIG_DIR",
+)
 ```
 
 ## Key Type Definitions

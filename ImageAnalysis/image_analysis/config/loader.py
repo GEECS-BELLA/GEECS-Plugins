@@ -13,10 +13,10 @@ Plus the low-level :func:`find_config_file` for resolving a camera /
 line config name to its path on disk (used by the bare-name forms of
 ``load_camera_config`` / ``load_line_config``).
 
-Lookup of standalone camera / line configs uses a single, explicit
-base directory set via the environment variable
-``IMAGE_ANALYSIS_CONFIG_DIR`` or passed per call. The base directory
-is searched recursively.
+Lookup of standalone camera / line configs uses the unified ScanAnalysis
+config root set via ``SCAN_ANALYSIS_CONFIG_DIR`` or
+``scan_analysis_configs_path`` in the shared GEECS user config. The
+base directory is searched recursively.
 
 For the typed-config → live-analyzer step, see
 :func:`image_analysis.config.factory.create_image_analyzer`.
@@ -34,7 +34,7 @@ from pydantic import ValidationError
 from . import array2d_processing as cfg_2d
 from . import array1d_processing as cfg_1d
 from .diagnostic import DiagnosticAnalysisConfig
-from geecs_data_utils.config_roots import image_analysis_config
+from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ __all__ = [
 # Base directory management
 # ----------------------------------------------------------------------
 
-_CONFIG_MANAGER = image_analysis_config
+_CONFIG_MANAGER = scan_analysis_config
 _CONFIG_CACHE: Dict[str, Path] = (
     _CONFIG_MANAGER.cache
 )  # Cache for resolved config paths
@@ -96,20 +96,22 @@ def find_config_file(
     If multiple configs with the same name exist in different subdirectories,
     the first one found (alphabetically) is used and a warning is logged.
     """
+    patterns = [
+        "{name}.yaml",
+        "{name}.yml",
+        "default_{name}_settings.yaml",
+        "default_{name}_settings.yml",
+    ]
+    missing_base_message = (
+        "config_dir is required (no unified analysis config root set). "
+        "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
+    )
     return _CONFIG_MANAGER.find_config(
         camera_name,
-        patterns=[
-            "{name}.yaml",
-            "{name}.yml",
-            "default_{name}_settings.yaml",
-            "default_{name}_settings.yml",
-        ],
+        patterns=patterns,
         config_dir=config_dir,
         use_cache=use_cache,
-        missing_base_message=(
-            "config_dir is required (no global base dir set). "
-            "Set IMAGE_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
-        ),
+        missing_base_message=missing_base_message,
         not_found_label="Config",
     )
 
@@ -119,7 +121,7 @@ def _load_camera_config_dict(
     *,
     config_dir: Optional[Path],
 ) -> Dict[str, Any]:
-    """Internal: load raw config dict from name/path/dict.
+    """Load raw config dict from name/path/dict.
 
     Unwraps the ``image:`` section if the YAML is a unified diagnostic,
     so callers always receive the flat camera/line config shape. Per

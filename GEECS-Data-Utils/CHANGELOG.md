@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.11.0] — 2026-06-30
+
+### Changed
+- `scan_analysis_config` now bootstraps from `SCAN_ANALYSIS_CONFIG_DIR` or
+  `scan_analysis_configs_path` in the shared GEECS user config, making the
+  unified Scan/ImageAnalysis config tree the canonical runtime config root.
+- `image_analysis_config` remains available for legacy callers but now resolves
+  from the same unified Scan/ImageAnalysis config root as `scan_analysis_config`;
+  `IMAGE_ANALYSIS_CONFIG_DIR` is no longer an active discovery path.
+- Moved the config-driven 1D file readers (`read_1d_data`, `Data1DConfig`,
+  `Data1DType`, `Data1DResult`) into `geecs_data_utils.io.array1d` so Bluesky
+  and ImageAnalysis can share line/scope/spectrum loaders without depending on
+  the `image_analysis` package.
+
 ## [0.10.0] — 2026-06-23
 
 ### Added

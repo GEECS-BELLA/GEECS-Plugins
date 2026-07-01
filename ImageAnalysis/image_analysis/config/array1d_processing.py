@@ -15,84 +15,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, Literal, Optional, List
 
+from geecs_data_utils.io.array1d import Data1DConfig, Data1DType as Data1DType
 import numpy as np
-from pydantic import BaseModel, Field, field_validator, ConfigDict, model_validator
-
-
-class Data1DType(str, Enum):
-    """Enumeration of supported 1D data formats.
-
-    All formats return Nx2 arrays where column 0 is x values and column 1 is y values.
-    """
-
-    TEK_SCOPE_HDF5 = "tek_scope_hdf5"
-    TDMS_SCOPE = "tdms_scope"
-    CSV = "csv"
-    TSV = "tsv"
-    NPY = "npy"
-
-
-class Data1DConfig(BaseModel):
-    r"""Configuration for reading 1D data files.
-
-    Parameters
-    ----------
-    data_type : Data1DType
-        The type of data format to read
-    trace_index : int, default=0
-        Trace/channel index for y values in scope files (Tek HDF5, TDMS)
-    x_trace_index : int, optional
-        Trace/channel index for x values in scope files (TDMS). If None, x-axis
-        is derived from waveform properties (wf_start_offset, wf_increment) or
-        falls back to sample index.
-    delimiter : str, optional
-        Delimiter for CSV/TSV files (defaults to ',' for CSV, '\t' for TSV)
-    x_column : int, default=0
-        Column index for x values in delimited files
-    y_column : int, default=1
-        Column index for y values in delimited files
-    auxiliary_columns : dict[str, int]
-        Named auxiliary dependent-variable columns to load alongside the
-        primary ``x``/``y`` data. These columns are row-aligned with the
-        primary data but are not processed as the primary signal.
-    """
-
-    data_type: Data1DType
-    trace_index: int = Field(
-        default=0, ge=0, description="Trace/channel index for y values"
-    )
-    x_trace_index: Optional[int] = Field(
-        default=None,
-        ge=0,
-        description="Trace/channel index for x values (TDMS scope). If None, x-axis is derived from waveform properties.",
-    )
-    delimiter: Optional[str] = Field(
-        default=None, description="Delimiter for CSV/TSV files"
-    )
-    x_column: int = Field(default=0, ge=0, description="Column index for x values")
-    y_column: int = Field(default=1, ge=0, description="Column index for y values")
-    auxiliary_columns: Dict[str, int] = Field(
-        default_factory=dict,
-        description="Named auxiliary column indices for derived analyzers",
-    )
-
-    @model_validator(mode="after")
-    def validate_auxiliary_columns(self) -> "Data1DConfig":
-        """Validate named auxiliary column definitions."""
-        seen_indices: set[int] = set()
-        for name, column in self.auxiliary_columns.items():
-            if not name.strip():
-                raise ValueError("auxiliary column names must be non-empty")
-            if column < 0:
-                raise ValueError("auxiliary column indices must be non-negative")
-            if column in {self.x_column, self.y_column}:
-                raise ValueError(
-                    "auxiliary column indices must differ from x_column and y_column"
-                )
-            if column in seen_indices:
-                raise ValueError("auxiliary column indices must be unique")
-            seen_indices.add(column)
-        return self
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class BackgroundMethod(str, Enum):
