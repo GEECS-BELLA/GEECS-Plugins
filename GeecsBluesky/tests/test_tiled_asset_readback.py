@@ -20,6 +20,7 @@ from geecs_bluesky.assets.specs import (
 from geecs_bluesky.assets.tiled_readback import (
     event_by_scan_event_index,
     find_geecs_run,
+    load_asset_from_tiled,
     load_asset_from_tiled_run,
     load_camera_image_from_tiled_run,
     resolve_asset_from_event,
@@ -332,6 +333,62 @@ def test_load_asset_from_tiled_run_handles_text_array_asset(tmp_path: Path) -> N
     assert loaded.asset.resource_path == (
         "U_BCaveMagSpec-interpSpec/U_BCaveMagSpec-interpSpec_1000.500.txt"
     )
+    np.testing.assert_array_equal(loaded.data, expected)
+
+
+def test_load_asset_from_tiled_finds_run_and_loads_text_array(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Date/scan generic readback should mirror the run-level helper."""
+    scan_folder = tmp_path / "scans" / "Scan042"
+    device_folder = scan_folder / "U_BCaveMagSpec"
+    text_folder = scan_folder / "U_BCaveMagSpec-interpSpec"
+    text_folder.mkdir(parents=True)
+    expected = np.array([[400.0, 1.0], [401.0, 2.0]])
+    np.savetxt(text_folder / "U_BCaveMagSpec-interpSpec_1000.500.txt", expected)
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 6, 23, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 42,
+        "scan_folder": str(scan_folder),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 7,
+                "u_bcavemagspec-acq_timestamp": 1000.5,
+                "u_bcavemagspec-nonscalar_save_path": str(device_folder),
+                "u_bcavemagspec-interpspec": "text-resource/0",
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        tiled_readback,
+        "load_tiled_client",
+        lambda *, tiled_uri=None, tiled_api_key=None: _FakeCatalog(
+            [_FakeRun(start_doc, table)]
+        ),
+    )
+
+    loaded = load_asset_from_tiled(
+        year=2026,
+        month=6,
+        day=23,
+        scan_number=42,
+        experiment="Undulator",
+        device_name="U_BCaveMagSpec",
+        device_type=MAGSPEC_CAMERA_DEVICE_TYPE,
+        event_field="interpSpec",
+        shot_number=7,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.data_key == "u_bcavemagspec-interpspec"
     np.testing.assert_array_equal(loaded.data, expected)
 
 

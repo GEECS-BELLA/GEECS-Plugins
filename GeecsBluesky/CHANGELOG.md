@@ -16,6 +16,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Tiled readback helpers for registered single-asset/event-field assets. TDMS
   event assets remain file-backed until analysis supplies the required 1D
   loader configuration.
+- Added `load_asset_from_tiled(...)` as the canonical date/scan raw-readback
+  helper for registered external assets; camera-specific readback helpers remain
+  compatibility wrappers.
 - Added generic Tiled asset-analysis helpers that run analyzers over registered
   non-camera asset fields and load ``DATA_1D`` assets at analysis time from an
   explicit ``Data1DConfig``.

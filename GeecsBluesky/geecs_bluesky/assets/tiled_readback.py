@@ -393,6 +393,45 @@ def load_camera_image_from_tiled_run(
     )
 
 
+def load_asset_from_tiled(
+    *,
+    year: int,
+    month: int,
+    day: int,
+    scan_number: int,
+    device_name: str,
+    shot_number: int,
+    event_field: str | None = None,
+    experiment: str | None = None,
+    device_type: str | None = None,
+    tiled_uri: str | None = None,
+    tiled_api_key: str | None = None,
+    timezone: str = "America/Los_Angeles",
+    root_map: Mapping[str, str] | None = None,
+    retry_intervals: Iterable[float] | None = None,
+) -> FilledTiledGeecsAsset:
+    """Find a Tiled run by GEECS scan identity and load one native asset."""
+    client = load_tiled_client(tiled_uri=tiled_uri, tiled_api_key=tiled_api_key)
+    run = find_geecs_run(
+        client,
+        year=year,
+        month=month,
+        day=day,
+        scan_number=scan_number,
+        experiment=experiment,
+        timezone=timezone,
+    )
+    return load_asset_from_tiled_run(
+        run,
+        device_name=device_name,
+        shot_number=shot_number,
+        device_type=device_type,
+        event_field=event_field,
+        root_map=root_map,
+        retry_intervals=retry_intervals,
+    )
+
+
 def load_camera_image_from_tiled(
     *,
     year: int,
@@ -410,21 +449,19 @@ def load_camera_image_from_tiled(
     retry_intervals: Iterable[float] | None = None,
 ) -> FilledTiledCameraAsset:
     """Find a Tiled run by GEECS scan identity and load one camera image."""
-    client = load_tiled_client(tiled_uri=tiled_uri, tiled_api_key=tiled_api_key)
-    run = find_geecs_run(
-        client,
+    return load_asset_from_tiled(
         year=year,
         month=month,
         day=day,
         scan_number=scan_number,
-        experiment=experiment,
-        timezone=timezone,
-    )
-    return load_camera_image_from_tiled_run(
-        run,
         device_name=device_name,
         shot_number=shot_number,
+        event_field="image",
+        experiment=experiment,
         device_type=device_type,
+        tiled_uri=tiled_uri,
+        tiled_api_key=tiled_api_key,
+        timezone=timezone,
         root_map=root_map,
         retry_intervals=retry_intervals,
     )

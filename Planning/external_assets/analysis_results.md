@@ -179,7 +179,7 @@ wire one real camera feature extractor end-to-end.
 
 ## First End-to-End Helper
 
-The exploratory implementation includes a sidecar-first camera path:
+The exploratory implementation includes a sidecar-first camera convenience path:
 
 ```python
 from geecs_bluesky.analysis import run_tiled_camera_image_analysis
@@ -212,7 +212,8 @@ Tiled run lookup
 ```
 
 The generic readback helpers can also reconstruct registered non-camera assets
-such as MagSpec text arrays. TDMS event assets should remain file-backed until
+such as MagSpec text arrays via `load_asset_from_tiled(...)` /
+`load_asset_from_tiled_run(...)`. TDMS event assets should remain file-backed until
 the analysis request supplies the `Data1DConfig` trace/channel selection used by
 `geecs_data_utils.io.array1d.read_1d_data`; they are not the scan-level TDMS
 table files read by `ScanData`.

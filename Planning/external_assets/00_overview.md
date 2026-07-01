@@ -52,12 +52,12 @@ Implemented pieces:
 - Tiled ingestion is guarded so an external-asset persistence failure warns and
   disables that callback instead of aborting a scan.
 - `tiled_external_asset_readback.ipynb` demonstrates the local-first archive
-  readback path: user enters date, scan number, device, and shot number; the
-  helper queries Tiled for the real event row, resolves the datum ID, and fills
-  the camera image locally.
-- `load_camera_image_from_tiled(...)` and
-  `load_camera_image_from_tiled_run(...)` provide the notebook-proven library
-  path for camera images.
+  readback path: user enters date, scan number, device, asset field, and shot
+  number; the helper queries Tiled for the real event row, resolves the datum
+  ID, and fills the registered native asset locally.
+- `load_asset_from_tiled(...)` and `load_asset_from_tiled_run(...)` are the
+  canonical library path for registered external assets. The camera-specific
+  helpers remain as compatibility/convenience wrappers for image assets.
 - Local readback can map Windows/device-server roots such as `Z:/data` to local
   mounts such as `/Volumes/hdna2/data` via explicit `root_map` or the shared
   GEECS config.
@@ -483,7 +483,7 @@ No-hardware tests should continue to cover:
 2. Generate a synthetic Bluesky run containing an event with matching
    `acq_timestamp` and a `"Point Grey Camera"` device type.
 3. Emit `Resource`/`Datum` docs for that image.
-4. Fill the event through the `GEECS_CAMERA_IMAGE` handler.
+4. Fill the event through the registered local handler.
 5. Assert the filled value is the expected NumPy array.
 
 This proves the path construction, asset docs, handler registration, and fill

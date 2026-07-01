@@ -121,7 +121,14 @@ def _native_file_path_builder(
 
 @dataclass(frozen=True)
 class AssetDefinition:
-    """External-asset behavior for one GEECS device type."""
+    """External-asset contract for one GEECS device type and event field.
+
+    Each definition links a native GEECS file convention to the Bluesky/Tiled
+    external-asset metadata needed for portable readback. Handler-backed assets
+    can be filled directly from Resource/Datum/Event documents; ``DATA_1D`` and
+    SDK/file-backed assets intentionally keep file parsing in the analysis or
+    worker layer where loader configuration and platform capabilities are known.
+    """
 
     device_type: str
     spec: str

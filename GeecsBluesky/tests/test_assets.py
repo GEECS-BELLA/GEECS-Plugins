@@ -196,6 +196,44 @@ def test_tdms_device_types_register_primary_file_with_index_companion(tmp_path) 
         assert supports_device_type(device_type)
 
 
+def test_registered_asset_definitions_are_consistent() -> None:
+    """All registry entries should satisfy the external-asset contract."""
+    device_types = (
+        FROG_DEVICE_TYPE,
+        MAGSPEC_CAMERA_DEVICE_TYPE,
+        MAGSPEC_STITCHER_DEVICE_TYPE,
+        PICOSCOPE_V2_DEVICE_TYPE,
+        POINTGREY_CAMERA_DEVICE_TYPE,
+        ROHDE_SCHWARZ_RTA4000_DEVICE_TYPE,
+        THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE,
+        THORLABS_WFS_DEVICE_TYPE,
+    )
+
+    for device_type in device_types:
+        definitions = get_asset_definitions(device_type)
+        event_fields = [definition.event_field for definition in definitions]
+
+        assert definitions
+        assert len(event_fields) == len(set(event_fields))
+        for definition in definitions:
+            assert definition.device_type == device_type
+            assert definition.extensions
+            assert definition.payload_kind in AssetPayloadKind
+            assert definition.loader_kind in AssetLoaderKind
+            if definition.loader_kind is AssetLoaderKind.DATA_1D:
+                assert definition.handler_class is None
+                assert definition.default_data_1d_type is not None
+                assert definition.requires_loader_config
+            elif definition.loader_kind in {
+                AssetLoaderKind.SDK_FILE,
+                AssetLoaderKind.FILE,
+            }:
+                assert definition.handler_class is None
+            else:
+                assert definition.handler_class is not None
+                assert definition.default_data_1d_type is None
+
+
 def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
     """FROG saves camera images in sibling Spatial and Temporal directories."""
     definitions = get_asset_definitions(FROG_DEVICE_TYPE)
