@@ -12,14 +12,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   sidecar metadata/features writers, ImageAnalysis analyzer adapters, optional
   derived analysis-run documents, and tests for event-scope and scan-scope
   analysis execution.
+- Added a local handler for native text-array external asset specs, plus generic
+  Tiled readback helpers for registered single-asset/event-field assets. TDMS
+  event assets remain file-backed until analysis supplies the required 1D
+  loader configuration.
+- Added generic Tiled asset-analysis helpers that run analyzers over registered
+  non-camera asset fields and load ``DATA_1D`` assets at analysis time from an
+  explicit ``Data1DConfig``.
+- Asset registry entries now describe payload shape, loader family, default 1D
+  data type, and whether analysis-time loader configuration or SDK capabilities
+  are required.
+- Synthetic local-fill Resource/Datum/Event streams now use an
+  `ExternalAssetDocumentSpec` request model and explicit
+  `geecs_external_asset_document_schema` marker.
 - Added `tiled_camera_analysis_sidecar.ipynb` to exercise local Tiled camera
   asset fill, BeamAnalyzer execution, sidecar writing, and optional analysis
   run publication.
 
 ### Changed
 
-- Analysis config resolution now prefers the unified scan-analysis config root
-  before falling back to legacy image-analysis config paths.
+- Analysis config resolution now uses the unified scan-analysis config root
+  instead of falling back to legacy image-analysis config paths.
 - Tiled raw-run lookup now ignores derived analysis runs so analysis records do
   not collide with acquisition runs that share the same date and scan number.
 

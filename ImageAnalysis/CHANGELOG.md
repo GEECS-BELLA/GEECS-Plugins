@@ -12,8 +12,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 - String-based camera/line config lookup now prefers the unified
   ScanAnalysis config root (`SCAN_ANALYSIS_CONFIG_DIR` /
-  `scan_analysis_configs_path`) before falling back to the legacy
-  ImageAnalysis config root.
+  `scan_analysis_configs_path`); the legacy ImageAnalysis config root is no
+  longer part of active config discovery.
+- `image_analysis.data_1d_utils` now re-exports the shared 1D file readers from
+  `geecs_data_utils.io.array1d`; existing imports keep working while Bluesky can
+  use the same loaders without importing ImageAnalysis.
 
 ## [1.9.1] — 2026-06-25
 

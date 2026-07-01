@@ -16,8 +16,7 @@ line config name to its path on disk (used by the bare-name forms of
 Lookup of standalone camera / line configs uses the unified ScanAnalysis
 config root set via ``SCAN_ANALYSIS_CONFIG_DIR`` or
 ``scan_analysis_configs_path`` in the shared GEECS user config. The
-legacy ``IMAGE_ANALYSIS_CONFIG_DIR`` path is still accepted as a
-fallback. The base directory is searched recursively.
+base directory is searched recursively.
 
 For the typed-config → live-analyzer step, see
 :func:`image_analysis.config.factory.create_image_analyzer`.
@@ -35,7 +34,7 @@ from pydantic import ValidationError
 from . import array2d_processing as cfg_2d
 from . import array1d_processing as cfg_1d
 from .diagnostic import DiagnosticAnalysisConfig
-from geecs_data_utils.config_roots import image_analysis_config, scan_analysis_config
+from geecs_data_utils.config_roots import scan_analysis_config
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,6 @@ __all__ = [
 # ----------------------------------------------------------------------
 
 _CONFIG_MANAGER = scan_analysis_config
-_LEGACY_CONFIG_MANAGER = image_analysis_config
 _CONFIG_CACHE: Dict[str, Path] = (
     _CONFIG_MANAGER.cache
 )  # Cache for resolved config paths
@@ -106,26 +104,12 @@ def find_config_file(
     ]
     missing_base_message = (
         "config_dir is required (no unified analysis config root set). "
-        "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly. "
-        "Legacy IMAGE_ANALYSIS_CONFIG_DIR is still accepted as a fallback."
+        "Set SCAN_ANALYSIS_CONFIG_DIR or pass config_dir explicitly."
     )
-    try:
-        return _CONFIG_MANAGER.find_config(
-            camera_name,
-            patterns=patterns,
-            config_dir=config_dir,
-            use_cache=use_cache,
-            missing_base_message=missing_base_message,
-            not_found_label="Config",
-        )
-    except ValueError:
-        if config_dir is not None or _LEGACY_CONFIG_MANAGER.base_dir is None:
-            raise
-
-    return _LEGACY_CONFIG_MANAGER.find_config(
+    return _CONFIG_MANAGER.find_config(
         camera_name,
         patterns=patterns,
-        config_dir=None,
+        config_dir=config_dir,
         use_cache=use_cache,
         missing_base_message=missing_base_message,
         not_found_label="Config",

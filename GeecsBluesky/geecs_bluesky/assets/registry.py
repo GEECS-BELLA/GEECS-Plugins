@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 
 from geecs_bluesky.assets.specs import (
@@ -22,6 +23,24 @@ from geecs_bluesky.assets.specs import (
 from geecs_bluesky.utils import safe_name
 
 FilePathBuilder = Callable[[str | Path, int, str, float], Path]
+
+
+class AssetPayloadKind(str, Enum):
+    """Coarse payload shape expected from a native external asset."""
+
+    ARRAY_1D = "array_1d"
+    ARRAY_2D = "array_2d"
+    FILE = "file"
+
+
+class AssetLoaderKind(str, Enum):
+    """Loader family needed to materialize a native external asset."""
+
+    IMAGE = "image"
+    TEXT_ARRAY = "text_array"
+    DATA_1D = "data_1d"
+    SDK_FILE = "sdk_file"
+    FILE = "file"
 
 
 def _normalize_path_string(path: str | Path) -> str:
@@ -89,9 +108,10 @@ def _native_file_path_builder(
         directory = Path(save_path)
         if directory_suffix:
             directory = directory.parent / f"{device_name}{directory_suffix}"
+        file_device_name = f"{device_name}{directory_suffix}"
         return directory / native_file_filename(
             scan_number=scan_number,
-            device_name=device_name,
+            device_name=file_device_name,
             acq_timestamp=acq_timestamp,
             extension=extension,
         )
@@ -108,9 +128,15 @@ class AssetDefinition:
     event_field: str
     extensions: tuple[str, ...]
     path_builder: FilePathBuilder
+    payload_kind: AssetPayloadKind
+    loader_kind: AssetLoaderKind
     handler_class: str | None = None
     directory_suffix: str = ""
     companion_extensions: tuple[str, ...] = ()
+    default_data_1d_type: str | None = None
+    requires_loader_config: bool = False
+    requires_sdk: tuple[str, ...] = ()
+    requires_platform: tuple[str, ...] = ()
 
     def event_key(self, device_name: str) -> str:
         """Return the Bluesky event data key for this asset."""
@@ -167,6 +193,8 @@ POINTGREY_CAMERA_ASSET = AssetDefinition(
     event_field="image",
     extensions=(".png",),
     path_builder=_camera_image_path,
+    payload_kind=AssetPayloadKind.ARRAY_2D,
+    loader_kind=AssetLoaderKind.IMAGE,
     handler_class="GeecsCameraImageHandler",
 )
 
@@ -193,6 +221,8 @@ def _camera_asset(
             extension=".png",
             directory_suffix=directory_suffix,
         ),
+        payload_kind=AssetPayloadKind.ARRAY_2D,
+        loader_kind=AssetLoaderKind.IMAGE,
         handler_class="GeecsCameraImageHandler",
         directory_suffix=directory_suffix,
     )
@@ -213,6 +243,9 @@ def _text_array_asset(
             extension=".txt",
             directory_suffix=directory_suffix,
         ),
+        payload_kind=AssetPayloadKind.ARRAY_1D,
+        loader_kind=AssetLoaderKind.TEXT_ARRAY,
+        handler_class="GeecsTextArrayHandler",
         directory_suffix=directory_suffix,
     )
 
@@ -224,7 +257,11 @@ def _tdms_asset(device_type: str) -> AssetDefinition:
         event_field="tdms",
         extensions=(".tdms",),
         path_builder=_native_file_path_builder(extension=".tdms"),
+        payload_kind=AssetPayloadKind.ARRAY_1D,
+        loader_kind=AssetLoaderKind.DATA_1D,
         companion_extensions=(".tdms_index",),
+        default_data_1d_type="tdms_scope",
+        requires_loader_config=True,
     )
 
 

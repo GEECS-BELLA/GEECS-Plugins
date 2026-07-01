@@ -78,12 +78,16 @@ It records provenance needed to reproduce or audit the results:
 - analyzer identity and version
 - input event/datum/resource references
 - output feature table and derived asset references
+- canonical analysis/input storage roots and POSIX paths below those roots
 - analyzer configuration
 - git/code version
 - package/runtime environment
 - user, timestamp, notes, and optional status
 
 This information is written to `analysis_metadata.json`.
+The metadata must not embed machine-local data mounts such as `/Volumes/...`;
+local readers map canonical roots, for example `Z:/data`, to local storage at
+runtime.
 
 ## Feature Table
 
@@ -206,6 +210,18 @@ Tiled run lookup
   -> AnalysisRunner
   -> analysis_metadata.json + features.jsonl/parquet
 ```
+
+The generic readback helpers can also reconstruct registered non-camera assets
+such as MagSpec text arrays. TDMS event assets should remain file-backed until
+the analysis request supplies the `Data1DConfig` trace/channel selection used by
+`geecs_data_utils.io.array1d.read_1d_data`; they are not the scan-level TDMS
+table files read by `ScanData`.
+
+The device-type asset registry is the right place for stable file facts:
+payload kind, loader family, default 1D data type, file suffixes, and whether a
+loader config or SDK-capable worker is required. Per-diagnostic choices such as
+TDMS trace/channel indices should stay in the analysis configuration that
+instantiates the analyzer.
 
 By default, the helper writes only sidecar artifacts. When called with
 `emit_derived_run=True`, it also builds a small derived Bluesky document stream

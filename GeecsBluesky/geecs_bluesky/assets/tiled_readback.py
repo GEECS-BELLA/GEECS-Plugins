@@ -11,32 +11,53 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from geecs_bluesky.assets.readback import Document, fill_geecs_documents
-from geecs_bluesky.assets.registry import AssetDefinition, get_single_asset_definition
-from geecs_bluesky.assets.specs import GEECS_CAMERA_IMAGE
+from geecs_bluesky.assets.readback import (
+    Document,
+    ExternalAssetDocumentSpec,
+    fill_geecs_documents,
+)
+from geecs_bluesky.assets.registry import (
+    AssetDefinition,
+    get_asset_definitions,
+    get_single_asset_definition,
+)
 from geecs_bluesky.utils import safe_name
 
 
 @dataclass(frozen=True)
-class TiledCameraAsset:
-    """Resolved camera asset documents from one archived Tiled event."""
+class TiledGeecsAsset:
+    """Resolved native GEECS asset documents from one archived Tiled event."""
 
+    definition: AssetDefinition
+    device_name: str
+    device_type: str
     documents: list[Document]
     data_key: str
     datum_id: str
     file_path: Path
+    resource_root: str
     resource_path: str
+    local_resource_root: Path
     acq_timestamp: float
     start_doc: dict[str, Any]
     event: dict[str, Any]
 
 
 @dataclass(frozen=True)
-class FilledTiledCameraAsset:
-    """Filled camera asset loaded through the local GEECS handler."""
+class FilledTiledGeecsAsset:
+    """Filled native GEECS asset loaded through the local GEECS handler."""
 
-    asset: TiledCameraAsset
-    image: Any
+    asset: TiledGeecsAsset
+    data: Any
+
+    @property
+    def image(self) -> Any:
+        """Compatibility alias for camera callers."""
+        return self.data
+
+
+TiledCameraAsset = TiledGeecsAsset
+FilledTiledCameraAsset = FilledTiledGeecsAsset
 
 
 def read_tiled_config() -> tuple[str | None, str | None]:
@@ -197,15 +218,16 @@ def event_by_scan_event_index(primary_table: Any, shot_number: int) -> dict[str,
     return _mapping_from_row(row)
 
 
-def resolve_camera_asset_from_event(
+def resolve_asset_from_event(
     *,
     start_doc: Mapping[str, Any],
     event: Mapping[str, Any],
     device_name: str,
     device_type: str | None = None,
+    event_field: str | None = None,
     root_map: Mapping[str, str] | None = None,
-) -> TiledCameraAsset:
-    """Resolve a camera asset from archived Tiled run metadata and one event.
+) -> TiledGeecsAsset:
+    """Resolve a native GEECS asset from archived Tiled run metadata and one event.
 
     This is the local-first archive readback path: Tiled provides the event row
     and acquisition timestamp, the GeecsBluesky asset registry provides the
@@ -216,44 +238,58 @@ def resolve_camera_asset_from_event(
 
         device_type = GeecsDb.get_device_type(device_name)
 
-    definition = get_single_asset_definition(device_type)
-    if definition is None or definition.spec != GEECS_CAMERA_IMAGE:
-        raise ValueError(
-            f"Device type {device_type!r} is not registered as a single "
-            "camera image asset."
-        )
+    definition = _asset_definition(device_type, event_field=event_field)
 
     event_dict = dict(event)
     start_dict = dict(start_doc)
     scan_number = _required_int(start_dict, "scan_number")
     effective_root_map = dict(root_map or read_geecs_root_map())
-    scan_folder = _mapped_path(
-        _required_str(start_dict, "scan_folder"),
-        effective_root_map,
+    scan_folder_value = _required_str(start_dict, "scan_folder")
+    scan_folder = _mapped_path(scan_folder_value, effective_root_map)
+    canonical_scan_folder = _canonical_path(scan_folder_value, effective_root_map)
+    resource_root = _resource_root(
+        canonical_scan_folder,
+        start_doc=start_dict,
+        root_map=effective_root_map,
     )
+    local_resource_root = _mapped_path(resource_root, effective_root_map)
     data_key = definition.event_key(device_name)
     acq_key = f"{safe_name(device_name)}-acq_timestamp"
     save_path_key = f"{safe_name(device_name)}-nonscalar_save_path"
 
     acq_timestamp = _required_float(event_dict, acq_key)
     save_path_value = event_dict.get(save_path_key)
-    save_path = (
+    local_save_path = (
         _mapped_path(str(save_path_value), effective_root_map)
         if not _is_missing(save_path_value)
         else scan_folder / device_name
     )
+    canonical_save_path = (
+        _canonical_path(str(save_path_value), effective_root_map)
+        if not _is_missing(save_path_value)
+        else str(Path(canonical_scan_folder) / device_name)
+    )
     file_path = definition.file_path(
-        save_path=save_path,
+        save_path=local_save_path,
         scan_number=scan_number,
         device_name=device_name,
         acq_timestamp=acq_timestamp,
     )
-    resource_path = definition.resource_path(root=scan_folder, file_path=file_path)
+    canonical_file_path = definition.file_path(
+        save_path=canonical_save_path,
+        scan_number=scan_number,
+        device_name=device_name,
+        acq_timestamp=acq_timestamp,
+    )
+    resource_path = definition.resource_path(
+        root=resource_root,
+        file_path=canonical_file_path,
+    )
     datum_id = _datum_id_from_event(event_dict.get(data_key))
     resource_uid = datum_id.split("/", 1)[0] if "/" in datum_id else str(uuid4())
     timestamp = _event_timestamp(event_dict, start_dict)
 
-    documents = _camera_asset_documents(
+    documents = ExternalAssetDocumentSpec(
         start_doc=start_dict,
         event=event_dict,
         definition=definition,
@@ -261,19 +297,78 @@ def resolve_camera_asset_from_event(
         data_key=data_key,
         datum_id=datum_id,
         resource_uid=resource_uid,
-        scan_folder=scan_folder,
+        resource_root=resource_root,
         resource_path=resource_path,
         timestamp=timestamp,
-    )
-    return TiledCameraAsset(
+    ).to_documents()
+    return TiledGeecsAsset(
+        definition=definition,
+        device_name=device_name,
+        device_type=device_type,
         documents=documents,
         data_key=data_key,
         datum_id=datum_id,
         file_path=file_path,
+        resource_root=resource_root,
         resource_path=resource_path,
+        local_resource_root=local_resource_root,
         acq_timestamp=acq_timestamp,
         start_doc=start_dict,
         event=event_dict,
+    )
+
+
+def resolve_camera_asset_from_event(
+    *,
+    start_doc: Mapping[str, Any],
+    event: Mapping[str, Any],
+    device_name: str,
+    device_type: str | None = None,
+    root_map: Mapping[str, str] | None = None,
+) -> TiledCameraAsset:
+    """Resolve a camera image asset from archived Tiled metadata."""
+    return resolve_asset_from_event(
+        start_doc=start_doc,
+        event=event,
+        device_name=device_name,
+        device_type=device_type,
+        event_field="image",
+        root_map=root_map,
+    )
+
+
+def load_asset_from_tiled_run(
+    run: Any,
+    *,
+    device_name: str,
+    shot_number: int,
+    device_type: str | None = None,
+    event_field: str | None = None,
+    root_map: Mapping[str, str] | None = None,
+    retry_intervals: Iterable[float] | None = None,
+) -> FilledTiledGeecsAsset:
+    """Load one native GEECS asset from a Tiled run using local handlers."""
+    start_doc = dict(run.metadata.get("start") or {})
+    primary_table = read_primary_dataframe(run)
+    event = event_by_scan_event_index(primary_table, shot_number)
+    asset = resolve_asset_from_event(
+        start_doc=start_doc,
+        event=event,
+        device_name=device_name,
+        device_type=device_type,
+        event_field=event_field,
+        root_map=root_map,
+    )
+    filled_docs = fill_geecs_documents(
+        asset.documents,
+        root_map=root_map or read_geecs_root_map(),
+        include=[asset.data_key],
+        retry_intervals=retry_intervals,
+    )
+    filled_event = next(doc for name, doc in filled_docs if name == "event")
+    return FilledTiledGeecsAsset(
+        asset=asset,
+        data=filled_event["data"][asset.data_key],
     )
 
 
@@ -287,26 +382,14 @@ def load_camera_image_from_tiled_run(
     retry_intervals: Iterable[float] | None = None,
 ) -> FilledTiledCameraAsset:
     """Load one camera image from a Tiled run using local GEECS handlers."""
-    start_doc = dict(run.metadata.get("start") or {})
-    primary_table = read_primary_dataframe(run)
-    event = event_by_scan_event_index(primary_table, shot_number)
-    asset = resolve_camera_asset_from_event(
-        start_doc=start_doc,
-        event=event,
+    return load_asset_from_tiled_run(
+        run,
         device_name=device_name,
+        shot_number=shot_number,
         device_type=device_type,
+        event_field="image",
         root_map=root_map,
-    )
-    filled_docs = fill_geecs_documents(
-        asset.documents,
-        root_map=root_map or read_geecs_root_map(),
-        include=[asset.data_key],
         retry_intervals=retry_intervals,
-    )
-    filled_event = next(doc for name, doc in filled_docs if name == "event")
-    return FilledTiledCameraAsset(
-        asset=asset,
-        image=filled_event["data"][asset.data_key],
     )
 
 
@@ -478,6 +561,38 @@ def _required_str(mapping: Mapping[str, Any], key: str) -> str:
     return str(value)
 
 
+def _asset_definition(
+    device_type: str,
+    *,
+    event_field: str | None,
+) -> AssetDefinition:
+    if event_field is None:
+        definition = get_single_asset_definition(device_type)
+        if definition is None:
+            raise ValueError(
+                f"Device type {device_type!r} is not registered as a single "
+                "external asset. Pass event_field for multi-asset devices."
+            )
+        return definition
+
+    matches = [
+        definition
+        for definition in get_asset_definitions(device_type)
+        if definition.event_field == event_field
+    ]
+    if not matches:
+        raise ValueError(
+            f"Device type {device_type!r} has no registered asset field "
+            f"{event_field!r}."
+        )
+    if len(matches) > 1:
+        raise ValueError(
+            f"Device type {device_type!r} has multiple registered asset fields "
+            f"{event_field!r}."
+        )
+    return matches[0]
+
+
 def _mapped_path(value: str, root_map: Mapping[str, str]) -> Path:
     """Return *value* as a local path after applying a tolerant root map."""
     normalized_value = _normalize_path_string(value)
@@ -489,6 +604,63 @@ def _mapped_path(value: str, root_map: Mapping[str, str]) -> Path:
             relative = normalized_value.removeprefix(normalized_remote).lstrip("/")
             return Path(str(local_root)).joinpath(*relative.split("/"))
     return Path(value)
+
+
+def _canonical_path(value: str, root_map: Mapping[str, str]) -> str:
+    """Return *value* translated from local mount to canonical root when possible."""
+    normalized_value = _normalize_path_string(value)
+    for remote_root, local_root in root_map.items():
+        normalized_local = _normalize_path_string(str(local_root))
+        if normalized_value == normalized_local or normalized_value.startswith(
+            f"{normalized_local}/"
+        ):
+            relative = normalized_value.removeprefix(normalized_local).lstrip("/")
+            return _join_posix(str(remote_root), relative)
+    return normalized_value
+
+
+def _resource_root(
+    canonical_scan_folder: str,
+    *,
+    start_doc: Mapping[str, Any],
+    root_map: Mapping[str, str],
+) -> str:
+    """Return the canonical data root for Resource docs."""
+    normalized_scan_folder = _normalize_path_string(canonical_scan_folder)
+    for remote_root in root_map:
+        normalized_remote = _normalize_path_string(str(remote_root))
+        if (
+            normalized_scan_folder == normalized_remote
+            or normalized_scan_folder.startswith(f"{normalized_remote}/")
+        ):
+            return normalized_remote
+
+    inferred = _infer_data_root_from_scan_folder(
+        normalized_scan_folder,
+        experiment=start_doc.get("experiment"),
+    )
+    return inferred or normalized_scan_folder
+
+
+def _infer_data_root_from_scan_folder(
+    scan_folder: str,
+    *,
+    experiment: Any,
+) -> str | None:
+    """Infer the shared data root from a canonical GEECS scan-folder path."""
+    if _is_missing(experiment):
+        return None
+    marker = f"/{experiment}/Y"
+    if marker not in scan_folder:
+        return None
+    return scan_folder.split(marker, 1)[0]
+
+
+def _join_posix(root: str, relative: str) -> str:
+    """Join a root and relative path with POSIX separators."""
+    root = _normalize_path_string(root)
+    relative = _normalize_path_string(relative).lstrip("/")
+    return f"{root}/{relative}" if relative else root
 
 
 def _normalize_path_string(value: str) -> str:
@@ -556,78 +728,3 @@ def _is_missing(value: Any) -> bool:
         return bool(value != value)
     except Exception:
         return False
-
-
-def _camera_asset_documents(
-    *,
-    start_doc: dict[str, Any],
-    event: dict[str, Any],
-    definition: AssetDefinition,
-    device_name: str,
-    data_key: str,
-    datum_id: str,
-    resource_uid: str,
-    scan_folder: Path,
-    resource_path: str,
-    timestamp: float,
-) -> list[Document]:
-    start_uid = str(start_doc.get("uid") or uuid4())
-    descriptor_uid = str(uuid4())
-    seq_num = int(event.get("scan_event_index") or event.get("seq_num") or 1)
-    return [
-        ("start", {**start_doc, "uid": start_uid}),
-        (
-            "descriptor",
-            {
-                "uid": descriptor_uid,
-                "run_start": start_uid,
-                "time": timestamp,
-                "name": "primary",
-                "data_keys": {
-                    data_key: {
-                        "source": f"geecs://{device_name}/{definition.event_field}",
-                        "dtype": "array",
-                        "shape": [],
-                        "external": "OLD:",
-                    }
-                },
-                "configuration": {},
-                "object_keys": {device_name: [data_key]},
-                "hints": {},
-            },
-        ),
-        (
-            "resource",
-            {
-                "uid": resource_uid,
-                "spec": definition.spec,
-                "root": str(scan_folder),
-                "resource_path": resource_path,
-                "resource_kwargs": {"data_key": data_key},
-                "path_semantics": "posix",
-            },
-        ),
-        ("datum", {"datum_id": datum_id, "resource": resource_uid, "datum_kwargs": {}}),
-        (
-            "event",
-            {
-                "uid": str(uuid4()),
-                "descriptor": descriptor_uid,
-                "time": timestamp,
-                "seq_num": seq_num,
-                "data": {data_key: datum_id},
-                "timestamps": {data_key: timestamp},
-                "filled": {data_key: False},
-            },
-        ),
-        (
-            "stop",
-            {
-                "uid": str(uuid4()),
-                "run_start": start_uid,
-                "time": timestamp,
-                "exit_status": "success",
-                "num_events": {"primary": 1},
-            },
-        ),
-    ]

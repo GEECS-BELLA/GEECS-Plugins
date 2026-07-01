@@ -15,6 +15,7 @@ from geecs_bluesky.scanner_bridge.bluesky_scanner import (
     BlueskyScanner,
     _prepare_descriptor_for_tiled,
     _SafeDocumentCallback,
+    _ensure_timestamp_variable,
     _translate_save_path_for_device_server,
 )
 
@@ -107,6 +108,35 @@ def test_translate_save_path_for_device_server() -> None:
     )
 
     assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
+
+
+def test_timestamp_variable_selection_for_registered_diagnostics() -> None:
+    """Registered diagnostics currently use the live ``acq_timestamp`` field."""
+    assert BlueskyScanner._timestamp_variable_for_device_type("MagSpecCamera") == (
+        "acq_timestamp"
+    )
+    assert BlueskyScanner._timestamp_variable_for_device_type("PicoscopeV2") == (
+        "acq_timestamp"
+    )
+    assert BlueskyScanner._timestamp_variable_for_device_type("Point Grey Camera") == (
+        "acq_timestamp"
+    )
+
+
+def test_ensure_timestamp_variable_replaces_default_timestamp_name() -> None:
+    """Detector configs using the default timestamp name should adapt by device."""
+    assert _ensure_timestamp_variable(
+        ["acq_timestamp"],
+        timestamp_variable="timestamp",
+    ) == ["timestamp"]
+    assert _ensure_timestamp_variable(
+        ["Signal", "timestamp"],
+        timestamp_variable="timestamp",
+    ) == ["Signal", "timestamp"]
+    assert _ensure_timestamp_variable(
+        ["Signal"],
+        timestamp_variable="acq_timestamp",
+    ) == ["Signal", "acq_timestamp"]
 
 
 # ---------------------------------------------------------------------------

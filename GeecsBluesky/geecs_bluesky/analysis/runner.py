@@ -113,7 +113,8 @@ class AnalysisRunner:
         metadata.inputs = inputs
         metadata.outputs = outputs
         metadata.analysis_scope = _analysis_scope(analyzer)
-        metadata.analysis_output_dir = str(self.writer.output_dir)
+        metadata.analysis_root = self.writer.storage_root
+        metadata.analysis_output_path = self.writer.output_resource_path()
         metadata.feature_table = feature_path.name
         self.writer.write_metadata(metadata)
         return metadata

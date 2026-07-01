@@ -23,11 +23,19 @@ class AnalysisArtifactWriter:
         scan_number: int,
         analyzer_id: str,
         invocation_id: str | None = None,
+        storage_root: str | Path | None = None,
+        local_storage_root: str | Path | None = None,
     ) -> None:
         self.day_analysis_dir = Path(day_analysis_dir)
         self.scan_number = scan_number
         self.analyzer_id = analyzer_id
         self.invocation_id = invocation_id or default_invocation_id()
+        self.storage_root = str(storage_root) if storage_root is not None else None
+        self.local_storage_root = (
+            Path(local_storage_root)
+            if local_storage_root is not None
+            else (Path(storage_root) if storage_root is not None else None)
+        )
         self.output_dir = (
             self.day_analysis_dir
             / f"Scan{scan_number:03d}"
@@ -101,6 +109,12 @@ class AnalysisArtifactWriter:
             raise ValueError("derived asset filename must not contain path components")
         return path
 
+    def output_resource_path(self) -> str:
+        """Return the invocation output path without embedding a local mount."""
+        if self.local_storage_root is not None:
+            return _relative_posix(self.output_dir, self.local_storage_root)
+        return _relative_posix(self.output_dir, self.day_analysis_dir.parent)
+
 
 def default_invocation_id(now: datetime | None = None) -> str:
     """Return a UTC timestamp suitable for an invocation directory name."""
@@ -160,3 +174,11 @@ def _write_jsonl_atomic(path: Path, rows: list[dict]) -> None:
             tmp.write("\n")
         tmp_path = Path(tmp.name)
     os.replace(tmp_path, path)
+
+
+def _relative_posix(path: Path, root: Path) -> str:
+    """Return a POSIX relative path and raise if *path* is outside *root*."""
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(f"{path} is not under metadata root {root}") from exc

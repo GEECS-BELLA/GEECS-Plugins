@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unified Scan/ImageAnalysis config tree the canonical runtime config root.
 - `image_analysis_config` remains available for legacy callers but is treated
   as the older ImageAnalysis-specific config root.
+- Moved the config-driven 1D file readers (`read_1d_data`, `Data1DConfig`,
+  `Data1DType`, `Data1DResult`) into `geecs_data_utils.io.array1d` so Bluesky
+  and ImageAnalysis can share line/scope/spectrum loaders without depending on
+  the `image_analysis` package.
 
 ## [0.10.0] — 2026-06-23
 

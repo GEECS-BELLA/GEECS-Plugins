@@ -205,7 +205,16 @@ class NonScalarSaveSupport:
         datum_id = f"{resource_uid}/0"
         resource_kwargs: dict[str, object] = {
             "data_key": definition.event_key(device_name),
+            "device_name": device_name,
+            "device_type": definition.device_type,
+            "event_field": definition.event_field,
+            "payload_kind": definition.payload_kind.value,
+            "loader_kind": definition.loader_kind.value,
         }
+        if definition.default_data_1d_type is not None:
+            resource_kwargs["default_data_1d_type"] = definition.default_data_1d_type
+        if definition.requires_loader_config:
+            resource_kwargs["requires_loader_config"] = True
         companion_paths = definition.companion_file_paths(
             save_path=self._nonscalar_save_path,
             scan_number=self._asset_scan_number,

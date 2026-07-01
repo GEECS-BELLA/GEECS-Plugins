@@ -21,9 +21,9 @@ def build_analysis_run_documents(
 ) -> list[Document]:
     """Build a small derived Bluesky run that points at analysis sidecars."""
     feature_table = metadata.feature_table or "features.jsonl"
-    effective_output_dir = Path(metadata.analysis_output_dir or output_dir)
-    metadata_path = effective_output_dir / "analysis_metadata.json"
-    feature_table_path = effective_output_dir / feature_table
+    analysis_output_path = metadata.analysis_output_path or output_dir.name
+    metadata_path = _join_resource_path(analysis_output_path, "analysis_metadata.json")
+    feature_table_path = _join_resource_path(analysis_output_path, feature_table)
     run_bundle = compose_run(
         metadata={
             "purpose": "geecs_bluesky_analysis",
@@ -37,9 +37,10 @@ def build_analysis_run_documents(
             "raw_run_uid": metadata.raw_run_uid,
             "scan_number": metadata.scan_number,
             "experiment": metadata.experiment,
-            "analysis_output_dir": str(effective_output_dir),
-            "analysis_metadata_path": str(metadata_path),
-            "feature_table_path": str(feature_table_path),
+            "analysis_root": metadata.analysis_root,
+            "analysis_output_path": analysis_output_path,
+            "analysis_metadata_path": metadata_path,
+            "feature_table_path": feature_table_path,
             "schema_version": metadata.schema_version,
         }
     )
@@ -56,9 +57,10 @@ def build_analysis_run_documents(
             "raw_run_uid": metadata.raw_run_uid,
             "analyzer_id": metadata.analyzer_id,
             "analysis_scope": metadata.analysis_scope.value,
-            "analysis_output_dir": str(output_dir),
-            "analysis_metadata_path": str(metadata_path),
-            "feature_table_path": str(feature_table_path),
+            "analysis_root": metadata.analysis_root,
+            "analysis_output_path": analysis_output_path,
+            "analysis_metadata_path": metadata_path,
+            "feature_table_path": feature_table_path,
             "input_count": len(metadata.inputs),
             "derived_asset_count": len(metadata.outputs),
         },
@@ -132,8 +134,13 @@ def _analysis_data_keys() -> dict[str, dict[str, Any]]:
             "dtype": "string",
             "shape": [],
         },
-        "analysis_output_dir": {
-            "source": "geecs_bluesky://analysis/output_dir",
+        "analysis_root": {
+            "source": "geecs_bluesky://analysis/root",
+            "dtype": "string",
+            "shape": [],
+        },
+        "analysis_output_path": {
+            "source": "geecs_bluesky://analysis/output_path",
             "dtype": "string",
             "shape": [],
         },
@@ -158,3 +165,8 @@ def _analysis_data_keys() -> dict[str, dict[str, Any]]:
             "shape": [],
         },
     }
+
+
+def _join_resource_path(*parts: str) -> str:
+    """Join resource path fragments with POSIX separators."""
+    return "/".join(str(part).strip("/") for part in parts if str(part).strip("/"))

@@ -1,4 +1,4 @@
-"""End-to-end post-run camera analysis from archived Tiled runs."""
+"""Post-run analysis over registered GEECS external assets."""
 
 from __future__ import annotations
 
@@ -6,41 +6,42 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from geecs_bluesky.analysis.image_analysis import ImageAnalyzerAdapter
-from geecs_bluesky.analysis.models import AnalysisInvocationMetadata, InputAssetRef
 from geecs_bluesky.analysis.derived_run import (
     build_analysis_run_documents,
     publish_analysis_run_to_tiled,
     publish_documents,
 )
+from geecs_bluesky.analysis.models import AnalysisInvocationMetadata, InputAssetRef
 from geecs_bluesky.analysis.provenance import capture_code_version, capture_environment
 from geecs_bluesky.analysis.runner import AnalysisRunner, AnalyzerProtocol, FilledAsset
 from geecs_bluesky.analysis.writer import AnalysisArtifactWriter
 from geecs_bluesky.assets.readback import fill_geecs_documents
+from geecs_bluesky.assets.registry import AssetDefinition, AssetLoaderKind
 from geecs_bluesky.assets.tiled_readback import (
-    FilledTiledCameraAsset,
-    TiledCameraAsset,
+    FilledTiledGeecsAsset,
+    TiledGeecsAsset,
     find_geecs_run,
     load_tiled_client,
     read_geecs_root_map,
     read_primary_dataframe,
-    resolve_camera_asset_from_event,
+    resolve_asset_from_event,
 )
 
 
-def run_tiled_camera_image_analysis(
+Data1DConfigInput = Any
+
+
+def run_tiled_asset_analysis(
     *,
     year: int,
     month: int,
     day: int,
     scan_number: int,
     device_name: str,
-    image_analyzer: Any,
-    analyzer_id: str,
+    analyzer: AnalyzerProtocol,
+    event_field: str | None = None,
+    data_1d_config: Data1DConfigInput | None = None,
     experiment: str | None = None,
-    analyzer_name: str | None = None,
-    analyzer_version: str | None = None,
-    analyzer_config: dict[str, Any] | None = None,
     device_type: str | None = None,
     tiled_uri: str | None = None,
     tiled_api_key: str | None = None,
@@ -56,7 +57,7 @@ def run_tiled_camera_image_analysis(
     repo_root: Path | None = None,
     notes: str | None = None,
 ) -> AnalysisInvocationMetadata:
-    """Run an ImageAnalysis-style analyzer over camera assets from Tiled."""
+    """Run an analyzer over one registered asset from an archived Tiled run."""
     client = load_tiled_client(tiled_uri=tiled_uri, tiled_api_key=tiled_api_key)
     run = find_geecs_run(
         client,
@@ -67,17 +68,12 @@ def run_tiled_camera_image_analysis(
         experiment=experiment,
         timezone=timezone,
     )
-    adapter = ImageAnalyzerAdapter(
-        image_analyzer,
-        analyzer_id=analyzer_id,
-        analyzer_name=analyzer_name,
-        analyzer_version=analyzer_version,
-        config=analyzer_config,
-    )
-    return run_camera_image_analysis_for_tiled_run(
+    return run_asset_analysis_for_tiled_run(
         run,
         device_name=device_name,
-        analyzer=adapter,
+        analyzer=analyzer,
+        event_field=event_field,
+        data_1d_config=data_1d_config,
         device_type=device_type,
         root_map=root_map,
         shot_numbers=shot_numbers,
@@ -94,11 +90,13 @@ def run_tiled_camera_image_analysis(
     )
 
 
-def run_camera_image_analysis_for_tiled_run(
+def run_asset_analysis_for_tiled_run(
     run: Any,
     *,
     device_name: str,
     analyzer: AnalyzerProtocol,
+    event_field: str | None = None,
+    data_1d_config: Data1DConfigInput | None = None,
     device_type: str | None = None,
     root_map: Mapping[str, str] | None = None,
     shot_numbers: Iterable[int] | None = None,
@@ -113,11 +111,13 @@ def run_camera_image_analysis_for_tiled_run(
     repo_root: Path | None = None,
     notes: str | None = None,
 ) -> AnalysisInvocationMetadata:
-    """Run one analyzer over camera images from an already-loaded Tiled run."""
+    """Run one analyzer over a registered asset from an already-loaded Tiled run."""
     filled_assets = list(
-        iter_filled_camera_assets_from_tiled_run(
+        iter_filled_assets_from_tiled_run(
             run,
             device_name=device_name,
+            event_field=event_field,
+            data_1d_config=data_1d_config,
             device_type=device_type,
             root_map=root_map,
             shot_numbers=shot_numbers,
@@ -125,7 +125,7 @@ def run_camera_image_analysis_for_tiled_run(
         )
     )
     if not filled_assets:
-        raise LookupError(f"No filled camera assets found for {device_name!r}.")
+        raise LookupError(f"No filled assets found for {device_name!r}.")
 
     first_asset = filled_assets[0].asset
     scan_number = int(first_asset.start_doc["scan_number"])
@@ -147,7 +147,7 @@ def run_camera_image_analysis_for_tiled_run(
         raw_run_uid=raw_run_uid,
         scan_number=scan_number,
         experiment=first_asset.start_doc.get("experiment"),
-        config=analyzer.describe_config(),
+        config=_analysis_config(analyzer, data_1d_config=data_1d_config),
         code_version=capture_code_version(repo_root),
         environment=capture_environment(
             ["geecs-bluesky", "imageanalysis", "geecs-data-utils"]
@@ -158,8 +158,8 @@ def run_camera_image_analysis_for_tiled_run(
         analyzer=analyzer,
         assets=[
             FilledAsset(
-                ref=_input_ref_from_filled(asset, device_name=device_name),
-                data=asset.image,
+                ref=input_ref_from_tiled_asset(asset.asset),
+                data=asset.data,
             )
             for asset in filled_assets
         ],
@@ -182,16 +182,18 @@ def run_camera_image_analysis_for_tiled_run(
     return completed
 
 
-def iter_filled_camera_assets_from_tiled_run(
+def iter_filled_assets_from_tiled_run(
     run: Any,
     *,
     device_name: str,
+    event_field: str | None = None,
+    data_1d_config: Data1DConfigInput | None = None,
     device_type: str | None = None,
     root_map: Mapping[str, str] | None = None,
     shot_numbers: Iterable[int] | None = None,
     retry_intervals: Iterable[float] | None = None,
-) -> Iterable[FilledTiledCameraAsset]:
-    """Yield filled camera assets for selected events in a Tiled run."""
+) -> Iterable[FilledTiledGeecsAsset]:
+    """Yield filled assets for selected events in a Tiled run."""
     start_doc = dict(run.metadata.get("start") or {})
     primary_table = read_primary_dataframe(run)
     selected_shots = set(shot_numbers or [])
@@ -201,53 +203,138 @@ def iter_filled_camera_assets_from_tiled_run(
         scan_event_index = event.get("scan_event_index")
         if selected_shots and int(scan_event_index) not in selected_shots:
             continue
-        asset = resolve_camera_asset_from_event(
+        asset = resolve_asset_from_event(
             start_doc=start_doc,
             event=event,
             device_name=device_name,
             device_type=device_type,
+            event_field=event_field,
             root_map=effective_root_map,
         )
-        filled_docs = fill_geecs_documents(
-            asset.documents,
-            root_map=effective_root_map,
-            include=[asset.data_key],
-            retry_intervals=retry_intervals,
-        )
-        filled_event = next(doc for name, doc in filled_docs if name == "event")
-        yield FilledTiledCameraAsset(
+        yield FilledTiledGeecsAsset(
             asset=asset,
-            data=filled_event["data"][asset.data_key],
+            data=load_tiled_asset_data(
+                asset,
+                data_1d_config=data_1d_config,
+                root_map=effective_root_map,
+                retry_intervals=retry_intervals,
+            ),
         )
 
 
-def _input_ref_from_filled(
-    filled: FilledTiledCameraAsset,
+def load_tiled_asset_data(
+    asset: TiledGeecsAsset,
     *,
-    device_name: str,
-) -> InputAssetRef:
-    asset = filled.asset
+    data_1d_config: Data1DConfigInput | None = None,
+    root_map: Mapping[str, str] | None = None,
+    retry_intervals: Iterable[float] | None = None,
+) -> Any:
+    """Load a resolved Tiled asset through its registry-defined loader path."""
+    definition = asset.definition
+    if definition.loader_kind is AssetLoaderKind.DATA_1D:
+        return _read_data_1d_asset(asset, data_1d_config=data_1d_config)
+    if definition.handler_class is None:
+        raise ValueError(
+            f"Asset field {definition.event_field!r} for device type "
+            f"{definition.device_type!r} has no local handler."
+        )
+
+    filled_docs = fill_geecs_documents(
+        asset.documents,
+        root_map=root_map or read_geecs_root_map(),
+        include=[asset.data_key],
+        retry_intervals=retry_intervals,
+    )
+    filled_event = next(doc for name, doc in filled_docs if name == "event")
+    return filled_event["data"][asset.data_key]
+
+
+def input_ref_from_tiled_asset(asset: TiledGeecsAsset) -> InputAssetRef:
+    """Return portable analysis input metadata for a resolved Tiled asset."""
     event = asset.event
-    scan_event_index = _optional_int(event.get("scan_event_index"))
     resource_uid = asset.datum_id.split("/", 1)[0] if "/" in asset.datum_id else None
-    spec = _resource_spec(asset)
     return InputAssetRef(
         raw_run_uid=str(asset.start_doc.get("uid")),
         event_uid=_optional_str(event.get("uid")),
         scan_number=_optional_int(asset.start_doc.get("scan_number")),
-        scan_event_index=scan_event_index,
-        shot_number=scan_event_index,
-        device=device_name,
+        scan_event_index=_optional_int(event.get("scan_event_index")),
+        shot_number=_optional_int(event.get("scan_event_index")),
+        device=asset.device_name,
+        device_type=asset.device_type,
         data_key=asset.data_key,
+        event_field=asset.definition.event_field,
         datum_id=asset.datum_id,
         resource_uid=resource_uid,
-        asset_spec=spec,
+        asset_spec=asset.definition.spec,
+        payload_kind=asset.definition.payload_kind.value,
+        loader_kind=asset.definition.loader_kind.value,
         resource_root=asset.resource_root,
         resource_path=asset.resource_path,
     )
 
 
-def _day_analysis_dir_from_asset(asset: TiledCameraAsset) -> Path:
+def _read_data_1d_asset(
+    asset: TiledGeecsAsset,
+    *,
+    data_1d_config: Data1DConfigInput | None,
+) -> Any:
+    from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
+
+    if data_1d_config is None and asset.definition.requires_loader_config:
+        raise ValueError(
+            f"Asset field {asset.definition.event_field!r} for device type "
+            f"{asset.definition.device_type!r} requires a Data1DConfig."
+        )
+    config = _coerce_data_1d_config(data_1d_config, definition=asset.definition)
+    if config is None:
+        raise ValueError(
+            f"Asset field {asset.definition.event_field!r} for device type "
+            f"{asset.definition.device_type!r} has no Data1DConfig."
+        )
+    if not isinstance(config, Data1DConfig):
+        raise TypeError(f"Expected Data1DConfig, got {type(config)!r}.")
+    return read_1d_data(asset.file_path, config)
+
+
+def _coerce_data_1d_config(
+    data_1d_config: Data1DConfigInput | None,
+    *,
+    definition: AssetDefinition,
+) -> Any | None:
+    from geecs_data_utils.io.array1d import Data1DConfig
+
+    if data_1d_config is None:
+        if definition.default_data_1d_type is None:
+            return None
+        return Data1DConfig(data_type=definition.default_data_1d_type)
+    if isinstance(data_1d_config, Data1DConfig):
+        return data_1d_config
+    payload = dict(data_1d_config)
+    payload.setdefault("data_type", definition.default_data_1d_type)
+    return Data1DConfig(**payload)
+
+
+def _analysis_config(
+    analyzer: AnalyzerProtocol,
+    *,
+    data_1d_config: Data1DConfigInput | None,
+) -> dict[str, Any]:
+    analyzer_config = analyzer.describe_config()
+    if data_1d_config is None:
+        return analyzer_config
+    return {
+        "analyzer": analyzer_config,
+        "data_1d_loader": _serialize_config(data_1d_config),
+    }
+
+
+def _serialize_config(config: Data1DConfigInput) -> dict[str, Any]:
+    if hasattr(config, "model_dump"):
+        return dict(config.model_dump(mode="json"))
+    return dict(config)
+
+
+def _day_analysis_dir_from_asset(asset: TiledGeecsAsset) -> Path:
     scan_folder = asset.file_path.parent.parent
     if scan_folder.parent.name != "scans":
         raise ValueError(f"Cannot infer day folder from asset path: {asset.file_path}")
@@ -258,18 +345,11 @@ def _iter_primary_events(primary_table: Any) -> Iterable[dict[str, Any]]:
     if hasattr(primary_table, "sort_values") and "scan_event_index" in primary_table:
         primary_table = primary_table.sort_values("scan_event_index")
     if hasattr(primary_table, "iterrows"):
-        for _, row in primary_table.iterrows():
+        for _index, row in primary_table.iterrows():
             yield dict(row.to_dict())
         return
     for row in primary_table:
         yield dict(row)
-
-
-def _resource_spec(asset: TiledCameraAsset) -> str | None:
-    for name, doc in asset.documents:
-        if name == "resource":
-            return str(doc.get("spec"))
-    return None
 
 
 def _optional_int(value: Any) -> int | None:

@@ -9,6 +9,9 @@ import bluesky.plan_stubs as bps
 from event_model import Filler
 
 from geecs_bluesky.assets import (
+    AssetLoaderKind,
+    AssetPayloadKind,
+    EXTERNAL_ASSET_DOCUMENT_SCHEMA,
     FROG_DEVICE_TYPE,
     GEECS_CAMERA_IMAGE,
     GEECS_TDMS_FILE,
@@ -21,6 +24,8 @@ from geecs_bluesky.assets import (
     THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE,
     THORLABS_WFS_DEVICE_TYPE,
     GeecsCameraImageHandler,
+    GeecsTextArrayHandler,
+    build_external_asset_documents,
     build_camera_shot_documents,
     camera_image_filename,
     fill_geecs_documents,
@@ -67,6 +72,9 @@ def test_pointgrey_camera_registry_entry() -> None:
     assert definition.device_type == "Point Grey Camera"
     assert definition.spec == GEECS_CAMERA_IMAGE
     assert definition.extensions == (".png",)
+    assert definition.payload_kind is AssetPayloadKind.ARRAY_2D
+    assert definition.loader_kind is AssetLoaderKind.IMAGE
+    assert not definition.requires_loader_config
     assert definition.handler_class == "GeecsCameraImageHandler"
     assert definition.event_key("UC_TopView") == "uc_topview-image"
     assert get_single_asset_definition("Point Grey Camera") == definition
@@ -172,6 +180,10 @@ def test_tdms_device_types_register_primary_file_with_index_companion(tmp_path) 
         assert definition.spec == GEECS_TDMS_FILE
         assert definition.event_field == "tdms"
         assert definition.extensions == (".tdms",)
+        assert definition.payload_kind is AssetPayloadKind.ARRAY_1D
+        assert definition.loader_kind is AssetLoaderKind.DATA_1D
+        assert definition.default_data_1d_type == "tdms_scope"
+        assert definition.requires_loader_config
         assert definition.companion_extensions == (".tdms_index",)
         assert definition.handler_class is None
         assert file_path == save_path / "U_Scope_42.125.tdms"
@@ -210,7 +222,7 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
         / "scans"
         / "Scan015"
         / "U_FROG_Grenouille-Spatial"
-        / "U_FROG_Grenouille_10.000.png"
+        / "U_FROG_Grenouille-Spatial_10.000.png"
     )
     assert by_field["Temporal"].file_path(
         save_path=save_path,
@@ -222,7 +234,7 @@ def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
         / "scans"
         / "Scan015"
         / "U_FROG_Grenouille-Temporal"
-        / "U_FROG_Grenouille_10.000.png"
+        / "U_FROG_Grenouille-Temporal_10.000.png"
     )
 
 
@@ -237,9 +249,13 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
     assert by_field["interp_image"].spec == GEECS_CAMERA_IMAGE
     assert by_field["interpSpec"].spec == GEECS_TEXT_ARRAY
     assert by_field["interpDiv"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpSpec"].payload_kind is AssetPayloadKind.ARRAY_1D
+    assert by_field["interpSpec"].loader_kind is AssetLoaderKind.TEXT_ARRAY
+    assert not by_field["interpSpec"].requires_loader_config
     assert by_field["interp_image"].directory_suffix == "-interp"
     assert by_field["interpSpec"].directory_suffix == "-interpSpec"
     assert by_field["interpDiv"].directory_suffix == "-interpDiv"
+    assert by_field["interpSpec"].handler_class == "GeecsTextArrayHandler"
     assert (
         by_field["interpSpec"].event_key("U_BCaveMagSpec")
         == "u_bcavemagspec-interpspec"
@@ -257,7 +273,7 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
         / "scans"
         / "Scan042"
         / "U_BCaveMagSpec-interp"
-        / "U_BCaveMagSpec_1000.500.png"
+        / "U_BCaveMagSpec-interp_1000.500.png"
     )
     assert by_field["interpSpec"].file_path(
         save_path=save_path,
@@ -269,7 +285,7 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
         / "scans"
         / "Scan042"
         / "U_BCaveMagSpec-interpSpec"
-        / "U_BCaveMagSpec_1000.500.txt"
+        / "U_BCaveMagSpec-interpSpec_1000.500.txt"
     )
 
 
@@ -282,6 +298,7 @@ def test_magspec_stitcher_omits_interp_image_asset() -> None:
     assert by_field["image"].spec == GEECS_CAMERA_IMAGE
     assert by_field["interpSpec"].spec == GEECS_TEXT_ARRAY
     assert by_field["interpDiv"].spec == GEECS_TEXT_ARRAY
+    assert by_field["interpSpec"].handler_class == "GeecsTextArrayHandler"
     assert "interp_image" not in by_field
 
 
@@ -304,18 +321,65 @@ def test_camera_image_handler_loads_png(tmp_path) -> None:
     np.testing.assert_array_equal(handler(), expected)
 
 
-def test_geecs_handler_registry_maps_camera_spec() -> None:
-    """The public readback registry should expose the camera image handler."""
+def test_text_array_handler_loads_numeric_text(tmp_path) -> None:
+    """The text handler should load native numeric array assets."""
+    root = tmp_path / "root"
+    array_path = root / "Scan001" / "U_MagSpec" / "U_MagSpec_1.000.txt"
+    array_path.parent.mkdir(parents=True)
+    expected = np.array([[1.0, 2.0], [3.0, 4.0]])
+    np.savetxt(array_path, expected)
+
+    handler = GeecsTextArrayHandler(
+        "Scan001/U_MagSpec/U_MagSpec_1.000.txt",
+        root=root,
+    )
+
+    np.testing.assert_array_equal(handler(), expected)
+
+
+def test_text_array_handler_skips_native_header(tmp_path) -> None:
+    """The text handler should tolerate native MagSpec-style headers."""
+    root = tmp_path / "root"
+    array_path = root / "Scan001" / "U_MagSpec" / "U_MagSpec_1.000.txt"
+    array_path.parent.mkdir(parents=True)
+    array_path.write_text(
+        "\n".join(
+            [
+                "Momentum_GeV/c\tChargeDen_pC/GeV\tChargeDen_pC/GeV",
+                "51.5\t10.0\t10.0",
+                "51.8\t20.0\t20.0",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    handler = GeecsTextArrayHandler(
+        "Scan001/U_MagSpec/U_MagSpec_1.000.txt",
+        root=root,
+    )
+
+    np.testing.assert_array_equal(
+        handler(),
+        np.array([[51.5, 10.0, 10.0], [51.8, 20.0, 20.0]]),
+    )
+
+
+def test_geecs_handler_registry_maps_supported_specs() -> None:
+    """The public readback registry should expose supported native handlers."""
     registry = geecs_asset_handler_registry()
-    assert registry == {GEECS_CAMERA_IMAGE: GeecsCameraImageHandler}
+    assert registry == {
+        GEECS_CAMERA_IMAGE: GeecsCameraImageHandler,
+        GEECS_TEXT_ARRAY: GeecsTextArrayHandler,
+    }
 
 
-def test_register_geecs_handlers_adds_camera_spec_to_filler() -> None:
+def test_register_geecs_handlers_adds_supported_specs_to_filler() -> None:
     """The registration helper should configure an existing filler."""
     filler = Filler({}, inplace=False, retry_intervals=[])
     register_geecs_handlers(filler, overwrite=True)
 
     assert filler.handler_registry[GEECS_CAMERA_IMAGE] is GeecsCameraImageHandler
+    assert filler.handler_registry[GEECS_TEXT_ARRAY] is GeecsTextArrayHandler
 
 
 def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
@@ -351,7 +415,12 @@ def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
     assert resource["resource_path"] == "UC_TopView/UC_TopView_1000.500.png"
     assert resource["path_semantics"] == "posix"
     assert resource["spec"] == GEECS_CAMERA_IMAGE
-    assert resource["resource_kwargs"] == {"data_key": data_key}
+    assert resource["resource_kwargs"]["data_key"] == data_key
+    assert resource["resource_kwargs"]["device_name"] == "UC_TopView"
+    assert resource["resource_kwargs"]["device_type"] == POINTGREY_CAMERA_DEVICE_TYPE
+    assert resource["resource_kwargs"]["event_field"] == "image"
+    assert resource["resource_kwargs"]["payload_kind"] == "array_2d"
+    assert resource["resource_kwargs"]["loader_kind"] == "image"
     assert datum["datum_id"] == datum_id
     assert datum["resource"] == resource["uid"]
     assert datum["datum_kwargs"] == {}
@@ -415,6 +484,12 @@ def test_nonscalar_save_support_records_tdms_companion_paths(tmp_path) -> None:
 
     assert reading["u_scope-tdms"]["value"]
     assert resource["resource_path"] == "U_Scope/U_Scope_42.125.tdms"
+    assert resource["resource_kwargs"]["device_type"] == PICOSCOPE_V2_DEVICE_TYPE
+    assert resource["resource_kwargs"]["event_field"] == "tdms"
+    assert resource["resource_kwargs"]["payload_kind"] == "array_1d"
+    assert resource["resource_kwargs"]["loader_kind"] == "data_1d"
+    assert resource["resource_kwargs"]["default_data_1d_type"] == "tdms_scope"
+    assert resource["resource_kwargs"]["requires_loader_config"] is True
     assert resource["resource_kwargs"]["companion_resource_paths"] == [
         "U_Scope/U_Scope_42.125.tdms_index"
     ]
@@ -499,6 +574,43 @@ def test_geecs_documents_fill_camera_image_asset(tmp_path) -> None:
     np.testing.assert_array_equal(event["data"]["uc_topview-image"], expected)
 
 
+def test_geecs_documents_fill_with_trailing_slash_root_map(tmp_path) -> None:
+    """Filler root maps should tolerate configured trailing slashes."""
+    local_root = tmp_path / "data"
+    scan_folder = local_root / "Undulator" / "Y2026" / "07-Jul" / "26_0701"
+    image_path = (
+        scan_folder / "scans" / "Scan001" / "UC_TopView" / "UC_TopView_1000.500.png"
+    )
+    image_path.parent.mkdir(parents=True)
+    expected = np.array([[1, 2], [3, 4]], dtype=np.uint8)
+    with image_path.open("wb") as stream:
+        png.Writer(width=2, height=2, greyscale=True, bitdepth=8).write(
+            stream, expected.tolist()
+        )
+
+    definition = get_single_asset_definition(POINTGREY_CAMERA_DEVICE_TYPE)
+    assert definition is not None
+    docs = build_external_asset_documents(
+        definition=definition,
+        device_name="UC_TopView",
+        resource_root="Z:/data",
+        resource_path=(
+            "Undulator/Y2026/07-Jul/26_0701/scans/Scan001/"
+            "UC_TopView/UC_TopView_1000.500.png"
+        ),
+        data_key="uc_topview-image",
+    )
+
+    filled_docs = fill_geecs_documents(
+        docs,
+        root_map={"Z:/data/": f"{local_root}/"},
+        retry_intervals=[],
+    )
+    event = next(doc for name, doc in filled_docs if name == "event")
+
+    np.testing.assert_array_equal(event["data"]["uc_topview-image"], expected)
+
+
 def test_build_camera_shot_documents_resolves_legacy_scan_file(tmp_path) -> None:
     """Camera shot helper should resolve existing legacy scan-folder images."""
     scan_folder = (
@@ -525,9 +637,17 @@ def test_build_camera_shot_documents_resolves_legacy_scan_file(tmp_path) -> None
     )
 
     assert resolved_path == image_path
+    start = next(doc for name, doc in docs if name == "start")
     resource = next(doc for name, doc in docs if name == "resource")
+    assert (
+        start["geecs_external_asset_document_schema"] == EXTERNAL_ASSET_DOCUMENT_SCHEMA
+    )
     assert resource["root"] == str(scan_folder)
     assert resource["resource_path"] == "UC_TopView/Scan042_UC_TopView_001.png"
+    assert resource["resource_kwargs"]["device_type"] == POINTGREY_CAMERA_DEVICE_TYPE
+    assert resource["resource_kwargs"]["event_field"] == "image"
+    assert resource["resource_kwargs"]["payload_kind"] == "array_2d"
+    assert resource["resource_kwargs"]["loader_kind"] == "image"
 
     filled_docs = fill_geecs_documents(docs, retry_intervals=[])
     event = next(doc for name, doc in filled_docs if name == "event")

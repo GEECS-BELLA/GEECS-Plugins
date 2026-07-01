@@ -9,6 +9,12 @@ an in-memory NI IMAQ "Flatten Image to String" payload received live over the
 device TCP stream (not a file).
 """
 
+from geecs_data_utils.io.array1d import (
+    Data1DConfig,
+    Data1DResult,
+    Data1DType,
+    read_1d_data,
+)
 from geecs_data_utils.io.images import (
     decode_imaq_image_string,
     load_image_from_h5,
@@ -18,8 +24,12 @@ from geecs_data_utils.io.images import (
 )
 
 __all__ = [
+    "Data1DConfig",
+    "Data1DResult",
+    "Data1DType",
     "decode_imaq_image_string",
     "load_image_from_h5",
+    "read_1d_data",
     "read_imaq_image",
     "read_imaq_png_image",
     "read_tsv_file",

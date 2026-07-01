@@ -3,7 +3,7 @@ Shared config directory managers for GEECS plugins.
 
 Exposes pre-configured `ConfigDirManager` instances for:
 - Scan/ImageAnalysis configs (env: SCAN_ANALYSIS_CONFIG_DIR; fallback: config.ini Paths.scan_analysis_configs_path)
-- Legacy ImageAnalysis configs (env: IMAGE_ANALYSIS_CONFIG_DIR; fallback: config.ini Paths.image_analysis_configs_path)
+- ImageAnalysis configs (env: IMAGE_ANALYSIS_CONFIG_DIR; fallback: config.ini Paths.config_root/image_analysis/cameras)
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_image_from_ini() -> Path | None:
-    """Resolve legacy image analysis config dir from user config."""
+    """Resolve image analysis config dir from ~/.config/geecs_python_api/config.ini."""
     config_path = Path("~/.config/geecs_python_api/config.ini").expanduser()
     if not config_path.exists():
         return None
@@ -26,12 +26,6 @@ def _resolve_image_from_ini() -> Path | None:
     try:
         config = configparser.ConfigParser()
         config.read(config_path)
-        if image_path := config.get(
-            "Paths", "image_analysis_configs_path", fallback=None
-        ):
-            image_dir = Path(image_path).expanduser().resolve()
-            if image_dir.exists():
-                return image_dir
         if config_root := config.get("Paths", "config_root", fallback=None):
             if config_root:
                 image_dir = (
@@ -71,9 +65,9 @@ def _resolve_scan_from_ini() -> Path | None:
 image_analysis_config = ConfigDirManager(
     env_var="IMAGE_ANALYSIS_CONFIG_DIR",
     logger=logger,
-    name="Legacy image analysis config",
+    name="Image analysis config",
     fallback_resolver=_resolve_image_from_ini,
-    fallback_name="config.ini Paths.image_analysis_configs_path",
+    fallback_name="config.ini Paths.config_root",
 )
 
 scan_analysis_config = ConfigDirManager(

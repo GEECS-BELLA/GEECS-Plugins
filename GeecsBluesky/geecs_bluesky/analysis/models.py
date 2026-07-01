@@ -53,11 +53,16 @@ class InputAssetRef(BaseModel):
     scan_event_index: int | None = None
     shot_number: int | None = None
     device: str
+    device_type: str | None = None
     data_key: str
+    event_field: str | None = None
     datum_id: str | None = None
     resource_uid: str | None = None
     asset_spec: str | None = None
-    file_path: str | None = None
+    payload_kind: str | None = None
+    loader_kind: str | None = None
+    resource_root: str | None = None
+    resource_path: str | None = None
 
 
 class DerivedAssetRef(BaseModel):
@@ -159,7 +164,8 @@ class AnalysisInvocationMetadata(BaseModel):
 
     inputs: list[InputAssetRef] = Field(default_factory=list)
     outputs: list[DerivedAssetRef] = Field(default_factory=list)
-    analysis_output_dir: str | None = None
+    analysis_root: str | None = None
+    analysis_output_path: str | None = None
     feature_table: str | None = None
     derived_run_uid: str | None = None
 
