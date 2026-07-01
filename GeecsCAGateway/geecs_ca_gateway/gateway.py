@@ -13,10 +13,11 @@ remains the authoritative control system.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
-from caproto import ChannelData
+from caproto import AlarmSeverity, AlarmStatus, ChannelData
 from caproto.asyncio.server import start_server
 
 from geecs_bluesky.transport.tcp_subscriber import GeecsTcpSubscriber
@@ -31,22 +32,31 @@ logger = logging.getLogger(__name__)
 class GeecsCaGateway:
     """A single-process CA soft-IOC fronting one or more GEECS devices.
 
+    Each device's TCP subscription runs under a supervising task that reconnects
+    with exponential backoff on a dropped connection, and marks that device's
+    readback PVs ``INVALID`` (alarm severity) while it is down so clients can tell
+    live data from stale.  Live frames clear the alarm automatically.
+
     Parameters
     ----------
     config : GatewayConfig
         Declarative description of the devices and variables to serve.
-
-    Notes
-    -----
-    This proof of concept intentionally omits an automatic reconnect supervisor:
-    :meth:`GeecsTcpSubscriber._listen_loop` exits on a dropped connection.
-    Surviving a device power-cycle (the robustness of the legacy SVE tool) means
-    wrapping the subscription in a supervising retry loop — the next hardening
-    step, deliberately left out of the first cut.
+    reconnect_min_s, reconnect_max_s : float
+        Backoff bounds for the subscription reconnect loop.
     """
 
-    def __init__(self, config: GatewayConfig) -> None:
+    def __init__(
+        self,
+        config: GatewayConfig,
+        *,
+        reconnect_min_s: float = 0.5,
+        reconnect_max_s: float = 30.0,
+    ) -> None:
         self.config = config
+        self._reconnect_min = reconnect_min_s
+        self._reconnect_max = reconnect_max_s
+        self._supervisors: list[asyncio.Task] = []
+        self._closing = False
         self.pvdb: dict[str, ChannelData] = {}
         # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
         # authoritative bidirectional map (PV mapping is lossy at the string
@@ -139,25 +149,97 @@ class GeecsCaGateway:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Open UDP and TCP connections to every configured device."""
+        """Open UDP clients (used for sets) to every configured device.
+
+        The TCP subscription connection is opened and re-opened by the per-device
+        supervisor started in :meth:`subscribe`.
+        """
         for dev in self.config.devices:
             udp = GeecsUdpClient(dev.host, dev.port, device_name=dev.name)
             await udp.connect()
             self._udp[dev.name] = udp
-
-            sub = GeecsTcpSubscriber(dev.host, dev.port)
-            await sub.connect()
-            self._subs[dev.name] = sub
-        logger.info("connected to %d device(s)", len(self.config.devices))
+        logger.info("opened UDP to %d device(s)", len(self.config.devices))
 
     async def subscribe(self) -> None:
-        """Start the background subscription that keeps readback PVs warm."""
+        """Launch a supervised, auto-reconnecting TCP subscription per device."""
         for dev in self.config.devices:
-            variables = [v.geecs_var for v in dev.variables]
-            await self._subs[dev.name].subscribe(
-                variables, self._make_callback(dev.name)
+            task = asyncio.create_task(
+                self._supervise(dev), name=f"supervise[{dev.name}]"
             )
-        logger.info("subscribed to device streams")
+            self._supervisors.append(task)
+        logger.info("started %d subscription supervisor(s)", len(self._supervisors))
+
+    async def _supervise(self, dev) -> None:
+        """Keep one device's subscription alive; reconnect with backoff on drop.
+
+        The dropped-connection wait polls ``_listen_task.done()`` via a cancellable
+        sleep rather than awaiting the subscriber's internal task directly — the
+        latter has awkward cancellation semantics (its loop swallows
+        ``CancelledError``), which can wedge :meth:`close`.
+        """
+        variables = [v.geecs_var for v in dev.variables]
+        callback = self._make_callback(dev.name)
+        backoff = self._reconnect_min
+        while not self._closing:
+            sub = GeecsTcpSubscriber(dev.host, dev.port)
+            try:
+                await sub.connect()
+                self._subs[dev.name] = sub
+                await sub.subscribe(variables, callback)
+                logger.info("%s: subscription live", dev.name)
+                backoff = self._reconnect_min
+                # Wait for the listener to finish (connection drop), staying
+                # cleanly cancellable at the sleep.
+                while (
+                    not self._closing
+                    and sub._listen_task is not None
+                    and not sub._listen_task.done()
+                ):
+                    await asyncio.sleep(0.1)
+            except asyncio.CancelledError:
+                await self._safe_close(sub)
+                raise
+            except Exception:
+                logger.warning(
+                    "%s: subscription error; will retry", dev.name, exc_info=True
+                )
+            await self._safe_close(sub)
+            if self._closing:
+                break
+            # Connection dropped or failed to (re)establish.
+            await self._mark_device_invalid(dev.name)
+            logger.warning(
+                "%s: subscription down; reconnecting in %.1fs", dev.name, backoff
+            )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, self._reconnect_max)
+
+    @staticmethod
+    async def _safe_close(sub: GeecsTcpSubscriber) -> None:
+        """Close a subscriber, swallowing teardown errors."""
+        try:
+            await sub.close()
+        except Exception:
+            logger.debug("error closing subscriber", exc_info=True)
+
+    async def _mark_device_invalid(self, device: str) -> None:
+        """Set a device's readback PVs to INVALID severity (data no longer live).
+
+        Live frames issue plain value writes, which reset severity to NO_ALARM, so
+        recovery is automatic — only the disconnect transition is set here.
+        """
+        for pv, (dev, _var, kind) in self.manifest.items():
+            if dev != device or kind != "readback":
+                continue
+            channel = self.pvdb[pv]
+            try:
+                await channel.write(
+                    channel.value,
+                    severity=AlarmSeverity.INVALID_ALARM,
+                    status=AlarmStatus.COMM,
+                )
+            except Exception:
+                logger.debug("failed to mark %s INVALID", pv, exc_info=True)
 
     async def serve(self) -> None:
         """Run the CA server until cancelled (serves ``self.pvdb``)."""
@@ -173,10 +255,16 @@ class GeecsCaGateway:
             await self.close()
 
     async def close(self) -> None:
-        """Tear down all subscriptions and UDP clients."""
-        for sub in self._subs.values():
-            await sub.close()
+        """Cancel supervisors and tear down all subscriptions and UDP clients."""
+        self._closing = True
+        for task in self._supervisors:
+            task.cancel()
+        if self._supervisors:
+            await asyncio.gather(*self._supervisors, return_exceptions=True)
+        self._supervisors.clear()
+        for sub in list(self._subs.values()):
+            await self._safe_close(sub)
         for udp in self._udp.values():
             await udp.close()
-        self._subs.clear()
         self._udp.clear()
+        self._subs.clear()

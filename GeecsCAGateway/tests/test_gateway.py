@@ -9,8 +9,10 @@ These verify the two data paths without any CA client or lab network:
 from __future__ import annotations
 
 import asyncio
+import socket
 
 import pytest
+from caproto import AlarmSeverity
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
@@ -19,6 +21,40 @@ from geecs_ca_gateway.gateway import GeecsCaGateway
 pytestmark = pytest.mark.fake_server
 
 DEVICE = "U_ESP_JetXYZ"
+
+
+def _free_port() -> int:
+    """Grab a currently-free localhost TCP port."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+async def _wait_until(predicate, timeout: float = 6.0, interval: float = 0.05) -> bool:
+    """Poll ``predicate`` until true or ``timeout`` elapses."""
+    waited = 0.0
+    while waited < timeout:
+        if predicate():
+            return True
+        await asyncio.sleep(interval)
+        waited += interval
+    return predicate()
+
+
+async def _start_on_port(device: FakeGeecsDevice, port: int) -> FakeGeecsServer:
+    """Start a fake server on a specific port, retrying while it frees up."""
+    last: OSError | None = None
+    for _ in range(15):
+        srv = FakeGeecsServer(device, port=port)
+        try:
+            await srv.start()
+            return srv
+        except OSError as exc:  # port not yet released after prior close
+            last = exc
+            await asyncio.sleep(0.1)
+    raise last  # type: ignore[misc]
 
 
 def _config(host: str, port: int) -> GatewayConfig:
@@ -103,6 +139,46 @@ async def test_stream_updates_readback() -> None:
             assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(7.5)
         finally:
             await gw.close()
+
+
+async def test_reconnect_and_validity() -> None:
+    """On drop: readback goes INVALID; on reconnect: recovers and updates."""
+    port = _free_port()
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 7.5, "acq_timestamp": 1000.0}
+    )
+    srv = await _start_on_port(device, port)
+    gw = GeecsCaGateway(
+        _config("127.0.0.1", port), reconnect_min_s=0.2, reconnect_max_s=0.4
+    )
+    await gw.connect()
+    await gw.subscribe()
+    rb = gw.pvdb[f"{DEVICE}:Position"]
+    try:
+        # live: value flows and severity is clear
+        assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
+        assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+
+        # drop: the device goes away -> readback marked INVALID
+        await srv.stop()
+        assert await _wait_until(
+            lambda: int(rb.severity) == int(AlarmSeverity.INVALID_ALARM)
+        )
+
+        # restore on the same port with a new value -> auto-recovers
+        device2 = FakeGeecsDevice(
+            DEVICE, variables={"Position": 9.0, "acq_timestamp": 1001.0}
+        )
+        srv2 = await _start_on_port(device2, port)
+        try:
+            assert await _wait_until(
+                lambda: int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+                and rb.value == pytest.approx(9.0)
+            )
+        finally:
+            await srv2.stop()
+    finally:
+        await gw.close()
 
 
 async def test_setpoint_write_reaches_geecs() -> None:
