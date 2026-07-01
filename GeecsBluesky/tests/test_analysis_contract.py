@@ -356,6 +356,14 @@ def test_image_analyzer_adapter_unwraps_data_1d_result() -> None:
     }
     assert result.features == {"y_sum": 3.0}
 
+    adapter.analyze(
+        Data1DResult(data=np.asarray([[0.0, 3.0], [1.0, 4.0]])),
+        asset=asset,
+        output_dir=Path("."),
+    )
+
+    assert image_analyzer.data_metadata == {}
+
 
 def test_image_analyzer_adapter_selects_configured_text_line_columns() -> None:
     """Line analyzers should receive configured x/y columns from text assets."""

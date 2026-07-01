@@ -139,7 +139,9 @@ class ImageAnalyzerAdapter:
             data,
             image_analyzer=self.image_analyzer,
         )
-        if data_metadata and hasattr(self.image_analyzer, "data_metadata"):
+        if isinstance(data, Data1DResult) and hasattr(
+            self.image_analyzer, "data_metadata"
+        ):
             self.image_analyzer.data_metadata = data_metadata
         auxiliary_data.update(
             {
