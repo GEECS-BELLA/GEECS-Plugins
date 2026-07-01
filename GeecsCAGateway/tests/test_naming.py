@@ -17,6 +17,39 @@ def test_spaces_collapse_to_underscores() -> None:
     assert normalize_pv_component("  padded  name  ") == "padded_name"
 
 
+def test_dot_becomes_underscore() -> None:
+    """The dot is critical: EPICS reads it as the record/field separator."""
+    assert normalize_pv_component("Trigger.Source") == "Trigger_Source"
+
+
+def test_mixed_bad_chars_collapse() -> None:
+    """Dashes, parens, and other non-[A-Za-z0-9_] chars map to single ``_``."""
+    assert normalize_pv_component("Beam-Current (A)") == "Beam_Current_A"
+
+
+def test_pv_name_for_with_experiment_prefix() -> None:
+    """Experiment prefix yields ``Experiment:Device:Variable``."""
+    dev = DeviceSpec(name="U_S1H", host="h", port=1, experiment="Undulator")
+    assert (
+        dev.pv_name_for(VariableSpec(geecs_var="Current")) == "Undulator:U_S1H:Current"
+    )
+
+
+def test_pv_name_for_without_experiment() -> None:
+    """No experiment prefix yields ``Device:Variable``."""
+    dev = DeviceSpec(name="U_S1H", host="h", port=1)
+    assert dev.pv_name_for(VariableSpec(geecs_var="Current")) == "U_S1H:Current"
+
+
+def test_pv_name_for_normalizes_variable_dot() -> None:
+    """A dotted GEECS variable is CA-safe in the full PV name."""
+    dev = DeviceSpec(name="U_DG645", host="h", port=1)
+    assert (
+        dev.pv_name_for(VariableSpec(geecs_var="Trigger.Source"))
+        == "U_DG645:Trigger_Source"
+    )
+
+
 def test_variable_spec_default_suffix_normalizes() -> None:
     """A VariableSpec with no explicit ``pv`` normalizes the GEECS var name."""
     spec = VariableSpec(geecs_var="Beam Current")

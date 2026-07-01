@@ -24,7 +24,6 @@ from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 from .channels import cast_value, make_readback_channel, make_setpoint_channel
 from .config import DType, GatewayConfig
-from .naming import pv_name
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +48,10 @@ class GeecsCaGateway:
     def __init__(self, config: GatewayConfig) -> None:
         self.config = config
         self.pvdb: dict[str, ChannelData] = {}
+        # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
+        # authoritative bidirectional map (PV mapping is lossy at the string
+        # level); doubles as the collision guard at build time.
+        self.manifest: dict[str, tuple[str, str, str]] = {}
         self._udp: dict[str, GeecsUdpClient] = {}
         self._subs: dict[str, GeecsTcpSubscriber] = {}
         # device name -> {geecs_var -> (readback channel, dtype)}
@@ -60,11 +63,12 @@ class GeecsCaGateway:
     # ------------------------------------------------------------------
 
     def _build_pvdb(self) -> None:
-        """Populate ``self.pvdb`` and the readback routing map from config."""
+        """Populate ``self.pvdb``, the readback routing map, and the manifest."""
         for dev in self.config.devices:
             readback_map: dict[str, tuple[ChannelData, DType]] = {}
             for var in dev.variables:
-                full = pv_name(dev.pv_prefix, var.pv_suffix)
+                full = dev.pv_name_for(var)
+                self._register(full, dev.name, var.geecs_var, "readback")
                 readback = make_readback_channel(
                     var.dtype,
                     egu=var.egu,
@@ -76,8 +80,10 @@ class GeecsCaGateway:
                 readback_map[var.geecs_var] = (readback, var.dtype)
 
                 if var.settable:
+                    sp_name = f"{full}:SP"
+                    self._register(sp_name, dev.name, var.geecs_var, "setpoint")
                     setter = self._make_setter(dev.name, var.geecs_var)
-                    self.pvdb[f"{full}:SP"] = make_setpoint_channel(
+                    self.pvdb[sp_name] = make_setpoint_channel(
                         var.dtype,
                         setter,
                         egu=var.egu,
@@ -86,6 +92,16 @@ class GeecsCaGateway:
                         hi=var.hi,
                     )
             self._readbacks[dev.name] = readback_map
+
+    def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> None:
+        """Record ``pv`` in the manifest, erroring on a name collision."""
+        if pv in self.manifest:
+            other_dev, other_var, _ = self.manifest[pv]
+            raise ValueError(
+                f"PV name collision: {pv!r} maps to both "
+                f"{other_dev}/{other_var} and {device}/{geecs_var}"
+            )
+        self.manifest[pv] = (device, geecs_var, kind)
 
     def _make_setter(self, device_name: str, geecs_var: str):
         """Return an async setter closure that forwards a value over UDP."""

@@ -36,10 +36,9 @@ class VariableSpec(BaseModel):
 
     @property
     def pv_suffix(self) -> str:
-        """PV component for this variable (explicit ``pv`` or normalized var)."""
-        if self.pv is not None:
-            return self.pv
-        return normalize_pv_component(self.geecs_var)
+        """PV component for this variable (explicit ``pv`` or GEECS var), normalized."""
+        raw = self.pv if self.pv is not None else self.geecs_var
+        return normalize_pv_component(raw)
 
 
 class DeviceSpec(BaseModel):
@@ -49,12 +48,26 @@ class DeviceSpec(BaseModel):
     host: str
     port: int
     prefix: str | None = None
+    experiment: str | None = None
     variables: list[VariableSpec] = Field(default_factory=list)
 
     @property
     def pv_prefix(self) -> str:
         """EPICS PV prefix for this device (explicit ``prefix`` or device name)."""
         return self.prefix if self.prefix is not None else self.name
+
+    def pv_name_for(self, var: VariableSpec) -> str:
+        """Full PV name for ``var``: ``[Experiment:]Device:Variable``.
+
+        Each namespace component is normalized to the CA-safe character set; the
+        variable suffix is already normalized by :attr:`VariableSpec.pv_suffix`.
+        """
+        parts: list[str] = []
+        if self.experiment:
+            parts.append(normalize_pv_component(self.experiment))
+        parts.append(normalize_pv_component(self.pv_prefix))
+        parts.append(var.pv_suffix)
+        return ":".join(parts)
 
     @classmethod
     def from_db_metadata(
@@ -67,6 +80,7 @@ class DeviceSpec(BaseModel):
         include: list[str] | None = None,
         dtypes: dict[str, DType] | None = None,
         prefix: str | None = None,
+        experiment: str | None = None,
     ) -> "DeviceSpec":
         """Build a spec from already-fetched GEECS DB variable metadata.
 
@@ -112,7 +126,14 @@ class DeviceSpec(BaseModel):
                     hi=meta.get("max"),
                 )
             )
-        return cls(name=name, host=host, port=port, prefix=prefix, variables=specs)
+        return cls(
+            name=name,
+            host=host,
+            port=port,
+            prefix=prefix,
+            experiment=experiment,
+            variables=specs,
+        )
 
     @classmethod
     def from_geecs_db(
@@ -122,6 +143,7 @@ class DeviceSpec(BaseModel):
         include: list[str] | None = None,
         dtypes: dict[str, DType] | None = None,
         prefix: str | None = None,
+        experiment: str | None = None,
     ) -> "DeviceSpec":
         """Build a spec by querying the GEECS database (needs lab network).
 
@@ -146,7 +168,14 @@ class DeviceSpec(BaseModel):
         host, port = GeecsDb.find_device(name)
         metadata = GeecsDb.get_device_variables(name)
         return cls.from_db_metadata(
-            name, host, port, metadata, include=include, dtypes=dtypes, prefix=prefix
+            name,
+            host,
+            port,
+            metadata,
+            include=include,
+            dtypes=dtypes,
+            prefix=prefix,
+            experiment=experiment,
         )
 
 

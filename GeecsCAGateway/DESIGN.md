@@ -109,6 +109,65 @@ Against real device `U_S1H` (steering-magnet PS, beam off):
 4. Real CA wire exercised with caproto's `caproto-get`/`caproto-put` CLI tools;
    15 offline tests against the in-process `FakeGeecsServer`.
 
+## Foundational decisions (settled 2026-07-01)
+
+Recorded so the next build phase doesn't relitigate them.
+
+- **Goal is ecosystem modernization, not just archiving.** The archiver was one
+  motivating example; the target is a modern controls/data ecosystem
+  (ophyd/Bluesky, Phoebus, alarms, save/restore, archiver). This raises the value
+  of correct semantics (naming, timestamps, alarm/validity, types), since every
+  tool consumes them.
+
+- **Protocol: Channel Access now; pvAccess later, per-device-class.** CA is the
+  stable, universally-supported substrate. PVA/structured data
+  (NTScalar/NTTable/NTNDArray) is additive, adopted where it pays — starting with
+  images. `channels.py` is the only caproto-typed layer, kept swappable; `p4p` is
+  the mature PVA-server route if/when needed. (`p4p` is the PVA Python library,
+  not "the new pyepics"; pyepics stays CA-only and current.)
+
+- **Images are a separate, distributed, PVA workstream — not this gateway.** A
+  central gateway funneling ~100 cameras is a bandwidth bottleneck. Images belong
+  on distributed per-camera IOCs (areaDetector-style, PVA/NTNDArray) where data
+  stays at the edge. CA name resolution lets the central scalar gateway and
+  per-camera IOCs coexist transparently.
+
+- **Naming policy (retrofit-expensive — locked first):**
+  - Namespace `[Experiment:]Device:Variable`, e.g. `Undulator:U_S1H:Current`.
+    The experiment prefix future-proofs against cross-experiment collisions
+    (experiments are already separated in the DB).
+  - Character mapping: within a component allow only `[A-Za-z0-9_]`; `:` is the
+    reserved separator; every other char (space, `.`, `-`, `()`, …) → `_`, runs
+    collapsed, ends stripped. The **dot is critical** — EPICS reads `.` as the
+    record/field separator, so `Trigger.Source` MUST become `Trigger_Source`.
+  - Device *type* stays OUT of the name — a name is stable identity; type is
+    derivable metadata (bake it in and a hardware swap renames the PV). Expose
+    type as metadata if wanted, not as an address component.
+  - The map is **lossy at the string level, and that's fine**: the gateway holds
+    the authoritative bidirectional map (`geecs_var` ↔ PV) and publishes a
+    **manifest** (PV → device/variable/kind). Don't reverse-engineer GEECS names
+    from PV strings; use the manifest.
+  - **Collisions** (two GEECS names → one PV) are a hard error, never silent.
+
+- **Authorization/write-safety is NOT foundational here.** GEECS enforces the DB
+  value limits server-side and returns an error the setter propagates (→ CA put
+  fails correctly), so the gateway inherits range safety; the DB-derived CA
+  control limits are a UX hint with GEECS as backstop. A client commanding an
+  in-range value is "how things are" today — not a regression. Residual: serve CA
+  only on the intended subnet (`EPICS_CAS_INTF_ADDR_LIST`); optional read-only
+  mode. *Operational-envelope interlocks* are a genuine future EPICS/Bluesky
+  benefit (calc/alarm records, suspenders, golden save/restore), not something we
+  have today — deferred, nothing lost.
+
+- **Config source of truth = the DB, not a static file.** The DB is edited as
+  devices are added/removed from experiments (the master LabVIEW GUI already
+  triggers a reboot on such changes). `from_geecs_experiment(name)` pulls the
+  device/variable set **live from the DB**; a thin optional **overlay file** holds
+  only curation/policy (naming overrides, dtype/enum choices, exclusions,
+  write-enable). On a DB change the gateway re-pulls (a restart fits the existing
+  reboot pattern; hot-reload is a later nicety). The served PV set stays in sync
+  with the DB rather than going stale.
+
 ## Honest gaps / next steps
 
 - **Reconnect supervisor** — `GeecsTcpSubscriber._listen_loop` exits on a dropped

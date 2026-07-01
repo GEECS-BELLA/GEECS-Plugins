@@ -39,6 +39,46 @@ def _config(host: str, port: int) -> GatewayConfig:
     )
 
 
+def test_experiment_prefix_and_manifest() -> None:
+    """Experiment prefix flows into PV names; the manifest maps PV → GEECS var."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_S1H",
+                host="h",
+                port=1,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Current", settable=True)],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    assert "Undulator:U_S1H:Current" in gw.pvdb
+    assert "Undulator:U_S1H:Current:SP" in gw.pvdb
+    assert gw.manifest["Undulator:U_S1H:Current"] == ("U_S1H", "Current", "readback")
+    assert gw.manifest["Undulator:U_S1H:Current:SP"] == ("U_S1H", "Current", "setpoint")
+
+
+def test_pv_name_collision_raises() -> None:
+    """Two GEECS variables mapping to one PV is a hard error, not silent clobber."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_DG645",
+                host="h",
+                port=1,
+                # "Trigger.Source" and "Trigger Source" both normalize identically.
+                variables=[
+                    VariableSpec(geecs_var="Trigger.Source"),
+                    VariableSpec(geecs_var="Trigger Source"),
+                ],
+            )
+        ]
+    )
+    with pytest.raises(ValueError, match="collision"):
+        GeecsCaGateway(cfg)
+
+
 async def test_pvdb_contains_readback_and_setpoint() -> None:
     """Settable variable yields both a readback and a ``:SP`` setpoint PV."""
     gw = GeecsCaGateway(_config("127.0.0.1", 1))
