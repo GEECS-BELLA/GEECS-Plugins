@@ -4,6 +4,125 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.2] - 2026-06-26
+
+### Changed
+
+- External asset Resource documents now use the configured device-server data
+  root as their canonical `root` when available, with POSIX `resource_path`
+  values below that root, instead of always using the scan folder as root.
+- Resource path construction now normalizes Windows and POSIX separators before
+  computing relative paths.
+
+### Documentation
+
+- Updated the external-assets roadmap to describe canonical Resource writing,
+  reader-side root mapping, and the pre-production/test status of current Tiled
+  data.
+
+## [0.13.1] - 2026-06-25
+
+### Fixed
+
+- Tiled-backed local camera readback now maps Windows/device-server data roots
+  such as `Z:/data` to local data mounts such as `/Volumes/hdna2/data` before
+  constructing Resource/Datum documents, avoiding OS-dependent
+  `Path.relative_to` failures.
+
+### Documentation
+
+- Added the external-assets roadmap/status document with the current
+  acquisition, local-fill, root-mapping, and post-run-analysis next steps.
+
+## [0.13.0] - 2026-06-24
+
+### Changed
+
+- `strict_shot_control` now requires a reachable shot-control device with a
+  non-empty `ARMED` state and aborts configuration when that requirement is not
+  met, instead of falling back to free-running `trigger_and_read`.
+- Unknown acquisition-mode values now raise a configuration error instead of
+  silently falling back to strict mode.
+- The standalone hardware smoke harness now runs no-shot-control scenarios in
+  explicit `free_run_time_sync` mode and uses true ARMED strict mode for
+  shot-control/full-output checks.
+
+### Added
+
+- Added Tiled-backed local camera asset readback helpers. Archived Bluesky runs
+  can now be found by GEECS scan identity, a shot can be selected by
+  `scan_event_index`, and the event's device `acq_timestamp` is used with the
+  asset registry to fill the native camera PNG through local handlers.
+- Added `tiled_external_asset_readback.ipynb`, a thin notebook for querying a
+  Tiled run by date, scan number, device, and shot, then loading the camera
+  image locally.
+
+### Fixed
+
+- Missing-shot Tiled readback errors now report the available
+  `scan_event_index` values, and the notebook prints lookup failures without a
+  traceback.
+
+## [0.12.2] - 2026-06-24
+
+### Changed
+
+- Split GeecsBluesky pytest selection into pure unit tests and socket-based
+  `FakeGeecsServer` TCP/UDP integration tests via a dedicated `fake_server`
+  marker, so unit-test CI can avoid opening localhost sockets.
+
+### Fixed
+
+- Hardened fake-server tests and socket teardown with bounded per-test timeouts,
+  explicit background server shutdown, TCP subscriber cleanup, and retry logic
+  for local UDP/TCP port collisions.
+
+## [0.12.1] - 2026-06-23
+
+### Added
+
+- Local external asset readback helpers for registering GEECS handlers with
+  `event_model.Filler` and filling ordered Bluesky document streams.
+- Camera shot document helpers for building fillable Resource/Datum docs from
+  existing legacy scan folders by date, scan number, device, and shot number.
+- `external_asset_readback.ipynb` to demonstrate local camera asset filling,
+  including a parameterized existing-scan lookup and a no-hardware synthetic
+  PNG smoke test.
+
+### Fixed
+
+- `GeecsCameraImageHandler` now accepts Resource document metadata such as
+  `data_key`, matching how `event_model.Filler` instantiates handlers from
+  GEECS Resource documents.
+
+## [0.12.0] - 2026-06-23
+
+### Added
+
+- Native-file-saving sync devices now emit Bluesky external asset references
+  when their database device type is registered in `geecs_bluesky.assets`.
+  Acquisition still records the existing `nonscalar_save_path` string column;
+  registered assets add datum-id event fields plus matching Resource/Datum docs.
+- `NonScalarSaveSupport.collect_asset_docs()` queues one Resource/Datum pair per
+  native file and records `.tdms_index` companion paths for TDMS assets.
+- The standalone `test_bluesky_scanner.py` hardware script now preflights the
+  required lab devices and reports unreachable hardware before running
+  scenarios. Its camera device can be overridden with
+  `GEECS_BLUESKY_TEST_CAMERA`.
+
+### Fixed
+
+- Tiled persistence failures no longer abort scans. GEECS native-file asset
+  datum IDs are stored as ordinary Tiled event metadata until the Tiled server
+  has readers for the custom GEECS asset specs.
+- Native-save device commands now translate scanner-local save folders to
+  `geecs_device_server_data_base_path` from the user config before writing
+  `localsavingpath`, so tests run from macOS/Linux can still command
+  Windows-visible device paths such as `Z:\data`.
+- External asset paths now use the direct native device filename
+  (`Device_<acq_timestamp>.<ext>`) rather than the legacy post-move renamed
+  filename.
+
 ## [0.11.0] - 2026-06-23
 
 ### Added

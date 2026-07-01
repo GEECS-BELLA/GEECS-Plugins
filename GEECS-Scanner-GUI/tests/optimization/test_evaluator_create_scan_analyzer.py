@@ -32,7 +32,7 @@ def fake_camera_config():
     """Minimal CameraConfig the BeamAnalyzer constructor will accept."""
     from image_analysis.config import CameraConfig
 
-    return CameraConfig(name="TestCameraDevice")
+    return CameraConfig()
 
 
 @pytest.fixture
@@ -42,7 +42,6 @@ def fake_line_config():
     from image_analysis.config.array1d_processing import Data1DConfig
 
     return Line1DConfig(
-        name="TestLineDevice",
         data_loading=Data1DConfig(data_type="tdms_scope"),
     )
 

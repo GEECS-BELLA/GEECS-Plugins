@@ -13,6 +13,8 @@ from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsS
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from geecs_bluesky.transport.tcp_subscriber import GeecsTcpSubscriber
 
+pytestmark = pytest.mark.fake_server
+
 
 # ---------------------------------------------------------------------------
 # Fixtures

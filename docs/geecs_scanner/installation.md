@@ -33,7 +33,7 @@ python --version
 Check your Poetry installation:
 ```bash
 poetry --version
-# Should show: Poetry (version 2.10.x)
+# Should show: Poetry (version 2.x.x)
 # Note: If poetry version is not shown, make sure poetry was added to PATH.
 ```
 

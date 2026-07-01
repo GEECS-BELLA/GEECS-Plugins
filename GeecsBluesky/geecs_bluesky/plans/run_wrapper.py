@@ -16,12 +16,28 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 
 logger = logging.getLogger(__name__)
+
+
+def _saving_detector_paths(item: Sequence) -> tuple[Any, str, str]:
+    """Return ``(detector, event_path, device_command_path)`` for one save item."""
+    if len(item) == 2:
+        det, event_path = item
+        device_command_path = event_path
+    elif len(item) == 3:
+        det, event_path, device_command_path = item
+    else:
+        raise ValueError(
+            "saving_detectors entries must be (detector, event_path) or "
+            "(detector, event_path, device_command_path)"
+        )
+    return det, str(event_path), str(device_command_path)
 
 
 def claim_scan_number(experiment: str = "") -> tuple[int | None, str | None]:
@@ -61,7 +77,9 @@ def _save_cleanup_plan(saving_detectors: list[tuple]):
     if not saving_detectors:
         return
     mv_args: list = []
-    for det, _path in saving_detectors:
+    for det, _event_path, _device_command_path in map(
+        _saving_detector_paths, saving_detectors
+    ):
         mv_args.extend([det.save, "off"])
         logger.debug("Saving disabled for %s", det.name)
     yield from bps.mv(*mv_args)
@@ -141,7 +159,10 @@ def geecs_run_wrapper(
         md["scan_folder"] = scan_folder
     if saving:
         md["nonscalar_save_paths"] = {
-            getattr(det, "_geecs_device_name", det.name): path for det, path in saving
+            getattr(det, "_geecs_device_name", det.name): event_path
+            for det, event_path, _device_command_path in map(
+                _saving_detector_paths, saving
+            )
         }
     scalar_headers = _collect_scalar_headers(devices or [])
     if scalar_headers:
@@ -155,9 +176,14 @@ def geecs_run_wrapper(
         return
 
     mv_args: list = []
-    for det, path in saving:
-        os.makedirs(path, exist_ok=True)
-        logger.info("Save path for %s: %s", det.name, path)
-        mv_args.extend([det.localsavingpath, path, det.save, "on"])
+    for det, event_path, device_command_path in map(_saving_detector_paths, saving):
+        os.makedirs(event_path, exist_ok=True)
+        logger.info(
+            "Save path for %s: event=%s, device=%s",
+            det.name,
+            event_path,
+            device_command_path,
+        )
+        mv_args.extend([det.localsavingpath, device_command_path, det.save, "on"])
     yield from bps.mv(*mv_args)
     yield from bpp.finalize_wrapper(wrapped, _save_cleanup_plan(saving))

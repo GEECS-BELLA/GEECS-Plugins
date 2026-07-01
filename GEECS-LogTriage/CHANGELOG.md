@@ -5,6 +5,26 @@ All notable changes to `geecs-log-triage` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] — 2026-06-29
+
+### Fixed
+- `harvester.day_folder_for` built the month segment with `strftime('%B')` (the
+  full month name, e.g. `06-June`), but the GEECS folder convention uses the
+  3-letter abbreviation (`06-Jun`). As a result `--date`/`--experiment` triage
+  silently resolved to a non-existent folder and reported **0 scans examined**
+  for every month except May (where the full name and abbreviation coincide) —
+  which is why the May validation set never caught it. `day_folder_for` now
+  delegates to `geecs_data_utils.ScanPaths.get_daily_scan_folder`, the canonical
+  (locale-independent) path builder, and a new `tests/test_harvester_paths.py`
+  pins the abbreviated-month convention across non-May months.
+
+## [0.2.3] — 2026-06-26
+
+### Changed
+- Dropped the Python 3.10 support claim; minimum is now `python >=3.11,<3.12`,
+  matching the integrated monorepo environment (the root project and the
+  GUI/PythonAPI/Bluesky packages all require >=3.11).
+
 ## [0.2.2] — 2026-05-08
 
 ### Fixed

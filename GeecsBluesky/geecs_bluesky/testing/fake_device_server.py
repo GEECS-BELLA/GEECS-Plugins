@@ -28,6 +28,7 @@ Framing: 4-byte big-endian signed int length prefix + ASCII payload.
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import struct
 from dataclasses import dataclass, field
@@ -37,6 +38,19 @@ logger = logging.getLogger(__name__)
 
 _PUSH_HZ = 5.0
 _PUSH_INTERVAL = 1.0 / _PUSH_HZ
+
+
+async def _close_writer(writer: asyncio.StreamWriter, timeout: float = 1.0) -> None:
+    """Close a stream writer, aborting the transport if graceful close stalls."""
+    writer.close()
+    try:
+        await asyncio.wait_for(writer.wait_closed(), timeout=timeout)
+    except Exception:
+        transport = getattr(writer, "transport", None) or getattr(
+            writer, "_transport", None
+        )
+        if transport is not None:
+            transport.abort()
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +244,7 @@ class _TcpSubscriptionHandler:
                 await asyncio.sleep(_PUSH_INTERVAL)
         finally:
             try:
-                self._writer.close()
-                await self._writer.wait_closed()
+                await _close_writer(self._writer)
             except Exception:
                 pass
 
@@ -267,27 +280,45 @@ class FakeGeecsServer:
         self.port = port
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._tcp_server: asyncio.Server | None = None
+        self._tcp_writers: set[asyncio.StreamWriter] = set()
+        self._tcp_handler_tasks: set[asyncio.Task[Any]] = set()
 
     async def start(self) -> None:
         """Start UDP and TCP listeners."""
         loop = asyncio.get_running_loop()
+        bind_attempts = 10 if self.port == 0 else 1
+        last_error: OSError | None = None
 
-        # UDP
-        udp_transport, _ = await loop.create_datagram_endpoint(
-            lambda: _GeecsUdpProtocol(self._device),
-            local_addr=(self.host, self.port),
-        )
-        self._udp_transport = udp_transport  # type: ignore[assignment]
-        udp_port = udp_transport.get_extra_info("sockname")[1]
+        for _attempt in range(bind_attempts):
+            udp_transport: asyncio.BaseTransport | None = None
+            try:
+                # UDP
+                udp_transport, _ = await loop.create_datagram_endpoint(
+                    lambda: _GeecsUdpProtocol(self._device),
+                    local_addr=(self.host, self.port),
+                )
+                udp_port = udp_transport.get_extra_info("sockname")[1]
 
-        # TCP on the same port number
-        self._tcp_server = await asyncio.start_server(
-            self._handle_tcp,
-            host=self.host,
-            port=udp_port,
-        )
+                # TCP on the same port number
+                self._tcp_server = await asyncio.start_server(
+                    self._handle_tcp,
+                    host=self.host,
+                    port=udp_port,
+                )
+                self._udp_transport = udp_transport  # type: ignore[assignment]
+                self.port = udp_port
+                break
+            except OSError as exc:
+                if udp_transport is not None:
+                    udp_transport.close()
+                if self.port != 0 or exc.errno != errno.EADDRINUSE:
+                    raise
+                last_error = exc
+                await asyncio.sleep(0)
+        else:
+            assert last_error is not None
+            raise last_error
 
-        self.port = udp_port
         logger.info(
             "FakeGeecsServer '%s' listening on %s:%s (UDP+TCP)",
             self._device.name,
@@ -296,20 +327,48 @@ class FakeGeecsServer:
         )
 
     async def stop(self) -> None:
-        """Shut down both listeners."""
+        """Shut down listeners and active TCP subscriptions."""
         if self._tcp_server is not None:
             self._tcp_server.close()
             await self._tcp_server.wait_closed()
+            self._tcp_server = None
+
+        writers = list(self._tcp_writers)
+        self._tcp_writers.clear()
+        if writers:
+            await asyncio.gather(
+                *(_close_writer(writer) for writer in writers),
+                return_exceptions=True,
+            )
+
+        handler_tasks = [
+            task
+            for task in self._tcp_handler_tasks
+            if task is not asyncio.current_task() and not task.done()
+        ]
+        if handler_tasks:
+            await asyncio.gather(*handler_tasks, return_exceptions=True)
+
         if self._udp_transport is not None:
             self._udp_transport.close()
+            self._udp_transport = None
 
     async def _handle_tcp(
         self,
         reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter,
     ) -> None:
-        handler = _TcpSubscriptionHandler(self._device, reader, writer)
-        await handler.run()
+        task = asyncio.current_task()
+        if task is not None:
+            self._tcp_handler_tasks.add(task)
+        self._tcp_writers.add(writer)
+        try:
+            handler = _TcpSubscriptionHandler(self._device, reader, writer)
+            await handler.run()
+        finally:
+            self._tcp_writers.discard(writer)
+            if task is not None:
+                self._tcp_handler_tasks.discard(task)
 
     async def __aenter__(self) -> "FakeGeecsServer":
         """Start the server and return ``self``."""

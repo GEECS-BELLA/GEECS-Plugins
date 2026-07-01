@@ -24,6 +24,14 @@ from geecs_bluesky.utils import safe_name
 FilePathBuilder = Callable[[str | Path, int, str, float], Path]
 
 
+def _normalize_path_string(path: str | Path) -> str:
+    """Return *path* with POSIX separators and no trailing slash."""
+    normalized = str(path).replace("\\", "/")
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
+    return normalized.rstrip("/")
+
+
 def camera_image_filename(
     scan_number: int,
     device_name: str,
@@ -31,8 +39,9 @@ def camera_image_filename(
 ) -> str:
     """Return the native GEECS camera image filename.
 
-    GEECS camera files are named by scan number, device name, and the device
-    acquisition timestamp rounded to milliseconds.
+    GEECS device servers write native files by device name and acquisition
+    timestamp. Legacy scan finalization may rename files later, but external
+    assets should point at the native direct-save filename.
     """
     return native_file_filename(
         scan_number=scan_number,
@@ -50,9 +59,7 @@ def native_file_filename(
 ) -> str:
     """Return the native GEECS filename for one timestamped device file."""
     normalized_extension = extension if extension.startswith(".") else f".{extension}"
-    return (
-        f"Scan{scan_number:03d}_{device_name}_{acq_timestamp:.3f}{normalized_extension}"
-    )
+    return f"{device_name}_{acq_timestamp:.3f}{normalized_extension}"
 
 
 def _camera_image_path(
@@ -120,9 +127,21 @@ class AssetDefinition:
         """Return the expected native file path for one event."""
         return self.path_builder(save_path, scan_number, device_name, acq_timestamp)
 
-    def resource_path(self, *, root: str | Path, file_path: str | Path) -> str:
+    def resource_path(
+        self,
+        *,
+        root: str | Path,
+        file_path: str | Path,
+        local_root: str | Path | None = None,
+    ) -> str:
         """Return the POSIX resource path for *file_path* relative to *root*."""
-        return Path(file_path).relative_to(root).as_posix()
+        base = _normalize_path_string(local_root or root)
+        path = _normalize_path_string(file_path)
+        if path == base:
+            return ""
+        if not path.startswith(f"{base}/"):
+            raise ValueError(f"{file_path!r} is not under resource root {base!r}")
+        return path.removeprefix(f"{base}/")
 
     def companion_file_paths(
         self,

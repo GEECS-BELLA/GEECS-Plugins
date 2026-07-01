@@ -14,6 +14,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   padding and pixel depth from the message and cropping out the border. This is a
   wire-format decoder, distinct from the file readers like `read_imaq_image`.
 
+## [0.9.1] — 2026-06-26
+
+### Changed
+- Dropped the Python 3.10 support claim; minimum is now `python >=3.11,<3.12`,
+  matching the integrated monorepo environment (the root project and the
+  GUI/PythonAPI/Bluesky packages all require >=3.11).
+
 ## [0.9.0] — 2026-06-18
 
 ### Added

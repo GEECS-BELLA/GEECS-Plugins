@@ -60,13 +60,22 @@ The `**/.claude/worktrees/` pattern in `.gitignore` is a safety net for this
 case, but the right fix is to launch from the repo root.
 
 Remove worktrees after their PR is merged unless they are intentionally
-long-lived for a distinct development stream (currently only
-`geecs-plugins-bluesky` qualifies, and it sits as a sibling because it
-predates this policy and would be expensive to relocate).
+long-lived for a distinct development stream.
+
+`geecs-plugins-bluesky` (a sibling directory of this checkout) is **no longer
+a worktree** — it has been promoted to its own standalone clone with an
+independent `.git`, sharing only the `GEECS-BELLA/GEECS-Plugins` origin. Treat
+it as a separate clone, not a linked worktree of this checkout: changes flow
+between the two only through git (push/pull/PR), and each has its own local
+Claude context (sessions and memory are keyed by directory path). It keeps its
+own nested worktrees under `.claude/worktrees/`.
 
 ## Python & Tooling
 
-- **Python:** `>=3.10, <3.12` across all packages (Scanner GUI is `<3.11`)
+- **Python:** `>=3.11, <3.12` across all packages — the integrated monorepo
+  environment is Python 3.11 (the root project requires it). The sole exception
+  is `LogMaker4GoogleDocs`, a standalone Google API wrapper with no GEECS deps,
+  which keeps a looser `>=3.9` floor
 - **Package manager:** Poetry — `poetry install` at the repo root installs the
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)

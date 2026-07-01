@@ -160,14 +160,17 @@ class GeecsDevice(StandardReadable):
         self, host: str, port: int, variables: list[str]
     ) -> None:
         """Background task: maintain TCP subscription and update shot cache."""
+        sub = GeecsTcpSubscriber(host, port)
         try:
-            async with GeecsTcpSubscriber(host, port) as sub:
-                await sub.subscribe(variables, self._on_tcp_push)
-                await asyncio.sleep(float("inf"))
+            await sub.connect()
+            await sub.subscribe(variables, self._on_tcp_push)
+            await asyncio.sleep(float("inf"))
         except asyncio.CancelledError:
             pass
         except Exception:
             logger.exception("TCP subscription failed for %s", self.name)
+        finally:
+            await sub.close()
 
     def _on_tcp_push(self, frame: dict[str, Any]) -> None:
         """Callback invoked on each 5-Hz TCP push frame."""

@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge import bluesky_scanner
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+from geecs_bluesky.scanner_bridge.bluesky_scanner import (
+    BlueskyScanner,
+    _prepare_descriptor_for_tiled,
+    _SafeDocumentCallback,
+    _translate_save_path_for_device_server,
+)
 
 
 @dataclass
@@ -41,6 +51,64 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
     assert events == [_FakeLifecycleEvent(state="done", total_shots=12)]
 
 
+def test_prepare_descriptor_for_tiled_internalizes_geecs_assets() -> None:
+    """Tiled should store GEECS asset datum ids without registering readers."""
+    doc = {
+        "data_keys": {
+            "uc_topview-image": {
+                "source": "geecs://UC_TopView/image",
+                "external": "OLD:",
+                "dtype": "array",
+            },
+            "external-hdf5": {
+                "source": "AD_HDF5",
+                "external": "STREAM:",
+                "dtype": "array",
+            },
+            "scalar": {"source": "sim://scalar", "dtype": "number"},
+        }
+    }
+
+    patched = _prepare_descriptor_for_tiled(doc)
+
+    geecs_key = patched["data_keys"]["uc_topview-image"]
+    assert "external" not in geecs_key
+    assert geecs_key["geecs_external_asset"] is True
+    assert patched["data_keys"]["external-hdf5"]["external"] == "STREAM:"
+    assert "external" not in patched["data_keys"]["scalar"]
+
+
+def test_safe_document_callback_warns_and_disables(caplog) -> None:
+    """Persistence callbacks should not be able to abort acquisition."""
+    calls: list[str] = []
+
+    def callback(name: str, _doc: dict) -> None:
+        calls.append(name)
+        if name == "event":
+            raise RuntimeError("storage failed")
+
+    safe_callback = _SafeDocumentCallback(callback, label="Storage")
+
+    with caplog.at_level(logging.WARNING):
+        safe_callback("start", {})
+        safe_callback("event", {})
+        safe_callback("stop", {})
+
+    assert calls == ["start", "event"]
+    assert "Storage failed while handling event document" in caplog.text
+
+
+def test_translate_save_path_for_device_server() -> None:
+    """Mac/Linux scan paths should translate to the configured device path."""
+    path = _translate_save_path_for_device_server(
+        "/Volumes/hdna2/data/Undulator/Y2026/06-Jun/26_0623/scans/Scan011/UC_Cam",
+        local_base_path="/Volumes/hdna2/data",
+        device_server_base_path="Z:/data",
+    )
+
+    assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
+
+
 # ---------------------------------------------------------------------------
 # Acquisition-mode resolution
 # ---------------------------------------------------------------------------
@@ -66,10 +134,81 @@ def test_resolve_acquisition_mode_env_overrides_options() -> None:
     assert mode == "free_run_time_sync"
 
 
-def test_resolve_acquisition_mode_unknown_falls_back_to_strict() -> None:
+def test_resolve_acquisition_mode_unknown_raises() -> None:
     options = SimpleNamespace(acquisition_mode="nonsense")
-    mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
-    assert mode == "strict_shot_control"
+    with pytest.raises(GeecsConfigurationError, match="Unknown acquisition_mode"):
+        BlueskyScanner._resolve_acquisition_mode(options, env={})
+
+
+# ---------------------------------------------------------------------------
+# Strict shot-control validation
+# ---------------------------------------------------------------------------
+
+
+def _scanner_with_shot_control(
+    information: dict | None, setters: dict | None = None
+) -> BlueskyScanner:
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._shot_control = ShotControlConfig.from_information(information)
+    scanner._shot_control_setters = setters or {}
+    return scanner
+
+
+def test_strict_single_shot_requires_shot_control_config() -> None:
+    scanner = _scanner_with_shot_control(None)
+
+    with pytest.raises(GeecsConfigurationError, match="shot_control_information"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_requires_nonempty_armed_state() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "SCAN": "External rising edges",
+                    "ARMED": "",
+                }
+            },
+        },
+        setters={"Trigger.Source": object()},
+    )
+
+    with pytest.raises(GeecsConfigurationError, match="non-empty ARMED"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_requires_reachable_setters() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                }
+            },
+        }
+    )
+
+    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
+        scanner._require_strict_single_shot()
+
+
+def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
+    scanner = _scanner_with_shot_control(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                }
+            },
+        },
+        setters={"Trigger.Source": object()},
+    )
+
+    scanner._require_strict_single_shot()
 
 
 # ---------------------------------------------------------------------------

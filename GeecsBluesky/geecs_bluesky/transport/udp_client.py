@@ -22,6 +22,7 @@ connections (where the probed IP happens to be the default one anyway).
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import socket
 from typing import Any
@@ -160,26 +161,44 @@ class GeecsUdpClient:
 
         loop = asyncio.get_running_loop()
 
-        cmd_proto = _Oneshot()
-        cmd_transport, _ = await loop.create_datagram_endpoint(
-            lambda: cmd_proto,
-            local_addr=(self._local_host, 0),
-            family=socket.AF_INET,
-        )
-        self._cmd_transport = cmd_transport  # type: ignore[assignment]
-        self._cmd_proto = cmd_proto
-        self._cmd_port = cmd_transport.get_extra_info("sockname")[1]
+        last_error: OSError | None = None
+        for _attempt in range(10):
+            cmd_transport: asyncio.BaseTransport | None = None
+            try:
+                cmd_proto = _Oneshot()
+                cmd_transport, _ = await loop.create_datagram_endpoint(
+                    lambda: cmd_proto,
+                    local_addr=(self._local_host, 0),
+                    family=socket.AF_INET,
+                )
+                cmd_port = cmd_transport.get_extra_info("sockname")[1]
 
-        # exe socket binds to cmd_port + 1 — may fail if that port is taken.
-        exe_proto = _Oneshot()
-        exe_transport, _ = await loop.create_datagram_endpoint(
-            lambda: exe_proto,
-            local_addr=(self._local_host, self._cmd_port + 1),
-            family=socket.AF_INET,
-        )
-        self._exe_transport = exe_transport  # type: ignore[assignment]
-        self._exe_proto = exe_proto
-        self._exe_port = self._cmd_port + 1
+                # exe socket binds to cmd_port + 1 — may fail if that port is taken.
+                exe_proto = _Oneshot()
+                exe_transport, _ = await loop.create_datagram_endpoint(
+                    lambda: exe_proto,
+                    local_addr=(self._local_host, cmd_port + 1),
+                    family=socket.AF_INET,
+                )
+            except OSError as exc:
+                if cmd_transport is not None:
+                    cmd_transport.close()
+                if exc.errno != errno.EADDRINUSE:
+                    raise
+                last_error = exc
+                await asyncio.sleep(0)
+                continue
+
+            self._cmd_transport = cmd_transport  # type: ignore[assignment]
+            self._cmd_proto = cmd_proto
+            self._cmd_port = cmd_port
+            self._exe_transport = exe_transport  # type: ignore[assignment]
+            self._exe_proto = exe_proto
+            self._exe_port = cmd_port + 1
+            break
+        else:
+            assert last_error is not None
+            raise last_error
 
         logger.debug(
             "GeecsUdpClient bound: local=%s cmd=%s exe=%s → device %s:%s",

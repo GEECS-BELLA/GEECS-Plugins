@@ -43,6 +43,9 @@ import logging
 import os
 import queue
 import threading
+from configparser import ConfigParser
+from contextlib import contextmanager, nullcontext
+from pathlib import Path, PureWindowsPath
 from typing import Any, Callable
 
 import numpy as np
@@ -52,10 +55,13 @@ import bluesky.preprocessors as bpp
 
 from ophyd_async.core import AsyncStatus
 
+from geecs_bluesky.assets import AssetDefinition, get_asset_definitions
+from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
+from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
@@ -92,11 +98,84 @@ _FREE_RUN_MODE = "free_run_time_sync"
 _VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
 
 
+def _prepare_descriptor_for_tiled(doc: dict) -> dict:
+    """Store GEECS external asset datum IDs as internal Tiled metadata.
+
+    The RunEngine document stream still emits formal Resource/Datum docs for
+    GEECS native files.  The current lab Tiled server does not yet have readers
+    for those custom asset specs, so letting TiledWriter register them as
+    external data sources aborts the scan on ``stop``.  Until the server has
+    GEECS-aware adapters, Tiled stores the datum-id strings in its event table.
+    """
+    for data_key in doc.get("data_keys", {}).values():
+        if str(data_key.get("source", "")).startswith("geecs://"):
+            data_key.pop("external", None)
+            data_key["geecs_external_asset"] = True
+    return doc
+
+
+def _translate_save_path_for_device_server(
+    save_path: str | Path,
+    *,
+    local_base_path: str | Path,
+    device_server_base_path: str,
+) -> str:
+    """Translate a local scan path to the path understood by GEECS devices."""
+    local_path = Path(save_path)
+    local_base = Path(local_base_path)
+    try:
+        relative_path = local_path.relative_to(local_base)
+    except ValueError:
+        logger.warning(
+            "Native save path %s is not under local base path %s; using local path",
+            local_path,
+            local_base,
+        )
+        return str(local_path)
+    return str(PureWindowsPath(device_server_base_path, *relative_path.parts))
+
+
 def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     """Read *key* from a device config that may be a dict or a Pydantic model."""
     if isinstance(cfg, dict):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
+
+
+class _SafeDocumentCallback:
+    """Document callback wrapper that logs and disables itself on failure."""
+
+    def __init__(self, callback: Callable[[str, dict], None], label: str) -> None:
+        self._callback = callback
+        self._label = label
+        self._enabled = True
+
+    def __call__(self, name: str, doc: dict) -> None:
+        """Forward one document unless the wrapped callback has already failed."""
+        if not self._enabled:
+            return
+        try:
+            self._callback(name, doc)
+        except Exception:
+            self._enabled = False
+            logger.warning(
+                "%s failed while handling %s document; disabling callback",
+                self._label,
+                name,
+                exc_info=True,
+            )
+
+
+class _ScanLogContextFilter(logging.Filter):
+    """Add scan id context to records written to one scan log."""
+
+    def __init__(self, scan_id: str) -> None:
+        super().__init__()
+        self._scan_id = scan_id
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.scan_id = self._scan_id
+        return True
 
 
 class _UdpSetter:
@@ -147,8 +226,9 @@ class BlueskyScanner:
         Shot-controller YAML config dict with keys ``"device"`` (GEECS device
         name) and ``"variables"`` (mapping of variable name → state → value,
         where states are ``"OFF"``, ``"SCAN"``, ``"STANDBY"``,
-        ``"SINGLESHOT"``).  When provided, the DG645 is armed before each
-        acquisition step and disarmed after.
+        ``"SINGLESHOT"``, ``"ARMED"``).  Required for
+        ``strict_shot_control`` acquisition, which uses ``ARMED`` +
+        ``SINGLESHOT`` for plan-owned shots.
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
@@ -279,8 +359,8 @@ class BlueskyScanner:
 
         Precedence: ``GEECS_BLUESKY_ACQUISITION_MODE`` env var (quick
         switching) > ``options.acquisition_mode`` > default
-        ``strict_shot_control``.  An unrecognised value warns and falls back
-        to strict.  *env* is injectable for testing.
+        ``strict_shot_control``.  An unrecognised value raises instead of
+        silently changing scan semantics.  *env* is injectable for testing.
         """
         env = os.environ if env is None else env
         raw = (
@@ -290,12 +370,10 @@ class BlueskyScanner:
         )
         mode = str(raw).strip().lower()
         if mode not in _VALID_ACQUISITION_MODES:
-            logger.warning(
-                "Unknown acquisition_mode %r; falling back to %s",
-                raw,
-                _STRICT_MODE,
+            raise GeecsConfigurationError(
+                f"Unknown acquisition_mode {raw!r}; expected one of "
+                f"{', '.join(_VALID_ACQUISITION_MODES)}"
             )
-            return _STRICT_MODE
         return mode
 
     @staticmethod
@@ -417,6 +495,87 @@ class BlueskyScanner:
         logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
         return uri, api_key
 
+    @staticmethod
+    def _read_device_server_data_base_path() -> str | None:
+        """Read the data base path visible from GEECS device-server hosts."""
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None
+
+        cfg = ConfigParser()
+        cfg.read(config_path)
+        if "Paths" not in cfg:
+            return None
+        return cfg["Paths"].get("geecs_device_server_data_base_path") or None
+
+    @staticmethod
+    def _read_local_data_base_path() -> str | None:
+        """Read the scanner-local path for the shared GEECS data root."""
+        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+        if not config_path.exists():
+            return None
+
+        cfg = ConfigParser()
+        cfg.read(config_path)
+        if "Paths" not in cfg:
+            return None
+        return cfg["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH") or None
+
+    @staticmethod
+    def _asset_resource_root_paths() -> tuple[str | None, str | None]:
+        """Return ``(canonical_root, local_root)`` for external asset docs."""
+        canonical_root = BlueskyScanner._read_device_server_data_base_path()
+        if not canonical_root:
+            return None, None
+
+        local_root = BlueskyScanner._read_local_data_base_path()
+        if local_root:
+            return canonical_root, local_root
+
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.warning(
+                "Could not import geecs_data_utils; using scan-folder asset roots"
+            )
+            return None, None
+
+        paths_config = getattr(ScanPaths, "paths_config", None)
+        base_path = getattr(paths_config, "base_path", None)
+        if base_path is None:
+            logger.warning(
+                "ScanPaths.paths_config is not loaded; using scan-folder asset roots"
+            )
+            return None, None
+        return canonical_root, str(base_path)
+
+    @staticmethod
+    def _device_server_save_path(save_path: str) -> str:
+        """Return the path to send to device ``localsavingpath`` controls."""
+        device_server_base_path = BlueskyScanner._read_device_server_data_base_path()
+        if not device_server_base_path:
+            return save_path
+        try:
+            from geecs_data_utils import ScanPaths
+        except Exception:
+            logger.warning(
+                "Could not import geecs_data_utils; using local save path for device"
+            )
+            return save_path
+
+        paths_config = getattr(ScanPaths, "paths_config", None)
+        local_base_path = getattr(paths_config, "base_path", None)
+        if local_base_path is None:
+            logger.warning(
+                "ScanPaths.paths_config is not loaded; using local save path for device"
+            )
+            return save_path
+        return _translate_save_path_for_device_server(
+            save_path,
+            local_base_path=local_base_path,
+            device_server_base_path=device_server_base_path,
+        )
+
     def _subscribe_tiled(self, tiled_uri: str, api_key: str | None = None) -> None:
         """Subscribe a TiledWriter to the RunEngine.
 
@@ -435,7 +594,13 @@ class BlueskyScanner:
 
         try:
             client = from_uri(tiled_uri, api_key=api_key)
-            writer = TiledWriter(client)
+            writer = _SafeDocumentCallback(
+                TiledWriter(
+                    client,
+                    patches={"descriptor": _prepare_descriptor_for_tiled},
+                ),
+                label="TiledWriter",
+            )
             self._tiled_token = self._RE.subscribe(writer)
             logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
         except Exception:
@@ -593,6 +758,29 @@ class BlueskyScanner:
             yield from bps.wait(group)
             logger.info("Shot controller → %s", state)
 
+    def _require_strict_single_shot(self) -> None:
+        """Raise unless strict mode can fire plan-owned single shots."""
+        guidance = (
+            "Use acquisition_mode='free_run_time_sync' for free-running "
+            "trigger acquisition."
+        )
+        if self._shot_control is None:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information with a "
+                f"non-empty ARMED state. {guidance}"
+            )
+        if not self._shot_control.defines_state(ShotControlState.ARMED):
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information to "
+                f"define a non-empty ARMED state. {guidance}"
+            )
+        if not self._shot_control_setters:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires a reachable shot-control device "
+                "with configured setters before acquisition can start. "
+                f"{guidance}"
+            )
+
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
         failed = False
@@ -675,6 +863,45 @@ class BlueskyScanner:
         except OSError:
             logger.warning("Could not write ScanInfo to %s", path, exc_info=True)
 
+    @contextmanager
+    def _scan_log(self, scan_number: int | None, scan_folder: str | None):
+        """Attach a per-scan log file for Bluesky scanner runs."""
+        if scan_number is None or scan_folder is None:
+            yield
+            return
+
+        folder = Path(scan_folder)
+        if not folder.is_dir():
+            logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
+            yield
+            return
+
+        scan_id = f"Scan{scan_number:03d}"
+        handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
+                "[%(threadName)s] scan=%(scan_id)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        handler.addFilter(_ScanLogContextFilter(scan_id))
+
+        package_logger = logging.getLogger("geecs_bluesky")
+        old_level = package_logger.level
+        if old_level == logging.NOTSET or old_level > logging.INFO:
+            package_logger.setLevel(logging.INFO)
+        package_logger.addHandler(handler)
+        try:
+            logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
+            yield
+            logger.info("scan %s: finished", scan_id)
+        finally:
+            package_logger.removeHandler(handler)
+            handler.close()
+            package_logger.setLevel(old_level)
+
     def _export_scalar_files(self, scan_number: int) -> None:
         """Write legacy ScanData/s-file from the just-recorded Tiled run.
 
@@ -702,7 +929,9 @@ class BlueskyScanner:
                 exc_info=True,
             )
 
-    def _build_detectors(self, scan_folder: str | None = None) -> None:
+    def _build_detectors(
+        self, scan_folder: str | None = None, scan_number: int | None = None
+    ) -> None:
         """Create and connect detector devices from ``self._devices_config``.
 
         Each device's role is decided by :meth:`_classify_device_roles` from
@@ -771,8 +1000,25 @@ class BlueskyScanner:
                     saves_files = role in ("reference", "triggered", "contributor")
                     if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
+                        device_save_path = self._device_server_save_path(save_path)
                         det.configure_nonscalar_file_logging(save_path)
-                        self._saving_detectors.append((det, save_path))
+                        if scan_number is not None:
+                            asset_definitions = self._asset_definitions_for_device(
+                                device_name
+                            )
+                            if asset_definitions:
+                                asset_root, asset_local_root = (
+                                    self._asset_resource_root_paths()
+                                )
+                                det.configure_external_asset_logging(
+                                    scan_number=scan_number,
+                                    asset_definitions=asset_definitions,
+                                    root_path=asset_root or scan_folder,
+                                    local_root_path=asset_local_root or scan_folder,
+                                )
+                        self._saving_detectors.append(
+                            (det, save_path, device_save_path)
+                        )
                         self._nonscalar_save_paths[device_name] = save_path
                 logger.info(
                     "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
@@ -787,6 +1033,29 @@ class BlueskyScanner:
                     device_name,
                     exc_info=True,
                 )
+
+    def _asset_definitions_for_device(
+        self, device_name: str
+    ) -> tuple[AssetDefinition, ...]:
+        """Return registered external asset definitions for *device_name*."""
+        try:
+            device_type = GeecsDb.get_device_type(device_name)
+        except Exception:
+            logger.warning(
+                "Could not resolve device type for %s; external asset docs disabled",
+                device_name,
+                exc_info=True,
+            )
+            return ()
+
+        definitions = get_asset_definitions(device_type)
+        if not definitions:
+            logger.debug(
+                "No external asset registry entry for %s device type %r",
+                device_name,
+                device_type,
+            )
+        return definitions
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move a scan device through positions, collect shots each step."""
@@ -846,13 +1115,13 @@ class BlueskyScanner:
         ``motor=None`` with ``positions=[None]`` is statistics collection (one
         no-move bin); a real motor with explicit positions is a step scan.
         Either way the acquisition mode picks the plan: free-run
-        (reference-paced) or strict (``trigger_and_read``).
+        (reference-paced) or strict plan-owned single-shot.
         """
         # Claim scan number before building detectors so save paths are known
         scan_number, scan_folder = self._claim_scan_number()
         if scan_number is not None and scan_folder is not None:
             self._write_scan_info_ini(scan_config, scan_number, scan_folder)
-        self._build_detectors(scan_folder=scan_folder)
+        self._build_detectors(scan_folder=scan_folder, scan_number=scan_number)
 
         n_steps = len(positions)
         n_shots = n_steps * self._shots_per_step
@@ -912,11 +1181,8 @@ class BlueskyScanner:
                 disarm_trigger=disarm,
                 quiesce_trigger=quiesce,
             )
-        elif (
-            self._shot_control is not None
-            and self._shot_control_setters
-            and self._shot_control.defines_state(ShotControlState.ARMED)
-        ):
+        else:
+            self._require_strict_single_shot()
             # Plan-owned single-shot: arm ARMED + confirm quiescent once, then
             # fire one shot per row and await every device.  Teardown (disarm
             # to STANDBY) is the outer finalize below.  No per-step arm/disarm.
@@ -928,21 +1194,6 @@ class BlueskyScanner:
                 shots_per_step=self._shots_per_step,
                 setup_trigger=self._arm_single_shot,
                 fire_shot=self._fire_single_shot,
-            )
-        else:
-            # No ARMED state available — fall back to the strict contract on the
-            # free-running trigger (every device must catch each shot).
-            logger.info(
-                "strict mode: free-running trigger_and_read "
-                "(no ARMED state in shot control)"
-            )
-            inner = geecs_step_scan(
-                motor=motor,
-                positions=positions,
-                detectors=list(self._detectors),
-                shots_per_step=self._shots_per_step,
-                arm_trigger=arm,
-                disarm_trigger=disarm,
             )
 
         # Shared run bookkeeping: scan-number metadata (incl. scan_id) + native
@@ -962,10 +1213,16 @@ class BlueskyScanner:
         # Outer finalize ensures disarm even on mid-step abort
         if disarm is not None:
             plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
-        self._set_state("RUNNING")
-        self._last_run_uid = None
-        self._RE(plan)
+        log_context = (
+            self._scan_log(scan_number, scan_folder)
+            if scan_number is not None and scan_folder is not None
+            else nullcontext()
+        )
+        with log_context:
+            self._set_state("RUNNING")
+            self._last_run_uid = None
+            self._RE(plan)
 
-        # After the run completes, export legacy scalar files from Tiled.
-        if scan_number is not None and scan_folder is not None:
-            self._export_scalar_files(scan_number)
+            # After the run completes, export legacy scalar files from Tiled.
+            if scan_number is not None and scan_folder is not None:
+                self._export_scalar_files(scan_number)
