@@ -613,7 +613,8 @@ def test_registered_text_asset_analysis_runs_from_tiled(tmp_path: Path) -> None:
     assert saved_metadata["inputs"][0]["device_type"] == MAGSPEC_CAMERA_DEVICE_TYPE
     assert saved_metadata["inputs"][0]["event_field"] == "interpSpec"
     assert saved_metadata["inputs"][0]["payload_kind"] == "array_1d"
-    assert saved_metadata["inputs"][0]["loader_kind"] == "text_array"
+    assert saved_metadata["inputs"][0]["loader_name"] == "text_table"
+    assert saved_metadata["inputs"][0]["loader_kind"] == "text_table"
     assert saved_metadata["inputs"][0]["resource_root"] == "Z:/data"
     assert saved_metadata["inputs"][0]["resource_path"] == (
         "Undulator/Y2026/06-Jun/26_0624/scans/Scan042/"
@@ -622,8 +623,10 @@ def test_registered_text_asset_analysis_runs_from_tiled(tmp_path: Path) -> None:
     assert str(local_data_root) not in json.dumps(saved_metadata)
 
 
-def test_data_1d_asset_analysis_uses_explicit_loader_config(tmp_path: Path) -> None:
-    """DATA_1D assets should load at analysis time through Data1DConfig."""
+def test_tdms_scope_asset_analysis_accepts_loader_config_override(
+    tmp_path: Path,
+) -> None:
+    """Known TDMS assets should accept analysis-time loader config overrides."""
     local_data_root = tmp_path / "Volumes" / "hdna2" / "data"
     day = local_data_root / "Undulator" / "Y2026" / "06-Jun" / "26_0624"
     scan_folder = day / "scans" / "Scan007"
@@ -685,7 +688,8 @@ def test_data_1d_asset_analysis_uses_explicit_loader_config(tmp_path: Path) -> N
     assert saved_metadata["inputs"][0]["device_type"] == PICOSCOPE_V2_DEVICE_TYPE
     assert saved_metadata["inputs"][0]["event_field"] == "tdms"
     assert saved_metadata["inputs"][0]["payload_kind"] == "array_1d"
-    assert saved_metadata["inputs"][0]["loader_kind"] == "data_1d"
+    assert saved_metadata["inputs"][0]["loader_name"] == "tdms_scope"
+    assert saved_metadata["inputs"][0]["loader_kind"] == "tdms_scope"
     assert saved_metadata["config"]["data_1d_loader"] == {
         "auxiliary_columns": {"background": 2},
         "data_type": "npy",

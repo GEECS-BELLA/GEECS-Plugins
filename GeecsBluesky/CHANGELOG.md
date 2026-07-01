@@ -20,11 +20,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   helper for registered external assets; camera-specific readback helpers remain
   compatibility wrappers.
 - Added generic Tiled asset-analysis helpers that run analyzers over registered
-  non-camera asset fields and load ``DATA_1D`` assets at analysis time from an
-  explicit ``Data1DConfig``.
-- Asset registry entries now describe payload shape, loader family, default 1D
-  data type, and whether analysis-time loader configuration or SDK capabilities
-  are required.
+  non-camera asset fields and load provenance-aware 1D assets, such as
+  `tdms_scope`, from registry defaults plus optional analyzer overrides.
+- Asset registry entries now describe payload shape, provenance-aware loader
+  names, loader config defaults, and whether analysis-time loader configuration
+  or SDK capabilities are required.
 - Synthetic local-fill Resource/Datum/Event streams now use an
   `ExternalAssetDocumentSpec` request model and explicit
   `geecs_external_asset_document_schema` marker.

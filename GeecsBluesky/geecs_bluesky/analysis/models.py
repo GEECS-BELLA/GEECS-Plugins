@@ -60,6 +60,7 @@ class InputAssetRef(BaseModel):
     resource_uid: str | None = None
     asset_spec: str | None = None
     payload_kind: str | None = None
+    loader_name: str | None = None
     loader_kind: str | None = None
     resource_root: str | None = None
     resource_path: str | None = None

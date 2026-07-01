@@ -58,6 +58,7 @@ class FilledTiledGeecsAsset:
 
 TiledCameraAsset = TiledGeecsAsset
 FilledTiledCameraAsset = FilledTiledGeecsAsset
+Data1DConfigInput = Any
 
 
 def read_tiled_config() -> tuple[str | None, str | None]:
@@ -344,10 +345,11 @@ def load_asset_from_tiled_run(
     shot_number: int,
     device_type: str | None = None,
     event_field: str | None = None,
+    data_1d_config: Data1DConfigInput | None = None,
     root_map: Mapping[str, str] | None = None,
     retry_intervals: Iterable[float] | None = None,
 ) -> FilledTiledGeecsAsset:
-    """Load one native GEECS asset from a Tiled run using local handlers."""
+    """Load one native GEECS asset from a Tiled run."""
     start_doc = dict(run.metadata.get("start") or {})
     primary_table = read_primary_dataframe(run)
     event = event_by_scan_event_index(primary_table, shot_number)
@@ -359,16 +361,14 @@ def load_asset_from_tiled_run(
         event_field=event_field,
         root_map=root_map,
     )
-    filled_docs = fill_geecs_documents(
-        asset.documents,
-        root_map=root_map or read_geecs_root_map(),
-        include=[asset.data_key],
-        retry_intervals=retry_intervals,
-    )
-    filled_event = next(doc for name, doc in filled_docs if name == "event")
     return FilledTiledGeecsAsset(
         asset=asset,
-        data=filled_event["data"][asset.data_key],
+        data=load_tiled_asset_data(
+            asset,
+            data_1d_config=data_1d_config,
+            root_map=root_map,
+            retry_intervals=retry_intervals,
+        ),
     )
 
 
@@ -401,6 +401,7 @@ def load_asset_from_tiled(
     scan_number: int,
     device_name: str,
     shot_number: int,
+    data_1d_config: Data1DConfigInput | None = None,
     event_field: str | None = None,
     experiment: str | None = None,
     device_type: str | None = None,
@@ -427,6 +428,7 @@ def load_asset_from_tiled(
         shot_number=shot_number,
         device_type=device_type,
         event_field=event_field,
+        data_1d_config=data_1d_config,
         root_map=root_map,
         retry_intervals=retry_intervals,
     )
@@ -465,6 +467,74 @@ def load_camera_image_from_tiled(
         root_map=root_map,
         retry_intervals=retry_intervals,
     )
+
+
+def load_tiled_asset_data(
+    asset: TiledGeecsAsset,
+    *,
+    data_1d_config: Data1DConfigInput | None = None,
+    root_map: Mapping[str, str] | None = None,
+    retry_intervals: Iterable[float] | None = None,
+) -> Any:
+    """Load a resolved Tiled asset through its registry-defined loader."""
+    definition = asset.definition
+    if definition.uses_data_1d_reader:
+        return _read_data_1d_asset(asset, data_1d_config=data_1d_config)
+    if definition.handler_class is None:
+        raise ValueError(
+            f"Asset field {definition.event_field!r} for device type "
+            f"{definition.device_type!r} has no local handler."
+        )
+
+    filled_docs = fill_geecs_documents(
+        asset.documents,
+        root_map=root_map or read_geecs_root_map(),
+        include=[asset.data_key],
+        retry_intervals=retry_intervals,
+    )
+    filled_event = next(doc for name, doc in filled_docs if name == "event")
+    return filled_event["data"][asset.data_key]
+
+
+def _read_data_1d_asset(
+    asset: TiledGeecsAsset,
+    *,
+    data_1d_config: Data1DConfigInput | None,
+) -> Any:
+    from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
+
+    if data_1d_config is None and asset.definition.requires_loader_config:
+        raise ValueError(
+            f"Asset field {asset.definition.event_field!r} for device type "
+            f"{asset.definition.device_type!r} requires loader config."
+        )
+    config = _coerce_data_1d_config(data_1d_config, definition=asset.definition)
+    if config is None:
+        raise ValueError(
+            f"Asset field {asset.definition.event_field!r} for device type "
+            f"{asset.definition.device_type!r} has no loader config defaults."
+        )
+    if not isinstance(config, Data1DConfig):
+        raise TypeError(f"Expected Data1DConfig, got {type(config)!r}.")
+    return read_1d_data(asset.file_path, config)
+
+
+def _coerce_data_1d_config(
+    data_1d_config: Data1DConfigInput | None,
+    *,
+    definition: AssetDefinition,
+) -> Any | None:
+    from geecs_data_utils.io.array1d import Data1DConfig
+
+    if data_1d_config is None:
+        if not definition.loader_config_defaults:
+            return None
+        return Data1DConfig(**definition.loader_config_defaults)
+    if isinstance(data_1d_config, Data1DConfig):
+        return data_1d_config
+    payload = definition.loader_config_defaults
+    payload.update(dict(data_1d_config))
+    return Data1DConfig(**payload)
 
 
 def _search_catalog(

@@ -73,7 +73,7 @@ def test_pointgrey_camera_registry_entry() -> None:
     assert definition.spec == GEECS_CAMERA_IMAGE
     assert definition.extensions == (".png",)
     assert definition.payload_kind is AssetPayloadKind.ARRAY_2D
-    assert definition.loader_kind is AssetLoaderKind.IMAGE
+    assert definition.loader_kind is AssetLoaderKind.READ_IMAQ_IMAGE
     assert not definition.requires_loader_config
     assert definition.handler_class == "GeecsCameraImageHandler"
     assert definition.event_key("UC_TopView") == "uc_topview-image"
@@ -181,9 +181,9 @@ def test_tdms_device_types_register_primary_file_with_index_companion(tmp_path) 
         assert definition.event_field == "tdms"
         assert definition.extensions == (".tdms",)
         assert definition.payload_kind is AssetPayloadKind.ARRAY_1D
-        assert definition.loader_kind is AssetLoaderKind.DATA_1D
-        assert definition.default_data_1d_type == "tdms_scope"
-        assert definition.requires_loader_config
+        assert definition.loader_kind is AssetLoaderKind.TDMS_SCOPE
+        assert definition.loader_config_defaults == {"data_type": "tdms_scope"}
+        assert not definition.requires_loader_config
         assert definition.companion_extensions == (".tdms_index",)
         assert definition.handler_class is None
         assert file_path == save_path / "U_Scope_42.125.tdms"
@@ -220,10 +220,9 @@ def test_registered_asset_definitions_are_consistent() -> None:
             assert definition.extensions
             assert definition.payload_kind in AssetPayloadKind
             assert definition.loader_kind in AssetLoaderKind
-            if definition.loader_kind is AssetLoaderKind.DATA_1D:
+            if definition.uses_data_1d_reader:
                 assert definition.handler_class is None
-                assert definition.default_data_1d_type is not None
-                assert definition.requires_loader_config
+                assert definition.loader_config_defaults
             elif definition.loader_kind in {
                 AssetLoaderKind.SDK_FILE,
                 AssetLoaderKind.FILE,
@@ -231,7 +230,6 @@ def test_registered_asset_definitions_are_consistent() -> None:
                 assert definition.handler_class is None
             else:
                 assert definition.handler_class is not None
-                assert definition.default_data_1d_type is None
 
 
 def test_frog_registers_spatial_and_temporal_camera_assets(tmp_path) -> None:
@@ -288,7 +286,8 @@ def test_magspec_camera_registers_image_and_variant_assets(tmp_path) -> None:
     assert by_field["interpSpec"].spec == GEECS_TEXT_ARRAY
     assert by_field["interpDiv"].spec == GEECS_TEXT_ARRAY
     assert by_field["interpSpec"].payload_kind is AssetPayloadKind.ARRAY_1D
-    assert by_field["interpSpec"].loader_kind is AssetLoaderKind.TEXT_ARRAY
+    assert by_field["interpSpec"].loader_kind is AssetLoaderKind.TEXT_TABLE
+    assert by_field["interpSpec"].loader_config_defaults == {"data_type": "tsv"}
     assert not by_field["interpSpec"].requires_loader_config
     assert by_field["interp_image"].directory_suffix == "-interp"
     assert by_field["interpSpec"].directory_suffix == "-interpSpec"
@@ -458,7 +457,8 @@ def test_nonscalar_save_support_emits_camera_asset_docs(tmp_path) -> None:
     assert resource["resource_kwargs"]["device_type"] == POINTGREY_CAMERA_DEVICE_TYPE
     assert resource["resource_kwargs"]["event_field"] == "image"
     assert resource["resource_kwargs"]["payload_kind"] == "array_2d"
-    assert resource["resource_kwargs"]["loader_kind"] == "image"
+    assert resource["resource_kwargs"]["loader_name"] == "read_imaq_image"
+    assert resource["resource_kwargs"]["loader_kind"] == "read_imaq_image"
     assert datum["datum_id"] == datum_id
     assert datum["resource"] == resource["uid"]
     assert datum["datum_kwargs"] == {}
@@ -525,9 +525,12 @@ def test_nonscalar_save_support_records_tdms_companion_paths(tmp_path) -> None:
     assert resource["resource_kwargs"]["device_type"] == PICOSCOPE_V2_DEVICE_TYPE
     assert resource["resource_kwargs"]["event_field"] == "tdms"
     assert resource["resource_kwargs"]["payload_kind"] == "array_1d"
-    assert resource["resource_kwargs"]["loader_kind"] == "data_1d"
-    assert resource["resource_kwargs"]["default_data_1d_type"] == "tdms_scope"
-    assert resource["resource_kwargs"]["requires_loader_config"] is True
+    assert resource["resource_kwargs"]["loader_name"] == "tdms_scope"
+    assert resource["resource_kwargs"]["loader_kind"] == "tdms_scope"
+    assert resource["resource_kwargs"]["loader_config_defaults"] == {
+        "data_type": "tdms_scope"
+    }
+    assert "requires_loader_config" not in resource["resource_kwargs"]
     assert resource["resource_kwargs"]["companion_resource_paths"] == [
         "U_Scope/U_Scope_42.125.tdms_index"
     ]
@@ -685,7 +688,8 @@ def test_build_camera_shot_documents_resolves_legacy_scan_file(tmp_path) -> None
     assert resource["resource_kwargs"]["device_type"] == POINTGREY_CAMERA_DEVICE_TYPE
     assert resource["resource_kwargs"]["event_field"] == "image"
     assert resource["resource_kwargs"]["payload_kind"] == "array_2d"
-    assert resource["resource_kwargs"]["loader_kind"] == "image"
+    assert resource["resource_kwargs"]["loader_name"] == "read_imaq_image"
+    assert resource["resource_kwargs"]["loader_kind"] == "read_imaq_image"
 
     filled_docs = fill_geecs_documents(docs, retry_intervals=[])
     event = next(doc for name, doc in filled_docs if name == "event")

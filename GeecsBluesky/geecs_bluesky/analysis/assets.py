@@ -15,13 +15,12 @@ from geecs_bluesky.analysis.models import AnalysisInvocationMetadata, InputAsset
 from geecs_bluesky.analysis.provenance import capture_code_version, capture_environment
 from geecs_bluesky.analysis.runner import AnalysisRunner, AnalyzerProtocol, FilledAsset
 from geecs_bluesky.analysis.writer import AnalysisArtifactWriter
-from geecs_bluesky.assets.readback import fill_geecs_documents
-from geecs_bluesky.assets.registry import AssetDefinition, AssetLoaderKind
 from geecs_bluesky.assets.tiled_readback import (
     FilledTiledGeecsAsset,
     TiledGeecsAsset,
     find_geecs_run,
     load_tiled_client,
+    load_tiled_asset_data,
     read_geecs_root_map,
     read_primary_dataframe,
     resolve_asset_from_event,
@@ -222,33 +221,6 @@ def iter_filled_assets_from_tiled_run(
         )
 
 
-def load_tiled_asset_data(
-    asset: TiledGeecsAsset,
-    *,
-    data_1d_config: Data1DConfigInput | None = None,
-    root_map: Mapping[str, str] | None = None,
-    retry_intervals: Iterable[float] | None = None,
-) -> Any:
-    """Load a resolved Tiled asset through its registry-defined loader path."""
-    definition = asset.definition
-    if definition.loader_kind is AssetLoaderKind.DATA_1D:
-        return _read_data_1d_asset(asset, data_1d_config=data_1d_config)
-    if definition.handler_class is None:
-        raise ValueError(
-            f"Asset field {definition.event_field!r} for device type "
-            f"{definition.device_type!r} has no local handler."
-        )
-
-    filled_docs = fill_geecs_documents(
-        asset.documents,
-        root_map=root_map or read_geecs_root_map(),
-        include=[asset.data_key],
-        retry_intervals=retry_intervals,
-    )
-    filled_event = next(doc for name, doc in filled_docs if name == "event")
-    return filled_event["data"][asset.data_key]
-
-
 def input_ref_from_tiled_asset(asset: TiledGeecsAsset) -> InputAssetRef:
     """Return portable analysis input metadata for a resolved Tiled asset."""
     event = asset.event
@@ -267,51 +239,11 @@ def input_ref_from_tiled_asset(asset: TiledGeecsAsset) -> InputAssetRef:
         resource_uid=resource_uid,
         asset_spec=asset.definition.spec,
         payload_kind=asset.definition.payload_kind.value,
+        loader_name=asset.definition.loader_kind.value,
         loader_kind=asset.definition.loader_kind.value,
         resource_root=asset.resource_root,
         resource_path=asset.resource_path,
     )
-
-
-def _read_data_1d_asset(
-    asset: TiledGeecsAsset,
-    *,
-    data_1d_config: Data1DConfigInput | None,
-) -> Any:
-    from geecs_data_utils.io.array1d import Data1DConfig, read_1d_data
-
-    if data_1d_config is None and asset.definition.requires_loader_config:
-        raise ValueError(
-            f"Asset field {asset.definition.event_field!r} for device type "
-            f"{asset.definition.device_type!r} requires a Data1DConfig."
-        )
-    config = _coerce_data_1d_config(data_1d_config, definition=asset.definition)
-    if config is None:
-        raise ValueError(
-            f"Asset field {asset.definition.event_field!r} for device type "
-            f"{asset.definition.device_type!r} has no Data1DConfig."
-        )
-    if not isinstance(config, Data1DConfig):
-        raise TypeError(f"Expected Data1DConfig, got {type(config)!r}.")
-    return read_1d_data(asset.file_path, config)
-
-
-def _coerce_data_1d_config(
-    data_1d_config: Data1DConfigInput | None,
-    *,
-    definition: AssetDefinition,
-) -> Any | None:
-    from geecs_data_utils.io.array1d import Data1DConfig
-
-    if data_1d_config is None:
-        if definition.default_data_1d_type is None:
-            return None
-        return Data1DConfig(data_type=definition.default_data_1d_type)
-    if isinstance(data_1d_config, Data1DConfig):
-        return data_1d_config
-    payload = dict(data_1d_config)
-    payload.setdefault("data_type", definition.default_data_1d_type)
-    return Data1DConfig(**payload)
 
 
 def _analysis_config(

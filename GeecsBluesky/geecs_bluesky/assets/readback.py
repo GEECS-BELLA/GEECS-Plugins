@@ -50,11 +50,12 @@ class ExternalAssetDocumentSpec:
             "device_type": self.definition.device_type,
             "event_field": self.definition.event_field,
             "payload_kind": self.definition.payload_kind.value,
+            "loader_name": self.definition.loader_kind.value,
             "loader_kind": self.definition.loader_kind.value,
             "external_asset_document_schema": EXTERNAL_ASSET_DOCUMENT_SCHEMA,
         }
-        if self.definition.default_data_1d_type is not None:
-            payload["default_data_1d_type"] = self.definition.default_data_1d_type
+        if self.definition.loader_config_defaults:
+            payload["loader_config_defaults"] = self.definition.loader_config_defaults
         if self.definition.requires_loader_config:
             payload["requires_loader_config"] = True
         return payload

@@ -8,6 +8,8 @@ from geecs_bluesky.assets.handlers import (
 from geecs_bluesky.assets.registry import (
     AssetDefinition,
     AssetLoaderKind,
+    AssetLoaderName,
+    AssetLoaderSpec,
     AssetPayloadKind,
     camera_image_filename,
     get_asset_definitions,
@@ -50,6 +52,7 @@ from geecs_bluesky.assets.tiled_readback import (
     load_camera_image_from_tiled,
     load_camera_image_from_tiled_run,
     load_tiled_client,
+    load_tiled_asset_data,
     read_tiled_config,
     resolve_asset_from_event,
     resolve_camera_asset_from_event,
@@ -58,6 +61,8 @@ from geecs_bluesky.assets.tiled_readback import (
 __all__ = [
     "AssetDefinition",
     "AssetLoaderKind",
+    "AssetLoaderName",
+    "AssetLoaderSpec",
     "AssetPayloadKind",
     "EXTERNAL_ASSET_DOCUMENT_SCHEMA",
     "ExternalAssetDocumentSpec",
@@ -93,6 +98,7 @@ __all__ = [
     "load_camera_image_from_tiled",
     "load_camera_image_from_tiled_run",
     "load_tiled_client",
+    "load_tiled_asset_data",
     "make_geecs_filler",
     "native_file_filename",
     "read_tiled_config",

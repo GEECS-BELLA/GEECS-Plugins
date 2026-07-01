@@ -213,16 +213,16 @@ Tiled run lookup
 
 The generic readback helpers can also reconstruct registered non-camera assets
 such as MagSpec text arrays via `load_asset_from_tiled(...)` /
-`load_asset_from_tiled_run(...)`. TDMS event assets should remain file-backed until
-the analysis request supplies the `Data1DConfig` trace/channel selection used by
-`geecs_data_utils.io.array1d.read_1d_data`; they are not the scan-level TDMS
-table files read by `ScanData`.
+`load_asset_from_tiled_run(...)`. TDMS event assets use the registry-provided
+loader name and defaults, such as `tdms_scope`, plus optional analysis-time
+`Data1DConfig` overrides for trace/channel selection. They are not the scan-level
+TDMS table files read by `ScanData`.
 
 The device-type asset registry is the right place for stable file facts:
-payload kind, loader family, default 1D data type, file suffixes, and whether a
-loader config or SDK-capable worker is required. Per-diagnostic choices such as
-TDMS trace/channel indices should stay in the analysis configuration that
-instantiates the analyzer.
+payload kind, provenance-aware loader name, loader config defaults, file
+suffixes, and whether a loader config or SDK-capable worker is required.
+Per-diagnostic choices such as TDMS trace/channel overrides should stay in the
+analysis configuration that instantiates the analyzer.
 
 By default, the helper writes only sidecar artifacts. When called with
 `emit_derived_run=True`, it also builds a small derived Bluesky document stream

@@ -15,6 +15,7 @@ from geecs_bluesky.assets import tiled_readback
 from geecs_bluesky.assets.readback import EXTERNAL_ASSET_DOCUMENT_SCHEMA
 from geecs_bluesky.assets.specs import (
     MAGSPEC_CAMERA_DEVICE_TYPE,
+    PICOSCOPE_V2_DEVICE_TYPE,
     POINTGREY_CAMERA_DEVICE_TYPE,
 )
 from geecs_bluesky.assets.tiled_readback import (
@@ -334,6 +335,65 @@ def test_load_asset_from_tiled_run_handles_text_array_asset(tmp_path: Path) -> N
         "U_BCaveMagSpec-interpSpec/U_BCaveMagSpec-interpSpec_1000.500.txt"
     )
     np.testing.assert_array_equal(loaded.data, expected)
+
+
+def test_load_asset_from_tiled_run_uses_registry_tdms_scope_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TDMS readback should use the registry-provided provenance loader config."""
+    from geecs_data_utils.io import array1d
+    from geecs_data_utils.io.array1d import Data1DResult, Data1DType
+
+    scan_folder = tmp_path / "scans" / "Scan003"
+    device_folder = scan_folder / "U_BCaveICT"
+    device_folder.mkdir(parents=True)
+    tdms_path = device_folder / "U_BCaveICT_42.125.tdms"
+    tdms_path.write_bytes(b"fake tdms payload")
+
+    captured: dict[str, object] = {}
+    expected = np.array([[0.0, 1.0], [1.0, 2.0]])
+
+    def fake_read_1d_data(file_path: Path, config: object) -> Data1DResult:
+        captured["file_path"] = file_path
+        captured["config"] = config
+        return Data1DResult(data=expected)
+
+    monkeypatch.setattr(array1d, "read_1d_data", fake_read_1d_data)
+
+    start_doc = {
+        "uid": "run-uid",
+        "time": datetime(
+            2026, 7, 1, tzinfo=ZoneInfo("America/Los_Angeles")
+        ).timestamp(),
+        "scan_number": 3,
+        "scan_folder": str(scan_folder),
+        "experiment": "Undulator",
+    }
+    table = pd.DataFrame(
+        [
+            {
+                "scan_event_index": 1,
+                "u_bcaveict-acq_timestamp": 42.125,
+                "u_bcaveict-nonscalar_save_path": str(device_folder),
+                "u_bcaveict-tdms": "tdms-resource/0",
+            },
+        ]
+    )
+
+    loaded = load_asset_from_tiled_run(
+        _FakeRun(start_doc, table),
+        device_name="U_BCaveICT",
+        device_type=PICOSCOPE_V2_DEVICE_TYPE,
+        shot_number=1,
+        retry_intervals=[],
+    )
+
+    assert loaded.asset.file_path == tdms_path
+    assert loaded.asset.definition.loader_kind.value == "tdms_scope"
+    assert captured["file_path"] == tdms_path
+    assert captured["config"].data_type is Data1DType.TDMS_SCOPE
+    np.testing.assert_array_equal(loaded.data.data, expected)
 
 
 def test_load_asset_from_tiled_finds_run_and_loads_text_array(
