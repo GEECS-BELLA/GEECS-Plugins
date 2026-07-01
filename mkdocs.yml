@@ -48,6 +48,7 @@ nav:
       - Tutorial — Your First Scan: geecs_scanner/tutorial.md
       - Save Elements: geecs_scanner/save_elements.md
       - Scan Output Structure: geecs_scanner/scan_output_structure.md
+      - Running Optimizations: geecs_scanner/optimization.md
       - Troubleshooting: geecs_scanner/troubleshooting.md
       - Extending the Scanner: geecs_scanner/extending.md
       - Architecture: geecs_scanner/architecture.md

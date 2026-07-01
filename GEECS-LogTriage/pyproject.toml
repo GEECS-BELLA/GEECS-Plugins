@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-log-triage"
-version = "0.2.2"
+version = "0.2.4"
 description = "Harvest, classify, and aggregate errors from GEECS scan execution logs."
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -23,7 +23,7 @@ classifiers = [
 "Issues" = "https://github.com/GEECS-BELLA/GEECS-Plugins/issues"
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.12"
+python = ">=3.11,<3.12"
 pydantic = "^2.0"
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 

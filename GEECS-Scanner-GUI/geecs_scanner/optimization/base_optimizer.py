@@ -29,6 +29,8 @@ import pandas as pd
 import yaml
 
 from xopt import Xopt, VOCS
+from xopt.errors import FeasibilityError
+from xopt.vocs import select_best
 
 from geecs_scanner.optimization.base_evaluator import BaseEvaluator
 from geecs_scanner.optimization.generators.generator_factory import (
@@ -173,43 +175,72 @@ class BaseOptimizer:
         """Number of evaluations loaded from dump files before the scan started."""
         return self._n_seeded
 
+    def _best_row_index(self) -> Optional[int]:
+        """Return the X.data index of the best feasible, non-errored row.
+
+        Shared core for :meth:`best_observed_setpoint` and :meth:`get_best`.
+        Delegates direction and feasibility handling to Xopt's native
+        :func:`xopt.vocs.select_best`, which derives the optimization direction
+        from the (typed) objective and ignores constraint-violating rows.
+        Errored rows are dropped first; ``select_best`` raises on degenerate
+        cases, which are mapped to ``None``.
+
+        Returns
+        -------
+        int or None
+            Index into ``self.xopt.data`` of the best row, or None if X.data is
+            empty/uninitialized, the problem has no objective (observables-only,
+            e.g. BAX), or no usable row exists.
+        """
+        if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
+            return None
+
+        # Observables-only problems (e.g. BAX) have no objective, so "best
+        # observed" is undefined — let the caller fall back to initial state.
+        if not self.vocs.objective_names:
+            return None
+
+        df = self.xopt.data
+        if "xopt_error" in df.columns:
+            df = df[df["xopt_error"] != True]  # noqa: E712
+        if df.empty:
+            return None
+
+        try:
+            index, _, _ = select_best(self.vocs, df, n=1)
+        except (FeasibilityError, RuntimeError, NotImplementedError):
+            # No feasible/non-NaN row, or a multi-/explore-objective problem.
+            return None
+
+        return int(index[0])
+
     def best_observed_setpoint(self) -> Optional[Dict[str, float]]:
         """Return the VOCS-variable values of the best-observed row in X.data.
 
         Returns
         -------
         dict or None
-            ``{variable_name: value}`` for the row with the best objective.
-            None if X.data is empty, uninitialized, or all rows are errored /
-            have a NaN objective.
+            ``{variable_name: value}`` for the best feasible, non-errored row,
+            or None if no usable row exists (see :meth:`_best_row_index`).
         """
-        if self.xopt is None or self.xopt.data is None or len(self.xopt.data) == 0:
+        idx = self._best_row_index()
+        if idx is None:
             return None
-
-        df = self.xopt.data.copy()
-        obj = self.vocs.objective_names[0]
-
-        if "xopt_error" in df.columns:
-            df = df[df["xopt_error"] != True]  # noqa: E712
-        df = df[df[obj].notna()]
-
-        if len(df) == 0:
-            return None
-
-        direction = str(self.vocs.objectives[obj]).upper()
-        idx = df[obj].idxmax() if direction == "MAXIMIZE" else df[obj].idxmin()
-
-        return {name: float(df.loc[idx, name]) for name in self.vocs.variable_names}
+        row = self.xopt.data.loc[idx]
+        return {name: float(row[name]) for name in self.vocs.variable_names}
 
     def _setup_xopt(self, overrides: dict[str, Any]):
         generator_config: dict[str, Any] = {"name": self.generator_name}
         generator_config.update(overrides)
         generator = build_generator_from_config(config=generator_config, vocs=self.vocs)
 
+        # Xopt 3.x: the generator owns the VOCS, so it is no longer passed to
+        # (nor stored on) the Xopt object.  ``self.vocs`` remains the wrapper's
+        # authoritative copy for bookkeeping; it is the same object the
+        # generator was built with above.
         self.xopt = Xopt(
             evaluator={"function": self.evaluate_function},
             generator=generator,
-            vocs=self.vocs,
         )
 
     def seed_from_dumps(self, dump_paths: List[Path]) -> int:
@@ -217,7 +248,7 @@ class BaseOptimizer:
 
         Each file's VOCS is checked for compatibility with this optimizer's
         VOCS before any data is loaded.  Rows where ``xopt_error`` is True or
-        any objective column is NaN are filtered out.
+        any objective/observable column is NaN are filtered out.
 
         Parameters
         ----------
@@ -229,7 +260,12 @@ class BaseOptimizer:
         int
             Total number of rows added to the optimizer (after filtering).
         """
-        objective_names = list(self.vocs.objectives.keys())
+        # Filter NaNs across objectives AND observables: an observables-only
+        # VOCS (e.g. BAX) has no objectives, so the modelled observables are the
+        # columns that must be finite for a row to be a usable seed.
+        nan_filter_names = list(self.vocs.objective_names) + list(
+            self.vocs.observable_names
+        )
         all_frames: List[pd.DataFrame] = []
         dump_vocs_pairs = []
 
@@ -261,17 +297,17 @@ class BaseOptimizer:
                 if n_errors:
                     logger.info("Filtered %d error row(s) from %s", n_errors, path.name)
 
-            # Filter NaN objective rows
-            for obj_name in objective_names:
-                if obj_name in df.columns:
+            # Filter NaN objective/observable rows
+            for col_name in nan_filter_names:
+                if col_name in df.columns:
                     n_before = len(df)
-                    df = df[df[obj_name].notna()]
+                    df = df[df[col_name].notna()]
                     n_nan = n_before - len(df)
                     if n_nan:
                         logger.info(
                             "Filtered %d NaN '%s' row(s) from %s",
                             n_nan,
-                            obj_name,
+                            col_name,
                             path.name,
                         )
 
@@ -346,7 +382,10 @@ class BaseOptimizer:
             List of parameter dictionaries, each representing a set of
             control variable values to be evaluated.
         """
-        return self.xopt.generator.generate(n)
+        # GEST standard surface (Xopt 3.x): ``suggest()`` is the cross-package
+        # verb that aliases ``generate()``.  Using it keeps the wrapper aligned
+        # with the gest-api generator standard.
+        return self.xopt.generator.suggest(n)
 
     def evaluate(self, inputs: List[dict]):
         """
@@ -412,18 +451,24 @@ class BaseOptimizer:
         """
         Return the best observed parameter set.
 
-        Identifies and returns the parameter combination that achieved
-        the best objective function value according to the optimization
-        criteria (minimize or maximize).
+        Identifies and returns the parameter combination that achieved the best
+        objective value, respecting the optimization direction (minimize or
+        maximize) and any constraints via Xopt's native
+        :func:`xopt.vocs.select_best`.
 
         Returns
         -------
-        pandas.DataFrame
-            Single-row DataFrame containing the best parameter set and
-            its corresponding objective and constraint values.
+        pandas.DataFrame or None
+            Single-row DataFrame containing the best parameter set and its
+            corresponding objective and constraint values, or ``None`` if no
+            usable row exists — e.g. observables-only problems (BAX) that define
+            no objective (see :meth:`_best_row_index`).
 
         """
-        return self.xopt.data.sort_values(by=list(self.vocs.objectives.keys()))[:1]
+        idx = self._best_row_index()
+        if idx is None:
+            return None
+        return self.xopt.data.loc[[idx]]
 
     @classmethod
     def from_config_file(

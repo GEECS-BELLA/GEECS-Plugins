@@ -3,6 +3,43 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.6.0] — 2026-06-23
+
+### Added
+- Camera frame helpers in `geecs_python_api.controls.devices.camera` (both also
+  exported from `geecs_python_api.controls.devices`), giving consumers a decoded
+  image from a camera device without hand-rolling the wire-format handling. Both
+  return/skip gracefully for non-camera devices, and live in a side-effect-free
+  module (not methods on the generic `GeecsDevice`, and importable without
+  hardware/DB) pending a dedicated camera device class:
+  - `latest_image(device)` — **pull**: lazily decode the device's most recent
+    frame (`device.state["image"]`) to a 2-D NumPy array via
+    `geecs_data_utils.io.decode_imaq_image_string`. Returns `None` for non-camera
+    devices and before the first frame arrives.
+  - `on_image(device, callback)` — **push**: register an update listener that
+    decodes each incoming frame and invokes `callback(image)`. Decodes from the
+    raw message (the update listener fires before `state` is parsed, so reading
+    `state["image"]` there would be one frame stale). Returns the listener name
+    for `unregister_update_listener`. The callback runs on the TCP listener
+    thread, so it should hand frames to a queue rather than block.
+
+## [0.5.3] — 2026-06-23
+
+### Fixed
+- `TcpSubscriber.async_listener` now decodes subscription payloads as `latin-1`
+  instead of `ascii` with `errors="replace"`. The old decode destroyed every
+  byte ≥ `0x80`, corrupting binary image payloads (IMAQ "Flatten Image to
+  String" frames) beyond recovery. `latin-1` is a lossless 1:1 byte↔char map and
+  a strict ASCII superset, so existing text parsing is unaffected; recover raw
+  bytes downstream with `msg.encode("latin-1")`.
+- `GeecsDevice._subscription_parser` now tokenises the message body on the
+  literal `nval,` / `nvar` delimiters instead of splitting on commas and `>>`.
+  Binary variable values — notably IMAQ flattened camera images, whose pixel/JPEG
+  bytes routinely contain comma (`0x2C`) and `>>` (`0x3E3E`) bytes — were
+  previously truncated and silently dropped from the state dict (observed as an
+  empty `image` from Basler cameras, and content-dependent drops elsewhere). The
+  output dict structure is unchanged for existing scalar-only messages.
+
 ## [0.5.2] — 2026-05-11
 
 ### Fixed

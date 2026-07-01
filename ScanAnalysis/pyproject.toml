@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "scananalysis"
-version = "1.13.0"
+version = "1.13.1"
 description = "Modules for performing analyses routines on full scans"
 authors = ["Christopher Doss <CEDoss@lbl.gov>", "Sam Barber <sbarber@lbl.gov"]
 readme = "README.md"
@@ -11,7 +11,7 @@ packages = [
 ]
 
 [tool.poetry.dependencies]
-python = ">=3.10 <3.12"
+python = ">=3.11,<3.12"
 PyQt5 = {version = "^5.15.9", markers = "sys_platform == 'win32'" }
 pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == 'win32'" }
 ImageAnalysis = { path = "../ImageAnalysis", develop = true }

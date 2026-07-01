@@ -17,7 +17,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional
 
-from geecs_data_utils import LogEntry, ScanPaths, load_scan_log
+from geecs_data_utils import LogEntry, ScanPaths, ScanTag, load_scan_log
 from geecs_log_triage.classifier import classify
 from geecs_log_triage.fingerprint import (
     _extract_traceback_signature,
@@ -173,14 +173,21 @@ def day_folder_for(target: date, experiment: str) -> Path:
     """
     if ScanPaths.paths_config is None:
         ScanPaths.reload_paths_config(default_experiment=experiment)
-    base = Path(ScanPaths.paths_config.base_path)
-    return (
-        base
-        / experiment
-        / f"Y{target.year}"
-        / f"{target.month:02d}-{target.strftime('%B')}"
-        / f"{target.strftime('%y_%m%d')}"
+    # Delegate the folder-name convention to ScanPaths so there is a single
+    # source of truth. In particular the month segment is the locale-independent
+    # 3-letter abbreviation (``06-Jun``, via ``calendar.month_name[m][:3]``) —
+    # building it here with ``strftime('%B')`` produced the full name (``06-June``)
+    # and silently resolved to a non-existent folder for every month except May.
+    # ``get_daily_scan_folder`` returns ``.../YY_MMDD/scans``; the day folder is
+    # its parent.
+    tag = ScanTag(
+        year=target.year,
+        month=target.month,
+        day=target.day,
+        number=0,
+        experiment=experiment,
     )
+    return ScanPaths.get_daily_scan_folder(tag=tag).parent
 
 
 def _iter_scan_folders_for_date(

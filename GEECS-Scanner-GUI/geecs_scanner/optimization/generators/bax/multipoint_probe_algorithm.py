@@ -19,6 +19,8 @@ from xopt.generators.bayesian.bax.algorithms import GridOptimize
 from xopt.generators.bayesian.bax_generator import BaxGenerator
 from xopt.vocs import VOCS
 
+from geecs_scanner.optimization.vocs_utils import bounds_of
+
 
 def _ls_slope(x: Tensor, y: Tensor) -> Tensor:
     """Return the least-squares slope of ``y`` with respect to ``x``."""
@@ -100,17 +102,15 @@ class MultipointProbeConfig(BaseModel):
         return values
 
     @model_validator(mode="after")
-    def _validate_probe_grid(
-        cls, values: "MultipointProbeConfig"
-    ) -> "MultipointProbeConfig":
+    def _validate_probe_grid(self) -> "MultipointProbeConfig":
         if (
-            values.probe_grid_absolute is not None
-            and values.probe_grid_fraction is not None
+            self.probe_grid_absolute is not None
+            and self.probe_grid_fraction is not None
         ):
             raise ValueError(
                 "Specify either probe_grid_absolute or probe_grid_fraction, not both."
             )
-        return values
+        return self
 
 
 class MultipointProbeAlgorithm(GridOptimize):
@@ -139,8 +139,8 @@ class MultipointProbeAlgorithm(GridOptimize):
         if not callable(virtual_objective):
             raise TypeError("virtual_objective must be callable")
 
-        measurement_bounds = vocs.variables[cfg.measurement_name]
-        lo, hi = float(measurement_bounds[0]), float(measurement_bounds[1])
+        lo, hi = bounds_of(vocs, cfg.measurement_name)
+        lo, hi = float(lo), float(hi)
         mid = 0.5 * (lo + hi)
         nominal = cfg.probe_nominal if cfg.probe_nominal is not None else mid
 
@@ -328,19 +328,18 @@ class MultipointProbeAlgorithm(GridOptimize):
         return result
 
 
-class MultipointBAXGenerator(BaxGenerator):
-    """BAX generator variant that allows single-objective VOCS."""
-
-    supports_single_objective: bool = True
-
-
 def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
-    """Factory function for the slope-minimisation variant."""
+    """Factory function for the slope-minimisation variant.
+
+    The VOCS must be observables-only (no objectives): in Xopt 3.x the BAX
+    optimization target is the virtual objective computed by the algorithm, so
+    ``BaxGenerator`` requires ``n_objectives == 0``.
+    """
     cfg = MultipointProbeConfig.model_validate(
         overrides.get("multipoint_bax_alignment", {})
     )
     algorithm = MultipointProbeAlgorithm(vocs, cfg, slope_virtual_objective)
-    generator = MultipointBAXGenerator(
+    generator = BaxGenerator(
         vocs=vocs,
         algorithm=algorithm,
         algorithm_results_file=cfg.algorithm_results_file,
@@ -351,12 +350,16 @@ def make_multipoint_bax_alignment(vocs: VOCS, overrides: Dict) -> BaxGenerator:
 
 
 def make_multipoint_bax_alignment_l2(vocs: VOCS, overrides: Dict) -> BaxGenerator:
-    """Factory function for the L2 slope minimisation variant."""
+    """Factory function for the L2 slope minimisation variant.
+
+    Requires an observables-only VOCS (no objectives); see
+    :func:`make_multipoint_bax_alignment`.
+    """
     cfg = MultipointProbeConfig.model_validate(
         overrides.get("multipoint_bax_alignment_l2", {})
     )
     algorithm = MultipointProbeAlgorithm(vocs, cfg, l2_slope_virtual_objective)
-    generator = MultipointBAXGenerator(
+    generator = BaxGenerator(
         vocs=vocs,
         algorithm=algorithm,
         algorithm_results_file=cfg.algorithm_results_file,

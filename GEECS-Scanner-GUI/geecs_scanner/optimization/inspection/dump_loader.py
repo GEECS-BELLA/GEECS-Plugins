@@ -10,21 +10,27 @@ import pandas as pd
 import yaml
 from xopt import VOCS
 
+from geecs_scanner.optimization.vocs_utils import variable_bounds
+
 logger = logging.getLogger(__name__)
 
 
 def load_xopt_dump(path: Path) -> Tuple[VOCS, pd.DataFrame]:
     """Parse an Xopt dump YAML and return its VOCS and evaluated data.
 
+    Targets the Xopt 3.x dump layout, where the VOCS lives under the
+    ``generator`` block (``Xopt`` no longer stores a top-level ``vocs``) and
+    ``data`` remains a top-level column-keyed mapping.
+
     Parameters
     ----------
     path:
-        Path to an ``xopt_dump.yaml`` file written by ``Xopt.dump()``.
+        Path to an ``xopt_dump.yaml`` file written by ``Xopt.dump()`` (3.x).
 
     Returns
     -------
     vocs:
-        The VOCS reconstructed from the dump's ``vocs`` block.
+        The VOCS reconstructed from ``generator.vocs``.
     df:
         DataFrame of evaluated points.  Rows where ``xopt_error`` is True
         are retained; callers are responsible for any further filtering.
@@ -32,18 +38,23 @@ def load_xopt_dump(path: Path) -> Tuple[VOCS, pd.DataFrame]:
     Raises
     ------
     KeyError
-        If the dump file is missing the required ``vocs`` or ``data`` blocks.
+        If the dump file is missing the required ``generator.vocs`` or
+        ``data`` blocks.
     """
     path = Path(path)
     with open(path, "r") as f:
         dump = yaml.safe_load(f)
 
-    if "vocs" not in dump:
-        raise KeyError(f"Dump file has no 'vocs' block: {path}")
+    try:
+        vocs_block = dump["generator"]["vocs"]
+    except (KeyError, TypeError):
+        raise KeyError(
+            f"Dump file has no 'generator.vocs' block (Xopt 3.x format): {path}"
+        )
     if "data" not in dump:
         raise KeyError(f"Dump file has no 'data' block: {path}")
 
-    vocs = VOCS(**dump["vocs"])
+    vocs = VOCS(**vocs_block)
 
     df = pd.DataFrame({k: pd.Series(v) for k, v in dump["data"].items()})
     df.index = df.index.astype(int)
@@ -97,12 +108,31 @@ def check_vocs_compatible(target: VOCS, source: VOCS, source_path: Path) -> None
             f"target={target.objectives}, dump={source.objectives}"
         )
 
+    # --- observables (hard) ---
+    # For observables-only problems (e.g. BAX) the modelled observables are the
+    # learning signal, so a name mismatch makes the dump incompatible — the same
+    # way a variable/objective mismatch does.
+    target_obs = set(target.observable_names)
+    source_obs = set(source.observable_names)
+    if target_obs != source_obs:
+        missing = sorted(target_obs - source_obs)
+        extra = sorted(source_obs - target_obs)
+        parts = []
+        if missing:
+            parts.append(f"missing from dump: {missing}")
+        if extra:
+            parts.append(f"extra in dump: {extra}")
+        raise ValueError(
+            f"VOCS observable mismatch in {source_path.name}: {'; '.join(parts)}"
+        )
+
     # --- bounds (soft) ---
-    for var, target_bounds in target.variables.items():
-        source_bounds = source.variables.get(var)
+    target_bounds_map = variable_bounds(target)
+    source_bounds_map = variable_bounds(source)
+    for var, (tlo, thi) in target_bounds_map.items():
+        source_bounds = source_bounds_map.get(var)
         if source_bounds is None:
             continue
-        tlo, thi = target_bounds
         slo, shi = source_bounds
         if slo != tlo or shi != thi:
             logger.warning(
@@ -137,12 +167,13 @@ def check_cross_dump_consistency(dump_vocs: List[Tuple[Path, VOCS]]) -> None:
         List of (path, VOCS) pairs, one per seed file.
     """
     for i, (path_i, vocs_i) in enumerate(dump_vocs):
+        bounds_i_map = variable_bounds(vocs_i)
         for path_j, vocs_j in dump_vocs[i + 1 :]:
-            for var in vocs_i.variables:
-                if var not in vocs_j.variables:
+            bounds_j_map = variable_bounds(vocs_j)
+            for var, bounds_i in bounds_i_map.items():
+                if var not in bounds_j_map:
                     continue
-                bounds_i = vocs_i.variables[var]
-                bounds_j = vocs_j.variables[var]
+                bounds_j = bounds_j_map[var]
                 if bounds_i != bounds_j:
                     logger.warning(
                         "Bounds for '%s' differ between seed files: "
