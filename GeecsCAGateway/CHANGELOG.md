@@ -20,6 +20,9 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   authoritative bidirectional map.
 - Reconnect supervisor: each device's TCP subscription runs under a supervising
   task that reconnects with exponential backoff on a dropped connection.
+- Stall watchdog: since GEECS pushes at ~5 Hz, no frame for `stall_timeout_s`
+  (default 2 s) is treated as a drop — catches a silently-vanished device
+  (powered off with no TCP FIN), which socket-close detection alone misses.
 - Validity: while a device is down its readback PVs are marked `INVALID` (alarm
   severity) so clients can tell live from stale; live frames clear it
   automatically.

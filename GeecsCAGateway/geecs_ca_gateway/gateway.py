@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from caproto import AlarmSeverity, AlarmStatus, ChannelData
@@ -37,12 +38,19 @@ class GeecsCaGateway:
     readback PVs ``INVALID`` (alarm severity) while it is down so clients can tell
     live data from stale.  Live frames clear the alarm automatically.
 
+    A drop is detected two ways: the socket closing (the listener task ends), and
+    a stall watchdog — GEECS pushes at ~5 Hz, so no frame for ``stall_timeout_s``
+    means the device went silent (e.g. powered off with no TCP FIN), which the
+    socket-close signal alone would miss.
+
     Parameters
     ----------
     config : GatewayConfig
         Declarative description of the devices and variables to serve.
     reconnect_min_s, reconnect_max_s : float
         Backoff bounds for the subscription reconnect loop.
+    stall_timeout_s : float
+        Treat the stream as dropped if no frame arrives for this long.
     """
 
     def __init__(
@@ -51,11 +59,14 @@ class GeecsCaGateway:
         *,
         reconnect_min_s: float = 0.5,
         reconnect_max_s: float = 30.0,
+        stall_timeout_s: float = 2.0,
     ) -> None:
         self.config = config
         self._reconnect_min = reconnect_min_s
         self._reconnect_max = reconnect_max_s
+        self._stall_timeout = stall_timeout_s
         self._supervisors: list[asyncio.Task] = []
+        self._last_frame: dict[str, float] = {}
         self._closing = False
         self.pvdb: dict[str, ChannelData] = {}
         # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
@@ -126,6 +137,7 @@ class GeecsCaGateway:
         readback_map = self._readbacks[device_name]
 
         async def callback(update: dict[str, Any]) -> None:
+            self._last_frame[device_name] = time.monotonic()
             for var, raw in update.items():
                 entry = readback_map.get(var)
                 if entry is None:
@@ -186,15 +198,28 @@ class GeecsCaGateway:
                 await sub.connect()
                 self._subs[dev.name] = sub
                 await sub.subscribe(variables, callback)
+                # Seed so the watchdog doesn't trip before the first frame lands.
+                self._last_frame[dev.name] = time.monotonic()
                 logger.info("%s: subscription live", dev.name)
                 backoff = self._reconnect_min
-                # Wait for the listener to finish (connection drop), staying
-                # cleanly cancellable at the sleep.
+                # Wait for a drop, staying cleanly cancellable at the sleep. A
+                # drop is either the socket closing (listener task ends) or the
+                # stream going silent (stall watchdog).
                 while (
                     not self._closing
                     and sub._listen_task is not None
                     and not sub._listen_task.done()
                 ):
+                    if (
+                        time.monotonic() - self._last_frame[dev.name]
+                        > self._stall_timeout
+                    ):
+                        logger.warning(
+                            "%s: no frames for >%.1fs; treating as stalled",
+                            dev.name,
+                            self._stall_timeout,
+                        )
+                        break
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 await self._safe_close(sub)

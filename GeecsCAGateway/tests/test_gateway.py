@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import struct
 
 import pytest
 from caproto import AlarmSeverity
@@ -179,6 +180,70 @@ async def test_reconnect_and_validity() -> None:
             await srv2.stop()
     finally:
         await gw.close()
+
+
+async def _silent_after_frames_server(
+    host: str, port: int, *, n_frames: int, position: float
+) -> asyncio.AbstractServer:
+    """A GEECS-like TCP server that pushes ``n_frames`` then goes silent.
+
+    The socket stays open (no FIN), so only the stall watchdog — not
+    socket-close detection — can notice the device has gone quiet.
+    """
+
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            header = await reader.readexactly(4)
+            await reader.readexactly(struct.unpack(">i", header)[0])  # "Wait>>..."
+            for shot in range(1, n_frames + 1):
+                msg = f"DEV>>{shot}>>Position nval,{position} nvar".encode("ascii")
+                writer.write(struct.pack(">i", len(msg)) + msg)
+                await writer.drain()
+                await asyncio.sleep(0.1)
+            # Go silent: push nothing, but exit cleanly when the client hangs up.
+            while await reader.read(1):
+                pass
+        except (
+            asyncio.IncompleteReadError,
+            ConnectionResetError,
+            asyncio.CancelledError,
+        ):
+            pass
+        finally:
+            writer.close()
+
+    return await asyncio.start_server(handle, host, port)
+
+
+async def test_stall_watchdog_marks_invalid_on_silence() -> None:
+    """A device that stops pushing (socket still open) is caught as stalled."""
+    port = _free_port()
+    server = await _silent_after_frames_server(
+        "127.0.0.1", port, n_frames=5, position=7.5
+    )
+    gw = GeecsCaGateway(
+        _config("127.0.0.1", port),
+        reconnect_min_s=0.3,
+        reconnect_max_s=0.5,
+        stall_timeout_s=0.6,
+    )
+    await gw.connect()
+    await gw.subscribe()
+    rb = gw.pvdb[f"{DEVICE}:Position"]
+    try:
+        # frames flow -> valid
+        assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
+        assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+        # server goes silent after 5 frames -> watchdog trips -> INVALID
+        assert await _wait_until(
+            lambda: int(rb.severity) == int(AlarmSeverity.INVALID_ALARM), timeout=4.0
+        )
+    finally:
+        await gw.close()
+        server.close()
+        await server.wait_closed()
 
 
 async def test_setpoint_write_reaches_geecs() -> None:
