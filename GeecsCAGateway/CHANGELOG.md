@@ -34,6 +34,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - The transport's "missing variable(s)" notices are quiet by default in the
   serve entry point (subscribed-but-idle vars are normal for monitoring); pass
   `--show-missing` to keep them.
+- The intrinsic timestamp variables (`systimestamp`, `acq_timestamp`) — which are
+  not in the DB — are now also exposed as float readback PVs per device, carrying
+  the **raw** LabVIEW-epoch value (what's stamped on saved external assets like
+  images, so it matches for synchronicity). A per-device acquisition/liveness
+  signal, in addition to stamping each data PV's timestamp.
 - Validity: while a device is down its readback PVs are marked `INVALID` (alarm
   severity) so clients can tell live from stale; live frames clear it
   automatically.

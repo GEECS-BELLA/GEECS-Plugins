@@ -136,6 +136,21 @@ class GeecsCaGateway:
                     if self._register(sp_name, dev.name, var.geecs_var, "setpoint"):
                         setter = self._make_setter(dev.name, var.geecs_var)
                         self.pvdb[sp_name] = make_setpoint_channel(var, setter)
+
+            # Intrinsic timestamp variables (systimestamp/acq_timestamp) aren't in
+            # the DB, but expose them as float readback PVs too — carrying the RAW
+            # LabVIEW value, which is what's stamped on saved external assets
+            # (images), so it's a per-device acquisition/synchronicity signal.
+            data_var_names = {v.geecs_var for v in dev.variables}
+            for ts_name in dev.timestamp_vars:
+                if ts_name in data_var_names or ts_name in readback_map:
+                    continue
+                ts_spec = VariableSpec(geecs_var=ts_name, dtype="float")
+                full = dev.pv_name_for(ts_spec)
+                if self._register(full, dev.name, ts_name, "readback"):
+                    channel = make_readback_channel(ts_spec)
+                    self.pvdb[full] = channel
+                    readback_map[ts_name] = (channel, ts_spec)
             self._readbacks[dev.name] = readback_map
 
     def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> bool:

@@ -210,6 +210,37 @@ async def test_reconnect_and_validity() -> None:
         await gw.close()
 
 
+async def test_timestamp_vars_exposed_as_pvs_with_raw_value() -> None:
+    """systimestamp/acq_timestamp become float PVs carrying the raw LabVIEW value."""
+    labview = LABVIEW_OFFSET + 1000.0
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 1.0, "systimestamp": labview}
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[VariableSpec(geecs_var="Position", dtype="float")],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        # both intrinsic timestamp vars get PVs (acq even if this device won't push it)
+        assert f"{DEVICE}:systimestamp" in gw.pvdb
+        assert f"{DEVICE}:acq_timestamp" in gw.pvdb
+        await gw.connect()
+        await gw.subscribe()
+        try:
+            rb = gw.pvdb[f"{DEVICE}:systimestamp"]
+            # RAW LabVIEW value, not unix-converted
+            assert await _wait_until(lambda: rb.value == pytest.approx(labview))
+        finally:
+            await gw.close()
+
+
 async def test_pv_timestamp_from_systimestamp() -> None:
     """A `systimestamp` frame stamps the readback PV with the converted time."""
     labview_val = LABVIEW_OFFSET + 1782949690.5
