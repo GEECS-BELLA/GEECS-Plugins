@@ -26,10 +26,14 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   pointless reconnect. (A hard power-off with the socket left open is a known gap
   best closed later with TCP keepalive, not app-level silence-guessing.)
 - PV timestamps from GEECS, not gateway-receive time: each frame is stamped via
-  a timestamp ladder (`DeviceSpec.timestamp_vars`, default `["systimestamp"]`;
-  prepend `acq_timestamp` for triggered devices to prefer true shot time). GEECS
-  timestamps are LabVIEW epoch (1904) — converted to Unix by subtracting
-  2_082_844_800. Verified on real hardware (PV timestamp tracks wall-clock).
+  a timestamp ladder (`DeviceSpec.timestamp_vars`, default
+  `["acq_timestamp", "systimestamp"]` — both subscribed on every device;
+  `acq_timestamp` (triggered devices, true shot time) preferred, `systimestamp`
+  (universal) fallback). GEECS timestamps are LabVIEW epoch (1904) — converted to
+  Unix by subtracting 2_082_844_800. Verified on real hardware.
+- The transport's "missing variable(s)" notices are quiet by default in the
+  serve entry point (subscribed-but-idle vars are normal for monitoring); pass
+  `--show-missing` to keep them.
 - Validity: while a device is down its readback PVs are marked `INVALID` (alarm
   severity) so clients can tell live from stale; live frames clear it
   automatically.

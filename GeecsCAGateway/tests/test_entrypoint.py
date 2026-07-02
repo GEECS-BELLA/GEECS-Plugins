@@ -13,13 +13,17 @@ def test_defaults() -> None:
     assert args.experiment == "Undulator"
     assert args.all_variables is False
     assert args.include_disabled is False
+    assert args.show_missing is False
 
 
 def test_flags() -> None:
-    """--all-variables and --include-disabled flip the defaults."""
-    args = _parse_args(["--experiment", "X", "--all-variables", "--include-disabled"])
+    """The boolean flags flip their defaults."""
+    args = _parse_args(
+        ["--experiment", "X", "--all-variables", "--include-disabled", "--show-missing"]
+    )
     assert args.all_variables is True
     assert args.include_disabled is True
+    assert args.show_missing is True
 
 
 def test_experiment_required() -> None:

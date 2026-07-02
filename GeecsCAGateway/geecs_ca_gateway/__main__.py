@@ -24,6 +24,19 @@ from .gateway import GeecsCaGateway
 logger = logging.getLogger("geecs_ca_gateway")
 
 
+class _QuietMissingVariables(logging.Filter):
+    """Drop the transport's 'missing variable(s)' notices.
+
+    For a best-effort monitoring gateway, subscribed-but-not-currently-streaming
+    variables (analysis off, idle scopes, non-triggered devices lacking
+    ``acq_timestamp``) are normal, not warnings — the corresponding PVs simply
+    stay ``INVALID`` until data flows. Pass ``--show-missing`` to keep them.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: A003
+        return "missing variable(s)" not in record.getMessage()
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="geecs-ca-gateway",
@@ -43,6 +56,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--include-disabled",
         action="store_true",
         help="Include devices not enabled in the experiment.",
+    )
+    parser.add_argument(
+        "--show-missing",
+        action="store_true",
+        help="Log the transport's 'missing variable(s)' notices (quiet by default).",
     )
     parser.add_argument(
         "--log-level",
@@ -73,6 +91,10 @@ def main(argv: list[str] | None = None) -> None:
         level=args.log_level.upper(),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    if not args.show_missing:
+        logging.getLogger("geecs_bluesky.transport.tcp_subscriber").addFilter(
+            _QuietMissingVariables()
+        )
     try:
         asyncio.run(
             _run(

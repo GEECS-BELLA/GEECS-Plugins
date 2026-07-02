@@ -164,6 +164,12 @@ def test_from_db_metadata_maps_variable_types() -> None:
     assert by["SaveDir"].dtype == "string"  # path -> string
 
 
+def test_timestamp_ladder_default_prefers_acq_then_sys() -> None:
+    """Every device subscribes to acq_timestamp (preferred) then systimestamp."""
+    dev = DeviceSpec(name="D", host="h", port=1)
+    assert dev.timestamp_vars == ["acq_timestamp", "systimestamp"]
+
+
 def test_blank_variabletype_inferred_from_choices() -> None:
     """NULL variabletype but a real option list => enum (real U_VisaPlungers case)."""
     meta = [
