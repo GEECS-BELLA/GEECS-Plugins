@@ -153,31 +153,36 @@ class DeviceSpec(BaseModel):
             override = dtypes.get(var_name)
             vartype = (meta.get("variabletype") or "").strip().lower()
             raw_choices = (meta.get("choices") or "").strip()
-            if not vartype:
-                # Some rows leave `variabletype` blank and encode the type only
-                # via `choice_id`: a bare descriptor word ('numeric'/'string'/…)
-                # is that type; a real option list (e.g. "on,off") is a choice.
-                descriptor = raw_choices.lower()
-                if descriptor in _SKIP_VARTYPES or descriptor in (
-                    "numeric",
-                    "string",
-                    "path",
-                ):
-                    vartype = descriptor
-                elif "," in raw_choices:
-                    vartype = "choice"
-                else:
-                    vartype = "numeric"
+            descriptor = raw_choices.lower()
 
-            if override is None and vartype in _SKIP_VARTYPES:
+            # The `choice` table's low IDs double as type descriptors, so when
+            # `choices` is a bare descriptor word it is the AUTHORITATIVE type —
+            # even when variabletype says otherwise (e.g. variabletype='choice'
+            # with choices='image' is an image variable streaming raw bytes, not a
+            # one-option enum). Otherwise trust variabletype; if it's blank, a real
+            # option list is a choice, else fall back to numeric.
+            if descriptor in _SKIP_VARTYPES or descriptor in (
+                "numeric",
+                "string",
+                "path",
+            ):
+                effective = descriptor
+            elif vartype:
+                effective = vartype
+            elif "," in raw_choices:
+                effective = "choice"
+            else:
+                effective = "numeric"
+
+            if override is None and effective in _SKIP_VARTYPES:
                 logger.debug(
-                    "%s: skipping %r (variabletype=%s — not scalar CA data)",
+                    "%s: skipping %r (type=%s — not scalar CA data)",
                     name,
                     var_name,
-                    vartype,
+                    effective,
                 )
                 continue
-            dtype: DType = override or _VARTYPE_TO_DTYPE.get(vartype, "float")
+            dtype: DType = override or _VARTYPE_TO_DTYPE.get(effective, "float")
 
             choices: list[str] = []
             if dtype == "enum":

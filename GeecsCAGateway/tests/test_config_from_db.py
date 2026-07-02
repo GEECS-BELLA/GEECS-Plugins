@@ -164,6 +164,25 @@ def test_from_db_metadata_maps_variable_types() -> None:
     assert by["SaveDir"].dtype == "string"  # path -> string
 
 
+def test_choice_pointing_at_type_descriptor_is_skipped() -> None:
+    """variabletype='choice' but choices='image'/'1darray' is a non-scalar, skip it."""
+    meta = [
+        {"name": "bakground image", "variabletype": "choice", "choices": "image"},
+        {"name": "scopeTrace.Channel0", "variabletype": "choice", "choices": "1darray"},
+        {
+            "name": "Enable",
+            "variabletype": "choice",
+            "choices": "on,off",
+            "settable": True,
+        },
+    ]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, meta)
+    by = {v.geecs_var: v for v in spec.variables}
+    assert "bakground image" not in by  # image skipped, not a 1-option enum
+    assert "scopeTrace.Channel0" not in by  # 1darray skipped
+    assert by["Enable"].dtype == "enum"  # a real option list is still an enum
+
+
 def test_timestamp_ladder_default_prefers_acq_then_sys() -> None:
     """Every device subscribes to acq_timestamp (preferred) then systimestamp."""
     dev = DeviceSpec(name="D", host="h", port=1)

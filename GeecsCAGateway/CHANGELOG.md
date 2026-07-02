@@ -74,6 +74,10 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 
 ### Fixed
 
+- The `choices` field is authoritative for type: `choices='image'`/`'1darray'`
+  means a non-scalar (skip) even when `variabletype='choice'` is explicitly set.
+  Fixes image/scope-trace variables being built as bogus one-option enums and
+  then choking on raw image bytes under `--all-variables`.
 - Type inference when the DB `variabletype` column is blank: some rows encode
   the type only via `choice_id` (e.g. `U_VisaPlungers DigitalOutput.Channel 0–3`
   have `variabletype=NULL` but `choices='on,off'`). These were defaulting to
