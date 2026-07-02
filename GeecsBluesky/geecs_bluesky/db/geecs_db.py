@@ -282,9 +282,9 @@ class GeecsDb:
 
         Each entry is a dict with keys: ``name``, ``units``, ``min``, ``max``,
         ``settable`` (bool), ``variabletype`` (``"numeric"``, ``"choice"``,
-        ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), and ``choices``
+        ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), ``choices``
         (comma-separated option string from the ``choice`` table for ``choice``
-        variables, else ``None``).
+        variables, else ``None``), and ``tolerance`` (numeric, or ``None``).
         """
         try:
             import mysql.connector
@@ -298,7 +298,7 @@ class GeecsDb:
             cur = conn.cursor()
             cur.execute(
                 "SELECT dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices "
+                "dtv.variabletype, c.choices, dtv.tolerance "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
@@ -324,6 +324,7 @@ class GeecsDb:
                 "settable": (r[4] or "no").lower() == "yes",
                 "variabletype": (r[5] or "").strip().lower() or None,
                 "choices": r[6],
+                "tolerance": _num(r[7]),
             }
             for r in rows
         ]

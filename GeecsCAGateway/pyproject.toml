@@ -6,6 +6,9 @@ authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
 packages = [{ include = "geecs_ca_gateway" }]
 
+[tool.poetry.scripts]
+geecs-ca-gateway = "geecs_ca_gateway.__main__:main"
+
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 caproto = ">=1.1"

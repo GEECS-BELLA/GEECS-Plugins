@@ -4,6 +4,13 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.6] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_device_variables` now also returns `tolerance` (numeric, or
+  `None`) — useful as a monitor deadband.
+
 ## [0.13.5] - 2026-07-02
 
 ### Added

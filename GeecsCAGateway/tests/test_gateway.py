@@ -346,6 +346,39 @@ async def test_enum_readback_and_setpoint() -> None:
             await gw.close()
 
 
+async def test_deadband_suppresses_small_changes() -> None:
+    """A float change within the deadband is not re-posted; a larger one is."""
+    device = FakeGeecsDevice(DEVICE, variables={"Pos": 5.0})
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(geecs_var="Pos", dtype="float", deadband=0.1)
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        await gw.subscribe()
+        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        try:
+            assert await _wait_until(lambda: rb.value == pytest.approx(5.0))
+            # within deadband (0.05 <= 0.1): suppressed, value stays 5.0
+            device.variables["Pos"] = 5.05
+            await asyncio.sleep(0.5)
+            assert rb.value == pytest.approx(5.0)
+            # beyond deadband: posts
+            device.variables["Pos"] = 5.5
+            assert await _wait_until(lambda: rb.value == pytest.approx(5.5))
+        finally:
+            await gw.close()
+
+
 async def test_setpoint_write_reaches_geecs() -> None:
     """Writing the setpoint channel forwards the value to the GEECS device."""
     device = FakeGeecsDevice(

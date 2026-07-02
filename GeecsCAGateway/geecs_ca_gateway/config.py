@@ -53,6 +53,7 @@ class VariableSpec(BaseModel):
     lo: float | None = None
     hi: float | None = None
     choices: list[str] = Field(default_factory=list)  # ordered options for enum
+    deadband: float = 0.0  # float monitor deadband; only post when |Δ| > deadband
 
     @property
     def pv_suffix(self) -> str:
@@ -186,6 +187,7 @@ class DeviceSpec(BaseModel):
                     lo=meta.get("min"),
                     hi=meta.get("max"),
                     choices=choices,
+                    deadband=meta.get("tolerance") or 0.0,
                 )
             )
         return cls(

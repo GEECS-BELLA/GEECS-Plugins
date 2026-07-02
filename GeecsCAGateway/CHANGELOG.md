@@ -55,6 +55,17 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - `DESIGN.md` — design note (Path A vs B, caproto rationale, regime fitness,
   what's proven on real hardware, honest gaps).
 
+- **Serve entry point** — `python -m geecs_ca_gateway --experiment NAME` (also
+  the `geecs-ca-gateway` console script) builds the config live from the DB,
+  connects, and serves the PVs over CA until interrupted. `--all-variables` /
+  `--include-disabled` widen the set; EPICS `EPICS_CAS_*` env vars scope the
+  subnet. This is the library→service step.
+- **Monitor deadband** — readback PVs only re-post when the value actually
+  changes (floats beyond a per-variable deadband sourced from the DB
+  `tolerance`), so a static device produces no CA/archiver traffic. Keeps
+  archive storage proportional to real changes, not the 5 Hz push rate.
+  (`GeecsDb.get_device_variables` now returns `tolerance`; geecs-bluesky 0.13.6.)
+
 ### Verified
 
 - End-to-end against real device `U_S1H`: DB-driven config, live readback, and a

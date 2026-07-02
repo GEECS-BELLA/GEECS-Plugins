@@ -38,6 +38,9 @@ logger = logging.getLogger(__name__)
 # GEECS timestamps (e.g. `systimestamp`) are LabVIEW-epoch; subtract to get Unix.
 _LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
+# Sentinel for "no value written yet" in the deadband cache.
+_UNSET = object()
+
 
 def _extract_timestamp(update: dict[str, Any], ts_vars: list[str]) -> float | None:
     """Return a Unix-epoch timestamp from a frame per the ladder, or ``None``.
@@ -95,6 +98,8 @@ class GeecsCaGateway:
         self._stall_timeout = stall_timeout_s
         self._supervisors: list[asyncio.Task] = []
         self._last_frame: dict[str, float] = {}
+        # device name -> {geecs_var -> last value written} for deadband suppression
+        self._last_written: dict[str, dict[str, Any]] = {}
         self._closing = False
         self.pvdb: dict[str, ChannelData] = {}
         # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
@@ -172,6 +177,7 @@ class GeecsCaGateway:
             self._last_frame[device_name] = time.monotonic()
             timestamp = _extract_timestamp(update, ts_vars)
             extra = {"timestamp": timestamp} if timestamp is not None else {}
+            last_map = self._last_written.setdefault(device_name, {})
             for var, raw in update.items():
                 entry = readback_map.get(var)
                 if entry is None:
@@ -179,8 +185,8 @@ class GeecsCaGateway:
                 channel, spec = entry
                 try:
                     if spec.dtype == "enum":
-                        idx = enum_index(spec.choices, raw)
-                        if idx is None:
+                        value = enum_index(spec.choices, raw)
+                        if value is None:
                             logger.warning(
                                 "%s: %s=%r not in enum choices %s",
                                 device_name,
@@ -189,9 +195,31 @@ class GeecsCaGateway:
                                 spec.choices,
                             )
                             continue
-                        await channel.write(idx, **extra)
                     else:
-                        await channel.write(cast_value(spec.dtype, raw), **extra)
+                        value = cast_value(spec.dtype, raw)
+                except Exception:
+                    logger.warning(
+                        "%s: failed to coerce %s=%r",
+                        device_name,
+                        var,
+                        raw,
+                        exc_info=True,
+                    )
+                    continue
+
+                # Deadband / change suppression: don't re-post an unchanged value
+                # (floats within the deadband). Keeps CA + archiver traffic to
+                # real changes; a static device costs nothing.
+                prev = last_map.get(var, _UNSET)
+                if prev is not _UNSET:
+                    if spec.dtype == "float":
+                        if abs(value - prev) <= spec.deadband:
+                            continue
+                    elif value == prev:
+                        continue
+                last_map[var] = value
+                try:
+                    await channel.write(value, **extra)
                 except Exception:
                     logger.warning(
                         "%s: failed to update PV for %s=%r",
@@ -250,6 +278,9 @@ class GeecsCaGateway:
                 await sub.subscribe(variables, callback)
                 # Seed so the watchdog doesn't trip before the first frame lands.
                 self._last_frame[dev.name] = time.monotonic()
+                # Clear the deadband cache so the first frame always posts (and
+                # clears any INVALID left from the drop), even if unchanged.
+                self._last_written[dev.name] = {}
                 logger.info("%s: subscription live", dev.name)
                 backoff = self._reconnect_min
                 # Wait for a drop, staying cleanly cancellable at the sleep. A
