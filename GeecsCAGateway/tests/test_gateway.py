@@ -17,11 +17,39 @@ from caproto import AlarmSeverity
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
-from geecs_ca_gateway.gateway import GeecsCaGateway
+from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
 
 pytestmark = pytest.mark.fake_server
 
 DEVICE = "U_ESP_JetXYZ"
+LABVIEW_OFFSET = 2_082_844_800  # LabVIEW epoch (1904) → Unix epoch (1970)
+
+
+def test_extract_timestamp_converts_labview_to_unix() -> None:
+    """`systimestamp` (LabVIEW epoch) converts to a Unix-epoch timestamp."""
+    unix = _extract_timestamp(
+        {"systimestamp": LABVIEW_OFFSET + 1000.5}, ["systimestamp"]
+    )
+    assert unix == pytest.approx(1000.5)
+
+
+def test_extract_timestamp_ladder_prefers_first_present() -> None:
+    """The ladder tries variables in order; missing rungs fall through."""
+    frame = {
+        "acq_timestamp": LABVIEW_OFFSET + 5.0,
+        "systimestamp": LABVIEW_OFFSET + 9.0,
+    }
+    ladder = ["acq_timestamp", "systimestamp"]
+    assert _extract_timestamp(frame, ladder) == pytest.approx(5.0)
+    assert _extract_timestamp(
+        {"systimestamp": LABVIEW_OFFSET + 9.0}, ladder
+    ) == pytest.approx(9.0)
+
+
+def test_extract_timestamp_none_when_absent_or_implausible() -> None:
+    """No timestamp var, or a nonsense (pre-1970) value, yields None."""
+    assert _extract_timestamp({"Position": 1.0}, ["systimestamp"]) is None
+    assert _extract_timestamp({"systimestamp": 100.0}, ["systimestamp"]) is None
 
 
 def _free_port() -> int:
@@ -244,6 +272,34 @@ async def test_stall_watchdog_marks_invalid_on_silence() -> None:
         await gw.close()
         server.close()
         await server.wait_closed()
+
+
+async def test_pv_timestamp_from_systimestamp() -> None:
+    """A `systimestamp` frame stamps the readback PV with the converted time."""
+    labview_val = LABVIEW_OFFSET + 1782949690.5
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Position": 3.3, "systimestamp": labview_val}
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[VariableSpec(geecs_var="Position", dtype="float")],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        await gw.subscribe()
+        rb = gw.pvdb[f"{DEVICE}:Position"]
+        try:
+            assert await _wait_until(lambda: rb.value == pytest.approx(3.3))
+            assert rb.timestamp == pytest.approx(1782949690.5, abs=1e-3)
+        finally:
+            await gw.close()
 
 
 async def test_setpoint_write_reaches_geecs() -> None:

@@ -63,6 +63,10 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
   the cache, `camonitor` pushes per acquisition. The blocking "wait for new
   acquisition" is the *event source*, already inverted to a callback by
   `GeecsTcpSubscriber` — no polling.
+- **Timestamps** are pulled from GEECS, not gateway-receive time. Each frame is
+  stamped via a ladder (`DeviceSpec.timestamp_vars`): `systimestamp` (universal,
+  LabVIEW 1904 epoch → Unix by subtracting `2_082_844_800`) by default, with
+  `acq_timestamp` prependable for triggered devices. Verified on real hardware.
 - **Writes**: a `:SP` setpoint PV whose `ChannelData.write` override forwards the
   value to GEECS over UDP before storing it. A failed set raises, so CA put
   failure semantics are correct.

@@ -23,6 +23,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - Stall watchdog: since GEECS pushes at ~5 Hz, no frame for `stall_timeout_s`
   (default 2 s) is treated as a drop — catches a silently-vanished device
   (powered off with no TCP FIN), which socket-close detection alone misses.
+- PV timestamps from GEECS, not gateway-receive time: each frame is stamped via
+  a timestamp ladder (`DeviceSpec.timestamp_vars`, default `["systimestamp"]`;
+  prepend `acq_timestamp` for triggered devices to prefer true shot time). GEECS
+  timestamps are LabVIEW epoch (1904) — converted to Unix by subtracting
+  2_082_844_800. Verified on real hardware (PV timestamp tracks wall-clock).
 - Validity: while a device is down its readback PVs are marked `INVALID` (alarm
   severity) so clients can tell live from stale; live frames clear it
   automatically.

@@ -50,6 +50,10 @@ class DeviceSpec(BaseModel):
     prefix: str | None = None
     experiment: str | None = None
     variables: list[VariableSpec] = Field(default_factory=list)
+    # Ordered ladder of GEECS variables to use as the PV wall-clock timestamp.
+    # `systimestamp` (LabVIEW epoch) is universal; prepend `acq_timestamp` for
+    # triggered devices to prefer the true shot time.
+    timestamp_vars: list[str] = Field(default_factory=lambda: ["systimestamp"])
 
     @property
     def pv_prefix(self) -> str:

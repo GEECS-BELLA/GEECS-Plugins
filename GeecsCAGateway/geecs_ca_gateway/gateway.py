@@ -29,6 +29,29 @@ from .config import DType, GatewayConfig
 
 logger = logging.getLogger(__name__)
 
+# Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch (1970-01-01).
+# GEECS timestamps (e.g. `systimestamp`) are LabVIEW-epoch; subtract to get Unix.
+_LABVIEW_EPOCH_OFFSET = 2_082_844_800
+
+
+def _extract_timestamp(update: dict[str, Any], ts_vars: list[str]) -> float | None:
+    """Return a Unix-epoch timestamp from a frame per the ladder, or ``None``.
+
+    Tries each variable in ``ts_vars`` in order, converts the LabVIEW-epoch value
+    to Unix, and returns the first plausible (positive) result.  ``None`` means
+    "let caproto default to receive-time".
+    """
+    for name in ts_vars:
+        if name not in update:
+            continue
+        try:
+            unix = float(update[name]) - _LABVIEW_EPOCH_OFFSET
+        except (TypeError, ValueError):
+            continue
+        if unix > 0:
+            return unix
+    return None
+
 
 class GeecsCaGateway:
     """A single-process CA soft-IOC fronting one or more GEECS devices.
@@ -132,19 +155,28 @@ class GeecsCaGateway:
 
         return setter
 
-    def _make_callback(self, device_name: str):
-        """Return the subscription callback that fans a push frame into PVs."""
+    def _make_callback(self, dev):
+        """Return the subscription callback that fans a push frame into PVs.
+
+        Each frame is stamped with a wall-clock timestamp from the device's
+        timestamp ladder (``dev.timestamp_vars``) so the PV carries the GEECS
+        acquisition time rather than gateway-receive time.
+        """
+        device_name = dev.name
         readback_map = self._readbacks[device_name]
+        ts_vars = dev.timestamp_vars
 
         async def callback(update: dict[str, Any]) -> None:
             self._last_frame[device_name] = time.monotonic()
+            timestamp = _extract_timestamp(update, ts_vars)
+            extra = {"timestamp": timestamp} if timestamp is not None else {}
             for var, raw in update.items():
                 entry = readback_map.get(var)
                 if entry is None:
                     continue
                 channel, dtype = entry
                 try:
-                    await channel.write(cast_value(dtype, raw))
+                    await channel.write(cast_value(dtype, raw), **extra)
                 except Exception:
                     logger.warning(
                         "%s: failed to update PV for %s=%r",
@@ -189,8 +221,11 @@ class GeecsCaGateway:
         latter has awkward cancellation semantics (its loop swallows
         ``CancelledError``), which can wedge :meth:`close`.
         """
-        variables = [v.geecs_var for v in dev.variables]
-        callback = self._make_callback(dev.name)
+        # Subscribe to data variables plus the timestamp ladder (deduped, order
+        # preserved) so the device pushes the timestamp alongside the data.
+        data_vars = [v.geecs_var for v in dev.variables]
+        variables = list(dict.fromkeys(data_vars + dev.timestamp_vars))
+        callback = self._make_callback(dev)
         backoff = self._reconnect_min
         while not self._closing:
             sub = GeecsTcpSubscriber(dev.host, dev.port)
