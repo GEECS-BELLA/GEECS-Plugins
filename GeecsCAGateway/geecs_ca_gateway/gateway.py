@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
-import time
 from typing import Any
 
 from caproto import AlarmSeverity, AlarmStatus, ChannelData
@@ -66,14 +65,16 @@ class GeecsCaGateway:
     """A single-process CA soft-IOC fronting one or more GEECS devices.
 
     Each device's TCP subscription runs under a supervising task that reconnects
-    with exponential backoff on a dropped connection, and marks that device's
-    readback PVs ``INVALID`` (alarm severity) while it is down so clients can tell
-    live data from stale.  Live frames clear the alarm automatically.
+    with exponential backoff when the connection actually drops (the socket
+    closes), and marks that device's readback PVs ``INVALID`` (alarm severity)
+    while it is disconnected.
 
-    A drop is detected two ways: the socket closing (the listener task ends), and
-    a stall watchdog — GEECS pushes at ~5 Hz, so no frame for ``stall_timeout_s``
-    means the device went silent (e.g. powered off with no TCP FIN), which the
-    socket-close signal alone would miss.
+    A device merely going *quiet* is not treated as a drop: GEECS devices are
+    legitimately silent for seconds (waiting on triggers, slow online analysis,
+    toggled), so silence just ages the PV timestamp rather than forcing a
+    (pointless) reconnect.  The remaining gap — a device hard-powered-off with the
+    socket left open (no TCP FIN) — is best handled by TCP keepalive, a future
+    refinement; app-level silence-guessing conflates "slow" with "dead".
 
     Parameters
     ----------
@@ -81,8 +82,6 @@ class GeecsCaGateway:
         Declarative description of the devices and variables to serve.
     reconnect_min_s, reconnect_max_s : float
         Backoff bounds for the subscription reconnect loop.
-    stall_timeout_s : float
-        Treat the stream as dropped if no frame arrives for this long.
     """
 
     def __init__(
@@ -91,14 +90,11 @@ class GeecsCaGateway:
         *,
         reconnect_min_s: float = 0.5,
         reconnect_max_s: float = 30.0,
-        stall_timeout_s: float = 2.0,
     ) -> None:
         self.config = config
         self._reconnect_min = reconnect_min_s
         self._reconnect_max = reconnect_max_s
-        self._stall_timeout = stall_timeout_s
         self._supervisors: list[asyncio.Task] = []
-        self._last_frame: dict[str, float] = {}
         # device name -> {geecs_var -> last value written} for deadband suppression
         self._last_written: dict[str, dict[str, Any]] = {}
         # (device, geecs_var) that have already logged a coercion warning, so a
@@ -188,7 +184,6 @@ class GeecsCaGateway:
         ts_vars = dev.timestamp_vars
 
         async def callback(update: dict[str, Any]) -> None:
-            self._last_frame[device_name] = time.monotonic()
             timestamp = _extract_timestamp(update, ts_vars)
             extra = {"timestamp": timestamp} if timestamp is not None else {}
             last_map = self._last_written.setdefault(device_name, {})
@@ -288,8 +283,6 @@ class GeecsCaGateway:
                 await sub.connect()
                 self._subs[dev.name] = sub
                 await sub.subscribe(variables, callback)
-                # Seed so the watchdog doesn't trip before the first frame lands.
-                self._last_frame[dev.name] = time.monotonic()
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
@@ -299,19 +292,14 @@ class GeecsCaGateway:
                 else:
                     logger.info("%s: subscription live", dev.name)
                 backoff = self._reconnect_min
-                # Wait for a drop, staying cleanly cancellable at the sleep. A
-                # drop is either the socket closing (listener task ends) or the
-                # stream going silent (stall watchdog).
+                # Wait for an actual disconnect — the listener task ends when the
+                # socket closes. A device merely going quiet is NOT a drop; poll
+                # so we stay cleanly cancellable at the sleep.
                 while (
                     not self._closing
                     and sub._listen_task is not None
                     and not sub._listen_task.done()
                 ):
-                    if (
-                        time.monotonic() - self._last_frame[dev.name]
-                        > self._stall_timeout
-                    ):
-                        break  # stalled; logged once below as a down transition
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 await self._safe_close(sub)

@@ -19,10 +19,12 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   build-time collision detection; a `manifest` (PV → device/variable/kind) as the
   authoritative bidirectional map.
 - Reconnect supervisor: each device's TCP subscription runs under a supervising
-  task that reconnects with exponential backoff on a dropped connection.
-- Stall watchdog: since GEECS pushes at ~5 Hz, no frame for `stall_timeout_s`
-  (default 2 s) is treated as a drop — catches a silently-vanished device
-  (powered off with no TCP FIN), which socket-close detection alone misses.
+  task that reconnects with exponential backoff on an **actual disconnect** (the
+  socket closing). A device merely going quiet is NOT treated as a drop — GEECS
+  devices are legitimately silent for seconds (waiting on triggers, slow online
+  analysis, toggled), so silence just ages the PV timestamp rather than forcing a
+  pointless reconnect. (A hard power-off with the socket left open is a known gap
+  best closed later with TCP keepalive, not app-level silence-guessing.)
 - PV timestamps from GEECS, not gateway-receive time: each frame is stamped via
   a timestamp ladder (`DeviceSpec.timestamp_vars`, default `["systimestamp"]`;
   prepend `acq_timestamp` for triggered devices to prefer true shot time). GEECS
