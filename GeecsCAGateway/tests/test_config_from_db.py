@@ -201,19 +201,25 @@ def test_choice_exceeding_ca_enum_limits_falls_back_to_string() -> None:
     assert spec.variables[0].choices == []
 
 
-def test_from_geecs_experiment_assembles_and_skips_failures(monkeypatch) -> None:
-    """Enumerate enabled devices, tag with experiment, skip ones that fail."""
+def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
+    """Default: down-select to get='yes' vars (passed as include); skip failures."""
     from geecs_bluesky.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,
-        "list_devices",
+        "get_subscribed_variables",
         classmethod(
-            lambda cls, experiment, *, enabled_only=True: ["U_A", "U_BAD", "U_B"]
+            lambda cls, experiment, *, enabled_only=True: {
+                "U_A": ["Current"],
+                "U_BAD": ["Current"],
+                "U_B": ["Current", "Voltage"],
+            }
         ),
     )
+    seen_include: dict[str, object] = {}
 
-    def fake_from_db(cls, name, *, experiment=None, **kwargs):
+    def fake_from_db(cls, name, *, experiment=None, include=None, **kwargs):
+        seen_include[name] = include
         if name == "U_BAD":
             raise RuntimeError("device not resolvable")
         return DeviceSpec(
@@ -221,15 +227,41 @@ def test_from_geecs_experiment_assembles_and_skips_failures(monkeypatch) -> None
             host="h",
             port=1,
             experiment=experiment,
-            variables=[VariableSpec(geecs_var="Current", settable=True)],
+            variables=[
+                VariableSpec(geecs_var=v, settable=True) for v in (include or [])
+            ],
         )
 
     monkeypatch.setattr(DeviceSpec, "from_geecs_db", classmethod(fake_from_db))
 
     cfg = GatewayConfig.from_geecs_experiment("Undulator")
     assert {d.name for d in cfg.devices} == {"U_A", "U_B"}  # U_BAD skipped, not fatal
-    assert all(d.experiment == "Undulator" for d in cfg.devices)
-    # experiment prefix flows into PV names when the gateway is built
+    assert seen_include["U_B"] == ["Current", "Voltage"]  # get-vars → include filter
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_A:Current" in gw.pvdb
-    assert "Undulator:U_B:Current:SP" in gw.pvdb
+    assert "Undulator:U_B:Voltage" in gw.pvdb
+
+
+def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
+    """subscribed_only=False enumerates all enabled devices, no include filter."""
+    from geecs_bluesky.db.geecs_db import GeecsDb
+
+    monkeypatch.setattr(
+        GeecsDb,
+        "list_devices",
+        classmethod(lambda cls, experiment, *, enabled_only=True: ["U_A", "U_B"]),
+    )
+
+    def fake_from_db(cls, name, *, experiment=None, include=None, **kwargs):
+        assert include is None  # no down-select
+        return DeviceSpec(
+            name=name,
+            host="h",
+            port=1,
+            experiment=experiment,
+            variables=[VariableSpec(geecs_var="Current")],
+        )
+
+    monkeypatch.setattr(DeviceSpec, "from_geecs_db", classmethod(fake_from_db))
+
+    cfg = GatewayConfig.from_geecs_experiment("Undulator", subscribed_only=False)
+    assert {d.name for d in cfg.devices} == {"U_A", "U_B"}

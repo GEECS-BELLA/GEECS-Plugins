@@ -251,24 +251,31 @@ class GatewayConfig(BaseModel):
         cls,
         experiment: str,
         *,
+        subscribed_only: bool = True,
         enabled_only: bool = True,
     ) -> "GatewayConfig":
         """Build a config for a whole experiment from the GEECS database.
 
         Enumerates the experiment's devices (``enabled_only`` skips devices whose
-        ``expt_device.enabled`` is not ``"yes"``), and builds a full
+        ``expt_device.enabled`` is not ``"yes"``), and builds a
         :class:`DeviceSpec` for each via :meth:`DeviceSpec.from_geecs_db`, tagged
         with ``experiment`` as the PV namespace prefix.  Devices that fail to
         resolve are logged and skipped rather than aborting the whole config.
 
-        This is the live-from-DB path (the DB is the source of truth); per-device
-        curation — dtype overrides, exclusions, write-enable — belongs in a
-        separate overlay applied on top, not here.
+        With ``subscribed_only`` (default), only the per-shot monitoring subset is
+        exposed: each device is limited to its ``get='yes'`` variables from
+        ``expt_device_variable`` — a far smaller, sensible set than every
+        device-type variable.  Set it false to expose every variable.
+
+        This is the live-from-DB path (the DB is the source of truth); further
+        curation belongs in a separate overlay applied on top, not here.
 
         Parameters
         ----------
         experiment : str
             GEECS experiment name (e.g. ``"Undulator"``); also the PV prefix.
+        subscribed_only : bool
+            Limit each device to its ``get='yes'`` variables (default true).
         enabled_only : bool
             Skip devices not enabled in the experiment (default true).
 
@@ -278,11 +285,23 @@ class GatewayConfig(BaseModel):
         """
         from geecs_bluesky.db.geecs_db import GeecsDb
 
-        names = GeecsDb.list_devices(experiment, enabled_only=enabled_only)
+        if subscribed_only:
+            sub_map = GeecsDb.get_subscribed_variables(
+                experiment, enabled_only=enabled_only
+            )
+            targets = list(sub_map.items())
+        else:
+            names = GeecsDb.list_devices(experiment, enabled_only=enabled_only)
+            targets = [(name, None) for name in names]
+
         devices: list[DeviceSpec] = []
-        for name in names:
+        for name, include in targets:
             try:
-                devices.append(DeviceSpec.from_geecs_db(name, experiment=experiment))
+                devices.append(
+                    DeviceSpec.from_geecs_db(
+                        name, experiment=experiment, include=include
+                    )
+                )
             except Exception:
                 logger.warning(
                     "from_geecs_experiment: skipping %s (could not build spec)",
@@ -293,6 +312,6 @@ class GatewayConfig(BaseModel):
             "from_geecs_experiment(%s): built %d/%d device spec(s)",
             experiment,
             len(devices),
-            len(names),
+            len(targets),
         )
         return cls(devices=devices)

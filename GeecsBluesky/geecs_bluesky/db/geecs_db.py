@@ -220,6 +220,63 @@ class GeecsDb:
         return [r[0] for r in rows]
 
     @classmethod
+    def get_subscribed_variables(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict:
+        """Return ``{device: [variablename, ...]}`` for ``get='yes'`` variables.
+
+        ``expt_device_variable`` records, per device *instance* in an experiment,
+        which variables are logged on every shot (``get='yes'``).  That is the
+        experiment's meaningful monitoring subset — far smaller than every
+        device-type variable — so it makes a sensible default set of PVs to serve.
+
+        (The table's ``set``/``startvalue``/``endvalue`` fields describe scan
+        start/end actions and are unrelated to whether a PV is writable, which
+        comes from ``devicetype_variable``.)
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+
+        Returns
+        -------
+        dict
+            Device name → ordered list of subscribed variable names.  Devices
+            with no ``get`` variables are absent.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT ed.device, edv.variablename "
+                "FROM expt_device_variable edv "
+                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.expt = %s AND edv.get = 'yes'"
+            )
+            if enabled_only:
+                query += " AND LOWER(ed.enabled) = 'yes'"
+            query += " ORDER BY ed.device, edv.variablename"
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        result: dict = {}
+        for device, variablename in rows:
+            result.setdefault(device, []).append(variablename)
+        return result
+
+    @classmethod
     def get_device_variables(cls, device_name: str) -> list[dict]:
         """Return variable metadata for *device_name*.
 

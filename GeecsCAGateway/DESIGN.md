@@ -77,6 +77,13 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
   `choice` table); `image`/`1darray` are skipped. So the declarative overlay is
   now needed *only* for optional curation (hiding a variable, renaming), not for
   types — types come free from the DB.
+- **The served set is DB-driven too** (`subscribed_only`, default on). Rather
+  than every device-type variable, expose each device's `get='yes'` variables
+  from `expt_device_variable` — the experiment's per-shot monitoring subset
+  (~377 vs ~8600 for Undulator). That table's `set`/start/end fields are scan
+  orchestration and are *not* used here; PV writability still comes from
+  `devicetype_variable`. This is the sensible-default down-select; the overlay
+  remains for finer curation only.
 - **Writes**: a `:SP` setpoint PV whose `ChannelData.write` override forwards the
   value to GEECS over UDP before storing it. A failed set raises, so CA put
   failure semantics are correct.

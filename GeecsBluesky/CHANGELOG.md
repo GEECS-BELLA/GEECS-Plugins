@@ -4,6 +4,14 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.5] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_subscribed_variables(experiment)` — returns `{device: [var, ...]}`
+  for `get='yes'` variables in `expt_device_variable` (the per-shot monitoring
+  subset), in one query. Useful for down-selecting a sensible variable set.
+
 ## [0.13.4] - 2026-07-02
 
 ### Added

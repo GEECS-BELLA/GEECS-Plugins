@@ -39,6 +39,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - `GatewayConfig.from_geecs_experiment(name)` — build a whole-experiment config
   live from the DB, skipping devices not `enabled` in `expt_device` and any that
   fail to resolve. (Verified on Undulator: 145 devices → 114 enabled.)
+- **`subscribed_only` (default on)** down-selects each device to its `get='yes'`
+  variables from `expt_device_variable` — the per-shot monitoring subset — via
+  `GeecsDb.get_subscribed_variables`. Turns the every-variable firehose (~8600
+  Undulator variables) into a sensible set (~377). `subscribed_only=False`
+  restores the full set.
 - **Variable types from the DB.** `variabletype` maps to the PV type
   automatically: `numeric`→float, `string`/`path`→string, `choice`→**enum**
   (`ChannelEnum` with options from the `choice` table). `image`/`1darray` are
