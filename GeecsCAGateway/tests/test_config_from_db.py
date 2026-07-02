@@ -94,6 +94,113 @@ def test_from_db_metadata_dedupes_duplicate_variables() -> None:
     assert "Undulator:U_GhostFilters:Transmission_Channel11_Pos1" in gw.pvdb
 
 
+def test_from_db_metadata_maps_variable_types() -> None:
+    """variabletype maps to dtype; image/1darray are skipped; enum gets choices."""
+    meta = [
+        {
+            "name": "Current",
+            "units": "A",
+            "min": -5.0,
+            "max": 5.0,
+            "settable": True,
+            "variabletype": "numeric",
+            "choices": "numeric",
+        },
+        {
+            "name": "Enable_Output",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": True,
+            "variabletype": "choice",
+            "choices": "on,off",
+        },
+        {
+            "name": "IPAddress",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": False,
+            "variabletype": "string",
+            "choices": "string",
+        },
+        {
+            "name": "SaveDir",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": False,
+            "variabletype": "path",
+            "choices": "path",
+        },
+        {
+            "name": "Cam",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": False,
+            "variabletype": "image",
+            "choices": "image",
+        },
+        {
+            "name": "Trace",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": False,
+            "variabletype": "1darray",
+            "choices": "1darray",
+        },
+    ]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, meta)
+    by = {v.geecs_var: v for v in spec.variables}
+
+    assert "Cam" not in by and "Trace" not in by  # image / 1darray skipped
+    assert by["Current"].dtype == "float"
+    assert by["Enable_Output"].dtype == "enum"
+    assert by["Enable_Output"].choices == ["on", "off"]
+    assert by["IPAddress"].dtype == "string"
+    assert by["SaveDir"].dtype == "string"  # path -> string
+
+
+def test_choice_without_options_falls_back_to_string() -> None:
+    """A choice variable with no options resolves to a plain string PV."""
+    meta = [
+        {
+            "name": "X",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": False,
+            "variabletype": "choice",
+            "choices": None,
+        },
+    ]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, meta)
+    assert spec.variables[0].dtype == "string"
+
+
+def test_choice_exceeding_ca_enum_limits_falls_back_to_string() -> None:
+    """A choice with a >26-char label or >16 options can't be a CA enum."""
+    long_label = [
+        {
+            "name": "L",
+            "variabletype": "choice",
+            "choices": "MZ switch and encoder Index: 27,short",
+        },
+    ]
+    assert (
+        DeviceSpec.from_db_metadata("D", "h", 1, long_label).variables[0].dtype
+        == "string"
+    )
+
+    many = ",".join(f"opt{i}" for i in range(20))  # 20 > 16 states
+    too_many = [{"name": "M", "variabletype": "choice", "choices": many}]
+    spec = DeviceSpec.from_db_metadata("D", "h", 1, too_many)
+    assert spec.variables[0].dtype == "string"
+    assert spec.variables[0].choices == []
+
+
 def test_from_geecs_experiment_assembles_and_skips_failures(monkeypatch) -> None:
     """Enumerate enabled devices, tag with experiment, skip ones that fail."""
     from geecs_bluesky.db.geecs_db import GeecsDb

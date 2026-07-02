@@ -17,7 +17,23 @@ from .naming import normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
-DType = Literal["float", "int", "string"]
+DType = Literal["float", "int", "string", "enum"]
+
+# GEECS `variabletype` → gateway dtype. Types absent here (image, 1darray) are
+# not scalar CA data and are skipped when building specs from the DB.
+_VARTYPE_TO_DTYPE: dict[str, DType] = {
+    "numeric": "float",
+    "string": "string",
+    "path": "string",
+    "choice": "enum",
+}
+_SKIP_VARTYPES = {"image", "1darray"}
+
+# EPICS DBR_ENUM limits: at most 16 states, each label at most 26 chars. A GEECS
+# `choice` that exceeds either can't be a CA enum, so it degrades to a string PV
+# (the option value still round-trips as text; only the dropdown is lost).
+_MAX_ENUM_STATES = 16
+_MAX_ENUM_STRING_LEN = 26
 
 
 class VariableSpec(BaseModel):
@@ -36,6 +52,7 @@ class VariableSpec(BaseModel):
     precision: int = 3
     lo: float | None = None
     hi: float | None = None
+    choices: list[str] = Field(default_factory=list)  # ordered options for enum
 
     @property
     def pv_suffix(self) -> str:
@@ -127,14 +144,48 @@ class DeviceSpec(BaseModel):
             if var_name in seen:  # DB can list a variable more than once
                 continue
             seen.add(var_name)
+
+            vartype = (meta.get("variabletype") or "numeric").lower()
+            override = dtypes.get(var_name)
+            if override is None and vartype in _SKIP_VARTYPES:
+                logger.debug(
+                    "%s: skipping %r (variabletype=%s — not scalar CA data)",
+                    name,
+                    var_name,
+                    vartype,
+                )
+                continue
+            dtype: DType = override or _VARTYPE_TO_DTYPE.get(vartype, "float")
+
+            choices: list[str] = []
+            if dtype == "enum":
+                raw = meta.get("choices") or ""
+                choices = [c.strip() for c in raw.split(",") if c.strip()]
+                too_many = len(choices) > _MAX_ENUM_STATES
+                too_long = any(len(c) > _MAX_ENUM_STRING_LEN for c in choices)
+                if not choices or too_many or too_long:
+                    # unusable or not CA-representable → fall back to a string PV
+                    if choices:
+                        logger.debug(
+                            "%s: %r enum not CA-representable "
+                            "(%d options, longest %d chars) → string",
+                            name,
+                            var_name,
+                            len(choices),
+                            max(len(c) for c in choices),
+                        )
+                    dtype = "string"
+                    choices = []
+
             specs.append(
                 VariableSpec(
                     geecs_var=var_name,
-                    dtype=dtypes.get(var_name, "float"),
+                    dtype=dtype,
                     settable=bool(meta.get("settable", False)),
                     egu=meta.get("units") or "",
                     lo=meta.get("min"),
                     hi=meta.get("max"),
+                    choices=choices,
                 )
             )
         return cls(

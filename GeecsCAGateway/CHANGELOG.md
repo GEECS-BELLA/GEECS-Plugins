@@ -39,6 +39,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - `GatewayConfig.from_geecs_experiment(name)` — build a whole-experiment config
   live from the DB, skipping devices not `enabled` in `expt_device` and any that
   fail to resolve. (Verified on Undulator: 145 devices → 114 enabled.)
+- **Variable types from the DB.** `variabletype` maps to the PV type
+  automatically: `numeric`→float, `string`/`path`→string, `choice`→**enum**
+  (`ChannelEnum` with options from the `choice` table). `image`/`1darray` are
+  skipped (not scalar CA data). Enum readback maps the GEECS option string to the
+  CA index; enum `caput` maps the index back to the GEECS string.
 - CA control/display limits (`lo`/`hi` on `VariableSpec`) wired onto channels.
 - Offline demo (`python -m geecs_ca_gateway.demo`) and tests against the
   in-process `FakeGeecsServer` — no hardware or lab network required.

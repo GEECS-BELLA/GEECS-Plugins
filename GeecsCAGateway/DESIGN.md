@@ -72,6 +72,11 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
   which enumerates the experiment's `enabled` devices from the DB and builds a
   spec for each. (Known follow-up: it does 2 DB queries per device — ~80 s for
   Undulator's 114 devices — batch into a couple of joined queries.)
+- **Types are DB-driven too.** GEECS `variabletype` maps to the PV type
+  (`numeric`→float, `string`/`path`→string, `choice`→enum with options from the
+  `choice` table); `image`/`1darray` are skipped. So the declarative overlay is
+  now needed *only* for optional curation (hiding a variable, renaming), not for
+  types — types come free from the DB.
 - **Writes**: a `:SP` setpoint PV whose `ChannelData.write` override forwards the
   value to GEECS over UDP before storing it. A failed set raises, so CA put
   failure semantics are correct.

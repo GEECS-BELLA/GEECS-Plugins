@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.4] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_device_variables` now also returns `variabletype` (`numeric`,
+  `choice`, `string`, `path`, `image`, `1darray`, …) and `choices` (the
+  comma-separated option string from the `choice` table for `choice` variables),
+  so callers can map GEECS types onto typed PVs. Numeric `min`/`max` parsing is
+  now tolerant of non-numeric strings.
+
 ## [0.13.3] - 2026-07-01
 
 ### Added

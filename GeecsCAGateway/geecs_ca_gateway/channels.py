@@ -1,53 +1,68 @@
 """caproto channel construction for GEECS variables.
 
-Two kinds of channel are built:
+Channel kinds:
 
-* **readback** — a plain :class:`caproto.ChannelData` subclass whose value is
-  pushed by the TCP subscription stream.
-* **setpoint** — a channel whose CA ``caput`` is forwarded to the GEECS device
-  over UDP *before* the value is stored locally (:func:`make_setpoint_channel`).
-  Internal code never writes to a setpoint channel, so there is no feedback loop.
+* **readback** — value pushed by the subscription stream
+  (:func:`make_readback_channel`).
+* **setpoint** — CA ``caput`` forwarded to the device over UDP *before* the value
+  is stored (:func:`make_setpoint_channel`); internal code never writes to a
+  setpoint channel, so there is no feedback loop.
+
+Enum variables (GEECS ``choice`` type) use :class:`caproto.ChannelEnum`: the CA
+value is the option *index* while GEECS speaks the option *string*, so readback
+maps string → index (:func:`enum_index`) and setpoint maps index/string →
+string (:func:`enum_geecs_value`).
 """
 
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from caproto import ChannelData, ChannelDouble, ChannelInteger, ChannelString
+from caproto import (
+    ChannelData,
+    ChannelDouble,
+    ChannelEnum,
+    ChannelInteger,
+    ChannelString,
+)
 
-from .config import DType
+from .config import DType, VariableSpec
 
 #: Async callable that pushes a value to a GEECS device (``udp.set``-shaped).
 Setter = Callable[[Any], Awaitable[Any]]
 
-_READBACK_BASE: dict[str, type[ChannelData]] = {
+_SCALAR_BASE: dict[str, type[ChannelData]] = {
     "float": ChannelDouble,
     "int": ChannelInteger,
     "string": ChannelString,
 }
 
 
-def cast_value(dtype: DType, value: Any) -> Any:
-    """Coerce a raw GEECS value to the Python type matching ``dtype``.
+def _unwrap(value: Any) -> Any:
+    """CA delivers put values as length-1 arrays/lists; return the scalar."""
+    if not isinstance(value, (str, bytes)) and hasattr(value, "__len__"):
+        return value[0] if len(value) else value
+    return value
 
-    Handles both the GEECS stream (Python scalars) and CA puts, which arrive as
-    length-1 arrays/lists — the leading element is extracted for a scalar PV.
+
+def cast_value(dtype: DType, value: Any) -> Any:
+    """Coerce a raw scalar GEECS value to the Python type for ``dtype``.
+
+    For ``float``/``int``/``string`` only; enum values go through
+    :func:`enum_index` / :func:`enum_geecs_value`.
 
     Parameters
     ----------
     dtype : {"float", "int", "string"}
-        Target channel data type.
+        Target scalar data type.
     value : Any
-        Raw value from the GEECS stream or a CA put.
+        Raw value from the GEECS stream or a CA put (arrays are unwrapped).
 
     Returns
     -------
     Any
-        ``float``, ``int``, or ``str`` per ``dtype``.
     """
-    # CA delivers put values as arrays; unwrap to a scalar (leave strings alone).
-    if not isinstance(value, (str, bytes)) and hasattr(value, "__len__"):
-        value = value[0] if len(value) else value
+    value = _unwrap(value)
     if dtype == "float":
         return float(value)
     if dtype == "int":
@@ -55,93 +70,110 @@ def cast_value(dtype: DType, value: Any) -> Any:
     return str(value)
 
 
-def initial_value(dtype: DType) -> Any:
-    """Return the placeholder value a channel holds before its first update."""
+def enum_index(choices: list[str], value: Any) -> int | None:
+    """Map a GEECS value (option string, or a numeric index) to the enum index.
+
+    Returns ``None`` if it cannot be resolved, so the caller can skip the update.
+    """
+    value = _unwrap(value)
+    text = str(value).strip()
+    for i, choice in enumerate(choices):
+        if choice == text:
+            return i
+    try:  # tolerate a numeric index arriving instead of the label
+        i = int(float(text))
+    except (TypeError, ValueError):
+        return None
+    return i if 0 <= i < len(choices) else None
+
+
+def enum_geecs_value(choices: list[str], value: Any) -> str:
+    """Map a CA put (option index or label) to the GEECS option string."""
+    value = _unwrap(value)
+    if isinstance(value, bool):
+        value = int(value)
+    if isinstance(value, (int, float)):
+        i = int(value)
+        if 0 <= i < len(choices):
+            return choices[i]
+    text = str(value).strip()
+    if text in choices:
+        return text
+    try:
+        i = int(float(text))
+        if 0 <= i < len(choices):
+            return choices[i]
+    except (TypeError, ValueError):
+        pass
+    return text
+
+
+def _initial(dtype: DType) -> Any:
+    """Placeholder value a channel holds before its first update."""
     if dtype == "float":
         return 0.0
-    if dtype == "int":
+    if dtype in ("int", "enum"):
         return 0
     return ""
 
 
-def _metadata_kwargs(
-    spec_dtype: DType,
-    *,
-    egu: str,
-    precision: int,
-    lo: float | None,
-    hi: float | None,
-) -> dict[str, Any]:
-    """Assemble the caproto channel kwargs (value + EGU/precision/limits)."""
-    kwargs: dict[str, Any] = {"value": initial_value(spec_dtype)}
-    if spec_dtype == "float":
-        kwargs["precision"] = precision
-    if egu:
-        kwargs["units"] = egu
-    if spec_dtype in ("float", "int"):
-        if lo is not None:
-            kwargs["lower_ctrl_limit"] = lo
-            kwargs["lower_disp_limit"] = lo
-        if hi is not None:
-            kwargs["upper_ctrl_limit"] = hi
-            kwargs["upper_disp_limit"] = hi
+def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
+    """Caproto kwargs (value + EGU/precision/limits) for a scalar channel."""
+    kwargs: dict[str, Any] = {"value": _initial(spec.dtype)}
+    if spec.dtype == "float":
+        kwargs["precision"] = spec.precision
+    if spec.dtype in ("float", "int"):
+        if spec.egu:
+            kwargs["units"] = spec.egu
+        if spec.lo is not None:
+            kwargs["lower_ctrl_limit"] = spec.lo
+            kwargs["lower_disp_limit"] = spec.lo
+        if spec.hi is not None:
+            kwargs["upper_ctrl_limit"] = spec.hi
+            kwargs["upper_disp_limit"] = spec.hi
     return kwargs
 
 
-def make_readback_channel(
-    spec_dtype: DType,
-    *,
-    egu: str,
-    precision: int,
-    lo: float | None = None,
-    hi: float | None = None,
-) -> ChannelData:
+def make_readback_channel(spec: VariableSpec) -> ChannelData:
     """Build a read-only channel populated by the subscription stream."""
-    base = _READBACK_BASE[spec_dtype]
-    return base(
-        **_metadata_kwargs(spec_dtype, egu=egu, precision=precision, lo=lo, hi=hi)
-    )
+    if spec.dtype == "enum":
+        return ChannelEnum(value=0, enum_strings=list(spec.choices))
+    return _SCALAR_BASE[spec.dtype](**_metadata_kwargs(spec))
 
 
-def make_setpoint_channel(
-    spec_dtype: DType,
-    setter: Setter,
-    *,
-    egu: str,
-    precision: int,
-    lo: float | None = None,
-    hi: float | None = None,
-) -> ChannelData:
+def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
     """Build a writable channel that forwards CA puts to GEECS.
 
     Parameters
     ----------
-    spec_dtype : {"float", "int", "string"}
-        Channel data type.
+    spec : VariableSpec
+        The variable being exposed (dtype, metadata, enum choices).
     setter : Setter
-        Async callable invoked with the put value; expected to send the value to
-        the GEECS device (e.g. ``GeecsUdpClient.set``).  If it raises, the value
-        is *not* stored and the CA put fails — the correct error semantics.
-    egu : str
-        Engineering units string (``EGU``), or empty for none.
-    precision : int
-        Display precision for float channels.
-
-    Returns
-    -------
-    caproto.ChannelData
-        A channel instance whose ``write`` is GEECS-routed.
+        Async callable invoked with the value to send to GEECS.  If it raises,
+        the value is not stored and the CA put fails — the correct semantics.
     """
-    base = _READBACK_BASE[spec_dtype]
+    if spec.dtype == "enum":
+        choices = list(spec.choices)
 
-    class _GeecsSetpointChannel(base):  # type: ignore[valid-type,misc]
-        """A ``base`` channel whose CA puts are forwarded to a GEECS device."""
+        class _GeecsEnumSetpoint(ChannelEnum):
+            """Enum channel whose CA puts forward the option string to GEECS."""
+
+            async def write(self, value: Any, **kwargs: Any) -> Any:
+                """Forward the put (as the GEECS string), then store it."""
+                await setter(enum_geecs_value(choices, value))
+                return await super().write(value, **kwargs)
+
+        return _GeecsEnumSetpoint(value=0, enum_strings=choices)
+
+    base = _SCALAR_BASE[spec.dtype]
+    dtype = spec.dtype
+
+    class _GeecsSetpoint(base):  # type: ignore[valid-type,misc]
+        """Scalar channel whose CA puts are forwarded to a GEECS device."""
 
         async def write(self, value: Any, **kwargs: Any) -> Any:
             """Forward the put to GEECS, then store the value locally."""
-            await setter(cast_value(spec_dtype, value))
+            await setter(cast_value(dtype, value))
             return await super().write(value, **kwargs)
 
-    return _GeecsSetpointChannel(
-        **_metadata_kwargs(spec_dtype, egu=egu, precision=precision, lo=lo, hi=hi)
-    )
+    return _GeecsSetpoint(**_metadata_kwargs(spec))

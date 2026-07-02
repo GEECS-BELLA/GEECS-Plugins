@@ -224,7 +224,10 @@ class GeecsDb:
         """Return variable metadata for *device_name*.
 
         Each entry is a dict with keys: ``name``, ``units``, ``min``, ``max``,
-        ``settable`` (bool).
+        ``settable`` (bool), ``variabletype`` (``"numeric"``, ``"choice"``,
+        ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), and ``choices``
+        (comma-separated option string from the ``choice`` table for ``choice``
+        variables, else ``None``).
         """
         try:
             import mysql.connector
@@ -237,9 +240,11 @@ class GeecsDb:
         try:
             cur = conn.cursor()
             cur.execute(
-                "SELECT dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set` "
+                "SELECT dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
+                "dtv.variabletype, c.choices "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
+                "LEFT JOIN choice c ON c.id = dtv.choice_id "
                 "WHERE d.name = %s ORDER BY dtv.name",
                 (device_name,),
             )
@@ -247,13 +252,21 @@ class GeecsDb:
         finally:
             conn.close()
 
+        def _num(value: object) -> Optional[float]:
+            try:
+                return float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return None
+
         return [
             {
                 "name": r[0],
                 "units": r[1] or "",
-                "min": float(r[2]) if r[2] is not None else None,
-                "max": float(r[3]) if r[3] is not None else None,
+                "min": _num(r[2]),
+                "max": _num(r[3]),
                 "settable": (r[4] or "no").lower() == "yes",
+                "variabletype": (r[5] or "").strip().lower() or None,
+                "choices": r[6],
             }
             for r in rows
         ]

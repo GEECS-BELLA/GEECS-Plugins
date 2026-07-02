@@ -302,6 +302,50 @@ async def test_pv_timestamp_from_systimestamp() -> None:
             await gw.close()
 
 
+def _enum_label(channel) -> str:
+    """The current option label of an enum channel, as a str."""
+    v = channel.value
+    return v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
+
+
+async def test_enum_readback_and_setpoint() -> None:
+    """Enum: GEECS string ↔ enum index in both directions, over the gateway."""
+    device = FakeGeecsDevice(DEVICE, variables={"Enable_Output": "off"})
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(
+                            geecs_var="Enable_Output",
+                            dtype="enum",
+                            settable=True,
+                            choices=["on", "off"],
+                        )
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        await gw.subscribe()
+        rb = gw.pvdb[f"{DEVICE}:Enable_Output"]
+        sp = gw.pvdb[f"{DEVICE}:Enable_Output:SP"]
+        try:
+            # readback: GEECS "off" string -> enum label "off"
+            assert await _wait_until(lambda: _enum_label(rb) == "off")
+            # setpoint: CA put index 0 -> GEECS "on"
+            await sp.write(0)
+            assert device.get("Enable_Output") == "on"
+            # readback follows back to "on"
+            assert await _wait_until(lambda: _enum_label(rb) == "on")
+        finally:
+            await gw.close()
+
+
 async def test_setpoint_write_reaches_geecs() -> None:
     """Writing the setpoint channel forwards the value to the GEECS device."""
     device = FakeGeecsDevice(

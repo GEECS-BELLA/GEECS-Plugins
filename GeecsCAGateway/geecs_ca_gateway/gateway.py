@@ -24,8 +24,13 @@ from caproto.asyncio.server import start_server
 from geecs_bluesky.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
-from .channels import cast_value, make_readback_channel, make_setpoint_channel
-from .config import DType, GatewayConfig
+from .channels import (
+    cast_value,
+    enum_index,
+    make_readback_channel,
+    make_setpoint_channel,
+)
+from .config import GatewayConfig, VariableSpec
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +103,8 @@ class GeecsCaGateway:
         self.manifest: dict[str, tuple[str, str, str]] = {}
         self._udp: dict[str, GeecsUdpClient] = {}
         self._subs: dict[str, GeecsTcpSubscriber] = {}
-        # device name -> {geecs_var -> (readback channel, dtype)}
-        self._readbacks: dict[str, dict[str, tuple[ChannelData, DType]]] = {}
+        # device name -> {geecs_var -> (readback channel, variable spec)}
+        self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
         self._build_pvdb()
 
     # ------------------------------------------------------------------
@@ -109,33 +114,20 @@ class GeecsCaGateway:
     def _build_pvdb(self) -> None:
         """Populate ``self.pvdb``, the readback routing map, and the manifest."""
         for dev in self.config.devices:
-            readback_map: dict[str, tuple[ChannelData, DType]] = {}
+            readback_map: dict[str, tuple[ChannelData, VariableSpec]] = {}
             for var in dev.variables:
                 full = dev.pv_name_for(var)
                 if not self._register(full, dev.name, var.geecs_var, "readback"):
                     continue  # exact duplicate — already built
-                readback = make_readback_channel(
-                    var.dtype,
-                    egu=var.egu,
-                    precision=var.precision,
-                    lo=var.lo,
-                    hi=var.hi,
-                )
+                readback = make_readback_channel(var)
                 self.pvdb[full] = readback
-                readback_map[var.geecs_var] = (readback, var.dtype)
+                readback_map[var.geecs_var] = (readback, var)
 
                 if var.settable:
                     sp_name = f"{full}:SP"
                     if self._register(sp_name, dev.name, var.geecs_var, "setpoint"):
                         setter = self._make_setter(dev.name, var.geecs_var)
-                        self.pvdb[sp_name] = make_setpoint_channel(
-                            var.dtype,
-                            setter,
-                            egu=var.egu,
-                            precision=var.precision,
-                            lo=var.lo,
-                            hi=var.hi,
-                        )
+                        self.pvdb[sp_name] = make_setpoint_channel(var, setter)
             self._readbacks[dev.name] = readback_map
 
     def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> bool:
@@ -184,9 +176,22 @@ class GeecsCaGateway:
                 entry = readback_map.get(var)
                 if entry is None:
                     continue
-                channel, dtype = entry
+                channel, spec = entry
                 try:
-                    await channel.write(cast_value(dtype, raw), **extra)
+                    if spec.dtype == "enum":
+                        idx = enum_index(spec.choices, raw)
+                        if idx is None:
+                            logger.warning(
+                                "%s: %s=%r not in enum choices %s",
+                                device_name,
+                                var,
+                                raw,
+                                spec.choices,
+                            )
+                            continue
+                        await channel.write(idx, **extra)
+                    else:
+                        await channel.write(cast_value(spec.dtype, raw), **extra)
                 except Exception:
                     logger.warning(
                         "%s: failed to update PV for %s=%r",
