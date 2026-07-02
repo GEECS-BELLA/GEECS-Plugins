@@ -66,7 +66,12 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
 - **Timestamps** are pulled from GEECS, not gateway-receive time. Each frame is
   stamped via a ladder (`DeviceSpec.timestamp_vars`): `systimestamp` (universal,
   LabVIEW 1904 epoch → Unix by subtracting `2_082_844_800`) by default, with
-  `acq_timestamp` prependable for triggered devices. Verified on real hardware.
+  `acq_timestamp` prependable for triggered devices (same VI/epoch, confirmed).
+  Verified on real hardware.
+- **Whole-experiment config** comes from `GatewayConfig.from_geecs_experiment`,
+  which enumerates the experiment's `enabled` devices from the DB and builds a
+  spec for each. (Known follow-up: it does 2 DB queries per device — ~80 s for
+  Undulator's 114 devices — batch into a couple of joined queries.)
 - **Writes**: a `:SP` setpoint PV whose `ChannelData.write` override forwards the
   value to GEECS over UDP before storing it. A failed set raises, so CA put
   failure semantics are correct.

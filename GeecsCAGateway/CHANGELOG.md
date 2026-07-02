@@ -35,6 +35,10 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - `DeviceSpec.from_geecs_db(name)` / `from_db_metadata(...)` — build a device
   spec straight from `GeecsDb` (units → EGU, min/max → CA control limits,
   `set` → settable). The network-free `from_db_metadata` core is unit-tested.
+  Duplicate variables (the GEECS DB can list one twice) are deduped.
+- `GatewayConfig.from_geecs_experiment(name)` — build a whole-experiment config
+  live from the DB, skipping devices not `enabled` in `expt_device` and any that
+  fail to resolve. (Verified on Undulator: 145 devices → 114 enabled.)
 - CA control/display limits (`lo`/`hi` on `VariableSpec`) wired onto channels.
 - Offline demo (`python -m geecs_ca_gateway.demo`) and tests against the
   in-process `FakeGeecsServer` — no hardware or lab network required.

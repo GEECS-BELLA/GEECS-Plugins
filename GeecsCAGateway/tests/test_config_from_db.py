@@ -6,7 +6,7 @@ Exercises the pure ``DeviceSpec.from_db_metadata`` core using rows shaped like
 
 from __future__ import annotations
 
-from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
+from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -65,3 +65,64 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     assert current.lower_ctrl_limit == -5.0
     assert current.units == "A"
     assert "U_S1H:Current:SP" in gw.pvdb  # settable -> setpoint exists
+
+
+def test_from_db_metadata_dedupes_duplicate_variables() -> None:
+    """The GEECS DB can list a variable twice (real case: U_GhostFilters)."""
+    meta = [
+        {
+            "name": "Transmission.Channel11.Pos1",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": True,
+        },
+        {
+            "name": "Transmission.Channel11.Pos1",
+            "units": "",
+            "min": None,
+            "max": None,
+            "settable": True,
+        },
+    ]
+    spec = DeviceSpec.from_db_metadata(
+        "U_GhostFilters", "h", 1, meta, experiment="Undulator"
+    )
+    assert len(spec.variables) == 1  # deduped
+    # and building the gateway does not raise a spurious collision
+    gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
+    assert "Undulator:U_GhostFilters:Transmission_Channel11_Pos1" in gw.pvdb
+
+
+def test_from_geecs_experiment_assembles_and_skips_failures(monkeypatch) -> None:
+    """Enumerate enabled devices, tag with experiment, skip ones that fail."""
+    from geecs_bluesky.db.geecs_db import GeecsDb
+
+    monkeypatch.setattr(
+        GeecsDb,
+        "list_devices",
+        classmethod(
+            lambda cls, experiment, *, enabled_only=True: ["U_A", "U_BAD", "U_B"]
+        ),
+    )
+
+    def fake_from_db(cls, name, *, experiment=None, **kwargs):
+        if name == "U_BAD":
+            raise RuntimeError("device not resolvable")
+        return DeviceSpec(
+            name=name,
+            host="h",
+            port=1,
+            experiment=experiment,
+            variables=[VariableSpec(geecs_var="Current", settable=True)],
+        )
+
+    monkeypatch.setattr(DeviceSpec, "from_geecs_db", classmethod(fake_from_db))
+
+    cfg = GatewayConfig.from_geecs_experiment("Undulator")
+    assert {d.name for d in cfg.devices} == {"U_A", "U_B"}  # U_BAD skipped, not fatal
+    assert all(d.experiment == "Undulator" for d in cfg.devices)
+    # experiment prefix flows into PV names when the gateway is built
+    gw = GeecsCaGateway(cfg)
+    assert "Undulator:U_A:Current" in gw.pvdb
+    assert "Undulator:U_B:Current:SP" in gw.pvdb

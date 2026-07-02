@@ -176,7 +176,9 @@ class GeecsDb:
         return str(row[0]).strip()
 
     @classmethod
-    def list_devices(cls, experiment: Optional[str] = None) -> list[str]:
+    def list_devices(
+        cls, experiment: Optional[str] = None, *, enabled_only: bool = False
+    ) -> list[str]:
         """Return all device names, optionally filtered by experiment.
 
         Parameters
@@ -184,6 +186,10 @@ class GeecsDb:
         experiment:
             If given, only return devices belonging to this experiment
             (e.g. ``"Undulator"``).
+        enabled_only:
+            If true (only meaningful with ``experiment``), return only devices
+            whose ``expt_device.enabled`` field is ``"yes"``.  A device may
+            belong to an experiment but be disabled.
         """
         try:
             import mysql.connector
@@ -196,12 +202,15 @@ class GeecsDb:
         try:
             cur = conn.cursor()
             if experiment is not None:
-                cur.execute(
+                query = (
                     "SELECT DISTINCT ed.device FROM expt_device ed "
                     "JOIN expt e ON e.name = ed.expt "
-                    "WHERE e.name = %s ORDER BY ed.device",
-                    (experiment,),
+                    "WHERE e.name = %s"
                 )
+                if enabled_only:
+                    query += " AND LOWER(ed.enabled) = 'yes'"
+                query += " ORDER BY ed.device"
+                cur.execute(query, (experiment,))
             else:
                 cur.execute("SELECT name FROM device ORDER BY name")
             rows = cur.fetchall()

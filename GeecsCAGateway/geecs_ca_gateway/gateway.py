@@ -112,7 +112,8 @@ class GeecsCaGateway:
             readback_map: dict[str, tuple[ChannelData, DType]] = {}
             for var in dev.variables:
                 full = dev.pv_name_for(var)
-                self._register(full, dev.name, var.geecs_var, "readback")
+                if not self._register(full, dev.name, var.geecs_var, "readback"):
+                    continue  # exact duplicate — already built
                 readback = make_readback_channel(
                     var.dtype,
                     egu=var.egu,
@@ -125,27 +126,36 @@ class GeecsCaGateway:
 
                 if var.settable:
                     sp_name = f"{full}:SP"
-                    self._register(sp_name, dev.name, var.geecs_var, "setpoint")
-                    setter = self._make_setter(dev.name, var.geecs_var)
-                    self.pvdb[sp_name] = make_setpoint_channel(
-                        var.dtype,
-                        setter,
-                        egu=var.egu,
-                        precision=var.precision,
-                        lo=var.lo,
-                        hi=var.hi,
-                    )
+                    if self._register(sp_name, dev.name, var.geecs_var, "setpoint"):
+                        setter = self._make_setter(dev.name, var.geecs_var)
+                        self.pvdb[sp_name] = make_setpoint_channel(
+                            var.dtype,
+                            setter,
+                            egu=var.egu,
+                            precision=var.precision,
+                            lo=var.lo,
+                            hi=var.hi,
+                        )
             self._readbacks[dev.name] = readback_map
 
-    def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> None:
-        """Record ``pv`` in the manifest, erroring on a name collision."""
-        if pv in self.manifest:
-            other_dev, other_var, _ = self.manifest[pv]
+    def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> bool:
+        """Record ``pv`` in the manifest; return whether it was newly added.
+
+        An exact duplicate — the same ``(device, geecs_var, kind)`` (the GEECS DB
+        can list a variable more than once) — is tolerated and returns ``False``.
+        A genuine collision — a *different* source mapping to the same PV — raises.
+        """
+        existing = self.manifest.get(pv)
+        if existing is not None:
+            if existing == (device, geecs_var, kind):
+                return False
+            other_dev, other_var, _ = existing
             raise ValueError(
                 f"PV name collision: {pv!r} maps to both "
                 f"{other_dev}/{other_var} and {device}/{geecs_var}"
             )
         self.manifest[pv] = (device, geecs_var, kind)
+        return True
 
     def _make_setter(self, device_name: str, geecs_var: str):
         """Return an async setter closure that forwards a value over UDP."""

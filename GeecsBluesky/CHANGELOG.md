@@ -4,6 +4,14 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.3] - 2026-07-01
+
+### Added
+
+- `GeecsDb.list_devices(experiment, enabled_only=True)` — optionally filter to
+  devices whose `expt_device.enabled` is `"yes"` (a device may belong to an
+  experiment but be disabled). Default `False` preserves existing behavior.
+
 ## [0.13.2] - 2026-06-26
 
 ### Changed

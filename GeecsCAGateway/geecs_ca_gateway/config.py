@@ -8,11 +8,14 @@ units/precision/limits from the attributes database.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from .naming import normalize_pv_component
+
+logger = logging.getLogger(__name__)
 
 DType = Literal["float", "int", "string"]
 
@@ -116,10 +119,14 @@ class DeviceSpec(BaseModel):
         """
         dtypes = dtypes or {}
         specs: list[VariableSpec] = []
+        seen: set[str] = set()
         for meta in variables_metadata:
             var_name = meta["name"]
             if include is not None and var_name not in include:
                 continue
+            if var_name in seen:  # DB can list a variable more than once
+                continue
+            seen.add(var_name)
             specs.append(
                 VariableSpec(
                     geecs_var=var_name,
@@ -187,3 +194,54 @@ class GatewayConfig(BaseModel):
     """Top-level gateway configuration: the set of devices to serve."""
 
     devices: list[DeviceSpec] = Field(default_factory=list)
+
+    @classmethod
+    def from_geecs_experiment(
+        cls,
+        experiment: str,
+        *,
+        enabled_only: bool = True,
+    ) -> "GatewayConfig":
+        """Build a config for a whole experiment from the GEECS database.
+
+        Enumerates the experiment's devices (``enabled_only`` skips devices whose
+        ``expt_device.enabled`` is not ``"yes"``), and builds a full
+        :class:`DeviceSpec` for each via :meth:`DeviceSpec.from_geecs_db`, tagged
+        with ``experiment`` as the PV namespace prefix.  Devices that fail to
+        resolve are logged and skipped rather than aborting the whole config.
+
+        This is the live-from-DB path (the DB is the source of truth); per-device
+        curation — dtype overrides, exclusions, write-enable — belongs in a
+        separate overlay applied on top, not here.
+
+        Parameters
+        ----------
+        experiment : str
+            GEECS experiment name (e.g. ``"Undulator"``); also the PV prefix.
+        enabled_only : bool
+            Skip devices not enabled in the experiment (default true).
+
+        Returns
+        -------
+        GatewayConfig
+        """
+        from geecs_bluesky.db.geecs_db import GeecsDb
+
+        names = GeecsDb.list_devices(experiment, enabled_only=enabled_only)
+        devices: list[DeviceSpec] = []
+        for name in names:
+            try:
+                devices.append(DeviceSpec.from_geecs_db(name, experiment=experiment))
+            except Exception:
+                logger.warning(
+                    "from_geecs_experiment: skipping %s (could not build spec)",
+                    name,
+                    exc_info=True,
+                )
+        logger.info(
+            "from_geecs_experiment(%s): built %d/%d device spec(s)",
+            experiment,
+            len(devices),
+            len(names),
+        )
+        return cls(devices=devices)
