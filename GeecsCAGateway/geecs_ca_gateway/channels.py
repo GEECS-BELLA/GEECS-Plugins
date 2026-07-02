@@ -125,11 +125,12 @@ def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
     if spec.dtype in ("float", "int"):
         if spec.egu:
             kwargs["units"] = spec.egu
+        # Display (informational) limits only — NOT control limits, which caproto
+        # *enforces* on write and would reject faithful-but-out-of-range readbacks
+        # (e.g. NaN from a failed analysis). GEECS is the authority on valid values.
         if spec.lo is not None:
-            kwargs["lower_ctrl_limit"] = spec.lo
             kwargs["lower_disp_limit"] = spec.lo
         if spec.hi is not None:
-            kwargs["upper_ctrl_limit"] = spec.hi
             kwargs["upper_disp_limit"] = spec.hi
     return kwargs
 

@@ -9,6 +9,7 @@ These verify the two data paths without any CA client or lab network:
 from __future__ import annotations
 
 import asyncio
+import math
 import socket
 import struct
 
@@ -375,6 +376,36 @@ async def test_deadband_suppresses_small_changes() -> None:
             # beyond deadband: posts
             device.variables["Pos"] = 5.5
             assert await _wait_until(lambda: rb.value == pytest.approx(5.5))
+        finally:
+            await gw.close()
+
+
+async def test_nan_readback_accepted_despite_limits() -> None:
+    """A NaN readback (e.g. failed analysis) is reported, not rejected by limits."""
+    device = FakeGeecsDevice(DEVICE, variables={"Pos": "NaN"})
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(geecs_var="Pos", dtype="float", lo=0.0, hi=100.0)
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        await gw.subscribe()
+        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        try:
+            await asyncio.sleep(0.4)
+            value = rb.value
+            if hasattr(value, "__len__") and not isinstance(value, str):
+                value = value[0]
+            assert math.isnan(value)  # accepted, not clamped/rejected to 0
         finally:
             await gw.close()
 

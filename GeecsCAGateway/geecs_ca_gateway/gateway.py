@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from typing import Any
 
@@ -103,6 +104,9 @@ class GeecsCaGateway:
         # (device, geecs_var) that have already logged a coercion warning, so a
         # mistyped variable warns once instead of every ~5 Hz frame.
         self._coerce_warned: set[tuple[str, str]] = set()
+        # devices currently logged as down, for one-line state-change logging
+        # (a warning when it goes down, an info when it reconnects).
+        self._down_logged: set[str] = set()
         self._closing = False
         self.pvdb: dict[str, ChannelData] = {}
         # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
@@ -221,7 +225,8 @@ class GeecsCaGateway:
                 prev = last_map.get(var, _UNSET)
                 if prev is not _UNSET:
                     if spec.dtype == "float":
-                        if abs(value - prev) <= spec.deadband:
+                        both_nan = math.isnan(value) and math.isnan(prev)
+                        if both_nan or abs(value - prev) <= spec.deadband:
                             continue
                     elif value == prev:
                         continue
@@ -229,12 +234,11 @@ class GeecsCaGateway:
                 try:
                     await channel.write(value, **extra)
                 except Exception:
-                    logger.warning(
-                        "%s: failed to update PV for %s=%r",
+                    self._warn_once(
                         device_name,
                         var,
-                        raw,
-                        exc_info=True,
+                        f"{device_name}: failed to write PV {var}={value!r} "
+                        f"(skipping this variable)",
                     )
 
         return callback
@@ -289,7 +293,11 @@ class GeecsCaGateway:
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
-                logger.info("%s: subscription live", dev.name)
+                if dev.name in self._down_logged:
+                    self._down_logged.discard(dev.name)
+                    logger.info("%s: reconnected", dev.name)
+                else:
+                    logger.info("%s: subscription live", dev.name)
                 backoff = self._reconnect_min
                 # Wait for a drop, staying cleanly cancellable at the sleep. A
                 # drop is either the socket closing (listener task ends) or the
@@ -303,28 +311,30 @@ class GeecsCaGateway:
                         time.monotonic() - self._last_frame[dev.name]
                         > self._stall_timeout
                     ):
-                        logger.warning(
-                            "%s: no frames for >%.1fs; treating as stalled",
-                            dev.name,
-                            self._stall_timeout,
-                        )
-                        break
+                        break  # stalled; logged once below as a down transition
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
                 await self._safe_close(sub)
                 raise
+            except (OSError, asyncio.TimeoutError):
+                pass  # device off/unreachable — logged once below, no traceback
             except Exception:
                 logger.warning(
-                    "%s: subscription error; will retry", dev.name, exc_info=True
+                    "%s: unexpected subscription error", dev.name, exc_info=True
                 )
             await self._safe_close(sub)
             if self._closing:
                 break
-            # Connection dropped or failed to (re)establish.
+            # Dropped or failed to (re)establish: mark stale and log once per down
+            # episode (recovery is logged as "reconnected" above).
             await self._mark_device_invalid(dev.name)
-            logger.warning(
-                "%s: subscription down; reconnecting in %.1fs", dev.name, backoff
-            )
+            if dev.name not in self._down_logged:
+                self._down_logged.add(dev.name)
+                logger.warning(
+                    "%s: unreachable/dropped; retrying (up to every %.0fs)",
+                    dev.name,
+                    self._reconnect_max,
+                )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self._reconnect_max)
 

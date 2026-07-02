@@ -61,8 +61,9 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
     current = gw.pvdb["U_S1H:Current"]
-    assert current.upper_ctrl_limit == 5.0
-    assert current.lower_ctrl_limit == -5.0
+    # display (informational) limits, not enforced control limits
+    assert current.upper_disp_limit == 5.0
+    assert current.lower_disp_limit == -5.0
     assert current.units == "A"
     assert "U_S1H:Current:SP" in gw.pvdb  # settable -> setpoint exists
 

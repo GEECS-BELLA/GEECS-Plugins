@@ -76,6 +76,14 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   type.
 - A value that can't be coerced to its PV type now warns **once** per variable
   (concise, no traceback) instead of every ~5 Hz frame.
+- Readbacks use **display** limits (informational), not **control** limits, from
+  the DB min/max. caproto enforces control limits on write and was rejecting
+  faithful-but-out-of-range readbacks — notably `NaN` from a failed analysis.
+  Readbacks now report reality (incl. NaN); GEECS remains the authority on valid
+  values. Static NaN is deadband-suppressed too.
+- Reconnect logging is now **state-change** based: one concise warning when a
+  device goes down/unreachable, one info when it reconnects — no per-attempt
+  tracebacks for devices that are simply off.
 
 ### Verified
 
