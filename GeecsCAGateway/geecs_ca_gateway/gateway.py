@@ -100,6 +100,9 @@ class GeecsCaGateway:
         self._last_frame: dict[str, float] = {}
         # device name -> {geecs_var -> last value written} for deadband suppression
         self._last_written: dict[str, dict[str, Any]] = {}
+        # (device, geecs_var) that have already logged a coercion warning, so a
+        # mistyped variable warns once instead of every ~5 Hz frame.
+        self._coerce_warned: set[tuple[str, str]] = set()
         self._closing = False
         self.pvdb: dict[str, ChannelData] = {}
         # PV name -> (device name, geecs_var, "readback"|"setpoint"). The
@@ -162,6 +165,13 @@ class GeecsCaGateway:
 
         return setter
 
+    def _warn_once(self, device: str, geecs_var: str, message: str) -> None:
+        """Log a per-(device, variable) warning once, to avoid ~5 Hz spam."""
+        key = (device, geecs_var)
+        if key not in self._coerce_warned:
+            self._coerce_warned.add(key)
+            logger.warning(message)
+
     def _make_callback(self, dev):
         """Return the subscription callback that fans a push frame into PVs.
 
@@ -187,23 +197,21 @@ class GeecsCaGateway:
                     if spec.dtype == "enum":
                         value = enum_index(spec.choices, raw)
                         if value is None:
-                            logger.warning(
-                                "%s: %s=%r not in enum choices %s",
+                            self._warn_once(
                                 device_name,
                                 var,
-                                raw,
-                                spec.choices,
+                                f"{device_name}: {var}={raw!r} not in enum choices "
+                                f"{spec.choices}; ignoring (DB choice mismatch?)",
                             )
                             continue
                     else:
                         value = cast_value(spec.dtype, raw)
-                except Exception:
-                    logger.warning(
-                        "%s: failed to coerce %s=%r",
+                except (ValueError, TypeError):
+                    self._warn_once(
                         device_name,
                         var,
-                        raw,
-                        exc_info=True,
+                        f"{device_name}: {var}={raw!r} is not a {spec.dtype} "
+                        f"(likely a DB variabletype mismatch); ignoring this variable",
                     )
                     continue
 

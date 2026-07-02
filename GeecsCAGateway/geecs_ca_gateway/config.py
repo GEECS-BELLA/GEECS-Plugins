@@ -146,8 +146,25 @@ class DeviceSpec(BaseModel):
                 continue
             seen.add(var_name)
 
-            vartype = (meta.get("variabletype") or "numeric").lower()
             override = dtypes.get(var_name)
+            vartype = (meta.get("variabletype") or "").strip().lower()
+            raw_choices = (meta.get("choices") or "").strip()
+            if not vartype:
+                # Some rows leave `variabletype` blank and encode the type only
+                # via `choice_id`: a bare descriptor word ('numeric'/'string'/…)
+                # is that type; a real option list (e.g. "on,off") is a choice.
+                descriptor = raw_choices.lower()
+                if descriptor in _SKIP_VARTYPES or descriptor in (
+                    "numeric",
+                    "string",
+                    "path",
+                ):
+                    vartype = descriptor
+                elif "," in raw_choices:
+                    vartype = "choice"
+                else:
+                    vartype = "numeric"
+
             if override is None and vartype in _SKIP_VARTYPES:
                 logger.debug(
                     "%s: skipping %r (variabletype=%s — not scalar CA data)",
@@ -160,8 +177,7 @@ class DeviceSpec(BaseModel):
 
             choices: list[str] = []
             if dtype == "enum":
-                raw = meta.get("choices") or ""
-                choices = [c.strip() for c in raw.split(",") if c.strip()]
+                choices = [c.strip() for c in raw_choices.split(",") if c.strip()]
                 too_many = len(choices) > _MAX_ENUM_STATES
                 too_long = any(len(c) > _MAX_ENUM_STRING_LEN for c in choices)
                 if not choices or too_many or too_long:

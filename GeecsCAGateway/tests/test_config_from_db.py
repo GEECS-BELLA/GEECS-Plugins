@@ -163,6 +163,31 @@ def test_from_db_metadata_maps_variable_types() -> None:
     assert by["SaveDir"].dtype == "string"  # path -> string
 
 
+def test_blank_variabletype_inferred_from_choices() -> None:
+    """NULL variabletype but a real option list => enum (real U_VisaPlungers case)."""
+    meta = [
+        {
+            "name": "DigitalOutput.Channel 3",
+            "variabletype": None,
+            "choices": "on,off",
+            "settable": True,
+        },
+        {
+            "name": "Reading",
+            "variabletype": None,
+            "choices": "numeric",
+            "settable": False,
+        },
+        {"name": "Where", "variabletype": None, "choices": "path", "settable": False},
+    ]
+    spec = DeviceSpec.from_db_metadata("U_VisaPlungers", "h", 1, meta)
+    by = {v.geecs_var: v for v in spec.variables}
+    assert by["DigitalOutput.Channel 3"].dtype == "enum"  # not float!
+    assert by["DigitalOutput.Channel 3"].choices == ["on", "off"]
+    assert by["Reading"].dtype == "float"  # 'numeric' descriptor
+    assert by["Where"].dtype == "string"  # 'path' descriptor
+
+
 def test_choice_without_options_falls_back_to_string() -> None:
     """A choice variable with no options resolves to a plain string PV."""
     meta = [

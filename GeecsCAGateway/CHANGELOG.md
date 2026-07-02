@@ -66,6 +66,17 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   archive storage proportional to real changes, not the 5 Hz push rate.
   (`GeecsDb.get_device_variables` now returns `tolerance`; geecs-bluesky 0.13.6.)
 
+### Fixed
+
+- Type inference when the DB `variabletype` column is blank: some rows encode
+  the type only via `choice_id` (e.g. `U_VisaPlungers DigitalOutput.Channel 0–3`
+  have `variabletype=NULL` but `choices='on,off'`). These were defaulting to
+  float and then failing on string values; now a real option list infers `enum`
+  and a bare descriptor (`numeric`/`string`/`path`/`image`/`1darray`) infers that
+  type.
+- A value that can't be coerced to its PV type now warns **once** per variable
+  (concise, no traceback) instead of every ~5 Hz frame.
+
 ### Verified
 
 - End-to-end against real device `U_S1H`: DB-driven config, live readback, and a

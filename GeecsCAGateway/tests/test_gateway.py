@@ -379,6 +379,34 @@ async def test_deadband_suppresses_small_changes() -> None:
             await gw.close()
 
 
+async def test_uncoercible_value_warns_once_and_skips() -> None:
+    """A float PV fed a string (DB type mismatch) skips it and warns just once."""
+    device = FakeGeecsDevice(
+        DEVICE, variables={"Pos": "off"}
+    )  # float var, string value
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[VariableSpec(geecs_var="Pos", dtype="float")],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        await gw.subscribe()
+        try:
+            await asyncio.sleep(0.5)  # several 5 Hz frames of the bad value
+            # value skipped (PV stays at initial), no crash, warned exactly once
+            assert gw.pvdb[f"{DEVICE}:Pos"].value == pytest.approx(0.0)
+            assert (DEVICE, "Pos") in gw._coerce_warned
+        finally:
+            await gw.close()
+
+
 async def test_setpoint_write_reaches_geecs() -> None:
     """Writing the setpoint channel forwards the value to the GEECS device."""
     device = FakeGeecsDevice(
