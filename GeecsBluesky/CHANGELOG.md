@@ -12,8 +12,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   GeecsCAGateway PVs as a stock EPICS IOC (no GEECS UDP/TCP): `CaReadable`
   (scalar readbacks), `CaSettable` (put to the `…:SP` PV, read the streamed
   readback), and `CaTriggerable` (whose `trigger()` gates on `acq_timestamp`
-  advancing via a CA monitor). Verified live against the gateway: one Bluesky
-  row per real shot at 1 Hz. Requires the `ca` extra. These are the CA
+  advancing via a persistent CA monitor). Verified live against the gateway: one
+  Bluesky row per real shot at 1 Hz. Requires the `ca` extra. These are the CA
   counterpart of the direct UDP/TCP devices; shot-id/save-path/schema logic
   stays shared, selected by backend rather than duplicated.
 - `geecs_bluesky/pv_naming.py` — the shared GEECS-name → PV naming contract
@@ -22,10 +22,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Notes
 
-- `CaTriggerable` baselines `acq_timestamp` at the start of the trigger coroutine
-  (correct for free-running acquisition, proven live). The strict single-shot
-  fire-right-after-trigger race that `GeecsTriggerable` closes with a synchronous
-  baseline is a known gap to validate before relying on the CA backend there.
+- `CaTriggerable` closes the strict single-shot race the same way
+  `GeecsTriggerable` does: a persistent monitor on `acq_timestamp` feeds a local
+  cache/queue, and `trigger()` drains stale updates and captures the baseline
+  **synchronously before returning** — so a shot fired immediately after
+  `bps.trigger` (trigger → fire → wait) cannot land in a blind window and be
+  missed. Pinned by a mock race test (shot fired with zero awaits after
+  `trigger()`).
 
 ## [0.15.0] - 2026-07-03
 

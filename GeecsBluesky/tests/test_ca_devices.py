@@ -99,14 +99,53 @@ async def test_trigger_completes_when_acq_timestamp_advances() -> None:
     )
     await dev.connect(mock=True)
     set_mock_value(dev.acq_timestamp, 100.0)
+    await asyncio.sleep(0)  # deliver the monitor update
 
     status = dev.trigger()
-    await asyncio.sleep(0.05)  # let it baseline + subscribe
+    await asyncio.sleep(0.05)
     assert not status.done
 
     set_mock_value(dev.acq_timestamp, 101.0)  # one shot
     await asyncio.wait_for(status, timeout=2.0)
     assert status.done
+
+
+async def test_trigger_immediate_shot_not_missed() -> None:
+    """The strict single-shot race: a shot fired IMMEDIATELY after trigger().
+
+    trigger() must baseline synchronously before returning, so a shot landing
+    before the returned coroutine first runs (zero awaits in between here) is
+    still detected rather than being folded into the baseline and timing out.
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 1.0
+    await dev.connect(mock=True)
+    set_mock_value(dev.acq_timestamp, 100.0)
+    await asyncio.sleep(0)  # deliver the monitor update (cache = 100.0)
+
+    status = dev.trigger()
+    set_mock_value(dev.acq_timestamp, 101.0)  # fire NOW — no await since trigger()
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
+async def test_trigger_ignores_stale_updates_before_trigger() -> None:
+    """Updates queued before trigger() are drained, not mistaken for a shot."""
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 0.3
+    await dev.connect(mock=True)
+    # Several pushes before the trigger — all stale by trigger() time.
+    for ts in (100.0, 101.0, 102.0):
+        set_mock_value(dev.acq_timestamp, ts)
+        await asyncio.sleep(0)
+
+    status = dev.trigger()  # baseline = 102.0; stale queue drained
+    with pytest.raises(GeecsTriggerTimeoutError):
+        await status
 
 
 async def test_trigger_times_out_when_no_shot() -> None:
@@ -117,5 +156,6 @@ async def test_trigger_times_out_when_no_shot() -> None:
     dev._trigger_timeout = 0.2
     await dev.connect(mock=True)
     set_mock_value(dev.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
     with pytest.raises(GeecsTriggerTimeoutError):
         await dev.trigger()
