@@ -43,6 +43,9 @@ class CaSettable(StandardReadable):
         Seconds to wait after the CA put resolves before completing the status.
     datatype : type
         Scalar CA datatype (default ``float``).
+    _readback_attr : str
+        Name for the readback signal attribute on the device instance.
+        Subclasses can override (e.g. ``"position"`` for motors).
     """
 
     def __init__(
@@ -54,20 +57,22 @@ class CaSettable(StandardReadable):
         name: str = "settable",
         settle_time: float = 0.0,
         datatype: type = float,
+        _readback_attr: str = "readback",
     ) -> None:
         readback_pv = pv_name(experiment, device, variable)
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
         self._setpoint = epics_signal_rw(datatype, f"{readback_pv}:SP")
         with self.add_children_as_readables():
-            self.readback = epics_signal_r(datatype, readback_pv)
+            setattr(self, _readback_attr, epics_signal_r(datatype, readback_pv))
         super().__init__(name=name)
+        self._readback_attr_name = _readback_attr
         self._geecs_device_name = device
         self._variable = variable
         self._settle_time = settle_time
         # Map the readback event key to its legacy "Device Variable" header for
         # the Tiled→s-file exporter (the scan-device column in a step scan).
-        self._column_headers = {f"{name}-readback": f"{device} {variable}"}
+        self._column_headers = {f"{name}-{_readback_attr}": f"{device} {variable}"}
 
     def set(self, value: float) -> AsyncStatus:
         """Put *value* to the setpoint PV; status resolves after ``settle_time``.

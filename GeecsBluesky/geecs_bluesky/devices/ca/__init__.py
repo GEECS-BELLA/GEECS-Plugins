@@ -11,8 +11,15 @@ Requires the ``ca`` extra (``aioca``): ``poetry install --extras ca``.
 """
 
 from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
+from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.readable import CaReadable
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.triggerable import CaTriggerable
 
-__all__ = ["CaGenericDetector", "CaReadable", "CaSettable", "CaTriggerable"]
+__all__ = [
+    "CaGenericDetector",
+    "CaMotor",
+    "CaReadable",
+    "CaSettable",
+    "CaTriggerable",
+]

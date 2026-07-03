@@ -32,6 +32,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   no shot control) run on both backends produced identical event counts
   (5 primary + 1 flush) and a verbatim-identical event key set, with matching
   shot_id/offset/valid behavior (Scan007 = CA, Scan008 = direct).
+- `CaMotor` — position-feedback motor over the gateway: the `…:SP` put rides
+  the blocking GEECS UDP set (native tolerance convergence) with the full
+  `move_timeout` as its CA budget, then a readback poll confirms the streamed
+  position arrived (belt-and-suspenders for devices whose set-timeout semantics
+  are ambiguous). Wired into `_run_standard_scan` for the `ca` backend.
+- **STANDARD-scan equivalence verified live**: jet 4→5 mm × 3 shots/step on
+  both backends → identical event counts (9 primary + 1 flush), verbatim-
+  identical key sets, motor readback in every event, and the same
+  shot-id-gap-across-moves semantics (Scan010 = CA, Scan011 = direct).
 
 ### Notes
 

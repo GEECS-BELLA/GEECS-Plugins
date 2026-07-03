@@ -18,11 +18,15 @@ from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import (  # noqa: E402
     CaGenericDetector,
+    CaMotor,
     CaReadable,
     CaSettable,
     CaTriggerable,
 )
-from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
+from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsMotorTimeoutError,
+    GeecsTriggerTimeoutError,
+)
 from geecs_bluesky.pv_naming import normalize_component, pv_name  # noqa: E402
 
 
@@ -90,6 +94,42 @@ async def test_settable_readback_is_the_reading() -> None:
     set_mock_value(dev.readback, 0.4997)
     reading = await dev.read()
     assert reading["cur-readback"]["value"] == pytest.approx(0.4997)
+
+
+# --------------------------------------------------------------------------
+# CaMotor
+# --------------------------------------------------------------------------
+
+
+async def test_motor_set_completes_on_arrival() -> None:
+    """set() puts the setpoint and resolves once the readback is in tolerance."""
+    motor = CaMotor(
+        "U_ESP_JetXYZ", "Position.Axis 1", experiment="Undulator", name="jet"
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 4.5)  # streamed readback already at target
+    await asyncio.wait_for(motor.set(4.5), timeout=2.0)
+    put = get_mock_put(motor._setpoint)
+    put.assert_called_once()
+    assert put.call_args.args[0] == 4.5
+    assert motor._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+    reading = await motor.read()
+    assert reading["jet-position"]["value"] == 4.5
+
+
+async def test_motor_set_times_out_when_stuck() -> None:
+    """Readback never converging raises GeecsMotorTimeoutError."""
+    motor = CaMotor(
+        "U_ESP_JetXYZ",
+        "Position.Axis 1",
+        experiment="Undulator",
+        name="jet",
+        move_timeout=0.3,
+    )
+    await motor.connect(mock=True)
+    set_mock_value(motor.position, 0.0)  # stuck far from target
+    with pytest.raises(GeecsMotorTimeoutError):
+        await motor.set(4.5)
 
 
 # --------------------------------------------------------------------------

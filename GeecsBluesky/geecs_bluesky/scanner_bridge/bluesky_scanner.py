@@ -1161,17 +1161,21 @@ class BlueskyScanner:
         device_name, variable = scan_config.device_var.split(":", 1)
         ophyd_name = safe_name(f"{device_name}_{variable}")
 
-        if self._device_backend == "ca":
-            logger.error(
-                "STANDARD scan on the 'ca' backend requires CaMotor "
-                "(not yet implemented); use NOSCAN or the direct backend"
-            )
-            return
-
         logger.info(
             "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name
         )
-        motor = GeecsMotor.from_db_axis(device_name, variable, name=ophyd_name)
+        if self._device_backend == "ca":
+            # Deferred import: needs the `ca` extra (aioca).
+            from geecs_bluesky.devices.ca import CaMotor
+
+            motor = CaMotor(
+                device_name,
+                variable,
+                experiment=self._experiment_dir,
+                name=ophyd_name,
+            )
+        else:
+            motor = GeecsMotor.from_db_axis(device_name, variable, name=ophyd_name)
 
         logger.info("Connecting motor …")
         self._connect_device(motor)
