@@ -998,40 +998,32 @@ class BlueskyScanner:
                 continue
             ophyd_name = safe_name(device_name)
 
-            if self._device_backend == "ca":
-                # CA backend: reference/triggered roles only, scalars only, for
-                # now. Fail loud (not skip) on unsupported requests so a scan
-                # never silently runs with degraded coverage.
-                if role in ("contributor", "snapshot"):
-                    raise NotImplementedError(
-                        f"CA backend has no {role!r} device yet ({device_name}); "
-                        "free-run multi-device roles are pending"
-                    )
-                if save_nonscalar:
-                    raise NotImplementedError(
-                        f"CA backend does not support save_nonscalar_data yet "
-                        f"({device_name}); the non-scalar slice is pending"
-                    )
-                # Deferred import: needs the `ca` extra (aioca).
-                from geecs_bluesky.devices.ca import CaGenericDetector
-
-                det = CaGenericDetector(
-                    device_name,
-                    variable_list,
-                    experiment=self._experiment_dir,
-                    name=ophyd_name,
-                    acq_timestamp_variable=timestamp_variable,
+            if self._device_backend == "ca" and role in ("contributor", "snapshot"):
+                # Fail loud (not skip): a scan must never silently run with
+                # degraded coverage. Free-run multi-device roles are pending.
+                raise NotImplementedError(
+                    f"CA backend has no {role!r} device yet ({device_name}); "
+                    "free-run multi-device roles are pending"
                 )
-                self._connect_device(det)
-                det.configure_shot_id(self._rep_rate_hz)
-                if role == "reference":
-                    self._reference_detector = det
-                with self._device_lock:
-                    self._detectors.append(det)
-                continue
 
             try:
-                if role == "contributor":
+                if self._device_backend == "ca":
+                    # Deferred import: needs the `ca` extra (aioca).
+                    from geecs_bluesky.devices.ca import CaGenericDetector
+
+                    det = CaGenericDetector(
+                        device_name,
+                        variable_list,
+                        experiment=self._experiment_dir,
+                        name=ophyd_name,
+                        save_nonscalar_data=save_nonscalar,
+                        acq_timestamp_variable=timestamp_variable,
+                    )
+                    self._connect_device(det)
+                    det.configure_shot_id(self._rep_rate_hz)
+                    if role == "reference":
+                        self._reference_detector = det
+                elif role == "contributor":
                     det = GeecsTimestampedReadable.from_db(
                         device_name,
                         variable_list,

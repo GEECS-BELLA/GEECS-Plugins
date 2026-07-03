@@ -107,6 +107,7 @@ class DeviceSpec(BaseModel):
         variables_metadata: list[dict],
         *,
         include: list[str] | None = None,
+        include_settable: bool = False,
         dtypes: dict[str, DType] | None = None,
         prefix: str | None = None,
         experiment: str | None = None,
@@ -128,6 +129,12 @@ class DeviceSpec(BaseModel):
             Rows with keys ``name``, ``units``, ``min``, ``max``, ``settable``.
         include : list of str, optional
             If given, only these variable names are exposed.  Otherwise all are.
+        include_settable : bool
+            Expose settable variables even when ``include`` would filter them
+            out.  The include list is the *monitoring* subset (``get='yes'``);
+            settable variables are the device's *control surface* (e.g. a
+            camera's ``save`` / ``localsavingpath``), which CA clients need for
+            writes regardless of what is monitored per shot.
         dtypes : dict, optional
             Per-variable dtype overrides.  Variables default to ``"float"`` —
             the GEECS DB carries no scalar type, so non-float variables (enums,
@@ -145,7 +152,8 @@ class DeviceSpec(BaseModel):
         for meta in variables_metadata:
             var_name = meta["name"]
             if include is not None and var_name not in include:
-                continue
+                if not (include_settable and bool(meta.get("settable", False))):
+                    continue
             if var_name in seen:  # DB can list a variable more than once
                 continue
             seen.add(var_name)
@@ -230,6 +238,7 @@ class DeviceSpec(BaseModel):
         name: str,
         *,
         include: list[str] | None = None,
+        include_settable: bool = False,
         dtypes: dict[str, DType] | None = None,
         prefix: str | None = None,
         experiment: str | None = None,
@@ -245,7 +254,7 @@ class DeviceSpec(BaseModel):
         ----------
         name : str
             GEECS device name exactly as it appears in the database.
-        include, dtypes, prefix
+        include, include_settable, dtypes, prefix
             Forwarded to :meth:`from_db_metadata`.
 
         Returns
@@ -262,6 +271,7 @@ class DeviceSpec(BaseModel):
             port,
             metadata,
             include=include,
+            include_settable=include_settable,
             dtypes=dtypes,
             prefix=prefix,
             experiment=experiment,
@@ -280,6 +290,7 @@ class GatewayConfig(BaseModel):
         *,
         subscribed_only: bool = True,
         enabled_only: bool = True,
+        include_settable: bool = True,
     ) -> "GatewayConfig":
         """Build a config for a whole experiment from the GEECS database.
 
@@ -294,6 +305,13 @@ class GatewayConfig(BaseModel):
         ``expt_device_variable`` — a far smaller, sensible set than every
         device-type variable.  Set it false to expose every variable.
 
+        ``include_settable`` (default true) additionally exposes each device's
+        settable variables even in subscribed mode: the get-list is the
+        *monitoring* subset, but settable variables are the device's *control
+        surface* (camera ``save`` / ``localsavingpath``, magnet setpoints, …)
+        and CA clients need their ``:SP`` PVs for writes regardless of what is
+        monitored per shot.
+
         This is the live-from-DB path (the DB is the source of truth); further
         curation belongs in a separate overlay applied on top, not here.
 
@@ -305,6 +323,9 @@ class GatewayConfig(BaseModel):
             Limit each device to its ``get='yes'`` variables (default true).
         enabled_only : bool
             Skip devices not enabled in the experiment (default true).
+        include_settable : bool
+            Also expose settable (control) variables in subscribed mode
+            (default true).
 
         Returns
         -------
@@ -326,7 +347,10 @@ class GatewayConfig(BaseModel):
             try:
                 devices.append(
                     DeviceSpec.from_geecs_db(
-                        name, experiment=experiment, include=include
+                        name,
+                        experiment=experiment,
+                        include=include,
+                        include_settable=include_settable and include is not None,
                     )
                 )
             except Exception:

@@ -53,6 +53,15 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Expose every device variable, not just the get='yes' monitoring set.",
     )
     parser.add_argument(
+        "--no-settable",
+        action="store_true",
+        help=(
+            "Do not add settable (control) variables to the subscribed set. "
+            "By default the control surface (e.g. camera save/localsavingpath) "
+            "is exposed even when not in the get='yes' monitoring subset."
+        ),
+    )
+    parser.add_argument(
         "--include-disabled",
         action="store_true",
         help="Include devices not enabled in the experiment.",
@@ -70,9 +79,18 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-async def _run(experiment: str, *, subscribed_only: bool, enabled_only: bool) -> None:
+async def _run(
+    experiment: str,
+    *,
+    subscribed_only: bool,
+    enabled_only: bool,
+    include_settable: bool,
+) -> None:
     config = GatewayConfig.from_geecs_experiment(
-        experiment, subscribed_only=subscribed_only, enabled_only=enabled_only
+        experiment,
+        subscribed_only=subscribed_only,
+        enabled_only=enabled_only,
+        include_settable=include_settable,
     )
     gateway = GeecsCaGateway(config)
     logger.info(
@@ -101,6 +119,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.experiment,
                 subscribed_only=not args.all_variables,
                 enabled_only=not args.include_disabled,
+                include_settable=not args.no_settable,
             )
         )
     except KeyboardInterrupt:

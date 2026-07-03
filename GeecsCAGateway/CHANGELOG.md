@@ -3,6 +3,18 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.2.0] - 2026-07-03
+
+### Added
+
+- **Settable variables are exposed in subscribed mode** (`include_settable`,
+  default on; CLI `--no-settable` to opt out). The get-list is the *monitoring*
+  subset, but settable variables are the device's *control surface* — a camera's
+  `save` / `localsavingpath`, a magnet's setpoint — and CA clients need their
+  readback + `:SP` PVs for writes regardless of what is monitored per shot.
+  Without this, control-side consumers (the CA-backed Bluesky devices, Phoebus
+  set panels) could only drive variables that happened to be in the get-list.
+
 ## [0.1.1] - 2026-07-03
 
 ### Changed

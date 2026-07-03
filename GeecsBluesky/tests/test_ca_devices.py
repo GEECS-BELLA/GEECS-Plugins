@@ -278,6 +278,52 @@ async def test_generic_detector_without_shot_ids_is_plain() -> None:
     assert "amp-shot_id" not in reading
 
 
+async def test_generic_detector_save_controls_over_ca() -> None:
+    """save_nonscalar_data=True creates CA save controls + the save-path column.
+
+    The controls read the gateway readback PV and write its :SP setpoint, so
+    the shared run wrapper can bps.mv(det.localsavingpath, path, det.save, "on")
+    exactly as with the direct backend.
+    """
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp",
+        save_nonscalar_data=True,
+    )
+    await det.connect(mock=True)
+
+    assert det.localsavingpath.source.endswith(
+        "Undulator:UC_Amp2_IR_input:localsavingpath"
+    )
+    assert det.save.source.endswith("Undulator:UC_Amp2_IR_input:save")
+    await det.save.set("on")
+    put = get_mock_put(det.save)
+    put.assert_called_once()
+    assert put.call_args.args[0] == "on"
+
+    det.configure_nonscalar_file_logging("/data/scans/Scan012/UC_Amp2_IR_input")
+    desc = await det.describe()
+    assert "amp-nonscalar_save_path" in desc
+    reading = await det.read()
+    assert (
+        reading["amp-nonscalar_save_path"]["value"]
+        == "/data/scans/Scan012/UC_Amp2_IR_input"
+    )
+
+
+async def test_generic_detector_no_save_controls_by_default() -> None:
+    """Without save_nonscalar_data there are no save controls or save column."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    assert not hasattr(det, "localsavingpath")
+    desc = await det.describe()
+    assert "amp-nonscalar_save_path" not in desc
+
+
 async def test_generic_detector_dedups_timestamp_variable() -> None:
     """acq_timestamp in variable_list maps onto the dedicated child, not a dup."""
     det = CaGenericDetector(

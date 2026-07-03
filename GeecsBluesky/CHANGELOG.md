@@ -41,6 +41,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   both backends → identical event counts (9 primary + 1 flush), verbatim-
   identical key sets, motor readback in every event, and the same
   shot-id-gap-across-moves semantics (Scan010 = CA, Scan011 = direct).
+- **Native file saving on the CA backend**: `CaGenericDetector` now composes
+  the shared `NonScalarSaveSupport` mixin (same save-path column and
+  Resource/Datum asset documents as the direct detector); only the
+  `localsavingpath` / `save` controls differ — CA signals that read the gateway
+  readback and write its `:SP` setpoint. The scanner's post-construction saving
+  block (save paths, asset definitions, `_saving_detectors`) is now shared
+  verbatim between backends. Requires gateway ≥ 0.2.0 (`include_settable`) so
+  the control-surface PVs exist.
 
 ### Notes
 

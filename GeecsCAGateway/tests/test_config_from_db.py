@@ -42,6 +42,23 @@ def test_include_filters_variables() -> None:
     assert {v.geecs_var for v in spec.variables} == {"Current", "Voltage"}
 
 
+def test_include_settable_exposes_control_surface() -> None:
+    """Settable variables survive the include filter with include_settable.
+
+    The include list is the monitoring subset (get='yes'); settable variables
+    are the control surface (camera save/localsavingpath, magnet setpoints)
+    and CA clients need their :SP PVs regardless of the get-list.
+    """
+    # Voltage-only get-list; Current is settable but not monitored.
+    spec = DeviceSpec.from_db_metadata(
+        "U_S1H", "h", 1, U_S1H_META, include=["Voltage"], include_settable=True
+    )
+    assert {v.geecs_var for v in spec.variables} == {"Voltage", "Current"}
+    # Without the flag, the include list is strict (existing behavior).
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META, include=["Voltage"])
+    assert {v.geecs_var for v in spec.variables} == {"Voltage"}
+
+
 def test_dtypes_override() -> None:
     """Per-variable dtype overrides win over the float default."""
     spec = DeviceSpec.from_db_metadata(
