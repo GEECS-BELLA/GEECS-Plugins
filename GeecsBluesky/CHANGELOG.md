@@ -4,6 +4,33 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.15.0] - 2026-07-03
+
+### Added
+
+- Optional `ca` extra (`aioca`) for the forthcoming CA-backed device family
+  (`geecs_bluesky/devices/ca/`), which consumes the GeecsCAGateway PVs like any
+  EPICS IOC. `aioca` bundles libca via `epicscorelibs`, so no system EPICS base
+  is required. The direct UDP/TCP backend does not need it.
+
+### Changed
+
+- Bumped the `ophyd-async` floor from `>=0.16` to `>=0.19.3` to track the current
+  API (`init_devices`, `ophyd_async.epics.core`, `observe_value`) and stay
+  consistent with the GeecsCAGateway environment. The existing device/backend
+  code required no changes; the full hermetic suite passes on 0.19.3.
+- `pytest` now defaults to the hermetic FakeGeecsServer unit tests under `tests/`
+  only (`testpaths`), with hardware/integration markers deselected, so a fresh
+  checkout is green with no lab network or live-device access. The top-level
+  hardware scripts (`test_bluesky_scanner.py`, `test_hardware.py`) are run
+  explicitly.
+- The hardware integration test now loads its shot-control config from the
+  configs repo (the production path) via a `GEECS_BLUESKY_LASER=on|off` toggle
+  (default `off` → internal single-shot `HTU-LaserOFF`; `on` → external-timing
+  `HTU-Normal`), validated against `ShotControlConfig`. This replaces a hardcoded
+  inline config that had drifted (it was missing the `Amplitude.Ch AB` gating)
+  and prevents laser-off runs from stranding the DG645 in an external mode.
+
 ## [0.14.0] - 2026-06-30
 
 ### Added

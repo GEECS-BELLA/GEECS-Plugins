@@ -5,6 +5,12 @@ the GUI. Requires lab network access (GEECS DB + one camera + U_ESP_JetXYZ +
 U_DG645_ShotControl). The camera defaults to UC_TopView and can be overridden
 with ``GEECS_BLUESKY_TEST_CAMERA``.
 
+Shot control follows the laser state: ``GEECS_BLUESKY_LASER=on`` uses the
+external-timing config (``HTU-Normal``), ``off`` (the default) uses internal
+single-shot (``HTU-LaserOFF``) so the test triggers without an external structure
+and never strands the DG645. The config is loaded from the configs repo (the
+production path); set it to match the actual laser state before running.
+
 Scenarios
 ---------
 1. NOSCAN  — fixed-position collection from the camera (acq_timestamp only)
@@ -29,6 +35,7 @@ Run from GeecsBluesky/:
 from __future__ import annotations
 
 import asyncio
+import configparser
 import importlib.util
 import logging
 import os
@@ -37,8 +44,10 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from geecs_bluesky.db.geecs_db import GeecsDb
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_bridge import BlueskyScanner
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
@@ -54,24 +63,79 @@ DETECTOR_DEVICES = {
     },
 }
 
-SHOT_CONTROL_INFO = {
-    "device": "U_DG645_ShotControl",
-    "variables": {
-        "Trigger.ExecuteSingleShot": {
-            "OFF": "",
-            "SCAN": "",
-            "ARMED": "",
-            "SINGLESHOT": "on",
-            "STANDBY": "",
-        },
-        "Trigger.Source": {
-            "OFF": "Single shot external rising edges",
-            "SCAN": "External rising edges",
-            "ARMED": "Single shot external rising edges",
-            "STANDBY": "External rising edges",
-        },
-    },
-}
+EXPERIMENT = "Undulator"
+SHOT_CONTROL_FOLDER = "shot_control_configurations"
+
+# Laser on/off selects which shot-control config the scanner drives. With the
+# laser on we use external timing (HTU-Normal); with it off we use internal
+# single-shot (HTU-LaserOFF) so the test keeps triggering without an external
+# structure and never strands the DG645 in an external mode. Default OFF — the
+# fail-safe when GEECS_BLUESKY_LASER is unset.
+_SHOT_CONTROL_CONFIGS = {"on": "HTU-Normal.yaml", "off": "HTU-LaserOFF.yaml"}
+
+
+def _scanner_configs_base() -> Path:
+    """Resolve the scanner-configs ``experiments`` base the production way.
+
+    Mirrors GEECS-Scanner-GUI's ``ApplicationPaths`` resolution without importing
+    it (GeecsBluesky does not depend on geecs_scanner): the
+    ``GEECS_SCANNER_CONFIG_DIR`` env var (used as the experiments root directly),
+    else config.ini ``[Paths] scanner_config_root_path`` +
+    ``scanner_configs/experiments``.
+    """
+    env = os.environ.get("GEECS_SCANNER_CONFIG_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    config_ini = Path("~/.config/geecs_python_api/config.ini").expanduser()
+    if config_ini.exists():
+        parser = configparser.ConfigParser()
+        parser.read(config_ini)
+        root = parser.get("Paths", "scanner_config_root_path", fallback=None)
+        if root:
+            return Path(root).expanduser().resolve() / "scanner_configs" / "experiments"
+    raise RuntimeError(
+        "Cannot resolve the scanner configs base. Set GEECS_SCANNER_CONFIG_DIR, or "
+        "config.ini [Paths] scanner_config_root_path pointing at GEECS-Plugins-Configs."
+    )
+
+
+def _load_shot_control_info() -> dict:
+    """Load the shot-control config from the configs repo (the production path).
+
+    ``GEECS_BLUESKY_LASER=on|off`` (default ``off``) selects laser-on external
+    timing (``HTU-Normal``) vs laser-off internal single-shot (``HTU-LaserOFF``).
+    The loaded YAML is validated against :class:`ShotControlConfig`, so a config
+    that has drifted from what the code expects — unparseable, or missing the
+    ``ARMED`` state strict single-shot needs — fails loudly here rather than
+    mid-scan against live hardware.
+    """
+    laser = os.environ.get("GEECS_BLUESKY_LASER", "off").strip().lower()
+    if laser not in _SHOT_CONTROL_CONFIGS:
+        raise RuntimeError(f"GEECS_BLUESKY_LASER={laser!r} invalid; use 'on' or 'off'.")
+    path = (
+        _scanner_configs_base()
+        / EXPERIMENT
+        / SHOT_CONTROL_FOLDER
+        / _SHOT_CONTROL_CONFIGS[laser]
+    )
+    if not path.exists():
+        raise RuntimeError(f"Shot-control config not found: {path}")
+    with open(path) as handle:
+        info = yaml.safe_load(handle)
+
+    # Drift-catch: the repo YAML must still satisfy the code's expectations.
+    config = ShotControlConfig.from_information(info)
+    if config is None:
+        raise RuntimeError(f"{path} is empty / not a valid shot-control config.")
+    if not config.defines_state("ARMED"):
+        raise RuntimeError(
+            f"{path} defines no ARMED state; strict single-shot requires one."
+        )
+    logging.getLogger(__name__).info("shot control: laser=%s -> %s", laser, path.name)
+    return info
+
+
+SHOT_CONTROL_INFO = _load_shot_control_info()
 
 SHOTS_PER_STEP = 3
 REP_RATE_HZ = 1.0
