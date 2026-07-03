@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from caproto import (
+    ChannelChar,
     ChannelData,
     ChannelDouble,
     ChannelEnum,
@@ -37,6 +38,35 @@ _SCALAR_BASE: dict[str, type[ChannelData]] = {
     "string": ChannelString,
 }
 
+# Capacity of `path` (long-string / char-array) channels. EPICS DBR_STRING caps
+# at 40 chars, so paths are served as char arrays per the standard EPICS
+# long-string convention; 512 comfortably covers GEECS save paths.
+_PATH_MAX_LENGTH = 512
+
+
+def _to_text(value: Any) -> str:
+    """Coerce a CA char-array put / GEECS value to ``str``.
+
+    Char-array values arrive as ``bytes`` or as sequences of integer character
+    codes (numpy arrays / lists); NUL padding is stripped.
+    """
+    value = _unwrap_char_array(value)
+    if isinstance(value, bytes):
+        return value.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+    return str(value)
+
+
+def _unwrap_char_array(value: Any) -> Any:
+    """Collapse a sequence of character codes to ``bytes`` (leave text alone)."""
+    if isinstance(value, (str, bytes)):
+        return value
+    if hasattr(value, "__len__"):
+        try:
+            return bytes(bytearray(int(v) for v in value))
+        except (TypeError, ValueError):
+            return value
+    return value
+
 
 def _unwrap(value: Any) -> Any:
     """CA delivers put values as length-1 arrays/lists; return the scalar."""
@@ -48,20 +78,23 @@ def _unwrap(value: Any) -> Any:
 def cast_value(dtype: DType, value: Any) -> Any:
     """Coerce a raw scalar GEECS value to the Python type for ``dtype``.
 
-    For ``float``/``int``/``string`` only; enum values go through
+    For ``float``/``int``/``string``/``path`` only; enum values go through
     :func:`enum_index` / :func:`enum_geecs_value`.
 
     Parameters
     ----------
-    dtype : {"float", "int", "string"}
+    dtype : {"float", "int", "string", "path"}
         Target scalar data type.
     value : Any
-        Raw value from the GEECS stream or a CA put (arrays are unwrapped).
+        Raw value from the GEECS stream or a CA put (arrays are unwrapped;
+        ``path`` additionally decodes char-array puts to text).
 
     Returns
     -------
     Any
     """
+    if dtype == "path":
+        return _to_text(value)
     value = _unwrap(value)
     if dtype == "float":
         return float(value)
@@ -117,6 +150,15 @@ def _initial(dtype: DType) -> Any:
     return ""
 
 
+def _make_path_channel(value: str = "") -> ChannelChar:
+    """Build a long-string (char-array) channel for path variables."""
+    return ChannelChar(
+        value=value,
+        string_encoding="utf-8",
+        max_length=_PATH_MAX_LENGTH,
+    )
+
+
 def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
     """Caproto kwargs (value + EGU/precision/limits) for a scalar channel."""
     kwargs: dict[str, Any] = {"value": _initial(spec.dtype)}
@@ -139,6 +181,8 @@ def make_readback_channel(spec: VariableSpec) -> ChannelData:
     """Build a read-only channel populated by the subscription stream."""
     if spec.dtype == "enum":
         return ChannelEnum(value=0, enum_strings=list(spec.choices))
+    if spec.dtype == "path":
+        return _make_path_channel()
     return _SCALAR_BASE[spec.dtype](**_metadata_kwargs(spec))
 
 
@@ -165,6 +209,23 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
                 return await super().write(value, **kwargs)
 
         return _GeecsEnumSetpoint(value=0, enum_strings=choices)
+
+    if spec.dtype == "path":
+
+        class _GeecsPathSetpoint(ChannelChar):
+            """Char-array channel whose CA puts forward the text to GEECS."""
+
+            async def write(self, value: Any, **kwargs: Any) -> Any:
+                """Forward the put (decoded to text), then store it."""
+                text = _to_text(value)
+                await setter(text)
+                return await super().write(text, **kwargs)
+
+        return _GeecsPathSetpoint(
+            value="",
+            string_encoding="utf-8",
+            max_length=_PATH_MAX_LENGTH,
+        )
 
     base = _SCALAR_BASE[spec.dtype]
     dtype = spec.dtype

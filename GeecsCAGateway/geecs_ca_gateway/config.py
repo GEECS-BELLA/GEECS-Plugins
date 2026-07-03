@@ -17,14 +17,18 @@ from .naming import normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
-DType = Literal["float", "int", "string", "enum"]
+DType = Literal["float", "int", "string", "path", "enum"]
 
 # GEECS `variabletype` → gateway dtype. Types absent here (image, 1darray) are
 # not scalar CA data and are skipped when building specs from the DB.
+# `path` is distinct from `string`: EPICS DBR_STRING caps at 40 characters, so
+# path variables (file/save paths routinely exceed that) are served as
+# char-array PVs — the standard EPICS long-string convention (areaDetector
+# FilePath does the same). A plain `string` stays a native 40-char string PV.
 _VARTYPE_TO_DTYPE: dict[str, DType] = {
     "numeric": "float",
     "string": "string",
-    "path": "string",
+    "path": "path",
     "choice": "enum",
 }
 _SKIP_VARTYPES = {"image", "1darray"}

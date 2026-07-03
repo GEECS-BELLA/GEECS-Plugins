@@ -3,6 +3,20 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.3.0] - 2026-07-03
+
+### Changed
+
+- **Path variables are served as long-string (char-array) PVs.** EPICS
+  `DBR_STRING` caps at 40 characters; GEECS save paths routinely exceed that,
+  so path-typed variables (DB descriptor `path`) were silently truncating their
+  readbacks at 40 chars and rejecting >40-char setpoint puts outright
+  (`CAException 186` — found live when the CA-backed scanner tried to configure
+  camera image saving). They now use `ChannelChar` (capacity 512) per the
+  standard EPICS long-string convention (areaDetector `FilePath` does the
+  same); ophyd-async reads/writes them as `str` natively. Plain `string`
+  variables keep the native 40-char string PV for display friendliness.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added

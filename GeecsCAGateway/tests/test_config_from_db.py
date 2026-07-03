@@ -178,7 +178,7 @@ def test_from_db_metadata_maps_variable_types() -> None:
     assert by["Enable_Output"].dtype == "enum"
     assert by["Enable_Output"].choices == ["on", "off"]
     assert by["IPAddress"].dtype == "string"
-    assert by["SaveDir"].dtype == "string"  # path -> string
+    assert by["SaveDir"].dtype == "path"  # long-string char-array PV
 
 
 def test_choice_pointing_at_type_descriptor_is_skipped() -> None:
@@ -228,7 +228,7 @@ def test_blank_variabletype_inferred_from_choices() -> None:
     assert by["DigitalOutput.Channel 3"].dtype == "enum"  # not float!
     assert by["DigitalOutput.Channel 3"].choices == ["on", "off"]
     assert by["Reading"].dtype == "float"  # 'numeric' descriptor
-    assert by["Where"].dtype == "string"  # 'path' descriptor
+    assert by["Where"].dtype == "path"  # 'path' descriptor -> long string
 
 
 def test_choice_without_options_falls_back_to_string() -> None:
