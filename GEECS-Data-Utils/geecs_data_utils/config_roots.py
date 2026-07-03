@@ -2,8 +2,9 @@
 Shared config directory managers for GEECS plugins.
 
 Exposes pre-configured `ConfigDirManager` instances for:
-- ImageAnalysis configs (env: IMAGE_ANALYSIS_CONFIG_DIR; fallback: config.ini Paths.config_root/image_analysis/cameras)
-- ScanAnalysis configs (env: SCAN_ANALYSIS_CONFIG_DIR)
+- Scan/ImageAnalysis configs (env: SCAN_ANALYSIS_CONFIG_DIR; fallback: config.ini Paths.scan_analysis_configs_path)
+- `image_analysis_config`, a legacy compatibility manager that resolves from the
+  same unified Scan/ImageAnalysis config root.
 """
 
 from __future__ import annotations
@@ -17,8 +18,8 @@ from .config_base import ConfigDirManager
 logger = logging.getLogger(__name__)
 
 
-def _resolve_image_from_ini() -> Path | None:
-    """Resolve image analysis config dir from ~/.config/geecs_python_api/config.ini."""
+def _resolve_scan_from_ini() -> Path | None:
+    """Resolve unified Scan/ImageAnalysis config dir from user config."""
     config_path = Path("~/.config/geecs_python_api/config.ini").expanduser()
     if not config_path.exists():
         return None
@@ -26,33 +27,32 @@ def _resolve_image_from_ini() -> Path | None:
     try:
         config = configparser.ConfigParser()
         config.read(config_path)
-        if config_root := config.get("Paths", "config_root", fallback=None):
-            if config_root:
-                image_dir = (
-                    Path(config_root).expanduser().resolve()
-                    / "image_analysis"
-                    / "cameras"
-                )
-                if image_dir.exists():
-                    return image_dir
+        if scan_path := config.get(
+            "Paths", "scan_analysis_configs_path", fallback=None
+        ):
+            scan_dir = Path(scan_path).expanduser().resolve()
+            if scan_dir.exists():
+                return scan_dir
     except Exception as exc:  # pragma: no cover - log only
         logger.warning("Error reading config from %s: %s", config_path, exc)
 
     return None
 
 
-image_analysis_config = ConfigDirManager(
-    env_var="IMAGE_ANALYSIS_CONFIG_DIR",
-    logger=logger,
-    name="Image analysis config",
-    fallback_resolver=_resolve_image_from_ini,
-    fallback_name="config.ini Paths.config_root",
-)
-
 scan_analysis_config = ConfigDirManager(
     env_var="SCAN_ANALYSIS_CONFIG_DIR",
     logger=logger,
-    name="Scan analysis config",
+    name="Unified analysis config",
+    fallback_resolver=_resolve_scan_from_ini,
+    fallback_name="config.ini Paths.scan_analysis_configs_path",
+)
+
+image_analysis_config = ConfigDirManager(
+    env_var="SCAN_ANALYSIS_CONFIG_DIR",
+    logger=logger,
+    name="Legacy ImageAnalysis config alias",
+    fallback_resolver=_resolve_scan_from_ini,
+    fallback_name="config.ini Paths.scan_analysis_configs_path",
 )
 
 for manager in (image_analysis_config, scan_analysis_config):

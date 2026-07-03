@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from geecs_bluesky.assets.specs import (
     FROG_DEVICE_TYPE,
@@ -22,6 +24,46 @@ from geecs_bluesky.assets.specs import (
 from geecs_bluesky.utils import safe_name
 
 FilePathBuilder = Callable[[str | Path, int, str, float], Path]
+
+
+class AssetPayloadKind(str, Enum):
+    """Coarse payload shape expected from a native external asset."""
+
+    ARRAY_1D = "array_1d"
+    ARRAY_2D = "array_2d"
+    FILE = "file"
+
+
+class AssetLoaderKind(str, Enum):
+    """Provenance-aware loader for a native external asset."""
+
+    READ_IMAQ_IMAGE = "read_imaq_image"
+    TEXT_TABLE = "text_table"
+    TDMS_SCOPE = "tdms_scope"
+    SDK_FILE = "sdk_file"
+    FILE = "file"
+
+
+AssetLoaderName = AssetLoaderKind
+
+
+@dataclass(frozen=True)
+class AssetLoaderSpec:
+    """How to materialize a registered native asset.
+
+    The loader name carries device/event provenance such as ``tdms_scope`` so
+    analysis code does not have to rediscover the file interpretation from the
+    extension alone. ``default_config`` is the registry-provided baseline; an
+    analyzer may still override column/channel selection with its own config.
+    """
+
+    name: AssetLoaderName
+    payload_kind: AssetPayloadKind
+    handler_class: str | None = None
+    default_config: dict[str, Any] = field(default_factory=dict)
+    requires_config: bool = False
+    requires_sdk: tuple[str, ...] = ()
+    requires_platform: tuple[str, ...] = ()
 
 
 def _normalize_path_string(path: str | Path) -> str:
@@ -89,9 +131,10 @@ def _native_file_path_builder(
         directory = Path(save_path)
         if directory_suffix:
             directory = directory.parent / f"{device_name}{directory_suffix}"
+        file_device_name = f"{device_name}{directory_suffix}"
         return directory / native_file_filename(
             scan_number=scan_number,
-            device_name=device_name,
+            device_name=file_device_name,
             acq_timestamp=acq_timestamp,
             extension=extension,
         )
@@ -101,16 +144,64 @@ def _native_file_path_builder(
 
 @dataclass(frozen=True)
 class AssetDefinition:
-    """External-asset behavior for one GEECS device type."""
+    """External-asset contract for one GEECS device type and event field.
+
+    Each definition links a native GEECS file convention to the Bluesky/Tiled
+    external-asset metadata needed for portable readback. Handler-backed assets
+    can be filled directly from Resource/Datum/Event documents. Provenance-aware
+    file loaders such as ``tdms_scope`` keep file interpretation attached to the
+    device/event definition, while analyzer configs may still override channel
+    or column selection.
+    """
 
     device_type: str
     spec: str
     event_field: str
     extensions: tuple[str, ...]
     path_builder: FilePathBuilder
-    handler_class: str | None = None
+    loader: AssetLoaderSpec
     directory_suffix: str = ""
     companion_extensions: tuple[str, ...] = ()
+
+    @property
+    def payload_kind(self) -> AssetPayloadKind:
+        """Return the payload shape produced by this asset's loader."""
+        return self.loader.payload_kind
+
+    @property
+    def loader_kind(self) -> AssetLoaderName:
+        """Return the provenance-aware loader name."""
+        return self.loader.name
+
+    @property
+    def handler_class(self) -> str | None:
+        """Return the local event-model handler class name, when available."""
+        return self.loader.handler_class
+
+    @property
+    def loader_config_defaults(self) -> dict[str, Any]:
+        """Return registry-provided loader config defaults."""
+        return dict(self.loader.default_config)
+
+    @property
+    def requires_loader_config(self) -> bool:
+        """Return whether the loader cannot run from registry defaults alone."""
+        return self.loader.requires_config
+
+    @property
+    def requires_sdk(self) -> tuple[str, ...]:
+        """Return external SDK requirements for this loader."""
+        return self.loader.requires_sdk
+
+    @property
+    def requires_platform(self) -> tuple[str, ...]:
+        """Return platform requirements for this loader."""
+        return self.loader.requires_platform
+
+    @property
+    def uses_data_1d_reader(self) -> bool:
+        """Return whether the shared 1D data reader materializes this asset."""
+        return self.loader.name is AssetLoaderName.TDMS_SCOPE
 
     def event_key(self, device_name: str) -> str:
         """Return the Bluesky event data key for this asset."""
@@ -167,7 +258,11 @@ POINTGREY_CAMERA_ASSET = AssetDefinition(
     event_field="image",
     extensions=(".png",),
     path_builder=_camera_image_path,
-    handler_class="GeecsCameraImageHandler",
+    loader=AssetLoaderSpec(
+        name=AssetLoaderName.READ_IMAQ_IMAGE,
+        payload_kind=AssetPayloadKind.ARRAY_2D,
+        handler_class="GeecsCameraImageHandler",
+    ),
 )
 
 TDMS_DEVICE_TYPES = (
@@ -193,7 +288,11 @@ def _camera_asset(
             extension=".png",
             directory_suffix=directory_suffix,
         ),
-        handler_class="GeecsCameraImageHandler",
+        loader=AssetLoaderSpec(
+            name=AssetLoaderName.READ_IMAQ_IMAGE,
+            payload_kind=AssetPayloadKind.ARRAY_2D,
+            handler_class="GeecsCameraImageHandler",
+        ),
         directory_suffix=directory_suffix,
     )
 
@@ -213,6 +312,12 @@ def _text_array_asset(
             extension=".txt",
             directory_suffix=directory_suffix,
         ),
+        loader=AssetLoaderSpec(
+            name=AssetLoaderName.TEXT_TABLE,
+            payload_kind=AssetPayloadKind.ARRAY_1D,
+            handler_class="GeecsTextArrayHandler",
+            default_config={"data_type": "tsv"},
+        ),
         directory_suffix=directory_suffix,
     )
 
@@ -224,6 +329,11 @@ def _tdms_asset(device_type: str) -> AssetDefinition:
         event_field="tdms",
         extensions=(".tdms",),
         path_builder=_native_file_path_builder(extension=".tdms"),
+        loader=AssetLoaderSpec(
+            name=AssetLoaderName.TDMS_SCOPE,
+            payload_kind=AssetPayloadKind.ARRAY_1D,
+            default_config={"data_type": "tdms_scope"},
+        ),
         companion_extensions=(".tdms_index",),
     )
 

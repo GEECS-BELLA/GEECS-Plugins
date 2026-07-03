@@ -1,8 +1,16 @@
 """External asset helpers for native GEECS files."""
 
-from geecs_bluesky.assets.handlers import GeecsCameraImageHandler
+from geecs_bluesky.assets.handlers import (
+    GeecsCameraImageHandler,
+    GeecsPathBackedHandler,
+    GeecsTextArrayHandler,
+)
 from geecs_bluesky.assets.registry import (
     AssetDefinition,
+    AssetLoaderKind,
+    AssetLoaderName,
+    AssetLoaderSpec,
+    AssetPayloadKind,
     camera_image_filename,
     get_asset_definitions,
     get_single_asset_definition,
@@ -10,6 +18,9 @@ from geecs_bluesky.assets.registry import (
     supports_device_type,
 )
 from geecs_bluesky.assets.readback import (
+    EXTERNAL_ASSET_DOCUMENT_SCHEMA,
+    ExternalAssetDocumentSpec,
+    build_external_asset_documents,
     build_camera_shot_documents,
     fill_geecs_documents,
     geecs_asset_handler_registry,
@@ -31,24 +42,39 @@ from geecs_bluesky.assets.specs import (
 )
 from geecs_bluesky.assets.tiled_readback import (
     FilledTiledCameraAsset,
+    FilledTiledGeecsAsset,
     TiledCameraAsset,
+    TiledGeecsAsset,
     event_by_scan_event_index,
     find_geecs_run,
+    load_asset_from_tiled,
+    load_asset_from_tiled_run,
     load_camera_image_from_tiled,
     load_camera_image_from_tiled_run,
     load_tiled_client,
+    load_tiled_asset_data,
     read_tiled_config,
+    resolve_asset_from_event,
     resolve_camera_asset_from_event,
 )
 
 __all__ = [
     "AssetDefinition",
+    "AssetLoaderKind",
+    "AssetLoaderName",
+    "AssetLoaderSpec",
+    "AssetPayloadKind",
+    "EXTERNAL_ASSET_DOCUMENT_SCHEMA",
+    "ExternalAssetDocumentSpec",
     "FROG_DEVICE_TYPE",
     "FilledTiledCameraAsset",
+    "FilledTiledGeecsAsset",
     "GEECS_CAMERA_IMAGE",
     "GEECS_TDMS_FILE",
     "GEECS_TEXT_ARRAY",
     "GeecsCameraImageHandler",
+    "GeecsPathBackedHandler",
+    "GeecsTextArrayHandler",
     "MAGSPEC_CAMERA_DEVICE_TYPE",
     "MAGSPEC_STITCHER_DEVICE_TYPE",
     "PICOSCOPE_V2_DEVICE_TYPE",
@@ -57,7 +83,9 @@ __all__ = [
     "THORLABS_CCS175_SPECTROMETER_DEVICE_TYPE",
     "THORLABS_WFS_DEVICE_TYPE",
     "TiledCameraAsset",
+    "TiledGeecsAsset",
     "camera_image_filename",
+    "build_external_asset_documents",
     "build_camera_shot_documents",
     "event_by_scan_event_index",
     "fill_geecs_documents",
@@ -65,13 +93,17 @@ __all__ = [
     "geecs_asset_handler_registry",
     "get_asset_definitions",
     "get_single_asset_definition",
+    "load_asset_from_tiled",
+    "load_asset_from_tiled_run",
     "load_camera_image_from_tiled",
     "load_camera_image_from_tiled_run",
     "load_tiled_client",
+    "load_tiled_asset_data",
     "make_geecs_filler",
     "native_file_filename",
     "read_tiled_config",
     "register_geecs_handlers",
+    "resolve_asset_from_event",
     "resolve_camera_asset_from_event",
     "supports_device_type",
 ]

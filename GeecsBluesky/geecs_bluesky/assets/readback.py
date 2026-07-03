@@ -3,19 +3,147 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 import time
-from typing import Protocol, TypeAlias
+from typing import Any, Protocol, TypeAlias
 from uuid import uuid4
 
 from event_model import Filler
 
-from geecs_bluesky.assets.handlers import GeecsCameraImageHandler
-from geecs_bluesky.assets.registry import get_single_asset_definition
-from geecs_bluesky.assets.specs import GEECS_CAMERA_IMAGE
+from geecs_bluesky.assets.handlers import (
+    GeecsCameraImageHandler,
+    GeecsPathBackedHandler,
+    GeecsTextArrayHandler,
+)
+from geecs_bluesky.assets.registry import AssetDefinition, get_single_asset_definition
+from geecs_bluesky.assets.specs import (
+    GEECS_CAMERA_IMAGE,
+    GEECS_TEXT_ARRAY,
+)
 
-HandlerRegistry: TypeAlias = dict[str, type[GeecsCameraImageHandler]]
+HandlerRegistry: TypeAlias = dict[str, type[GeecsPathBackedHandler]]
 Document: TypeAlias = tuple[str, dict[str, object]]
+EXTERNAL_ASSET_DOCUMENT_SCHEMA = 1
+
+
+@dataclass(frozen=True)
+class ExternalAssetDocumentSpec:
+    """Request model for a synthetic fillable external-asset document stream."""
+
+    definition: AssetDefinition
+    device_name: str
+    resource_root: str
+    resource_path: str
+    data_key: str | None = None
+    datum_id: str | None = None
+    resource_uid: str | None = None
+    start_doc: Mapping[str, Any] | None = None
+    event: Mapping[str, Any] | None = None
+    timestamp: float | None = None
+
+    def resource_kwargs(self) -> dict[str, object]:
+        """Return Resource metadata used by local asset loaders and provenance."""
+        payload: dict[str, object] = {
+            "data_key": self.data_key or self.definition.event_key(self.device_name),
+            "device_name": self.device_name,
+            "device_type": self.definition.device_type,
+            "event_field": self.definition.event_field,
+            "payload_kind": self.definition.payload_kind.value,
+            "loader_name": self.definition.loader_kind.value,
+            "loader_kind": self.definition.loader_kind.value,
+            "external_asset_document_schema": EXTERNAL_ASSET_DOCUMENT_SCHEMA,
+        }
+        if self.definition.loader_config_defaults:
+            payload["loader_config_defaults"] = self.definition.loader_config_defaults
+        if self.definition.requires_loader_config:
+            payload["requires_loader_config"] = True
+        return payload
+
+    def to_documents(self) -> list[Document]:
+        """Build event-model documents for this external-asset request."""
+        timestamp = time.time() if self.timestamp is None else self.timestamp
+        start_uid = str((self.start_doc or {}).get("uid") or uuid4())
+        descriptor_uid = str(uuid4())
+        resource_uid = str(self.resource_uid or uuid4())
+        datum_id = str(self.datum_id or f"{resource_uid}/0")
+        data_key = self.data_key or self.definition.event_key(self.device_name)
+        seq_num = int(
+            (self.event or {}).get("scan_event_index")
+            or (self.event or {}).get("seq_num")
+            or 1
+        )
+
+        synthetic_start = {
+            **dict(self.start_doc or {}),
+            "uid": start_uid,
+            "time": timestamp,
+            "geecs_external_asset_document_schema": EXTERNAL_ASSET_DOCUMENT_SCHEMA,
+        }
+
+        return [
+            ("start", synthetic_start),
+            (
+                "descriptor",
+                {
+                    "uid": descriptor_uid,
+                    "run_start": start_uid,
+                    "time": timestamp,
+                    "name": "primary",
+                    "data_keys": {
+                        data_key: {
+                            "source": (
+                                f"geecs://{self.device_name}/"
+                                f"{self.definition.event_field}"
+                            ),
+                            "dtype": "array",
+                            "shape": [],
+                            "external": "OLD:",
+                        }
+                    },
+                    "configuration": {},
+                    "object_keys": {self.device_name: [data_key]},
+                    "hints": {},
+                },
+            ),
+            (
+                "resource",
+                {
+                    "uid": resource_uid,
+                    "spec": self.definition.spec,
+                    "root": self.resource_root,
+                    "resource_path": self.resource_path,
+                    "resource_kwargs": self.resource_kwargs(),
+                    "path_semantics": "posix",
+                },
+            ),
+            (
+                "datum",
+                {"datum_id": datum_id, "resource": resource_uid, "datum_kwargs": {}},
+            ),
+            (
+                "event",
+                {
+                    "uid": str(uuid4()),
+                    "descriptor": descriptor_uid,
+                    "time": timestamp,
+                    "seq_num": seq_num,
+                    "data": {data_key: datum_id},
+                    "timestamps": {data_key: timestamp},
+                    "filled": {data_key: False},
+                },
+            ),
+            (
+                "stop",
+                {
+                    "uid": str(uuid4()),
+                    "run_start": start_uid,
+                    "time": timestamp,
+                    "exit_status": "success",
+                    "num_events": {"primary": 1},
+                },
+            ),
+        ]
 
 
 class HandlerRegistrar(Protocol):
@@ -24,7 +152,7 @@ class HandlerRegistrar(Protocol):
     def register_handler(
         self,
         spec: str,
-        handler: type[GeecsCameraImageHandler],
+        handler: type[GeecsPathBackedHandler],
         overwrite: bool = False,
     ) -> None:
         """Register *handler* for *spec*."""
@@ -32,7 +160,10 @@ class HandlerRegistrar(Protocol):
 
 def geecs_asset_handler_registry() -> HandlerRegistry:
     """Return the local handler registry for supported GEECS asset specs."""
-    return {GEECS_CAMERA_IMAGE: GeecsCameraImageHandler}
+    return {
+        GEECS_CAMERA_IMAGE: GeecsCameraImageHandler,
+        GEECS_TEXT_ARRAY: GeecsTextArrayHandler,
+    }
 
 
 def register_geecs_handlers(
@@ -84,12 +215,31 @@ def make_geecs_filler(
     """
     return Filler(
         geecs_asset_handler_registry(),
-        root_map=dict(root_map or {}),
+        root_map=_filler_root_map(root_map or {}),
         include=include,
         exclude=exclude,
         inplace=inplace,
         retry_intervals=None if retry_intervals is None else list(retry_intervals),
     )
+
+
+def _filler_root_map(root_map: Mapping[str, str]) -> dict[str, str]:
+    """Return exact-match root aliases accepted by event-model Filler."""
+    normalized: dict[str, str] = {}
+    for remote_root, local_root in root_map.items():
+        remote = str(remote_root)
+        local = str(local_root)
+        normalized[remote] = local
+        normalized[_strip_trailing_slashes(remote)] = _strip_trailing_slashes(local)
+    return normalized
+
+
+def _strip_trailing_slashes(path: str) -> str:
+    """Strip trailing path separators except for filesystem roots."""
+    normalized = path.replace("\\", "/")
+    if normalized in ("/", ""):
+        return normalized
+    return normalized.rstrip("/")
 
 
 def fill_geecs_documents(
@@ -128,6 +278,34 @@ def fill_geecs_documents(
         retry_intervals=retry_intervals,
     )
     return [filler(name, doc) for name, doc in documents]
+
+
+def build_external_asset_documents(
+    *,
+    definition: AssetDefinition,
+    device_name: str,
+    resource_root: str,
+    resource_path: str,
+    data_key: str | None = None,
+    datum_id: str | None = None,
+    resource_uid: str | None = None,
+    start_doc: Mapping[str, Any] | None = None,
+    event: Mapping[str, Any] | None = None,
+    timestamp: float | None = None,
+) -> list[Document]:
+    """Build a minimal fillable document stream for one native external asset."""
+    return ExternalAssetDocumentSpec(
+        definition=definition,
+        device_name=device_name,
+        resource_root=resource_root,
+        resource_path=resource_path,
+        data_key=data_key,
+        datum_id=datum_id,
+        resource_uid=resource_uid,
+        start_doc=start_doc,
+        event=event,
+        timestamp=timestamp,
+    ).to_documents()
 
 
 def build_camera_shot_documents(
@@ -223,69 +401,15 @@ def build_camera_shot_documents(
                 f"Expected {file_path}."
             ) from exc
 
-    data_key = definition.event_key(device_name)
-    resource_uid = str(uuid4())
-    datum_id = f"{resource_uid}/0"
-    start_uid = str(uuid4())
-    descriptor_uid = str(uuid4())
     now = time.time()
     resource_path = file_path.relative_to(scan_folder).as_posix()
 
-    documents: list[Document] = [
-        ("start", {"uid": start_uid, "time": now, "scan_id": scan_number}),
-        (
-            "descriptor",
-            {
-                "uid": descriptor_uid,
-                "run_start": start_uid,
-                "time": now,
-                "name": "primary",
-                "data_keys": {
-                    data_key: {
-                        "source": f"geecs://{device_name}/{definition.event_field}",
-                        "dtype": "array",
-                        "shape": [],
-                        "external": "OLD:",
-                    }
-                },
-                "configuration": {},
-                "object_keys": {device_name: [data_key]},
-                "hints": {},
-            },
-        ),
-        (
-            "resource",
-            {
-                "uid": resource_uid,
-                "spec": GEECS_CAMERA_IMAGE,
-                "root": str(scan_folder),
-                "resource_path": resource_path,
-                "resource_kwargs": {"data_key": data_key},
-                "path_semantics": "posix",
-            },
-        ),
-        ("datum", {"datum_id": datum_id, "resource": resource_uid, "datum_kwargs": {}}),
-        (
-            "event",
-            {
-                "uid": str(uuid4()),
-                "descriptor": descriptor_uid,
-                "time": now,
-                "seq_num": 1,
-                "data": {data_key: datum_id},
-                "timestamps": {data_key: now},
-                "filled": {data_key: False},
-            },
-        ),
-        (
-            "stop",
-            {
-                "uid": str(uuid4()),
-                "run_start": start_uid,
-                "time": now,
-                "exit_status": "success",
-                "num_events": {"primary": 1},
-            },
-        ),
-    ]
+    documents = ExternalAssetDocumentSpec(
+        definition=definition,
+        device_name=device_name,
+        resource_root=str(scan_folder),
+        resource_path=resource_path,
+        start_doc={"scan_id": scan_number},
+        timestamp=now,
+    ).to_documents()
     return documents, file_path

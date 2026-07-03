@@ -142,6 +142,22 @@ def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     return getattr(cfg, key, default)
 
 
+def _ensure_timestamp_variable(
+    variable_list: list[str],
+    *,
+    timestamp_variable: str,
+) -> list[str]:
+    """Return variables with the hardware timestamp variable present."""
+    if timestamp_variable in variable_list:
+        return list(variable_list)
+    if timestamp_variable != "acq_timestamp" and "acq_timestamp" in variable_list:
+        return [
+            timestamp_variable if item == "acq_timestamp" else item
+            for item in variable_list
+        ]
+    return [*variable_list, timestamp_variable]
+
+
 class _SafeDocumentCallback:
     """Document callback wrapper that logs and disables itself on failure."""
 
@@ -953,9 +969,14 @@ class BlueskyScanner:
             synchronous = bool(_cfg_field(dev_cfg, "synchronous", False))
             save_nonscalar = bool(_cfg_field(dev_cfg, "save_nonscalar_data", False))
             role = roles[device_name]
+            device_type = self._device_type_for_device(device_name)
+            timestamp_variable = self._timestamp_variable_for_device_type(device_type)
 
-            if synchronous and "acq_timestamp" not in variable_list:
-                variable_list.append("acq_timestamp")
+            if synchronous:
+                variable_list = _ensure_timestamp_variable(
+                    variable_list,
+                    timestamp_variable=timestamp_variable,
+                )
 
             if not variable_list:
                 logger.debug("Skipping %s: empty variable_list", device_name)
@@ -968,6 +989,7 @@ class BlueskyScanner:
                         variable_list,
                         name=ophyd_name,
                         save_nonscalar_data=save_nonscalar,
+                        acq_timestamp_variable=timestamp_variable,
                     )
                     self._connect_device(det)
                     det.configure_shot_id(self._rep_rate_hz)
@@ -990,6 +1012,7 @@ class BlueskyScanner:
                         variable_list,
                         name=ophyd_name,
                         save_nonscalar_data=save_nonscalar,
+                        acq_timestamp_variable=timestamp_variable,
                     )
                     self._connect_device(det)
                     det.configure_shot_id(self._rep_rate_hz)
@@ -1003,8 +1026,9 @@ class BlueskyScanner:
                         device_save_path = self._device_server_save_path(save_path)
                         det.configure_nonscalar_file_logging(save_path)
                         if scan_number is not None:
-                            asset_definitions = self._asset_definitions_for_device(
-                                device_name
+                            asset_definitions = self._asset_definitions_for_device_type(
+                                device_name,
+                                device_type,
                             )
                             if asset_definitions:
                                 asset_root, asset_local_root = (
@@ -1034,20 +1058,36 @@ class BlueskyScanner:
                     exc_info=True,
                 )
 
-    def _asset_definitions_for_device(
-        self, device_name: str
-    ) -> tuple[AssetDefinition, ...]:
-        """Return registered external asset definitions for *device_name*."""
+    @staticmethod
+    def _timestamp_variable_for_device_type(device_type: str | None) -> str:
+        """Return the hardware timestamp variable for a GEECS device type."""
+        _ = device_type
+        return "acq_timestamp"
+
+    def _device_type_for_device(self, device_name: str) -> str | None:
+        """Return the GEECS device type, logging and continuing on failure."""
         try:
-            device_type = GeecsDb.get_device_type(device_name)
+            return GeecsDb.get_device_type(device_name)
         except Exception:
             logger.warning(
-                "Could not resolve device type for %s; external asset docs disabled",
+                "Could not resolve device type for %s",
                 device_name,
                 exc_info=True,
             )
-            return ()
+            return None
 
+    def _asset_definitions_for_device_type(
+        self,
+        device_name: str,
+        device_type: str | None,
+    ) -> tuple[AssetDefinition, ...]:
+        """Return registered external asset definitions for *device_name*."""
+        if device_type is None:
+            logger.warning(
+                "Could not resolve device type for %s; external asset docs disabled",
+                device_name,
+            )
+            return ()
         definitions = get_asset_definitions(device_type)
         if not definitions:
             logger.debug(

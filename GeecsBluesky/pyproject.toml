@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.13.6"
+version = "0.14.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -18,6 +18,7 @@ bluesky = ">=1.12"
 # (write_scalar_files_from_tiled) live here; it also supplies pandas/nptdms
 # transitively, so they are not pinned separately above.
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
 # Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but
 # that package uses a separate Poetry env (Python <3.12).  Install it manually:
@@ -28,6 +29,7 @@ mysql-connector-python = "^9.7.0"
 
 [tool.poetry.extras]
 tiled = ["tiled"]
+analysis = ["imageanalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
