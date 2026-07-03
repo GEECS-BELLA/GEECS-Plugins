@@ -3,6 +3,15 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.1.1] - 2026-07-03
+
+### Changed
+
+- `naming.normalize_pv_component` now delegates to the shared
+  `geecs_bluesky.pv_naming.normalize_component`, so the gateway (PV producer) and
+  the CA-backed ophyd-async devices (PV consumers) share one naming policy and
+  can never drift. No behavior change.
+
 ## [0.1.0] - 2026-07-01
 
 ### Added

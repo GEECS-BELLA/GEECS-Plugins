@@ -1,48 +1,20 @@
 """GEECS name → EPICS Channel Access PV name mapping.
 
-GEECS raw names are close to EPICS PV naming, which uses ``:`` as its hierarchy
-separator — but LabVIEW tolerates characters CA does not.  Within a single name
-*component* only ``[A-Za-z0-9_]`` is kept; every other character is mapped to
-``_``.  The most important case is the **dot**: EPICS reads ``.`` as the
-record/field separator, so ``Trigger.Source`` must become ``Trigger_Source`` or
-clients would parse ``.Source`` as a field.
-
-The mapping is deliberately **lossy** (``Trigger.Source`` and ``Trigger Source``
-both collapse to ``Trigger_Source``).  Do not reverse-engineer GEECS names from
-PV strings — the gateway keeps the authoritative ``geecs_var ↔ PV`` map and
-publishes a manifest.  Collisions are caught at pvdb-build time.
+The normalization policy is shared with the CA-backed ophyd-async devices that
+consume these PVs — it lives in :mod:`geecs_bluesky.pv_naming` (the one module
+both the gateway *producer* and the device *consumer* import) so the two can
+never drift.  This module re-exports it under the gateway's local name.
 
 Full PV names (``[Experiment:]Device:Variable``) are assembled by
-:meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`; this module only
-normalizes individual name components.
+:meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`; the shared policy only
+normalizes individual name components (runs of non-``[A-Za-z0-9_]`` → ``_`` — the
+dot is critical: EPICS reads ``.`` as the record/field separator, so
+``Trigger.Source`` → ``Trigger_Source``).  The mapping is deliberately lossy;
+the gateway keeps the authoritative ``geecs_var ↔ PV`` manifest.
 """
 
 from __future__ import annotations
 
-import re
+from geecs_bluesky.pv_naming import normalize_component as normalize_pv_component
 
-# Any run of characters outside the CA-safe component set becomes one underscore.
-_INVALID = re.compile(r"[^A-Za-z0-9_]+")
-
-
-def normalize_pv_component(name: str) -> str:
-    """Return a Channel-Access-safe version of a single name component.
-
-    Maps every run of characters outside ``[A-Za-z0-9_]`` (spaces, dots, dashes,
-    parentheses, …) to a single underscore and strips leading/trailing
-    underscores.  Does not touch ``:`` at the caller level — it is the reserved
-    device/variable separator applied by
-    :meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`, never inside a
-    component.
-
-    Parameters
-    ----------
-    name : str
-        Raw GEECS device name or variable name.
-
-    Returns
-    -------
-    str
-        A CA-safe name component.
-    """
-    return _INVALID.sub("_", name.strip()).strip("_")
+__all__ = ["normalize_pv_component"]
