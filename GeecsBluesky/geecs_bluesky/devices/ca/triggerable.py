@@ -76,6 +76,8 @@ class CaTriggerable(StandardReadable):
         self._geecs_device_name = device
         with self.add_children_as_readables():
             for var in variables:
+                if var == self._acq_timestamp_variable:
+                    continue  # created below as the dedicated timestamp child
                 setattr(
                     self,
                     safe_name(var),

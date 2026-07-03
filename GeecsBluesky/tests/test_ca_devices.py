@@ -16,7 +16,12 @@ pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 
 from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
 
-from geecs_bluesky.devices.ca import CaReadable, CaSettable, CaTriggerable  # noqa: E402
+from geecs_bluesky.devices.ca import (  # noqa: E402
+    CaGenericDetector,
+    CaReadable,
+    CaSettable,
+    CaTriggerable,
+)
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError  # noqa: E402
 from geecs_bluesky.pv_naming import normalize_component, pv_name  # noqa: E402
 
@@ -159,3 +164,90 @@ async def test_trigger_times_out_when_no_shot() -> None:
     await asyncio.sleep(0)
     with pytest.raises(GeecsTriggerTimeoutError):
         await dev.trigger()
+
+
+# --------------------------------------------------------------------------
+# CaGenericDetector (schema-v1 companion columns over CA)
+# --------------------------------------------------------------------------
+
+
+async def _shot(det: CaGenericDetector, acq: float) -> dict:
+    """Simulate one shot: advance acq_timestamp, await trigger, return read()."""
+    status = det.trigger()
+    set_mock_value(det.acq_timestamp, acq)
+    await asyncio.wait_for(status, timeout=2.0)
+    return await det.read()
+
+
+async def test_generic_detector_companion_columns() -> None:
+    """First shot self-seeds the tracker: shot_id=1, offset=0, valid=True."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    det.configure_shot_id(rep_rate_hz=1.0)
+    set_mock_value(det.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
+
+    desc = await det.describe()
+    for key in (
+        "amp-centroidx",
+        "amp-acq_timestamp",
+        "amp-t0_acq_timestamp",
+        "amp-shot_id",
+        "amp-shot_offset",
+        "amp-valid",
+    ):
+        assert key in desc, key
+
+    reading = await det.read()  # first read self-seeds at 100.0
+    assert reading["amp-acq_timestamp"]["value"] == 100.0
+    assert reading["amp-t0_acq_timestamp"]["value"] == 100.0
+    assert reading["amp-shot_id"]["value"] == 1
+    assert reading["amp-shot_offset"]["value"] == 0
+    assert reading["amp-valid"]["value"] is True
+
+
+async def test_generic_detector_shot_id_increments() -> None:
+    """Shot IDs advance incrementally from acq_timestamp deltas (1 Hz)."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    det.configure_shot_id(rep_rate_hz=1.0)
+    set_mock_value(det.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
+    await det.read()  # seeds shot 1 at 100.0
+
+    reading = await _shot(det, 101.0)  # +1 s at 1 Hz → shot 2
+    assert reading["amp-shot_id"]["value"] == 2
+    reading = await _shot(det, 104.0)  # 3 s dead time → shot 5 (gap preserved)
+    assert reading["amp-shot_id"]["value"] == 5
+    assert reading["amp-valid"]["value"] is True
+
+
+async def test_generic_detector_without_shot_ids_is_plain() -> None:
+    """Unconfigured tracker → no companion columns (stable minimal schema)."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    desc = await det.describe()
+    assert "amp-shot_id" not in desc
+    reading = await det.read()
+    assert "amp-shot_id" not in reading
+
+
+async def test_generic_detector_dedups_timestamp_variable() -> None:
+    """acq_timestamp in variable_list maps onto the dedicated child, not a dup."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx", "acq_timestamp"],
+        experiment="Undulator",
+        name="amp",
+    )
+    await det.connect(mock=True)
+    reading = await det.read()
+    assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
+    # Exporter headers cover data variables only, not the timestamp column.
+    assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}

@@ -19,6 +19,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `geecs_bluesky/pv_naming.py` — the shared GEECS-name → PV naming contract
   (`normalize_component` / `pv_name`), imported by both the CA devices and the
   gateway (which now delegates to it) so the producer and consumer can't drift.
+- `CaGenericDetector` — the scanner's triggered detector over CA, composing the
+  same `ShotIdSupport` mixin as the direct `GeecsGenericDetector` (same tracker,
+  data keys, and NaN/valid semantics; only the `acq_timestamp` source differs).
+- **Backend selector**: `GEECS_BLUESKY_DEVICE_BACKEND=direct|ca` (default
+  `direct`) chooses the device family at `BlueskyScanner` construction — the one
+  seam where backends differ; plans, schema, scan numbering, and Tiled stay
+  shared. The CA backend currently supports reference/triggered scalar roles;
+  contributor/snapshot roles, `save_nonscalar_data`, and STANDARD-scan motors
+  (`CaMotor`) fail loud as not-yet-implemented rather than silently degrading.
+- **Backend equivalence verified live**: the same NOSCAN (free-run, laser off,
+  no shot control) run on both backends produced identical event counts
+  (5 primary + 1 flush) and a verbatim-identical event key set, with matching
+  shot_id/offset/valid behavior (Scan007 = CA, Scan008 = direct).
 
 ### Notes
 

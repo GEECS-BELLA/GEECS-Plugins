@@ -291,6 +291,21 @@ class BlueskyScanner:
         self._acquisition_mode: str = _STRICT_MODE
         self._devices_config: dict[str, Any] = {}
 
+        # Device backend: "direct" = the original UDP/TCP transport devices;
+        # "ca" = CA-backed devices consuming the GeecsCAGateway PVs (requires
+        # the `ca` extra and a running gateway; EPICS_CA_* env vars scope the
+        # client). Env-only selection, mirroring GEECS_BLUESKY_ACQUISITION_MODE
+        # (bluesky is experimental — no GUI toggle by design).
+        self._device_backend = (
+            os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND", "direct").strip().lower()
+        )
+        if self._device_backend not in ("direct", "ca"):
+            raise ValueError(
+                f"GEECS_BLUESKY_DEVICE_BACKEND={self._device_backend!r} invalid; "
+                "use 'direct' or 'ca'"
+            )
+        logger.info("Device backend: %s", self._device_backend)
+
         self._total_shots: int = 0
         self._completed_shots: int = 0
         # uid of the most recent run's start document (for the Tiled exporter)
@@ -982,6 +997,39 @@ class BlueskyScanner:
                 logger.debug("Skipping %s: empty variable_list", device_name)
                 continue
             ophyd_name = safe_name(device_name)
+
+            if self._device_backend == "ca":
+                # CA backend: reference/triggered roles only, scalars only, for
+                # now. Fail loud (not skip) on unsupported requests so a scan
+                # never silently runs with degraded coverage.
+                if role in ("contributor", "snapshot"):
+                    raise NotImplementedError(
+                        f"CA backend has no {role!r} device yet ({device_name}); "
+                        "free-run multi-device roles are pending"
+                    )
+                if save_nonscalar:
+                    raise NotImplementedError(
+                        f"CA backend does not support save_nonscalar_data yet "
+                        f"({device_name}); the non-scalar slice is pending"
+                    )
+                # Deferred import: needs the `ca` extra (aioca).
+                from geecs_bluesky.devices.ca import CaGenericDetector
+
+                det = CaGenericDetector(
+                    device_name,
+                    variable_list,
+                    experiment=self._experiment_dir,
+                    name=ophyd_name,
+                    acq_timestamp_variable=timestamp_variable,
+                )
+                self._connect_device(det)
+                det.configure_shot_id(self._rep_rate_hz)
+                if role == "reference":
+                    self._reference_detector = det
+                with self._device_lock:
+                    self._detectors.append(det)
+                continue
+
             try:
                 if role == "contributor":
                     det = GeecsTimestampedReadable.from_db(
@@ -1112,6 +1160,13 @@ class BlueskyScanner:
 
         device_name, variable = scan_config.device_var.split(":", 1)
         ophyd_name = safe_name(f"{device_name}_{variable}")
+
+        if self._device_backend == "ca":
+            logger.error(
+                "STANDARD scan on the 'ca' backend requires CaMotor "
+                "(not yet implemented); use NOSCAN or the direct backend"
+            )
+            return
 
         logger.info(
             "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name
