@@ -11,6 +11,10 @@ The mapping is deliberately **lossy** (``Trigger.Source`` and ``Trigger Source``
 both collapse to ``Trigger_Source``).  Do not reverse-engineer GEECS names from
 PV strings — the gateway keeps the authoritative ``geecs_var ↔ PV`` map and
 publishes a manifest.  Collisions are caught at pvdb-build time.
+
+Full PV names (``[Experiment:]Device:Variable``) are assembled by
+:meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`; this module only
+normalizes individual name components.
 """
 
 from __future__ import annotations
@@ -27,7 +31,8 @@ def normalize_pv_component(name: str) -> str:
     Maps every run of characters outside ``[A-Za-z0-9_]`` (spaces, dots, dashes,
     parentheses, …) to a single underscore and strips leading/trailing
     underscores.  Does not touch ``:`` at the caller level — it is the reserved
-    device/variable separator applied by :func:`pv_name`, never inside a
+    device/variable separator applied by
+    :meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`, never inside a
     component.
 
     Parameters
@@ -41,21 +46,3 @@ def normalize_pv_component(name: str) -> str:
         A CA-safe name component.
     """
     return _INVALID.sub("_", name.strip()).strip("_")
-
-
-def pv_name(prefix: str, suffix: str) -> str:
-    """Join a device prefix and a variable suffix into a full PV name.
-
-    Parameters
-    ----------
-    prefix : str
-        Device-level PV prefix (normalized here).
-    suffix : str
-        Variable-level PV suffix (assumed already normalized).
-
-    Returns
-    -------
-    str
-        The full ``prefix:suffix`` PV name.
-    """
-    return f"{normalize_pv_component(prefix)}:{suffix}"

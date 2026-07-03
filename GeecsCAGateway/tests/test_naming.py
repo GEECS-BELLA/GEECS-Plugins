@@ -3,12 +3,7 @@
 from __future__ import annotations
 
 from geecs_ca_gateway.config import DeviceSpec, VariableSpec
-from geecs_ca_gateway.naming import normalize_pv_component, pv_name
-
-
-def test_devicevar_maps_one_to_one() -> None:
-    """``deviceName:variable`` is already valid CA — passes through unchanged."""
-    assert pv_name("U_ESP_JetXYZ", "Position") == "U_ESP_JetXYZ:Position"
+from geecs_ca_gateway.naming import normalize_pv_component
 
 
 def test_spaces_collapse_to_underscores() -> None:
