@@ -47,8 +47,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `localsavingpath` / `save` controls differ — CA signals that read the gateway
   readback and write its `:SP` setpoint. The scanner's post-construction saving
   block (save paths, asset definitions, `_saving_detectors`) is now shared
-  verbatim between backends. Requires gateway ≥ 0.2.0 (`include_settable`) so
-  the control-surface PVs exist.
+  verbatim between backends. Requires gateway ≥ 0.3.0 (`include_settable` for
+  the control-surface PVs, long-string path PVs for >40-char save paths).
+  **Verified live (Scan013)**: a CA-backend NOSCAN with `save_nonscalar_data`
+  drove the camera's save controls over CA, native PNGs landed in the
+  `Y/MM/scans/ScanNNN/<device>/` layout with `device_<acq_timestamp>` names,
+  events carried `nonscalar_save_path` + image datum-id columns (Resource/Datum
+  asset docs), documents persisted to Tiled, and the legacy
+  `ScanDataScanNNN.txt` / `sNN.txt` exports were written back from Tiled — the
+  full-output contract in one run.
 
 ### Notes
 
