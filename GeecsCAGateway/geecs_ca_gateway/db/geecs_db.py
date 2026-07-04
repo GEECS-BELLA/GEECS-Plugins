@@ -22,7 +22,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from geecs_bluesky.exceptions import GeecsDeviceNotFoundError
+from geecs_ca_gateway.exceptions import GeecsDeviceNotFoundError
 
 logger = logging.getLogger(__name__)
 

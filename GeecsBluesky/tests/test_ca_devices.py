@@ -29,11 +29,11 @@ from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsMotorTimeoutError,
     GeecsTriggerTimeoutError,
 )
-from geecs_bluesky.pv_naming import normalize_component, pv_name  # noqa: E402
+from geecs_ca_gateway.pv_naming import normalize_component, pv_name  # noqa: E402
 
 
 # --------------------------------------------------------------------------
-# Naming contract (shared with the gateway via geecs_bluesky.pv_naming)
+# Naming contract (shared with the gateway via geecs_ca_gateway.pv_naming)
 # --------------------------------------------------------------------------
 
 

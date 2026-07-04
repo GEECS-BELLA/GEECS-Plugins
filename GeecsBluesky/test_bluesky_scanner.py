@@ -44,11 +44,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from geecs_bluesky.db.geecs_db import GeecsDb
+from geecs_ca_gateway.db.geecs_db import GeecsDb
 from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.scanner_bridge import BlueskyScanner
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 

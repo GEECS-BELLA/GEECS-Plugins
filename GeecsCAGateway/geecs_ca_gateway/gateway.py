@@ -21,8 +21,8 @@ from typing import Any
 from caproto import AlarmSeverity, AlarmStatus, ChannelData
 from caproto.asyncio.server import start_server
 
-from geecs_bluesky.transport.tcp_subscriber import GeecsTcpSubscriber
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
+from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
 
 from .channels import (
     cast_value,

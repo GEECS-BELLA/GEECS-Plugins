@@ -17,8 +17,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `UdpSetter`, and the `GEECS_BLUESKY_DEVICE_BACKEND` selector (setting it to
   anything but `ca` now raises). `BlueskyScanner` and `GeecsSession` are both
   CA-only; the gateway is the one component speaking GEECS wire protocol.
-- `transport/`, `db/`, `testing/fake_device_server.py`, and `pv_naming.py`
-  **remain** — GeecsCAGateway is their consumer.
+- **The GEECS access-layer core moved to GeecsCAGateway** (`transport/`,
+  `db/`, `testing/fake_device_server.py`, `pv_naming.py`, and the wire-level
+  exceptions), flipping the package dependency: geecs-bluesky now depends on
+  geecs-ca-gateway (library: `GeecsDb`, `pv_naming`, exceptions — re-exported
+  from `geecs_bluesky.exceptions` for compatibility; service: the PVs). This
+  package is now a pure EPICS/Bluesky consumer.
 
 ### Changed
 

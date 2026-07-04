@@ -235,7 +235,7 @@ def resolve_asset_from_event(
     native file convention, and local handlers fill the file.
     """
     if device_type is None:
-        from geecs_bluesky.db.geecs_db import GeecsDb
+        from geecs_ca_gateway.db.geecs_db import GeecsDb
 
         device_type = GeecsDb.get_device_type(device_name)
 

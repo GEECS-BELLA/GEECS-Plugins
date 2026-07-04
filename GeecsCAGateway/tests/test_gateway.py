@@ -14,7 +14,7 @@ import socket
 
 import pytest
 from caproto import AlarmSeverity
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp

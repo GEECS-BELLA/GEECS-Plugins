@@ -17,10 +17,11 @@ That proxy nature is deliberate and appropriate for ~1 Hz / ~100-device
 experiments, where the axes real EPICS distribution buys (hard real-time, huge
 PV counts, 24/7 fault isolation) are not stressed.
 
-Built on the GEECS transport core (`geecs_bluesky.transport`): `GeecsUdpClient`
-for sets, `GeecsTcpSubscriber` for the readback stream. The ophyd-async device
-layer is **not** used — the caproto PV layer is a sibling presentation over the
-same transport, parallel to the ophyd `SignalBackend`.
+This package is the self-contained GEECS access layer: the UDP/TCP wire
+protocol (`geecs_ca_gateway.transport`), the experiment database
+(`geecs_ca_gateway.db`), the PV naming contract, and the CA server. The
+Bluesky side consumes the PVs as a service (stock ophyd-async EPICS signals)
+and imports only the library parts (`GeecsDb`, `pv_naming`).
 
 ## Try it (offline, no hardware or lab network)
 

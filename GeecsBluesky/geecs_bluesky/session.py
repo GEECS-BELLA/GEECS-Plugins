@@ -400,7 +400,7 @@ class GeecsSession:
         """Attach external asset definitions (best-effort; needs the DB)."""
         try:
             from geecs_bluesky.assets import get_asset_definitions
-            from geecs_bluesky.db.geecs_db import GeecsDb
+            from geecs_ca_gateway.db.geecs_db import GeecsDb
 
             device_type = GeecsDb.get_device_type(device_name)
             definitions = get_asset_definitions(device_type)

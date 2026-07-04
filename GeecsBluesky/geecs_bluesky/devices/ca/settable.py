@@ -18,7 +18,7 @@ import logging
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
-from geecs_bluesky.pv_naming import pv_name
+from geecs_ca_gateway.pv_naming import pv_name
 
 logger = logging.getLogger(__name__)
 

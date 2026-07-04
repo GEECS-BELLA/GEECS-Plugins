@@ -21,12 +21,12 @@ bluesky = ">=1.12"
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
-# Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but
-# that package uses a separate Poetry env (Python <3.12).  Install it manually:
-#   pip install -e ../GEECS-PythonAPI
-# It is intentionally omitted here to keep the build-system dependency-free.
+# The GEECS access layer: GeecsDb metadata, pv_naming, transport-level
+# exceptions (library use), and the CA gateway PVs (service use). We import
+# its library modules; we never import its server.
+geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
+
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
-mysql-connector-python = "^9.7.0"
 
 # CA client for the ophyd-async CA backend (devices/ca/*), which consumes the
 # GeecsCAGateway PVs like any EPICS IOC.  Optional: only the `ca` device backend

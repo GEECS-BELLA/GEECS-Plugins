@@ -13,7 +13,7 @@ from typing import Any
 from bluesky import RunEngine
 from ophyd_async.core import Device
 
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 FireCallback = Callable[[Sequence[FakeGeecsDevice]], None]
 

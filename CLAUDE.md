@@ -12,8 +12,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration; also hosts the GEECS transport core the gateway uses |
-| `GeecsCAGateway/` | caproto EPICS Channel Access gateway: serves GEECS devices as PVs (readback + `:SP` setpoints) so Phoebus/Archiver/ophyd-async work without bespoke bridges |
+| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
+| `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 | `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |
 
@@ -105,19 +105,20 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 
 ImageAnalysis        →  GEECS-Data-Utils
-GeecsBluesky         →  GEECS-Data-Utils
-GeecsCAGateway       →  GeecsBluesky (transport/ + db/ + pv_naming only)
+GeecsCAGateway       →  (no intra-repo deps — the GEECS access layer:
+                        wire protocol, DB, PV naming, CA server)
+GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway
 GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
                         GEECS-Data-Utils, GeecsBluesky
 ```
 
-`GeecsCAGateway` is a *server* (caproto), deliberately importing only
-GeecsBluesky's ophyd-free transport core, DB layer, and the shared
-`pv_naming` contract; GeecsBluesky's CA device backend consumes the gateway
-as a running CA service (stock ophyd-async EPICS signals), never as a Python
-import — keeping the dependency graph acyclic.
+`GeecsCAGateway` is the self-contained GEECS access layer: the UDP/TCP wire
+protocol, the experiment DB, the PV naming contract, and the caproto CA
+server. GeecsBluesky imports its *library* parts (`GeecsDb`, `pv_naming`,
+wire-level exceptions) and consumes its *service* (the PVs, via stock
+ophyd-async EPICS signals) — it never imports the server.
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GEECS-Scanner-GUI` sits at the top and

@@ -25,7 +25,7 @@ from ophyd_async.core import AsyncStatus
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
-from geecs_bluesky.pv_naming import pv_name
+from geecs_ca_gateway.pv_naming import pv_name
 
 logger = logging.getLogger(__name__)
 

@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.4.0] - 2026-07-04
+
+### Changed
+
+- **This package is now the self-contained GEECS access layer.** The wire
+  protocol (`transport/`: `GeecsUdpClient`, `GeecsTcpSubscriber`), the
+  experiment database (`db/GeecsDb`), the PV naming contract (`pv_naming`),
+  the transport-level exceptions, and the `FakeGeecsServer` test double moved
+  here from GeecsBluesky, and the package dependency flipped: GeecsBluesky now
+  depends on this package (library: `GeecsDb`, `pv_naming`, exceptions;
+  service: the PVs) — never the other way around. Deploys slim down
+  accordingly: the gateway environment needs only caproto + pydantic +
+  mysql-connector (no ophyd/bluesky/pandas). On an existing deployment,
+  `git pull` + `poetry install` inside `GeecsCAGateway/` completes the switch.
+
 ## [0.3.0] - 2026-07-03
 
 ### Changed

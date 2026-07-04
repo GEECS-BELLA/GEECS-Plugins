@@ -1,87 +1,36 @@
-"""Typed exception hierarchy for GeecsBluesky.
+"""Typed exception hierarchy for GeecsBluesky (scan level).
 
-All GEECS-specific exceptions inherit from ``GeecsError`` so callers can catch
-broadly or narrowly depending on what recovery action is appropriate::
-
-    except GeecsError:          # catch everything GEECS-related
-    except GeecsConnectionError:  # only network/transport failures
-    except GeecsCommandError:   # device responded but rejected or failed
-
-Design rules
-------------
-- Devices raise typed exceptions; they know nothing about dialogs or queues.
-- Retry policy and dialog logic live in the plan wrapper (``bluesky_scanner``).
-- ``GeecsCommandError`` and subclasses always carry ``device_name`` and
-  ``variable`` so the error dialog can name the offending device/variable
-  without parsing message strings.
+Wire-protocol and database exceptions (``GeecsError`` base,
+``GeecsConnectionError``, ``GeecsCommandError`` and subclasses,
+``GeecsDeviceNotFoundError``) live in :mod:`geecs_ca_gateway.exceptions` — the
+GEECS access layer — and are re-exported here so existing imports keep working.
+Scan-level exceptions below subclass the same ``GeecsError`` base.
 """
 
 from __future__ import annotations
 
+from geecs_ca_gateway.exceptions import (
+    GeecsCommandError,
+    GeecsCommandFailedError,
+    GeecsCommandRejectedError,
+    GeecsConnectionError,
+    GeecsDeviceNotFoundError,
+    GeecsError,
+)
 
-class GeecsError(Exception):
-    """Base class for all GeecsBluesky exceptions."""
-
-
-# ---------------------------------------------------------------------------
-# Transport / connectivity
-# ---------------------------------------------------------------------------
-
-
-class GeecsConnectionError(GeecsError):
-    """Device is unreachable at the transport level.
-
-    Raised when a UDP or TCP connection cannot be established or a socket
-    operation times out before any protocol-level response is received.
-    Distinct from :class:`GeecsCommandRejectedError` where the device did
-    respond but refused the command.
-    """
-
-
-# ---------------------------------------------------------------------------
-# Command errors — device responded but the command did not succeed
-# ---------------------------------------------------------------------------
-
-
-class GeecsCommandError(GeecsError):
-    """Base class for errors where the device was reached but the command failed.
-
-    Parameters
-    ----------
-    device_name:
-        GEECS device name (e.g. ``"UC_ModeImager"``).
-    variable:
-        Variable or command that was attempted.
-    message:
-        Human-readable description of what went wrong.
-    """
-
-    def __init__(self, device_name: str, variable: str, message: str = "") -> None:
-        self.device_name = device_name
-        self.variable = variable
-        super().__init__(
-            f"{device_name}/{variable}: {message}"
-            if message
-            else f"{device_name}/{variable}"
-        )
-
-
-class GeecsCommandRejectedError(GeecsCommandError):
-    """Device did not acknowledge the command (no ACK within timeout).
-
-    Typical causes: device process not running, device busy, malformed command,
-    or UDP packet lost with no retry opportunity.  Distinct from a *missed*
-    packet (handled by the UDP timeout) in that the device may have received
-    the command but chosen not to respond.
-    """
-
-
-class GeecsCommandFailedError(GeecsCommandError):
-    """Device acknowledged the command but reported an error in the exe response.
-
-    The device received and understood the command but could not execute it
-    (e.g. out-of-range value, hardware interlock, internal driver error).
-    """
+__all__ = [
+    "GeecsError",
+    "GeecsConnectionError",
+    "GeecsCommandError",
+    "GeecsCommandRejectedError",
+    "GeecsCommandFailedError",
+    "GeecsDeviceNotFoundError",
+    "GeecsTriggerTimeoutError",
+    "GeecsQuiescenceTimeoutError",
+    "GeecsMotorTimeoutError",
+    "GeecsT0SyncError",
+    "GeecsConfigurationError",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -178,15 +127,3 @@ class GeecsT0SyncError(GeecsError):
 
 class GeecsConfigurationError(GeecsError):
     """Runtime configuration is incomplete or inconsistent."""
-
-
-class GeecsDeviceNotFoundError(GeecsError):
-    """Device name could not be resolved in the GEECS database.
-
-    Raised by ``GeecsDb.find_device()`` when the device name is not present
-    in the MySQL device table.
-    """
-
-    def __init__(self, device_name: str) -> None:
-        self.device_name = device_name
-        super().__init__(f"Device not found in GEECS DB: {device_name!r}")

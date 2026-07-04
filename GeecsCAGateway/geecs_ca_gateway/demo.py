@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from .config import DeviceSpec, GatewayConfig, VariableSpec
 from .gateway import GeecsCaGateway

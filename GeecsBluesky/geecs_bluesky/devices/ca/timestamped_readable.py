@@ -24,7 +24,7 @@ from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable
 from geecs_bluesky.devices.contributor import FreeRunContributorSupport
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
-from geecs_bluesky.pv_naming import pv_name
+from geecs_ca_gateway.pv_naming import pv_name
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)

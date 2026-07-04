@@ -271,7 +271,7 @@ def test_choice_exceeding_ca_enum_limits_falls_back_to_string() -> None:
 
 def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
     """Default: down-select to get='yes' vars (passed as include); skip failures."""
-    from geecs_bluesky.db.geecs_db import GeecsDb
+    from geecs_ca_gateway.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,
@@ -311,7 +311,7 @@ def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
 
 def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
     """subscribed_only=False enumerates all enabled devices, no include filter."""
-    from geecs_bluesky.db.geecs_db import GeecsDb
+    from geecs_ca_gateway.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,

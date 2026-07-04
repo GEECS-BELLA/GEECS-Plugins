@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-ca-gateway"
-version = "0.3.0"
+version = "0.4.0"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -13,12 +13,12 @@ geecs-ca-gateway = "geecs_ca_gateway.__main__:main"
 python = ">=3.11,<3.12"
 caproto = ">=1.1"
 pydantic = ">=2"
-# We depend on the GEECS transport core only — GeecsUdpClient / GeecsTcpSubscriber
-# (and FakeGeecsServer for offline tests).  The ophyd-async device layer in
-# GeecsBluesky is NOT used here; it comes along transitively but is unused.
-# The clean eventual shape is to lift transport/ + db/ into a shared base
-# package that both GeecsBluesky and this gateway depend on.
-geecs-bluesky = { path = "../GeecsBluesky", develop = true }
+# This package IS the GEECS access layer: the UDP/TCP wire protocol
+# (transport/), the experiment database (db/), the PV naming contract
+# (pv_naming), and the CA server that mirrors it all as EPICS PVs.
+# GeecsBluesky depends on us (library: GeecsDb, pv_naming, exceptions;
+# service: the PVs) — never the other way around.
+mysql-connector-python = "^9.7.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
@@ -31,6 +31,9 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Default run needs no lab network; the DB integration tests are opt-in.
+addopts = "-m 'not integration'"
 markers = [
     "fake_server: tests that use local FakeGeecsServer TCP/UDP sockets",
+    "integration: tests that touch external lab services such as the GEECS database",
 ]

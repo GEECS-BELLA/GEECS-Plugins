@@ -265,7 +265,7 @@ class DeviceSpec(BaseModel):
         -------
         DeviceSpec
         """
-        from geecs_bluesky.db.geecs_db import GeecsDb
+        from geecs_ca_gateway.db.geecs_db import GeecsDb
 
         host, port = GeecsDb.find_device(name)
         metadata = GeecsDb.get_device_variables(name)
@@ -335,7 +335,7 @@ class GatewayConfig(BaseModel):
         -------
         GatewayConfig
         """
-        from geecs_bluesky.db.geecs_db import GeecsDb
+        from geecs_ca_gateway.db.geecs_db import GeecsDb
 
         if subscribed_only:
             sub_map = GeecsDb.get_subscribed_variables(
