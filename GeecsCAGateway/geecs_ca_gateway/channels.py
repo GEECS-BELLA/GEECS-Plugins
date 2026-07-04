@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Awaitable, Callable
 
 from caproto import (
+    AccessRights,
     ChannelChar,
     ChannelData,
     ChannelDouble,
@@ -141,6 +142,34 @@ def enum_geecs_value(choices: list[str], value: Any) -> str:
     return text
 
 
+_READONLY_CACHE: dict[type, type] = {}
+
+
+def read_only(channel_cls: type[ChannelData]) -> type[ChannelData]:
+    """Return a subclass of *channel_cls* that denies CA client writes.
+
+    Readback PVs mirror GEECS state; only the gateway may write them (it calls
+    ``.write`` directly, which bypasses the server's access check).  Without
+    this, a mistaken ``caput`` to a readback *sticks*: the deadband cache
+    compares against the gateway's own last write, so the next unchanged
+    hardware frame is suppressed and the PV shows the client's value until the
+    hardware actually changes.  Setpoints live at ``…:SP``.
+    """
+    if channel_cls not in _READONLY_CACHE:
+
+        def check_access(self, hostname: str, username: str) -> AccessRights:
+            """Report READ-only access so client writes are denied cleanly."""
+            _ = hostname, username
+            return AccessRights.READ
+
+        _READONLY_CACHE[channel_cls] = type(
+            f"ReadOnly{channel_cls.__name__}",
+            (channel_cls,),
+            {"check_access": check_access},
+        )
+    return _READONLY_CACHE[channel_cls]
+
+
 def _initial(dtype: DType) -> Any:
     """Placeholder value a channel holds before its first update."""
     if dtype == "float":
@@ -148,15 +177,6 @@ def _initial(dtype: DType) -> Any:
     if dtype in ("int", "enum"):
         return 0
     return ""
-
-
-def _make_path_channel(value: str = "") -> ChannelChar:
-    """Build a long-string (char-array) channel for path variables."""
-    return ChannelChar(
-        value=value,
-        string_encoding="utf-8",
-        max_length=_PATH_MAX_LENGTH,
-    )
 
 
 def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
@@ -178,12 +198,14 @@ def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
 
 
 def make_readback_channel(spec: VariableSpec) -> ChannelData:
-    """Build a read-only channel populated by the subscription stream."""
+    """Build a client-read-only channel populated by the subscription stream."""
     if spec.dtype == "enum":
-        return ChannelEnum(value=0, enum_strings=list(spec.choices))
+        return read_only(ChannelEnum)(value=0, enum_strings=list(spec.choices))
     if spec.dtype == "path":
-        return _make_path_channel()
-    return _SCALAR_BASE[spec.dtype](**_metadata_kwargs(spec))
+        return read_only(ChannelChar)(
+            value="", string_encoding="utf-8", max_length=_PATH_MAX_LENGTH
+        )
+    return read_only(_SCALAR_BASE[spec.dtype])(**_metadata_kwargs(spec))
 
 
 def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:

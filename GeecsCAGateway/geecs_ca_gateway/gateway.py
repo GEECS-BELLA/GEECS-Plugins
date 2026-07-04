@@ -18,7 +18,15 @@ import logging
 import math
 from typing import Any
 
-from caproto import AlarmSeverity, AlarmStatus, ChannelData
+from caproto import (
+    AlarmSeverity,
+    AlarmStatus,
+    ChannelData,
+    ChannelDouble,
+    ChannelEnum,
+    ChannelInteger,
+    ChannelString,
+)
 from caproto.asyncio.server import start_server
 
 from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
@@ -29,7 +37,9 @@ from .channels import (
     enum_index,
     make_readback_channel,
     make_setpoint_channel,
+    read_only,
 )
+from .pv_naming import pv_name
 from .config import GatewayConfig, VariableSpec
 
 logger = logging.getLogger(__name__)
@@ -111,6 +121,13 @@ class GeecsCaGateway:
         self.manifest: dict[str, tuple[str, str, str]] = {}
         self._udp: dict[str, GeecsUdpClient] = {}
         self._subs: dict[str, GeecsTcpSubscriber] = {}
+        # Self-diagnostics (devIocStats-style): per-device connection-state
+        # PVs plus gateway uptime/heartbeat, so Phoebus/alarm layers see
+        # liveness explicitly instead of inferring it from INVALID severity.
+        self._connected: dict[str, ChannelData] = {}
+        self._gateway_status: dict[str, ChannelData] = {}
+        self._status_task: asyncio.Task | None = None
+        self._started_at: float | None = None
         # device name -> {geecs_var -> (readback channel, variable spec)}
         self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
         self._build_pvdb()
@@ -152,6 +169,41 @@ class GeecsCaGateway:
                     self.pvdb[full] = channel
                     readback_map[ts_name] = (channel, ts_spec)
             self._readbacks[dev.name] = readback_map
+
+            # Per-device connection-state PV (severity MAJOR while down).
+            conn_pv = dev.pv_name_for(VariableSpec(geecs_var="CONNECTED"))
+            if self._register(conn_pv, dev.name, "CONNECTED", "status"):
+                conn = read_only(ChannelEnum)(
+                    value="Disconnected",
+                    enum_strings=["Disconnected", "Connected"],
+                )
+                self.pvdb[conn_pv] = conn
+                self._connected[dev.name] = conn
+
+        self._build_gateway_status_pvs()
+
+    def _build_gateway_status_pvs(self) -> None:
+        """Expose gateway self-diagnostics under ``[Experiment:]CAGateway:*``."""
+        experiment = next(
+            (d.experiment for d in self.config.devices if d.experiment), None
+        )
+        try:
+            from importlib.metadata import version
+
+            pkg_version = version("geecs-ca-gateway")
+        except Exception:
+            pkg_version = "unknown"
+        channels: dict[str, ChannelData] = {
+            "UPTIME": read_only(ChannelDouble)(value=0.0, units="s", precision=0),
+            "HEARTBEAT": read_only(ChannelInteger)(value=0),
+            "DEVICES_CONNECTED": read_only(ChannelInteger)(value=0),
+            "VERSION": read_only(ChannelString)(value=pkg_version),
+        }
+        for suffix, channel in channels.items():
+            pv = pv_name(experiment, "CAGateway", suffix)
+            if self._register(pv, "CAGateway", suffix, "status"):
+                self.pvdb[pv] = channel
+                self._gateway_status[suffix] = channel
 
     def _register(self, pv: str, device: str, geecs_var: str, kind: str) -> bool:
         """Record ``pv`` in the manifest; return whether it was newly added.
@@ -277,6 +329,9 @@ class GeecsCaGateway:
             )
             self._supervisors.append(task)
         logger.info("started %d subscription supervisor(s)", len(self._supervisors))
+        self._status_task = asyncio.create_task(
+            self._status_loop(), name="gateway-status"
+        )
 
     async def _supervise(self, dev) -> None:
         """Keep one device's subscription alive; reconnect with backoff on drop.
@@ -306,6 +361,7 @@ class GeecsCaGateway:
                     logger.info("%s: reconnected", dev.name)
                 else:
                     logger.info("%s: subscription live", dev.name)
+                await self._set_connected(dev.name, True)
                 backoff = self._reconnect_min
                 # Wait for an actual disconnect — the listener task ends when the
                 # socket closes. A device merely going quiet is NOT a drop; poll
@@ -331,6 +387,7 @@ class GeecsCaGateway:
             # Dropped or failed to (re)establish: mark stale and log once per down
             # episode (recovery is logged as "reconnected" above).
             await self._mark_device_invalid(dev.name)
+            await self._set_connected(dev.name, False)
             if dev.name not in self._down_logged:
                 self._down_logged.add(dev.name)
                 logger.warning(
@@ -340,6 +397,46 @@ class GeecsCaGateway:
                 )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, self._reconnect_max)
+
+    async def _set_connected(self, device: str, connected: bool) -> None:
+        """Update the device's CONNECTED PV and the gateway connected-count."""
+        channel = self._connected.get(device)
+        if channel is None:
+            return
+        try:
+            await channel.write(
+                1 if connected else 0,
+                severity=(
+                    AlarmSeverity.NO_ALARM if connected else AlarmSeverity.MAJOR_ALARM
+                ),
+                status=AlarmStatus.NO_ALARM if connected else AlarmStatus.COMM,
+            )
+            count = self._gateway_status.get("DEVICES_CONNECTED")
+            if count is not None:
+                total = sum(
+                    1 for ch in self._connected.values() if str(ch.value) == "Connected"
+                )
+                await count.write(total)
+        except Exception:
+            logger.debug("failed to update CONNECTED for %s", device, exc_info=True)
+
+    async def _status_loop(self, period_s: float = 5.0) -> None:
+        """Tick the gateway UPTIME/HEARTBEAT PVs (devIocStats-style)."""
+        uptime = self._gateway_status.get("UPTIME")
+        heartbeat = self._gateway_status.get("HEARTBEAT")
+        beats = 0
+        loop = asyncio.get_running_loop()
+        self._started_at = loop.time()
+        while True:
+            try:
+                if uptime is not None:
+                    await uptime.write(loop.time() - self._started_at)
+                if heartbeat is not None:
+                    beats += 1
+                    await heartbeat.write(beats)
+            except Exception:
+                logger.debug("status loop write failed", exc_info=True)
+            await asyncio.sleep(period_s)
 
     @staticmethod
     async def _safe_close(sub: GeecsTcpSubscriber) -> None:
@@ -384,6 +481,9 @@ class GeecsCaGateway:
     async def close(self) -> None:
         """Cancel supervisors and tear down all subscriptions and UDP clients."""
         self._closing = True
+        if self._status_task is not None:
+            self._status_task.cancel()
+            self._status_task = None
         for task in self._supervisors:
             task.cancel()
         if self._supervisors:

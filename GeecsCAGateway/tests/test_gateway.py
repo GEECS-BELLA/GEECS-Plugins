@@ -421,3 +421,79 @@ async def test_setpoint_write_reaches_geecs() -> None:
             assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(4.2)
         finally:
             await gw.close()
+
+
+# ---------------------------------------------------------------------------
+# Self-diagnostics: read-only readbacks + status PVs
+# ---------------------------------------------------------------------------
+
+
+def test_readback_channels_deny_client_writes() -> None:
+    """Readbacks report READ-only access; setpoints keep WRITE access.
+
+    Regression: a mistaken caput to a readback used to *stick* (the deadband
+    cache suppressed the next unchanged hardware frame).
+    """
+    from caproto import AccessRights
+
+    from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
+    from geecs_ca_gateway.config import VariableSpec
+
+    for dtype in ("float", "int", "string", "path"):
+        rb = make_readback_channel(VariableSpec(geecs_var="x", dtype=dtype))
+        assert rb.check_access("h", "u") == AccessRights.READ, dtype
+    rb = make_readback_channel(
+        VariableSpec(geecs_var="x", dtype="enum", choices=["on", "off"])
+    )
+    assert rb.check_access("h", "u") == AccessRights.READ
+
+    async def setter(value):
+        return value
+
+    sp = make_setpoint_channel(
+        VariableSpec(geecs_var="x", dtype="float", settable=True), setter
+    )
+    assert AccessRights.WRITE in sp.check_access("h", "u")
+
+
+def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
+    """Every device gets a CONNECTED PV; the gateway exposes devIocStats-style PVs."""
+    spec = DeviceSpec(
+        name="U_Dev",
+        host="h",
+        port=1,
+        experiment="Test",
+        variables=[VariableSpec(geecs_var="Val")],
+    )
+    gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
+
+    assert "Test:U_Dev:CONNECTED" in gw.pvdb
+    assert str(gw.pvdb["Test:U_Dev:CONNECTED"].value) == "Disconnected"
+    for suffix in ("UPTIME", "HEARTBEAT", "DEVICES_CONNECTED", "VERSION"):
+        assert f"Test:CAGateway:{suffix}" in gw.pvdb
+    assert gw.manifest["Test:U_Dev:CONNECTED"] == ("U_Dev", "CONNECTED", "status")
+
+
+async def test_set_connected_updates_pv_severity_and_count() -> None:
+    """CONNECTED transitions carry MAJOR severity when down, count when up."""
+    from caproto import AlarmSeverity
+
+    spec = DeviceSpec(
+        name="U_Dev",
+        host="h",
+        port=1,
+        experiment="Test",
+        variables=[VariableSpec(geecs_var="Val")],
+    )
+    gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
+
+    await gw._set_connected("U_Dev", True)
+    conn = gw.pvdb["Test:U_Dev:CONNECTED"]
+    assert str(conn.value) == "Connected"
+    assert conn.alarm.severity == AlarmSeverity.NO_ALARM
+    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (1, [1])
+
+    await gw._set_connected("U_Dev", False)
+    assert str(conn.value) == "Disconnected"
+    assert conn.alarm.severity == AlarmSeverity.MAJOR_ALARM
+    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (0, [0])

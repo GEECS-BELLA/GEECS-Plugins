@@ -313,7 +313,11 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
 - **`CaSnapshotReadable`** — async readback sampled once per event row.
 - **`CaSettable` / `CaMotor`** — puts ride GEECS's native blocking convergence
   through the gateway `:SP`; the motor adds a readback-tolerance poll with
-  `move_timeout` as the CA put budget.
+  `move_timeout` as the CA put budget. **Known gap:** no `stop()` — GEECS has
+  no universal abort variable (some device types have one, implemented
+  inconsistently), so an RE abort cancels the wait but the hardware finishes
+  its move. If a specific device's abort variable matters, an optional
+  `stop_variable` hook on `CaMotor` is the intended future shape.
 
 Shot IDs (`ShotIdTracker`): a device's `shot_id` is its physical
 trigger-opportunity number, derived **incrementally** from its own

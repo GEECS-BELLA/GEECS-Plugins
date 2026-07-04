@@ -3,6 +3,25 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.5.0] - 2026-07-04
+
+### Fixed
+
+- **Readback PVs now deny CA client writes** (CA access rights: READ). A
+  mistaken `caput` to a readback used to *stick*: the deadband cache compared
+  against the gateway's own last write, so the next unchanged hardware frame
+  was suppressed and the PV showed the client's value until the hardware
+  actually changed. Clients now get a proper `ECA_PUTFAIL` ("cannot write");
+  setpoints live at `…:SP` as before. Verified over the CA wire.
+
+### Added
+
+- **Self-diagnostics PVs** (devIocStats-style):
+  `[Experiment:]<Device>:CONNECTED` per device (enum, MAJOR severity while
+  down — explicit liveness for Phoebus/alarm layers instead of inferring from
+  INVALID data severity), and `[Experiment:]CAGateway:{UPTIME, HEARTBEAT,
+  DEVICES_CONNECTED, VERSION}` updated by a 5 s status loop.
+
 ## [0.4.0] - 2026-07-04
 
 ### Changed
