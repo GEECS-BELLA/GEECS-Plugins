@@ -67,7 +67,15 @@ geecs_bluesky/
     triggerable.py          # GeecsTriggerable — acq_timestamp-gated trigger
     shot_id.py              # ShotIdTracker (incremental shot ids) + ShotIdSupport mixin
     nonscalar_save.py       # NonScalarSaveSupport mixin — localsavingpath/save + save-path column
+    contributor.py          # FreeRunContributorSupport — shared reference-relative labeling
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
+    ca/                     # CA-backed device family (consumes GeecsCAGateway PVs; `ca` extra)
+      triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
+      generic_detector.py   # CaGenericDetector — shot-id columns + native saving over CA
+      timestamped_readable.py # CaTimestampedReadable — free-run contributor over CA
+      snapshot.py           # CaSnapshotReadable — async readback over CA
+      settable.py           # CaSettable — put :SP, read streamed readback
+      motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
   models/
     shot_control.py         # ShotControlConfig / ShotControlState — validated shot-control YAML
   transport/
@@ -196,6 +204,35 @@ handling, which fails when the RE is not on the main thread.
 Device connect/disconnect uses `asyncio.run_coroutine_threadsafe(...).result(timeout=...)`.
 
 ## Device Layer
+
+Two device backends produce the **same event-schema-v1 documents**, selected by
+`GEECS_BLUESKY_DEVICE_BACKEND=direct|ca` (default `direct`) at the single
+construction point in `BlueskyScanner` (`_build_detectors` / `_build_ca_detector`
+/ `_run_standard_scan`):
+
+- **direct** — the classes below; GEECS UDP/TCP transport in-process.
+- **ca** — `devices/ca/*`; stock ophyd-async `epics_signal_r/rw` against the
+  GeecsCAGateway PVs (`[Experiment:]Device:Variable`, setpoints at `…:SP`).
+  Requires the `ca` extra (`aioca`) and a running gateway (≥0.3.0 for
+  control-surface and long-string path PVs). The gateway is consumed as a **CA
+  service, never as a Python import** (the gateway imports our transport, so an
+  import the other way would be circular).
+
+Domain logic is shared, not duplicated: `ShotIdSupport`,
+`NonScalarSaveSupport`, and `FreeRunContributorSupport` are composed by both
+families — only the transport differs (`acq_timestamp` from the TCP shot cache
+vs a persistent CA monitor; save controls via UDP signals vs `:SP` puts).
+`CaTriggerable` closes the strict fire-right-after-trigger race the same way
+`GeecsTriggerable` does (synchronous baseline from the monitor cache), pinned
+by a mock race test. Backend equivalence was verified live: identical event
+key sets and counts for NOSCAN/STANDARD, full-output image saving, multi-role
+free-run, and strict single-shot (Scans 007–015, 2026-07-03).
+
+The hardware test loads its shot-control config from the configs repo via
+`GEECS_BLUESKY_LASER=on|off` (default `off` → `HTU-LaserOFF`, internal
+single-shot — safe with no external timing). Plain `pytest` runs only the
+hermetic `tests/` suite (`testpaths`); the top-level hardware scripts run
+explicitly and drive real scans.
 
 ### GeecsDevice
 

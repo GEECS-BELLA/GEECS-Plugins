@@ -20,7 +20,6 @@ from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
 from geecs_bluesky.devices.ca import (  # noqa: E402
     CaGenericDetector,
     CaMotor,
-    CaReadable,
     CaSettable,
     CaSnapshotReadable,
     CaTimestampedReadable,
@@ -46,13 +45,13 @@ def test_pv_name_policy() -> None:
 
 
 # --------------------------------------------------------------------------
-# CaReadable
+# CaSnapshotReadable (plain readable)
 # --------------------------------------------------------------------------
 
 
 async def test_readable_reads_value() -> None:
     """A readback PV value surfaces under the ``<name>-<safe_var>`` event key."""
-    dev = CaReadable(
+    dev = CaSnapshotReadable(
         "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
     )
     await dev.connect(mock=True)
@@ -64,7 +63,7 @@ async def test_readable_reads_value() -> None:
 
 async def test_readable_multiple_variables() -> None:
     """Each variable becomes its own readable child signal."""
-    dev = CaReadable("UC_X", ["centroidx", "centroidy"], name="cam")
+    dev = CaSnapshotReadable("UC_X", ["centroidx", "centroidy"], name="cam")
     await dev.connect(mock=True)
     set_mock_value(dev.centroidx, 1.0)
     set_mock_value(dev.centroidy, 2.0)

@@ -28,8 +28,8 @@ class CaSnapshotReadable(StandardReadable):
     ----------
     device : str
         GEECS device name.
-    variable_list : list of str
-        Variable names to expose as readable float signals.
+    variable_list : str or list of str
+        Variable name(s) to expose as readable float signals.
     experiment : str, optional
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str
@@ -41,12 +41,14 @@ class CaSnapshotReadable(StandardReadable):
     def __init__(
         self,
         device: str,
-        variable_list: list[str],
+        variable_list: str | list[str],
         *,
         experiment: str | None = None,
         name: str = "snapshot",
         datatype: type = float,
     ) -> None:
+        if isinstance(variable_list, str):
+            variable_list = [variable_list]
         self._geecs_device_name = device
         with self.add_children_as_readables():
             for var in variable_list:

@@ -12,7 +12,8 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner, ophyd-async GEECS devices, Tiled integration |
+| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner, ophyd-async GEECS devices (direct UDP/TCP + CA-gateway backends), Tiled integration |
+| `GeecsCAGateway/` | caproto EPICS Channel Access gateway: serves GEECS devices as PVs (readback + `:SP` setpoints) so Phoebus/Archiver/ophyd-async work without bespoke bridges |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 | `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |
 
@@ -105,11 +106,18 @@ LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 
 ImageAnalysis        →  GEECS-Data-Utils
 GeecsBluesky         →  GEECS-Data-Utils
+GeecsCAGateway       →  GeecsBluesky (transport/ + db/ + pv_naming only)
 GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
                         GEECS-Data-Utils, GeecsBluesky
 ```
+
+`GeecsCAGateway` is a *server* (caproto), deliberately importing only
+GeecsBluesky's ophyd-free transport core, DB layer, and the shared
+`pv_naming` contract; GeecsBluesky's CA device backend consumes the gateway
+as a running CA service (stock ophyd-async EPICS signals), never as a Python
+import — keeping the dependency graph acyclic.
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GEECS-Scanner-GUI` sits at the top and
