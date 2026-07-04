@@ -1,8 +1,8 @@
 """Unit tests for shot control arm/disarm — no real hardware required.
 
 Covers:
-- _UdpSetter: string/numeric values sent correctly over fake UDP
-- _set_trigger_state: empty-string values skipped, correct per-state dispatch
+- UdpSetter: string/numeric values sent correctly over fake UDP
+- ShotController.set_state: empty-string values skipped, per-state dispatch
 - geecs_step_scan: arm called after move, disarm after shots, per step
 """
 
@@ -18,7 +18,8 @@ from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner, _UdpSetter
+from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+from geecs_bluesky.shot_controller import ShotController, UdpSetter
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
 from tests.fake_server_helpers import (
@@ -64,16 +65,15 @@ class _MockSetter:
         return AsyncStatus(_noop())
 
 
-def _make_scanner_with_mock_setters() -> tuple[BlueskyScanner, dict[str, _MockSetter]]:
-    """Build a BlueskyScanner shell with injected mock setters (no __init__)."""
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._RE = RunEngine()
-    scanner._shot_control = ShotControlConfig(
+def _make_controller_with_mock_setters() -> tuple[
+    RunEngine, ShotController, dict[str, _MockSetter]
+]:
+    """Build a ShotController with injected mock setters (no network)."""
+    config = ShotControlConfig(
         device="U_DG645_ShotControl", variables=SHOT_CONTROL_VARS
     )
     mock_setters = {var: _MockSetter(var) for var in SHOT_CONTROL_VARS}
-    scanner._shot_control_setters = mock_setters
-    return scanner, mock_setters
+    return RunEngine(), ShotController(config, mock_setters), mock_setters
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +92,7 @@ class TestUdpSetter:
         async with FakeGeecsServer(device) as srv:
             udp = GeecsUdpClient(srv.host, srv.port, device_name="U_DG645_ShotControl")
             await udp.connect()
-            setter = _UdpSetter(udp, "Trigger.Source")
+            setter = UdpSetter(udp, "Trigger.Source")
             await setter.set("External rising edges")
             assert device.variables["Trigger.Source"] == "External rising edges"
             await udp.close()
@@ -105,7 +105,7 @@ class TestUdpSetter:
         async with FakeGeecsServer(device) as srv:
             udp = GeecsUdpClient(srv.host, srv.port, device_name="U_DG645_ShotControl")
             await udp.connect()
-            setter = _UdpSetter(udp, "Trigger.Source")
+            setter = UdpSetter(udp, "Trigger.Source")
             status = setter.set("External rising edges")
             assert isinstance(status, AsyncStatus)
             await status
@@ -120,57 +120,57 @@ class TestUdpSetter:
         async with FakeGeecsServer(device) as srv:
             udp = GeecsUdpClient(srv.host, srv.port, device_name="U_DG645_ShotControl")
             await udp.connect()
-            setter = _UdpSetter(udp, "Delay")
+            setter = UdpSetter(udp, "Delay")
             await setter.set(0.001)
             assert device.variables["Delay"] == pytest.approx(0.001)
             await udp.close()
 
 
 # ---------------------------------------------------------------------------
-# _set_trigger_state
+# ShotController.set_state
 # ---------------------------------------------------------------------------
 
 
 class TestSetTriggerState:
     def test_scan_state_skips_empty_variables(self) -> None:
         """SCAN state: Trigger.ExecuteSingleShot (empty) must be skipped."""
-        scanner, setters = _make_scanner_with_mock_setters()
-        scanner._RE(scanner._set_trigger_state("SCAN"))
+        re, controller, setters = _make_controller_with_mock_setters()
+        re(controller.set_state("SCAN"))
 
         assert setters["Trigger.ExecuteSingleShot"].calls == []
         assert setters["Trigger.Source"].calls == ["External rising edges"]
 
     def test_standby_state_skips_empty_variables(self) -> None:
         """STANDBY state: same empty-value skipping as SCAN."""
-        scanner, setters = _make_scanner_with_mock_setters()
-        scanner._RE(scanner._set_trigger_state("STANDBY"))
+        re, controller, setters = _make_controller_with_mock_setters()
+        re(controller.set_state("STANDBY"))
 
         assert setters["Trigger.ExecuteSingleShot"].calls == []
         assert setters["Trigger.Source"].calls == ["External rising edges"]
 
     def test_singleshot_sets_execute_variable(self) -> None:
         """SINGLESHOT: ExecuteSingleShot gets 'on'; Source has no SINGLESHOT entry."""
-        scanner, setters = _make_scanner_with_mock_setters()
-        scanner._RE(scanner._set_trigger_state("SINGLESHOT"))
+        re, controller, setters = _make_controller_with_mock_setters()
+        re(controller.set_state("SINGLESHOT"))
 
         assert setters["Trigger.ExecuteSingleShot"].calls == ["on"]
         assert setters["Trigger.Source"].calls == []
 
     def test_off_state_sets_source(self) -> None:
         """OFF state: Source set to single-shot mode string."""
-        scanner, setters = _make_scanner_with_mock_setters()
-        scanner._RE(scanner._set_trigger_state("OFF"))
+        re, controller, setters = _make_controller_with_mock_setters()
+        re(controller.set_state("OFF"))
 
         assert setters["Trigger.ExecuteSingleShot"].calls == []
         assert setters["Trigger.Source"].calls == ["Single shot external rising edges"]
 
-    def test_no_setters_is_noop(self) -> None:
-        """Empty setters dict produces an empty plan without error."""
+    def test_no_controller_is_noop(self) -> None:
+        """A scanner without a shot controller arms as an empty plan."""
         scanner = BlueskyScanner.__new__(BlueskyScanner)
         scanner._RE = RunEngine()
         scanner._shot_control = None
-        scanner._shot_control_setters = {}
-        scanner._RE(scanner._set_trigger_state("SCAN"))  # must not raise
+        scanner._shot_controller = None
+        scanner._RE(scanner._arm_trigger())  # must not raise
 
 
 # ---------------------------------------------------------------------------

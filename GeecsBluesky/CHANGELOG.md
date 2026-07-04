@@ -77,6 +77,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   free-run), finalize returned STANDBY, and the DG645 was restored to
   Internal afterwards via the gateway's own `Trigger_Source:SP` PV.
 
+- **`GeecsSession` — headless scan execution** (`geecs_bluesky/session.py`;
+  design note in `Planning/geecs_session/00_overview.md`): the full GUI-scan
+  run discipline (scan numbering, ScanInfo, save-path layout, schema v1,
+  Tiled, s-file export, shot-control bracketing) from a notebook/script, CA-only
+  by design. Verified live: a free-run NOSCAN (reference + contributor +
+  snapshot, images saving) and a strict NOSCAN (HTU-LaserOFF) from six lines of
+  session code.
+- **`ShotController` extracted** (`geecs_bluesky/shot_controller.py`) — the
+  arm/disarm/quiesce/single-shot plan stubs left `BlueskyScanner` (closing the
+  long-standing "shot-control bracketing not extracted" gap). Two transports:
+  `over_udp` (the original path) and `over_ca` — puts to the gateway `:SP` PVs,
+  used automatically by the scanner on the `ca` backend and by sessions.
+  Verified live driving the DG645 through ARMED/SINGLESHOT/STANDBY over CA.
+- Supporting extractions, all delegated to by the scanner so the GUI path is
+  unchanged: `tiled_integration.py` (TiledWriter subscription + descriptor
+  patch), `data_paths.py` (local ↔ device-server path mapping, asset roots),
+  `scanner_configs.py` (configs-repo resolution + validated shot-control YAML
+  loading; the hardware test now uses it instead of its own copy).
+
 ### Notes
 
 - `CaTriggerable` closes the strict single-shot race the same way

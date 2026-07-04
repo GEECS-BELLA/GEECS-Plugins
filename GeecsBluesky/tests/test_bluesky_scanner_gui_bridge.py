@@ -10,13 +10,20 @@ import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.scanner_bridge import bluesky_scanner
+from geecs_bluesky.data_paths import (
+    translate_save_path_for_device_server as _translate_save_path_for_device_server,
+)
 from geecs_bluesky.scanner_bridge.bluesky_scanner import (
     BlueskyScanner,
-    _prepare_descriptor_for_tiled,
-    _SafeDocumentCallback,
     _ensure_timestamp_variable,
-    _translate_save_path_for_device_server,
+)
+from geecs_bluesky.tiled_integration import (
+    SafeDocumentCallback as _SafeDocumentCallback,
+)
+from geecs_bluesky.tiled_integration import (
+    prepare_descriptor_for_tiled as _prepare_descriptor_for_tiled,
 )
 
 
@@ -180,7 +187,11 @@ def _scanner_with_shot_control(
 ) -> BlueskyScanner:
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._shot_control = ShotControlConfig.from_information(information)
-    scanner._shot_control_setters = setters or {}
+    scanner._shot_controller = (
+        ShotController(scanner._shot_control, setters)
+        if scanner._shot_control is not None and setters
+        else None
+    )
     return scanner
 
 

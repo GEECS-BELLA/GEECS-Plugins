@@ -43,31 +43,32 @@ import logging
 import os
 import queue
 import threading
-from configparser import ConfigParser
 from contextlib import contextmanager, nullcontext
-from pathlib import Path, PureWindowsPath
+from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
 from bluesky import RunEngine
-import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
 
-from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.assets import AssetDefinition, get_asset_definitions
+from geecs_bluesky.data_paths import (
+    asset_resource_root_paths,
+    device_server_save_path,
+)
 from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
+from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
-from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.plans.step_scan import geecs_step_scan
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_bluesky.shot_controller import ShotController, UdpSetter
+from geecs_bluesky.tiled_integration import subscribe_tiled
 from geecs_bluesky.utils import safe_name
 
 # ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
@@ -98,43 +99,6 @@ _FREE_RUN_MODE = "free_run_time_sync"
 _VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
 
 
-def _prepare_descriptor_for_tiled(doc: dict) -> dict:
-    """Store GEECS external asset datum IDs as internal Tiled metadata.
-
-    The RunEngine document stream still emits formal Resource/Datum docs for
-    GEECS native files.  The current lab Tiled server does not yet have readers
-    for those custom asset specs, so letting TiledWriter register them as
-    external data sources aborts the scan on ``stop``.  Until the server has
-    GEECS-aware adapters, Tiled stores the datum-id strings in its event table.
-    """
-    for data_key in doc.get("data_keys", {}).values():
-        if str(data_key.get("source", "")).startswith("geecs://"):
-            data_key.pop("external", None)
-            data_key["geecs_external_asset"] = True
-    return doc
-
-
-def _translate_save_path_for_device_server(
-    save_path: str | Path,
-    *,
-    local_base_path: str | Path,
-    device_server_base_path: str,
-) -> str:
-    """Translate a local scan path to the path understood by GEECS devices."""
-    local_path = Path(save_path)
-    local_base = Path(local_base_path)
-    try:
-        relative_path = local_path.relative_to(local_base)
-    except ValueError:
-        logger.warning(
-            "Native save path %s is not under local base path %s; using local path",
-            local_path,
-            local_base,
-        )
-        return str(local_path)
-    return str(PureWindowsPath(device_server_base_path, *relative_path.parts))
-
-
 def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     """Read *key* from a device config that may be a dict or a Pydantic model."""
     if isinstance(cfg, dict):
@@ -158,30 +122,6 @@ def _ensure_timestamp_variable(
     return [*variable_list, timestamp_variable]
 
 
-class _SafeDocumentCallback:
-    """Document callback wrapper that logs and disables itself on failure."""
-
-    def __init__(self, callback: Callable[[str, dict], None], label: str) -> None:
-        self._callback = callback
-        self._label = label
-        self._enabled = True
-
-    def __call__(self, name: str, doc: dict) -> None:
-        """Forward one document unless the wrapped callback has already failed."""
-        if not self._enabled:
-            return
-        try:
-            self._callback(name, doc)
-        except Exception:
-            self._enabled = False
-            logger.warning(
-                "%s failed while handling %s document; disabling callback",
-                self._label,
-                name,
-                exc_info=True,
-            )
-
-
 class _ScanLogContextFilter(logging.Filter):
     """Add scan id context to records written to one scan log."""
 
@@ -194,25 +134,8 @@ class _ScanLogContextFilter(logging.Filter):
         return True
 
 
-class _UdpSetter:
-    """Minimal Bluesky Movable: sets one GEECS variable via a shared UDP client.
-
-    Values are sent as strings, matching the GEECS wire protocol and the
-    shot-control YAML format (which may contain numeric strings or words
-    like ``"on"``/``"off"``).
-    """
-
-    def __init__(self, udp: GeecsUdpClient, variable: str) -> None:
-        self._udp = udp
-        self._variable = variable
-
-    def set(self, value: Any) -> AsyncStatus:
-        """Send *value* to the device; resolves when the UDP ACK is received."""
-
-        async def _do() -> None:
-            await self._udp.set(self._variable, str(value))
-
-        return AsyncStatus(_do())
+# Backwards-compatible alias; the implementation lives in shot_controller.
+_UdpSetter = UdpSetter
 
 
 # ---------------------------------------------------------------------------
@@ -278,11 +201,9 @@ class BlueskyScanner:
         self._current_state = self._scan_state("IDLE")
         self._abort_requested = False
 
-        self._tiled_token: int | None = None
-        if tiled_uri is None:
-            tiled_uri, tiled_api_key = self._read_tiled_config()
-        if tiled_uri:
-            self._subscribe_tiled(tiled_uri, tiled_api_key)
+        self._tiled_token: int | None = subscribe_tiled(
+            self._RE, tiled_uri, tiled_api_key
+        )
 
         self._scan_thread: threading.Thread | None = None
         self._scan_config: Any = None
@@ -324,8 +245,7 @@ class BlueskyScanner:
         self._shot_control: ShotControlConfig | None = (
             ShotControlConfig.from_information(shot_control_information)
         )
-        self._shot_control_udp: GeecsUdpClient | None = None
-        self._shot_control_setters: dict[str, _UdpSetter] = {}
+        self._shot_controller: ShotController | None = None
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
@@ -502,145 +422,6 @@ class BlueskyScanner:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _read_tiled_config() -> tuple[str | None, str | None]:
-        """Read Tiled URI and API key from ~/.config/geecs_python_api/config.ini.
-
-        Returns ``(uri, api_key)``, either of which may be ``None`` if absent.
-        """
-        import configparser
-        from pathlib import Path
-
-        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-        if not config_path.exists():
-            return None, None
-
-        cfg = configparser.ConfigParser()
-        cfg.read(config_path)
-
-        if "tiled" not in cfg:
-            return None, None
-
-        uri = cfg["tiled"].get("uri") or None
-        api_key = cfg["tiled"].get("api_key") or None
-        logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
-        return uri, api_key
-
-    @staticmethod
-    def _read_device_server_data_base_path() -> str | None:
-        """Read the data base path visible from GEECS device-server hosts."""
-        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-        if not config_path.exists():
-            return None
-
-        cfg = ConfigParser()
-        cfg.read(config_path)
-        if "Paths" not in cfg:
-            return None
-        return cfg["Paths"].get("geecs_device_server_data_base_path") or None
-
-    @staticmethod
-    def _read_local_data_base_path() -> str | None:
-        """Read the scanner-local path for the shared GEECS data root."""
-        config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-        if not config_path.exists():
-            return None
-
-        cfg = ConfigParser()
-        cfg.read(config_path)
-        if "Paths" not in cfg:
-            return None
-        return cfg["Paths"].get("GEECS_DATA_LOCAL_BASE_PATH") or None
-
-    @staticmethod
-    def _asset_resource_root_paths() -> tuple[str | None, str | None]:
-        """Return ``(canonical_root, local_root)`` for external asset docs."""
-        canonical_root = BlueskyScanner._read_device_server_data_base_path()
-        if not canonical_root:
-            return None, None
-
-        local_root = BlueskyScanner._read_local_data_base_path()
-        if local_root:
-            return canonical_root, local_root
-
-        try:
-            from geecs_data_utils import ScanPaths
-        except Exception:
-            logger.warning(
-                "Could not import geecs_data_utils; using scan-folder asset roots"
-            )
-            return None, None
-
-        paths_config = getattr(ScanPaths, "paths_config", None)
-        base_path = getattr(paths_config, "base_path", None)
-        if base_path is None:
-            logger.warning(
-                "ScanPaths.paths_config is not loaded; using scan-folder asset roots"
-            )
-            return None, None
-        return canonical_root, str(base_path)
-
-    @staticmethod
-    def _device_server_save_path(save_path: str) -> str:
-        """Return the path to send to device ``localsavingpath`` controls."""
-        device_server_base_path = BlueskyScanner._read_device_server_data_base_path()
-        if not device_server_base_path:
-            return save_path
-        try:
-            from geecs_data_utils import ScanPaths
-        except Exception:
-            logger.warning(
-                "Could not import geecs_data_utils; using local save path for device"
-            )
-            return save_path
-
-        paths_config = getattr(ScanPaths, "paths_config", None)
-        local_base_path = getattr(paths_config, "base_path", None)
-        if local_base_path is None:
-            logger.warning(
-                "ScanPaths.paths_config is not loaded; using local save path for device"
-            )
-            return save_path
-        return _translate_save_path_for_device_server(
-            save_path,
-            local_base_path=local_base_path,
-            device_server_base_path=device_server_base_path,
-        )
-
-    def _subscribe_tiled(self, tiled_uri: str, api_key: str | None = None) -> None:
-        """Subscribe a TiledWriter to the RunEngine.
-
-        Silently skips if ``tiled[client]`` is not installed or the server is
-        unreachable, so the scanner remains functional without Tiled.
-        """
-        try:
-            from bluesky.callbacks.tiled_writer import TiledWriter
-            from tiled.client import from_uri
-        except ImportError:
-            logger.warning(
-                "tiled not installed — Tiled storage disabled. "
-                "Enable with: pip install 'tiled[client]'"
-            )
-            return
-
-        try:
-            client = from_uri(tiled_uri, api_key=api_key)
-            writer = _SafeDocumentCallback(
-                TiledWriter(
-                    client,
-                    patches={"descriptor": _prepare_descriptor_for_tiled},
-                ),
-                label="TiledWriter",
-            )
-            self._tiled_token = self._RE.subscribe(writer)
-            logger.info("TiledWriter subscribed — catalog at %s", tiled_uri)
-        except Exception:
-            logger.warning(
-                "Could not connect TiledWriter to %s — Tiled storage disabled",
-                tiled_uri,
-                exc_info=True,
-            )
-
     def _on_document(self, name: str, doc: dict) -> None:
         if name == "start":
             self._last_run_uid = doc.get("uid")
@@ -690,43 +471,46 @@ class BlueskyScanner:
             self._detectors = []
             self._saving_detectors = []
 
-        if self._shot_control_udp is not None:
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    self._shot_control_udp.close(), self._RE._loop
-                ).result(timeout=_DISCONNECT_TIMEOUT)
-            except Exception:
-                logger.debug("Shot control UDP close raised", exc_info=True)
-            self._shot_control_udp = None
-            self._shot_control_setters = {}
+        if self._shot_controller is not None:
+            if self._shot_controller.udp is not None:
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self._shot_controller.udp.close(), self._RE._loop
+                    ).result(timeout=_DISCONNECT_TIMEOUT)
+                except Exception:
+                    logger.debug("Shot control UDP close raised", exc_info=True)
+            self._shot_controller = None
 
     def _build_shot_controller(self) -> None:
-        """Resolve the shot control device and create one _UdpSetter per variable.
+        """Build the ShotController: UDP setters (direct) or gateway :SP (ca).
 
-        Silently skips if no shot control device is configured or the DB
-        lookup fails, so scans without trigger control still run (e.g. in
+        Silently skips if no shot control device is configured or the setup
+        fails, so scans without trigger control still run (e.g. in
         internal-trigger test mode).
         """
         if self._shot_control is None or not self._shot_control.variables:
             logger.debug("No shot control device configured — trigger control disabled")
             return
         try:
-            from geecs_bluesky.db.geecs_db import GeecsDb
-
-            device_name = self._shot_control.device
-            host, port = GeecsDb.find_device(device_name)
-            udp = GeecsUdpClient(host, port, device_name=device_name)
-            asyncio.run_coroutine_threadsafe(udp.connect(), self._RE._loop).result(
-                timeout=_CONNECT_TIMEOUT
-            )
-            self._shot_control_udp = udp
-            self._shot_control_setters = {
-                var: _UdpSetter(udp, var) for var in self._shot_control.variables
-            }
+            if self._device_backend == "ca":
+                self._shot_controller = ShotController.over_ca(
+                    self._shot_control,
+                    experiment=self._experiment_dir,
+                    rep_rate_hz=self._rep_rate_hz,
+                )
+            else:
+                controller = ShotController.over_udp(
+                    self._shot_control, rep_rate_hz=self._rep_rate_hz
+                )
+                asyncio.run_coroutine_threadsafe(
+                    controller.udp.connect(), self._RE._loop
+                ).result(timeout=_CONNECT_TIMEOUT)
+                self._shot_controller = controller
             logger.info(
-                "Shot controller ready: %s (%d variables)",
-                device_name,
-                len(self._shot_control_setters),
+                "Shot controller ready: %s (%d variables, %s backend)",
+                self._shot_control.device,
+                len(self._shot_control.variables),
+                self._device_backend,
             )
         except Exception:
             logger.warning(
@@ -736,58 +520,28 @@ class BlueskyScanner:
 
     def _arm_trigger(self):
         """Bluesky plan stub: set all shot control variables to SCAN state."""
-        yield from self._set_trigger_state("SCAN")
+        if self._shot_controller is not None:
+            yield from self._shot_controller.arm()
 
     def _disarm_trigger(self):
         """Bluesky plan stub: set all shot control variables to STANDBY state."""
-        yield from self._set_trigger_state("STANDBY")
+        if self._shot_controller is not None:
+            yield from self._shot_controller.disarm()
 
     def _quiesce_trigger(self):
-        """Bluesky plan stub: stop the free-running trigger (OFF state).
-
-        Used before free-run t0 sync so device caches settle to one common
-        last shot.  OFF sets the source to single-shot mode (halts the
-        free-run); SCAN/STANDBY keep it running.
-        """
-        yield from self._set_trigger_state(ShotControlState.OFF)
+        """Bluesky plan stub: stop the free-running trigger (OFF state)."""
+        if self._shot_controller is not None:
+            yield from self._shot_controller.quiesce()
 
     def _arm_single_shot(self):
-        """Bluesky plan stub: arm full-power single-shot mode, confirm quiescent.
-
-        Drives the controller to the ``ARMED`` state (data-taking output +
-        single-shot source, halting the free-run), then watches every sync
-        device's ``acq_timestamp`` until it stops advancing — so plan-owned
-        firing can begin without racing a residual free-running shot.  Run once
-        at scan start (``setup_trigger``).
-        """
-        yield from self._set_trigger_state(ShotControlState.ARMED)
-        quiet_s = max(1.5, 2.5 / self._rep_rate_hz) if self._rep_rate_hz else 1.5
-        yield from geecs_confirm_quiescent(list(self._detectors), quiet_s=quiet_s)
+        """Bluesky plan stub: arm single-shot mode and confirm quiescent."""
+        if self._shot_controller is not None:
+            yield from self._shot_controller.arm_single_shot(list(self._detectors))
 
     def _fire_single_shot(self):
         """Bluesky plan stub: fire exactly one shot (SINGLESHOT state)."""
-        yield from self._set_trigger_state(ShotControlState.SINGLESHOT)
-
-    def _set_trigger_state(self, state: str | ShotControlState):
-        """Bluesky plan stub: drive all shot control variables to *state*.
-
-        Uses ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv`` because
-        ``bps.mv`` inspects ``.parent`` for coupled-device handling — an
-        ophyd-specific attribute that ``_UdpSetter`` intentionally omits.
-        Only the variables with a non-empty value for *state* are written
-        (the rest are no-ops); they are set concurrently then waited on.
-        """
-        if not self._shot_control_setters or self._shot_control is None:
-            return
-        group = f"shot_ctrl_{state}"
-        writes = self._shot_control.values_for_state(state)
-        for var_name, val in writes.items():
-            setter = self._shot_control_setters.get(var_name)
-            if setter is not None:
-                yield from bps.abs_set(setter, val, group=group)
-        if writes:
-            yield from bps.wait(group)
-            logger.info("Shot controller → %s", state)
+        if self._shot_controller is not None:
+            yield from self._shot_controller.fire_shot()
 
     def _require_strict_single_shot(self) -> None:
         """Raise unless strict mode can fire plan-owned single shots."""
@@ -800,17 +554,12 @@ class BlueskyScanner:
                 "strict_shot_control requires shot_control_information with a "
                 f"non-empty ARMED state. {guidance}"
             )
-        if not self._shot_control.defines_state(ShotControlState.ARMED):
-            raise GeecsConfigurationError(
-                "strict_shot_control requires shot_control_information to "
-                f"define a non-empty ARMED state. {guidance}"
-            )
-        if not self._shot_control_setters:
+        if self._shot_controller is None:
             raise GeecsConfigurationError(
                 "strict_shot_control requires a reachable shot-control device "
-                "with configured setters before acquisition can start. "
-                f"{guidance}"
+                f"with configured setters before acquisition can start. {guidance}"
             )
+        self._shot_controller.require_strict_single_shot()
 
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
@@ -1048,7 +797,7 @@ class BlueskyScanner:
                     saves_files = role in ("reference", "triggered", "contributor")
                     if saves_files and save_nonscalar and scan_folder is not None:
                         save_path = os.path.join(scan_folder, device_name)
-                        device_save_path = self._device_server_save_path(save_path)
+                        device_save_path = device_server_save_path(save_path)
                         det.configure_nonscalar_file_logging(save_path)
                         if scan_number is not None:
                             asset_definitions = self._asset_definitions_for_device_type(
@@ -1057,7 +806,7 @@ class BlueskyScanner:
                             )
                             if asset_definitions:
                                 asset_root, asset_local_root = (
-                                    self._asset_resource_root_paths()
+                                    asset_resource_root_paths()
                                 )
                                 det.configure_external_asset_logging(
                                     scan_number=scan_number,
@@ -1296,9 +1045,10 @@ class BlueskyScanner:
         }
 
         self._build_shot_controller()
-        arm = self._arm_trigger if self._shot_control_setters else None
-        disarm = self._disarm_trigger if self._shot_control_setters else None
-        quiesce = self._quiesce_trigger if self._shot_control_setters else None
+        has_ctrl = self._shot_controller is not None
+        arm = self._arm_trigger if has_ctrl else None
+        disarm = self._disarm_trigger if has_ctrl else None
+        quiesce = self._quiesce_trigger if has_ctrl else None
 
         if self._acquisition_mode == _FREE_RUN_MODE:
             if self._reference_detector is None:
