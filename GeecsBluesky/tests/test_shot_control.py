@@ -18,7 +18,6 @@ from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.plans.step_scan import geecs_step_scan
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
 from geecs_bluesky.shot_controller import ShotController, UdpSetter
 from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 from geecs_bluesky.transport.udp_client import GeecsUdpClient
@@ -164,13 +163,12 @@ class TestSetTriggerState:
         assert setters["Trigger.ExecuteSingleShot"].calls == []
         assert setters["Trigger.Source"].calls == ["Single shot external rising edges"]
 
-    def test_no_controller_is_noop(self) -> None:
-        """A scanner without a shot controller arms as an empty plan."""
-        scanner = BlueskyScanner.__new__(BlueskyScanner)
-        scanner._RE = RunEngine()
-        scanner._shot_control = None
-        scanner._shot_controller = None
-        scanner._RE(scanner._arm_trigger())  # must not raise
+    def test_state_with_no_setter_for_variable_is_skipped(self) -> None:
+        """A state whose variable has no setter is skipped, not an error."""
+        re, controller, setters = _make_controller_with_mock_setters()
+        controller._setters.pop("Trigger.Source")
+        re(controller.set_state("SCAN"))  # must not raise
+        assert setters["Trigger.ExecuteSingleShot"].calls == []
 
 
 # ---------------------------------------------------------------------------

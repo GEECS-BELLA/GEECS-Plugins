@@ -95,6 +95,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   patch), `data_paths.py` (local ↔ device-server path mapping, asset roots),
   `scanner_configs.py` (configs-repo resolution + validated shot-control YAML
   loading; the hardware test now uses it instead of its own copy).
+- **One orchestration recipe** — the scan composition (mode dispatch → run
+  wrapper → finalize disarm) extracted to
+  `plans/orchestration.py::build_step_scan_plan` and called by both
+  `GeecsSession.scan()` and `BlueskyScanner._run_step_scan`; the scanner's
+  duplicate recipe and its per-state plan stubs were deleted. Both front
+  doors re-verified live on the shared recipe (scanner ca-backend free-run;
+  session free-run with images and strict single-shot).
 
 ### Notes
 

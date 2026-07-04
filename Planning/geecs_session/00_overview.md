@@ -60,17 +60,23 @@ scanner uses it too, making a scan fully gateway-mediated.
 
 ## Phasing
 
-1. **v1 (this branch)**: extractions + `GeecsSession` with `scan()`/`noscan()`
+1. **v1 (landed)**: extractions + `GeecsSession` with `scan()`/`noscan()`
    (free-run + strict), image saving, asset docs, Tiled, s-file export.
-   `BlueskyScanner` delegates to the extracted modules but keeps its own
-   orchestration body.
-2. **v2**: `BlueskyScanner._run_step_scan` collapses into `exec_config` →
-   `session.scan()` adaptation (the "thin adapter"). Do this after v1 soaks —
-   the GUI path is hardware-verified and should not churn twice in one PR.
-3. **Endgame** (post direct-backend deletion): the gateway is the only thing
-   that speaks GEECS TCP/UDP (`transport/` + `db/` migrate toward it or a lean
-   base package); `geecs_bluesky` becomes a pure EPICS/Bluesky package whose
+2. **v1.5 (landed)**: the orchestration recipe itself (mode dispatch → run
+   wrapper → finalize disarm) extracted to
+   `geecs_bluesky/plans/orchestration.py::build_step_scan_plan`, called by
+   *both* `GeecsSession.scan()` and `BlueskyScanner._run_step_scan` — zero
+   recipe duplication. The scanner keeps only what is legitimately its own:
+   `exec_config` parsing, dual-backend device construction, and GUI plumbing
+   (thread, progress, lifecycle events, per-scan logs).
+3. **Endgame** (post direct-backend deletion): the scanner's device
+   construction collapses onto the session factories, making it the full
+   `exec_config → session` thin adapter; the gateway is the only thing that
+   speaks GEECS TCP/UDP (`transport/` + `db/` migrate toward it or a lean base
+   package); `geecs_bluesky` becomes a pure EPICS/Bluesky package whose
    GEECS-ness is the naming contract, event schema, and save conventions.
+   (The full adapter is *only* possible then, because the session is CA-only
+   while the scanner must serve both backends until direct dies.)
 
 ## Non-goals (for now)
 

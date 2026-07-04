@@ -49,7 +49,6 @@ from typing import Any, Callable
 
 import numpy as np
 from bluesky import RunEngine
-import bluesky.preprocessors as bpp
 
 
 from geecs_bluesky.assets import AssetDefinition, get_asset_definitions
@@ -64,9 +63,8 @@ from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
 from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
-from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.plans.orchestration import build_step_scan_plan
+from geecs_bluesky.plans.run_wrapper import claim_scan_number
 from geecs_bluesky.shot_controller import ShotController, UdpSetter
 from geecs_bluesky.tiled_integration import subscribe_tiled
 from geecs_bluesky.utils import safe_name
@@ -517,31 +515,6 @@ class BlueskyScanner:
                 "Could not build shot controller — trigger control disabled",
                 exc_info=True,
             )
-
-    def _arm_trigger(self):
-        """Bluesky plan stub: set all shot control variables to SCAN state."""
-        if self._shot_controller is not None:
-            yield from self._shot_controller.arm()
-
-    def _disarm_trigger(self):
-        """Bluesky plan stub: set all shot control variables to STANDBY state."""
-        if self._shot_controller is not None:
-            yield from self._shot_controller.disarm()
-
-    def _quiesce_trigger(self):
-        """Bluesky plan stub: stop the free-running trigger (OFF state)."""
-        if self._shot_controller is not None:
-            yield from self._shot_controller.quiesce()
-
-    def _arm_single_shot(self):
-        """Bluesky plan stub: arm single-shot mode and confirm quiescent."""
-        if self._shot_controller is not None:
-            yield from self._shot_controller.arm_single_shot(list(self._detectors))
-
-    def _fire_single_shot(self):
-        """Bluesky plan stub: fire exactly one shot (SINGLESHOT state)."""
-        if self._shot_controller is not None:
-            yield from self._shot_controller.fire_shot()
 
     def _require_strict_single_shot(self) -> None:
         """Raise unless strict mode can fire plan-owned single shots."""
@@ -1045,63 +1018,32 @@ class BlueskyScanner:
         }
 
         self._build_shot_controller()
-        has_ctrl = self._shot_controller is not None
-        arm = self._arm_trigger if has_ctrl else None
-        disarm = self._disarm_trigger if has_ctrl else None
-        quiesce = self._quiesce_trigger if has_ctrl else None
-
-        if self._acquisition_mode == _FREE_RUN_MODE:
-            if self._reference_detector is None:
-                logger.error(
-                    "free-run scan requires at least one synchronous device as "
-                    "reference; none found — aborting"
-                )
-                return
-            contributors = [
-                d for d in self._detectors if d is not self._reference_detector
-            ]
-            inner = geecs_free_run_step_scan(
-                motor=motor,
-                positions=positions,
-                reference=self._reference_detector,
-                detectors=contributors,
-                shots_per_step=self._shots_per_step,
-                arm_trigger=arm,
-                disarm_trigger=disarm,
-                quiesce_trigger=quiesce,
-            )
-        else:
+        strict = self._acquisition_mode != _FREE_RUN_MODE
+        if strict:
             self._require_strict_single_shot()
-            # Plan-owned single-shot: arm ARMED + confirm quiescent once, then
-            # fire one shot per row and await every device.  Teardown (disarm
-            # to STANDBY) is the outer finalize below.  No per-step arm/disarm.
-            logger.info("strict mode: plan-owned single-shot (ARMED + fire SINGLESHOT)")
-            inner = geecs_step_scan(
-                motor=motor,
-                positions=positions,
-                detectors=list(self._detectors),
-                shots_per_step=self._shots_per_step,
-                setup_trigger=self._arm_single_shot,
-                fire_shot=self._fire_single_shot,
+        elif self._reference_detector is None:
+            logger.error(
+                "free-run scan requires at least one synchronous device as "
+                "reference; none found — aborting"
             )
+            return
 
-        # Shared run bookkeeping: scan-number metadata (incl. scan_id) + native
-        # file saving.  The same wrapper a notebook plan would use.
-        scalar_devices = list(self._detectors)
-        if motor is not None:
-            scalar_devices.append(motor)
-        plan = geecs_run_wrapper(
-            inner,
+        # The one shared orchestration recipe (also used by GeecsSession):
+        # mode dispatch + run wrapper + guaranteed finalize disarm.
+        plan = build_step_scan_plan(
+            strict=strict,
+            motor=motor,
+            positions=positions,
+            reference=self._reference_detector,
+            detectors=list(self._detectors),
+            shots_per_step=self._shots_per_step,
+            controller=self._shot_controller,
             experiment=self._experiment_dir,
             scan_number=scan_number,
             scan_folder=scan_folder,
             saving_detectors=list(self._saving_detectors),
-            devices=scalar_devices,
             extra_md=run_md,
         )
-        # Outer finalize ensures disarm even on mid-step abort
-        if disarm is not None:
-            plan = bpp.finalize_wrapper(plan, self._disarm_trigger())
         log_context = (
             self._scan_log(scan_number, scan_folder)
             if scan_number is not None and scan_folder is not None

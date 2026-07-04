@@ -31,7 +31,6 @@ import os
 from pathlib import Path
 from typing import Any, Sequence
 
-import bluesky.preprocessors as bpp
 import numpy as np
 from bluesky import RunEngine
 
@@ -44,9 +43,8 @@ from geecs_bluesky.devices.ca import (
     CaTimestampedReadable,
 )
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
-from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.plans.orchestration import build_step_scan_plan
+from geecs_bluesky.plans.run_wrapper import claim_scan_number
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -321,42 +319,22 @@ class GeecsSession:
         saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
 
         controller = self._shot_controller
-        if mode == _FREE_RUN:
-            inner = geecs_free_run_step_scan(
-                motor=motor,
-                positions=positions,
-                reference=reference,
-                detectors=detectors[1:],
-                shots_per_step=shots_per_step,
-                arm_trigger=controller.arm if controller else None,
-                disarm_trigger=controller.disarm if controller else None,
-                quiesce_trigger=controller.quiesce if controller else None,
-            )
-        else:
-            if controller is None:
-                raise ValueError("mode='strict' requires shot_control(...) first")
-            controller.require_strict_single_shot()
-            inner = geecs_step_scan(
-                motor=motor,
-                positions=positions,
-                detectors=detectors,
-                shots_per_step=shots_per_step,
-                setup_trigger=lambda: controller.arm_single_shot(detectors),
-                fire_shot=controller.fire_shot,
-            )
-
-        scalar_devices = detectors + ([motor] if motor is not None else [])
-        plan = geecs_run_wrapper(
-            inner,
+        if mode == _STRICT and controller is None:
+            raise ValueError("mode='strict' requires shot_control(...) first")
+        plan = build_step_scan_plan(
+            strict=mode == _STRICT,
+            motor=motor,
+            positions=positions,
+            reference=reference,
+            detectors=detectors,
+            shots_per_step=shots_per_step,
+            controller=controller,
             experiment=self.experiment,
             scan_number=scan_number,
             scan_folder=scan_folder,
             saving_detectors=saving_detectors,
-            devices=scalar_devices,
             extra_md={"description": description, **(md or {})},
         )
-        if controller is not None:
-            plan = bpp.finalize_wrapper(plan, controller.disarm())
 
         self._last_run_uid = None
         self.RE(plan)
