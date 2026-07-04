@@ -112,8 +112,18 @@ class CaAcqTimestampReadable(StandardReadable):
             self._monitoring = True
 
     def _on_acq_timestamp(self, reading: dict[str, Any]) -> None:
-        """Monitor callback: cache the latest value and queue the update."""
+        """Monitor callback: cache the latest value and queue the update.
+
+        Non-positive values are ignored: a real GEECS ``acq_timestamp`` is a
+        LabVIEW-epoch time (~3.9e9), while ``0.0`` is the gateway channel's
+        initial placeholder before the device's first acquisition — treating it
+        as data would fake a t0 and make the placeholder→first-frame jump look
+        like a shot.  "Never acquired" therefore reads as ``_last_acq is None``
+        on both backends.
+        """
         value = reading[self.acq_timestamp.name]["value"]
+        if value is None or value <= 0:
+            return
         self._last_acq = value
         self._shot_queue.put_nowait(value)
 

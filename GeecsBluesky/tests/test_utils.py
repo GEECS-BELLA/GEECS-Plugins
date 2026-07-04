@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
-from geecs_bluesky.devices.motor import GeecsMotor
-from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
+import pytest
+
 from geecs_bluesky.utils import build_signal_attrs, safe_name
+
+pytest.importorskip("aioca")  # devices are CA-backed
+
+from geecs_bluesky.devices.ca import (  # noqa: E402
+    CaGenericDetector,
+    CaMotor,
+    CaSnapshotReadable,
+)
 
 
 def test_safe_name_mangles_and_lowercases() -> None:
@@ -26,11 +33,9 @@ def test_build_signal_attrs_disambiguates_collisions() -> None:
 
 
 def test_generic_detector_column_headers() -> None:
-    det = GeecsGenericDetector(
+    det = CaGenericDetector(
         "UC_Wavemeter",
         ["Wavelength (nm)", "Power (mW)"],
-        "127.0.0.1",
-        0,
         name="wavemeter",
     )
     assert det._column_headers == {
@@ -40,10 +45,10 @@ def test_generic_detector_column_headers() -> None:
 
 
 def test_snapshot_column_headers() -> None:
-    snap = GeecsSnapshotReadable("U_Stage", ["Position"], "127.0.0.1", 0, name="stage")
+    snap = CaSnapshotReadable("U_Stage", ["Position"], name="stage")
     assert snap._column_headers == {"stage-position": "U_Stage Position"}
 
 
 def test_motor_column_headers_uses_position_attr() -> None:
-    motor = GeecsMotor("U_ESP_JetXYZ", "Position.Axis 1", "127.0.0.1", 0, name="jet_x")
+    motor = CaMotor("U_ESP_JetXYZ", "Position.Axis 1", name="jet_x")
     assert motor._column_headers == {"jet_x-position": "U_ESP_JetXYZ Position.Axis 1"}

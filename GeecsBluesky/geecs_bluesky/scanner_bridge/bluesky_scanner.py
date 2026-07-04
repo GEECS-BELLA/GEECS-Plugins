@@ -57,15 +57,11 @@ from geecs_bluesky.data_paths import (
     device_server_save_path,
 )
 from geecs_bluesky.db.geecs_db import GeecsDb
-from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
-from geecs_bluesky.devices.motor import GeecsMotor
-from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
-from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number
-from geecs_bluesky.shot_controller import ShotController, UdpSetter
+from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
 from geecs_bluesky.utils import safe_name
 
@@ -130,10 +126,6 @@ class _ScanLogContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         record.scan_id = self._scan_id
         return True
-
-
-# Backwards-compatible alias; the implementation lives in shot_controller.
-_UdpSetter = UdpSetter
 
 
 # ---------------------------------------------------------------------------
@@ -210,20 +202,17 @@ class BlueskyScanner:
         self._acquisition_mode: str = _STRICT_MODE
         self._devices_config: dict[str, Any] = {}
 
-        # Device backend: "direct" = the original UDP/TCP transport devices;
-        # "ca" = CA-backed devices consuming the GeecsCAGateway PVs (requires
-        # the `ca` extra and a running gateway; EPICS_CA_* env vars scope the
-        # client). Env-only selection, mirroring GEECS_BLUESKY_ACQUISITION_MODE
-        # (bluesky is experimental — no GUI toggle by design).
-        self._device_backend = (
-            os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND", "direct").strip().lower()
-        )
-        if self._device_backend not in ("direct", "ca"):
+        # Devices are CA-backed only (the direct UDP/TCP backend was removed
+        # once the CA backend reached verified parity; the GeecsCAGateway is
+        # the one component that speaks GEECS wire protocol). Catch a stale
+        # environment loudly rather than silently changing behavior.
+        legacy_backend = os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND")
+        if legacy_backend and legacy_backend.strip().lower() != "ca":
             raise ValueError(
-                f"GEECS_BLUESKY_DEVICE_BACKEND={self._device_backend!r} invalid; "
-                "use 'direct' or 'ca'"
+                f"GEECS_BLUESKY_DEVICE_BACKEND={legacy_backend!r} is set, but "
+                "the direct device backend was removed — devices are CA-backed "
+                "via the GeecsCAGateway. Unset the variable (or set it to 'ca')."
             )
-        logger.info("Device backend: %s", self._device_backend)
 
         self._total_shots: int = 0
         self._completed_shots: int = 0
@@ -231,10 +220,10 @@ class BlueskyScanner:
         self._last_run_uid: str | None = None
 
         # Devices held open between reinitialize() and scan completion
-        self._motor: GeecsMotor | None = None
+        self._motor: Any | None = None
         self._detectors: list = []
         # Free-run pacemaker (first synchronous device); None in strict mode
-        self._reference_detector: GeecsGenericDetector | None = None
+        self._reference_detector: Any | None = None
         # Subset of detectors that save per-shot files: list of (detector, path)
         self._saving_detectors: list[tuple] = []
         self._nonscalar_save_paths: dict[str, str] = {}
@@ -469,15 +458,7 @@ class BlueskyScanner:
             self._detectors = []
             self._saving_detectors = []
 
-        if self._shot_controller is not None:
-            if self._shot_controller.udp is not None:
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        self._shot_controller.udp.close(), self._RE._loop
-                    ).result(timeout=_DISCONNECT_TIMEOUT)
-                except Exception:
-                    logger.debug("Shot control UDP close raised", exc_info=True)
-            self._shot_controller = None
+        self._shot_controller = None
 
     def _build_shot_controller(self) -> None:
         """Build the ShotController: UDP setters (direct) or gateway :SP (ca).
@@ -490,25 +471,15 @@ class BlueskyScanner:
             logger.debug("No shot control device configured — trigger control disabled")
             return
         try:
-            if self._device_backend == "ca":
-                self._shot_controller = ShotController.over_ca(
-                    self._shot_control,
-                    experiment=self._experiment_dir,
-                    rep_rate_hz=self._rep_rate_hz,
-                )
-            else:
-                controller = ShotController.over_udp(
-                    self._shot_control, rep_rate_hz=self._rep_rate_hz
-                )
-                asyncio.run_coroutine_threadsafe(
-                    controller.udp.connect(), self._RE._loop
-                ).result(timeout=_CONNECT_TIMEOUT)
-                self._shot_controller = controller
+            self._shot_controller = ShotController.over_ca(
+                self._shot_control,
+                experiment=self._experiment_dir,
+                rep_rate_hz=self._rep_rate_hz,
+            )
             logger.info(
-                "Shot controller ready: %s (%d variables, %s backend)",
+                "Shot controller ready: %s (%d variables, via gateway :SP)",
                 self._shot_control.device,
                 len(self._shot_control.variables),
-                self._device_backend,
             )
         except Exception:
             logger.warning(
@@ -690,9 +661,9 @@ class BlueskyScanner:
         Each device's role is decided by :meth:`_classify_device_roles` from
         the acquisition mode.  In free-run mode the first synchronous device
         becomes the reference (pacemaker) and later synchronous devices become
-        non-blocking :class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`
-        contributors anchored to it; in strict mode every synchronous device
-        is a triggered :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`.
+        non-blocking contributors anchored to it; in strict mode every
+        synchronous device is a triggered detector.  All devices are CA-backed
+        (:mod:`geecs_bluesky.devices.ca`), consuming the gateway PVs.
         Populates ``self._detectors``, ``self._reference_detector``, and
         ``self._saving_detectors`` in place.  Devices that fail to resolve or
         connect are logged and skipped.
@@ -721,50 +692,14 @@ class BlueskyScanner:
             ophyd_name = safe_name(device_name)
 
             try:
-                if self._device_backend == "ca":
-                    det = self._build_ca_detector(
-                        role,
-                        device_name,
-                        variable_list,
-                        ophyd_name,
-                        save_nonscalar,
-                        timestamp_variable,
-                    )
-                elif role == "contributor":
-                    det = GeecsTimestampedReadable.from_db(
-                        device_name,
-                        variable_list,
-                        name=ophyd_name,
-                        save_nonscalar_data=save_nonscalar,
-                        acq_timestamp_variable=timestamp_variable,
-                    )
-                    self._connect_device(det)
-                    det.configure_shot_id(self._rep_rate_hz)
-                    if self._reference_detector is not None:
-                        det.set_reference(self._reference_detector)
-                elif role == "snapshot":
-                    if save_nonscalar:
-                        logger.warning(
-                            "Ignoring save_nonscalar_data for asynchronous "
-                            "snapshot device %s",
-                            device_name,
-                        )
-                    det = GeecsSnapshotReadable.from_db(
-                        device_name, variable_list, name=ophyd_name
-                    )
-                    self._connect_device(det)
-                else:  # "reference" or "triggered"
-                    det = GeecsGenericDetector.from_db(
-                        device_name,
-                        variable_list,
-                        name=ophyd_name,
-                        save_nonscalar_data=save_nonscalar,
-                        acq_timestamp_variable=timestamp_variable,
-                    )
-                    self._connect_device(det)
-                    det.configure_shot_id(self._rep_rate_hz)
-                    if role == "reference":
-                        self._reference_detector = det
+                det = self._build_ca_detector(
+                    role,
+                    device_name,
+                    variable_list,
+                    ophyd_name,
+                    save_nonscalar,
+                    timestamp_variable,
+                )
                 with self._device_lock:
                     self._detectors.append(det)
                     saves_files = role in ("reference", "triggered", "contributor")
@@ -926,18 +861,14 @@ class BlueskyScanner:
         logger.info(
             "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name
         )
-        if self._device_backend == "ca":
-            # Deferred import: needs the `ca` extra (aioca).
-            from geecs_bluesky.devices.ca import CaMotor
+        from geecs_bluesky.devices.ca import CaMotor
 
-            motor = CaMotor(
-                device_name,
-                variable,
-                experiment=self._experiment_dir,
-                name=ophyd_name,
-            )
-        else:
-            motor = GeecsMotor.from_db_axis(device_name, variable, name=ophyd_name)
+        motor = CaMotor(
+            device_name,
+            variable,
+            experiment=self._experiment_dir,
+            name=ophyd_name,
+        )
 
         logger.info("Connecting motor …")
         self._connect_device(motor)

@@ -49,6 +49,87 @@ with a Bluesky plan that is:
 
 ```
 geecs_bluesky/
+  session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
+  scanner_bridge/
+    bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible GUI bridge
+  plans/
+    orchestration.py        # build_step_scan_plan — THE one scan recipe (both front doors)
+    step_scan.py            # geecs_step_scan — step scan (motor optional; hooks)
+    free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
+    single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
+    t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
+    run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
+  devices/
+    ca/                     # THE device family: CA-backed via GeecsCAGateway PVs (`ca` extra)
+      triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
+      generic_detector.py   # CaGenericDetector — shot-id columns + native saving
+      timestamped_readable.py # CaTimestampedReadable — free-run contributor
+      snapshot.py           # CaSnapshotReadable — async readback
+      settable.py           # CaSettable — put :SP, read streamed readback
+      motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
+    shot_id.py              # ShotIdTracker + ShotIdSupport mixin (schema-v1 columns)
+    nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
+    contributor.py          # FreeRunContributorSupport — reference-relative labeling
+    scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
+  shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
+  tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
+  data_paths.py             # local ↔ device-server path mapping, asset roots
+  scanner_configs.py        # configs-repo resolution + shot-control YAML loading
+  models/
+    shot_control.py         # ShotControlConfig / ShotControlState — validated YAML
+  transport/
+    udp_client.py           # GeecsUdpClient — asyncio UDP; two-stage ACK/EXE protocol
+    tcp_subscriber.py       # GeecsTcpSubscriber — framed TCP push at ~5 Hz
+  db/
+    geecs_db.py             # GeecsDb — MySQL lookup: device name → (host, port), metadata
+  testing/
+    fake_device_server.py   # FakeGeecsServer / FakeGeecsDevice — in-process test server
+  pv_naming.py              # shared GEECS-name → PV naming contract (gateway imports it too)
+  exceptions.py             # GeecsDeviceNotFoundError, GeecsT0SyncError, …
+  utils.py                  # safe_name() / build_signal_attrs()
+
+The ``transport/`` core and ``testing/`` fake server remain even though devices
+are CA-only: **GeecsCAGateway is their consumer** (the gateway is the one
+component that speaks GEECS TCP/UDP; ``FakeGeecsServer`` backs its offline
+tests and demo, and ``tests/test_transport.py`` here).
+
+EVENT_SCHEMA.md`); consumers branch on `geecs_event_schema`, never on
+the mode.  The full design and rationale live in
+`Planning/acquisition_modes/` (start at `00_overview.md`); `EVENT_SCHEMA.md` is
+the canonical data contract.
+
+- **`free_run_time_sync`** — the external trigger free-runs at the machine rep
+  rate.  The first synchronous device is the **reference** (pacemaker): its
+  `acq_timestamp` advance creates one event row; every other device fills that
+  row's columns, each labeled with a derived `shot_id` / `shot_offset` /
+  `valid` so late/slow devices are tolerated and realignable downstream.
+- **`strict_shot_control`** — every device must be present on each shot.  With
+  a reachable shot-control device and an `ARMED` state in the shot-control
+  config it does true plan-owned single-shot (arm → confirm trigger quiescent
+  → fire one shot → await all).  Strict mode aborts when those requirements are
+  not met; use `free_run_time_sync` for free-running trigger acquisition.
+
+NOSCAN ("statistics collection") is just a motorless step scan (one no-move
+bin), so it honours the same mode dispatch.
+
+## Why This Exists
+
+The legacy `ScanManager` in `GEECS-Scanner-GUI/` is a monolith that mixes device
+I/O, file writing, state management, and threading.  `BlueskyScanner` replaces it
+with a Bluesky plan that is:
+
+- **Testable without hardware** — `FakeGeecsServer` runs an in-process UDP/TCP
+  device; all unit tests use it
+- **Observable** — every shot emits a Bluesky event document; Tiled persists them
+- **Composable** — plans are plain generators; the per-shot stubs
+  (`geecs_single_shot`, `geecs_t0_sync`, …) and `geecs_run_wrapper` are the
+  reusable unit, so a custom notebook plan inherits the same schema, scan
+  numbering, and save-path discipline as a GUI scan
+
+## Package Layout
+
+```
+geecs_bluesky/
   scanner_bridge/
     bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible API; mode dispatch
   plans/
@@ -150,17 +231,17 @@ States are `ShotControlState`: `OFF`, `SCAN`, `STANDBY`, `SINGLESHOT`, `ARMED`.
 `values_for_state(state)` returns the `{var: value}` writes for a state, skipping
 empty-string no-ops (matching legacy `TriggerController`).
 
-`_UdpSetter` is a minimal Bluesky `Movable` (`.set(value) → AsyncStatus`) wrapping
-one GEECS variable over the shared `GeecsUdpClient`.  It omits `.parent`, so
-`_set_trigger_state` uses `bps.abs_set` + `bps.wait`, not `bps.mv`.  The scanner
-exposes plan-stub callables built from it:
+`ShotController` (`shot_controller.py`) drives the shot-control device through
+its named states as plan stubs, via `CaPutSetter`s writing the gateway `:SP`
+PVs (put-completion rides GEECS's blocking set). Both `BlueskyScanner` and
+`GeecsSession` use it:
 
-- `_arm_trigger` → `SCAN`, `_disarm_trigger` → `STANDBY` (per-step bracketing on
-  the free-running modes; jet on during shots, off during moves)
-- `_quiesce_trigger` → `OFF` (stops the free-run — used before free-run t0 sync;
+- `arm()` → `SCAN`, `disarm()` → `STANDBY` (per-step bracketing on the
+  free-running modes; jet on during shots, off during moves)
+- `quiesce()` → `OFF` (stops the free-run — used before free-run t0 sync;
   `STANDBY` keeps the trigger free-running on real hardware, so it cannot quiesce)
-- `_arm_single_shot` → `ARMED` then `geecs_confirm_quiescent`, and
-  `_fire_single_shot` → `SINGLESHOT` (strict plan-owned single-shot)
+- `arm_single_shot(detectors)` → `ARMED` then `geecs_confirm_quiescent`, and
+  `fire_shot()` → `SINGLESHOT` (strict plan-owned single-shot)
 
 How they compose per mode:
 ```
@@ -205,88 +286,46 @@ Device connect/disconnect uses `asyncio.run_coroutine_threadsafe(...).result(tim
 
 ## Device Layer
 
-Two device backends produce the **same event-schema-v1 documents**, selected by
-`GEECS_BLUESKY_DEVICE_BACKEND=direct|ca` (default `direct`) at the single
-construction point in `BlueskyScanner` (`_build_detectors` / `_build_ca_detector`
-/ `_run_standard_scan`):
+**Devices are CA-backed only** (`devices/ca/*`): stock ophyd-async
+`epics_signal_r/rw` against the GeecsCAGateway PVs
+(`[Experiment:]Device:Variable`, setpoints at `…:SP`). Requires the `ca` extra
+(`aioca`) and a running gateway (≥0.3.0 for control-surface and long-string
+path PVs). The gateway is consumed as a **CA service, never as a Python
+import** (the gateway imports our transport core, so an import the other way
+would be circular). The direct UDP/TCP device backend was deleted after the CA
+backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
+`GEECS_BLUESKY_DEVICE_BACKEND` env var set to anything but `ca` now raises.
 
-- **direct** — the classes below; GEECS UDP/TCP transport in-process.
-- **ca** — `devices/ca/*`; stock ophyd-async `epics_signal_r/rw` against the
-  GeecsCAGateway PVs (`[Experiment:]Device:Variable`, setpoints at `…:SP`).
-  Requires the `ca` extra (`aioca`) and a running gateway (≥0.3.0 for
-  control-surface and long-string path PVs). The gateway is consumed as a **CA
-  service, never as a Python import** (the gateway imports our transport, so an
-  import the other way would be circular).
+- **`CaAcqTimestampReadable`** — readable signals + a persistent CA monitor on
+  `acq_timestamp` feeding a local cache/queue (the CA analogue of the old TCP
+  shot cache). Non-positive timestamps are ignored: `0.0` is the gateway
+  channel's pre-acquisition placeholder, so "never acquired" reads as `None`.
+- **`CaTriggerable`** — `trigger()` completes when `acq_timestamp` advances.
+  The stale-drain and baseline happen **synchronously in `trigger()`** so a
+  shot fired immediately after `bps.trigger` (strict single-shot) can't be
+  missed — pinned by a mock race test.
+- **`CaGenericDetector`** — the triggered detector: dynamic float signals +
+  schema-v1 companion columns (`ShotIdSupport`) + native file saving
+  (`NonScalarSaveSupport`; `localsavingpath`/`save` write the gateway `:SP`).
+- **`CaTimestampedReadable`** — free-run contributor: non-blocking reads with
+  reference-relative `shot_offset`/`valid` labeling (the shared
+  `FreeRunContributorSupport` mixin).
+- **`CaSnapshotReadable`** — async readback sampled once per event row.
+- **`CaSettable` / `CaMotor`** — puts ride GEECS's native blocking convergence
+  through the gateway `:SP`; the motor adds a readback-tolerance poll with
+  `move_timeout` as the CA put budget.
 
-Domain logic is shared, not duplicated: `ShotIdSupport`,
-`NonScalarSaveSupport`, and `FreeRunContributorSupport` are composed by both
-families — only the transport differs (`acq_timestamp` from the TCP shot cache
-vs a persistent CA monitor; save controls via UDP signals vs `:SP` puts).
-`CaTriggerable` closes the strict fire-right-after-trigger race the same way
-`GeecsTriggerable` does (synchronous baseline from the monitor cache), pinned
-by a mock race test. Backend equivalence was verified live: identical event
-key sets and counts for NOSCAN/STANDARD, full-output image saving, multi-role
-free-run, and strict single-shot (Scans 007–015, 2026-07-03).
+Shot IDs (`ShotIdTracker`): a device's `shot_id` is its physical
+trigger-opportunity number, derived **incrementally** from its own
+`acq_timestamp` (`shot_id += round(Δt × rep_rate)`) so rep-rate error never
+accumulates. Cross-device matching is `shot_id` **equality**; files join to
+events by device `acq_timestamp`, never by `shot_id`.
 
-The hardware test loads its shot-control config from the configs repo via
-`GEECS_BLUESKY_LASER=on|off` (default `off` → `HTU-LaserOFF`, internal
-single-shot — safe with no external timing). Plain `pytest` runs only the
-hermetic `tests/` suite (`testpaths`); the top-level hardware scripts run
-explicitly and drive real scans.
+Hermetic testing uses ophyd-async mock backends (`tests/ca_mock_helpers.py`):
+`set_mock_value` on `acq_timestamp` is a shot, `start_pacer` on the RE loop is
+the free-running trigger, `follow_setpoint` stands in for GEECS convergence.
 
-### GeecsDevice
-
-Base class (`StandardReadable`).  One shared `GeecsUdpClient` per device instance;
-all signals share it.  The UDP client's `asyncio.Lock` serialises concurrent
-get/set calls.
-
-### GeecsTriggerable
-
-`trigger()` waits for `acq_timestamp` to advance (event-driven via `asyncio.Queue`
-populated by the TCP subscriber).  No polling.  Robust to device restarts because
-it tracks the timestamp value, not a shot counter.  It drains stale frames and
-baselines `acq_timestamp` **synchronously at call time**, so a shot fired right
-after `bps.trigger` (the strict single-shot pattern) can't be missed.
-
-### GeecsMotor
-
-`set(pos)` sends a UDP move command then polls `Position` until within tolerance
-(`move_timeout=30 s`).  Factory: `GeecsMotor.from_db_axis(device, variable, name=...)`.
-
-### Shot IDs (`ShotIdTracker` / `ShotIdSupport`)
-
-A device's `shot_id` is its physical trigger-opportunity number, derived
-**incrementally** from its own `acq_timestamp` (`shot_id += round(Δt × rep_rate)`)
-so rep-rate error never accumulates.  `ShotIdSupport` (mixin) adds
-`configure_shot_id` / `seed_shot_id` / `last_acq_timestamp` and emits the
-companion columns.  Cross-device matching is `shot_id` **equality** (each device
-quantizes its own elapsed time against its own t0), not a timestamp tolerance —
-the implicit window is the ±½-period rounding.  Per-device t0s are captured
-together by `geecs_t0_sync` (free-run) or self-seeded on first read (strict).
-
-### GeecsGenericDetector
-
-Dynamically creates one signal per variable in `variable_list`, and (via
-`ShotIdSupport`) emits the schema-v1 companion columns every read:
-`<det>-acq_timestamp`, `<det>-t0_acq_timestamp`, `<det>-shot_id`,
-`<det>-shot_offset`, `<det>-valid` — stable keys (NaN/`False` when underivable).
-Native file saving comes from the shared `NonScalarSaveSupport` mixin
-(`save_nonscalar_data=True` → `localsavingpath` / `save` signals +
-`<det>-nonscalar_save_path` column); `geecs_run_wrapper` sets the save paths on
-before the run and off in a finalize.  File names remain hardware-native — join
-files to events by device `acq_timestamp`, never by `shot_id` (a matching/
-diagnostic value, not a file key).
-
-### GeecsTimestampedReadable
-
-The free-run **contributor**: read like a snapshot (no blocking `trigger()`, so
-it never gates the row), but it carries the same companion columns relative to
-the reference.  `set_reference(ref)` anchors it (held via `ophyd_async.Reference`
-to avoid child-adoption); `read()` peeks the reference's `shot_id`, optionally
-grace-waits ~one TCP push period for a late frame to catch up, then labels its
-own data with `shot_offset` / `valid`.  Supports `save_nonscalar_data` too.
-
-## Transport Layer
+## Transport Layer (gateway-facing — devices do not use it)
 
 ### GeecsUdpClient
 

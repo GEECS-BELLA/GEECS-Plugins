@@ -1,10 +1,9 @@
-"""End-to-end tests for geecs_free_run_step_scan (synchronous RunEngine).
+"""End-to-end tests for geecs_free_run_step_scan (CA-mock devices).
 
-Two fake devices on separate servers: a combined motor+reference device
-(pacemaker) and a contributor camera.  A single firer thread advances both
-fakes' ``acq_timestamp`` together — or only the reference's, to simulate a
-dead contributor.  Firing starts after a delay so the t0-sync stage sees the
-static pre-scan caches.
+A pacer coroutine on the RunEngine loop advances the reference's (and
+optionally the contributor's) ``acq_timestamp`` — the fake free-running
+trigger.  Pacing starts after a delay so the t0-sync stage sees the static
+pre-scan caches.
 """
 
 from __future__ import annotations
@@ -15,19 +14,23 @@ import bluesky.plan_stubs as bps
 import pytest
 from bluesky import RunEngine
 
-from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
-from geecs_bluesky.devices.motor import GeecsMotor
-from geecs_bluesky.devices.snapshot import GeecsSnapshotReadable
-from geecs_bluesky.devices.timestamped_readable import GeecsTimestampedReadable
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice
-from tests.fake_server_helpers import (
-    BackgroundFakeServers,
-    connect_devices,
-    disconnect_devices,
-)
 
-pytestmark = pytest.mark.fake_server
+pytest.importorskip("aioca")
+
+from ophyd_async.core import set_mock_value  # noqa: E402
+
+from geecs_bluesky.devices.ca import (  # noqa: E402
+    CaGenericDetector,
+    CaMotor,
+    CaSnapshotReadable,
+    CaTimestampedReadable,
+)
+from tests.ca_mock_helpers import (  # noqa: E402
+    connect_mock,
+    follow_setpoint,
+    start_pacer,
+)
 
 REF_T0 = 1000.0
 CAM_T0 = 1000.05
@@ -45,20 +48,6 @@ def _run_free_run_scan(
     ``quiesce_log`` (if given) receives a marker when the plan's
     ``quiesce_trigger`` runs, in order relative to the emitted events.
     """
-    fake_ref = FakeGeecsDevice(
-        name="U_Ref",
-        variables={"Position (mm)": 0.0, "Sig": 1.0, "acq_timestamp": REF_T0},
-    )
-    fake_cam = FakeGeecsDevice(
-        name="U_Cam",
-        variables={"Val": 2.0, "acq_timestamp": CAM_T0},
-    )
-
-    def fire(devices: list[FakeGeecsDevice]) -> None:
-        devices[0].fire_shot()
-        if fire_cam:
-            devices[1].fire_shot()
-
     descriptors: dict[str, str] = {}  # descriptor uid → stream name
     primary_events: list[dict] = []
     flush_events: list[dict] = []
@@ -73,64 +62,51 @@ def _run_free_run_scan(
             stream = descriptors.get(doc["descriptor"], "")
             (flush_events if stream == "flush" else primary_events).append(doc)
 
-    with BackgroundFakeServers(
-        [fake_ref, fake_cam],
-        fire=fire,
-        initial_delay=1.0,
-        interval=0.3,
-    ) as server:
-        (ref_host, ref_port), (cam_host, cam_port) = server.endpoints
+    motor = CaMotor("U_Ref", "Position (mm)", name="scan_motor")
+    ref = CaGenericDetector("U_Ref", ["Sig"], name="ref")
+    cam = CaTimestampedReadable("U_Cam", ["Val"], name="cam")
+    snapshot = CaSnapshotReadable("U_Ref", ["Position (mm)"], name="async_snapshot")
+    ref.configure_shot_id(rep_rate_hz=1.0)
+    cam.configure_shot_id(rep_rate_hz=1.0)
+    if not fire_cam:
+        cam.set_reference(ref, grace_wait_s=0.05)  # don't pay grace on a dead cam
 
-        motor = GeecsMotor(
-            "U_Ref", "Position (mm)", ref_host, ref_port, name="scan_motor"
-        )
-        ref = GeecsGenericDetector("U_Ref", ["Sig"], ref_host, ref_port, name="ref")
-        cam = GeecsTimestampedReadable("U_Cam", ["Val"], cam_host, cam_port, name="cam")
-        snapshot = GeecsSnapshotReadable(
-            "U_Ref", ["Position (mm)"], ref_host, ref_port, name="async_snapshot"
-        )
-        ref.configure_shot_id(rep_rate_hz=1.0)
-        cam.configure_shot_id(rep_rate_hz=1.0)
-        if not fire_cam:
-            cam.set_reference(
-                ref, grace_wait_s=0.05
-            )  # don't pay grace on a dead camera
+    RE = RunEngine()
+    RE.subscribe(collect)
+    connect_mock(RE, motor, ref, cam, snapshot)
+    follow_setpoint(motor)
+    set_mock_value(ref.acq_timestamp, REF_T0)
+    set_mock_value(cam.acq_timestamp, CAM_T0)
+    set_mock_value(cam.val, 2.0)
 
-        RE = RunEngine()
-        RE.subscribe(collect)
-        connect_devices(RE, motor, ref, cam, snapshot)
+    targets = [(ref, REF_T0)] + ([(cam, CAM_T0)] if fire_cam else [])
+    pacer = start_pacer(RE, targets, initial_delay=1.0, interval=0.3)
 
-        if statistics:
-            plan_motor, positions, shots = None, [None], 4
-        else:
-            plan_motor, positions, shots = motor, [0.0, 1.0], 2
+    if statistics:
+        plan_motor, positions, shots = None, [None], 4
+    else:
+        plan_motor, positions, shots = motor, [0.0, 1.0], 2
 
-        quiesce = None
-        if quiesce_log is not None:
+    quiesce = None
+    if quiesce_log is not None:
 
-            def quiesce():
-                quiesce_log.append("quiesced")
-                yield from bps.null()
+        def quiesce():
+            quiesce_log.append("quiesced")
+            yield from bps.null()
 
-        try:
-            RE(
-                geecs_free_run_step_scan(
-                    motor=plan_motor,
-                    positions=positions,
-                    reference=ref,
-                    detectors=[cam, snapshot],
-                    shots_per_step=shots,
-                    quiesce_trigger=quiesce,
-                )
+    try:
+        RE(
+            geecs_free_run_step_scan(
+                motor=plan_motor,
+                positions=positions,
+                reference=ref,
+                detectors=[cam, snapshot],
+                shots_per_step=shots,
+                quiesce_trigger=quiesce,
             )
-        finally:
-            disconnect_devices(
-                RE,
-                motor,
-                ref,
-                cam,
-                snapshot,
-            )
+        )
+    finally:
+        pacer.cancel()
     return primary_events, start_docs[0], flush_events
 
 

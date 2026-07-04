@@ -12,7 +12,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner, ophyd-async GEECS devices (direct UDP/TCP + CA-gateway backends), Tiled integration |
+| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration; also hosts the GEECS transport core the gateway uses |
 | `GeecsCAGateway/` | caproto EPICS Channel Access gateway: serves GEECS devices as PVs (readback + `:SP` setpoints) so Phoebus/Archiver/ophyd-async work without bespoke bridges |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 | `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |

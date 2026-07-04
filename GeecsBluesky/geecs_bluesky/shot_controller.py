@@ -4,13 +4,10 @@ Extracted from ``BlueskyScanner`` so notebooks and :class:`~geecs_bluesky.sessio
 get the same arm/disarm/quiesce/single-shot discipline as GUI scans.  The
 controller is built from a validated
 :class:`~geecs_bluesky.models.shot_control.ShotControlConfig` plus one Bluesky
-``Movable`` setter per shot-control variable, with two transport factories:
-
-* :meth:`ShotController.over_udp` — direct GEECS UDP (DB lookup + shared
-  client), the original scanner path.
-* :meth:`ShotController.over_ca` — puts to the gateway's ``…:SP`` PVs, which
-  ride GEECS's blocking UDP set server-side.  String values from the YAML map
-  naturally: enum PVs take labels, numeric PVs coerce numeric strings.
+``Movable`` setter per shot-control variable.  :meth:`ShotController.over_ca`
+puts to the gateway's ``…:SP`` PVs, which ride GEECS's blocking UDP set
+server-side; string values from the YAML map naturally (enum PVs take labels,
+numeric PVs coerce numeric strings).
 
 All state-driving methods are Bluesky **plan stubs** (generators) — compose
 them into plans or pass them as the ``arm_trigger``/``fire_shot`` hooks of the
@@ -29,30 +26,8 @@ from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlState
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.pv_naming import pv_name
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 logger = logging.getLogger(__name__)
-
-
-class UdpSetter:
-    """Minimal Bluesky Movable: sets one GEECS variable via a shared UDP client.
-
-    Values are sent as strings, matching the GEECS wire protocol and the
-    shot-control YAML format (which may contain numeric strings or words
-    like ``"on"``/``"off"``).
-    """
-
-    def __init__(self, udp: GeecsUdpClient, variable: str) -> None:
-        self._udp = udp
-        self._variable = variable
-
-    def set(self, value: Any) -> AsyncStatus:
-        """Send *value* to the device; resolves when the UDP ACK is received."""
-
-        async def _do() -> None:
-            await self._udp.set(self._variable, str(value))
-
-        return AsyncStatus(_do())
 
 
 class CaPutSetter:
@@ -103,35 +78,10 @@ class ShotController:
         self.config = config
         self._setters = setters
         self._rep_rate_hz = rep_rate_hz
-        self.udp: GeecsUdpClient | None = None  # set by over_udp for teardown
 
     # ------------------------------------------------------------------
     # Factories
     # ------------------------------------------------------------------
-
-    @classmethod
-    def over_udp(
-        cls,
-        config: ShotControlConfig,
-        *,
-        rep_rate_hz: float = 1.0,
-    ) -> "ShotController":
-        """Build with direct-UDP setters (DB endpoint lookup; client unconnected).
-
-        The caller owns connecting/closing ``controller.udp`` in the event loop
-        the plans will run in (the scanner connects it in the RE loop).
-        """
-        from geecs_bluesky.db.geecs_db import GeecsDb
-
-        host, port = GeecsDb.find_device(config.device)
-        udp = GeecsUdpClient(host, port, device_name=config.device)
-        controller = cls(
-            config,
-            {var: UdpSetter(udp, var) for var in config.variables},
-            rep_rate_hz=rep_rate_hz,
-        )
-        controller.udp = udp
-        return controller
 
     @classmethod
     def over_ca(

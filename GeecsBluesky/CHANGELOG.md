@@ -4,6 +4,36 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.17.0] - 2026-07-04
+
+### Removed
+
+- **The direct UDP/TCP device backend is deleted** — the CA backend reached
+  verified live parity (Scans 007–015), and per project direction the bespoke
+  path dies once the standard path wins. Gone: `GeecsDevice`, `GeecsSettable`,
+  `GeecsMotor`, `GeecsGenericDetector`, `GeecsTimestampedReadable`,
+  `GeecsSnapshotReadable`, `GeecsTriggerable`, `signals.py`, `backends/`,
+  `NonScalarSaveSupport._init_save_signals`, `ShotController.over_udp` /
+  `UdpSetter`, and the `GEECS_BLUESKY_DEVICE_BACKEND` selector (setting it to
+  anything but `ca` now raises). `BlueskyScanner` and `GeecsSession` are both
+  CA-only; the gateway is the one component speaking GEECS wire protocol.
+- `transport/`, `db/`, `testing/fake_device_server.py`, and `pv_naming.py`
+  **remain** — GeecsCAGateway is their consumer.
+
+### Changed
+
+- The hermetic suite runs on ophyd-async mock backends
+  (`tests/ca_mock_helpers.py`: `set_mock_value` shots, an RE-loop pacer as the
+  free-running trigger, a setpoint→readback follower for motor convergence) —
+  no real sockets in device/plan tests, roughly halving suite runtime. The
+  plan/schema/domain tests (t0 sync, contributor labeling, strict single-shot
+  ownership, arm/disarm ordering, drift immunity) were ported, not deleted.
+- `CaAcqTimestampReadable` ignores non-positive `acq_timestamp` monitor values:
+  `0.0` is the gateway channel's pre-acquisition placeholder, so "never
+  acquired" now reads as `None` on CA exactly as it did on the direct cache
+  (and the placeholder→first-frame jump can't fake a shot).
+- Live re-verified post-deletion: scanner free-run NOSCAN over the gateway.
+
 ## [0.16.0] - 2026-07-03
 
 ### Added

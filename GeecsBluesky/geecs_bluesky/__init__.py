@@ -1,7 +1,17 @@
-"""Bluesky / ophyd-async bridge for the GEECS control system."""
+"""Bluesky / ophyd-async bridge for the GEECS control system.
 
-from .signals import geecs_signal_r, geecs_signal_rw, geecs_signal_w
-from .devices import GeecsDevice, GeecsGenericDetector, GeecsSettable
+Devices are CA-backed: they consume the GeecsCAGateway PVs as a standard
+EPICS IOC (the gateway is the only component that speaks GEECS TCP/UDP).
+"""
+
+from .devices import (
+    CaGenericDetector,
+    CaMotor,
+    CaSettable,
+    CaSnapshotReadable,
+    CaTimestampedReadable,
+    CaTriggerable,
+)
 from .exceptions import (
     GeecsError,
     GeecsConnectionError,
@@ -14,12 +24,12 @@ from .exceptions import (
 )
 
 __all__ = [
-    "geecs_signal_r",
-    "geecs_signal_rw",
-    "geecs_signal_w",
-    "GeecsDevice",
-    "GeecsGenericDetector",
-    "GeecsSettable",
+    "CaGenericDetector",
+    "CaMotor",
+    "CaSettable",
+    "CaSnapshotReadable",
+    "CaTimestampedReadable",
+    "CaTriggerable",
     "GeecsError",
     "GeecsConnectionError",
     "GeecsCommandError",
