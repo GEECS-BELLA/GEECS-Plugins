@@ -43,26 +43,17 @@ import logging
 import os
 import queue
 import threading
-from contextlib import contextmanager, nullcontext
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-from bluesky import RunEngine
 
 
-from geecs_bluesky.assets import AssetDefinition, get_asset_definitions
-from geecs_bluesky.data_paths import (
-    asset_resource_root_paths,
-    device_server_save_path,
-)
-from geecs_bluesky.db.geecs_db import GeecsDb
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number
-from geecs_bluesky.shot_controller import ShotController
-from geecs_bluesky.tiled_integration import subscribe_tiled
+from geecs_bluesky.session import GeecsSession
 from geecs_bluesky.utils import safe_name
 
 # ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
@@ -98,22 +89,6 @@ def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     if isinstance(cfg, dict):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
-
-
-def _ensure_timestamp_variable(
-    variable_list: list[str],
-    *,
-    timestamp_variable: str,
-) -> list[str]:
-    """Return variables with the hardware timestamp variable present."""
-    if timestamp_variable in variable_list:
-        return list(variable_list)
-    if timestamp_variable != "acq_timestamp" and "acq_timestamp" in variable_list:
-        return [
-            timestamp_variable if item == "acq_timestamp" else item
-            for item in variable_list
-        ]
-    return [*variable_list, timestamp_variable]
 
 
 class _ScanLogContextFilter(logging.Filter):
@@ -176,9 +151,15 @@ class BlueskyScanner:
         on_event: Callable[[ScanEvent], None] | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
-        # context_managers=[] disables SIGINT handling, which fails when the
-        # RunEngine is called from a background thread (not the main thread).
-        self._RE = RunEngine(context_managers=[])
+        # The session owns the RunEngine (created with context_managers=[] so
+        # it works off the main thread), the Tiled subscription, the device
+        # factories, and the scan discipline; this class is the GUI adapter.
+        self._session = GeecsSession(
+            experiment_dir,
+            tiled_uri=tiled_uri,
+            tiled_api_key=tiled_api_key,
+        )
+        self._RE = self._session.RE
         self._RE.subscribe(self._on_document)
 
         # GUI compatibility shims
@@ -190,10 +171,6 @@ class BlueskyScanner:
         self._on_event = on_event
         self._current_state = self._scan_state("IDLE")
         self._abort_requested = False
-
-        self._tiled_token: int | None = subscribe_tiled(
-            self._RE, tiled_uri, tiled_api_key
-        )
 
         self._scan_thread: threading.Thread | None = None
         self._scan_config: Any = None
@@ -222,17 +199,11 @@ class BlueskyScanner:
         # Devices held open between reinitialize() and scan completion
         self._motor: Any | None = None
         self._detectors: list = []
-        # Free-run pacemaker (first synchronous device); None in strict mode
-        self._reference_detector: Any | None = None
-        # Subset of detectors that save per-shot files: list of (detector, path)
-        self._saving_detectors: list[tuple] = []
-        self._nonscalar_save_paths: dict[str, str] = {}
 
         # Shot control — validated from the shot_control_information YAML/dict
         self._shot_control: ShotControlConfig | None = (
             ShotControlConfig.from_information(shot_control_information)
         )
-        self._shot_controller: ShotController | None = None
 
         # Lock for serialising _motor create/destroy across threads
         self._device_lock = threading.Lock()
@@ -277,8 +248,7 @@ class BlueskyScanner:
 
         self._completed_shots = 0
         self._total_shots = 0
-        self._saving_detectors = []
-        self._nonscalar_save_paths = {}
+        self._session.rep_rate_hz = self._rep_rate_hz
 
         # Disconnect any leftover devices from a previous scan
         self._disconnect_devices_sync()
@@ -433,12 +403,6 @@ class BlueskyScanner:
         except Exception:
             logger.debug("on_event callback raised; ignoring", exc_info=True)
 
-    def _connect_device(self, device) -> None:
-        """Connect an ophyd-async device in the RE's persistent event loop."""
-        asyncio.run_coroutine_threadsafe(device.connect(), self._RE._loop).result(
-            timeout=_CONNECT_TIMEOUT
-        )
-
     def _disconnect_device(self, device) -> None:
         try:
             asyncio.run_coroutine_threadsafe(
@@ -456,54 +420,6 @@ class BlueskyScanner:
             for det in self._detectors:
                 self._disconnect_device(det)
             self._detectors = []
-            self._saving_detectors = []
-
-        self._shot_controller = None
-
-    def _build_shot_controller(self) -> None:
-        """Build the ShotController: UDP setters (direct) or gateway :SP (ca).
-
-        Silently skips if no shot control device is configured or the setup
-        fails, so scans without trigger control still run (e.g. in
-        internal-trigger test mode).
-        """
-        if self._shot_control is None or not self._shot_control.variables:
-            logger.debug("No shot control device configured — trigger control disabled")
-            return
-        try:
-            self._shot_controller = ShotController.over_ca(
-                self._shot_control,
-                experiment=self._experiment_dir,
-                rep_rate_hz=self._rep_rate_hz,
-            )
-            logger.info(
-                "Shot controller ready: %s (%d variables, via gateway :SP)",
-                self._shot_control.device,
-                len(self._shot_control.variables),
-            )
-        except Exception:
-            logger.warning(
-                "Could not build shot controller — trigger control disabled",
-                exc_info=True,
-            )
-
-    def _require_strict_single_shot(self) -> None:
-        """Raise unless strict mode can fire plan-owned single shots."""
-        guidance = (
-            "Use acquisition_mode='free_run_time_sync' for free-running "
-            "trigger acquisition."
-        )
-        if self._shot_control is None:
-            raise GeecsConfigurationError(
-                "strict_shot_control requires shot_control_information with a "
-                f"non-empty ARMED state. {guidance}"
-            )
-        if self._shot_controller is None:
-            raise GeecsConfigurationError(
-                "strict_shot_control requires a reachable shot-control device "
-                f"with configured setters before acquisition can start. {guidance}"
-            )
-        self._shot_controller.require_strict_single_shot()
 
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
@@ -532,60 +448,6 @@ class BlueskyScanner:
             else:
                 self._set_state("DONE")
             logger.info("BlueskyScanner: scan thread finished")
-
-    def _claim_scan_number(self) -> tuple[int | None, str | None]:
-        """Claim the next day-scoped scan number/folder for this experiment.
-
-        Thin wrapper over :func:`~geecs_bluesky.plans.run_wrapper.claim_scan_number`
-        (the shared scanner-side claim used by both the scanner and notebooks).
-        """
-        return claim_scan_number(self._experiment_dir)
-
-    def _write_scan_info_ini(
-        self, scan_config: Any, scan_number: int, scan_folder: str
-    ) -> None:
-        """Write ``ScanInfoScanNNN.ini`` into the claimed scan folder.
-
-        Replicates the legacy ``ScanDataManager.write_scan_info_ini`` ``[Scan
-        Info]`` format so existing analysis tooling parses Bluesky scans
-        unchanged.  Writes only into the already-claimed ``scans/ScanNNN/``
-        folder — it never creates the scan folder (cross-package invariant).
-        """
-        from pathlib import Path
-
-        folder = Path(scan_folder)
-        if not folder.is_dir():
-            logger.warning(
-                "Scan folder %s does not exist; skipping ScanInfo write", folder
-            )
-            return
-
-        scan_var = scan_config.device_var or "Shotnumber"
-        description = scan_config.additional_description or ""
-        scan_mode = getattr(scan_config.scan_mode, "value", str(scan_config.scan_mode))
-        background = bool(getattr(scan_config, "background", False))
-        scan_info = f"Bluesky scan. scanning {scan_var}. {description}".strip()
-
-        lines = [
-            "[Scan Info]\n",
-            f"Scan No = {scan_number}\n",
-            f'ScanStartInfo = "{scan_info}"\n',
-            f'Scan Parameter = "{scan_var}"\n',
-            f"Start = {scan_config.start}\n",
-            f"End = {scan_config.end}\n",
-            f"Step size = {scan_config.step}\n",
-            f"Shots per step = {scan_config.wait_time}\n",
-            'ScanEndInfo = ""\n',
-            f"Background = {str(background).lower()}\n",
-            f'ScanMode = "{scan_mode}"\n',
-        ]
-        path = folder / f"ScanInfo{folder.name}.ini"
-        try:
-            with path.open("w") as f:
-                f.writelines(lines)
-            logger.info("Scan info written to %s", path)
-        except OSError:
-            logger.warning("Could not write ScanInfo to %s", path, exc_info=True)
 
     @contextmanager
     def _scan_log(self, scan_number: int | None, scan_folder: str | None):
@@ -626,222 +488,6 @@ class BlueskyScanner:
             handler.close()
             package_logger.setLevel(old_level)
 
-    def _export_scalar_files(self, scan_number: int) -> None:
-        """Write legacy ScanData/s-file from the just-recorded Tiled run.
-
-        Best-effort: any failure (Tiled unreachable, missing run, export bug)
-        is logged and swallowed so it never crashes the scan thread.
-        """
-        uid = self._last_run_uid
-        if uid is None:
-            logger.warning(
-                "No run uid captured; skipping scalar-file export for scan %s",
-                scan_number,
-            )
-            return
-        try:
-            from geecs_data_utils import write_scalar_files_from_tiled
-
-            result = write_scalar_files_from_tiled(uid)
-            if result is not None:
-                logger.info("Wrote legacy scalar files: %s, %s", *result)
-        except Exception:
-            logger.warning(
-                "Could not export legacy scalar files for scan %s (uid=%s)",
-                scan_number,
-                uid,
-                exc_info=True,
-            )
-
-    def _build_detectors(
-        self, scan_folder: str | None = None, scan_number: int | None = None
-    ) -> None:
-        """Create and connect detector devices from ``self._devices_config``.
-
-        Each device's role is decided by :meth:`_classify_device_roles` from
-        the acquisition mode.  In free-run mode the first synchronous device
-        becomes the reference (pacemaker) and later synchronous devices become
-        non-blocking contributors anchored to it; in strict mode every
-        synchronous device is a triggered detector.  All devices are CA-backed
-        (:mod:`geecs_bluesky.devices.ca`), consuming the gateway PVs.
-        Populates ``self._detectors``, ``self._reference_detector``, and
-        ``self._saving_detectors`` in place.  Devices that fail to resolve or
-        connect are logged and skipped.
-        """
-        self._reference_detector = None
-        roles = dict(
-            self._classify_device_roles(self._devices_config, self._acquisition_mode)
-        )
-        for device_name, dev_cfg in self._devices_config.items():
-            variable_list = list(_cfg_field(dev_cfg, "variable_list", []) or [])
-            synchronous = bool(_cfg_field(dev_cfg, "synchronous", False))
-            save_nonscalar = bool(_cfg_field(dev_cfg, "save_nonscalar_data", False))
-            role = roles[device_name]
-            device_type = self._device_type_for_device(device_name)
-            timestamp_variable = self._timestamp_variable_for_device_type(device_type)
-
-            if synchronous:
-                variable_list = _ensure_timestamp_variable(
-                    variable_list,
-                    timestamp_variable=timestamp_variable,
-                )
-
-            if not variable_list:
-                logger.debug("Skipping %s: empty variable_list", device_name)
-                continue
-            ophyd_name = safe_name(device_name)
-
-            try:
-                det = self._build_ca_detector(
-                    role,
-                    device_name,
-                    variable_list,
-                    ophyd_name,
-                    save_nonscalar,
-                    timestamp_variable,
-                )
-                with self._device_lock:
-                    self._detectors.append(det)
-                    saves_files = role in ("reference", "triggered", "contributor")
-                    if saves_files and save_nonscalar and scan_folder is not None:
-                        save_path = os.path.join(scan_folder, device_name)
-                        device_save_path = device_server_save_path(save_path)
-                        det.configure_nonscalar_file_logging(save_path)
-                        if scan_number is not None:
-                            asset_definitions = self._asset_definitions_for_device_type(
-                                device_name,
-                                device_type,
-                            )
-                            if asset_definitions:
-                                asset_root, asset_local_root = (
-                                    asset_resource_root_paths()
-                                )
-                                det.configure_external_asset_logging(
-                                    scan_number=scan_number,
-                                    asset_definitions=asset_definitions,
-                                    root_path=asset_root or scan_folder,
-                                    local_root_path=asset_local_root or scan_folder,
-                                )
-                        self._saving_detectors.append(
-                            (det, save_path, device_save_path)
-                        )
-                        self._nonscalar_save_paths[device_name] = save_path
-                logger.info(
-                    "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
-                    device_name,
-                    role,
-                    len(variable_list),
-                    save_nonscalar,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to create/connect detector %s — skipping",
-                    device_name,
-                    exc_info=True,
-                )
-
-    def _build_ca_detector(
-        self,
-        role: str,
-        device_name: str,
-        variable_list: list[str],
-        ophyd_name: str,
-        save_nonscalar: bool,
-        timestamp_variable: str,
-    ):
-        """Construct and connect one CA-backed detector for *role*.
-
-        Mirrors the direct-backend role dispatch in :meth:`_build_detectors`;
-        the CA classes compose the same shot-id/contributor/save mixins, so
-        behavior past construction is shared.
-        """
-        # Deferred import: needs the `ca` extra (aioca).
-        from geecs_bluesky.devices.ca import (
-            CaGenericDetector,
-            CaSnapshotReadable,
-            CaTimestampedReadable,
-        )
-
-        if role == "contributor":
-            det = CaTimestampedReadable(
-                device_name,
-                variable_list,
-                experiment=self._experiment_dir,
-                name=ophyd_name,
-                save_nonscalar_data=save_nonscalar,
-                acq_timestamp_variable=timestamp_variable,
-            )
-            self._connect_device(det)
-            det.configure_shot_id(self._rep_rate_hz)
-            if self._reference_detector is not None:
-                det.set_reference(self._reference_detector)
-        elif role == "snapshot":
-            if save_nonscalar:
-                logger.warning(
-                    "Ignoring save_nonscalar_data for asynchronous snapshot device %s",
-                    device_name,
-                )
-            det = CaSnapshotReadable(
-                device_name,
-                variable_list,
-                experiment=self._experiment_dir,
-                name=ophyd_name,
-            )
-            self._connect_device(det)
-        else:  # "reference" or "triggered"
-            det = CaGenericDetector(
-                device_name,
-                variable_list,
-                experiment=self._experiment_dir,
-                name=ophyd_name,
-                save_nonscalar_data=save_nonscalar,
-                acq_timestamp_variable=timestamp_variable,
-            )
-            self._connect_device(det)
-            det.configure_shot_id(self._rep_rate_hz)
-            if role == "reference":
-                self._reference_detector = det
-        return det
-
-    @staticmethod
-    def _timestamp_variable_for_device_type(device_type: str | None) -> str:
-        """Return the hardware timestamp variable for a GEECS device type."""
-        _ = device_type
-        return "acq_timestamp"
-
-    def _device_type_for_device(self, device_name: str) -> str | None:
-        """Return the GEECS device type, logging and continuing on failure."""
-        try:
-            return GeecsDb.get_device_type(device_name)
-        except Exception:
-            logger.warning(
-                "Could not resolve device type for %s",
-                device_name,
-                exc_info=True,
-            )
-            return None
-
-    def _asset_definitions_for_device_type(
-        self,
-        device_name: str,
-        device_type: str | None,
-    ) -> tuple[AssetDefinition, ...]:
-        """Return registered external asset definitions for *device_name*."""
-        if device_type is None:
-            logger.warning(
-                "Could not resolve device type for %s; external asset docs disabled",
-                device_name,
-            )
-            return ()
-        definitions = get_asset_definitions(device_type)
-        if not definitions:
-            logger.debug(
-                "No external asset registry entry for %s device type %r",
-                device_name,
-                device_type,
-            )
-        return definitions
-
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move a scan device through positions, collect shots each step."""
         if not scan_config.device_var:
@@ -861,17 +507,7 @@ class BlueskyScanner:
         logger.info(
             "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name
         )
-        from geecs_bluesky.devices.ca import CaMotor
-
-        motor = CaMotor(
-            device_name,
-            variable,
-            experiment=self._experiment_dir,
-            name=ophyd_name,
-        )
-
-        logger.info("Connecting motor …")
-        self._connect_device(motor)
+        motor = self._session.motor(device_name, variable, name=ophyd_name)
         with self._device_lock:
             self._motor = motor
 
@@ -879,7 +515,7 @@ class BlueskyScanner:
         extra_md: dict[str, Any] = {"device_var": scan_config.device_var}
         if scan_config.additional_description:
             extra_md["description"] = scan_config.additional_description
-        self._run_step_scan(scan_config, motor, positions, extra_md)
+        self._execute_scan(scan_config, motor, positions, extra_md)
 
     def _run_noscan(self, scan_config: Any) -> None:
         """Statistics collection: N shots at fixed settings, no scan variable moved.
@@ -891,100 +527,137 @@ class BlueskyScanner:
         extra_md: dict[str, Any] = {}
         if getattr(scan_config, "additional_description", None):
             extra_md["description"] = scan_config.additional_description
-        self._run_step_scan(
-            scan_config, motor=None, positions=[None], extra_md=extra_md
-        )
+        self._execute_scan(scan_config, motor=None, positions=[None], extra_md=extra_md)
 
-    def _run_step_scan(
+    def _execute_scan(
         self,
         scan_config: Any,
         motor: Any | None,
         positions: list[float | None],
         extra_md: dict[str, Any] | None = None,
     ) -> None:
-        """Shared body for motor scans and statistics collection.
+        """Translate the GUI scan request into a session scan (the thin adapter).
 
-        ``motor=None`` with ``positions=[None]`` is statistics collection (one
-        no-move bin); a real motor with explicit positions is a step scan.
-        Either way the acquisition mode picks the plan: free-run
-        (reference-paced) or strict plan-owned single-shot.
+        The session owns the discipline (claiming is done here first so the
+        per-scan log can wrap the whole run); this method only maps
+        ``exec_config`` shapes onto :meth:`GeecsSession.scan` arguments.
         """
-        # Claim scan number before building detectors so save paths are known
-        scan_number, scan_folder = self._claim_scan_number()
-        if scan_number is not None and scan_folder is not None:
-            self._write_scan_info_ini(scan_config, scan_number, scan_folder)
-        self._build_detectors(scan_folder=scan_folder, scan_number=scan_number)
+        scan_number, scan_folder = claim_scan_number(self._experiment_dir)
 
-        n_steps = len(positions)
-        n_shots = n_steps * self._shots_per_step
-        self._total_shots = n_shots
-        self._set_state("INITIALIZING", total_shots=n_shots)
-
-        # A motorless run with no detectors records nothing meaningful.
-        if not self._detectors and motor is None:
+        detectors = self._build_session_devices()
+        if not detectors and motor is None:
             logger.info(
-                "Statistics collection with no detectors: nothing to collect "
-                "(%d shots requested). Add detector devices to enable collection.",
-                n_shots,
+                "Statistics collection with no detectors: nothing to collect. "
+                "Add detector devices to enable collection."
             )
             return
 
+        strict = self._acquisition_mode != _FREE_RUN_MODE
+        if strict and self._shot_control is None:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information with a "
+                "non-empty ARMED state. Use acquisition_mode="
+                "'free_run_time_sync' for free-running trigger acquisition."
+            )
+        self._session.shot_control(self._shot_control)
+
+        n_shots = len(positions) * self._shots_per_step
+        self._total_shots = n_shots
+        self._set_state("INITIALIZING", total_shots=n_shots)
         logger.info(
             "%s: %d step(s) × %d shots/step = %d total events",
             "Statistics collection" if motor is None else "Step scan",
-            n_steps,
+            len(positions),
             self._shots_per_step,
             n_shots,
         )
 
-        # Scanner-contributed run metadata (the plan owns its own intrinsic md:
-        # plan_name, acquisition_mode, geecs_event_schema, positions, …).
+        scan_mode = getattr(scan_config.scan_mode, "value", str(scan_config.scan_mode))
         run_md: dict[str, Any] = {
             "operator": "",
-            "scan_mode": getattr(
-                scan_config.scan_mode, "value", str(scan_config.scan_mode)
-            ),
+            "scan_mode": scan_mode,
             "wait_time": getattr(scan_config, "wait_time", None),
             **(extra_md or {}),
         }
+        scan_info = {
+            "scan_parameter": scan_config.device_var or "Shotnumber",
+            "start": scan_config.start,
+            "end": scan_config.end,
+            "step": scan_config.step,
+            # Legacy-format quirk preserved: the GUI ini records wait_time here.
+            "shots": scan_config.wait_time,
+            "background": bool(getattr(scan_config, "background", False)),
+            "scan_mode": scan_mode,
+        }
 
-        self._build_shot_controller()
-        strict = self._acquisition_mode != _FREE_RUN_MODE
-        if strict:
-            self._require_strict_single_shot()
-        elif self._reference_detector is None:
-            logger.error(
-                "free-run scan requires at least one synchronous device as "
-                "reference; none found — aborting"
-            )
-            return
-
-        # The one shared orchestration recipe (also used by GeecsSession):
-        # mode dispatch + run wrapper + guaranteed finalize disarm.
-        plan = build_step_scan_plan(
-            strict=strict,
-            motor=motor,
-            positions=positions,
-            reference=self._reference_detector,
-            detectors=list(self._detectors),
-            shots_per_step=self._shots_per_step,
-            controller=self._shot_controller,
-            experiment=self._experiment_dir,
-            scan_number=scan_number,
-            scan_folder=scan_folder,
-            saving_detectors=list(self._saving_detectors),
-            extra_md=run_md,
-        )
-        log_context = (
-            self._scan_log(scan_number, scan_folder)
-            if scan_number is not None and scan_folder is not None
-            else nullcontext()
-        )
-        with log_context:
+        with self._scan_log(scan_number, scan_folder):
             self._set_state("RUNNING")
-            self._last_run_uid = None
-            self._RE(plan)
+            self._session.scan(
+                detectors=detectors,
+                motor=motor,
+                positions=positions,
+                shots_per_step=self._shots_per_step,
+                mode="strict" if strict else "free_run",
+                description=getattr(scan_config, "additional_description", "") or "",
+                md=run_md,
+                scan_number=scan_number,
+                scan_folder=scan_folder,
+                scan_info=scan_info,
+            )
 
-            # After the run completes, export legacy scalar files from Tiled.
-            if scan_number is not None and scan_folder is not None:
-                self._export_scalar_files(scan_number)
+    def _build_session_devices(self) -> list:
+        """Create CA devices from the GUI device table via the session factories.
+
+        Role classification is unchanged; the returned list is ordered with
+        the free-run reference first (``session.scan`` anchors contributors to
+        ``detectors[0]``).  Devices that fail to construct/connect are logged
+        and skipped.
+        """
+        roles = self._classify_device_roles(
+            self._devices_config, self._acquisition_mode
+        )
+        reference: list = []
+        others: list = []
+        for device_name, role in roles:
+            cfg = self._devices_config[device_name]
+            variables = list(_cfg_field(cfg, "variable_list", []) or [])
+            save = bool(_cfg_field(cfg, "save_nonscalar_data", False))
+            if not variables:
+                logger.debug("Skipping %s: empty variable_list", device_name)
+                continue
+            name = safe_name(device_name)
+            try:
+                if role == "snapshot":
+                    if save:
+                        logger.warning(
+                            "Ignoring save_nonscalar_data for asynchronous "
+                            "snapshot device %s",
+                            device_name,
+                        )
+                    det = self._session.snapshot(device_name, variables, name=name)
+                elif role == "contributor":
+                    det = self._session.contributor(
+                        device_name, variables, save_images=save, name=name
+                    )
+                else:  # "reference" or "triggered"
+                    det = self._session.detector(
+                        device_name, variables, save_images=save, name=name
+                    )
+                (reference if role == "reference" else others).append(det)
+                logger.info(
+                    "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
+                    device_name,
+                    role,
+                    len(variables),
+                    save,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to create/connect detector %s — skipping",
+                    device_name,
+                    exc_info=True,
+                )
+        detectors = reference + others
+        with self._device_lock:
+            self._detectors = list(detectors)
+        return detectors

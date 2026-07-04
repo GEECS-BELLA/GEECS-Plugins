@@ -22,6 +22,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **`BlueskyScanner` is now the thin GUI adapter over `GeecsSession`** (the
+  endgame the deletion unblocked): the session owns the RunEngine, Tiled
+  subscription, device factories, saving/asset wiring, ScanInfo, and s-file
+  export; the scanner keeps only `exec_config` parsing, role classification,
+  thread/progress/lifecycle plumbing, and the per-scan log. `_execute_scan`
+  maps the GUI request onto `session.scan()` (with pre-claimed scan numbers so
+  the log wraps the run, and legacy-format ScanInfo field fidelity). The
+  scanner shrank ~990 → ~666 lines with zero duplicated discipline. Verified
+  live post-rewrite: NOSCAN and STANDARD scans through the GUI bridge.
 - The hermetic suite runs on ophyd-async mock backends
   (`tests/ca_mock_helpers.py`: `set_mock_value` shots, an RE-loop pacer as the
   free-running trigger, a setpoint→readback follower for motor convergence) —

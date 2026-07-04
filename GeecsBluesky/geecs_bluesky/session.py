@@ -75,7 +75,9 @@ class GeecsSession:
     rep_rate_hz : float
         Machine repetition rate; sizes shot-id derivation and quiescence waits.
     tiled : bool
-        Subscribe a TiledWriter from the standard config (default true).
+        Subscribe a TiledWriter (default true); the catalog location comes
+        from ``tiled_uri``/``tiled_api_key`` or, when omitted, the standard
+        config file.
     mock : bool
         Connect devices with ophyd-async mock backends (hermetic tests only).
     """
@@ -86,6 +88,8 @@ class GeecsSession:
         *,
         rep_rate_hz: float = 1.0,
         tiled: bool = True,
+        tiled_uri: str | None = None,
+        tiled_api_key: str | None = None,
         mock: bool = False,
     ) -> None:
         self.experiment = experiment
@@ -96,7 +100,7 @@ class GeecsSession:
         self._last_run_uid: str | None = None
         self.RE.subscribe(self._remember_uid, name="start")
         if tiled:
-            subscribe_tiled(self.RE)
+            subscribe_tiled(self.RE, tiled_uri, tiled_api_key)
         self._shot_controller: ShotController | None = None
 
     def _remember_uid(self, _name: str, doc: dict) -> None:
@@ -115,6 +119,18 @@ class GeecsSession:
         )
         future.result(timeout=20.0)
         return device
+
+    def disconnect(self, *devices: Any) -> None:
+        """Disconnect devices in the RE's event loop (best-effort)."""
+        import asyncio
+
+        for device in devices:
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    device.disconnect(), self.RE._loop
+                ).result(timeout=10.0)
+            except Exception:
+                logger.debug("disconnect raised for %s", device, exc_info=True)
 
     def detector(
         self,
@@ -271,6 +287,9 @@ class GeecsSession:
         description: str = "",
         save_data: bool = True,
         md: dict | None = None,
+        scan_number: int | None = None,
+        scan_folder: str | None = None,
+        scan_info: dict | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -279,6 +298,11 @@ class GeecsSession:
         automatically.  ``mode="strict"`` requires attached shot control with
         an ``ARMED`` state.  ``save_data=False`` skips scan-number claiming,
         ScanInfo, native saving, and the s-file export (ad-hoc acquisition).
+        A pre-claimed ``scan_number``/``scan_folder`` pair (e.g. from a caller
+        that opened a per-scan log first) skips the claim; ``scan_info``
+        overrides individual ScanInfo ini fields (``scan_parameter``,
+        ``start``, ``end``, ``step``, ``shots``, ``background``,
+        ``scan_mode``) for legacy-format fidelity.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -294,10 +318,9 @@ class GeecsSession:
                 positions = [None]
         positions = list(positions)
 
-        scan_number: int | None = None
-        scan_folder: str | None = None
         if save_data:
-            scan_number, scan_folder = claim_scan_number(self.experiment)
+            if scan_number is None:
+                scan_number, scan_folder = claim_scan_number(self.experiment)
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -306,7 +329,10 @@ class GeecsSession:
                     positions=positions,
                     shots_per_step=shots_per_step,
                     description=description,
+                    overrides=scan_info,
                 )
+        else:
+            scan_number = scan_folder = None
 
         # Role wiring: schema-v1 shot ids + contributor anchoring.
         reference = detectors[0]
@@ -403,11 +429,14 @@ class GeecsSession:
         positions: Sequence[float | None],
         shots_per_step: int,
         description: str,
+        overrides: dict | None = None,
     ) -> None:
         """Write ``ScanInfoScanNNN.ini`` (legacy [Scan Info] format).
 
         Writes only into the already-claimed ``scans/ScanNNN/`` folder — it
-        never creates the scan folder (cross-package invariant).
+        never creates the scan folder (cross-package invariant).  *overrides*
+        replaces individual derived fields (legacy-format fidelity for the
+        GUI bridge).
         """
         folder = Path(scan_folder)
         if not folder.is_dir():
@@ -415,12 +444,18 @@ class GeecsSession:
                 "Scan folder %s does not exist; skipping ScanInfo write", folder
             )
             return
-        scan_var = getattr(motor, "name", None) or "Shotnumber"
         real = [p for p in positions if p is not None]
-        start = real[0] if real else 0
-        end = real[-1] if real else 0
-        step = (real[1] - real[0]) if len(real) > 1 else 0
-        info = f"Bluesky session scan. scanning {scan_var}. {description}".strip()
+        o = overrides or {}
+        scan_var = (
+            o.get("scan_parameter") or getattr(motor, "name", None) or "Shotnumber"
+        )
+        start = o.get("start", real[0] if real else 0)
+        end = o.get("end", real[-1] if real else 0)
+        step = o.get("step", (real[1] - real[0]) if len(real) > 1 else 0)
+        shots = o.get("shots", shots_per_step)
+        background = str(bool(o.get("background", False))).lower()
+        scan_mode = o.get("scan_mode", "standard" if real else "noscan")
+        info = f"Bluesky scan. scanning {scan_var}. {description}".strip()
         lines = [
             "[Scan Info]\n",
             f"Scan No = {scan_number}\n",
@@ -429,10 +464,10 @@ class GeecsSession:
             f"Start = {start}\n",
             f"End = {end}\n",
             f"Step size = {step}\n",
-            f"Shots per step = {shots_per_step}\n",
+            f"Shots per step = {shots}\n",
             'ScanEndInfo = ""\n',
-            "Background = false\n",
-            'ScanMode = "standard"\n' if real else 'ScanMode = "noscan"\n',
+            f"Background = {background}\n",
+            f'ScanMode = "{scan_mode}"\n',
         ]
         path = folder / f"ScanInfo{folder.name}.ini"
         try:

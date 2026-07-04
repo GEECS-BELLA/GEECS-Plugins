@@ -10,15 +10,13 @@ import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.scanner_bridge import bluesky_scanner
 from geecs_bluesky.data_paths import (
     translate_save_path_for_device_server as _translate_save_path_for_device_server,
 )
-from geecs_bluesky.scanner_bridge.bluesky_scanner import (
-    BlueskyScanner,
-    _ensure_timestamp_variable,
-)
+from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
 from geecs_bluesky.tiled_integration import (
     SafeDocumentCallback as _SafeDocumentCallback,
 )
@@ -117,40 +115,6 @@ def test_translate_save_path_for_device_server() -> None:
     assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
 
 
-def test_timestamp_variable_selection_for_registered_diagnostics() -> None:
-    """Registered diagnostics currently use the live ``acq_timestamp`` field."""
-    assert BlueskyScanner._timestamp_variable_for_device_type("MagSpecCamera") == (
-        "acq_timestamp"
-    )
-    assert BlueskyScanner._timestamp_variable_for_device_type("PicoscopeV2") == (
-        "acq_timestamp"
-    )
-    assert BlueskyScanner._timestamp_variable_for_device_type("Point Grey Camera") == (
-        "acq_timestamp"
-    )
-
-
-def test_ensure_timestamp_variable_replaces_default_timestamp_name() -> None:
-    """Detector configs using the default timestamp name should adapt by device."""
-    assert _ensure_timestamp_variable(
-        ["acq_timestamp"],
-        timestamp_variable="timestamp",
-    ) == ["timestamp"]
-    assert _ensure_timestamp_variable(
-        ["Signal", "timestamp"],
-        timestamp_variable="timestamp",
-    ) == ["Signal", "timestamp"]
-    assert _ensure_timestamp_variable(
-        ["Signal"],
-        timestamp_variable="acq_timestamp",
-    ) == ["Signal", "acq_timestamp"]
-
-
-# ---------------------------------------------------------------------------
-# Acquisition-mode resolution
-# ---------------------------------------------------------------------------
-
-
 def test_resolve_acquisition_mode_defaults_to_strict() -> None:
     options = SimpleNamespace(rep_rate_hz=1.0)  # no acquisition_mode attr
     mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
@@ -182,28 +146,26 @@ def test_resolve_acquisition_mode_unknown_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _scanner_with_shot_control(
-    information: dict | None, setters: dict | None = None
-) -> BlueskyScanner:
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._shot_control = ShotControlConfig.from_information(information)
-    scanner._shot_controller = (
-        ShotController(scanner._shot_control, setters)
-        if scanner._shot_control is not None and setters
-        else None
-    )
-    return scanner
-
-
-def test_strict_single_shot_requires_shot_control_config() -> None:
-    scanner = _scanner_with_shot_control(None)
-
-    with pytest.raises(GeecsConfigurationError, match="shot_control_information"):
-        scanner._require_strict_single_shot()
+def test_strict_plan_requires_a_shot_controller() -> None:
+    """Building a strict plan without shot control fails loudly."""
+    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
+        build_step_scan_plan(
+            strict=True,
+            motor=None,
+            positions=[None],
+            reference=None,
+            detectors=[object()],
+            shots_per_step=1,
+            controller=None,
+            experiment="Test",
+            scan_number=None,
+            scan_folder=None,
+            saving_detectors=[],
+        )
 
 
 def test_strict_single_shot_requires_nonempty_armed_state() -> None:
-    scanner = _scanner_with_shot_control(
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
@@ -212,16 +174,15 @@ def test_strict_single_shot_requires_nonempty_armed_state() -> None:
                     "ARMED": "",
                 }
             },
-        },
-        setters={"Trigger.Source": object()},
+        }
     )
-
+    controller = ShotController(config, {"Trigger.Source": object()})
     with pytest.raises(GeecsConfigurationError, match="non-empty ARMED"):
-        scanner._require_strict_single_shot()
+        controller.require_strict_single_shot()
 
 
 def test_strict_single_shot_requires_reachable_setters() -> None:
-    scanner = _scanner_with_shot_control(
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
@@ -231,13 +192,13 @@ def test_strict_single_shot_requires_reachable_setters() -> None:
             },
         }
     )
-
+    controller = ShotController(config, {})
     with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
-        scanner._require_strict_single_shot()
+        controller.require_strict_single_shot()
 
 
 def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
-    scanner = _scanner_with_shot_control(
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
@@ -245,11 +206,9 @@ def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
                     "ARMED": "Single shot external rising edges",
                 }
             },
-        },
-        setters={"Trigger.Source": object()},
+        }
     )
-
-    scanner._require_strict_single_shot()
+    ShotController(config, {"Trigger.Source": object()}).require_strict_single_shot()
 
 
 # ---------------------------------------------------------------------------
