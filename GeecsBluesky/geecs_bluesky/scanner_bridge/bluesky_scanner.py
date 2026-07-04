@@ -998,31 +998,16 @@ class BlueskyScanner:
                 continue
             ophyd_name = safe_name(device_name)
 
-            if self._device_backend == "ca" and role in ("contributor", "snapshot"):
-                # Fail loud (not skip): a scan must never silently run with
-                # degraded coverage. Free-run multi-device roles are pending.
-                raise NotImplementedError(
-                    f"CA backend has no {role!r} device yet ({device_name}); "
-                    "free-run multi-device roles are pending"
-                )
-
             try:
                 if self._device_backend == "ca":
-                    # Deferred import: needs the `ca` extra (aioca).
-                    from geecs_bluesky.devices.ca import CaGenericDetector
-
-                    det = CaGenericDetector(
+                    det = self._build_ca_detector(
+                        role,
                         device_name,
                         variable_list,
-                        experiment=self._experiment_dir,
-                        name=ophyd_name,
-                        save_nonscalar_data=save_nonscalar,
-                        acq_timestamp_variable=timestamp_variable,
+                        ophyd_name,
+                        save_nonscalar,
+                        timestamp_variable,
                     )
-                    self._connect_device(det)
-                    det.configure_shot_id(self._rep_rate_hz)
-                    if role == "reference":
-                        self._reference_detector = det
                 elif role == "contributor":
                     det = GeecsTimestampedReadable.from_db(
                         device_name,
@@ -1097,6 +1082,69 @@ class BlueskyScanner:
                     device_name,
                     exc_info=True,
                 )
+
+    def _build_ca_detector(
+        self,
+        role: str,
+        device_name: str,
+        variable_list: list[str],
+        ophyd_name: str,
+        save_nonscalar: bool,
+        timestamp_variable: str,
+    ):
+        """Construct and connect one CA-backed detector for *role*.
+
+        Mirrors the direct-backend role dispatch in :meth:`_build_detectors`;
+        the CA classes compose the same shot-id/contributor/save mixins, so
+        behavior past construction is shared.
+        """
+        # Deferred import: needs the `ca` extra (aioca).
+        from geecs_bluesky.devices.ca import (
+            CaGenericDetector,
+            CaSnapshotReadable,
+            CaTimestampedReadable,
+        )
+
+        if role == "contributor":
+            det = CaTimestampedReadable(
+                device_name,
+                variable_list,
+                experiment=self._experiment_dir,
+                name=ophyd_name,
+                save_nonscalar_data=save_nonscalar,
+                acq_timestamp_variable=timestamp_variable,
+            )
+            self._connect_device(det)
+            det.configure_shot_id(self._rep_rate_hz)
+            if self._reference_detector is not None:
+                det.set_reference(self._reference_detector)
+        elif role == "snapshot":
+            if save_nonscalar:
+                logger.warning(
+                    "Ignoring save_nonscalar_data for asynchronous snapshot device %s",
+                    device_name,
+                )
+            det = CaSnapshotReadable(
+                device_name,
+                variable_list,
+                experiment=self._experiment_dir,
+                name=ophyd_name,
+            )
+            self._connect_device(det)
+        else:  # "reference" or "triggered"
+            det = CaGenericDetector(
+                device_name,
+                variable_list,
+                experiment=self._experiment_dir,
+                name=ophyd_name,
+                save_nonscalar_data=save_nonscalar,
+                acq_timestamp_variable=timestamp_variable,
+            )
+            self._connect_device(det)
+            det.configure_shot_id(self._rep_rate_hz)
+            if role == "reference":
+                self._reference_detector = det
+        return det
 
     @staticmethod
     def _timestamp_variable_for_device_type(device_type: str | None) -> str:

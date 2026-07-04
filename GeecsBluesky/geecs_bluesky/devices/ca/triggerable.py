@@ -1,11 +1,15 @@
-"""CaTriggerable — a triggered GEECS detector read through the CA gateway.
+"""CA acq_timestamp-monitored readables: the shot-aware CA device bases.
 
-The GEECS shot signal is the device's ``acq_timestamp`` advancing once per shot.
-Here that is a readback PV; a **persistent CA monitor** on it (started at
-``connect()``) feeds a local cache and an event queue, and ``trigger()`` blocks
-until the queue delivers a value different from the baseline — the CA-sourced
-analogue of :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`, which
-watches the same variable off the direct TCP subscriber.
+The GEECS shot signal is the device's ``acq_timestamp`` advancing once per
+shot.  Over the gateway that is a readback PV; a **persistent CA monitor** on
+it (started at ``connect()``) feeds a local cache and an event queue:
+
+* :class:`CaAcqTimestampReadable` — readable signals plus the monitor/cache.
+  ``_last_acq`` is the CA-side analogue of the direct backend's TCP shot
+  cache; free-run *contributors* build on this (no blocking trigger).
+* :class:`CaTriggerable` — adds ``trigger()``, which blocks until the queue
+  delivers a value different from the baseline — the CA-sourced analogue of
+  :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`.
 
 Like ``GeecsTriggerable``, the stale-frame drain and baseline capture happen
 **synchronously inside** ``trigger()``, before the status is returned — so a
@@ -31,18 +35,22 @@ from geecs_bluesky.utils import safe_name
 logger = logging.getLogger(__name__)
 
 
-class CaTriggerable(StandardReadable):
-    """A triggered GEECS detector whose ``trigger()`` waits for one real shot.
+class CaAcqTimestampReadable(StandardReadable):
+    """Readable GEECS device over gateway PVs with a persistent shot monitor.
 
     One ``epics_signal_r`` child is created per data variable, plus an
-    ``acq_timestamp`` child that carries the shot stamp and gates ``trigger()``.
+    ``acq_timestamp`` child that carries the shot stamp.  A monitor
+    subscription (started at ``connect()``) keeps ``_last_acq`` (latest value)
+    and ``_shot_queue`` (update stream) current.
 
     Parameters
     ----------
     device : str
         GEECS device name (e.g. ``"UC_Amp2_IR_input"``).
     variables : str or list of str
-        GEECS scalar variable name(s) to read each shot (e.g. ``"centroidx"``).
+        GEECS scalar variable name(s) to read (e.g. ``"centroidx"``).  The
+        acquisition timestamp variable is filtered out if listed — it is
+        always created as the dedicated ``acq_timestamp`` child.
     experiment : str, optional
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str
@@ -54,13 +62,9 @@ class CaTriggerable(StandardReadable):
     ----------------------------------------
     _acq_timestamp_variable : str
         GEECS variable that advances per shot.  Default ``"acq_timestamp"``.
-    _trigger_timeout : float
-        Seconds to wait for the next shot before raising
-        :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError`.  Default 3.0.
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"
-    _trigger_timeout: float = 3.0
 
     def __init__(
         self,
@@ -112,6 +116,21 @@ class CaTriggerable(StandardReadable):
         value = reading[self.acq_timestamp.name]["value"]
         self._last_acq = value
         self._shot_queue.put_nowait(value)
+
+
+class CaTriggerable(CaAcqTimestampReadable):
+    """A triggered GEECS detector whose ``trigger()`` waits for one real shot.
+
+    Parameters are those of :class:`CaAcqTimestampReadable`.
+
+    Class attributes subclasses may override
+    ----------------------------------------
+    _trigger_timeout : float
+        Seconds to wait for the next shot before raising
+        :exc:`~geecs_bluesky.exceptions.GeecsTriggerTimeoutError`.  Default 3.0.
+    """
+
+    _trigger_timeout: float = 3.0
 
     def trigger(self) -> AsyncStatus:
         """Return a status that completes once ``acq_timestamp`` has advanced.

@@ -14,12 +14,17 @@ from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.readable import CaReadable
 from geecs_bluesky.devices.ca.settable import CaSettable
-from geecs_bluesky.devices.ca.triggerable import CaTriggerable
+from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
+from geecs_bluesky.devices.ca.timestamped_readable import CaTimestampedReadable
+from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable, CaTriggerable
 
 __all__ = [
+    "CaAcqTimestampReadable",
     "CaGenericDetector",
     "CaMotor",
     "CaReadable",
     "CaSettable",
+    "CaSnapshotReadable",
+    "CaTimestampedReadable",
     "CaTriggerable",
 ]

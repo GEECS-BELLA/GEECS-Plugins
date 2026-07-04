@@ -9,6 +9,7 @@ device protocols (read / set-forwards-to-setpoint / acq_timestamp-gated trigger)
 from __future__ import annotations
 
 import asyncio
+import math
 
 import pytest
 
@@ -21,6 +22,8 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
     CaMotor,
     CaReadable,
     CaSettable,
+    CaSnapshotReadable,
+    CaTimestampedReadable,
     CaTriggerable,
 )
 from geecs_bluesky.exceptions import (  # noqa: E402
@@ -337,3 +340,96 @@ async def test_generic_detector_dedups_timestamp_variable() -> None:
     assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
     # Exporter headers cover data variables only, not the timestamp column.
     assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
+
+
+# --------------------------------------------------------------------------
+# CaTimestampedReadable (free-run contributor) + CaSnapshotReadable
+# --------------------------------------------------------------------------
+
+
+async def _make_ref_and_contributor() -> tuple[
+    CaGenericDetector, CaTimestampedReadable
+]:
+    """Reference + contributor pair, both seeded at shot 1 (acq=100.0)."""
+    ref = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="ref"
+    )
+    con = CaTimestampedReadable(
+        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
+    )
+    await ref.connect(mock=True)
+    await con.connect(mock=True)
+    ref.configure_shot_id(rep_rate_hz=1.0)
+    con.configure_shot_id(rep_rate_hz=1.0)
+    con.set_reference(ref, grace_wait_s=0)  # no grace wait in tests
+    set_mock_value(ref.acq_timestamp, 100.0)
+    set_mock_value(con.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
+    ref.seed_shot_id(100.0)
+    con.seed_shot_id(100.0)
+    return ref, con
+
+
+async def test_contributor_on_time_frame_is_valid() -> None:
+    """Contributor frame for the row's shot → shot_offset=0, valid=True."""
+    ref, con = await _make_ref_and_contributor()
+    # Shot 2 on both devices; the reference accepted it (cache advanced).
+    set_mock_value(ref.acq_timestamp, 101.0)
+    set_mock_value(con.acq_timestamp, 101.0)
+    await asyncio.sleep(0)
+
+    reading = await con.read()
+    assert reading["con-acq_timestamp"]["value"] == 101.0
+    assert reading["con-shot_id"]["value"] == 2
+    assert reading["con-shot_offset"]["value"] == 0
+    assert reading["con-valid"]["value"] is True
+
+
+async def test_contributor_late_frame_labeled_offset_minus_one() -> None:
+    """A contributor still on the previous shot → shot_offset=-1, valid=False."""
+    ref, con = await _make_ref_and_contributor()
+    # Reference saw shot 2; the contributor's frame has not arrived.
+    set_mock_value(ref.acq_timestamp, 101.0)
+    await asyncio.sleep(0)
+
+    reading = await con.read()
+    assert reading["con-shot_id"]["value"] == 1  # still shot 1
+    assert reading["con-shot_offset"]["value"] == -1
+    assert reading["con-valid"]["value"] is False
+
+
+async def test_contributor_without_reference_never_claims_valid() -> None:
+    """No reference → shot_offset NaN, valid False (never false validity)."""
+    con = CaTimestampedReadable(
+        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
+    )
+    await con.connect(mock=True)
+    con.configure_shot_id(rep_rate_hz=1.0)
+    set_mock_value(con.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
+    con.seed_shot_id(100.0)
+
+    reading = await con.read()
+    assert math.isnan(reading["con-shot_offset"]["value"])
+    assert reading["con-valid"]["value"] is False
+
+
+async def test_contributor_has_no_blocking_trigger() -> None:
+    """Contributors must not gate event rows: no trigger() beyond Device's."""
+    con = CaTimestampedReadable(
+        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
+    )
+    assert not hasattr(con, "_wait_for_shot")
+
+
+async def test_snapshot_reads_latest_values() -> None:
+    """Snapshot: plain per-row sampling, no companion columns."""
+    snap = CaSnapshotReadable(
+        "U_S1H", ["Current", "Voltage"], experiment="Undulator", name="s1h"
+    )
+    await snap.connect(mock=True)
+    set_mock_value(snap.current, 0.5)
+    reading = await snap.read()
+    assert reading["s1h-current"]["value"] == 0.5
+    assert set(reading) == {"s1h-current", "s1h-voltage"}
+    assert snap.current.source.endswith("Undulator:U_S1H:Current")

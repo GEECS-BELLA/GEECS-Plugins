@@ -57,6 +57,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ScanDataScanNNN.txt` / `sNN.txt` exports were written back from Tiled — the
   full-output contract in one run.
 
+- **Free-run contributor/snapshot roles on the CA backend.** The
+  reference-relative labeling semantics (row shot-id peeking, bounded grace
+  wait, offset/valid emission) moved verbatim from `GeecsTimestampedReadable`
+  into the shared `FreeRunContributorSupport` mixin
+  (`geecs_bluesky/devices/contributor.py`); the direct class and the new
+  `CaTimestampedReadable` both compose it, so the two backends cannot diverge.
+  `CaSnapshotReadable` covers async devices; `CaTriggerable`'s monitor plumbing
+  was factored into `CaAcqTimestampReadable` for the contributor to reuse.
+  The scanner's CA branch now dispatches all four roles
+  (`_build_ca_detector`). **Verified live (Scan014)**: a three-role free-run
+  NOSCAN (reference + contributor + snapshot) with coordinated t0 sync —
+  contributor shot_id equaled the reference's on every row (offset 0,
+  valid True), snapshot column present, Tiled + s-files written.
+- **Strict single-shot verified live on the CA backend (Scan015)**, using the
+  HTU-LaserOFF shot-control config: ARMED confirmed quiescent, three
+  plan-owned SINGLESHOT fires each captured by `CaTriggerable`'s
+  synchronous-baseline trigger (shot spacing ~0.4 s — commanded shots, not
+  free-run), finalize returned STANDBY, and the DG645 was restored to
+  Internal afterwards via the gateway's own `Trigger_Source:SP` PV.
+
 ### Notes
 
 - `CaTriggerable` closes the strict single-shot race the same way
