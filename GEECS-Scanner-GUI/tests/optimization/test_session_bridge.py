@@ -104,7 +104,7 @@ class _MeanCurrentEvaluator(BaseEvaluator):
         return scalars["U_S1H:Current"]
 
 
-def _make_optimizer():
+def _make_optimizer(**optimizer_kwargs):
     from xopt import VOCS
 
     from geecs_scanner.optimization.base_optimizer import BaseOptimizer
@@ -119,6 +119,7 @@ def _make_optimizer():
         evaluate_function=evaluator.get_value,
         generator_name="random",
         evaluator=evaluator,
+        **optimizer_kwargs,
     )
 
 
@@ -168,3 +169,12 @@ class TestSessionOptimizationBridge:
         bridge.suggest()
         with pytest.raises(Exception):
             objective(_fake_bin(1, [0.1]))
+
+    def test_on_finish_maps_move_to_best_flag(self):
+        assert SessionOptimizationBridge(_make_optimizer()).on_finish == "hold"
+        assert (
+            SessionOptimizationBridge(
+                _make_optimizer(move_to_best_on_finish=True)
+            ).on_finish
+            == "best"
+        )

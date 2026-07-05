@@ -342,6 +342,25 @@ def test_run_optimization_maps_config_onto_session_optimize(monkeypatch) -> None
     # Bound devices = movables + detectors
     assert len(bridge.bound_with["devices"]) == 3
     assert kwargs["suggester"] is bridge
+    # No on_finish attribute on the bridge -> session default "hold"
+    assert kwargs["on_finish"] == "hold"
+
+
+def test_run_optimization_passes_bridge_on_finish(monkeypatch) -> None:
+    session = _FakeOptSession()
+    bridge = _FakeBridge()
+    bridge.on_finish = "best"
+    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
+    scan_config = SimpleNamespace(
+        optimizer_config_path="/cfg/opt.yaml",
+        start=0.0,
+        end=1.0,
+        step=1.0,
+        wait_time=5.0,
+        additional_description="",
+    )
+    scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs["on_finish"] == "best"
 
 
 def test_run_optimization_without_loader_skips(monkeypatch, caplog) -> None:

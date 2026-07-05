@@ -629,6 +629,9 @@ class BlueskyScanner:
                 md=run_md,
                 scan_number=scan_number,
                 scan_folder=scan_folder,
+                # Bridges map optimizer-config end-of-run policy (e.g. the
+                # legacy move_to_best_on_finish flag) onto the session's.
+                on_finish=getattr(bridge, "on_finish", "hold"),
             )
 
     def _execute_scan(

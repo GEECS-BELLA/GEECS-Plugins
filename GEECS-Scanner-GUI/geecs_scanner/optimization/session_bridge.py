@@ -148,6 +148,17 @@ class SessionOptimizationBridge:
         """VOCS variable names (``"Device:Variable"`` keys)."""
         return list(self.optimizer.vocs.variable_names)
 
+    @property
+    def on_finish(self) -> str:
+        """Session end-of-run policy from the optimizer config.
+
+        Maps the legacy ``move_to_best_on_finish`` flag onto
+        ``GeecsSession.optimize``'s ``on_finish``: ``"best"`` (move to the
+        highest-objective iteration) when set, else ``"hold"`` (stay at the
+        last visited point — the legacy default behavior).
+        """
+        return "best" if self.optimizer.move_to_best_on_finish else "hold"
+
     def bind(self, *, devices: List[Any], scan_tag: Any) -> Tuple[Any, Any]:
         """Attach the run context; return ``(objective, suggester)``.
 
