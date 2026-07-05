@@ -80,8 +80,12 @@ scanner uses it too, making a scan fully gateway-mediated.
 
 ## Non-goals (for now)
 
-- Optimization (Xopt/Badger) — deferred pending discussion; the session's
-  `scan()`/device factories are the substrate it will sit on.
+- ~~Optimization~~ — landed as `session.optimize()` (optimization **as a
+  scan**: iteration = bin, same schema/data tree; suggester ask/tell protocol
+  with Xopt behind the `optimize` extra; `BinData` gives objectives the
+  shot-matched rows and bin-averaged images for ImageAnalysis). Badger was
+  evaluated and rejected for this: operator-centric, keeps its own evaluation
+  archive outside the scan data stream.
 - Per-scan log files and lifecycle `ScanEvent` emission — GUI concerns; they
   stay in `BlueskyScanner`.
 - Background scan mode, setup/closeout actions — same status as before

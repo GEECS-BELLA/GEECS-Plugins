@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.18.0] - 2026-07-04
+
+### Added
+
+- **Optimization as a scan** — `GeecsSession.optimize()` +
+  `plans/optimize.py::geecs_adaptive_scan`: one scan number, one Tiled run,
+  iteration = `bin_number`, the same schema-v1 shot-matched rows and
+  acquisition modes as any scan (free-run reference-paced or strict
+  single-shot; requirement from Sam — no side-channel optimizer data à la
+  Badger). Between bins the objective is evaluated on that iteration's
+  `BinData` (rows + native images: `bin.images("cam")`,
+  `bin.averaged_image("cam")` for the average-then-analyze ImageAnalysis
+  pattern, matched to rows by filename `acq_timestamp` with a wait for
+  late-written files) and fed to the suggester (ask/tell protocol:
+  dependency-free `RandomSuggester`, `XoptSuggester` adapter behind the new
+  `optimize` extra, or any duck-typed generator). A failed objective records
+  NaN instead of aborting. The per-iteration history is returned and written
+  to `optimization.json` in the scan folder.
+- `on_finish` policy on `optimize()`: `"hold"` (scan convention, default),
+  `"initial"` (restore pre-optimization values; also applied on
+  abort/failure), `"best"` (move to the highest-objective inputs).
+- Verified live (laser off, physics-free objective): 6 random-search
+  iterations steering U_S1H toward 0.3 A found best I=0.276 A, all data as
+  one Tiled run, `on_finish='initial'` restored the magnet.
+
 ## [0.17.0] - 2026-07-04
 
 ### Removed

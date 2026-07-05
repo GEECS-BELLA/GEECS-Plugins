@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import numpy as np
 from bluesky import RunEngine
@@ -43,8 +43,10 @@ from geecs_bluesky.devices.ca import (
     CaTimestampedReadable,
 )
 from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.optimize import BinData, Suggester
+from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
-from geecs_bluesky.plans.run_wrapper import claim_scan_number
+from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -119,6 +121,36 @@ class GeecsSession:
         )
         future.result(timeout=20.0)
         return device
+
+    def _read_movable(self, movable: Any) -> float:
+        """Current readback value of a session settable/motor."""
+        import asyncio
+
+        signal = getattr(movable, getattr(movable, "_readback_attr_name", "readback"))
+        return float(
+            asyncio.run_coroutine_threadsafe(signal.get_value(), self.RE._loop).result(
+                timeout=10.0
+            )
+        )
+
+    def _move_movables(self, variables: dict[str, Any], targets: dict) -> None:
+        """Drive movables to *targets* outside a plan (best-effort)."""
+        import asyncio
+
+        for name, value in targets.items():
+            movable = variables.get(name)
+            if movable is None:
+                continue
+
+            async def _move(m=movable, v=float(value)) -> None:
+                await m._setpoint.set(v)
+
+            try:
+                asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(
+                    timeout=30.0
+                )
+            except Exception:
+                logger.warning("could not move %s to %s", name, value, exc_info=True)
 
     def disconnect(self, *devices: Any) -> None:
         """Disconnect devices in the RE's event loop (best-effort)."""
@@ -368,6 +400,227 @@ class GeecsSession:
         if save_data and self._last_run_uid and scan_number is not None:
             self._export_scalar_files(scan_number)
         return self._last_run_uid
+
+    def optimize(
+        self,
+        *,
+        variables: dict[str, Any],
+        detectors: Sequence[Any],
+        objective: "Callable[[BinData], float]",
+        suggester: Suggester,
+        shots_per_iteration: int = 5,
+        max_iterations: int = 20,
+        mode: str = _FREE_RUN,
+        description: str = "",
+        save_data: bool = True,
+        md: dict | None = None,
+        on_finish: str = "hold",
+    ) -> tuple[str | None, list[dict]]:
+        """Run an optimization **as a scan** (iteration = bin); return (uid, history).
+
+        One scan number, one Tiled run, the same schema/data tree as any scan:
+        each suggester iteration acquires ``shots_per_iteration`` shot-matched
+        rows as one bin, then *objective* is evaluated on that bin's
+        :class:`~geecs_bluesky.optimize.BinData` (rows + native images, e.g.
+        ``bin.averaged_image("cam")`` for average-then-analyze ImageAnalysis
+        objectives) and fed back through ``suggester.observe`` before the next
+        ``suggester.suggest``.  A failed objective evaluates to NaN rather than
+        aborting the run.  The per-iteration record is returned and, when
+        saving, written to ``optimization.json`` in the scan folder.
+
+        Parameters
+        ----------
+        variables:
+            ``{name: Movable}`` — session settables/motors; readbacks are
+            recorded in every event row.  Suggester inputs use these names.
+        detectors:
+            As in :meth:`scan` (first entry is the free-run reference).
+        objective:
+            ``objective(bin_data) -> float`` (higher is better by suggester
+            convention; flip the sign for minimization).
+        suggester:
+            Anything implementing :class:`~geecs_bluesky.optimize.Suggester`
+            (``RandomSuggester``, ``XoptSuggester``, or your own).
+        on_finish:
+            Where the variables end up: ``"hold"`` (last visited point — the
+            scan convention), ``"initial"`` (restore pre-optimization values,
+            also applied on abort/failure), or ``"best"`` (move to the
+            highest-objective iteration; falls back to ``initial``-style
+            restore if nothing finite was observed).
+        """
+        if mode not in (_FREE_RUN, _STRICT):
+            raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
+        if on_finish not in ("hold", "initial", "best"):
+            raise ValueError(
+                f"on_finish={on_finish!r} invalid; use 'hold', 'initial', or 'best'"
+            )
+        detectors = list(detectors)
+        if not detectors:
+            raise ValueError("optimize() needs at least one detector")
+        controller = self._shot_controller
+        if mode == _STRICT and controller is None:
+            raise ValueError("mode='strict' requires shot_control(...) first")
+
+        initial_values = {
+            name: self._read_movable(movable) for name, movable in variables.items()
+        }
+
+        scan_number: int | None = None
+        scan_folder: str | None = None
+        if save_data:
+            scan_number, scan_folder = claim_scan_number(self.experiment)
+            if scan_number is not None:
+                self._write_scan_info(
+                    scan_number,
+                    scan_folder,
+                    motor=None,
+                    positions=[None],
+                    shots_per_step=shots_per_iteration,
+                    description=description,
+                    overrides={
+                        "scan_parameter": ",".join(variables),
+                        "scan_mode": "optimization",
+                        "shots": shots_per_iteration,
+                    },
+                )
+
+        reference = detectors[0]
+        for det in detectors:
+            if hasattr(det, "configure_shot_id"):
+                det.configure_shot_id(self.rep_rate_hz)
+        saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
+        assets = {
+            det.name: (getattr(det, "_geecs_device_name", det.name), save_path)
+            for det, save_path, _device_path in saving_detectors
+        }
+
+        # Collect primary-stream rows in-process so the objective can be
+        # evaluated between bins without a Tiled round trip.
+        descriptors: dict[str, str] = {}
+        rows: list[dict] = []
+
+        def _collect(name: str, doc: dict) -> None:
+            if name == "descriptor":
+                descriptors[doc["uid"]] = doc.get("name", "")
+            elif name == "event" and descriptors.get(doc["descriptor"]) == "primary":
+                rows.append(dict(doc["data"]))
+
+        history: list[dict] = []
+        pending: dict[str, float] | None = None
+
+        def _observe_previous(iteration: int) -> None:
+            nonlocal pending
+            if pending is None:
+                return
+            bin_rows = [r for r in rows if r.get("bin_number") == iteration]
+            bin_data = BinData(iteration, bin_rows, assets)
+            try:
+                value = float(objective(bin_data))
+            except Exception:
+                logger.warning(
+                    "objective failed on iteration %d; recording NaN",
+                    iteration,
+                    exc_info=True,
+                )
+                value = float("nan")
+            suggester.observe(pending, value, bin_data)
+            history.append(
+                {
+                    "iteration": iteration,
+                    "inputs": pending,
+                    "objective": value,
+                    "n_rows": len(bin_rows),
+                }
+            )
+            pending = None
+
+        def _propose(iteration: int) -> dict[str, float] | None:
+            nonlocal pending
+            _observe_previous(iteration - 1)
+            inputs = suggester.suggest()
+            if inputs is None:
+                logger.info("suggester stopped at iteration %d", iteration)
+                return None
+            unknown = set(inputs) - set(variables)
+            if unknown:
+                raise KeyError(f"suggester proposed unknown variables: {unknown}")
+            pending = inputs
+            logger.info("iteration %d: %s", iteration, inputs)
+            return inputs
+
+        plan = geecs_adaptive_scan(
+            movables=dict(variables),
+            propose=_propose,
+            detectors=detectors[1:] if mode == _FREE_RUN else detectors,
+            reference=reference if mode == _FREE_RUN else None,
+            shots_per_iteration=shots_per_iteration,
+            max_iterations=max_iterations,
+            fire_shot=controller.fire_shot if mode == _STRICT and controller else None,
+            setup_trigger=(
+                (lambda: controller.arm_single_shot(detectors))
+                if mode == _STRICT and controller
+                else None
+            ),
+            arm_trigger=controller.arm if mode == _FREE_RUN and controller else None,
+            disarm_trigger=(
+                controller.disarm if mode == _FREE_RUN and controller else None
+            ),
+            quiesce_trigger=(
+                controller.quiesce if mode == _FREE_RUN and controller else None
+            ),
+            md={"description": description, **(md or {})},
+        )
+        run_plan = geecs_run_wrapper(
+            plan,
+            experiment=self.experiment,
+            scan_number=scan_number,
+            scan_folder=scan_folder,
+            saving_detectors=saving_detectors,
+            devices=detectors + list(variables.values()),
+            extra_md={"description": description, **(md or {})},
+        )
+        if controller is not None:
+            import bluesky.preprocessors as bpp
+
+            run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
+
+        token = self.RE.subscribe(_collect)
+        self._last_run_uid = None
+        try:
+            self.RE(run_plan)
+        except BaseException:
+            if on_finish in ("initial", "best"):
+                self._move_movables(variables, initial_values)
+            raise
+        finally:
+            self.RE.unsubscribe(token)
+        _observe_previous(len(history) + 1)  # final bin
+
+        if on_finish in ("initial", "best"):
+            target = initial_values
+            if on_finish == "best":
+                finite = [h for h in history if np.isfinite(h["objective"])]
+                if finite:
+                    target = max(finite, key=lambda h: h["objective"])["inputs"]
+                else:
+                    logger.warning(
+                        "on_finish='best' but no finite objectives; restoring initial"
+                    )
+            self._move_movables(variables, target)
+            logger.info("optimize on_finish=%s -> %s", on_finish, target)
+
+        if save_data and scan_folder is not None and history:
+            import json
+
+            try:
+                path = Path(scan_folder) / "optimization.json"
+                path.write_text(json.dumps(history, indent=2))
+                logger.info("Optimization history written to %s", path)
+            except Exception:
+                logger.warning("Could not write optimization history", exc_info=True)
+        if save_data and self._last_run_uid and scan_number is not None:
+            self._export_scalar_files(scan_number)
+        return self._last_run_uid, history
 
     # ------------------------------------------------------------------
     # Internals

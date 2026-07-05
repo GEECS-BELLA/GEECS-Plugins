@@ -13,9 +13,7 @@ Scans run in one of two modes, selected by the
 `GEECS_BLUESKY_ACQUISITION_MODE` env var (`free_run_time_sync` or
 `strict_shot_control`; default strict).  Both write the **same versioned event
 schema** (`EVENT_SCHEMA.md`); consumers branch on `geecs_event_schema`, never on
-the mode.  The full design and rationale live in
-`Planning/acquisition_modes/` (start at `00_overview.md`); `EVENT_SCHEMA.md` is
-the canonical data contract.
+the mode.  `EVENT_SCHEMA.md` is the canonical data contract.
 
 - **`free_run_time_sync`** — the external trigger free-runs at the machine rep
   rate.  The first synchronous device is the **reference** (pacemaker): its
@@ -31,20 +29,6 @@ the canonical data contract.
 NOSCAN ("statistics collection") is just a motorless step scan (one no-move
 bin), so it honours the same mode dispatch.
 
-## Why This Exists
-
-The legacy `ScanManager` in `GEECS-Scanner-GUI/` is a monolith that mixes device
-I/O, file writing, state management, and threading.  `BlueskyScanner` replaces it
-with a Bluesky plan that is:
-
-- **Testable without hardware** — `FakeGeecsServer` runs an in-process UDP/TCP
-  device; all unit tests use it
-- **Observable** — every shot emits a Bluesky event document; Tiled persists them
-- **Composable** — plans are plain generators; the per-shot stubs
-  (`geecs_single_shot`, `geecs_t0_sync`, …) and `geecs_run_wrapper` are the
-  reusable unit, so a custom notebook plan inherits the same schema, scan
-  numbering, and save-path discipline as a GUI scan
-
 ## Package Layout
 
 ```
@@ -56,6 +40,7 @@ geecs_bluesky/
     orchestration.py        # build_step_scan_plan — THE one scan recipe (both front doors)
     step_scan.py            # geecs_step_scan — step scan (motor optional; hooks)
     free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
+    optimize.py             # geecs_adaptive_scan — optimization as a scan (iteration = bin)
     single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
@@ -72,107 +57,21 @@ geecs_bluesky/
     contributor.py          # FreeRunContributorSupport — reference-relative labeling
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
   shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
+  optimize.py               # suggester protocol, RandomSuggester, XoptSuggester, BinData
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
   data_paths.py             # local ↔ device-server path mapping, asset roots
   scanner_configs.py        # configs-repo resolution + shot-control YAML loading
   models/
     shot_control.py         # ShotControlConfig / ShotControlState — validated YAML
-  transport/
-    udp_client.py           # GeecsUdpClient — asyncio UDP; two-stage ACK/EXE protocol
-    tcp_subscriber.py       # GeecsTcpSubscriber — framed TCP push at ~5 Hz
-  db/
-    geecs_db.py             # GeecsDb — MySQL lookup: device name → (host, port), metadata
-  testing/
-    fake_device_server.py   # FakeGeecsServer / FakeGeecsDevice — in-process test server
-  pv_naming.py              # shared GEECS-name → PV naming contract (gateway imports it too)
-  exceptions.py             # GeecsDeviceNotFoundError, GeecsT0SyncError, …
+  exceptions.py             # scan-level errors; wire-level ones re-exported from the gateway
   utils.py                  # safe_name() / build_signal_attrs()
 
-The ``transport/`` core and ``testing/`` fake server remain even though devices
-are CA-only: **GeecsCAGateway is their consumer** (the gateway is the one
-component that speaks GEECS TCP/UDP; ``FakeGeecsServer`` backs its offline
-tests and demo, and ``tests/test_transport.py`` here).
+The GEECS access-layer core (``transport/``, ``db/``, ``pv_naming``,
+``FakeGeecsServer``, wire-level exceptions) lives in **GeecsCAGateway** — this
+package depends on it for library use (``GeecsDb`` metadata, naming,
+exceptions) and consumes its CA service for all device I/O.
 
-EVENT_SCHEMA.md`); consumers branch on `geecs_event_schema`, never on
-the mode.  The full design and rationale live in
-`Planning/acquisition_modes/` (start at `00_overview.md`); `EVENT_SCHEMA.md` is
-the canonical data contract.
-
-- **`free_run_time_sync`** — the external trigger free-runs at the machine rep
-  rate.  The first synchronous device is the **reference** (pacemaker): its
-  `acq_timestamp` advance creates one event row; every other device fills that
-  row's columns, each labeled with a derived `shot_id` / `shot_offset` /
-  `valid` so late/slow devices are tolerated and realignable downstream.
-- **`strict_shot_control`** — every device must be present on each shot.  With
-  a reachable shot-control device and an `ARMED` state in the shot-control
-  config it does true plan-owned single-shot (arm → confirm trigger quiescent
-  → fire one shot → await all).  Strict mode aborts when those requirements are
-  not met; use `free_run_time_sync` for free-running trigger acquisition.
-
-NOSCAN ("statistics collection") is just a motorless step scan (one no-move
-bin), so it honours the same mode dispatch.
-
-## Why This Exists
-
-The legacy `ScanManager` in `GEECS-Scanner-GUI/` is a monolith that mixes device
-I/O, file writing, state management, and threading.  `BlueskyScanner` replaces it
-with a Bluesky plan that is:
-
-- **Testable without hardware** — `FakeGeecsServer` runs an in-process UDP/TCP
-  device; all unit tests use it
-- **Observable** — every shot emits a Bluesky event document; Tiled persists them
-- **Composable** — plans are plain generators; the per-shot stubs
-  (`geecs_single_shot`, `geecs_t0_sync`, …) and `geecs_run_wrapper` are the
-  reusable unit, so a custom notebook plan inherits the same schema, scan
-  numbering, and save-path discipline as a GUI scan
-
-## Package Layout
-
-```
-geecs_bluesky/
-  scanner_bridge/
-    bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible API; mode dispatch
-  plans/
-    step_scan.py            # geecs_step_scan — step scan (motor optional; arm/disarm/fire/setup hooks)
-    free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
-    single_shot.py          # geecs_single_shot (fire→await→read) + geecs_confirm_quiescent
-    t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
-    run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
-  devices/
-    geecs_device.py         # GeecsDevice — StandardReadable base; shared UDP lifecycle
-    settable.py             # GeecsSettable — Movable base; UDP set + polling convergence
-    motor.py                # GeecsMotor — axis device; from_db_axis() factory
-    generic_detector.py     # GeecsGenericDetector — dynamic vars + shot-id companion cols
-    timestamped_readable.py # GeecsTimestampedReadable — free-run contributor (no blocking trigger)
-    snapshot.py             # GeecsSnapshotReadable — async readback, sampled per row
-    triggerable.py          # GeecsTriggerable — acq_timestamp-gated trigger
-    shot_id.py              # ShotIdTracker (incremental shot ids) + ShotIdSupport mixin
-    nonscalar_save.py       # NonScalarSaveSupport mixin — localsavingpath/save + save-path column
-    contributor.py          # FreeRunContributorSupport — shared reference-relative labeling
-    scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
-    ca/                     # CA-backed device family (consumes GeecsCAGateway PVs; `ca` extra)
-      triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
-      generic_detector.py   # CaGenericDetector — shot-id columns + native saving over CA
-      timestamped_readable.py # CaTimestampedReadable — free-run contributor over CA
-      snapshot.py           # CaSnapshotReadable — async readback over CA
-      settable.py           # CaSettable — put :SP, read streamed readback
-      motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
-  models/
-    shot_control.py         # ShotControlConfig / ShotControlState — validated shot-control YAML
-  transport/
-    udp_client.py           # GeecsUdpClient — asyncio UDP; two-stage ACK/EXE protocol
-    tcp_subscriber.py       # GeecsTcpSubscriber — framed TCP push at ~5 Hz
-  backends/                 # ophyd-async SignalBackend wired to UDP/TCP
-  db/
-    geecs_db.py             # GeecsDb — MySQL lookup: device name → (host, port)
-  testing/
-    fake_device_server.py   # FakeGeecsServer / FakeGeecsDevice — in-process test server
-  signals.py                # geecs_signal_rw / geecs_signal_r helpers
-  exceptions.py             # GeecsDeviceNotFoundError, GeecsT0SyncError, GeecsQuiescenceTimeoutError, …
-  utils.py                  # safe_name() — device name → valid Python identifier
-
-EVENT_SCHEMA.md             # canonical event-schema v1 data contract (read this)
-```
+EVENT_SCHEMA.md — the canonical event-schema v1 data contract (read it).
 
 ## BlueskyScanner — Key Design Points
 
@@ -404,18 +303,13 @@ architecture — see `Planning/acquisition_modes/00_overview.md` "Deferred".
 - **Only lifecycle `ScanEvent`s are emitted** via `on_event` (through
   `_set_state`).  Per-shot/step Bluesky documents are not translated into the
   richer `ScanStepEvent` / `DeviceCommandEvent` stream (and may not need to be).
-- **Shot-control bracketing is not yet extracted** for notebook reuse — the
-  arm/disarm/quiesce/fire callables live in `BlueskyScanner` (built from
-  `_UdpSetter` + `ShotControlConfig`).  Plans, devices, `geecs_run_wrapper`, and
-  the schema are reusable; a future `ShotController` helper would give notebooks
-  full parity (jet gating / single-shot firing).
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
-- **Optimization and Background scan modes not implemented.**  For optimization,
-  start from the unified `BaseEvaluator` / `BaseOptimizer` surface in
-  `GEECS-Scanner-GUI`, not the removed `MultiDeviceScanEvaluator` /
-  `ScalarLogEvaluator` split.
+- **Background scan mode not implemented.**  Optimization runs headless via
+  `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
+  tree as any scan; exploratory — see `plans/optimize.py`).  The legacy GUI
+  optimizer surface is untouched and separate.
 - **Pre/post-scan action sequences not implemented** (`setup_action` /
   `closeout_action`); the legacy scanner runs these through `ActionManager`.
 - **Scan-folder creation invariant:** `claim_scan_number`
