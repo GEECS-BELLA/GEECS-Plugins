@@ -5743,4 +5743,4 @@ tiled = ["tiled"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "9c3a091c8a3f74afa2f7bcbe13e790ac2f31382d67966dca81559a8cd6c245cb"
+content-hash = "ba43c15aae684a766f0acdc9777cbdd90ffe7c727eade6ad8f3b0ae0c632310b"

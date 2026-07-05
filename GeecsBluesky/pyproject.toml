@@ -35,8 +35,9 @@ tiled = {version = ">=0.2", extras = ["client"], optional = true}
 aioca = { version = ">=1.7", optional = true }
 
 # Optimization algorithms for GeecsSession.optimize (XoptSuggester). Heavy
-# (pulls torch/botorch); the built-in RandomSuggester needs nothing.
-xopt = { version = ">=2.2", optional = true }
+# (pulls torch/botorch); the built-in RandomSuggester needs nothing. Pinned to
+# the same major as GEECS-Scanner-GUI (^3.1) so the two never drift.
+xopt = { version = "^3.1", optional = true }
 
 [tool.poetry.extras]
 tiled = ["tiled"]
