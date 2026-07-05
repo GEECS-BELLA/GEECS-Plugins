@@ -13,19 +13,18 @@ plan:
   exploration and as the machinery test double).
 * :class:`XoptSuggester` — thin adapter over `Xopt <https://xopt.xopt.org>`_
   generators (requires the ``optimize`` extra).
-* :class:`BinData` — one iteration's shot-matched rows, with helpers to pull
-  scalar columns and to load (and optionally **average**) that bin's native
-  images for ImageAnalysis-based objectives.
+* :class:`BinData` — one iteration's shot-matched rows (scalar access only).
+  Image/diagnostic analysis belongs to the configured evaluator path
+  (GEECS-Scanner-GUI ``optimization/`` — ScanAnalysis analyzers with per-shot
+  or per-bin-averaged modes), not here: analyzers load native files from the
+  scan folder by scan tag, exactly as they do for any scan.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-import time
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -141,24 +140,16 @@ class XoptSuggester:
         )
 
 
-_TRAILING_FLOAT = re.compile(r"_(\d+(?:\.\d+)?)\.[A-Za-z0-9]+$")
-
-
 @dataclass
 class BinData:
     """One optimization iteration's shot-matched rows and native assets.
 
     ``rows`` are the primary-stream event data dicts for this bin (schema v1:
     per-device columns plus ``<det>-shot_id`` / ``<det>-valid`` / …).
-    ``assets`` maps a detector's ophyd name to ``(geecs_device_name,
-    save_path)`` for image-saving detectors, enabling ImageAnalysis-based
-    objectives — including the average-the-bin-then-analyze pattern via
-    :meth:`averaged_image`.
     """
 
     iteration: int
     rows: list[dict[str, Any]]
-    assets: dict[str, tuple[str, str]] = field(default_factory=dict)
 
     def valid_rows(self, detector: str | None = None) -> list[dict[str, Any]]:
         """Rows where the detector(s) captured the row's physical shot.
@@ -177,82 +168,3 @@ class BinData:
         """One column across the bin as an array (optionally valid-filtered)."""
         rows = self.valid_rows(valid_for) if valid_for is not None else self.rows
         return np.asarray([r[key] for r in rows if key in r], dtype=float)
-
-    def images(
-        self,
-        detector: str,
-        *,
-        valid_only: bool = True,
-        timeout_s: float = 5.0,
-        match_tol_s: float = 0.25,
-        loader: Callable[[Path], np.ndarray] | None = None,
-    ) -> list[np.ndarray]:
-        """Load this bin's native images for *detector*, matched by acq_timestamp.
-
-        The camera writes files asynchronously, so this waits (up to
-        *timeout_s*) for a file whose filename timestamp lands within
-        *match_tol_s* of each row's ``acq_timestamp``.  Rows whose file never
-        appears are skipped with a warning — objectives should be robust to a
-        short bin, exactly like they are to invalid shots.
-        """
-        if detector not in self.assets:
-            raise KeyError(
-                f"{detector!r} has no native-saving assets in this bin "
-                f"(known: {sorted(self.assets)})"
-            )
-        device_name, save_path = self.assets[detector]
-        rows = self.valid_rows(detector) if valid_only else self.rows
-        wanted = [
-            float(r[f"{detector}-acq_timestamp"])
-            for r in rows
-            if f"{detector}-acq_timestamp" in r
-        ]
-        if loader is None:
-            from geecs_data_utils.io.images import read_imaq_image
-
-            loader = read_imaq_image
-
-        folder = Path(save_path)
-        deadline = time.monotonic() + timeout_s
-        matches: dict[float, Path] = {}
-        while len(matches) < len(wanted):
-            available: list[tuple[float, Path]] = []
-            if folder.is_dir():
-                for f in folder.glob(f"{device_name}_*"):
-                    m = _TRAILING_FLOAT.search(f.name)
-                    if m:
-                        available.append((float(m.group(1)), f))
-            for acq in wanted:
-                if acq in matches or not available:
-                    continue
-                ts, path = min(available, key=lambda item: abs(item[0] - acq))
-                if abs(ts - acq) <= match_tol_s:
-                    matches[acq] = path
-            if len(matches) >= len(wanted) or time.monotonic() > deadline:
-                break
-            time.sleep(0.2)
-
-        missing = [acq for acq in wanted if acq not in matches]
-        if missing:
-            logger.warning(
-                "bin %d: %d/%d %s image(s) never appeared in %s",
-                self.iteration,
-                len(missing),
-                len(wanted),
-                detector,
-                save_path,
-            )
-        return [loader(matches[acq]) for acq in wanted if acq in matches]
-
-    def averaged_image(self, detector: str, **kwargs: Any) -> np.ndarray:
-        """Mean image over the bin — the average-then-analyze pattern.
-
-        Raises if no images could be loaded (an objective should see that
-        loudly rather than analyze an empty average).
-        """
-        images = self.images(detector, **kwargs)
-        if not images:
-            raise RuntimeError(
-                f"bin {self.iteration}: no {detector} images available to average"
-            )
-        return np.mean(np.stack([np.asarray(im, dtype=float) for im in images]), axis=0)

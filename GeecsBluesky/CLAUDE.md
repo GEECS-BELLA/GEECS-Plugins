@@ -306,10 +306,16 @@ architecture — see `Planning/acquisition_modes/00_overview.md` "Deferred".
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
-- **Background scan mode not implemented.**  Optimization runs headless via
+- **Background scan mode not implemented.**  Optimization runs as a scan via
   `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
-  tree as any scan; exploratory — see `plans/optimize.py`).  The legacy GUI
-  optimizer surface is untouched and separate.
+  tree as any scan — see `plans/optimize.py`), both headless (suggester +
+  objective in hand) and from the GUI: `BlueskyScanner` handles OPTIMIZATION
+  scan mode through a GUI-injected `optimization_loader`
+  (`geecs_scanner.optimization.session_bridge`), which runs the config-driven
+  Xopt 3.1 / evaluator / ScanAnalysis stack against the session's bin rows.
+  The evaluator seam is `EvaluatorDataSource` in
+  `geecs_scanner.optimization.base_evaluator`; this package stays free of any
+  geecs_scanner import (dependency direction).
 - **Pre/post-scan action sequences not implemented** (`setup_action` /
   `closeout_action`); the legacy scanner runs these through `ActionManager`.
 - **Scan-folder creation invariant:** `claim_scan_number`

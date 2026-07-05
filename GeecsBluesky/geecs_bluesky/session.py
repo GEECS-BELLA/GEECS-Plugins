@@ -415,18 +415,21 @@ class GeecsSession:
         save_data: bool = True,
         md: dict | None = None,
         on_finish: str = "hold",
+        scan_number: int | None = None,
+        scan_folder: str | None = None,
     ) -> tuple[str | None, list[dict]]:
         """Run an optimization **as a scan** (iteration = bin); return (uid, history).
 
         One scan number, one Tiled run, the same schema/data tree as any scan:
         each suggester iteration acquires ``shots_per_iteration`` shot-matched
         rows as one bin, then *objective* is evaluated on that bin's
-        :class:`~geecs_bluesky.optimize.BinData` (rows + native images, e.g.
-        ``bin.averaged_image("cam")`` for average-then-analyze ImageAnalysis
-        objectives) and fed back through ``suggester.observe`` before the next
-        ``suggester.suggest``.  A failed objective evaluates to NaN rather than
-        aborting the run.  The per-iteration record is returned and, when
-        saving, written to ``optimization.json`` in the scan folder.
+        :class:`~geecs_bluesky.optimize.BinData` scalar rows and fed back
+        through ``suggester.observe`` before the next ``suggester.suggest``.
+        Image/diagnostic-based objectives run ScanAnalysis analyzers against
+        the natively saved files (by scan tag), exactly as in any scan — see
+        the GUI optimization bridge.  A failed objective evaluates to NaN
+        rather than aborting the run.  The per-iteration record is returned
+        and, when saving, written to ``optimization.json`` in the scan folder.
 
         Parameters
         ----------
@@ -447,6 +450,9 @@ class GeecsSession:
             also applied on abort/failure), or ``"best"`` (move to the
             highest-objective iteration; falls back to ``initial``-style
             restore if nothing finite was observed).
+        scan_number, scan_folder:
+            Pre-claimed scan number/folder (as in :meth:`scan`).  When omitted
+            and *save_data* is true, they are claimed here.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -465,10 +471,9 @@ class GeecsSession:
             name: self._read_movable(movable) for name, movable in variables.items()
         }
 
-        scan_number: int | None = None
-        scan_folder: str | None = None
         if save_data:
-            scan_number, scan_folder = claim_scan_number(self.experiment)
+            if scan_number is None:
+                scan_number, scan_folder = claim_scan_number(self.experiment)
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -489,10 +494,6 @@ class GeecsSession:
             if hasattr(det, "configure_shot_id"):
                 det.configure_shot_id(self.rep_rate_hz)
         saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
-        assets = {
-            det.name: (getattr(det, "_geecs_device_name", det.name), save_path)
-            for det, save_path, _device_path in saving_detectors
-        }
 
         # Collect primary-stream rows in-process so the objective can be
         # evaluated between bins without a Tiled round trip.
@@ -513,7 +514,7 @@ class GeecsSession:
             if pending is None:
                 return
             bin_rows = [r for r in rows if r.get("bin_number") == iteration]
-            bin_data = BinData(iteration, bin_rows, assets)
+            bin_data = BinData(iteration, bin_rows)
             try:
                 value = float(objective(bin_data))
             except Exception:

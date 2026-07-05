@@ -39,37 +39,6 @@ def test_bindata_valid_rows_and_column() -> None:
     assert list(bin_data.column("v")) == [1.0, 9.0, 3.0]
 
 
-def test_bindata_images_match_by_timestamp(tmp_path) -> None:
-    """Files are matched to rows by the timestamp in the filename."""
-    for ts in ("100.000", "102.001", "555.000"):
-        (tmp_path / f"UC_Cam_{ts}.png").write_bytes(b"x")
-    bin_data = BinData(1, _rows(), assets={"cam": ("UC_Cam", str(tmp_path))})
-
-    loaded = bin_data.images(
-        "cam",
-        timeout_s=0.1,
-        loader=lambda p: p.name,  # identity loader
-    )
-    # Two valid rows -> their two files, matched within tolerance
-    assert loaded == ["UC_Cam_100.000.png", "UC_Cam_102.001.png"]
-
-
-def test_bindata_averaged_image(tmp_path) -> None:
-    for ts in ("100.000", "102.000"):
-        (tmp_path / f"UC_Cam_{ts}.png").write_bytes(b"x")
-    bin_data = BinData(1, _rows(), assets={"cam": ("UC_Cam", str(tmp_path))})
-    counter = iter([np.full((2, 2), 2.0), np.full((2, 2), 4.0)])
-    averaged = bin_data.averaged_image(
-        "cam", timeout_s=0.1, loader=lambda p: next(counter)
-    )
-    assert np.allclose(averaged, 3.0)
-
-
-def test_bindata_unknown_detector_raises() -> None:
-    with pytest.raises(KeyError, match="no native-saving assets"):
-        BinData(1, _rows()).images("cam")
-
-
 # ---------------------------------------------------------------------------
 # Suggesters
 # ---------------------------------------------------------------------------

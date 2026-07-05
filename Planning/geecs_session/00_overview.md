@@ -83,9 +83,15 @@ scanner uses it too, making a scan fully gateway-mediated.
 - ~~Optimization~~ — landed as `session.optimize()` (optimization **as a
   scan**: iteration = bin, same schema/data tree; suggester ask/tell protocol
   with Xopt behind the `optimize` extra; `BinData` gives objectives the
-  shot-matched rows and bin-averaged images for ImageAnalysis). Badger was
-  evaluated and rejected for this: operator-centric, keeps its own evaluation
-  archive outside the scan data stream.
+  shot-matched scalar rows). Badger was evaluated and rejected for this:
+  operator-centric, keeps its own evaluation archive outside the scan data
+  stream. The GUI's config-driven optimization stack (BaseOptimizer /
+  evaluators / ScanAnalysis analyzers, Xopt 3.1) now runs on top of it via
+  `geecs_scanner.optimization.session_bridge` — the evaluator reads session
+  bin rows through the `EvaluatorDataSource` seam and analyzers load native
+  files by the claimed `ScanTag`, so image-based objectives (including
+  bin-average-then-analyze) are the evaluator path's job, not `BinData`'s
+  (its image helpers were removed as redundant).
 - Per-scan log files and lifecycle `ScanEvent` emission — GUI concerns; they
   stay in `BlueskyScanner`.
 - Background scan mode, setup/closeout actions — same status as before

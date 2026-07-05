@@ -52,6 +52,10 @@ class RunControl:
         if use_bluesky:
             from geecs_bluesky.scanner_bridge import BlueskyScanner
 
+            from geecs_scanner.optimization.session_bridge import (
+                load_session_optimization,
+            )
+
             settings = None
             if shot_control_configuration is not None:
                 settings = read_yaml_file_to_dict(shot_control_configuration)
@@ -59,6 +63,7 @@ class RunControl:
                 experiment_dir=experiment_name,
                 shot_control_information=settings,
                 on_event=on_event,
+                optimization_loader=load_session_optimization,
             )
             self.action_control = None
             logging.info("RunControl: using Bluesky backend (BlueskyScanner)")

@@ -52,7 +52,7 @@ import numpy as np
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.plans.run_wrapper import claim_scan_number
+from geecs_bluesky.plans.run_wrapper import claim_scan, claim_scan_number
 from geecs_bluesky.session import GeecsSession
 from geecs_bluesky.utils import safe_name
 
@@ -140,6 +140,16 @@ class BlueskyScanner:
         Requires ``tiled[client]`` to be installed; silently skipped if absent.
     tiled_api_key:
         API key for the Tiled server, if authentication is enabled.
+    optimization_loader:
+        Callable injected by the GUI layer for OPTIMIZATION scans:
+        ``optimization_loader(optimizer_config_path)`` returns a bridge object
+        exposing ``variable_names`` (``"Device:Variable"`` VOCS keys) and
+        ``bind(devices=..., scan_tag=...) -> (objective, suggester)`` for
+        :meth:`GeecsSession.optimize`.  Lives on the GUI side because the
+        config-driven optimizer stack (Xopt, evaluators, ScanAnalysis
+        analyzers) belongs to ``geecs_scanner.optimization`` — this package
+        cannot import it (dependency direction).  Without a loader,
+        optimization-mode requests are logged and skipped.
     """
 
     def __init__(
@@ -149,6 +159,7 @@ class BlueskyScanner:
         tiled_uri: str | None = None,
         tiled_api_key: str | None = None,
         on_event: Callable[[ScanEvent], None] | None = None,
+        optimization_loader: Callable[[str], Any] | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
         # The session owns the RunEngine (created with context_managers=[] so
@@ -178,6 +189,7 @@ class BlueskyScanner:
         self._shots_per_step: int = 10
         self._acquisition_mode: str = _STRICT_MODE
         self._devices_config: dict[str, Any] = {}
+        self._optimization_loader = optimization_loader
 
         # Devices are CA-backed only (the direct UDP/TCP backend was removed
         # once the CA backend reached verified parity; the GeecsCAGateway is
@@ -434,6 +446,8 @@ class BlueskyScanner:
                 self._run_standard_scan(scan_config)
             elif mode_val == "noscan":
                 self._run_noscan(scan_config)
+            elif mode_val == "optimization":
+                self._run_optimization(scan_config)
             else:
                 logger.warning(
                     "BlueskyScanner: scan mode %r not yet supported; skipping", mode_val
@@ -528,6 +542,94 @@ class BlueskyScanner:
         if getattr(scan_config, "additional_description", None):
             extra_md["description"] = scan_config.additional_description
         self._execute_scan(scan_config, motor=None, positions=[None], extra_md=extra_md)
+
+    def _run_optimization(self, scan_config: Any) -> None:
+        """Optimization as a scan, driven by the GUI's config-based optimizer stack.
+
+        The GUI-injected ``optimization_loader`` owns everything Xopt/evaluator
+        (see the constructor docstring); this method maps the scan request onto
+        :meth:`GeecsSession.optimize`: VOCS variables become session settables,
+        save devices become the detectors, iterations come from the configured
+        step count and shots-per-iteration from ``rep_rate × wait_time`` —
+        exactly the legacy optimization-scan shape (iteration = bin).
+        """
+        if self._optimization_loader is None:
+            logger.warning(
+                "BlueskyScanner: optimization scan requested but no "
+                "optimization_loader was injected; skipping"
+            )
+            return
+        config_path = getattr(scan_config, "optimizer_config_path", None)
+        if not config_path:
+            logger.error("optimization scan requires optimizer_config_path; got None")
+            return
+
+        bridge = self._optimization_loader(str(config_path))
+
+        strict = self._acquisition_mode != _FREE_RUN_MODE
+        if strict and self._shot_control is None:
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information with a "
+                "non-empty ARMED state. Use acquisition_mode="
+                "'free_run_time_sync' for free-running trigger acquisition."
+            )
+        self._session.shot_control(self._shot_control)
+
+        # Claim first so the scan log wraps the whole run and the bridge's
+        # analyzers get the real ScanTag for native-file loading.
+        scan_tag, scan_folder = claim_scan(self._experiment_dir)
+        scan_number = scan_tag.number if scan_tag is not None else None
+
+        variables: dict[str, Any] = {}
+        for key in bridge.variable_names:
+            device_name, variable = key.split(":", 1)
+            variables[key] = self._session.settable(
+                device_name, variable, name=safe_name(f"{device_name}_{variable}")
+            )
+        detectors = self._build_session_devices()
+        if not detectors:
+            logger.error("optimization scan has no detector devices; aborting")
+            return
+        with self._device_lock:
+            self._detectors = list(self._detectors) + list(variables.values())
+
+        objective, suggester = bridge.bind(
+            devices=list(variables.values()) + detectors, scan_tag=scan_tag
+        )
+
+        max_iterations = len(_build_positions(scan_config))
+        n_shots = max_iterations * self._shots_per_step
+        self._total_shots = n_shots
+        self._set_state("INITIALIZING", total_shots=n_shots)
+        logger.info(
+            "Optimization: up to %d iteration(s) × %d shots = %d events, variables=%s",
+            max_iterations,
+            self._shots_per_step,
+            n_shots,
+            list(variables),
+        )
+
+        run_md: dict[str, Any] = {
+            "operator": "",
+            "scan_mode": "optimization",
+            "wait_time": getattr(scan_config, "wait_time", None),
+            "optimizer_config_path": str(config_path),
+        }
+        with self._scan_log(scan_number, scan_folder):
+            self._set_state("RUNNING")
+            self._session.optimize(
+                variables=variables,
+                detectors=detectors,
+                objective=objective,
+                suggester=suggester,
+                shots_per_iteration=self._shots_per_step,
+                max_iterations=max_iterations,
+                mode="strict" if strict else "free_run",
+                description=getattr(scan_config, "additional_description", "") or "",
+                md=run_md,
+                scan_number=scan_number,
+                scan_folder=scan_folder,
+            )
 
     def _execute_scan(
         self,

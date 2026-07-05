@@ -4,6 +4,33 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-07-05
+
+### Added
+
+- **GUI optimization bridge support** — `BlueskyScanner` now runs
+  OPTIMIZATION scans: a GUI-injected `optimization_loader`
+  (`geecs_scanner.optimization.session_bridge.load_session_optimization`,
+  wired in `RunControl`) supplies the config-driven Xopt 3.1 stack
+  (evaluators, ScanAnalysis analyzers, generator factory) while the scanner
+  maps the request onto `GeecsSession.optimize` — VOCS variables become
+  session settables, save devices are the detectors, iterations come from the
+  configured step count. Dependency direction stays GUI → geecs_bluesky.
+- `plans/run_wrapper.py::claim_scan` — like `claim_scan_number` but returns
+  the full `ScanTag` (analyzers load native files by tag);
+  `claim_scan_number` is now a thin wrapper over it.
+- `GeecsSession.optimize` accepts pre-claimed `scan_number`/`scan_folder`
+  (mirroring `scan()`), so the scanner's per-scan log and the bridge's
+  `ScanTag` cover the whole run.
+
+### Removed
+
+- `BinData.images()` / `BinData.averaged_image()` and the `assets` plumbing —
+  redundant with the evaluator path: image/diagnostic analysis (including the
+  bin-average-then-analyze pattern) is config-driven through ScanAnalysis
+  analyzers, which load natively saved files by scan tag. `BinData` is now
+  pure scalar-row access (`rows` / `valid_rows` / `column`).
+
 ## [0.18.0] - 2026-07-04
 
 ### Added

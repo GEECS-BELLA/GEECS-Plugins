@@ -245,3 +245,120 @@ def test_classify_roles_free_run_all_async_has_no_reference() -> None:
     roles = dict(BlueskyScanner._classify_device_roles(devices, "free_run_time_sync"))
     assert "reference" not in roles.values()
     assert roles == {"U_Stage": "snapshot"}
+
+
+# ---------------------------------------------------------------------------
+# Optimization mode (GUI-injected loader → session.optimize)
+# ---------------------------------------------------------------------------
+
+
+class _FakeBridge:
+    """Stands in for the GUI's SessionOptimizationBridge."""
+
+    def __init__(self) -> None:
+        self.variable_names = ["U_S1H:Current", "U_S1V:Current"]
+        self.bound_with: dict | None = None
+
+    def bind(self, *, devices, scan_tag):
+        self.bound_with = {"devices": list(devices), "scan_tag": scan_tag}
+        return (lambda bin_data: 1.0), self
+
+
+class _FakeOptSession:
+    """Records settable/optimize calls; no RunEngine involved."""
+
+    def __init__(self) -> None:
+        self.settables: list[tuple[str, str]] = []
+        self.optimize_kwargs: dict | None = None
+        self.shot_control_called_with: object = "unset"
+
+    def shot_control(self, config):
+        self.shot_control_called_with = config
+
+    def settable(self, device, variable, *, name=None):
+        self.settables.append((device, variable))
+        return SimpleNamespace(name=name, _geecs_device_name=device)
+
+    def optimize(self, **kwargs):
+        self.optimize_kwargs = kwargs
+        return "uid", []
+
+
+def _make_optimization_scanner(session, bridge, monkeypatch, *, loader=True):
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._session = session
+    scanner._experiment_dir = "TestExp"
+    scanner._shot_control = None
+    scanner._acquisition_mode = "free_run_time_sync"
+    scanner._shots_per_step = 5
+    scanner._detectors = []
+    scanner._device_lock = __import__("threading").Lock()
+    scanner._on_event = None
+    scanner._current_state = None
+    scanner._total_shots = 0
+    scanner._optimization_loader = (lambda path: bridge) if loader else None
+    monkeypatch.setattr(
+        bluesky_scanner,
+        "claim_scan",
+        lambda experiment: (SimpleNamespace(number=42), "/tmp/Scan042"),
+    )
+    monkeypatch.setattr(
+        BlueskyScanner,
+        "_build_session_devices",
+        lambda self: [SimpleNamespace(name="ref")],
+    )
+    return scanner
+
+
+def test_run_optimization_maps_config_onto_session_optimize(monkeypatch) -> None:
+    session = _FakeOptSession()
+    bridge = _FakeBridge()
+    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
+
+    scan_config = SimpleNamespace(
+        optimizer_config_path="/cfg/opt.yaml",
+        start=0.0,
+        end=4.0,
+        step=1.0,
+        wait_time=5.0,
+        additional_description="steer",
+    )
+    scanner._run_optimization(scan_config)
+
+    # VOCS variables became session settables keyed by "Device:Variable"
+    assert session.settables == [("U_S1H", "Current"), ("U_S1V", "Current")]
+    kwargs = session.optimize_kwargs
+    assert kwargs is not None
+    assert set(kwargs["variables"]) == {"U_S1H:Current", "U_S1V:Current"}
+    # Iterations from the configured step count, shots from rep_rate×wait_time
+    assert kwargs["max_iterations"] == 5
+    assert kwargs["shots_per_iteration"] == 5
+    assert kwargs["mode"] == "free_run"
+    # Pre-claimed number/folder passed through; bridge got the real tag
+    assert kwargs["scan_number"] == 42
+    assert kwargs["scan_folder"] == "/tmp/Scan042"
+    assert bridge.bound_with is not None
+    assert bridge.bound_with["scan_tag"].number == 42
+    # Bound devices = movables + detectors
+    assert len(bridge.bound_with["devices"]) == 3
+    assert kwargs["suggester"] is bridge
+
+
+def test_run_optimization_without_loader_skips(monkeypatch, caplog) -> None:
+    session = _FakeOptSession()
+    scanner = _make_optimization_scanner(
+        session, _FakeBridge(), monkeypatch, loader=False
+    )
+    scan_config = SimpleNamespace(optimizer_config_path="/cfg/opt.yaml")
+    with caplog.at_level(logging.WARNING):
+        scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs is None
+    assert "no optimization_loader" in caplog.text
+
+
+def test_run_optimization_requires_config_path(monkeypatch) -> None:
+    session = _FakeOptSession()
+    scanner = _make_optimization_scanner(session, _FakeBridge(), monkeypatch)
+    scan_config = SimpleNamespace(optimizer_config_path=None)
+    scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs is None

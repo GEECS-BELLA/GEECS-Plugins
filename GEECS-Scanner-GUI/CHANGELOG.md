@@ -3,6 +3,36 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] — 2026-07-05
+
+### Added
+
+- **Bluesky/CA optimization bridge** —
+  `optimization/session_bridge.py`: runs the existing config-driven
+  optimization stack (BaseOptimizer, Xopt 3.1 generators, evaluators with
+  ScanAnalysis analyzers incl. per-bin image averaging) on a
+  `GeecsSession.optimize` scan. `SessionBinSource` presents the session's
+  schema-v1 event rows as the legacy DataLogger-shaped frame
+  (`Device:Variable` columns, `Bin #`, `Shotnumber`); `SessionOptimizationBridge`
+  adapts the optimizer's ask/tell surface to the session suggester protocol
+  (with the legacy 2-random-init behavior). `RunControl` injects
+  `load_session_optimization` into `BlueskyScanner`, so GUI optimization
+  scans now work with `use_bluesky=True` using the same optimizer YAML
+  configs.
+- `BaseEvaluator` engine seam: `EvaluatorDataSource` protocol +
+  `DataLoggerSource` (the legacy in-memory path, extracted verbatim from
+  `get_current_data`). New optional `data_source=` / `scan_tag=` constructor
+  kwargs; passing `data_logger` alone (including post-construction
+  assignment) is unchanged behavior.
+
+### Fixed
+
+- Defused a latent order-dependent import cycle:
+  `base_evaluator → config_models` (module-level model rebuild) `→ engine →
+  scan_executor → base_optimizer → base_evaluator`. Importing
+  `base_evaluator` first now works (the `config_models` import is deferred
+  into `__init__`).
+
 ## [0.29.0] — 2026-06-24
 
 ### Changed (BREAKING — Xopt 2.6 → 3.1 upgrade)
