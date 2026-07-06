@@ -224,7 +224,16 @@ class DeviceSpec(BaseModel):
                     lo=meta.get("min"),
                     hi=meta.get("max"),
                     choices=choices,
-                    deadband=meta.get("tolerance") or 0.0,
+                    # NOT the DB "tolerance": that is a *set convergence*
+                    # criterion (often coarse, e.g. 0.05 A on magnet PSUs) and
+                    # using it as a monitor deadband hides real sub-tolerance
+                    # motion from readback PVs — and therefore from every
+                    # recorded event row and s-file (observed live: a magnet
+                    # move within tolerance left the readback frozen).
+                    # Deadband 0.0 posts every changed frame and suppresses
+                    # only exact repeats; at the ~1-5 Hz GEECS stream rate
+                    # bandwidth is a non-issue.
+                    deadband=0.0,
                 )
             )
         return cls(

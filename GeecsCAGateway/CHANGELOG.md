@@ -3,6 +3,18 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.5.1] - 2026-07-05
+
+### Fixed
+
+- **Readback deadband no longer inherits the DB `tolerance`** — the monitor
+  deadband was wired to each variable's database `tolerance` field, which is
+  a *set convergence* criterion (0.05 A on magnet PSUs), so real
+  sub-tolerance motion never posted to readback PVs — and therefore never
+  reached recorded event rows or s-files (observed live on `U_S1H:Current`:
+  the PSU moved, the readback stayed frozen). Deadband now defaults to 0.0:
+  every changed stream frame posts; only exact repeats are suppressed.
+
 ## [0.5.0] - 2026-07-04
 
 ### Fixed
