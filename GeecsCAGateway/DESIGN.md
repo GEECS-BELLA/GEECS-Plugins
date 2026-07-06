@@ -196,6 +196,19 @@ Recorded so the next build phase doesn't relitigate them.
   is the piece that earns "as robust as the legacy SVE tool."
 - **Fuller metadata contract** — alarm limits (HIHI/…) and archive deadbands,
   beyond the units/precision/control-limits already wired.
+- **Archive-rate control belongs in an archive event mask, not the value
+  deadband.** Through 0.5.0 the readback monitor deadband inherited the DB
+  `tolerance` to pre-limit future Archiver Appliance volume — but that
+  suppressed real sub-tolerance motion from every value monitor, i.e. from
+  recorded scan rows and s-files (observed live on a magnet PSU; fixed in
+  0.5.1 by defaulting the deadband to 0, with exact-repeat suppression
+  keeping static channels silent). The archiving concern remains valid and
+  has a standard EPICS answer: the MDEL/ADEL split. When the Archiver
+  Appliance lands, either (a) rely on its per-PV sampling policies +
+  retention decimation (zero source changes, the common practice), or
+  (b) post `DBE_LOG` events gated by the DB tolerance while `DBE_VALUE`
+  events carry every change — one PV, two audiences, both truthful for
+  their purpose.
 - **Sharding + systemd** for production fault isolation.
 - **A `GatewayConfig.from_geecs_experiment(name)`** that enumerates a whole
   experiment's devices from the DB dict.
