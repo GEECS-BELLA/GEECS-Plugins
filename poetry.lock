@@ -1536,7 +1536,7 @@ ophyd-async = ">=0.19.3,<1.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/geecs-ca-gateway/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/pr-449-fixes/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
 optimize = ["xopt (>=3.1,<4.0)"]
 tiled = ["tiled[client] (>=0.2)"]
@@ -1547,7 +1547,7 @@ url = "GeecsBluesky"
 
 [[package]]
 name = "geecs-ca-gateway"
-version = "0.5.0"
+version = "0.5.1"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -6607,7 +6607,7 @@ crt = ["botocore[crt] (>=1.37.4,<2.0a.0)"]
 
 [[package]]
 name = "scananalysis"
-version = "1.13.1"
+version = "1.14.0"
 description = "Modules for performing analyses routines on full scans"
 optional = false
 python-versions = ">=3.11,<3.12"
