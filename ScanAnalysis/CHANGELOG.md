@@ -3,6 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] — 2026-07-05
+
+### Added
+
+- **acq_timestamp file mapping** — `SingleDeviceScanAnalyzer` can now analyze
+  Bluesky-produced scan folders, whose native files are named by the device's
+  own `acq_timestamp` rather than MC-convention shot numbers. When the
+  auxiliary frame carries this device's `acq_timestamp` column (any spelling:
+  s-file `"Device acq_timestamp"`, in-memory `"Device:acq_timestamp"`, raw
+  event key `"device-acq_timestamp"`), shots join to files by canonicalising
+  both timestamp representations to integer milliseconds — a deterministic
+  per-device lookup, not a tolerance window. Rows flagged invalid for this
+  device are skipped (their frame belongs to a different physical shot).
+  Legacy shot-number filename mapping is unchanged and remains the fallback
+  for MC-produced scans; selection is automatic from the metadata present.
+
 ## [1.13.1] — 2026-06-26
 
 ### Changed

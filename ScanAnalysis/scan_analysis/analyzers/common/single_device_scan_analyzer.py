@@ -285,19 +285,24 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
     def _build_data_file_map(self) -> None:
         """
-        Build a mapping from shot number to data file path using a flexible filename regex.
+        Build a mapping from shot number to data file path.
 
-        Only files whose suffix + format matches ``file_tail`` exactly are included.
+        Two strategies, selected automatically by the metadata present:
 
-        Notes
-        -----
-        Expected filename pattern::
+        - **acq_timestamp join** (Bluesky-produced scans): when the auxiliary
+          frame carries this device's ``acq_timestamp`` column, each shot's
+          file is identified by the device's own per-shot timestamp — the
+          device names its natively saved files with the same value it
+          streams into the event row, so the join is a deterministic lookup
+          (canonicalised to integer milliseconds), never a filename guess.
+          The join is strictly per-device: this device's column against this
+          device's folder; other devices' clocks never enter it.
+        - **shot-number filenames** (MC-produced scans): the legacy pattern
+          ``Scan<scan_number>_<device_subject>_<shot_number><file_tail>``,
+          e.g. ``Scan012_UC_ALineEBeam3_005.png``.
 
-            Scan<scan_number>_<device_subject>_<shot_number><file_tail>
-
-        Examples
-        --------
-        ``Scan012_UC_ALineEBeam3_005.png`` or ``Scan016_U_HasoLift_001_postprocessed.tsv``
+        Only files whose suffix + format matches ``file_tail`` exactly are
+        included in either strategy.
         """
         self._data_file_map = {}
 
@@ -310,6 +315,22 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             return
 
         logger.info(f"self.file_tail: {self.file_tail}")
+
+        ts_column = self._acq_timestamp_column()
+        if ts_column is not None:
+            logger.info("Mapping files by device acq_timestamp (column %r)", ts_column)
+            self._map_files_by_acq_timestamp(ts_column)
+        else:
+            logger.info("Mapping matched files")
+            self._map_files_by_shot_number()
+
+        expected_shots = set(self.auxiliary_data["Shotnumber"].values)
+        found_shots = set(self._data_file_map.keys())
+        for m in sorted(expected_shots - found_shots):
+            logger.warning(f"No file found for shot {m}")
+
+    def _map_files_by_shot_number(self) -> None:
+        """Legacy strategy: parse shot numbers out of MC-convention filenames."""
         data_filename_regex = re.compile(
             r"Scan(?P<scan_number>\d{3,})_"  # scan number
             r"(?P<device_subject>.*?)_"  # non-greedy subject
@@ -318,7 +339,6 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             + r"$"  # literal suffix+format
         )
 
-        logger.info("Mapping matched files")
         for file in self.path_dict["data"].iterdir():
             if not file.is_file():
                 continue
@@ -332,10 +352,81 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             else:
                 logger.debug(f"Filename {file.name} does not match expected pattern.")
 
-        expected_shots = set(self.auxiliary_data["Shotnumber"].values)
-        found_shots = set(self._data_file_map.keys())
-        for m in sorted(expected_shots - found_shots):
-            logger.warning(f"No file found for shot {m}")
+    @staticmethod
+    def _normalize_column_token(name: str) -> str:
+        """Collapse a name to a lowercase ``_``-separated token for matching."""
+        return re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
+
+    def _acq_timestamp_column(self) -> Optional[str]:
+        """Find this device's ``acq_timestamp`` column in the auxiliary frame.
+
+        Recognises every spelling the column takes across data paths —
+        ``"<Device> acq_timestamp"`` (s-file header), ``"<Device>:acq_timestamp"``
+        (in-memory frame), ``"<device>-acq_timestamp"`` (raw event key) — by
+        normalising both the device name and the column prefix to the same
+        token. Returns ``None`` (→ legacy shot-number mapping) when absent.
+        """
+        if self.auxiliary_data is None:
+            return None
+        device_token = self._normalize_column_token(self.device_name)
+        for column in self.auxiliary_data.columns:
+            token = self._normalize_column_token(column)
+            if token == f"{device_token}_acq_timestamp":
+                return str(column)
+        return None
+
+    def _matching_valid_column(self) -> Optional[str]:
+        """Find this device's ``valid`` column, if the frame carries one."""
+        device_token = self._normalize_column_token(self.device_name)
+        for column in self.auxiliary_data.columns:
+            if self._normalize_column_token(column) == f"{device_token}_valid":
+                return str(column)
+        return None
+
+    def _map_files_by_acq_timestamp(self, ts_column: str) -> None:
+        """Join shots to files via this device's own per-shot ``acq_timestamp``.
+
+        The device stamps one double per acquisition: streamed into the event
+        row and written into the native filename (``<name>_<timestamp><tail>``,
+        milliseconds precision). Both representations are canonicalised to
+        integer milliseconds and joined exactly; the ±1 ms fallback below is
+        float-formatting canonicalisation at the rounding boundary, not a
+        physical tolerance window. Rows where the device's ``valid`` column is
+        false are skipped — that device's frame belongs to a different
+        physical shot, so "no file for this shot" is the correct answer.
+        """
+        file_ts_regex = re.compile(
+            r"_(?P<ts>\d+\.\d+)" + re.escape(self.file_tail) + r"$"
+        )
+        files_by_ms: dict[int, Path] = {}
+        for file in self.path_dict["data"].iterdir():
+            if not file.is_file():
+                continue
+            m = file_ts_regex.search(file.name)
+            if m:
+                files_by_ms[round(float(m.group("ts")) * 1000)] = file
+
+        valid_column = self._matching_valid_column()
+        for _, row in self.auxiliary_data.iterrows():
+            shot_num = int(row["Shotnumber"])
+            if valid_column is not None and not bool(row[valid_column]):
+                continue
+            ts = row[ts_column]
+            try:
+                ts = float(ts)
+            except (TypeError, ValueError):
+                continue
+            if not np.isfinite(ts) or ts <= 0:
+                continue
+            key = round(ts * 1000)
+            file = (
+                files_by_ms.get(key)
+                or files_by_ms.get(key - 1)
+                or files_by_ms.get(key + 1)
+            )
+            if file is not None:
+                self._data_file_map[shot_num] = file
+                logger.info(f"Mapped file for shot {shot_num}: {file}")
 
     def _resolve_background_paths(self) -> None:
         """
