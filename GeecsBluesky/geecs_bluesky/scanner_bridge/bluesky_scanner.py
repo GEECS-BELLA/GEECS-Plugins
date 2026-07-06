@@ -489,19 +489,33 @@ class BlueskyScanner:
         )
         handler.addFilter(_ScanLogContextFilter(scan_id))
 
-        package_logger = logging.getLogger("geecs_bluesky")
-        old_level = package_logger.level
-        if old_level == logging.NOTSET or old_level > logging.INFO:
-            package_logger.setLevel(logging.INFO)
-        package_logger.addHandler(handler)
+        # Capture the whole scan story, not just this package: during
+        # optimization scans the evaluator (geecs_scanner.optimization) and
+        # its analyzers (scan_analysis, image_analysis) do the per-bin work,
+        # and their file-mapping / objective lines belong in scan.log too.
+        capture_loggers = [
+            logging.getLogger(name)
+            for name in (
+                "geecs_bluesky",
+                "geecs_scanner.optimization",
+                "scan_analysis",
+                "image_analysis",
+            )
+        ]
+        old_levels = [lg.level for lg in capture_loggers]
+        for lg in capture_loggers:
+            if lg.level == logging.NOTSET or lg.level > logging.INFO:
+                lg.setLevel(logging.INFO)
+            lg.addHandler(handler)
         try:
             logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
             yield
             logger.info("scan %s: finished", scan_id)
         finally:
-            package_logger.removeHandler(handler)
+            for lg, old_level in zip(capture_loggers, old_levels):
+                lg.removeHandler(handler)
+                lg.setLevel(old_level)
             handler.close()
-            package_logger.setLevel(old_level)
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move a scan device through positions, collect shots each step."""
