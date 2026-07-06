@@ -27,6 +27,7 @@ Example::
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -35,6 +36,7 @@ import numpy as np
 from bluesky import RunEngine
 
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
+from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
     CaGenericDetector,
     CaMotor,
@@ -64,6 +66,23 @@ def _positions(start: float, end: float, step: float) -> list[float]:
         return [start]
     n = max(2, round(abs(end - start) / abs(step)) + 1)
     return list(np.linspace(start, end, n))
+
+
+def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
+    """Recursively replace non-finite floats (NaN/inf) with ``None``.
+
+    ``json.dumps`` would otherwise emit bare ``NaN`` tokens — invalid JSON
+    that strict parsers (``jq``, ``json.loads`` consumers) reject.  Failed
+    objective evaluations are recorded as NaN, so optimization histories
+    must pass through here before serialization.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    return value
 
 
 class GeecsSession:
@@ -263,19 +282,29 @@ class GeecsSession:
         """Attach shot control from a configs-repo name, dict, or config.
 
         A configs-repo *name* (e.g. ``"HTU-LaserOFF"``) is loaded and
-        validated; ``None`` detaches.  The controller drives the device
-        through the gateway's ``:SP`` PVs.
+        validated; ``None`` or an empty/blank config (e.g. ``{}``) detaches.
+        The controller drives the device through the gateway's ``:SP`` PVs;
+        their reachability is verified here (short CA connect) so a typo'd
+        device name fails now, not ~10 s per caput mid-plan.
         """
-        if config is None:
-            self._shot_controller = None
-            return None
+        import asyncio
+
         if isinstance(config, str):
             config = load_shot_control_config(config, self.experiment)
         else:
             config = ShotControlConfig.from_information(config)
-        self._shot_controller = ShotController.over_ca(
+        if config is None:
+            self._shot_controller = None
+            logger.info("Shot control detached")
+            return None
+        controller = ShotController.over_ca(
             config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
         )
+        if not self._mock:
+            asyncio.run_coroutine_threadsafe(
+                controller.connect_setters(), self.RE._loop
+            ).result(timeout=20.0)
+        self._shot_controller = controller
         logger.info("Shot control attached: %s", config.device)
         return self._shot_controller
 
@@ -350,6 +379,17 @@ class GeecsSession:
                 positions = [None]
         positions = list(positions)
 
+        controller = self._shot_controller
+        if mode == _STRICT:
+            if controller is None:
+                raise ValueError("mode='strict' requires shot_control(...) first")
+            controller.require_strict_single_shot()
+        if save_data and scan_number is not None and scan_folder is None:
+            raise GeecsConfigurationError(
+                "scan_number was given without scan_folder; pass both "
+                "(pre-claimed) or neither to claim a new scan"
+            )
+
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
@@ -376,9 +416,6 @@ class GeecsSession:
 
         saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
 
-        controller = self._shot_controller
-        if mode == _STRICT and controller is None:
-            raise ValueError("mode='strict' requires shot_control(...) first")
         plan = build_step_scan_plan(
             strict=mode == _STRICT,
             motor=motor,
@@ -464,8 +501,15 @@ class GeecsSession:
         if not detectors:
             raise ValueError("optimize() needs at least one detector")
         controller = self._shot_controller
-        if mode == _STRICT and controller is None:
-            raise ValueError("mode='strict' requires shot_control(...) first")
+        if mode == _STRICT:
+            if controller is None:
+                raise ValueError("mode='strict' requires shot_control(...) first")
+            controller.require_strict_single_shot()
+        if save_data and scan_number is not None and scan_folder is None:
+            raise GeecsConfigurationError(
+                "scan_number was given without scan_folder; pass both "
+                "(pre-claimed) or neither to claim a new scan"
+            )
 
         initial_values = {
             name: self._read_movable(movable) for name, movable in variables.items()
@@ -615,7 +659,12 @@ class GeecsSession:
 
             try:
                 path = Path(scan_folder) / "optimization.json"
-                path.write_text(json.dumps(history, indent=2))
+                # Failed objectives are NaN in-process; serialize them as
+                # null (allow_nan=False makes any regression fail loudly
+                # instead of writing invalid JSON).
+                path.write_text(
+                    json.dumps(_json_safe(history), indent=2, allow_nan=False)
+                )
                 logger.info("Optimization history written to %s", path)
             except Exception:
                 logger.warning("Could not write optimization history", exc_info=True)
@@ -690,7 +739,9 @@ class GeecsSession:
         Writes only into the already-claimed ``scans/ScanNNN/`` folder — it
         never creates the scan folder (cross-package invariant).  *overrides*
         replaces individual derived fields (legacy-format fidelity for the
-        GUI bridge).
+        GUI bridge).  A ``Scanner = "bluesky"`` key is stamped so future
+        tooling can tell Bluesky-produced scans from legacy MC scans
+        (metadata only — nothing may depend on it for correctness).
         """
         folder = Path(scan_folder)
         if not folder.is_dir():
@@ -722,6 +773,7 @@ class GeecsSession:
             'ScanEndInfo = ""\n',
             f"Background = {background}\n",
             f'ScanMode = "{scan_mode}"\n',
+            'Scanner = "bluesky"\n',
         ]
         path = folder / f"ScanInfo{folder.name}.ini"
         try:

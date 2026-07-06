@@ -17,6 +17,16 @@ shot fired immediately after ``bps.trigger`` (the strict single-shot pattern:
 trigger → fire → wait) can never land in a blind window between baselining and
 waiting and be missed.  Free-run behavior is hardware-verified (one Bluesky row
 per real shot, no coalescing).
+
+The event queue is **bounded** (drop-oldest ring, ``_shot_queue_maxsize``):
+only ``trigger()`` ever drains it, so contributors and idle detectors would
+otherwise accumulate one float per machine shot for as long as the persistent
+monitor lives.  Dropping the oldest entry preserves the no-blind-window
+guarantee — see :meth:`CaAcqTimestampReadable._on_acq_timestamp`.
+
+Instances are torn down with :meth:`CaAcqTimestampReadable.disconnect`, which
+unsubscribes the persistent monitor so per-scan device objects do not stay
+reachable (and firing) through the signal cache's callback reference.
 """
 
 from __future__ import annotations
@@ -40,8 +50,9 @@ class CaAcqTimestampReadable(StandardReadable):
 
     One ``epics_signal_r`` child is created per data variable, plus an
     ``acq_timestamp`` child that carries the shot stamp.  A monitor
-    subscription (started at ``connect()``) keeps ``_last_acq`` (latest value)
-    and ``_shot_queue`` (update stream) current.
+    subscription (started at ``connect()``, stopped by ``disconnect()``) keeps
+    ``_last_acq`` (latest value) and ``_shot_queue`` (bounded update stream)
+    current.
 
     Parameters
     ----------
@@ -62,9 +73,18 @@ class CaAcqTimestampReadable(StandardReadable):
     ----------------------------------------
     _acq_timestamp_variable : str
         GEECS variable that advances per shot.  Default ``"acq_timestamp"``.
+    _shot_queue_maxsize : int
+        Bound on the shot-update queue (default 32).  Only ``trigger()``
+        drains the queue, so without a bound an idle device (a free-run
+        contributor, or a detector between scans) accumulates one float per
+        machine shot for as long as the monitor lives — tens of thousands
+        per hour at typical rep rates.  32 comfortably covers the real need
+        (updates arriving between ``trigger()``'s baseline capture and the
+        awaited get: at most rep-rate × trigger-timeout, ~15 at 5 Hz / 3 s).
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"
+    _shot_queue_maxsize: int = 32
 
     def __init__(
         self,
@@ -92,9 +112,11 @@ class CaAcqTimestampReadable(StandardReadable):
             )
         super().__init__(name=name)
         # Persistent-monitor state (populated by _on_acq_timestamp): the latest
-        # seen value, and a queue of updates trigger() waits on.
+        # seen value, and a bounded queue of updates trigger() waits on.
         self._last_acq: float | None = None
-        self._shot_queue: asyncio.Queue[float] = asyncio.Queue()
+        self._shot_queue: asyncio.Queue[float] = asyncio.Queue(
+            maxsize=self._shot_queue_maxsize
+        )
         self._monitoring = False
 
     async def connect(
@@ -111,6 +133,29 @@ class CaAcqTimestampReadable(StandardReadable):
             self.acq_timestamp.subscribe_reading(self._on_acq_timestamp)
             self._monitoring = True
 
+    async def disconnect(self) -> None:
+        """Stop the persistent ``acq_timestamp`` monitor and drop shot state.
+
+        The per-scan teardown hook: the scanner bridge's
+        ``_disconnect_devices_sync`` runs ``device.disconnect()`` as a
+        coroutine on the RunEngine loop after every scan.  Unsubscribing
+        removes the signal cache's reference back to this instance (its
+        ``_on_acq_timestamp`` bound method) — without it, every per-scan
+        device object stays alive and keeps enqueuing monitor updates for
+        the rest of the process.
+
+        Idempotent; ``connect()`` may be called again to resubscribe.
+        """
+        if self._monitoring:
+            # SignalR.clear_sub removes the subscribe_reading callback; when
+            # no listeners remain it also drops the signal cache, closing the
+            # underlying CA monitor.
+            self.acq_timestamp.clear_sub(self._on_acq_timestamp)
+            self._monitoring = False
+        while not self._shot_queue.empty():
+            self._shot_queue.get_nowait()
+        self._last_acq = None
+
     def _on_acq_timestamp(self, reading: dict[str, Any]) -> None:
         """Monitor callback: cache the latest value and queue the update.
 
@@ -120,12 +165,28 @@ class CaAcqTimestampReadable(StandardReadable):
         as data would fake a t0 and make the placeholder→first-frame jump look
         like a shot.  "Never acquired" therefore reads as ``_last_acq is None``
         on both backends.
+
+        The queue is a **drop-oldest ring** bounded at ``_shot_queue_maxsize``:
+        when full, the oldest entry is discarded to admit the newest, so an
+        idle device (nothing draining the queue) holds a fixed handful of
+        floats instead of one per machine shot.  This preserves ``trigger()``'s
+        no-blind-window guarantee: the queue is drained empty at baseline
+        capture, so anything dropped afterwards is *older* than an update
+        still enqueued — and every post-baseline update satisfies the
+        ``!= t0`` shot test, so a newer survivor detects the shot just as
+        well.  Callback and consumers share the RE event loop (no awaits
+        between the full-check and the put), so the two-step replace is
+        race-free.
         """
         value = reading[self.acq_timestamp.name]["value"]
         if value is None or value <= 0:
             return
         self._last_acq = value
-        self._shot_queue.put_nowait(value)
+        try:
+            self._shot_queue.put_nowait(value)
+        except asyncio.QueueFull:
+            self._shot_queue.get_nowait()  # drop the oldest update
+            self._shot_queue.put_nowait(value)
 
 
 class CaTriggerable(CaAcqTimestampReadable):

@@ -53,25 +53,46 @@ def prepare_descriptor_for_tiled(doc: dict) -> dict:
 
 
 class SafeDocumentCallback:
-    """Document callback wrapper that logs and disables itself on failure."""
+    """Document callback wrapper that logs and disables itself on failure.
+
+    A failure only disables forwarding for the remainder of the *current*
+    run: the next ``start`` document re-enables the callback (and is itself
+    forwarded), so one transient storage error cannot silently disable
+    persistence for every subsequent scan on a long-lived RunEngine.
+    """
 
     def __init__(self, callback: Callable[[str, dict], None], label: str) -> None:
         self._callback = callback
         self._label = label
         self._enabled = True
+        self._run_uid: str | None = None
 
     def __call__(self, name: str, doc: dict) -> None:
-        """Forward one document unless the wrapped callback has already failed."""
+        """Forward one document unless the wrapped callback failed this run."""
+        if name == "start":
+            if not self._enabled:
+                logger.error(
+                    "%s re-enabled at start of run %s — it was disabled by a "
+                    "failure during run %s, whose remaining documents were "
+                    "NOT persisted",
+                    self._label,
+                    doc.get("uid"),
+                    self._run_uid,
+                )
+                self._enabled = True
+            self._run_uid = doc.get("uid")
         if not self._enabled:
             return
         try:
             self._callback(name, doc)
         except Exception:
             self._enabled = False
-            logger.warning(
-                "%s failed while handling %s document; disabling callback",
+            logger.error(
+                "%s failed while handling %s document during run %s; "
+                "disabling callback for the remainder of this run",
                 self._label,
                 name,
+                self._run_uid,
                 exc_info=True,
             )
 

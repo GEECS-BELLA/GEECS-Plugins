@@ -29,6 +29,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - After `session.optimize` returns, `BlueskyScanner` invokes the bridge's
   optional `finish()` hook (post-run bookkeeping, e.g. the legacy
   `xopt_dump.yaml`).
+- `_write_scan_info` stamps `Scanner = "bluesky"` into ScanInfo — metadata
+  only (nothing depends on it for correctness), so tooling can tell
+  Bluesky-produced scans from legacy MC ones.
+
+### Fixed
+
+- **Free-run pacing survives a reference connect failure** (PR #449 review
+  #2) — when the designated reference (pacemaker) fails to connect, the
+  next synchronous device is promoted to the reference role (built
+  Triggerable via `session.detector`); if none connects, the scan raises
+  `GeecsConfigurationError` instead of recording unpaced duplicate rows of
+  cached frames. `geecs_free_run_step_scan` additionally rejects any
+  non-`Triggerable` reference outright.
+- Stop works before the plan reaches the RunEngine (review #8): the scan
+  thread checks the abort flag after device connect and before claiming a
+  folder; `RE.abort()` is only called on a non-idle engine; and a timed-out
+  thread join keeps the handle so `is_scanning_active()` stays `True`
+  rather than letting a second scan start on a busy engine.
+- Early exits are ordered before `claim_scan_number` (review #14), so a
+  validation failure no longer leaves an empty claimed `ScanNNN/` folder;
+  VOCS settables join the cleanup list at connect time (no leaked CA
+  monitors); unavoidable post-claim failures log the claimed-but-incomplete
+  folder loudly (it is never deleted).
+- Strict-mode fail-fast gaps closed (review #11): `optimize()` validates
+  shot control like `scan()` and both validate *before* claiming; the
+  validator also requires a non-empty `SINGLESHOT` state (`fire_shot` would
+  be a silent no-op); shot-control setter PVs are reachability-checked when
+  `shot_control()` attaches, so a typo'd device fails in seconds instead of
+  blocking every mid-plan caput.
+- `optimization.json` is always valid JSON (review #15): non-finite
+  objective values serialize as `null`, with `allow_nan=False` so a
+  sanitizer regression fails loudly.
+- `scan()`/`optimize()` with `scan_number` but no `scan_folder` raise a
+  clear `GeecsConfigurationError` instead of crashing on `Path(None)`;
+  `shot_control({})` detaches cleanly like `shot_control(None)`.
+- One TiledWriter exception no longer kills Tiled persistence for the rest
+  of the session (review #9): `SafeDocumentCallback` re-enables at the next
+  run's start document and logs which run lost persistence.
+- CA devices bound their acq_timestamp monitor queue (drop-oldest ring,
+  32 entries) so idle contributors no longer grow memory every machine
+  shot, and every CA device type implements `disconnect()` (via ophyd-async
+  `SignalR.clear_sub`) so per-scan teardown really unsubscribes monitors —
+  it previously raised a silently-swallowed `AttributeError` (review #10).
+- `geecs_adaptive_scan` runs `propose()` (asset wait + analysis + Xopt) on
+  a worker thread, idling with `bps.sleep` — the RunEngine loop stays
+  responsive to pause/abort, CA monitors, and TiledWriter between bins
+  (review #12).
 
 ### Removed
 

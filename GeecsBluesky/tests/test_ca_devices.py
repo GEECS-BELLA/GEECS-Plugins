@@ -432,3 +432,111 @@ async def test_snapshot_reads_latest_values() -> None:
     assert reading["s1h-current"]["value"] == 0.5
     assert set(reading) == {"s1h-current", "s1h-voltage"}
     assert snap.current.source.endswith("Undulator:U_S1H:Current")
+
+
+# --------------------------------------------------------------------------
+# Persistent-monitor lifecycle: bounded idle queue + disconnect() teardown
+# --------------------------------------------------------------------------
+
+
+async def test_idle_monitor_updates_do_not_grow_queue_unboundedly() -> None:
+    """An undrained device (contributor / idle detector) keeps a bounded queue.
+
+    Only trigger() drains _shot_queue; a free-run contributor never calls it.
+    Hundreds of monitor updates must therefore top out at the drop-oldest
+    bound, with the cache still tracking the latest value.
+    """
+    con = CaTimestampedReadable(
+        "UC_TopView", ["centroidx"], experiment="Undulator", name="con"
+    )
+    await con.connect(mock=True)
+    for i in range(500):
+        set_mock_value(con.acq_timestamp, 100.0 + i)
+    await asyncio.sleep(0)  # deliver any pending monitor callbacks
+
+    assert con._shot_queue.qsize() <= con._shot_queue_maxsize
+    assert con._last_acq == 599.0  # newest survives the drop-oldest ring
+
+
+async def test_trigger_completes_after_queue_saturation() -> None:
+    """A saturated idle queue must not break the trigger path.
+
+    After far more idle updates than the queue bound, trigger() still drains,
+    baselines, and detects the next new timestamp (no regression from the
+    drop-oldest ring).
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    await dev.connect(mock=True)
+    for i in range(200):  # saturate the bounded queue while idle
+        set_mock_value(dev.acq_timestamp, 100.0 + i)
+    await asyncio.sleep(0)
+
+    status = dev.trigger()
+    set_mock_value(dev.acq_timestamp, 1000.0)  # fire immediately (no-blind-window)
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
+async def test_disconnect_unsubscribes_monitor_and_clears_state() -> None:
+    """disconnect() stops the monitor and drops cached shot state.
+
+    After disconnect, further acq_timestamp updates must produce no callback
+    activity (empty queue, cache back to the never-acquired None), and calling
+    it again must be a harmless no-op (idempotent).
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    await dev.connect(mock=True)
+    set_mock_value(dev.acq_timestamp, 100.0)
+    await asyncio.sleep(0)
+    assert dev._last_acq == 100.0
+    assert dev._shot_queue.qsize() == 1
+
+    await dev.disconnect()
+    assert dev._monitoring is False
+    assert dev._shot_queue.empty()
+    assert dev._last_acq is None
+
+    set_mock_value(dev.acq_timestamp, 101.0)  # post-teardown update
+    await asyncio.sleep(0)
+    assert dev._shot_queue.empty()  # no further callback activity
+    assert dev._last_acq is None
+
+    await dev.disconnect()  # idempotent
+
+
+async def test_reconnect_after_disconnect_resubscribes() -> None:
+    """connect() after disconnect() restores the monitor (per-scan reuse)."""
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    await dev.connect(mock=True)
+    await dev.disconnect()
+
+    await dev.connect(mock=True)
+    set_mock_value(dev.acq_timestamp, 200.0)
+    await asyncio.sleep(0)
+    assert dev._last_acq == 200.0
+
+
+async def test_all_ca_devices_define_disconnect() -> None:
+    """Every CA device type honours the scanner bridge teardown contract.
+
+    _disconnect_devices_sync runs device.disconnect() on the RE loop for the
+    motor and every detector; each class must expose it as a coroutine that
+    does not raise (previously an AttributeError swallowed by the bridge).
+    """
+    devices = [
+        CaSnapshotReadable("U_S1H", "Current", name="snap"),
+        CaSettable("U_S1H", "Current", name="cur"),
+        CaMotor("U_ESP_JetXYZ", "Position.Axis 1", name="jet"),
+        CaTimestampedReadable("UC_TopView", ["centroidx"], name="con"),
+        CaGenericDetector("UC_Amp2_IR_input", ["centroidx"], name="det"),
+    ]
+    for dev in devices:
+        await dev.connect(mock=True)
+        assert asyncio.iscoroutinefunction(dev.disconnect), type(dev).__name__
+        await dev.disconnect()  # must not raise

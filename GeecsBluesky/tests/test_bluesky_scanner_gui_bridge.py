@@ -181,6 +181,25 @@ def test_strict_single_shot_requires_nonempty_armed_state() -> None:
         controller.require_strict_single_shot()
 
 
+def test_strict_single_shot_requires_nonempty_singleshot_state() -> None:
+    """All-empty SINGLESHOT entries would make fire_shot a silent no-op."""
+    config = ShotControlConfig.from_information(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                    "SINGLESHOT": "",
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": ""},
+            },
+        }
+    )
+    controller = ShotController(config, {"Trigger.Source": object()})
+    with pytest.raises(GeecsConfigurationError, match="non-empty SINGLESHOT"):
+        controller.require_strict_single_shot()
+
+
 def test_strict_single_shot_requires_reachable_setters() -> None:
     config = ShotControlConfig.from_information(
         {
@@ -188,7 +207,8 @@ def test_strict_single_shot_requires_reachable_setters() -> None:
             "variables": {
                 "Trigger.Source": {
                     "ARMED": "Single shot external rising edges",
-                }
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": "on"},
             },
         }
     )
@@ -204,7 +224,8 @@ def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
             "variables": {
                 "Trigger.Source": {
                     "ARMED": "Single shot external rising edges",
-                }
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": "on"},
             },
         }
     )
@@ -303,6 +324,7 @@ def _make_optimization_scanner(session, bridge, monkeypatch, *, loader=True):
     scanner._on_event = None
     scanner._current_state = None
     scanner._total_shots = 0
+    scanner._abort_requested = False
     scanner._optimization_loader = (lambda path: bridge) if loader else None
     monkeypatch.setattr(
         bluesky_scanner,

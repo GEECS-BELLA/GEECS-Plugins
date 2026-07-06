@@ -163,7 +163,15 @@ class ShotController:
     # ------------------------------------------------------------------
 
     def require_strict_single_shot(self) -> None:
-        """Raise unless strict mode can fire plan-owned single shots."""
+        """Raise unless strict mode can fire plan-owned single shots.
+
+        Checks that the config defines non-empty ``ARMED`` *and*
+        ``SINGLESHOT`` states (an all-empty ``SINGLESHOT`` would make
+        :meth:`fire_shot` a silent no-op, so the scan would die shot-by-shot
+        on trigger timeouts) and that setters exist.  Raises
+        :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` so callers
+        fail before acquisition rather than mid-plan.
+        """
         guidance = (
             "Use acquisition_mode='free_run_time_sync' for free-running "
             "trigger acquisition."
@@ -173,8 +181,46 @@ class ShotController:
                 "strict_shot_control requires shot_control_information to "
                 f"define a non-empty ARMED state. {guidance}"
             )
+        if not self.config.defines_state(ShotControlState.SINGLESHOT):
+            raise GeecsConfigurationError(
+                "strict_shot_control requires shot_control_information to "
+                "define a non-empty SINGLESHOT state (fire_shot would be a "
+                f"silent no-op). {guidance}"
+            )
         if not self._setters:
             raise GeecsConfigurationError(
                 "strict_shot_control requires a reachable shot-control device "
                 f"with configured setters before acquisition can start. {guidance}"
             )
+
+    async def connect_setters(self, timeout: float = 2.0) -> None:
+        """Fail fast if any CA setter PV is unreachable.
+
+        Checks only :class:`CaPutSetter` setters (the :meth:`over_ca`
+        family); injected non-CA setters are left alone.  A typo'd
+        shot-control device name otherwise passes validation and then blocks
+        ~10 s per caput mid-plan — this surfaces it before the plan starts.
+
+        Parameters
+        ----------
+        timeout : float
+            Per-PV CA connection budget in seconds.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            If any setter PV does not connect within *timeout*.
+        """
+        pvs = [s._pv for s in self._setters.values() if isinstance(s, CaPutSetter)]
+        if not pvs:
+            return
+        from aioca import connect  # deferred: needs the `ca` extra
+
+        try:
+            await connect(pvs, timeout=timeout)
+        except Exception as exc:
+            raise GeecsConfigurationError(
+                f"shot-control device {self.config.device!r} is unreachable: "
+                f"could not connect {pvs} within {timeout:.1f}s. Check the "
+                "device name and that the CA gateway is serving it."
+            ) from exc

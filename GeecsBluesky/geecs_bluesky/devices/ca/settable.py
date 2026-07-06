@@ -74,6 +74,15 @@ class CaSettable(StandardReadable):
         # the Tiled→s-file exporter (the scan-device column in a step scan).
         self._column_headers = {f"{name}-{_readback_attr}": f"{device} {variable}"}
 
+    async def disconnect(self) -> None:
+        """Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+
+        This device holds no persistent monitor subscription, so there is
+        nothing to unsubscribe — the method exists so scanner teardown is
+        uniform across every CA device type (``CaMotor`` inherits it) instead
+        of raising a (swallowed) ``AttributeError``.
+        """
+
     def set(self, value: float) -> AsyncStatus:
         """Put *value* to the setpoint PV; status resolves after ``settle_time``.
 

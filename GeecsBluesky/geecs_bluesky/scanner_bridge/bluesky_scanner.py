@@ -78,6 +78,7 @@ logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
+_THREAD_JOIN_TIMEOUT = 15.0
 
 _STRICT_MODE = "strict_shot_control"
 _FREE_RUN_MODE = "free_run_time_sync"
@@ -350,17 +351,41 @@ class BlueskyScanner:
         logger.info("BlueskyScanner scan thread started")
 
     def stop_scanning_thread(self) -> None:
-        """Abort the running scan and wait for the thread to finish."""
+        """Abort the running scan and wait for the thread to finish.
+
+        The abort flag is honoured even before the plan reaches the
+        RunEngine (``RE.abort()`` on an idle engine is a no-op, so a stop
+        clicked during device connect relies on the flag — see
+        :meth:`_abort_before_acquisition`).  If the scan thread does not
+        exit within the join timeout, the thread handle is *kept* so
+        :meth:`is_scanning_active` keeps reporting ``True``: clearing it
+        would let a second ``start_scan_thread`` run the still-busy
+        RunEngine and let ``reinitialize`` disconnect devices under a live
+        scan.
+        """
         logger.info("BlueskyScanner: abort requested")
         self._abort_requested = True
         self._set_state("STOPPING")
         try:
-            self._RE.abort(reason="stop_scanning_thread called")
+            # RE.abort() on an idle engine raises a TransitionError; the
+            # pre-RE abort path is covered by the _abort_requested flag.
+            if self._RE.state != "idle":
+                self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
             logger.debug("RE.abort() raised (may not be running)", exc_info=True)
-        if self._scan_thread is not None:
-            self._scan_thread.join(timeout=15)
-            self._scan_thread = None
+        thread = self._scan_thread
+        if thread is not None:
+            thread.join(timeout=_THREAD_JOIN_TIMEOUT)
+            if thread.is_alive():
+                logger.error(
+                    "BlueskyScanner: scan thread did not stop within %.0f s — "
+                    "keeping the thread handle; the scanner still reports "
+                    "active and must not be restarted or reinitialized until "
+                    "the thread exits",
+                    _THREAD_JOIN_TIMEOUT,
+                )
+            else:
+                self._scan_thread = None
 
     def pause_scan(self) -> None:
         """Request the RunEngine to pause between plans steps."""
@@ -434,10 +459,49 @@ class BlueskyScanner:
                 self._disconnect_device(det)
             self._detectors = []
 
+    def _abort_before_acquisition(self) -> bool:
+        """Return ``True`` (logging loudly) if a stop arrived before the plan ran.
+
+        ``RE.abort()`` cannot stop a scan that has not reached the RunEngine
+        yet, so the scan thread checks this flag between thread start and
+        the ``RE(plan)`` invocation (after device connect, before the scan
+        folder is claimed).
+        """
+        if not self._abort_requested:
+            return False
+        logger.warning(
+            "BlueskyScanner: stop requested before acquisition started; "
+            "aborting the scan before it reaches the RunEngine"
+        )
+        return True
+
+    @staticmethod
+    def _log_claimed_scan_failure(
+        scan_number: int | None, scan_folder: str | None
+    ) -> None:
+        """Log loudly that a claimed scan folder was left behind by a failure.
+
+        The folder is never deleted (scan-folder lifecycle invariant: once a
+        ``scans/ScanNNN/`` folder exists it must not be removed or
+        recreated), so the claimed-but-failed state is surfaced here instead
+        of being silent.
+        """
+        if scan_number is None and scan_folder is None:
+            return
+        logger.error(
+            "Scan %s failed or aborted after its folder was claimed at %s; "
+            "the folder is left in place (never deleted) and may be missing "
+            "ScanInfo or data",
+            scan_number,
+            scan_folder,
+        )
+
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
         failed = False
         try:
+            if self._abort_before_acquisition():
+                return
             mode = scan_config.scan_mode
             # Support both ScanMode enum and plain strings
             mode_val = mode.value if hasattr(mode, "value") else str(mode).lower()
@@ -590,71 +654,91 @@ class BlueskyScanner:
             )
         self._session.shot_control(self._shot_control)
 
-        # Claim first so the scan log wraps the whole run and the bridge's
-        # analyzers get the real ScanTag for native-file loading.
-        scan_tag, scan_folder = claim_scan(self._experiment_dir)
-        scan_number = scan_tag.number if scan_tag is not None else None
+        detectors = self._build_session_devices()
+        if not detectors:
+            logger.error(
+                "optimization scan has no detector devices; aborting before "
+                "claiming a scan folder"
+            )
+            return
 
+        # Connect the VOCS settables only after the detector check, so an
+        # early exit cannot leak their persistent CA monitors.  Each settable
+        # joins self._detectors as soon as it is connected — the scan
+        # thread's cleanup then disconnects it even when a later step fails.
         variables: dict[str, Any] = {}
         for key in bridge.variable_names:
             device_name, variable = key.split(":", 1)
-            variables[key] = self._session.settable(
+            settable = self._session.settable(
                 device_name, variable, name=safe_name(f"{device_name}_{variable}")
             )
-        detectors = self._build_session_devices()
-        if not detectors:
-            logger.error("optimization scan has no detector devices; aborting")
+            variables[key] = settable
+            with self._device_lock:
+                self._detectors.append(settable)
+
+        if self._abort_before_acquisition():
             return
-        with self._device_lock:
-            self._detectors = list(self._detectors) + list(variables.values())
 
-        objective, suggester = bridge.bind(
-            devices=list(variables.values()) + detectors,
-            scan_tag=scan_tag,
-            scan_folder=scan_folder,
-        )
+        # Claim only after everything above that can fail has succeeded.  The
+        # claim still precedes the bridge bind (its analyzers get the real
+        # ScanTag for native-file loading) and the scan log (so the log wraps
+        # the whole run).
+        scan_tag, scan_folder = claim_scan(self._experiment_dir)
+        scan_number = scan_tag.number if scan_tag is not None else None
 
-        max_iterations = len(_build_positions(scan_config))
-        n_shots = max_iterations * self._shots_per_step
-        self._total_shots = n_shots
-        self._set_state("INITIALIZING", total_shots=n_shots)
-        logger.info(
-            "Optimization: up to %d iteration(s) × %d shots = %d events, variables=%s",
-            max_iterations,
-            self._shots_per_step,
-            n_shots,
-            list(variables),
-        )
-
-        run_md: dict[str, Any] = {
-            "operator": "",
-            "scan_mode": "optimization",
-            "wait_time": getattr(scan_config, "wait_time", None),
-            "optimizer_config_path": str(config_path),
-        }
-        with self._scan_log(scan_number, scan_folder):
-            self._set_state("RUNNING")
-            self._session.optimize(
-                variables=variables,
-                detectors=detectors,
-                objective=objective,
-                suggester=suggester,
-                shots_per_iteration=self._shots_per_step,
-                max_iterations=max_iterations,
-                mode="strict" if strict else "free_run",
-                description=getattr(scan_config, "additional_description", "") or "",
-                md=run_md,
-                scan_number=scan_number,
+        try:
+            objective, suggester = bridge.bind(
+                devices=list(variables.values()) + detectors,
+                scan_tag=scan_tag,
                 scan_folder=scan_folder,
-                # Bridges map optimizer-config end-of-run policy (e.g. the
-                # legacy move_to_best_on_finish flag) onto the session's.
-                on_finish=getattr(bridge, "on_finish", "hold"),
             )
-            # Post-run bookkeeping owned by the bridge (e.g. the legacy
-            # xopt_dump.yaml written into the scan folder).
-            finish = getattr(bridge, "finish", None)
-            if callable(finish):
-                finish()
+
+            max_iterations = len(_build_positions(scan_config))
+            n_shots = max_iterations * self._shots_per_step
+            self._total_shots = n_shots
+            self._set_state("INITIALIZING", total_shots=n_shots)
+            logger.info(
+                "Optimization: up to %d iteration(s) × %d shots = %d events, "
+                "variables=%s",
+                max_iterations,
+                self._shots_per_step,
+                n_shots,
+                list(variables),
+            )
+
+            run_md: dict[str, Any] = {
+                "operator": "",
+                "scan_mode": "optimization",
+                "wait_time": getattr(scan_config, "wait_time", None),
+                "optimizer_config_path": str(config_path),
+            }
+            with self._scan_log(scan_number, scan_folder):
+                self._set_state("RUNNING")
+                self._session.optimize(
+                    variables=variables,
+                    detectors=detectors,
+                    objective=objective,
+                    suggester=suggester,
+                    shots_per_iteration=self._shots_per_step,
+                    max_iterations=max_iterations,
+                    mode="strict" if strict else "free_run",
+                    description=getattr(scan_config, "additional_description", "")
+                    or "",
+                    md=run_md,
+                    scan_number=scan_number,
+                    scan_folder=scan_folder,
+                    # Bridges map optimizer-config end-of-run policy (e.g. the
+                    # legacy move_to_best_on_finish flag) onto the session's.
+                    on_finish=getattr(bridge, "on_finish", "hold"),
+                )
+                # Post-run bookkeeping owned by the bridge (e.g. the legacy
+                # xopt_dump.yaml written into the scan folder).
+                finish = getattr(bridge, "finish", None)
+                if callable(finish):
+                    finish()
+        except BaseException:
+            self._log_claimed_scan_failure(scan_number, scan_folder)
+            raise
 
     def _execute_scan(
         self,
@@ -665,12 +749,13 @@ class BlueskyScanner:
     ) -> None:
         """Translate the GUI scan request into a session scan (the thin adapter).
 
-        The session owns the discipline (claiming is done here first so the
-        per-scan log can wrap the whole run); this method only maps
+        The session owns the discipline; this method only maps
         ``exec_config`` shapes onto :meth:`GeecsSession.scan` arguments.
+        Everything that can fail (device connect, mode validation, shot
+        control) runs *before* the scan folder is claimed, so an early exit
+        never leaves an empty claimed ``ScanNNN/`` folder behind; the claim
+        still precedes the per-scan log so the log wraps the whole run.
         """
-        scan_number, scan_folder = claim_scan_number(self._experiment_dir)
-
         detectors = self._build_session_devices()
         if not detectors and motor is None:
             logger.info(
@@ -687,6 +772,11 @@ class BlueskyScanner:
                 "'free_run_time_sync' for free-running trigger acquisition."
             )
         self._session.shot_control(self._shot_control)
+
+        if self._abort_before_acquisition():
+            return
+
+        scan_number, scan_folder = claim_scan_number(self._experiment_dir)
 
         n_shots = len(positions) * self._shots_per_step
         self._total_shots = n_shots
@@ -717,40 +807,72 @@ class BlueskyScanner:
             "scan_mode": scan_mode,
         }
 
-        with self._scan_log(scan_number, scan_folder):
-            self._set_state("RUNNING")
-            self._session.scan(
-                detectors=detectors,
-                motor=motor,
-                positions=positions,
-                shots_per_step=self._shots_per_step,
-                mode="strict" if strict else "free_run",
-                description=getattr(scan_config, "additional_description", "") or "",
-                md=run_md,
-                scan_number=scan_number,
-                scan_folder=scan_folder,
-                scan_info=scan_info,
-            )
+        try:
+            with self._scan_log(scan_number, scan_folder):
+                self._set_state("RUNNING")
+                self._session.scan(
+                    detectors=detectors,
+                    motor=motor,
+                    positions=positions,
+                    shots_per_step=self._shots_per_step,
+                    mode="strict" if strict else "free_run",
+                    description=getattr(scan_config, "additional_description", "")
+                    or "",
+                    md=run_md,
+                    scan_number=scan_number,
+                    scan_folder=scan_folder,
+                    scan_info=scan_info,
+                )
+        except BaseException:
+            self._log_claimed_scan_failure(scan_number, scan_folder)
+            raise
 
     def _build_session_devices(self) -> list:
         """Create CA devices from the GUI device table via the session factories.
 
-        Role classification is unchanged; the returned list is ordered with
-        the free-run reference first (``session.scan`` anchors contributors to
-        ``detectors[0]``).  Devices that fail to construct/connect are logged
-        and skipped.
+        The returned list is ordered with the free-run reference first
+        (``session.scan`` anchors contributors to ``detectors[0]``).  Devices
+        that fail to construct/connect are logged and skipped — except the
+        free-run reference (pacemaker): silently skipping it would let a
+        non-Triggerable contributor land in ``detectors[0]`` and inherit
+        pacemaker duty, and ``trigger_and_read`` would then record unpaced
+        duplicate rows of cached frames.  Instead, the next synchronous
+        device is promoted to the reference role (built Triggerable via
+        ``session.detector``); if no synchronous device connects at all,
+        this raises rather than acquire garbage.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            In free-run mode, when synchronous devices are configured but
+            none of them could be connected as the reference (pacemaker).
+            Devices that did connect are left in ``self._detectors`` so the
+            scan thread's cleanup disconnects them.
         """
         roles = self._classify_device_roles(
             self._devices_config, self._acquisition_mode
         )
+        free_run = self._acquisition_mode == _FREE_RUN_MODE
+        reference_configured = any(role == "reference" for _name, role in roles)
         reference: list = []
         others: list = []
+        promote_next_contributor = False
         for device_name, role in roles:
             cfg = self._devices_config[device_name]
             variables = list(_cfg_field(cfg, "variable_list", []) or [])
             save = bool(_cfg_field(cfg, "save_nonscalar_data", False))
+            if promote_next_contributor and role == "contributor":
+                role = "reference"
+                promote_next_contributor = False
+                logger.warning(
+                    "Promoting %s to free-run reference (pacemaker) — the "
+                    "configured reference device was unavailable",
+                    device_name,
+                )
             if not variables:
                 logger.debug("Skipping %s: empty variable_list", device_name)
+                if role == "reference":
+                    promote_next_contributor = True
                 continue
             name = safe_name(device_name)
             try:
@@ -779,11 +901,30 @@ class BlueskyScanner:
                     save,
                 )
             except Exception:
+                if role == "reference":
+                    # Reclassify rather than silently skip: the next
+                    # contributor must take over pacemaker duty (Triggerable).
+                    promote_next_contributor = True
+                    logger.warning(
+                        "Free-run reference %s failed to connect; the next "
+                        "synchronous device will be promoted to reference",
+                        device_name,
+                    )
                 logger.warning(
                     "Failed to create/connect detector %s — skipping",
                     device_name,
                     exc_info=True,
                 )
+        if free_run and reference_configured and not reference:
+            # Keep whatever connected so the caller's cleanup disconnects it.
+            with self._device_lock:
+                self._detectors = list(others)
+            raise GeecsConfigurationError(
+                "free_run_time_sync scan: the reference (pacemaker) device "
+                "failed to connect and no other synchronous device could be "
+                "promoted to reference — aborting instead of acquiring "
+                "unpaced data"
+            )
         detectors = reference + others
         with self._device_lock:
             self._detectors = list(detectors)

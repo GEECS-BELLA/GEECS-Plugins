@@ -61,3 +61,12 @@ class CaSnapshotReadable(StandardReadable):
         self._column_headers = {
             f"{name}-{safe_name(var)}": f"{device} {var}" for var in variable_list
         }
+
+    async def disconnect(self) -> None:
+        """Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+
+        This device holds no persistent monitor subscription, so there is
+        nothing to unsubscribe — the method exists so scanner teardown is
+        uniform across every CA device type instead of raising a (swallowed)
+        ``AttributeError``.
+        """
