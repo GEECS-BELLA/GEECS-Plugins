@@ -27,6 +27,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Fresh installs can now run the Bluesky/CA backend: the `geecs-bluesky`
+  path dependency gains the `ca` extra (aioca), and the lockfile — which
+  predated both the GeecsBluesky→GeecsCAGateway dependency and the
+  ophyd-async 0.19.3 bump — was regenerated (the root `geecs-docs` lock
+  likewise). Previously a from-lock install produced an environment with
+  no gateway library, no aioca, and ophyd-async 0.16.
 - Defused a latent order-dependent import cycle:
   `base_evaluator → config_models` (module-level model rebuild) `→ engine →
   scan_executor → base_optimizer → base_evaluator`. Importing
