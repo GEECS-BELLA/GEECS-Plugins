@@ -96,3 +96,42 @@ scanner uses it too, making a scan fully gateway-mediated.
   stay in `BlueskyScanner`.
 - Background scan mode, setup/closeout actions — same status as before
   (pre-existing gaps in both backends).
+
+## Open threads (as of the optimization-bridge merge, 2026-07-05)
+
+Deliberately not blocking the PR; each has a natural forcing function.
+
+- **Feed Xopt the measured readback, not the proposal.** GEECS set
+  convergence is tolerance-bounded (e.g. 0.05 A on magnet PSUs), so the
+  evaluated point can differ from the proposed one by up to the tolerance.
+  Rows record the true readback; the bridge's `observe()` could substitute
+  the bin-mean readback as the input Xopt learns from (~5 lines,
+  `session_bridge.py`). Legacy has the same flaw, so this is an
+  improvement, not parity. Decide when a real tuning problem exists.
+- **Analyzer-device auto-provisioning for optimization scans.** Legacy
+  merges `optimizer.device_requirements` into the save-device set
+  (`device_manager.load_from_dictionary`); the Bluesky path currently uses
+  only the GUI save list, so an objective's camera must be added manually.
+  Fix in `BlueskyScanner._run_optimization` (merge into `_devices_config`)
+  alongside the first GUI-launched optimization test.
+- **Per-shot `Objective:`/`Observable:` s-file columns** are not exported
+  on the Bluesky path (iteration-level values live in `optimization.json`
+  + `xopt_dump.yaml`). Parked with the "analysis artifacts in Tiled"
+  design discussion, as is **BAX `algorithm_results_file` rooting**
+  (relative paths aren't scan-folder-rooted without a ScanDataManager).
+- **Live re-verifications owed**: strict shot-control mode since the
+  access-layer migration (logic pinned by tests; free-run heavily
+  verified), a GUI-launched (PyQt) scan with `use_bluesky=True`, and a
+  warm start from a scan's `xopt_dump.yaml`.
+- **Diagnostic-config schema migration** (configs repo):
+  `UC_Amp2_IR_input.yaml` and any other pre-DiagnosticConfig flat-schema
+  YAMLs no longer validate against ImageAnalysis; migrate to the unified
+  `image:`/`scan:` shape (an untracked `UC_Amp2_IR_input_dark.yaml` shows
+  the target form).
+- **Composite variables on the CA backend**: the standard shape is a
+  pseudo-positioner (`CaCompositeSettable`) fanning one virtual axis onto
+  N `CaSettable`s using the existing composite-variable config — a device-
+  layer concern; the gateway stays a 1:1 GEECS mirror.
+- **Archiver volume vs readback truth**: resolved for DAQ (deadband 0 as
+  of gateway 0.5.1); the MDEL/ADEL-style plan for Archiver Appliance
+  volume is recorded in `GeecsCAGateway/DESIGN.md`.
