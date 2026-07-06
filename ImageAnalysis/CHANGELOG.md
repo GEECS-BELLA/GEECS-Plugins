@@ -20,6 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The HASO test module's `importorskip` now passes `exc_type=ImportError`:
+  the WaveKit SDK's Windows-only `_ctypes.FreeLibrary` import raises a bare
+  ImportError elsewhere, which pytest >= 8 no longer auto-skips — collection
+  errored on Linux/macOS instead of skipping.
 - Widened the stray runtime `pytest` constraint from `^7.4` to `>=7.4` — it
   was the only pin holding the integrated monorepo env below pytest 8
   (moving it out of runtime deps entirely is deferred cleanup).

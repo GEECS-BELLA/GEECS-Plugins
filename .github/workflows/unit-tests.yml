@@ -20,7 +20,16 @@ jobs:
         run: poetry install --with dev
 
       - name: Run root unit tests
-        run: poetry run pytest -m "not integration and not gui" --tb=short -q
+        # One pytest process per testpath: the subpackages' identically-named
+        # tests/ trees (tests.conftest) collide when collected in a single
+        # process under pytest >= 8, whose importlib import mode resolves
+        # real dotted module names first. Per-package runs are the normal
+        # mode everywhere else; this mirrors them.
+        run: |
+          poetry run pytest tests -m "not integration and not gui" --tb=short -q
+          poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
+          poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
+          poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
 
       - name: Install GeecsBluesky dependencies
         working-directory: GeecsBluesky
