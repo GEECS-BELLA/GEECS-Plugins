@@ -20,6 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Widened the stray runtime `pytest` constraint from `^7.4` to `>=7.4` — it
+  was the only pin holding the integrated monorepo env below pytest 8
+  (moving it out of runtime deps entirely is deferred cleanup).
 - The two Undulator demo `__main__` blocks (`hi_res_mag_cam_analyzer`,
   `BCaveMagSpecStitcher`) set the camera-config root on the instance the
   loader actually consults (`scan_analysis_config`), so the demos resolve
