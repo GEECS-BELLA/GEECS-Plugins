@@ -7,6 +7,7 @@ from typing import Callable, Optional
 from geecs_scanner.app.lib.action_control import ActionControl
 from geecs_scanner.app.lib.gui_utilities import read_yaml_file_to_dict
 from geecs_scanner.engine import DatabaseDictLookup
+from geecs_scanner.engine.backend_selection import resolve_use_bluesky
 from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
 from geecs_scanner.engine.scan_events import ScanEvent
 from geecs_scanner.engine.scan_manager import ScanManager, get_database_dict
@@ -18,17 +19,18 @@ from geecs_python_api.controls.interface.geecs_errors import (
 class RunControl:
     """Interface class between the GEECS Scanner GUI and the scan execution backend.
 
-    Pass ``use_bluesky=True`` to route all scan execution through the Bluesky
-    RunEngine backend (``BlueskyScanner``) instead of the legacy ScanManager.
-    In Bluesky mode, ``shot_control_configuration`` is not required and
-    geecs-python-api hardware connections are not established at init time.
+    Pass ``use_bluesky=True`` (or set the ``GEECS_USE_BLUESKY`` env var) to
+    route all scan execution through the Bluesky RunEngine backend
+    (``BlueskyScanner``) instead of the legacy ScanManager.  In Bluesky mode,
+    ``shot_control_configuration`` is not required and geecs-python-api
+    hardware connections are not established at init time.
     """
 
     def __init__(
         self,
         experiment_name: str = "",
         shot_control_configuration: Optional[Path] = None,
-        use_bluesky: bool = False,
+        use_bluesky: Optional[bool] = None,
         on_event: Optional[Callable[[ScanEvent], None]] = None,
     ):
         """Initialise with either the legacy ScanManager or the Bluesky backend.
@@ -39,12 +41,16 @@ class RunControl:
             Experiment name as in the GEECS Database and Scan Manager file structure.
         shot_control_configuration : Path, optional
             Path to the configuration file with shot control information.
-        use_bluesky : bool
+        use_bluesky : bool, optional
             If True, use the BlueskyScanner backend instead of ScanManager.
+            When omitted (None), the ``GEECS_USE_BLUESKY`` env var decides
+            (default legacy) — the GUI never passes this argument, so the
+            env var is the supported way to switch a GUI session's backend.
         on_event : callable, optional
             Callback invoked for every :class:`~geecs_scanner.engine.scan_events.ScanEvent`.
             Pass ``pyqtSignal.emit`` to route events onto the Qt main thread.
         """
+        use_bluesky = resolve_use_bluesky(use_bluesky)
         self.experiment_name = experiment_name
         self._use_bluesky = use_bluesky
         self._database_lookup = DatabaseDictLookup()

@@ -29,6 +29,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   kwargs; passing `data_logger` alone (including post-construction
   assignment) is unchanged behavior.
 
+- `GEECS_USE_BLUESKY` env var (`1/true/yes/on`) switches a GUI session onto
+  the Bluesky backend without touching source — the GUI constructs
+  `RunControl` without the `use_bluesky` argument, so the env var is the
+  supported switch during the legacy → Bluesky transition (mirroring
+  `GEECS_BLUESKY_ACQUISITION_MODE`). Resolver lives in
+  `engine/backend_selection.py` (PyQt5-free, testable headless).
+
 ### Fixed
 
 - `_await_bin_assets` builds expected native-file paths with the
