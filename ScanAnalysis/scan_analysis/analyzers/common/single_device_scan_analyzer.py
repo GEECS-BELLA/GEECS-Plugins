@@ -355,15 +355,19 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         for m in sorted(expected_shots - found_shots):
             logger.warning(f"No file found for shot {m}")
 
-    def _map_files_by_shot_number(self) -> None:
-        """Legacy strategy: parse shot numbers out of MC-convention filenames."""
-        data_filename_regex = re.compile(
+    def _legacy_filename_regex(self) -> re.Pattern[str]:
+        """Compile the MC-convention filename pattern for this device's tail."""
+        return re.compile(
             r"Scan(?P<scan_number>\d{3,})_"  # scan number
             r"(?P<device_subject>.*?)_"  # non-greedy subject
             r"(?P<shot_number>\d{3,})"  # shot number
             + re.escape(self.file_tail)
             + r"$"  # literal suffix+format
         )
+
+    def _map_files_by_shot_number(self) -> None:
+        """Legacy strategy: parse shot numbers out of MC-convention filenames."""
+        data_filename_regex = self._legacy_filename_regex()
 
         for file in self.path_dict["data"].iterdir():
             if not file.is_file():
@@ -433,13 +437,31 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         file_ts_regex = re.compile(
             r"_(?P<ts>\d+\.\d+)" + re.escape(self.file_tail) + r"$"
         )
+        legacy_regex = self._legacy_filename_regex()
         files_by_ms: dict[int, Path] = {}
+        has_legacy_named = False
         for file in data_dir.iterdir():
             if not file.is_file():
                 continue
             m = file_ts_regex.search(file.name)
             if m:
                 files_by_ms[round(float(m.group("ts")) * 1000)] = file
+            elif legacy_regex.match(file.name):
+                has_legacy_named = True
+
+        # A listing of legacy shot-number files with no timestamp-named files
+        # is a legacy scan: the per-row stat probes can never hit, and each
+        # probe is a network round-trip (~seconds per device over SMB), so
+        # skip straight to the zero-match fallback in _build_data_file_map.
+        # An empty or ambiguous listing keeps probing — during a live Bluesky
+        # scan a stale SMB listing can hide every file the probes would find.
+        probe_expected_names = bool(files_by_ms) or not has_legacy_named
+        if not probe_expected_names:
+            logger.info(
+                "Data directory %s contains only legacy shot-number-named "
+                "files; skipping per-shot timestamp filename probes",
+                data_dir,
+            )
 
         valid_column = self._matching_valid_column()
         for _, row in self.auxiliary_data.iterrows():
@@ -455,11 +477,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             key = round(ts * 1000)
             file = None
-            for k in (key, key - 1, key + 1):
-                candidate = data_dir / f"{file_device}_{k / 1000:.3f}{self.file_tail}"
-                if candidate.exists():
-                    file = candidate
-                    break
+            if probe_expected_names:
+                file = self._probe_expected_file(data_dir, file_device, key)
             if file is None:
                 file = (
                     files_by_ms.get(key)
@@ -469,6 +488,20 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")
+
+    def _probe_expected_file(
+        self, data_dir: Path, file_device: str, key: int
+    ) -> Optional[Path]:
+        """Stat the timestamp-determined filename for *key* (±1 ms), if present.
+
+        Direct stats bypass stale SMB directory-listing caches; this is the
+        primary lookup for live Bluesky scans.
+        """
+        for k in (key, key - 1, key + 1):
+            candidate = data_dir / f"{file_device}_{k / 1000:.3f}{self.file_tail}"
+            if candidate.exists():
+                return candidate
+        return None
 
     def _resolve_background_paths(self) -> None:
         """

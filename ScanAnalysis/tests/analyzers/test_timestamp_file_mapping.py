@@ -241,3 +241,88 @@ class TestLegacyScanWithTimestampColumn:
         sa = _make_analyzer(tmp_path, aux)
         sa._build_data_file_map()
         assert sa._data_file_map == {1: f1, 2: f2}
+
+
+class TestLegacyProbeSkip:
+    """Per-shot stat probes are skipped for legacy-only directories.
+
+    Each probe is a network round-trip on SMB shares (observed ~7 s of dead
+    time per device on a legacy re-analysis), and a directory of shot-number
+    files with no timestamp-named files means no probe can ever hit. Empty
+    or ambiguous listings must keep probing: during a live Bluesky scan a
+    stale SMB listing can hide every file the probes would find.
+    """
+
+    @staticmethod
+    def _spy_probe(sa):
+        calls = []
+        original = sa._probe_expected_file
+
+        def spy(data_dir, file_device, key):
+            calls.append(key)
+            return original(data_dir, file_device, key)
+
+        sa._probe_expected_file = spy
+        return calls
+
+    def test_legacy_only_directory_skips_probes_and_still_maps(self, tmp_path):
+        f1 = _touch(tmp_path, f"Scan012_{DEVICE}_001.png")
+        f2 = _touch(tmp_path, f"Scan012_{DEVICE}_002.png")
+        aux = pd.DataFrame(
+            {
+                "Shotnumber": [1, 2],
+                "Bin #": [1, 1],
+                f"{DEVICE} acq_timestamp": [3866137959.524, 3866137960.525],
+            }
+        )
+        sa = _make_analyzer(tmp_path, aux)
+        calls = self._spy_probe(sa)
+        sa._build_data_file_map()
+        assert calls == []
+        assert sa._data_file_map == {1: f1, 2: f2}
+
+    def test_timestamp_named_directory_still_probes(self, tmp_path):
+        _touch(tmp_path, f"{DEVICE}_3866137959.524.png")
+        aux = pd.DataFrame(
+            {
+                "Shotnumber": [1],
+                "Bin #": [1],
+                f"{DEVICE} acq_timestamp": [3866137959.524],
+            }
+        )
+        sa = _make_analyzer(tmp_path, aux)
+        calls = self._spy_probe(sa)
+        sa._build_data_file_map()
+        assert calls, "expected stat probes for a timestamp-named directory"
+        assert len(sa._data_file_map) == 1
+
+    def test_empty_directory_still_probes(self, tmp_path):
+        # Stale-listing safety: an empty listing may hide freshly written
+        # files, so the direct-stat probes must still run.
+        aux = pd.DataFrame(
+            {
+                "Shotnumber": [1],
+                "Bin #": [1],
+                f"{DEVICE} acq_timestamp": [3866137959.524],
+            }
+        )
+        sa = _make_analyzer(tmp_path, aux)
+        calls = self._spy_probe(sa)
+        sa._build_data_file_map()
+        assert calls, "expected stat probes for an empty listing"
+
+    def test_mixed_directory_still_probes(self, tmp_path):
+        _touch(tmp_path, f"Scan012_{DEVICE}_001.png")
+        f2 = _touch(tmp_path, f"{DEVICE}_3866137960.525.png")
+        aux = pd.DataFrame(
+            {
+                "Shotnumber": [1, 2],
+                "Bin #": [1, 1],
+                f"{DEVICE} acq_timestamp": [3866137959.524, 3866137960.525],
+            }
+        )
+        sa = _make_analyzer(tmp_path, aux)
+        calls = self._spy_probe(sa)
+        sa._build_data_file_map()
+        assert calls, "expected stat probes for a mixed directory"
+        assert sa._data_file_map[2] == f2

@@ -30,6 +30,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   falls back — invalid rows on Bluesky scans keep meaning "no file").
   Pinned by a canonical-legacy-scan fixture (real s-file column spelling +
   `ScanNNN_<device>_NNN` filenames).
+- Legacy re-analysis no longer pays for doomed timestamp probes: when the
+  data directory contains only shot-number-named files (and no
+  timestamp-named ones), the per-shot direct-stat probes are skipped —
+  observed ~7 s of dead time per device over SMB. Empty or ambiguous
+  listings keep probing, preserving the stale-SMB-listing defence for live
+  Bluesky scans.
 - `LiveTaskRunner`'s `image_config_dir` parameter works again (review #6):
   it now sets the config root the ImageAnalysis loader actually resolves
   through (`scan_analysis_config`), keeping the legacy alias in sync and
