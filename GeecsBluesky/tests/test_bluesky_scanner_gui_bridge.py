@@ -267,6 +267,9 @@ class _FakeBridge:
         }
         return (lambda bin_data: 1.0), self
 
+    def finish(self):
+        self.finished = True
+
 
 class _FakeOptSession:
     """Records settable/optimize calls; no RunEngine involved."""
@@ -348,6 +351,8 @@ def test_run_optimization_maps_config_onto_session_optimize(monkeypatch) -> None
     assert kwargs["suggester"] is bridge
     # No on_finish attribute on the bridge -> session default "hold"
     assert kwargs["on_finish"] == "hold"
+    # Post-run bookkeeping hook invoked after the session run
+    assert getattr(bridge, "finished", False) is True
 
 
 def test_run_optimization_passes_bridge_on_finish(monkeypatch) -> None:

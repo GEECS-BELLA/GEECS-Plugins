@@ -178,3 +178,26 @@ class TestSessionOptimizationBridge:
             ).on_finish
             == "best"
         )
+
+    def test_finish_writes_xopt_dump_into_scan_folder(self, tmp_path):
+        bridge = SessionOptimizationBridge(_make_optimizer())
+        objective, _ = bridge.bind(
+            devices=[
+                SimpleNamespace(
+                    _column_headers={"U_S1H_Current-readback": "U_S1H Current"}
+                )
+            ],
+            scan_tag=None,
+            scan_folder=tmp_path,
+        )
+        inputs = bridge.suggest()
+        bin_data = _fake_bin(1, [inputs["U_S1H:Current"]] * 2)
+        value = objective(bin_data)
+        bridge.observe(inputs, value, bin_data)
+        bridge.finish()
+        assert (tmp_path / "xopt_dump.yaml").exists()
+
+    def test_finish_without_scan_folder_is_a_noop(self):
+        bridge = SessionOptimizationBridge(_make_optimizer())
+        bridge.bind(devices=[], scan_tag=None)
+        bridge.finish()  # must not raise

@@ -241,6 +241,24 @@ class SessionOptimizationBridge:
                 [p.name for p in missing[:4]],
             )
 
+    def finish(self) -> None:
+        """Write the Xopt dump into the scan folder (legacy parity).
+
+        The legacy ScanManager writes ``<scan_dir>/xopt_dump.yaml`` at the
+        end of every optimization scan; these dumps are the warm-start seed
+        source (``seed_dump_files``) and the durable record of evaluated
+        inputs/outputs. Called by ``BlueskyScanner`` after
+        ``session.optimize`` returns.
+        """
+        if self._scan_folder is None:
+            return
+        dump_path = self._scan_folder / "xopt_dump.yaml"
+        try:
+            self.optimizer.xopt.dump(str(dump_path))
+            logger.info("Xopt dump written to %s", dump_path)
+        except Exception:
+            logger.warning("Could not write Xopt dump to %s", dump_path, exc_info=True)
+
     def _objective(self, bin_data: Any) -> float:
         self.source.push_bin(bin_data)
         self._await_bin_assets(bin_data)

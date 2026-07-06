@@ -650,6 +650,11 @@ class BlueskyScanner:
                 # legacy move_to_best_on_finish flag) onto the session's.
                 on_finish=getattr(bridge, "on_finish", "hold"),
             )
+            # Post-run bookkeeping owned by the bridge (e.g. the legacy
+            # xopt_dump.yaml written into the scan folder).
+            finish = getattr(bridge, "finish", None)
+            if callable(finish):
+                finish()
 
     def _execute_scan(
         self,
