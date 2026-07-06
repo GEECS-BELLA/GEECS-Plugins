@@ -420,3 +420,94 @@ def test_optimization_postclaim_failure_tracks_settables_and_logs(
     # The claimed-but-aborted state is surfaced loudly, never silently.
     assert "claimed" in caplog.text
     assert "left in place" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Empty variable_list — synchronous devices still build (image-only cameras)
+# ---------------------------------------------------------------------------
+
+
+def test_variableless_sync_reference_is_built_not_skipped() -> None:
+    """A save-images-only camera is a valid free-run reference.
+
+    acq_timestamp is always created as a dedicated child of the CA detector,
+    so an empty variable_list must not disqualify a synchronous device —
+    the legacy scanner force-appends acq_timestamp for the same reason.
+    Regression: this config used to be skipped at DEBUG and then aborted
+    with a misleading "failed to connect" error (live-check 2026-07-06,
+    single healthy UC_Amp4_IR_input, laser-off).
+    """
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Cam": {
+                "synchronous": True,
+                "variable_list": [],
+                "save_nonscalar_data": True,
+            },
+        },
+    )
+
+    detectors = scanner._build_session_devices()
+
+    assert session.calls == [("detector", "U_Cam")]
+    assert len(detectors) == 1
+    assert isinstance(detectors[0], _FakeTriggerable)
+
+
+def test_variableless_sync_contributor_is_built() -> None:
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {
+            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {
+                "synchronous": True,
+                "variable_list": [],
+                "save_nonscalar_data": True,
+            },
+        },
+    )
+
+    detectors = scanner._build_session_devices()
+
+    assert ("contributor", "U_Cam2") in session.calls
+    assert len(detectors) == 2
+
+
+def test_variableless_snapshot_is_skipped_with_warning(caplog) -> None:
+    """An async device with no variables records nothing — skip loudly."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {
+            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Idle": {"synchronous": False, "variable_list": []},
+        },
+    )
+
+    with caplog.at_level(logging.WARNING):
+        detectors = scanner._build_session_devices()
+
+    assert ("snapshot", "U_Idle") not in session.calls
+    assert len(detectors) == 1
+    assert any(
+        "U_Idle" in r.message and "empty variable_list" in r.message
+        for r in caplog.records
+    )
+
+
+def test_reference_abort_message_names_the_failing_devices() -> None:
+    """The loud abort says WHY each device failed, not just that it did."""
+    session = _FakeSession(fail={"U_RefCam"})
+    scanner = _make_scanner(
+        session,
+        {"U_RefCam": {"synchronous": True, "variable_list": ["Sig"]}},
+    )
+
+    with pytest.raises(GeecsConfigurationError) as excinfo:
+        scanner._build_session_devices()
+
+    assert "U_RefCam" in str(excinfo.value)
+    assert "connect failed" in str(excinfo.value)

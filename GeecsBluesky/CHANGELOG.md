@@ -35,6 +35,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- A synchronous save device with an empty `variable_list` (e.g. an
+  image-only camera element) is no longer silently dropped by
+  `BlueskyScanner`: `acq_timestamp` is always created as a dedicated child,
+  so the device is built normally — matching the legacy scanner, which
+  force-appends `acq_timestamp` to every synchronous device. Only an
+  asynchronous snapshot device with no variables is skipped, now with a
+  warning instead of a debug line. Found by the first unreachable-reference
+  live check: a healthy image-only camera was skipped at DEBUG and the scan
+  aborted blaming a connect failure that never happened; the pacemaker
+  abort message now also names each device's actual failure.
 - **Free-run pacing survives a reference connect failure** (PR #449 review
   #2) — when the designated reference (pacemaker) fails to connect, the
   next synchronous device is promoted to the reference role (built

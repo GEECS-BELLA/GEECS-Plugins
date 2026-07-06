@@ -841,6 +841,13 @@ class BlueskyScanner:
         ``session.detector``); if no synchronous device connects at all,
         this raises rather than acquire garbage.
 
+        An empty ``variable_list`` does not disqualify a synchronous device:
+        ``acq_timestamp`` is always created as a dedicated child, and native
+        file saving may be the element's whole purpose (image-only camera) —
+        matching the legacy scanner, which force-appends ``acq_timestamp`` to
+        every synchronous device.  Only an asynchronous snapshot device with
+        no variables is skipped (it would record nothing).
+
         Raises
         ------
         GeecsConfigurationError
@@ -856,6 +863,7 @@ class BlueskyScanner:
         reference_configured = any(role == "reference" for _name, role in roles)
         reference: list = []
         others: list = []
+        failures: list[str] = []
         promote_next_contributor = False
         for device_name, role in roles:
             cfg = self._devices_config[device_name]
@@ -869,10 +877,18 @@ class BlueskyScanner:
                     "configured reference device was unavailable",
                     device_name,
                 )
-            if not variables:
-                logger.debug("Skipping %s: empty variable_list", device_name)
-                if role == "reference":
-                    promote_next_contributor = True
+            if not variables and role == "snapshot":
+                # An asynchronous device with no variables records nothing at
+                # all. Synchronous devices are still built: acq_timestamp is
+                # always created as a dedicated child (and native saving may
+                # be the whole point, e.g. an image-only camera element) —
+                # matching the legacy scanner, which force-appends
+                # acq_timestamp to every synchronous device.
+                logger.warning(
+                    "Skipping asynchronous device %s: empty variable_list "
+                    "(nothing to record)",
+                    device_name,
+                )
                 continue
             name = safe_name(device_name)
             try:
@@ -900,7 +916,8 @@ class BlueskyScanner:
                     len(variables),
                     save,
                 )
-            except Exception:
+            except Exception as exc:
+                failures.append(f"{device_name}: {exc.__class__.__name__}: {exc}")
                 if role == "reference":
                     # Reclassify rather than silently skip: the next
                     # contributor must take over pacemaker duty (Triggerable).
@@ -919,11 +936,12 @@ class BlueskyScanner:
             # Keep whatever connected so the caller's cleanup disconnects it.
             with self._device_lock:
                 self._detectors = list(others)
+            detail = "; ".join(failures) if failures else "no failure recorded"
             raise GeecsConfigurationError(
                 "free_run_time_sync scan: the reference (pacemaker) device "
                 "failed to connect and no other synchronous device could be "
                 "promoted to reference — aborting instead of acquiring "
-                "unpaced data"
+                f"unpaced data. Device failures: {detail}"
             )
         detectors = reference + others
         with self._device_lock:
