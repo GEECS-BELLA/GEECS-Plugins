@@ -25,7 +25,7 @@ import asyncio
 import errno
 import logging
 import socket
-from typing import Any
+from typing import Any, Callable
 
 from geecs_ca_gateway.exceptions import (
     GeecsCommandFailedError,
@@ -45,19 +45,72 @@ _EXE_TIMEOUT = 10.0  # seconds
 
 
 class _Oneshot(asyncio.DatagramProtocol):
-    """DatagramProtocol that resolves a single Future on the first datagram received."""
+    """DatagramProtocol that resolves a single Future on the first matching datagram.
+
+    Replies are correlated to the in-flight exchange via an optional
+    ``matcher`` predicate supplied at :meth:`arm` time.  Datagrams that
+    arrive when no exchange is armed, or that fail the matcher, are
+    discarded with a warning instead of resolving the future — this is what
+    prevents a late reply from a timed-out exchange for variable A from
+    "answering" a subsequent exchange for variable B.
+    """
 
     def __init__(self) -> None:
         self._future: asyncio.Future[bytes] | None = None
+        self._matcher: Callable[[bytes], bool] | None = None
+        self._label: str = ""
 
-    def arm(self, loop: asyncio.AbstractEventLoop) -> asyncio.Future[bytes]:
-        """Return a new Future that will be resolved by the next datagram."""
+    def arm(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        matcher: Callable[[bytes], bool] | None = None,
+        label: str = "",
+    ) -> asyncio.Future[bytes]:
+        """Return a new Future resolved by the next datagram accepted by *matcher*.
+
+        Parameters
+        ----------
+        loop:
+            Running event loop used to create the future.
+        matcher:
+            Optional predicate applied to each received datagram.  Datagrams
+            it rejects are logged and dropped; the future stays pending so
+            the genuine reply can still resolve it.  ``None`` accepts any
+            datagram (used for ACKs, which carry no identifying field).
+        label:
+            Human-readable description of the in-flight exchange, used in
+            discard log messages (e.g. ``"Device/Variable"``).
+        """
         self._future = loop.create_future()
+        self._matcher = matcher
+        self._label = label
         return self._future
 
+    def disarm(self) -> None:
+        """Detach the current future so late datagrams are logged and dropped."""
+        self._future = None
+        self._matcher = None
+        self._label = ""
+
     def datagram_received(self, data: bytes, addr: object) -> None:
-        if self._future is not None and not self._future.done():
-            self._future.set_result(data)
+        if self._future is None or self._future.done():
+            logger.warning(
+                "Discarding unsolicited/stale UDP datagram %r from %s "
+                "(no exchange in flight)",
+                data,
+                addr,
+            )
+            return
+        if self._matcher is not None and not self._matcher(data):
+            logger.warning(
+                "Discarding UDP reply %r from %s: does not match in-flight "
+                "exchange for %s",
+                data,
+                addr,
+                self._label,
+            )
+            return
+        self._future.set_result(data)
 
     def error_received(self, exc: Exception) -> None:
         if self._future is not None and not self._future.done():
@@ -66,6 +119,29 @@ class _Oneshot(asyncio.DatagramProtocol):
     def connection_lost(self, exc: Exception | None) -> None:
         if exc and self._future is not None and not self._future.done():
             self._future.set_exception(exc)
+
+
+def _make_exe_matcher(variable: str, op: str) -> Callable[[bytes], bool]:
+    """Build a predicate that accepts only exe replies naming *variable*.
+
+    The exe reply format is ``DevName>>EchoField>>value>>status``.  The echo
+    field (``parts[1]``) is the variable name — real GEECS hardware echoes the
+    full command there (``"getVarName"`` / ``"setVarName"``, cf. the legacy
+    parser in GEECS-PythonAPI ``geecs_device.py``), while the protocol docs
+    and the fake test server use the bare variable name.  Accept both forms.
+
+    Datagrams with fewer than four ``>>`` fields carry no attributable
+    variable name and are rejected (the caller logs and drops them); a
+    genuinely lost reply then surfaces as an exe timeout rather than a
+    mis-attributed value.
+    """
+    expected = (variable, f"{op}{variable}")
+
+    def _matches(data: bytes) -> bool:
+        parts = data.decode("ascii", errors="replace").split(">>")
+        return len(parts) >= 4 and parts[1] in expected
+
+    return _matches
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +196,14 @@ class GeecsUdpClient:
     :class:`asyncio.Lock` inside :meth:`_exchange` ensures that concurrent
     coroutine calls are serialised even when multiple signal backends share
     the same client instance.
+
+    Serialisation alone does not protect against *late* replies: if an
+    exchange times out and a new command is issued, the abandoned exchange's
+    exe reply may still arrive on the same socket.  Exe replies name the
+    variable they answer, so each exchange only accepts replies matching its
+    own variable; anything else is logged at warning level and discarded.
+    ACK datagrams carry no identifying field and cannot be correlated — see
+    the comment in :meth:`_exchange_inner` for why that is acceptable.
     """
 
     def __init__(
@@ -264,45 +348,62 @@ class GeecsUdpClient:
             )
 
         loop = asyncio.get_running_loop()
+        label = f"{self._device_name or self._host}/{variable}"
 
-        # Arm futures *before* sending so we don't miss the reply.
-        ack_future = self._cmd_proto.arm(loop)
-        exe_future = self._exe_proto.arm(loop)  # type: ignore[union-attr]
+        # Arm futures *before* sending so we don't miss the reply.  The exe
+        # future only accepts replies naming this exchange's variable, so a
+        # late reply from a previous (timed-out) exchange cannot resolve it.
+        # ACKs are a bare "accepted"/"ok" token with no identifying field, so
+        # they cannot be correlated to a variable — a stale positive ACK from
+        # an abandoned exchange is indistinguishable from the real one (and
+        # harmless, since the real ACK is then logged and dropped as stale).
+        ack_future = self._cmd_proto.arm(loop, label=label)
+        exe_future = self._exe_proto.arm(  # type: ignore[union-attr]
+            loop, matcher=_make_exe_matcher(variable, cmd[:3]), label=label
+        )
 
-        self._cmd_transport.sendto(cmd.encode("ascii"), (self._host, self._port))
-        logger.debug("UDP tx → %s:%s  %r", self._host, self._port, cmd)
-
-        # 1) Wait for ACK
         try:
-            ack_data = await asyncio.wait_for(ack_future, timeout=self.ack_timeout)
-        except asyncio.TimeoutError:
-            raise GeecsConnectionError(
-                f"{self._device_name or self._host}/{variable}: "
-                f"no ACK within {self.ack_timeout}s"
-            ) from None
+            self._cmd_transport.sendto(cmd.encode("ascii"), (self._host, self._port))
+            logger.debug("UDP tx → %s:%s  %r", self._host, self._port, cmd)
 
-        ack_str = ack_data.decode("ascii", errors="replace").split(">>")[-1]
-        if ack_str not in ("accepted", "ok"):
-            raise GeecsCommandRejectedError(
+            # 1) Wait for ACK
+            try:
+                ack_data = await asyncio.wait_for(ack_future, timeout=self.ack_timeout)
+            except asyncio.TimeoutError:
+                raise GeecsConnectionError(
+                    f"{label}: no ACK within {self.ack_timeout}s"
+                ) from None
+
+            ack_str = ack_data.decode("ascii", errors="replace").split(">>")[-1]
+            if ack_str not in ("accepted", "ok"):
+                raise GeecsCommandRejectedError(
+                    self._device_name or self._host,
+                    variable,
+                    f"ACK was {ack_str!r}",
+                )
+
+            # 2) Wait for exe response
+            try:
+                exe_data = await asyncio.wait_for(exe_future, timeout=exe_timeout)
+            except asyncio.TimeoutError:
+                raise GeecsConnectionError(
+                    f"{label}: no exe response within {exe_timeout}s"
+                ) from None
+
+            return _parse_exe_response(
+                exe_data.decode("ascii", errors="replace"),
                 self._device_name or self._host,
                 variable,
-                f"ACK was {ack_str!r}",
             )
-
-        # 2) Wait for exe response
-        try:
-            exe_data = await asyncio.wait_for(exe_future, timeout=exe_timeout)
-        except asyncio.TimeoutError:
-            raise GeecsConnectionError(
-                f"{self._device_name or self._host}/{variable}: "
-                f"no exe response within {exe_timeout}s"
-            ) from None
-
-        return _parse_exe_response(
-            exe_data.decode("ascii", errors="replace"),
-            self._device_name or self._host,
-            variable,
-        )
+        finally:
+            # Detach the futures so any reply arriving after this exchange
+            # ends (success, rejection, or timeout) is logged and dropped
+            # rather than left to race the next exchange's arm().  The None
+            # checks cover a close() racing the awaits above.
+            if self._cmd_proto is not None:
+                self._cmd_proto.disarm()
+            if self._exe_proto is not None:
+                self._exe_proto.disarm()
 
 
 def _parse_exe_response(msg: str, device_name: str = "", variable: str = "") -> Any:

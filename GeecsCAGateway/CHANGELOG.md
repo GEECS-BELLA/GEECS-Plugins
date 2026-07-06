@@ -14,6 +14,26 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   reached recorded event rows or s-files (observed live on `U_S1H:Current`:
   the PSU moved, the readback stayed frozen). Deadband now defaults to 0.0:
   every changed stream frame posts; only exact repeats are suppressed.
+- **UDP exe replies are correlated to the in-flight exchange** (PR #449
+  review #3) — a reply must name the expected variable (bare or
+  command-echo form) or it is logged and dropped, so a late reply from a
+  timed-out exchange can no longer resolve the next command's future with
+  the wrong value. The bare-token ACK carries no identifying field and
+  cannot be correlated; that limitation is documented (a stale positive
+  ACK is equivalent to the real one).
+- TCP push frames are parsed by anchoring on the subscribed variable names
+  (review #4), so values containing commas — e.g. paths — no longer drop
+  variables or corrupt neighbours; the payload is taken after the second
+  `>>` so values may contain the delimiter.
+- String/path/enum variables reach PVs as verbatim wire text instead of a
+  float round-trip (review #5): '007' stays '007', '1.10' stays '1.10'.
+- Setpoint writes use a configurable 30 s exe timeout aligned with
+  `CaMotor`'s move budget — "a slow axis is not a dead one" — while gets
+  keep the standard 10 s (review #7).
+- One device's UDP bind failure no longer aborts gateway startup (review
+  #13): the device is skipped loudly with its transports closed (caputs to
+  it raise a clean `GeecsConnectionError`) and the remaining devices start
+  normally.
 
 ## [0.5.0] - 2026-07-04
 

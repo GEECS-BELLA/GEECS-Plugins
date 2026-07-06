@@ -25,14 +25,46 @@ import asyncio
 import logging
 import re
 import struct
-from typing import Any, Callable, Awaitable
+from typing import Any, Callable, Awaitable, Collection, Sequence
 
 logger = logging.getLogger(__name__)
 
-# Matches "varname nval,value nvar" pairs inside the payload
-_VAR_PATTERN = re.compile(r"[^,]+ nval,[^,]+ nvar")
-
 Callback = Callable[[dict[str, Any]], Awaitable[None] | None]
+
+
+def _compile_frame_pattern(variables: Sequence[str]) -> re.Pattern[str] | None:
+    """Build the push-frame regex anchored on the subscribed variable names.
+
+    The payload is ``"var1 nval,val1 nvar,var2 nval,val2 nvar"``.  Variable
+    *names* come from the experiment DB and never contain commas, but *values*
+    may (e.g. a ``localsavingpath`` like ``Z:/data/run1,repeat``), so the frame
+    cannot be tokenised on commas.  Instead each pair is anchored on a known
+    subscribed name followed by the literal `` nval,`` token, and the value runs
+    (non-greedily, newlines included) to the `` nvar`` token that sits at a pair
+    boundary — i.e. one followed by ``,<comma-free name> nval,`` (the next pair,
+    subscribed or not) or by the end of the frame (optionally with a trailing
+    comma/whitespace).  Longer names are tried first so a name that is a prefix
+    of another cannot shadow it.
+
+    Residual ambiguity, inherent to the wire format: a value that itself
+    contains the full boundary text `` nvar,<something-comma-free> nval,`` is
+    indistinguishable from a real pair boundary and will be truncated there.
+    (The legacy GEECS-PythonAPI parser stops at the *first* `` nvar`` regardless
+    of what follows, so this parser is strictly more tolerant.)
+
+    Returns ``None`` for an empty variable list (nothing can match).
+    """
+    if not variables:
+        return None
+    names = "|".join(
+        re.escape(name) for name in sorted(set(variables), key=len, reverse=True)
+    )
+    return re.compile(
+        rf"(?:^|,)\s*(?P<name>{names}) nval,"
+        rf"(?P<value>.*?) nvar"
+        rf"(?=,\s*[^,]+ nval,|,?\s*$)",
+        re.DOTALL,
+    )
 
 
 class GeecsTcpSubscriber:
@@ -108,6 +140,7 @@ class GeecsTcpSubscriber:
         self,
         variables: list[str],
         callback: Callback,
+        text_variables: Collection[str] = (),
     ) -> None:
         """Send subscription command and start the background push listener.
 
@@ -118,6 +151,11 @@ class GeecsTcpSubscriber:
         callback:
             Called with ``{var_name: value}`` on every push received.
             May be a plain function or a coroutine function.
+        text_variables:
+            Variable names whose values must be delivered as the exact raw text
+            from the wire (string/path-typed channels).  All other variables get
+            numeric coercion, which is lossy for text: ``'007'`` → ``7``,
+            ``'1.10'`` → ``1.1``, ``'1e5'`` → ``100000.0``.
         """
         if self._writer is None:
             raise RuntimeError(
@@ -130,14 +168,20 @@ class GeecsTcpSubscriber:
         self._warned_missing_variables.clear()
 
         self._listen_task = asyncio.create_task(
-            self._listen_loop(callback, variables),
+            self._listen_loop(callback, variables, frozenset(text_variables)),
             name=f"tcp-sub[{self._host}:{self._port}]",
         )
 
-    async def _listen_loop(self, callback: Callback, variables: list[str]) -> None:
+    async def _listen_loop(
+        self,
+        callback: Callback,
+        variables: list[str],
+        text_variables: frozenset[str],
+    ) -> None:
         """Read framed messages in a loop and dispatch to callback."""
         assert self._reader is not None
         subscribed = tuple(variables)
+        pattern = _compile_frame_pattern(subscribed)
         try:
             while True:
                 # Read 4-byte header
@@ -149,7 +193,7 @@ class GeecsTcpSubscriber:
                 msg = payload.decode("ascii", errors="replace")
                 logger.debug("TCP rx: %r", msg)
 
-                parsed = _parse_subscription(msg)
+                parsed = _parse_subscription(msg, pattern, text_variables)
                 self._warn_missing_variables(subscribed, parsed)
                 if parsed:
                     try:
@@ -192,25 +236,42 @@ class GeecsTcpSubscriber:
         )
 
 
-def _parse_subscription(msg: str) -> dict[str, Any]:
-    """Parse a GEECS subscription push into ``{var_name: value}``."""
-    # Format: "DevName>>shot>>var1 nval,val1 nvar,var2 nval,val2 nvar"
-    blocks = msg.split(">>")
-    if len(blocks) < 3:
+def _parse_subscription(
+    msg: str,
+    pattern: re.Pattern[str] | None,
+    text_variables: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """Parse a GEECS subscription push into ``{var_name: value}``.
+
+    Format: ``"DevName>>shot>>var1 nval,val1 nvar,var2 nval,val2 nvar"``.
+    The payload is everything after the *second* ``>>`` (values may themselves
+    contain ``>>``, so splitting the whole message on it would truncate them)
+    and is tokenised by *pattern* — see :func:`_compile_frame_pattern`.
+
+    Values of variables in ``text_variables`` are returned as the exact raw
+    text; all others are numerically coerced via :func:`_coerce`.
+    """
+    if pattern is None:
         return {}
-    payload = blocks[-1]
+    i1 = msg.find(">>")
+    i2 = msg.find(">>", i1 + 2) if i1 >= 0 else -1
+    if i2 < 0:
+        return {}
+    payload = msg[i2 + 2 :]
     result: dict[str, Any] = {}
-    for match in _VAR_PATTERN.finditer(payload):
-        s = match.group()
-        # s = "varname nval,value nvar"
-        left, right = s.split(",", 1)
-        var = left[:-5].strip()  # strip " nval"
-        raw_val = right[:-5].strip()  # strip " nvar"
-        result[var] = _coerce(raw_val)
+    for match in pattern.finditer(payload):
+        var = match.group("name")
+        raw_val = match.group("value")
+        result[var] = raw_val if var in text_variables else _coerce(raw_val.strip())
     return result
 
 
 def _coerce(s: str) -> Any:
+    """Best-effort numeric conversion; non-numeric text passes through as-is.
+
+    Lossy for text that merely *looks* numeric (``'007'`` → ``7``) — string-typed
+    variables must bypass this via the ``text_variables`` parse parameter.
+    """
     try:
         f = float(s)
         return int(f) if f == int(f) and "." not in s else f

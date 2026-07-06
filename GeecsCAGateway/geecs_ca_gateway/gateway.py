@@ -29,6 +29,7 @@ from caproto import (
 )
 from caproto.asyncio.server import start_server
 
+from geecs_ca_gateway.exceptions import GeecsConnectionError
 from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
 
@@ -50,6 +51,16 @@ _LABVIEW_EPOCH_OFFSET = 2_082_844_800
 
 # Sentinel for "no value written yet" in the deadband cache.
 _UNSET = object()
+
+# Default budget (seconds) for a *setpoint* UDP exchange. GEECS sets are
+# blocking — the exe response arrives only once the device reports the set
+# converged (or failed) — so a slow-but-healthy axis can legitimately take tens
+# of seconds. This must not undercut the motor-side move contract: CaMotor in
+# GeecsBluesky (geecs_bluesky/devices/ca/motor.py, `_DEFAULT_MOVE_TIMEOUT`)
+# gives the CA put its full 30 s move budget, on the principle that "a slow
+# axis is not a dead one". Gets keep the shorter GeecsUdpClient default — a
+# read that takes 10 s *is* a dead device.
+_SET_EXE_TIMEOUT = 30.0
 
 
 def _extract_timestamp(update: dict[str, Any], ts_vars: list[str]) -> float | None:
@@ -92,6 +103,11 @@ class GeecsCaGateway:
         Declarative description of the devices and variables to serve.
     reconnect_min_s, reconnect_max_s : float
         Backoff bounds for the subscription reconnect loop.
+    set_timeout_s : float
+        Budget (seconds) for the UDP exe response of a *setpoint* write. GEECS
+        sets block until convergence, so this must cover the slowest legitimate
+        move; the default matches CaMotor's 30 s move budget in GeecsBluesky
+        (see ``_SET_EXE_TIMEOUT``). Gets are unaffected.
     """
 
     def __init__(
@@ -100,10 +116,12 @@ class GeecsCaGateway:
         *,
         reconnect_min_s: float = 0.5,
         reconnect_max_s: float = 30.0,
+        set_timeout_s: float = _SET_EXE_TIMEOUT,
     ) -> None:
         self.config = config
         self._reconnect_min = reconnect_min_s
         self._reconnect_max = reconnect_max_s
+        self._set_timeout = set_timeout_s
         self._supervisors: list[asyncio.Task] = []
         # device name -> {geecs_var -> last value written} for deadband suppression
         self._last_written: dict[str, dict[str, Any]] = {}
@@ -225,10 +243,24 @@ class GeecsCaGateway:
         return True
 
     def _make_setter(self, device_name: str, geecs_var: str):
-        """Return an async setter closure that forwards a value over UDP."""
+        """Return an async setter closure that forwards a value over UDP.
+
+        The set exchange gets the (longer) ``set_timeout_s`` budget rather than
+        the client's default exe timeout: GEECS sets block until the device
+        reports convergence, and a legitimate slow move (~10-30 s stage travel)
+        must not be failed as a dead connection mid-flight.
+        """
 
         async def setter(value: Any) -> Any:
-            return await self._udp[device_name].set(geecs_var, value)
+            udp = self._udp.get(device_name)
+            if udp is None:
+                # UDP bind failed at startup (see connect()) — fail the caput
+                # with a clear cause rather than a KeyError.
+                raise GeecsConnectionError(
+                    f"{device_name}: no UDP client (bind failed at startup); "
+                    f"cannot forward set of {geecs_var!r}"
+                )
+            return await udp.set(geecs_var, value, timeout=self._set_timeout)
 
         return setter
 
@@ -312,14 +344,40 @@ class GeecsCaGateway:
     async def connect(self) -> None:
         """Open UDP clients (used for sets) to every configured device.
 
+        Per-device fault tolerance, matching the subscription supervisor's
+        philosophy: one device failing to bind (e.g. an unroutable IP making
+        local-IP detection fall back to ``""``, which raises ``EADDRNOTAVAIL``
+        on PPP/VPN links — see the ``udp_client`` module docstring) is logged
+        loudly and skipped, and the rest of the gateway starts normally. The
+        skipped device's readbacks still stream over TCP; only its setpoint
+        writes fail (with :class:`GeecsConnectionError`) until a restart.
+
         The TCP subscription connection is opened and re-opened by the per-device
         supervisor started in :meth:`subscribe`.
         """
         for dev in self.config.devices:
             udp = GeecsUdpClient(dev.host, dev.port, device_name=dev.name)
-            await udp.connect()
+            try:
+                await udp.connect()
+            except OSError:
+                logger.error(
+                    "%s: UDP bind/connect to %s:%s failed — starting without it "
+                    "(setpoint writes for this device will fail until the "
+                    "gateway is restarted)",
+                    dev.name,
+                    dev.host,
+                    dev.port,
+                    exc_info=True,
+                )
+                # Release any partially-created transports for this device.
+                await udp.close()
+                continue
             self._udp[dev.name] = udp
-        logger.info("opened UDP to %d device(s)", len(self.config.devices))
+        logger.info(
+            "opened UDP to %d/%d device(s)",
+            len(self._udp),
+            len(self.config.devices),
+        )
 
     async def subscribe(self) -> None:
         """Launch a supervised, auto-reconnecting TCP subscription per device."""
@@ -345,6 +403,13 @@ class GeecsCaGateway:
         # preserved) so the device pushes the timestamp alongside the data.
         data_vars = [v.geecs_var for v in dev.variables]
         variables = list(dict.fromkeys(data_vars + dev.timestamp_vars))
+        # Text-typed variables must reach cast_value as the exact wire text —
+        # numeric coercion round-trips '007' → 7 → "7", mangling string PVs.
+        # Enums are included too: choice labels are strings, and a numeric-
+        # looking label (e.g. "1.0") must survive verbatim for enum_index.
+        text_variables = {
+            v.geecs_var for v in dev.variables if v.dtype in ("string", "path", "enum")
+        }
         callback = self._make_callback(dev)
         backoff = self._reconnect_min
         while not self._closing:
@@ -352,7 +417,7 @@ class GeecsCaGateway:
             try:
                 await sub.connect()
                 self._subs[dev.name] = sub
-                await sub.subscribe(variables, callback)
+                await sub.subscribe(variables, callback, text_variables=text_variables)
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}

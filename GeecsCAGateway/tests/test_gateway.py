@@ -9,8 +9,11 @@ These verify the two data paths without any CA client or lab network:
 from __future__ import annotations
 
 import asyncio
+import errno
+import logging
 import math
 import socket
+from typing import Any
 
 import pytest
 from caproto import AlarmSeverity
@@ -497,3 +500,139 @@ async def test_set_connected_updates_pv_severity_and_count() -> None:
     assert str(conn.value) == "Disconnected"
     assert conn.alarm.severity == AlarmSeverity.MAJOR_ALARM
     assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (0, [0])
+
+
+# ---------------------------------------------------------------------------
+# UDP timeout budgets + per-device startup fault tolerance
+# ---------------------------------------------------------------------------
+
+
+class _RecordingUdp:
+    """Stand-in for ``GeecsUdpClient`` at the gateway → UDP boundary."""
+
+    def __init__(self, host: str = "", port: int = 0, device_name: str = "") -> None:
+        self.device_name = device_name
+        self.set_calls: list[tuple[str, Any, float | None]] = []
+        self.closed = False
+        self.fail_connect: OSError | None = None
+
+    async def connect(self) -> None:
+        if self.fail_connect is not None:
+            raise self.fail_connect
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def set(self, variable: str, value: Any, timeout: float | None = None) -> Any:
+        self.set_calls.append((variable, value, timeout))
+        return value
+
+
+async def test_setpoint_write_uses_move_budget_timeout() -> None:
+    """A blocking set gets the >= 30 s move budget, not the short get default.
+
+    Pins review finding #7: CaMotor (GeecsBluesky ``devices/ca/motor.py``,
+    ``_DEFAULT_MOVE_TIMEOUT = 30.0``) promises "a slow axis is not a dead one".
+    The gateway's set exchange must not undercut that budget by timing out a
+    legitimate 10-30 s GEECS blocking set (e.g. a slow stage move) — that
+    failed the caput and aborted the scan even though the hardware finished.
+    """
+    gw = GeecsCaGateway(_config("127.0.0.1", 1))
+    udp = _RecordingUdp(device_name=DEVICE)
+    gw._udp[DEVICE] = udp
+
+    await gw.pvdb[f"{DEVICE}:Position:SP"].write(4.2)
+
+    assert len(udp.set_calls) == 1
+    variable, value, timeout = udp.set_calls[0]
+    assert variable == "Position"
+    assert value == pytest.approx(4.2)
+    assert timeout == pytest.approx(gw._set_timeout)
+    assert gw._set_timeout >= 30.0  # CaMotor's move budget — do not undercut
+
+
+async def test_set_timeout_is_configurable() -> None:
+    """``set_timeout_s`` flows from the constructor to the UDP set exchange."""
+    gw = GeecsCaGateway(_config("127.0.0.1", 1), set_timeout_s=45.0)
+    udp = _RecordingUdp(device_name=DEVICE)
+    gw._udp[DEVICE] = udp
+
+    await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+
+    assert udp.set_calls[0][2] == pytest.approx(45.0)
+
+
+async def test_get_uses_standard_exe_timeout() -> None:
+    """``get`` keeps the client's short default exe timeout; only sets get 30 s."""
+    from geecs_ca_gateway.transport.udp_client import _EXE_TIMEOUT, GeecsUdpClient
+
+    client = GeecsUdpClient("127.0.0.1", 1)
+    recorded: list[float] = []
+
+    async def fake_exchange(variable: str, cmd: str, exe_timeout: float) -> Any:
+        recorded.append(exe_timeout)
+        return 0.0
+
+    client._exchange = fake_exchange  # type: ignore[method-assign]
+    await client.get("Position")
+
+    assert recorded == [pytest.approx(_EXE_TIMEOUT)]
+    assert _EXE_TIMEOUT < 30.0  # gets stay snappy — a 10 s get IS a dead device
+
+
+async def test_one_device_bind_failure_does_not_abort_startup(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """One device's EADDRNOTAVAIL at connect() is logged and skipped (finding #13).
+
+    A device row with an unroutable IP makes local-IP detection fall back to
+    ``""`` and the UDP bind raise ``EADDRNOTAVAIL`` — previously this aborted
+    the whole gateway, leaving the N-1 healthy devices unserved. Now the failed
+    device is skipped (its partial transports closed) and the rest start.
+    """
+    instances: dict[str, _RecordingUdp] = {}
+
+    def make(host: str, port: int, device_name: str = "") -> _RecordingUdp:
+        udp = _RecordingUdp(host, port, device_name=device_name)
+        if device_name == "U_Bad":
+            udp.fail_connect = OSError(
+                errno.EADDRNOTAVAIL, "Can't assign requested address"
+            )
+        instances[device_name] = udp
+        return udp
+
+    monkeypatch.setattr("geecs_ca_gateway.gateway.GeecsUdpClient", make)
+    cfg = GatewayConfig(
+        devices=[
+            # Bad device FIRST — proves the loop continues past the failure.
+            DeviceSpec(
+                name="U_Bad",
+                host="10.99.99.99",
+                port=1,
+                variables=[VariableSpec(geecs_var="Position", settable=True)],
+            ),
+            DeviceSpec(
+                name="U_Good",
+                host="127.0.0.1",
+                port=1,
+                variables=[VariableSpec(geecs_var="Position", settable=True)],
+            ),
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    with caplog.at_level(logging.ERROR, logger="geecs_ca_gateway.gateway"):
+        await gw.connect()
+
+    assert "U_Good" in gw._udp  # healthy device serves normally
+    assert "U_Bad" not in gw._udp  # failed device skipped, not fatal
+    assert instances["U_Bad"].closed  # partially-created transports released
+    assert "U_Bad" in caplog.text  # the failure is logged loudly
+
+
+async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
+    """A caput to a device whose UDP bind failed gets a clear connection error."""
+    from geecs_ca_gateway.exceptions import GeecsConnectionError
+
+    gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
+    with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
+        await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
