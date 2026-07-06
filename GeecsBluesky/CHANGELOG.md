@@ -22,6 +22,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `GeecsSession.optimize` accepts pre-claimed `scan_number`/`scan_folder`
   (mirroring `scan()`), so the scanner's per-scan log and the bridge's
   `ScanTag` cover the whole run.
+- The per-scan log (`scan.log`) now also captures the
+  `geecs_scanner.optimization`, `scan_analysis`, and `image_analysis`
+  loggers, so an optimization scan's per-bin story (file mapping, analyzer
+  runs, objective values) is visible from the scan folder.
+- After `session.optimize` returns, `BlueskyScanner` invokes the bridge's
+  optional `finish()` hook (post-run bookkeeping, e.g. the legacy
+  `xopt_dump.yaml`).
 
 ### Removed
 

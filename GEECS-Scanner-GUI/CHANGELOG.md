@@ -19,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `load_session_optimization` into `BlueskyScanner`, so GUI optimization
   scans now work with `use_bluesky=True` using the same optimizer YAML
   configs.
+  The bridge awaits each bin's expected native files (direct stat — immune
+  to stale SMB directory listings) before running the evaluator, and its
+  `finish()` writes `xopt_dump.yaml` into the scan folder at scan end
+  (legacy parity; the `seed_dump_files` warm-start source).
 - `BaseEvaluator` engine seam: `EvaluatorDataSource` protocol +
   `DataLoggerSource` (the legacy in-memory path, extracted verbatim from
   `get_current_data`). New optional `data_source=` / `scan_tag=` constructor
