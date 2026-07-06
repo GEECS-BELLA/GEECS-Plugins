@@ -143,11 +143,30 @@ fixed in the 2026-07-06 fix wave (commits `df67c584..c51465cd`), each with a
 pinning test. What follows is what was deliberately **not** fixed, with its
 forcing function.
 
-**Live checks owed before merge** (fix-wave regression cases; need the lab
-network): re-analyze one legacy MC scan folder (review #1 — timestamp column
-present, shot-number files), and one free-run scan with a deliberately
-unreachable reference device (review #2 — expect loud
-`GeecsConfigurationError` or promotion, never unpaced rows).
+**Live checks — both verified 2026-07-06.** #1: legacy MC re-analysis
+(Undulator 26_0219 Scan010) — loud fallback, all shots mapped, probe-skip
+brought the per-device overhead from ~7 s to ~2.4 s. #2: from the GUI on
+Windows (the first GUI-launched and first Windows Bluesky scans): healthy
+camera scans normally; off camera aborts loudly at trigger with the
+claimed-folder failure logged; a dead contributor fails t0-sync loudly with
+the stale device now named. The session also produced four follow-up fixes
+on the branch: `GEECS_USE_BLUESKY` env switch, variable-less synchronous
+devices (image-only camera elements), config-driven `[epics] ca_addr_list`
+client addressing, and t0-sync stale-device naming.
+
+**Windows client recipe** (transition-period ergonomics): with
+`[epics] ca_addr_list = 192.168.6.14` in config.ini, a GUI client needs only
+`GEECS_USE_BLUESKY=1` (plus `GEECS_BLUESKY_ACQUISITION_MODE` when not
+strict). Remaining cosmetic item: the `caRepeater` PATH warning — the
+executable ships inside `epicscorelibs`; add its `bin/<arch>` dir to PATH on
+machines that become regular clients. Windows machines are expected to be
+the heaviest clients.
+
+**Policy question (deliberately open): dead free-run contributor.** Today a
+contributor whose device is off fails the whole scan at t0-sync (loud,
+correct, no silent garbage). The alternative — drop the dead contributor
+with a warning and scan without it — may be preferable operationally during
+the transition. Decide when it first annoys an operator.
 
 **Plausibles — mechanism verified, trigger unconfirmed.** Verify the two
 shot-control-adjacent ones before the next strict live test: gateway push
