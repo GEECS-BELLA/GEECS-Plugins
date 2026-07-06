@@ -259,8 +259,12 @@ class _FakeBridge:
         self.variable_names = ["U_S1H:Current", "U_S1V:Current"]
         self.bound_with: dict | None = None
 
-    def bind(self, *, devices, scan_tag):
-        self.bound_with = {"devices": list(devices), "scan_tag": scan_tag}
+    def bind(self, *, devices, scan_tag, scan_folder=None):
+        self.bound_with = {
+            "devices": list(devices),
+            "scan_tag": scan_tag,
+            "scan_folder": scan_folder,
+        }
         return (lambda bin_data: 1.0), self
 
 

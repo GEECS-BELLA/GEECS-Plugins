@@ -395,11 +395,20 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         false are skipped — that device's frame belongs to a different
         physical shot, so "no file for this shot" is the correct answer.
         """
+        data_dir = self.path_dict["data"]
+        file_device = getattr(self, "data_device_name", None) or self.device_name
+
+        # Directory listings over SMB can serve stale (cached) entries for
+        # minutes after a file lands — long enough to hide files written
+        # seconds ago during a live scan. The expected filename is fully
+        # determined by the row timestamp, so probe it with a direct stat
+        # (never served from the listing cache) first; the listing-based map
+        # below is only a fallback for unconventional names.
         file_ts_regex = re.compile(
             r"_(?P<ts>\d+\.\d+)" + re.escape(self.file_tail) + r"$"
         )
         files_by_ms: dict[int, Path] = {}
-        for file in self.path_dict["data"].iterdir():
+        for file in data_dir.iterdir():
             if not file.is_file():
                 continue
             m = file_ts_regex.search(file.name)
@@ -419,11 +428,18 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             if not np.isfinite(ts) or ts <= 0:
                 continue
             key = round(ts * 1000)
-            file = (
-                files_by_ms.get(key)
-                or files_by_ms.get(key - 1)
-                or files_by_ms.get(key + 1)
-            )
+            file = None
+            for k in (key, key - 1, key + 1):
+                candidate = data_dir / f"{file_device}_{k / 1000:.3f}{self.file_tail}"
+                if candidate.exists():
+                    file = candidate
+                    break
+            if file is None:
+                file = (
+                    files_by_ms.get(key)
+                    or files_by_ms.get(key - 1)
+                    or files_by_ms.get(key + 1)
+                )
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")

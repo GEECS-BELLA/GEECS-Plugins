@@ -144,7 +144,8 @@ class BlueskyScanner:
         Callable injected by the GUI layer for OPTIMIZATION scans:
         ``optimization_loader(optimizer_config_path)`` returns a bridge object
         exposing ``variable_names`` (``"Device:Variable"`` VOCS keys) and
-        ``bind(devices=..., scan_tag=...) -> (objective, suggester)`` for
+        ``bind(devices=..., scan_tag=..., scan_folder=...) -> (objective,
+        suggester)`` for
         :meth:`GeecsSession.optimize`.  Lives on the GUI side because the
         config-driven optimizer stack (Xopt, evaluators, ScanAnalysis
         analyzers) belongs to ``geecs_scanner.optimization`` — this package
@@ -594,7 +595,9 @@ class BlueskyScanner:
             self._detectors = list(self._detectors) + list(variables.values())
 
         objective, suggester = bridge.bind(
-            devices=list(variables.values()) + detectors, scan_tag=scan_tag
+            devices=list(variables.values()) + detectors,
+            scan_tag=scan_tag,
+            scan_folder=scan_folder,
         )
 
         max_iterations = len(_build_positions(scan_config))

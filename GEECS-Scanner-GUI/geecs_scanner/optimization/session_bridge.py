@@ -30,8 +30,12 @@ dependency direction stays GUI → geecs_bluesky.
 from __future__ import annotations
 
 import logging
+import re
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
@@ -141,6 +145,7 @@ class SessionOptimizationBridge:
         optimizer.evaluator.data_source = self.source
         self._pending_inputs: Optional[Dict[str, float]] = None
         self._pending_outputs: Optional[Dict[str, float]] = None
+        self._scan_folder: Optional[Path] = None
         self._n_random_init = max(0, 2 - optimizer.n_seeded)
 
     @property
@@ -159,7 +164,9 @@ class SessionOptimizationBridge:
         """
         return "best" if self.optimizer.move_to_best_on_finish else "hold"
 
-    def bind(self, *, devices: List[Any], scan_tag: Any) -> Tuple[Any, Any]:
+    def bind(
+        self, *, devices: List[Any], scan_tag: Any, scan_folder: Any = None
+    ) -> Tuple[Any, Any]:
         """Attach the run context; return ``(objective, suggester)``.
 
         Parameters
@@ -171,15 +178,72 @@ class SessionOptimizationBridge:
             The claimed scan's tag, handed to the evaluator so its
             ScanAnalysis analyzers load natively saved files from the actual
             scan folder.
+        scan_folder : str or Path, optional
+            The claimed scan folder. When given, each bin's expected native
+            files are awaited (bounded) before the evaluator runs — devices
+            write over the network and directory listings lag behind (SMB
+            caching), so the objective would otherwise race the filesystem.
         """
         self.source.column_map = _column_map(devices)
         self.optimizer.evaluator.scan_tag = scan_tag
+        self._scan_folder = Path(scan_folder) if scan_folder else None
         return self._objective, self
 
     # --- objective (called by session.optimize after each bin) --------
 
+    def _await_bin_assets(self, bin_data: Any, timeout_s: float = 10.0) -> None:
+        """Wait (bounded) for this bin's expected native files to be visible.
+
+        The bin rows carry each analyzer device's per-shot ``acq_timestamp``
+        — the exact value in the file's name — so the expected paths are
+        fully determined and each is checked by direct ``stat`` (which,
+        unlike a directory listing, is not served from the SMB directory
+        cache). Rows invalid for a device expect no file. On timeout, log
+        and proceed: the analyzer maps whatever is visible and a failed
+        objective becomes NaN, same as any other missing-data case.
+        """
+        if self._scan_folder is None:
+            return
+        expected: List[Path] = []
+        for device_name, analyzer in self.optimizer.evaluator.scan_analyzers.items():
+            token = re.sub(r"[^a-z0-9]+", "_", device_name.lower()).strip("_")
+            tail = getattr(analyzer, "file_tail", None) or ".png"
+            ts_key = valid_key = None
+            for row in bin_data.rows[:1]:
+                for key in row:
+                    norm = re.sub(r"[^a-z0-9]+", "_", str(key).lower()).strip("_")
+                    if norm == f"{token}_acq_timestamp":
+                        ts_key = key
+                    elif norm == f"{token}_valid":
+                        valid_key = key
+            if ts_key is None:
+                continue
+            folder = self._scan_folder / device_name
+            for row in bin_data.rows:
+                if valid_key is not None and not bool(row.get(valid_key)):
+                    continue
+                ts = row.get(ts_key)
+                if ts is None or not np.isfinite(ts) or ts <= 0:
+                    continue
+                expected.append(folder / f"{device_name}_{float(ts):.3f}{tail}")
+
+        deadline = time.monotonic() + timeout_s
+        missing = [p for p in expected if not p.exists()]
+        while missing and time.monotonic() < deadline:
+            time.sleep(0.5)
+            missing = [p for p in missing if not p.exists()]
+        if missing:
+            logger.warning(
+                "Bin %s: %d expected native file(s) not visible after %.0fs: %s",
+                bin_data.iteration,
+                len(missing),
+                timeout_s,
+                [p.name for p in missing[:4]],
+            )
+
     def _objective(self, bin_data: Any) -> float:
         self.source.push_bin(bin_data)
+        self._await_bin_assets(bin_data)
         inputs = dict(self._pending_inputs or {})
         outputs = self.optimizer.evaluator.get_value(inputs)
         self._pending_outputs = {str(k): float(v) for k, v in outputs.items()}
