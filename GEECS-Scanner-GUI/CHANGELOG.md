@@ -31,6 +31,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `_await_bin_assets` builds expected native-file paths with the
+  analyzer's `data_device_name` (the asset registry's `directory_suffix`),
+  so suffixed diagnostics (FROG/magspec-style) no longer burn the full
+  timeout with spurious warnings every bin; the wait also refuses to block
+  a thread with a running asyncio loop (the RunEngine-loop blocking itself
+  is fixed plan-side in geecs-bluesky). (PR #449 review #12)
 - Fresh installs can now run the Bluesky/CA backend: the `geecs-bluesky`
   path dependency gains the `ca` extra (aioca), and the lockfile — which
   predated both the GeecsBluesky→GeecsCAGateway dependency and the

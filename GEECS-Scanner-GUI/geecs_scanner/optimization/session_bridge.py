@@ -29,6 +29,7 @@ dependency direction stays GUI → geecs_bluesky.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -41,6 +42,35 @@ import pandas as pd
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 
 logger = logging.getLogger(__name__)
+
+
+def _expected_native_file(
+    scan_folder: Path,
+    file_device_name: str,
+    acq_timestamp: float,
+    file_tail: str,
+) -> Path:
+    """Return the expected native file: ``<scan>/<stem>/<stem>_<ts:.3f><tail>``.
+
+    ``file_device_name`` is the on-disk stem: the GEECS device name plus any
+    diagnostic directory suffix (FROG ``-Temporal``, magspec ``-interpSpec``,
+    ...).  The suffixed stem names **both** the subfolder and the filename —
+    a suffixed device never writes into the bare device folder.
+
+    This filename contract is currently duplicated across three packages:
+    ``geecs_bluesky.assets.registry`` (``native_file_filename`` +
+    ``_native_file_path_builder``, which folds ``directory_suffix`` into the
+    stem on the device-write side), ScanAnalysis's
+    ``SingleDeviceScanAnalyzer`` (``_establish_additional_paths`` +
+    ``_map_files_by_acq_timestamp``, which read via ``data_device_name``),
+    and this call site.  Keep the three consistent; do **not** refactor the
+    contract into a shared module from here.
+    """
+    return (
+        Path(scan_folder)
+        / file_device_name
+        / f"{file_device_name}_{acq_timestamp:.3f}{file_tail}"
+    )
 
 
 def _column_map(devices: List[Any]) -> Dict[str, str]:
@@ -201,6 +231,14 @@ class SessionOptimizationBridge:
         cache). Rows invalid for a device expect no file. On timeout, log
         and proceed: the analyzer maps whatever is visible and a failed
         objective becomes NaN, same as any other missing-data case.
+
+        This wait blocks its calling thread.  ``geecs_adaptive_scan`` runs
+        ``propose`` (and therefore this objective) on a worker thread while
+        the plan idles RE-friendly, so the RunEngine event loop is never
+        blocked by these polls.  As a safety net, if this method ever finds
+        itself on a thread with a *running* asyncio event loop (i.e. plan
+        code on the RE loop), it logs loudly and skips the polling loop
+        rather than freeze the loop.
         """
         if self._scan_folder is None:
             return
@@ -208,6 +246,14 @@ class SessionOptimizationBridge:
         for device_name, analyzer in self.optimizer.evaluator.scan_analyzers.items():
             token = re.sub(r"[^a-z0-9]+", "_", device_name.lower()).strip("_")
             tail = getattr(analyzer, "file_tail", None) or ".png"
+            # ``device_name`` (the diagnostic name) is the *streaming* GEECS
+            # device: its ``acq_timestamp`` / ``valid`` columns appear in the
+            # bin rows under that name.  The *on-disk* stem is the analyzer's
+            # ``data_device_name`` — the ScanAnalysis config carries the asset
+            # registry's ``directory_suffix`` there (e.g. ``U_FROG-Temporal``),
+            # so suffixed diagnostics resolve to the folder/filenames the
+            # device actually writes and the analyzer actually loads.
+            file_device = getattr(analyzer, "data_device_name", None) or device_name
             ts_key = valid_key = None
             for row in bin_data.rows[:1]:
                 for key in row:
@@ -218,20 +264,36 @@ class SessionOptimizationBridge:
                         valid_key = key
             if ts_key is None:
                 continue
-            folder = self._scan_folder / device_name
             for row in bin_data.rows:
                 if valid_key is not None and not bool(row.get(valid_key)):
                     continue
                 ts = row.get(ts_key)
                 if ts is None or not np.isfinite(ts) or ts <= 0:
                     continue
-                expected.append(folder / f"{device_name}_{float(ts):.3f}{tail}")
+                expected.append(
+                    _expected_native_file(
+                        self._scan_folder, file_device, float(ts), tail
+                    )
+                )
 
-        deadline = time.monotonic() + timeout_s
         missing = [p for p in expected if not p.exists()]
-        while missing and time.monotonic() < deadline:
-            time.sleep(0.5)
-            missing = [p for p in missing if not p.exists()]
+        if missing:
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # Normal case: worker/plain thread — poll (bounded).
+                deadline = time.monotonic() + timeout_s
+                while missing and time.monotonic() < deadline:
+                    time.sleep(0.5)
+                    missing = [p for p in missing if not p.exists()]
+            else:
+                logger.warning(
+                    "_await_bin_assets called on a thread with a running "
+                    "asyncio event loop (RunEngine loop?); skipping the "
+                    "bounded wait rather than blocking the loop. The "
+                    "adaptive plan is expected to call the objective from "
+                    "a worker thread."
+                )
         if missing:
             logger.warning(
                 "Bin %s: %d expected native file(s) not visible after %.0fs: %s",

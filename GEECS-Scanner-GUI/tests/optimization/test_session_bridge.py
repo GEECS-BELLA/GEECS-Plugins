@@ -6,6 +6,10 @@ Xopt-backed bridge test uses the ``random`` generator (no GP fitting).
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict
 
@@ -17,6 +21,7 @@ from geecs_scanner.optimization.session_bridge import (
     SessionBinSource,
     SessionOptimizationBridge,
     _column_map,
+    _expected_native_file,
 )
 
 
@@ -201,3 +206,204 @@ class TestSessionOptimizationBridge:
         bridge = SessionOptimizationBridge(_make_optimizer())
         bridge.bind(devices=[], scan_tag=None)
         bridge.finish()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _await_bin_assets: expected-path construction + RE-loop-safe waiting
+# ---------------------------------------------------------------------------
+
+
+def _asset_bridge(scan_analyzers: Dict, scan_folder) -> SessionOptimizationBridge:
+    """Bridge over a stub optimizer carrying only what the asset wait reads."""
+    optimizer = SimpleNamespace(
+        evaluator=SimpleNamespace(
+            scan_analyzers=scan_analyzers, data_source=None, scan_tag=None
+        ),
+        n_seeded=0,
+    )
+    bridge = SessionOptimizationBridge(optimizer)
+    bridge.bind(devices=[], scan_tag=None, scan_folder=scan_folder)
+    return bridge
+
+
+def _asset_bin(iteration: int, device: str, timestamps: list, valid=None):
+    """BinData-shaped rows carrying one device's acq_timestamp/valid columns."""
+    rows = []
+    for i, ts in enumerate(timestamps):
+        rows.append(
+            {
+                "bin_number": iteration,
+                f"{device}-acq_timestamp": ts,
+                f"{device}-valid": True if valid is None else valid[i],
+            }
+        )
+    return SimpleNamespace(iteration=iteration, rows=rows)
+
+
+class TestExpectedNativeFile:
+    """The path builder mirrors the registry/ScanAnalysis filename contract."""
+
+    def test_suffixed_stem_names_both_folder_and_filename(self):
+        # data_device_name carries the asset registry's directory_suffix
+        # (e.g. FROG '-Temporal'): folder AND stem use the suffixed name.
+        path = _expected_native_file(
+            Path("/scans/Scan012"), "U_FROG-Temporal", 12.3456, ".png"
+        )
+        assert path == Path("/scans/Scan012/U_FROG-Temporal/U_FROG-Temporal_12.346.png")
+
+    def test_plain_device_and_millisecond_formatting(self):
+        path = _expected_native_file(Path("/s"), "UC_Cam", 1749923456.7, ".txt")
+        assert path == Path("/s/UC_Cam/UC_Cam_1749923456.700.txt")
+
+
+class TestAwaitBinAssets:
+    def test_honors_data_device_name_suffix(self, tmp_path, monkeypatch, caplog):
+        """A suffixed diagnostic's file satisfies the wait immediately.
+
+        The rows stream under the GEECS device name (``U_FROG``); the file
+        lives under the analyzer's ``data_device_name`` (``U_FROG-Temporal``).
+        Before the fix the expected path used the bare device name, could
+        never exist, and burned the full timeout every bin.
+        """
+        analyzer = SimpleNamespace(file_tail=".png", data_device_name="U_FROG-Temporal")
+        bridge = _asset_bridge({"U_FROG": analyzer}, tmp_path)
+        ts = 1000.125
+        target = tmp_path / "U_FROG-Temporal" / f"U_FROG-Temporal_{ts:.3f}.png"
+        target.parent.mkdir()
+        target.write_bytes(b"")
+
+        def _no_sleep(_seconds):
+            raise AssertionError("file exists at the suffixed path; no polling")
+
+        monkeypatch.setattr(time, "sleep", _no_sleep)
+        bridge._await_bin_assets(_asset_bin(1, "U_FROG", [ts]), timeout_s=5.0)
+        assert "not visible" not in caplog.text
+
+    def test_defaults_to_device_name_without_data_device_name(
+        self, tmp_path, monkeypatch, caplog
+    ):
+        analyzer = SimpleNamespace(file_tail=".png")  # plain camera diagnostic
+        bridge = _asset_bridge({"UC_Cam": analyzer}, tmp_path)
+        ts = 55.5
+        target = tmp_path / "UC_Cam" / f"UC_Cam_{ts:.3f}.png"
+        target.parent.mkdir()
+        target.write_bytes(b"")
+        monkeypatch.setattr(
+            time, "sleep", lambda _s: pytest.fail("no polling expected")
+        )
+        bridge._await_bin_assets(_asset_bin(1, "UC_Cam", [ts]), timeout_s=5.0)
+        assert "not visible" not in caplog.text
+
+    def test_bare_device_folder_does_not_satisfy_suffixed_diagnostic(
+        self, tmp_path, caplog
+    ):
+        """The wait targets the suffixed path, not the legacy bare-name one."""
+        analyzer = SimpleNamespace(file_tail=".png", data_device_name="U_FROG-Temporal")
+        bridge = _asset_bridge({"U_FROG": analyzer}, tmp_path)
+        ts = 7.25
+        wrong = tmp_path / "U_FROG" / f"U_FROG_{ts:.3f}.png"
+        wrong.parent.mkdir()
+        wrong.write_bytes(b"")
+        bridge._await_bin_assets(_asset_bin(1, "U_FROG", [ts]), timeout_s=0.1)
+        assert f"U_FROG-Temporal_{ts:.3f}.png" in caplog.text
+
+    def test_assets_appearing_mid_wait_are_detected(self, tmp_path, caplog):
+        """Existing behavior preserved: a file landing mid-wait ends the wait."""
+        analyzer = SimpleNamespace(file_tail=".png", data_device_name="U_FROG-Temporal")
+        bridge = _asset_bridge({"U_FROG": analyzer}, tmp_path)
+        ts = 2000.5
+        target = tmp_path / "U_FROG-Temporal" / f"U_FROG-Temporal_{ts:.3f}.png"
+        target.parent.mkdir()
+        timer = threading.Timer(0.6, lambda: target.write_bytes(b""))
+        timer.start()
+        try:
+            t0 = time.monotonic()
+            bridge._await_bin_assets(_asset_bin(1, "U_FROG", [ts]), timeout_s=10.0)
+            elapsed = time.monotonic() - t0
+        finally:
+            timer.cancel()
+        assert elapsed < 5.0, "wait must end when the file appears, not at timeout"
+        assert "not visible" not in caplog.text
+
+    def test_refuses_to_block_a_running_event_loop(self, tmp_path, caplog):
+        """Safety net: on an event-loop thread the bounded poll is skipped."""
+        analyzer = SimpleNamespace(file_tail=".png")
+        bridge = _asset_bridge({"UC_Cam": analyzer}, tmp_path)
+
+        async def _run() -> float:
+            t0 = time.monotonic()
+            bridge._await_bin_assets(_asset_bin(1, "UC_Cam", [1.0]), timeout_s=10.0)
+            return time.monotonic() - t0
+
+        elapsed = asyncio.run(_run())
+        assert elapsed < 1.0, "must not sleep-poll on a running event loop"
+        assert "running" in caplog.text and "event loop" in caplog.text
+
+
+class TestPlanContextWait:
+    """The adaptive plan never runs the bin-asset wait on the RE-loop thread."""
+
+    def test_propose_and_wait_run_off_the_plan_thread(self, tmp_path, monkeypatch):
+        """Pin the RE-friendly wait mechanism end to end.
+
+        ``geecs_adaptive_scan`` (the plan ``BlueskyScanner`` submits via
+        ``GeecsSession.optimize``) must execute ``propose`` — the callable
+        that chains into ``_await_bin_assets`` — on a worker thread, idling
+        with ``Msg('sleep')`` (``bps.sleep``) on the plan side.  The thread
+        iterating the plan here stands in for the RunEngine's event-loop
+        thread; no ``time.sleep`` may ever run on it.
+        """
+        from geecs_bluesky.plans.optimize import geecs_adaptive_scan
+
+        analyzer = SimpleNamespace(file_tail=".png", data_device_name="U_FROG-Temporal")
+        bridge = _asset_bridge({"U_FROG": analyzer}, tmp_path)
+
+        driver_thread = threading.current_thread()
+        sleep_threads: list[threading.Thread] = []
+        real_sleep = time.sleep
+
+        def recording_sleep(seconds: float) -> None:
+            sleep_threads.append(threading.current_thread())
+            real_sleep(min(seconds, 0.05))
+
+        monkeypatch.setattr(time, "sleep", recording_sleep)
+
+        record: dict = {}
+
+        def propose(iteration: int):
+            record["thread"] = threading.current_thread()
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                record["on_event_loop"] = False
+            else:  # pragma: no cover - would be the regression
+                record["on_event_loop"] = True
+            # Expected file missing -> the bounded wait actually polls.
+            bridge._await_bin_assets(_asset_bin(1, "U_FROG", [123.456]), timeout_s=0.3)
+            return None  # end the run after the wait
+
+        plan = geecs_adaptive_scan(
+            movables={},
+            propose=propose,
+            detectors=[],
+            shots_per_iteration=1,
+            max_iterations=1,
+        )
+        commands: list[str] = []
+        pause = threading.Event()  # driver idles without time.sleep
+        resp = None
+        while True:
+            try:
+                msg = plan.send(resp)
+            except StopIteration:
+                break
+            commands.append(msg.command)
+            if msg.command == "sleep":
+                pause.wait(msg.args[0])
+            resp = None
+
+        assert record["thread"] is not driver_thread
+        assert record["on_event_loop"] is False
+        assert "sleep" in commands, "plan idles via RE-friendly Msg('sleep')"
+        assert sleep_threads, "the bounded wait did poll (behavior preserved)"
+        assert all(t is not driver_thread for t in sleep_threads)

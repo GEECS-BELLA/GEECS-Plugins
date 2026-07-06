@@ -5,13 +5,21 @@ Structurally a :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan` whose
 precomputed list: one Bluesky run, ``bin_number`` = iteration, the same
 schema-v1 rows, shot synchronization, arm/disarm bracketing, and (in free-run
 mode) the t0-sync stage and tail flush.  The objective evaluation and
-generator ask/tell live in *propose* — a plain function called synchronously
-between bins, by which time every event of the previous bin has already
-reached the caller's subscribers.
+generator ask/tell live in *propose* — a plain function called between bins,
+by which time every event of the previous bin has already reached the
+caller's subscribers.
+
+*propose* can block for seconds (bounded filesystem waits for native files,
+ScanAnalysis image analysis, generator fitting).  Plan code executes on the
+RunEngine's event-loop thread, so the plan runs *propose* on a worker thread
+and idles with RE-friendly ``bps.sleep`` polls while it works — the loop
+stays responsive to pause/abort requests, subscriptions (TiledWriter), and
+anything else scheduled on it.
 """
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 import bluesky.plan_stubs as bps
@@ -21,6 +29,10 @@ from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.plans.single_shot import geecs_single_shot
 from geecs_bluesky.plans.t0_sync import geecs_t0_sync
+
+#: How often the plan checks the in-flight ``propose`` future (RE-friendly
+#: ``bps.sleep`` between checks — never a blocking sleep on the RE loop).
+_PROPOSE_POLL_S = 0.05
 
 
 def geecs_adaptive_scan(
@@ -51,7 +63,10 @@ def geecs_adaptive_scan(
         ``propose(iteration) -> {variable_name: value} | None``.  Called before
         each bin; ``None`` ends the run early (generator converged / budget
         spent).  Evaluating the previous bin and telling the generator happen
-        inside this callable, on the caller's side.
+        inside this callable, on the caller's side.  The plan invokes it on a
+        worker thread (it may block on filesystem/analysis work) and idles
+        with ``bps.sleep`` polls until it returns, so the RunEngine event
+        loop is never blocked by the evaluation.
     detectors:
         Devices read every shot.  With *reference* set (free-run) the first
         trigger belongs to the reference; otherwise strict semantics apply.
@@ -119,31 +134,46 @@ def geecs_adaptive_scan(
     def _inner():
         if not free_run and setup_trigger is not None:
             yield from setup_trigger()
-        scan_event_index = 0
-        for iteration in range(1, max_iterations + 1):
-            inputs = propose(iteration)
-            if inputs is None:
-                break
-            mv_args: list[Any] = []
-            for name, value in inputs.items():
-                mv_args.extend([movables[name], value])
-            if mv_args:
-                yield from bps.mv(*mv_args)
-            if arm_trigger is not None:
-                yield from arm_trigger()
-            for shot_index_in_bin in range(1, shots_per_iteration + 1):
-                scan_event_index += 1
-                scan_context.set_context(
-                    bin_number=iteration,
-                    shot_index_in_bin=shot_index_in_bin,
-                    scan_event_index=scan_event_index,
-                )
-                if not free_run and fire_shot is not None:
-                    yield from geecs_single_shot(_read_devices, fire_shot)
-                else:
-                    yield from bps.trigger_and_read(_read_devices)
-            if disarm_trigger is not None:
-                yield from disarm_trigger()
+        # propose() chains into the objective evaluation — bounded native-file
+        # waits, ScanAnalysis analyzers, generator ask/tell — which can block
+        # for seconds.  This generator is iterated by the RunEngine *on its
+        # event-loop thread*, so calling propose inline would freeze the loop
+        # (pause/abort, subscriptions, everything scheduled on it).  Run it on
+        # a worker thread instead and idle with RE-friendly sleeps.
+        propose_pool = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="geecs-propose"
+        )
+        try:
+            scan_event_index = 0
+            for iteration in range(1, max_iterations + 1):
+                proposal = propose_pool.submit(propose, iteration)
+                while not proposal.done():
+                    yield from bps.sleep(_PROPOSE_POLL_S)
+                inputs = proposal.result()
+                if inputs is None:
+                    break
+                mv_args: list[Any] = []
+                for name, value in inputs.items():
+                    mv_args.extend([movables[name], value])
+                if mv_args:
+                    yield from bps.mv(*mv_args)
+                if arm_trigger is not None:
+                    yield from arm_trigger()
+                for shot_index_in_bin in range(1, shots_per_iteration + 1):
+                    scan_event_index += 1
+                    scan_context.set_context(
+                        bin_number=iteration,
+                        shot_index_in_bin=shot_index_in_bin,
+                        scan_event_index=scan_event_index,
+                    )
+                    if not free_run and fire_shot is not None:
+                        yield from geecs_single_shot(_read_devices, fire_shot)
+                    else:
+                        yield from bps.trigger_and_read(_read_devices)
+                if disarm_trigger is not None:
+                    yield from disarm_trigger()
+        finally:
+            propose_pool.shutdown(wait=False, cancel_futures=True)
         if free_run and tail_flush:
             yield from bps.create(name="flush")
             for dev in _read_devices:
