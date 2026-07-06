@@ -17,7 +17,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   per-device lookup, not a tolerance window. Rows flagged invalid for this
   device are skipped (their frame belongs to a different physical shot).
   Legacy shot-number filename mapping is unchanged and remains the fallback
-  for MC-produced scans; selection is automatic from the metadata present.
+  for MC-produced scans; the timestamp join is attempted when the column is
+  present and shot-number mapping takes over if it matches no files.
+
+### Fixed
+
+- **Legacy scans no longer re-analyze to zero files** (PR #449 review #1) —
+  MC-produced scans carry a force-appended `<Device> acq_timestamp` column
+  *and* shot-number-named files, so selecting the timestamp join on column
+  presence alone mapped nothing. When the join maps zero files the analyzer
+  now falls back to shot-number filename mapping (a *partial* join never
+  falls back — invalid rows on Bluesky scans keep meaning "no file").
+  Pinned by a canonical-legacy-scan fixture (real s-file column spelling +
+  `ScanNNN_<device>_NNN` filenames).
+- `LiveTaskRunner`'s `image_config_dir` parameter works again (review #6):
+  it now sets the config root the ImageAnalysis loader actually resolves
+  through (`scan_analysis_config`), keeping the legacy alias in sync and
+  warning when the two roots conflict.
 
 ## [1.13.1] — 2026-06-26
 

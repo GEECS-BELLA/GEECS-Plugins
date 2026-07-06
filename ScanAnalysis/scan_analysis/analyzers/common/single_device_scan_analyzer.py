@@ -301,6 +301,17 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
           ``Scan<scan_number>_<device_subject>_<shot_number><file_tail>``,
           e.g. ``Scan012_UC_ALineEBeam3_005.png``.
 
+        The presence of an ``acq_timestamp`` column selects the timestamp
+        join first, but it is not conclusive on its own: the legacy scanner
+        force-appends ``acq_timestamp`` to every synchronous device, so
+        MC-produced s-files carry the column while their data files are
+        shot-number-named. The filename shape is the real discriminator —
+        if the timestamp join maps **zero** files while the auxiliary frame
+        expects shots, we fall back to shot-number mapping. A *partial*
+        timestamp map (at least one file joined) never falls back: partial
+        maps are legitimate for Bluesky scans with invalid rows, and mixing
+        strategies would risk attaching wrong files.
+
         Only files whose suffix + format matches ``file_tail`` exactly are
         included in either strategy.
         """
@@ -320,6 +331,21 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         if ts_column is not None:
             logger.info("Mapping files by device acq_timestamp (column %r)", ts_column)
             self._map_files_by_acq_timestamp(ts_column)
+            if not self._data_file_map and len(self.auxiliary_data) > 0:
+                # Legacy MC/GUI scans carry the acq_timestamp column too
+                # (device_manager force-appends it), but their files are
+                # shot-number-named — the timestamp join then matches
+                # nothing. Zero joins with shots expected means the column
+                # lied about the file naming; trust the filenames instead.
+                logger.info(
+                    "acq_timestamp column %r present but no timestamp-named "
+                    "files matched in %s; falling back to legacy shot-number "
+                    "filename mapping for device '%s'.",
+                    ts_column,
+                    self.path_dict["data"],
+                    self.device_name,
+                )
+                self._map_files_by_shot_number()
         else:
             logger.info("Mapping matched files")
             self._map_files_by_shot_number()
