@@ -17,6 +17,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and ImageAnalysis can share line/scope/spectrum loaders without depending on
   the `image_analysis` package.
 
+### Fixed
+
+- Deployments configured only via the legacy `IMAGE_ANALYSIS_CONFIG_DIR`
+  env var or `Paths.config_root` ini key keep working (PR #449 review #6):
+  both config-root singletons fall back to the legacy sources when the
+  unified scan-analysis root is unset, emitting a `DeprecationWarning`
+  (and a log warning) naming the legacy source used and the migration
+  target.
+
 ## [0.10.0] — 2026-06-23
 
 ### Added

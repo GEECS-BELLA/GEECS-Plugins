@@ -18,6 +18,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `geecs_data_utils.io.array1d`; existing imports keep working while Bluesky can
   use the same loaders without importing ImageAnalysis.
 
+### Fixed
+
+- The two Undulator demo `__main__` blocks (`hi_res_mag_cam_analyzer`,
+  `BCaveMagSpecStitcher`) set the camera-config root on the instance the
+  loader actually consults (`scan_analysis_config`), so the demos resolve
+  their local config dirs again. (PR #449 review #6)
+
 ## [1.9.1] — 2026-06-25
 
 ### Changed
