@@ -26,7 +26,10 @@ jobs:
         # real dotted module names first. Per-package runs are the normal
         # mode everywhere else; this mirrors them.
         run: |
-          poetry run pytest tests -m "not integration and not gui" --tb=short -q
+          # Root tests/ is currently all integration-marked, so selecting
+          # nothing is legitimate there: tolerate pytest's no-tests-collected
+          # exit code (5) on that line only.
+          poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ]
           poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
