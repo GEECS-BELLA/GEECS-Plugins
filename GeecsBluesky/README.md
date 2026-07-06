@@ -44,8 +44,11 @@ background/optimization modes, legacy TDMS output.
 ## Requirements
 
 - Python 3.11
-- A running GeecsCAGateway serving your experiment's PVs, and
-  `EPICS_CA_ADDR_LIST` pointing at it
+- A running GeecsCAGateway serving your experiment's PVs. Point clients at
+  it with `[epics] ca_addr_list = <gateway-host>` in
+  `~/.config/geecs_python_api/config.ini` (applied automatically at package
+  import; `EPICS_CA_AUTO_ADDR_LIST` defaults to `NO` when applied) — or by
+  exporting `EPICS_CA_ADDR_LIST`, which always wins over the config value
 - The `ca` extra (`aioca`; bundles libca — no system EPICS needed)
 
 ## Installation

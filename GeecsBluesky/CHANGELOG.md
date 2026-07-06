@@ -33,6 +33,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   only (nothing depends on it for correctness), so tooling can tell
   Bluesky-produced scans from legacy MC ones.
 
+- **Gateway address from the shared GEECS config** — clients resolve the CA
+  gateway like they resolve the database: `[epics] ca_addr_list` (and
+  optional `ca_auto_addr_list`, default `NO`) in
+  `~/.config/geecs_python_api/config.ini`, applied at package import before
+  aioca creates its CA context. An exported `EPICS_CA_ADDR_LIST` always
+  wins. Removes the per-shell env-var requirement for Windows GUI clients.
+- t0-sync failures now name the stale device(s) and their lag ("U_CamA
+  (5.000s behind U_CamB)") instead of only reporting the anonymous spread —
+  a dead/off contributor serves its cached timestamp forever, and with N
+  cameras the bare spread doesn't say which one to go look at.
+
 ### Fixed
 
 - A synchronous save device with an empty `variable_list` (e.g. an

@@ -151,6 +151,9 @@ class TestGeecsT0Sync:
         with pytest.raises(GeecsT0SyncError) as excinfo:
             await _drive(geecs_t0_sync([det_a, det_b], window_s=0.2, retries=0))
         assert "spread" in str(excinfo.value)
+        # The laggard is named with its lag — "spread exceeds window" alone
+        # doesn't say which of N devices is dead/off (live find, 2026-07-06).
+        assert "stale device(s): U_CamA (5.000s behind U_CamB)" in str(excinfo.value)
         assert det_a.shot_id_tracker is not None
         assert not det_a.shot_id_tracker.is_seeded
 

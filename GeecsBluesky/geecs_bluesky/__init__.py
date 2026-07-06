@@ -4,7 +4,14 @@ Devices are CA-backed: they consume the GeecsCAGateway PVs as a standard
 EPICS IOC (the gateway is the only component that speaks GEECS TCP/UDP).
 """
 
-from .devices import (
+from .epics_env import apply_epics_address_config
+
+# Must run before the device imports below: they pull in aioca (via
+# ophyd-async), and libca reads EPICS_CA_ADDR_LIST when the CA context is
+# created at that import.  Explicit env vars win (setdefault semantics).
+apply_epics_address_config()
+
+from .devices import (  # noqa: E402
     CaGenericDetector,
     CaMotor,
     CaSettable,
@@ -12,7 +19,7 @@ from .devices import (
     CaTimestampedReadable,
     CaTriggerable,
 )
-from .exceptions import (
+from .exceptions import (  # noqa: E402
     GeecsError,
     GeecsConnectionError,
     GeecsCommandError,
