@@ -135,3 +135,66 @@ Deliberately not blocking the PR; each has a natural forcing function.
 - **Archiver volume vs readback truth**: resolved for DAQ (deadband 0 as
   of gateway 0.5.1); the MDEL/ADEL-style plan for Archiver Appliance
   volume is recorded in `GeecsCAGateway/DESIGN.md`.
+
+## Open threads from the PR #449 max-effort review (2026-07-06)
+
+The review's 15 reported findings (plus four below-cap confirmations) were
+fixed in the 2026-07-06 fix wave (commits `df67c584..c51465cd`), each with a
+pinning test. What follows is what was deliberately **not** fixed, with its
+forcing function.
+
+**Live checks owed before merge** (fix-wave regression cases; need the lab
+network): re-analyze one legacy MC scan folder (review #1 — timestamp column
+present, shot-number files), and one free-run scan with a deliberately
+unreachable reference device (review #2 — expect loud
+`GeecsConfigurationError` or promotion, never unpaced rows).
+
+**Plausibles — mechanism verified, trigger unconfirmed.** Verify the two
+shot-control-adjacent ones before the next strict live test: gateway push
+fan-out does not deliberately write `acq_timestamp` last (gateway.py:257 —
+a new shot id can pair with the previous shot's values if device echo order
+ever changes), and the enum numeric-label-as-index fallback
+(channels.py:118). The rest need one piece of live/DB evidence each:
+non-ASCII variable name → endless supervise retries (tcp_subscriber);
+a device variable literally named `CONNECTED` kills gateway construction;
+UNC-root corruption in Resource documents (tiled_readback) and drive-root
+`Z:/`→`Z:` mapping (readback) — both moot for the known `Z:/data`
+deployments; `int(scan_event_index)` on pre-schema archives (camera.py);
+duplicate/same-millisecond acq_timestamps double-mapping files
+(single_device_scan_analyzer — the `valid`-column skip is the designed
+mitigation).
+
+**Gap-sweep candidates (unverified):** `GeecsSession()` blocks on the Tiled
+server at construction when off-network (directly hits the off-network
+workflow — check first); `subscribed_only=True` silently omits devices with
+zero get-variables (loses their `:SP` control surface); CA devices don't pin
+the `ca://` protocol (p4p-without-aioca environments flip to PVA and time
+out generically); cold-cache race in `trigger()`'s first strict shot after
+connect/INVALID.
+
+**Cleanups, in rough priority order:** (1) the `{device}_{ts:.3f}{ext}`
+native-filename contract lives in three packages and has already drifted —
+review #1 proved it's easy to get wrong; consolidate into geecs-data-utils
+soon (the fix wave left a pointer comment at each site). (2)
+`analysis/camera.py` duplicates ~150–180 of 295 lines of the generic assets
+path. (3) Per-event MySQL `device_type` lookups (tiled_readback) and ~166
+sequential MySQL connections at gateway startup — batch/lru_cache them.
+(4) `optimize()` copy-pastes `scan()`'s run-discipline preamble (drifted
+once already). (5) ~10 stale docstring cross-references to the deleted
+direct backend; two identically-named `read_tiled_config` readers among
+five hand-rolled config.ini readers; 0.1 s polling loops; per-shot Tiled
+table reads where batch iterators exist.
+
+**Below-cap items left as-is:** `{:.12f}` truncates sub-picoscale setpoints
+to zero (udp_client — decide the wire format the devices actually parse
+first); `_completed_shots` counts the free-run tail flush (display is
+clamped); the stale `geecs_bluesky.db.geecs_db` import in
+`bluesky_hardware_smoke.ipynb`; the pre-existing `.`/`+` header-sniff quirk
+that moved into `geecs_data_utils.io.array1d`.
+
+**Docs/conventions:** GeecsCAGateway has no CLAUDE.md (root CLAUDE.md
+promises one per subpackage); GeecsBluesky/CLAUDE.md omits the new
+`analysis/` subpackage and still says "as of 0.8.0"; the root dependency
+graph misses the optional GeecsBluesky → ImageAnalysis edge and the
+changelog list omits the two new packages; a few new public signatures have
+bare `Any` without the required comment.
