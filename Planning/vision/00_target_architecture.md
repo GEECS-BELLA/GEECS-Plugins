@@ -91,10 +91,12 @@ The deletion is the unlock, not just a cleanup. When the legacy engine goes:
 - `ScanManager`, `DataLogger`, `DeviceManager`, `ScanStepExecutor`,
   `FileMover`, `TriggerController`, `DeviceCommandExecutor` and their tests —
   the entire parallel engine.
-- **GEECS-PythonAPI retires.** Its device layer (TCP subscriptions,
-  `ScanDevice`) served the legacy engine; its DB layer already moved to the
-  gateway. What survives is only whatever config-ini reading hasn't already
-  migrated to `geecs_data_utils`.
+- **The scanner stack drops GEECS-PythonAPI.** The package itself stays —
+  it is a perfectly good standalone scripting toolkit that others use to
+  build small device scripts, and that use is welcome. The goal is only
+  that `geecs-scanner` (and the engine stack) no longer import it: its
+  device layer served the legacy engine, and its DB layer already moved to
+  the gateway. Post-deletion it is a sibling tool, not a dependency.
 - The GUI's dual-backend seams (`RunControl`'s two constructors,
   `GEECS_USE_BLUESKY`) — one engine, no toggle.
 - The event types' defensive imports, the bridge's duck-typed protocol
@@ -212,6 +214,18 @@ style policies, and OperatorChannel questions for free, instead of the
 legacy ActionManager's parallel executor. `setup:`/`closeout:` in a
 ScanRequest are just named ActionPlans run inside the scan plan's preamble/
 finalizer (the hook seams already exist in `orchestration.py`).
+
+**The acceptance test for this design** — "I want actions between each scan
+step": *not* a new plan type, *not* a new schema. `ScanRequest.actions`
+grows a `per_step:` slot (same ActionPlan type, same editor, same
+validation), and the step plan yields the compiled stubs at its existing
+step boundary — `per_step` customization is a native Bluesky idiom the plan
+machinery was designed for. Contrast the legacy answer to the same request
+(touch ScanStepExecutor, ActionManager, the config models, and the GUI —
+the "adding a scan mode touches six places" complaint). New capability
+must be composition — a hook plus a named plan — never a new dialect; when
+a feature seems to demand a new plan type, that is the smell to stop and
+re-check.
 
 ### 4.6 Diagnostics, analysis, optimization
 
