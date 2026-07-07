@@ -37,6 +37,7 @@ from .channels import (
     cast_value,
     enum_index,
     make_readback_channel,
+    make_restart_channel,
     make_setpoint_channel,
     read_only,
 )
@@ -146,6 +147,9 @@ class GeecsCaGateway:
         self._gateway_status: dict[str, ChannelData] = {}
         self._status_task: asyncio.Task | None = None
         self._started_at: float | None = None
+        # Set by a CA put to CAGateway:RESTART; run() then shuts down cleanly
+        # and reports it, so the entrypoint can exit with the restart code.
+        self._restart_requested = asyncio.Event()
         # device name -> {geecs_var -> (readback channel, variable spec)}
         self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
         self._build_pvdb()
@@ -216,6 +220,9 @@ class GeecsCaGateway:
             "HEARTBEAT": read_only(ChannelInteger)(value=0),
             "DEVICES_CONNECTED": read_only(ChannelInteger)(value=0),
             "VERSION": read_only(ChannelString)(value=pkg_version),
+            # Client-writable remote-restart control (devIocStats SYSRESET
+            # pattern) — also the DB-resync mechanism after a device-set edit.
+            "RESTART": make_restart_channel(self._request_restart),
         }
         for suffix, channel in channels.items():
             pv = pv_name(experiment, "CAGateway", suffix)
@@ -559,18 +566,47 @@ class GeecsCaGateway:
             except Exception:
                 logger.debug("failed to mark %s INVALID", pv, exc_info=True)
 
+    def _request_restart(self) -> None:
+        """Handle a CA put to ``CAGateway:RESTART``: initiate clean shutdown."""
+        if not self._restart_requested.is_set():
+            logger.warning(
+                "restart requested via CAGateway:RESTART — shutting down "
+                "(systemd relaunches the service; config rebuilds from the DB)"
+            )
+            self._restart_requested.set()
+
     async def serve(self) -> None:
         """Run the CA server until cancelled (serves ``self.pvdb``)."""
         await start_server(self.pvdb, log_pv_names=True)
 
-    async def run(self) -> None:
-        """Connect, subscribe, and serve — the full gateway lifecycle."""
+    async def run(self) -> bool:
+        """Connect, subscribe, and serve — the full gateway lifecycle.
+
+        Returns
+        -------
+        bool
+            True if shutdown was requested via the ``CAGateway:RESTART`` PV
+            (the entrypoint turns this into the restart exit code), False if
+            the server ended any other way.
+        """
         await self.connect()
         await self.subscribe()
+        serve_task = asyncio.create_task(self.serve(), name="ca-server")
+        restart_task = asyncio.create_task(
+            self._restart_requested.wait(), name="restart-wait"
+        )
         try:
-            await self.serve()
+            await asyncio.wait(
+                {serve_task, restart_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if serve_task.done():
+                serve_task.result()  # propagate a server crash
         finally:
+            for task in (serve_task, restart_task):
+                task.cancel()
+            await asyncio.gather(serve_task, restart_task, return_exceptions=True)
             await self.close()
+        return self._restart_requested.is_set()
 
     async def close(self) -> None:
         """Cancel supervisors and tear down all subscriptions and UDP clients."""

@@ -310,3 +310,31 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
             return await super().write(value, **kwargs)
 
     return _GeecsSetpoint(**_metadata_kwargs(spec))
+
+
+#: Enum states of the ``CAGateway:RESTART`` control PV.
+RESTART_STATES = ["Idle", "Restart"]
+
+
+def make_restart_channel(on_restart: Callable[[], None]) -> ChannelData:
+    """Build the ``CAGateway:RESTART`` control channel.
+
+    A CA put of ``Restart`` (label or index 1) invokes *on_restart* — the
+    gateway's clean-shutdown hook, which under systemd becomes a restart via
+    the unit's ``RestartForceExitStatus``.  This is the devIocStats
+    ``SYSRESET`` pattern: any CA client (Phoebus button, a GUI menu action, a
+    one-line ``caput``) can bounce the service, which is also how it resyncs
+    with the GEECS database after a device-set edit.  Writing ``Idle``/0 is a
+    no-op, so two-state GUI widgets are safe to wire to it.
+    """
+
+    class _RestartChannel(ChannelEnum):
+        """Enum channel whose ``Restart`` puts trigger the shutdown hook."""
+
+        async def write(self, value: Any, **kwargs: Any) -> Any:
+            """Store the put; fire *on_restart* when it selects ``Restart``."""
+            if enum_geecs_value(RESTART_STATES, value) == "Restart":
+                on_restart()
+            return await super().write(value, **kwargs)
+
+    return _RestartChannel(value=0, enum_strings=list(RESTART_STATES))

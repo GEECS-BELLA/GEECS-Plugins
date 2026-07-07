@@ -200,3 +200,42 @@ async def test_zero_deadband_posts_changes_suppresses_exact_repeats() -> None:
     await callback({"Pos": 5.0001})  # exact repeat suppressed again
 
     assert posts == [pytest.approx(5.0), pytest.approx(5.0001)]
+
+
+# ---------------------------------------------------------------------------
+# PV_CONTRACT.md §6 — CAGateway:RESTART requests a clean shutdown
+# ---------------------------------------------------------------------------
+
+
+async def test_restart_pv_requests_clean_shutdown() -> None:
+    """Writing ``Restart`` sets the shutdown request; ``Idle`` is a no-op.
+
+    Contract §6: ``CAGateway:RESTART`` is the one client-writable status PV
+    (devIocStats ``SYSRESET`` pattern); label, index, and numeric-array puts
+    all count, and writing ``Idle``/0 must not trigger anything.
+    """
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Pos", dtype="float")],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    restart = gw.pvdb["Undulator:CAGateway:RESTART"]
+
+    await restart.write("Idle")
+    await restart.write(0)
+    assert not gw._restart_requested.is_set()
+
+    await restart.write("Restart")
+    assert gw._restart_requested.is_set()
+
+    # index form works too (fresh gateway — the event latches)
+    gw2 = GeecsCaGateway(cfg)
+    await gw2.pvdb["Undulator:CAGateway:RESTART"].write(1)
+    assert gw2._restart_requested.is_set()

@@ -35,7 +35,9 @@ geecs_ca_gateway/
   gateway.py         # GeecsCaGateway — pvdb build, manifest/collision guard,
                      #   per-device subscription supervisors (reconnect+backoff),
                      #   push-frame fan-out (timestamps last), INVALID marking,
-                     #   CONNECTED + CAGateway:* status PVs, UDP setter closures
+                     #   CONNECTED + CAGateway:* status PVs (incl. the writable
+                     #   RESTART control → exit 86 → systemd relaunch = DB resync),
+                     #   UDP setter closures
   channels.py        # caproto channel construction: readback (client-read-only)
                      #   vs setpoint (write forwards to GEECS first), enum
                      #   index/label resolution, path long-string channels,
@@ -103,8 +105,8 @@ One asyncio event loop runs everything:
   GEECS config chain. `config.py` maps DB rows → specs; the network-free core
   is `from_db_metadata` (unit-tested without MySQL);
   `from_geecs_experiment` builds a whole experiment (get='yes' subset +
-  control surface by default; see DEPLOYMENT.md for the zero-get-variables
-  gap).
+  control surface by default — settable-only devices keep their `:SP` PVs)
+  from three batched DB queries.
 
 ## Wire-protocol quirks that bit us (do not relearn these live)
 

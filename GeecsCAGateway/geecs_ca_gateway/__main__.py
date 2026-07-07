@@ -23,6 +23,11 @@ from .gateway import GeecsCaGateway
 
 logger = logging.getLogger("geecs_ca_gateway")
 
+#: Exit code signalling "relaunch me" — a CA put to ``CAGateway:RESTART``.
+#: The systemd unit's ``RestartForceExitStatus`` matches it, turning the exit
+#: into a service restart (which also resyncs the served set with the DB).
+RESTART_EXIT_CODE = 86
+
 
 class _QuietMissingVariables(logging.Filter):
     """Drop the transport's 'missing variable(s)' notices.
@@ -85,7 +90,7 @@ async def _run(
     subscribed_only: bool,
     enabled_only: bool,
     include_settable: bool,
-) -> None:
+) -> bool:
     config = GatewayConfig.from_geecs_experiment(
         experiment,
         subscribed_only=subscribed_only,
@@ -99,7 +104,8 @@ async def _run(
         len(config.devices),
         experiment,
     )
-    await gateway.run()  # connect -> subscribe -> serve (until cancelled)
+    # connect -> subscribe -> serve; True = restart requested over CA
+    return await gateway.run()
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -114,7 +120,7 @@ def main(argv: list[str] | None = None) -> None:
             _QuietMissingVariables()
         )
     try:
-        asyncio.run(
+        restart = asyncio.run(
             _run(
                 args.experiment,
                 subscribed_only=not args.all_variables,
@@ -124,6 +130,10 @@ def main(argv: list[str] | None = None) -> None:
         )
     except KeyboardInterrupt:
         logger.info("shutting down")
+        return
+    if restart:
+        logger.info("exiting with code %d for service restart", RESTART_EXIT_CODE)
+        raise SystemExit(RESTART_EXIT_CODE)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,47 @@
+# GEECS → EPICS Channel Access gateway — systemd unit for the lab gateway host
+# (192.168.6.14, alongside the GEECS MySQL DB and Tiled).
+#
+# The User= and path lines below use a generic `geecs` service account —
+# substitute the real account on your box when installing; the copy in
+# /etc/systemd/system is the home for site specifics, not this file.
+#
+# Install (from the repo checkout on the box):
+#   sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
+#   sudoedit /etc/systemd/system/geecs-ca-gateway.service   # fix User + paths
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now geecs-ca-gateway
+#
+# Upgrade / DB-resync (a restart IS both — config rebuilds live from the DB):
+#   git pull && poetry install && sudo systemctl restart geecs-ca-gateway
+#
+# See deploy/README.md and DEPLOYMENT.md.
+
+[Unit]
+Description=GEECS to EPICS Channel Access gateway (Undulator)
+# The gateway reads the GEECS DB at startup. If MySQL runs on this box under a
+# different unit name (mysqld/mariadb), fix the name; if the DB is remote,
+# drop it — Restart=on-failure retries until the DB is reachable either way.
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=geecs
+# Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
+Environment=HOME=/home/geecs
+WorkingDirectory=/home/geecs/GEECS-Plugins/GeecsCAGateway
+# Serve CA only on the lab interface (write-safety residual — no CA-level auth).
+Environment=EPICS_CAS_INTF_ADDR_LIST=192.168.6.14
+Environment=EPICS_CAS_BEACON_ADDR_LIST=192.168.6.255
+ExecStart=/home/geecs/.local/bin/poetry run python -m geecs_ca_gateway --experiment Undulator
+Restart=on-failure
+RestartSec=10
+# Remote restart: a CA put to <Experiment>:CAGateway:RESTART makes the gateway
+# exit with code 86, which systemd treats as "relaunch" (clean, not a failure).
+# This is also how the served set resyncs after a GEECS DB edit — no SSH needed.
+SuccessExitStatus=86
+RestartForceExitStatus=86
+SyslogIdentifier=geecs-ca-gateway
+
+[Install]
+WantedBy=multi-user.target

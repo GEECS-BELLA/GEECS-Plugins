@@ -88,6 +88,33 @@ def _connect_mysql(mysql_connector):
     return mysql_connector.connect(**_find_credentials(), use_pure=True)
 
 
+def _num(value: object) -> Optional[float]:
+    """Coerce a DB value to float, or ``None`` if it isn't numeric."""
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _variable_row_to_meta(row: tuple) -> dict:
+    """Map a ``devicetype_variable`` (+ ``choice``) row onto the metadata dict.
+
+    Row order: name, units, min, max, set, variabletype, choices, tolerance —
+    the shared SELECT column order of :meth:`GeecsDb.get_device_variables` and
+    :meth:`GeecsDb.get_experiment_device_variables`.
+    """
+    return {
+        "name": row[0],
+        "units": row[1] or "",
+        "min": _num(row[2]),
+        "max": _num(row[3]),
+        "settable": (row[4] or "no").lower() == "yes",
+        "variabletype": (row[5] or "").strip().lower() or None,
+        "choices": row[6],
+        "tolerance": _num(row[7]),
+    }
+
+
 class GeecsDb:
     """Namespace for GEECS database queries.
 
@@ -309,22 +336,95 @@ class GeecsDb:
         finally:
             conn.close()
 
-        def _num(value: object) -> Optional[float]:
-            try:
-                return float(value)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                return None
+        return [_variable_row_to_meta(r) for r in rows]
 
-        return [
-            {
-                "name": r[0],
-                "units": r[1] or "",
-                "min": _num(r[2]),
-                "max": _num(r[3]),
-                "settable": (r[4] or "no").lower() == "yes",
-                "variabletype": (r[5] or "").strip().lower() or None,
-                "choices": r[6],
-                "tolerance": _num(r[7]),
-            }
-            for r in rows
-        ]
+    @classmethod
+    def get_experiment_devices(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, tuple[str, int]]:
+        """Return ``{device: (ip_address, port)}`` for an experiment — one query.
+
+        The batch counterpart of :meth:`find_device`: endpoints for every device
+        in *experiment* in a single connection, so building a whole-experiment
+        gateway config doesn't open one MySQL connection per device.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT DISTINCT d.name, d.ipaddress, d.commport "
+                "FROM expt_device ed "
+                "JOIN device d ON d.name = ed.device "
+                "WHERE ed.expt = %s"
+            )
+            if enabled_only:
+                query += " AND LOWER(ed.enabled) = 'yes'"
+            query += " ORDER BY d.name"
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        return {name: (ip.strip(), int(port)) for name, ip, port in rows}
+
+    @classmethod
+    def get_experiment_device_variables(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, list[dict]]:
+        """Return ``{device: [variable metadata, ...]}`` for an experiment.
+
+        The batch counterpart of :meth:`get_device_variables`: metadata for
+        every device in *experiment* in a single query, with the same per-row
+        dict shape.  Duplicate ``devicetype_variable`` rows (a known DB quirk)
+        are passed through — spec building dedupes by name.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT d.name, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
+                "dtv.variabletype, c.choices, dtv.tolerance "
+                "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
+                "      WHERE ed.expt = %s{enabled}) sel "
+                "JOIN device d ON d.name = sel.device "
+                "JOIN devicetype_variable dtv ON dtv.devicetype = d.devicetype "
+                "LEFT JOIN choice c ON c.id = dtv.choice_id "
+                "ORDER BY d.name, dtv.name"
+            ).format(enabled=" AND LOWER(ed.enabled) = 'yes'" if enabled_only else "")
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        result: dict[str, list[dict]] = {}
+        for row in rows:
+            result.setdefault(row[0], []).append(_variable_row_to_meta(row[1:]))
+        return result

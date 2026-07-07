@@ -70,8 +70,9 @@ GEECS device  <--UDP set---------  setpoint PV   (caput)
   Verified on real hardware.
 - **Whole-experiment config** comes from `GatewayConfig.from_geecs_experiment`,
   which enumerates the experiment's `enabled` devices from the DB and builds a
-  spec for each. (Known follow-up: it does 2 DB queries per device — ~80 s for
-  Undulator's 114 devices — batch into a couple of joined queries.)
+  spec for each — three batched queries total (endpoints, variable metadata,
+  get-list), so startup config is seconds, not the ~80 s the original
+  2-queries-per-device implementation took for Undulator's 114 devices.
 - **Types are DB-driven too.** GEECS `variabletype` maps to the PV type
   (`numeric`→float, `string`/`path`→string, `choice`→enum with options from the
   `choice` table); `image`/`1darray` are skipped. So the declarative overlay is

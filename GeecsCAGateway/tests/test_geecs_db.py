@@ -97,3 +97,86 @@ def test_get_device_type_queries_device_table(monkeypatch) -> None:
     assert queries == [
         ("SELECT devicetype FROM device WHERE name = %s", ("UC_TopView",))
     ]
+
+
+def _patch_rows(monkeypatch, rows: list[tuple], queries: list) -> None:
+    """Route _connect_mysql to a fake connection returning *rows* for any query."""
+
+    class _Cursor:
+        def execute(self, query: str, params: tuple) -> None:
+            queries.append((query, params))
+
+        def fetchall(self) -> list[tuple]:
+            return rows
+
+    class _Connection:
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            pass
+
+    import sys
+    import types
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+
+def test_get_experiment_devices_batches_endpoints(monkeypatch) -> None:
+    """One query returns every device endpoint; enabled filter is in the SQL."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [("U_A", " 192.168.1.10 ", "111"), ("U_B", "192.168.1.11", 222)],
+        queries,
+    )
+
+    result = GeecsDb.get_experiment_devices("Undulator")
+    assert result == {"U_A": ("192.168.1.10", 111), "U_B": ("192.168.1.11", 222)}
+    assert len(queries) == 1
+    query, params = queries[0]
+    assert params == ("Undulator",)
+    assert "LOWER(ed.enabled) = 'yes'" in query
+
+    queries.clear()
+    GeecsDb.get_experiment_devices("Undulator", enabled_only=False)
+    assert "enabled" not in queries[0][0]
+
+
+def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
+    """One query returns all devices' variable metadata, grouped and mapped."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [
+            # d.name, dtv.name, units, min, max, set, variabletype, choices, tol
+            ("U_A", "Current", "A", "-5", "5", "yes", "numeric", None, "0.05"),
+            ("U_A", "Enable", "", None, None, "yes", "choice", "on,off", None),
+            ("U_B", "Voltage", "V", None, None, "no", None, None, None),
+        ],
+        queries,
+    )
+
+    result = GeecsDb.get_experiment_device_variables("Undulator")
+    assert set(result) == {"U_A", "U_B"}
+    assert len(queries) == 1 and queries[0][1] == ("Undulator",)
+
+    current = result["U_A"][0]
+    # same row shape as get_device_variables — from_db_metadata consumes both
+    assert current == {
+        "name": "Current",
+        "units": "A",
+        "min": -5.0,
+        "max": 5.0,
+        "settable": True,
+        "variabletype": "numeric",
+        "choices": None,
+        "tolerance": 0.05,
+    }
+    assert result["U_A"][1]["choices"] == "on,off"
+    assert result["U_B"][0]["settable"] is False
