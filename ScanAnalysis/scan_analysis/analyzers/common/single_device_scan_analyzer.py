@@ -35,6 +35,14 @@ import pandas as pd
 import numpy as np
 
 # --- Local / Project Imports ---
+from geecs_data_utils import (
+    filename_timestamp_regex,
+    legacy_filename_regex,
+    native_file_name_from_key,
+    timestamp_key,
+    timestamp_key_candidates,
+)
+
 from scan_analysis.base import DataUnavailableWarning, ScanAnalyzer
 
 # --- Type-Checking Imports ---
@@ -356,14 +364,11 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
             logger.warning(f"No file found for shot {m}")
 
     def _legacy_filename_regex(self) -> re.Pattern[str]:
-        """Compile the MC-convention filename pattern for this device's tail."""
-        return re.compile(
-            r"Scan(?P<scan_number>\d{3,})_"  # scan number
-            r"(?P<device_subject>.*?)_"  # non-greedy subject
-            r"(?P<shot_number>\d{3,})"  # shot number
-            + re.escape(self.file_tail)
-            + r"$"  # literal suffix+format
-        )
+        """Compile the MC-convention filename pattern for this device's tail.
+
+        The pattern is owned by :mod:`geecs_data_utils.native_files`.
+        """
+        return legacy_filename_regex(self.file_tail)
 
     def _map_files_by_shot_number(self) -> None:
         """Legacy strategy: parse shot numbers out of MC-convention filenames."""
@@ -418,10 +423,12 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
 
         The device stamps one double per acquisition: streamed into the event
         row and written into the native filename (``<name>_<timestamp><tail>``,
-        milliseconds precision). Both representations are canonicalised to
-        integer milliseconds and joined exactly; the ±1 ms fallback below is
-        float-formatting canonicalisation at the rounding boundary, not a
-        physical tolerance window. Rows where the device's ``valid`` column is
+        milliseconds precision — the contract owned by
+        :mod:`geecs_data_utils.native_files`). Both representations are
+        canonicalised to integer milliseconds and joined exactly; the ±1 ms
+        fallback below is float-formatting canonicalisation at the rounding
+        boundary, not a physical tolerance window. Rows where the device's
+        ``valid`` column is
         false are skipped — that device's frame belongs to a different
         physical shot, so "no file for this shot" is the correct answer.
         """
@@ -434,9 +441,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         # determined by the row timestamp, so probe it with a direct stat
         # (never served from the listing cache) first; the listing-based map
         # below is only a fallback for unconventional names.
-        file_ts_regex = re.compile(
-            r"_(?P<ts>\d+\.\d+)" + re.escape(self.file_tail) + r"$"
-        )
+        file_ts_regex = filename_timestamp_regex(self.file_tail)
         legacy_regex = self._legacy_filename_regex()
         files_by_ms: dict[int, Path] = {}
         has_legacy_named = False
@@ -445,7 +450,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             m = file_ts_regex.search(file.name)
             if m:
-                files_by_ms[round(float(m.group("ts")) * 1000)] = file
+                files_by_ms[timestamp_key(float(m.group("ts")))] = file
             elif legacy_regex.match(file.name):
                 has_legacy_named = True
 
@@ -475,16 +480,15 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 continue
             if not np.isfinite(ts) or ts <= 0:
                 continue
-            key = round(ts * 1000)
+            key = timestamp_key(ts)
             file = None
             if probe_expected_names:
                 file = self._probe_expected_file(data_dir, file_device, key)
             if file is None:
-                file = (
-                    files_by_ms.get(key)
-                    or files_by_ms.get(key - 1)
-                    or files_by_ms.get(key + 1)
-                )
+                for candidate_key in timestamp_key_candidates(key):
+                    file = files_by_ms.get(candidate_key)
+                    if file is not None:
+                        break
             if file is not None:
                 self._data_file_map[shot_num] = file
                 logger.info(f"Mapped file for shot {shot_num}: {file}")
@@ -497,8 +501,10 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         Direct stats bypass stale SMB directory-listing caches; this is the
         primary lookup for live Bluesky scans.
         """
-        for k in (key, key - 1, key + 1):
-            candidate = data_dir / f"{file_device}_{k / 1000:.3f}{self.file_tail}"
+        for k in timestamp_key_candidates(key):
+            candidate = data_dir / native_file_name_from_key(
+                file_device, k, self.file_tail
+            )
             if candidate.exists():
                 return candidate
         return None

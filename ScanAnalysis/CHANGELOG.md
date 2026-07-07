@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.1] — 2026-07-06
+
+### Changed
+
+- Native-file naming is now imported from `geecs_data_utils.native_files`:
+  `SingleDeviceScanAnalyzer`'s timestamp-join helpers (millisecond
+  canonicalization with the ±1 ms rounding-boundary candidates, the
+  filename-timestamp extraction pattern, the expected-filename stat probes)
+  and the legacy MC `Scan{NNN}_{device}_{shot:03d}{tail}` pattern delegate
+  to the shared contract module. No behavior change; the mapping tests pass
+  unchanged.
+
 ## [1.14.0] — 2026-07-05
 
 ### Added

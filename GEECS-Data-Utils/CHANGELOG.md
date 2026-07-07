@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.12.0] — 2026-07-06
+
+### Added
+
+- **`geecs_data_utils.native_files` — THE native-file naming contract.**
+  A GEECS device's natively saved per-shot file is named
+  `{stem}_{acq_timestamp:.3f}{file_tail}` inside a per-device folder named by
+  the same stem (`{device_name}{directory_suffix}`). This convention was
+  previously implemented independently in three packages — GeecsBluesky's
+  asset registry (producer), ScanAnalysis's `SingleDeviceScanAnalyzer`
+  (reader), and GEECS-Scanner-GUI's optimization session bridge (waiter) —
+  and had already drifted (only ScanAnalysis carried the ±1 ms
+  rounding-boundary canonicalization). The new module is the single source
+  of truth: filename/stem/path construction (`native_file_name`,
+  `native_file_stem`, `native_file_path`, `native_file_name_from_key`,
+  `render_timestamp`), integer-millisecond canonicalization for row↔file
+  joins (`timestamp_key`, `timestamp_key_candidates` with the ±1 ms
+  rounding-boundary candidates), the filename-timestamp extraction pattern
+  (`filename_timestamp_regex`), and the legacy Master Control
+  `Scan{NNN}_{device}_{shot:03d}{tail}` pattern (`legacy_filename_regex`).
+  All exported from the package root; contract pinned by
+  `tests/test_native_files.py`.
+
 ## [0.11.0] — 2026-06-30
 
 ### Changed

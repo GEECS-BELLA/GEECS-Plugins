@@ -25,6 +25,17 @@ from geecs_data_utils.utils import (
     timestamp_from_filename,
 )
 from geecs_data_utils.geecs_paths_config import GeecsPathsConfig
+from geecs_data_utils.native_files import (
+    filename_timestamp_regex,
+    legacy_filename_regex,
+    native_file_name,
+    native_file_name_from_key,
+    native_file_path,
+    native_file_stem,
+    render_timestamp,
+    timestamp_key,
+    timestamp_key_candidates,
+)
 from geecs_data_utils.type_defs import ScanMode, ScanConfig, ScanTag
 from geecs_data_utils.config_base import ConfigDirManager
 from geecs_data_utils.config_roots import (
@@ -53,6 +64,16 @@ __all__ = [
     "timestamp_from_string",
     "timestamp_from_filename",
     "GeecsPathsConfig",
+    # native file naming contract
+    "render_timestamp",
+    "native_file_stem",
+    "native_file_name",
+    "native_file_name_from_key",
+    "native_file_path",
+    "timestamp_key",
+    "timestamp_key_candidates",
+    "filename_timestamp_regex",
+    "legacy_filename_regex",
     "ScanMode",
     "ScanConfig",
     "ConfigDirManager",
