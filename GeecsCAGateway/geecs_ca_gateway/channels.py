@@ -152,7 +152,15 @@ def enum_index(choices: list[str], value: Any) -> int | None:
 
 
 def enum_geecs_value(choices: list[str], value: Any) -> str:
-    """Map a CA put (option index or label) to the GEECS option string."""
+    """Map a CA put (option index or label) to the GEECS option string.
+
+    A genuine numeric put (``int``/``float``/``bool``) is a CA enum *index* —
+    standard Channel Access semantics.  **Text** puts resolve like
+    :func:`enum_index`: exact label first, then numeric-value match against
+    numeric labels (``"2.0"`` selects the label ``"2"``, never index 2), and
+    index interpretation only when no label is numeric.  Unresolvable text is
+    returned verbatim so GEECS itself rejects it (unchanged fallback).
+    """
     value = _unwrap(value)
     if isinstance(value, bool):
         value = int(value)
@@ -164,11 +172,22 @@ def enum_geecs_value(choices: list[str], value: Any) -> str:
     if text in choices:
         return text
     try:
-        i = int(float(text))
+        number = float(text)
+    except (TypeError, ValueError):
+        return text
+    any_numeric_choice = False
+    for choice in choices:
+        try:
+            choice_number = float(choice)
+        except (TypeError, ValueError):
+            continue
+        any_numeric_choice = True
+        if choice_number == number:
+            return choice
+    if not any_numeric_choice:
+        i = int(number)
         if 0 <= i < len(choices):
             return choices[i]
-    except (TypeError, ValueError):
-        pass
     return text
 
 

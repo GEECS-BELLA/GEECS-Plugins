@@ -126,3 +126,28 @@ async def test_path_setpoint_forwards_full_text() -> None:
     # A char-array put (integer codes) decodes to the same text.
     await channel.write([ord(c) for c in _LONG_PATH])
     assert sent[-1] == _LONG_PATH
+
+
+class TestEnumGeecsValueNumericLabels:
+    """Setpoint direction of the numeric-label fix (readback side: enum_index).
+
+    A caput of "2.0" against labels ["1", "2", "5"] must send "2" to GEECS,
+    not choices[2] == "5". Genuine int/float puts stay CA enum indices.
+    """
+
+    def test_numeric_text_matches_label_by_value(self):
+        assert enum_geecs_value(["1", "2", "5"], "2.0") == "2"
+        assert enum_geecs_value(["1", "2", "5"], "2.000000") == "2"
+
+    def test_exact_label_still_wins(self):
+        assert enum_geecs_value(["1", "2", "5"], "2") == "2"
+
+    def test_int_put_is_still_an_index(self):
+        assert enum_geecs_value(["1", "2", "5"], 2) == "5"
+
+    def test_index_interpretation_only_without_numeric_labels(self):
+        assert enum_geecs_value(["Off", "On"], "1") == "On"
+
+    def test_unmatched_numeric_text_with_numeric_labels_passes_through(self):
+        # GEECS itself rejects it — better than silently sending choices[0].
+        assert enum_geecs_value(["1", "2", "5"], "0") == "0"

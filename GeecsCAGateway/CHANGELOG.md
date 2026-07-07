@@ -16,6 +16,14 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   posted before its timestamp variable(s) (stable sort, so device payload
   order is preserved among the data variables), so a client triggering on
   `acq_timestamp` always observes the completed frame.
+- `enum_geecs_value` (the **setpoint** direction) gets the same
+  numeric-label treatment: a caput of text `"2.0"` against labels
+  `["1","2","5"]` now sends `"2"` to GEECS instead of `choices[2] == "5"`.
+  Genuine `int`/`float` puts remain CA enum indices (standard CA
+  semantics). Found while writing PV_CONTRACT.md — the readback fix below
+  had left its mirror image behind.
+- Removed `tests/fake_server_helpers.py` — dead since the transport move
+  out of GeecsBluesky (referenced by no test; imported non-dependencies).
 - **Numeric enum labels resolve by value, not index** — `enum_index` fell
   back to interpreting any non-matching numeric wire text as an option
   *index*, so a device streaming `"2.000000"` for the label `"2"`
