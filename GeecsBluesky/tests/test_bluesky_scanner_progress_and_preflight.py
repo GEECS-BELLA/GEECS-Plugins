@@ -1,23 +1,28 @@
-"""Tests for BlueskyScanner GUI progress events and the free-run pre-flight.
+"""Tests for BlueskyScanner GUI progress events and the pre-flight checks.
 
 Item 1 — ``ScanStepEvent`` emission: every Bluesky event document emits a
 shot-level progress event through ``on_event`` (same channel and thread
 semantics as the lifecycle events), clamped at ``total_shots`` so the free-run
 tail-flush overcount stays cosmetic.
 
-Item 2 — dead-contributor pre-flight (free-run mode only): before the scan
-folder is claimed, synchronous devices whose persistent-monitor cache
-(``_last_acq``) is missing or stale raise an operator dialog through the
-legacy ``ScanDialogEvent``/``DialogRequest`` channel.  Outcomes: drop stale
-contributors and continue, abort pre-claim, abort-only for a stale reference,
-trigger-off wording when everything is stale, and today's proceed-and-fail-
-loudly default when headless or unanswered.
+Item 2 — pre-flight liveness (both modes) + free-run staleness: before the
+scan folder is claimed, every synchronous device's gateway ``CONNECTED`` PV
+(``connected_status``) is read — a device reporting Disconnected raises an
+operator dialog through the legacy ``ScanDialogEvent``/``DialogRequest``
+channel (drop-and-continue vs abort; abort-only for a disconnected free-run
+reference; fail-open when the PV is unreadable).  In free-run mode a second
+stage checks ``acq_timestamp`` freshness for the trigger-must-be-free-running
+requirement: all CONNECTED but all stale → the trigger-off dialog; the
+residual CONNECTED-but-stale contributor keeps the drop dialog.  Strict runs
+the liveness stage only (frames are not needed pre-scan).  Headless /
+unanswered → today's proceed-and-fail-loudly default.
 
 See ``Planning/gui_stewardship/00_overview.md`` §4–5.
 """
 
 from __future__ import annotations
 
+import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
@@ -61,13 +66,36 @@ class _FakeDialogRequest:
     abort: list[bool] = field(default_factory=lambda: [False])
 
 
-class _FakeSyncDevice:
-    """Sync device fake: carries the persistent-monitor cache ``_last_acq``."""
+class _FakeConnectedSignal:
+    """Stands in for the ``connected_status`` ``epics_signal_r`` (str read).
 
-    def __init__(self, device: str, name: str, last_acq: float | None) -> None:
+    ``value`` may be an Exception instance to simulate an unreadable
+    ``CONNECTED`` PV (old gateway without status PVs → fail-open).
+    """
+
+    def __init__(self, value: str | Exception = "Connected") -> None:
+        self.value = value
+
+    async def get_value(self) -> str:
+        if isinstance(self.value, Exception):
+            raise self.value
+        return self.value
+
+
+class _FakeSyncDevice:
+    """Sync device fake: ``_last_acq`` cache + gateway ``connected_status``."""
+
+    def __init__(
+        self,
+        device: str,
+        name: str,
+        last_acq: float | None,
+        connected: str | Exception = "Connected",
+    ) -> None:
         self.name = name  # ophyd (safe) name
         self._geecs_device_name = device
         self._last_acq = last_acq
+        self.connected_status = _FakeConnectedSignal(connected)
 
     def trigger(self) -> None:  # reference-capable, like CaGenericDetector
         raise NotImplementedError("not exercised by these tests")
@@ -94,10 +122,19 @@ def _stale() -> float:
 
 
 class _FakeSession:
-    """Session fake whose factories attach per-device ``_last_acq`` caches."""
+    """Session fake whose factories attach ``_last_acq`` + ``connected_status``.
 
-    def __init__(self, last_acq: dict[str, float | None] | None = None) -> None:
+    ``connected`` maps device name → ``CONNECTED`` reading: ``"Connected"``
+    (default), ``"Disconnected"``, or an Exception for an unreadable PV.
+    """
+
+    def __init__(
+        self,
+        last_acq: dict[str, float | None] | None = None,
+        connected: dict[str, str | Exception] | None = None,
+    ) -> None:
         self._last_acq = last_acq or {}
+        self._connected = connected or {}
         self.scan_kwargs: dict | None = None
 
     def _cache_for(self, device: str) -> float | None:
@@ -105,11 +142,18 @@ class _FakeSession:
             return self._last_acq[device]
         return _fresh()
 
+    def _connected_for(self, device: str) -> str | Exception:
+        return self._connected.get(device, "Connected")
+
     def detector(self, device, variables, *, save_images=False, name=None):
-        return _FakeSyncDevice(device, name or device, self._cache_for(device))
+        return _FakeSyncDevice(
+            device, name or device, self._cache_for(device), self._connected_for(device)
+        )
 
     def contributor(self, device, variables, *, save_images=False, name=None):
-        return _FakeSyncDevice(device, name or device, self._cache_for(device))
+        return _FakeSyncDevice(
+            device, name or device, self._cache_for(device), self._connected_for(device)
+        )
 
     def snapshot(self, device, variables, *, name=None):
         return _FakeSnapshotDevice(device, name or device)
@@ -120,6 +164,20 @@ class _FakeSession:
     def scan(self, **kwargs):
         self.scan_kwargs = kwargs
         return "uid"
+
+
+# The liveness read dispatches the signal coroutine to the RE loop via
+# run_coroutine_threadsafe (the scanner's connect/disconnect pattern), so the
+# fake RE needs a real event loop running in a background thread.
+_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def _bg_loop() -> asyncio.AbstractEventLoop:
+    global _LOOP
+    if _LOOP is None:
+        _LOOP = asyncio.new_event_loop()
+        threading.Thread(target=_LOOP.run_forever, daemon=True).start()
+    return _LOOP
 
 
 def _make_scanner(
@@ -145,7 +203,7 @@ def _make_scanner(
     scanner._abort_requested = False
     scanner._optimization_loader = None
     scanner._RE = SimpleNamespace(
-        state="idle", abort=lambda reason=None: None, _loop=None
+        state="idle", abort=lambda reason=None: None, _loop=_bg_loop()
     )
     return scanner
 
@@ -276,16 +334,16 @@ def test_progress_survives_raising_callback(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Item 2 — free-run pre-flight: fresh devices are untouched
+# Item 2 — pre-flight liveness: connected + fresh devices are untouched
 # ---------------------------------------------------------------------------
 
 
 def test_fresh_devices_no_dialog_no_behavior_change(monkeypatch) -> None:
-    """All sync devices fresh → no dialog, scan proceeds with every device."""
+    """All sync devices CONNECTED and fresh → no dialog, every device kept."""
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession()  # every device defaults to a fresh cache
+    session = _FakeSession()  # every device defaults to Connected + fresh
     scanner = _make_scanner(
         session,
         {
@@ -309,44 +367,70 @@ def test_fresh_devices_no_dialog_no_behavior_change(monkeypatch) -> None:
     assert claims == ["TestExp"]
 
 
-def test_strict_all_stale_proceeds_silently(monkeypatch) -> None:
-    """Strict + ALL sync devices stale → no dialog, proceed.
+# ---------------------------------------------------------------------------
+# Item 2 — liveness: a DISCONNECTED device raises the dialog in either mode
+# ---------------------------------------------------------------------------
 
-    All-stale is a legitimate strict-mode pre-scan state: the trigger can sit
-    OFF before a strict scan (ARMED starts it), leaving every cache stale.
-    Only differential staleness is diagnostic there.
+
+def test_disconnected_contributor_free_run_drop_removes_and_disconnects(
+    monkeypatch,
+) -> None:
+    """Free-run + gateway says a contributor is down → drop dialog, pre-claim.
+
+    The device's frames may even be recent (a just-crashed device) — the
+    CONNECTED PV alone is authoritative, so the dialog fires regardless of
+    the staleness heuristic.
     """
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession(last_acq={"U_Cam": None})
+    session = _FakeSession(connected={"U_Cam2": "Disconnected"})
     scanner = _make_scanner(
         session,
-        {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}},
-        mode="strict_shot_control",
+        {
+            "U_Ref": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+            "U_Stage": {"synchronous": False, "variable_list": ["Pos"]},
+        },
     )
-    scanner._shot_control = object()
+    disconnected: list[str] = []
+    scanner._disconnect_device = lambda dev: disconnected.append(dev._geecs_device_name)
     events: list = []
-    scanner._on_event = events.append
+    answers: dict = {}
+    scanner._on_event = _dialog_consumer(events, claims, answers, abort=False)
 
     scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
 
-    assert not any(isinstance(e, _FakeDialogEvent) for e in events)
+    # Nothing was claimed before the operator was asked.
+    assert answers["claims_at_dialog"] == []
+    request = answers["request"]
+    assert "U_Cam2" in str(request.exc)
+    assert "DISCONNECTED" in str(request.exc)  # liveness, not staleness, wording
+    assert "stale" not in str(request.exc).lower()
+    assert "drop" in request.continue_label.lower()
+    # The dead device was disconnected and removed; the scan proceeded.
+    assert disconnected == ["U_Cam2"]
     assert session.scan_kwargs is not None
+    assert [d._geecs_device_name for d in session.scan_kwargs["detectors"]] == [
+        "U_Ref",
+        "U_Stage",
+    ]
+    assert [d._geecs_device_name for d in scanner._detectors] == ["U_Ref", "U_Stage"]
+    assert claims == ["TestExp"]
 
 
-def test_strict_differential_stale_raises_drop_dialog(monkeypatch) -> None:
-    """Strict + one stale among fresh devices → drop dialog, device removed.
+def test_disconnected_device_strict_drop_works(monkeypatch) -> None:
+    """Strict + gateway says a device is down → same drop dialog, pre-claim.
 
-    Live-observed 2026-07-07 (Scan006): a camera that was simply OFF ran a
-    strict scan into 3 wasted refires and a post-claim abort. Differential
-    staleness (some fresh, some stale) can only mean genuinely dead devices,
-    so strict mode now gets the same pre-claim dialog as free-run.
+    Live motivation (2026-07-07, Scan006): an OFF camera's data PVs still
+    CA-connected fine (the gateway serves everything in the DB), so the scan
+    ran into 3 wasted refires and a post-claim abort.  The CONNECTED PV now
+    catches it before the claim, mode-independently.
     """
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession(last_acq={"U_Cam2": _stale()})
+    session = _FakeSession(connected={"U_Cam2": "Disconnected"})
     scanner = _make_scanner(
         session,
         {
@@ -358,23 +442,23 @@ def test_strict_differential_stale_raises_drop_dialog(monkeypatch) -> None:
     scanner._shot_control = object()
     answers: dict = {}
     events: list = []
-    consumer = _dialog_consumer(events, claims, answers, abort=False)
-    scanner._on_event = consumer
+    scanner._on_event = _dialog_consumer(events, claims, answers, abort=False)
 
     scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
 
     assert answers["claims_at_dialog"] == []  # asked before any claim
+    assert "DISCONNECTED" in str(answers["request"].exc)
     assert session.scan_kwargs is not None
     names = [d._geecs_device_name for d in session.scan_kwargs["detectors"]]
-    assert names == ["U_Cam1"]  # stale device dropped
+    assert names == ["U_Cam1"]  # dead device dropped
 
 
-def test_strict_differential_stale_abort_is_pre_claim(monkeypatch) -> None:
-    """Strict differential staleness + operator abort → nothing claimed."""
+def test_disconnected_device_strict_abort_is_pre_claim(monkeypatch) -> None:
+    """Strict + disconnected device + operator abort → nothing claimed."""
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession(last_acq={"U_Cam2": _stale()})
+    session = _FakeSession(connected={"U_Cam2": "Disconnected"})
     scanner = _make_scanner(
         session,
         {
@@ -395,13 +479,184 @@ def test_strict_differential_stale_abort_is_pre_claim(monkeypatch) -> None:
     assert scanner._abort_requested
 
 
+def test_disconnected_reference_free_run_is_abort_only(monkeypatch) -> None:
+    """A DISCONNECTED pacemaker offers abort vs clearly-labeled try-anyway."""
+    _patch_dialog_channel(monkeypatch)
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(connected={"U_Ref": "Disconnected"})
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Ref": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+        },
+    )
+    events: list = []
+    answers: dict = {}
+    scanner._on_event = _dialog_consumer(events, claims, answers, abort=True)
+
+    scanner._run_scan(_noscan_config())
+
+    request = answers["request"]
+    assert "reference" in str(request.exc).lower()
+    assert "U_Ref" in str(request.exc)
+    assert "DISCONNECTED" in str(request.exc)
+    # No drop offer — the second option is a clearly-labeled try-anyway.
+    assert "anyway" in request.continue_label.lower()
+    assert claims == []
+    assert scanner.current_state == "aborted"
+
+
 # ---------------------------------------------------------------------------
-# Item 2 — stale contributor: drop-and-continue / abort
+# Item 2 — liveness fail-open: an unreadable CONNECTED PV never blocks a scan
 # ---------------------------------------------------------------------------
 
 
-def test_stale_contributor_drop_removes_and_disconnects(monkeypatch) -> None:
-    """Operator answers drop → device disconnected, removed, scan proceeds."""
+def test_connected_unreadable_fails_open(monkeypatch) -> None:
+    """CONNECTED read raising (old gateway) → no dialog, no crash, proceed."""
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(
+        connected={
+            "U_Ref": RuntimeError("no CONNECTED PV on this gateway"),
+            "U_Cam2": RuntimeError("no CONNECTED PV on this gateway"),
+        }
+    )
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Ref": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+        },
+    )
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert not any(isinstance(e, _FakeDialogEvent) for e in events)
+    assert session.scan_kwargs is not None
+    assert len(session.scan_kwargs["detectors"]) == 2
+    assert claims == ["TestExp"]
+
+
+def test_connected_read_timeout_fails_open(monkeypatch) -> None:
+    """A hanging CONNECTED read (dead IOC link) times out and reads as live."""
+    _patch_dialog_channel(monkeypatch)
+    monkeypatch.setattr(bluesky_scanner, "_LIVENESS_READ_TIMEOUT_S", 0.05)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+
+    class _HangingSignal:
+        async def get_value(self) -> str:
+            await asyncio.sleep(30.0)
+            return "Connected"
+
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}},
+    )
+    events: list = []
+    scanner._on_event = events.append
+
+    original_detector = session.detector
+
+    def hanging_detector(device, variables, **kwargs):
+        det = original_detector(device, variables, **kwargs)
+        det.connected_status = _HangingSignal()
+        return det
+
+    session.detector = hanging_detector
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert not any(isinstance(e, _FakeDialogEvent) for e in events)
+    assert session.scan_kwargs is not None
+    assert claims == ["TestExp"]
+
+
+# ---------------------------------------------------------------------------
+# Item 2 — strict mode is liveness-only: staleness never dialogs there
+# ---------------------------------------------------------------------------
+
+
+def test_strict_all_stale_proceeds_silently(monkeypatch) -> None:
+    """Strict + all CONNECTED + ALL frames stale → no dialog, proceed.
+
+    Frames are not needed before a strict scan: the trigger legitimately
+    sits OFF (ARMED starts it), leaving every cache stale.  CONNECTED said
+    the devices are live, and that is the whole strict pre-flight.
+    """
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(last_acq={"U_Cam": None})
+    scanner = _make_scanner(
+        session,
+        {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}},
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert not any(isinstance(e, _FakeDialogEvent) for e in events)
+    assert session.scan_kwargs is not None
+
+
+def test_strict_differential_stale_proceeds_silently(monkeypatch) -> None:
+    """Strict + CONNECTED devices with mixed frame ages → no dialog.
+
+    The previous differential-staleness heuristic is gone: CONNECTED is the
+    authoritative liveness signal, so a connected-but-frameless device before
+    a strict scan (trigger off, camera armed late, …) is not diagnosable as
+    dead and must not dialog.
+    """
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(last_acq={"U_Cam2": _stale()})
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Cam1": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+        },
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert not any(isinstance(e, _FakeDialogEvent) for e in events)
+    assert session.scan_kwargs is not None
+    names = [d._geecs_device_name for d in session.scan_kwargs["detectors"]]
+    assert names == ["U_Cam1", "U_Cam2"]  # nothing dropped
+    assert claims == ["TestExp"]
+
+
+# ---------------------------------------------------------------------------
+# Item 2 — free-run residual case: CONNECTED-but-stale contributor
+# ---------------------------------------------------------------------------
+
+
+def test_stale_connected_contributor_keeps_drop_dialog(monkeypatch) -> None:
+    """CONNECTED contributor with no frames + fresh reference → drop dialog.
+
+    The residual staleness case: the fresh reference proves the trigger is
+    running, so a frameless-but-CONNECTED contributor is a per-device
+    acquisition problem (camera acquisition stopped while its TCP stream is
+    up) — the drop-or-abort dialog is kept for it, with not-acquiring (not
+    dead-device) wording.
+    """
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
@@ -427,6 +682,7 @@ def test_stale_contributor_drop_removes_and_disconnects(monkeypatch) -> None:
     request = answers["request"]
     assert "U_Cam2" in str(request.exc)
     assert "s ago" in str(request.exc)  # says how stale
+    assert "CONNECTED" in str(request.exc)  # liveness already vouched for it
     assert request.continue_label is not None
     assert "drop" in request.continue_label.lower()
     # The stale device was disconnected and removed; the scan proceeded.
@@ -470,12 +726,12 @@ def test_stale_contributor_abort_is_pre_claim(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Item 2 — stale reference: abort-only v1
+# Item 2 — CONNECTED-but-stale reference: abort-only v1
 # ---------------------------------------------------------------------------
 
 
 def test_stale_reference_dialog_is_abort_only_v1(monkeypatch) -> None:
-    """A dead pacemaker offers abort (recommended) vs clearly-labeled retry."""
+    """A CONNECTED but frameless pacemaker offers abort vs labeled retry."""
     _patch_dialog_channel(monkeypatch)
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
     claims: list = []
@@ -535,7 +791,11 @@ def test_stale_reference_try_anyway_proceeds_with_full_list(monkeypatch) -> None
 
 
 def test_all_stale_dialog_blames_the_trigger(monkeypatch) -> None:
-    """When every sync device is stale, the message says trigger-off."""
+    """All CONNECTED but no fresh frames anywhere → trigger-off wording.
+
+    Now unambiguous: the liveness stage already confirmed every device's TCP
+    stream is up, so a total absence of frames can only be the trigger.
+    """
     _patch_dialog_channel(monkeypatch)
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
     claims: list = []
@@ -555,7 +815,8 @@ def test_all_stale_dialog_blames_the_trigger(monkeypatch) -> None:
     scanner._run_scan(_noscan_config())
 
     request = answers["request"]
-    assert "trigger may be off" in str(request.exc)
+    assert "trigger appears to be off" in str(request.exc)
+    assert "CONNECTED" in str(request.exc)
     assert claims == []
     assert scanner.current_state == "aborted"
 
@@ -565,12 +826,17 @@ def test_all_stale_dialog_blames_the_trigger(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_headless_stale_contributor_proceeds_unchanged(monkeypatch) -> None:
-    """on_event=None → no dialog machinery, scan proceeds with all devices."""
+def test_headless_disconnected_device_proceeds_unchanged(monkeypatch) -> None:
+    """on_event=None → no dialog machinery, scan proceeds with all devices.
+
+    Even a device the gateway reports DISCONNECTED must not block a headless
+    scan — it proceeds and fails loudly downstream (t0 sync / device-down
+    abort in the plan).
+    """
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession(last_acq={"U_Cam2": None})
+    session = _FakeSession(connected={"U_Cam2": "Disconnected"})
     scanner = _make_scanner(
         session,
         {
@@ -596,7 +862,7 @@ def test_unanswered_dialog_times_out_and_proceeds(monkeypatch) -> None:
     monkeypatch.setattr(bluesky_scanner, "_PREFLIGHT_DIALOG_TIMEOUT_S", 0.05)
     claims: list = []
     _patch_claim(monkeypatch, claims)
-    session = _FakeSession(last_acq={"U_Cam2": None})
+    session = _FakeSession(connected={"U_Cam2": "Disconnected"})
     scanner = _make_scanner(
         session,
         {

@@ -28,7 +28,9 @@ import bluesky.plan_stubs as bps
 from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
 
+from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import (
+    GeecsDeviceDownError,
     GeecsQuiescenceTimeoutError,
     GeecsTriggerTimeoutError,
 )
@@ -48,6 +50,46 @@ def _no_frame_device(exc: BaseException) -> str:
     if isinstance(cause, GeecsTriggerTimeoutError):
         return cause.device_name
     return "unknown device"
+
+
+def _confirm_device_down(devices: Sequence[Any], device_name: str):
+    """Plan: ``True`` iff the named device's gateway ``CONNECTED`` PV says down.
+
+    Distinguishes the two causes of a no-frame timeout: a dropped frame
+    (device live — re-firing recovers) vs a device that went down mid-scan
+    (its TCP stream to the gateway died — re-firing cannot help).  The
+    frameless device is matched by GEECS device name (``_geecs_device_name``,
+    falling back to the ophyd name) against *devices*, and its
+    ``connected_status`` signal is read in plan context via ``bps.rd``.
+
+    **Fail-open**: no matching device, no ``connected_status`` attribute, or
+    a failed read (old gateway without status PVs) all return ``False``
+    ("not confirmed down"), preserving the refire behavior.  Only the exact
+    :data:`~geecs_bluesky.devices.ca._pv.GATEWAY_DISCONNECTED` choice string
+    confirms the device is down — a mock backend's ``""`` default reads live.
+    """
+    device = next(
+        (
+            obj
+            for obj in devices
+            if device_name
+            in (getattr(obj, "_geecs_device_name", None), getattr(obj, "name", None))
+        ),
+        None,
+    )
+    signal = getattr(device, "connected_status", None)
+    if signal is None:
+        return False
+    try:
+        value = yield from bps.rd(signal)
+    except Exception:
+        logger.debug(
+            "CONNECTED read failed for %s; assuming live (fail-open)",
+            device_name,
+            exc_info=True,
+        )
+        return False
+    return value == GATEWAY_DISCONNECTED
 
 
 def geecs_single_shot(
@@ -80,6 +122,14 @@ def geecs_single_shot(
     known ~1% frame-drop intermittency) and aborted the whole campaign.  At a
     ~1.2% drop rate a 100-shot campaign aborts with ~70% probability without
     refire; a missed pulse never yields a frame, so only re-firing recovers.
+
+    **Refire is gated on gateway liveness.**  Before re-firing, the frameless
+    device's ``connected_status`` (the gateway ``CONNECTED`` PV) is read: if
+    the device reports Disconnected, the timeout was not a frame drop — the
+    device went down mid-scan — and :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError`
+    is raised immediately instead of burning refires against dead hardware.
+    A live (or unreadable — fail-open) status keeps the bounded-refire
+    behavior.
 
     Parameters
     ----------
@@ -148,6 +198,20 @@ def geecs_single_shot(
             #   fire + wait), so the stale FailedStatus is caught and merely
             #   consumes one refire instead of aborting the scan — no
             #   cancellation machinery needed.
+            #
+            # Refire is gated on gateway liveness: a no-frame timeout from a
+            # device whose CONNECTED PV reports Disconnected is not a frame
+            # drop — the device went down mid-scan, and re-firing burns
+            # attempts (~3 s each) against hardware that cannot answer.
+            device_name = _no_frame_device(exc)
+            down = yield from _confirm_device_down(devices, device_name)
+            if down:
+                raise GeecsDeviceDownError(
+                    f"{device_name}: the gateway reports this device "
+                    "DISCONNECTED — it went down mid-scan (not a frame "
+                    "drop; re-firing cannot help). Check the GEECS device.",
+                    device_name=device_name,
+                ) from exc
             if attempt == attempts:
                 raise
             logger.warning(
@@ -155,7 +219,7 @@ def geecs_single_shot(
                 "(known camera frame-drop intermittency, ~1%% observed)",
                 attempt,
                 attempts,
-                _no_frame_device(exc),
+                device_name,
             )
         else:
             break

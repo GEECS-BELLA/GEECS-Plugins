@@ -17,6 +17,7 @@ from bluesky import RunEngine
 from bluesky.utils import FailedStatus
 
 from geecs_bluesky.exceptions import (
+    GeecsDeviceDownError,
     GeecsQuiescenceTimeoutError,
     GeecsTriggerTimeoutError,
 )
@@ -197,9 +198,12 @@ def _single_shot_run(devices, fire, **kwargs):
 
 
 def test_single_shot_refires_after_missed_frame(caplog) -> None:
-    """A no-frame first fire is retried; the second fire completes the row."""
+    """Timeout with the device CONNECTED per the gateway → refire recovers."""
     with _setup_scan() as (_motor, cam, RE, events):
         cam._trigger_timeout = 0.5  # keep the missed attempt fast
+        # Explicitly live per the gateway status PV: the refire gate must
+        # read this and keep today's bounded-refire behavior.
+        set_mock_value(cam.connected_status, "Connected")
         calls = {"fire": 0}
         state = {"t": 1000.0}
 
@@ -226,6 +230,37 @@ def test_single_shot_refires_after_missed_frame(caplog) -> None:
         msg = warnings[0].getMessage()
         assert "U_Combined" in msg  # names the device that produced no frame
         assert "attempt 1 of 3" in msg
+
+
+def test_single_shot_dead_device_fails_immediately_without_refire() -> None:
+    """Timeout + gateway says the device is DISCONNECTED → no refire, one fire.
+
+    A device that went down mid-scan is not a frame drop: re-firing burns
+    ~3 s attempts against hardware that cannot answer.  The refire gate reads
+    the frameless device's ``connected_status`` and raises immediately,
+    naming the device as down.
+    """
+    with _setup_scan() as (_motor, cam, RE, events):
+        cam._trigger_timeout = 0.5
+        set_mock_value(cam.connected_status, "Disconnected")
+        calls = {"fire": 0}
+
+        def dead_fire():
+            calls["fire"] += 1
+            yield from bps.null()  # device is down; nothing ever frames
+
+        with pytest.raises(GeecsDeviceDownError) as excinfo:
+            RE(_single_shot_run([cam], dead_fire, max_refires=2))
+
+        assert calls["fire"] == 1  # exactly one fire — refires were skipped
+        assert excinfo.value.device_name == "U_Combined"
+        msg = str(excinfo.value)
+        assert "U_Combined" in msg
+        assert "DISCONNECTED" in msg
+        assert "went down mid-scan" in msg
+        # The original no-frame FailedStatus rides on __cause__ for forensics.
+        assert isinstance(excinfo.value.__cause__, FailedStatus)
+        assert events == []  # a failed shot records nothing
 
 
 def test_single_shot_refire_exhaustion_propagates() -> None:

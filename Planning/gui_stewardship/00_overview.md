@@ -205,23 +205,44 @@ in both cases without claiming a folder.
 
 ### Landed (2026-07-07 — GeecsBluesky 0.21.0, GUI 0.32.0)
 
-`BlueskyScanner._preflight_check_free_run_freshness` runs in
-`_execute_scan`'s pre-claim seam (free-run mode only): each sync device's
-`_last_acq` cache is checked against a 10 s wall-clock threshold (`None` =
-never acquired; one ~2 s re-check grace for just-connected monitors), and
-stale devices raise a `DialogRequest`-in-`ScanDialogEvent` through the
-legacy channel. Stale contributors → drop-and-continue (disconnect + remove
-from the detector list) vs abort; stale *reference* → abort-only v1 (the
-second button is a clearly-labeled "Try Anyway" — promotion deferred);
-all-stale → the dialog blames the trigger ("may be off / not
-free-running"). Headless / no consumer / unanswered (30 s timeout) →
-today's fail-loud proceed is preserved. `DialogRequest` grew optional
-`title`/`continue_label`/`abort_label` fields so the dialog wording is
-owned by the request; `show_device_error_dialog` honors them
-(`_resolve_dialog_content`) and is otherwise unchanged. Pinned by
-`GeecsBluesky/tests/test_bluesky_scanner_progress_and_preflight.py` and
-`GEECS-Scanner-GUI/tests/app/test_gui_dialogs.py`. Still owed a lab
-session: tune the staleness threshold against real rep rates.
+Liveness is **CONNECTED-based**, superseding the original staleness
+heuristic (maintainer decision 2026-07-07): the gateway serves a per-device
+`[Experiment:]Device:CONNECTED` status PV (enum Disconnected/Connected,
+MAJOR severity while the device's TCP stream is down —
+`GeecsCAGateway/PV_CONTRACT.md` §1/§5), and every CA sync device exposes it
+as a non-readable `connected_status` child (never in event rows or
+`describe()`). This closes the actual gap: the gateway serves every DB
+device's data PVs whether or not the device is up, so CA-connect success
+never detected a dead device.
+
+`BlueskyScanner._preflight_check_sync_liveness` runs in `_execute_scan`'s
+pre-claim seam, **both modes**: each sync device's `connected_status` is
+read from the scan thread (`run_coroutine_threadsafe` on the RE loop, 2 s
+budget, fail-open — an unreadable CONNECTED PV logs at DEBUG and reads as
+live, so an old gateway can never block a scan). DISCONNECTED devices raise
+a `DialogRequest`-in-`ScanDialogEvent` through the legacy channel:
+drop-and-continue (disconnect + remove from the detector list) vs abort; a
+disconnected free-run *reference* → abort-only v1 (the second button is a
+clearly-labeled "Try Anyway" — promotion deferred). Free-run then keeps the
+`acq_timestamp` staleness check (10 s threshold — only relevant here now;
+~2 s re-check grace) purely for the trigger-must-be-free-running
+requirement: all CONNECTED + all stale → "trigger appears to be off"
+(Start Anyway / Abort); the residual CONNECTED-but-stale contributor with a
+fresh reference keeps the drop dialog (the fresh reference proves the
+trigger runs — a per-device acquisition problem, not a trigger problem).
+Strict is liveness-only (frames are not needed pre-scan; the trigger may
+sit OFF until ARMED — the earlier differential-staleness inference is
+removed). Headless / no consumer / unanswered (30 s timeout) → today's
+fail-loud proceed is preserved. Mid-scan, `geecs_single_shot`'s bounded
+refire is gated on the same signal: a no-frame device reporting
+DISCONNECTED raises `GeecsDeviceDownError` immediately ("went down
+mid-scan — not a frame drop") instead of burning refires.
+`DialogRequest` grew optional `title`/`continue_label`/`abort_label` fields
+so the dialog wording is owned by the request; `show_device_error_dialog`
+honors them (`_resolve_dialog_content`) and is otherwise unchanged. Pinned
+by `GeecsBluesky/tests/test_bluesky_scanner_progress_and_preflight.py`,
+`GeecsBluesky/tests/test_single_shot_plan.py` (refire gating), and
+`GEECS-Scanner-GUI/tests/app/test_gui_dialogs.py`.
 
 ---
 

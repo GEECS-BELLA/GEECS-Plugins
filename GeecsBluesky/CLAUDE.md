@@ -108,8 +108,10 @@ legacy).  That path loads the selected shot-control YAML and passes it as
 BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`,
 shot-level `ScanStepEvent`s per event document via `_on_document` (so the
 GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
-from the dead-sync-device check (both modes; strict dialogs only on
-differential staleness) (all defensive imports — headless
+from the gateway-liveness check (both modes: each sync device's
+`connected_status` — the gateway `CONNECTED` PV — is read pre-claim; free-run
+adds a staleness stage for the trigger-must-be-free-running requirement)
+(all defensive imports — headless
 installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
 translation is deliberately skipped (no consumer).  Still not done in
 Bluesky mode: `ActionControl` / setup-closeout actions (see
@@ -217,6 +219,11 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
   `acq_timestamp` feeding a local cache/queue (the CA analogue of the old TCP
   shot cache). Non-positive timestamps are ignored: `0.0` is the gateway
   channel's pre-acquisition placeholder, so "never acquired" reads as `None`.
+  Also carries a non-readable `connected_status` child on the gateway's
+  per-device `CONNECTED` PV (created outside `add_children_as_readables()`,
+  so never in event rows) — the authoritative liveness signal consumed by
+  the scanner pre-flight and the strict refire gate; only the exact
+  `"Disconnected"` reading means down (fail-open otherwise).
 - **`CaTriggerable`** — `trigger()` completes when `acq_timestamp` advances.
   The stale-drain and baseline happen **synchronously in `trigger()`** so a
   shot fired immediately after `bps.trigger` (strict single-shot) can't be
@@ -307,8 +314,11 @@ Remaining items are features/tuning, not architecture — see
 - **`DeviceCommandEvent`s are not translated** (deliberate — the GUI does
   not render them; see `Planning/gui_stewardship/00_overview.md` §5).
   Lifecycle, step/progress, and pre-flight dialog events are emitted as of
-  0.21.0; the free-run pre-flight staleness threshold (10 s) still needs a
-  lab session of tuning against real rep rates.
+  0.21.0.  Pre-flight liveness is CONNECTED-based (the gateway serves every
+  DB device's data PVs whether or not the device is up, so CA-connect
+  success never implied liveness); the 10 s staleness threshold now only
+  matters for the free-run trigger-off check and still needs a lab session
+  of tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.

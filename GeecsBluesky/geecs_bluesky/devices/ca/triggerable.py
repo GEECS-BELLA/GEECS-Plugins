@@ -54,6 +54,13 @@ class CaAcqTimestampReadable(StandardReadable):
     ``_last_acq`` (latest value) and ``_shot_queue`` (bounded update stream)
     current.
 
+    A non-readable ``connected_status`` child reads the gateway's per-device
+    liveness PV (``[Experiment:]Device:CONNECTED``): the authoritative
+    mode-independent "is this device's TCP stream up" signal.  It is a child
+    (so it connects/mocks with the device) but never part of ``read()`` /
+    ``describe()``.  Consumers: the scanner's pre-flight liveness check and
+    the strict single-shot refire gate.
+
     Parameters
     ----------
     device : str
@@ -110,6 +117,21 @@ class CaAcqTimestampReadable(StandardReadable):
             self.acq_timestamp = epics_signal_r(
                 float, ca_pv(experiment, device, self._acq_timestamp_variable)
             )
+        # Liveness signal — the gateway's per-device status PV
+        # ``[Experiment:]Device:CONNECTED`` (PV_CONTRACT.md §1: enum with
+        # choices ["Disconnected", "Connected"], MAJOR severity + status COMM
+        # while the device's TCP stream is down; composed like any variable —
+        # no ``:SP``, no variable suffix beyond the literal ``CONNECTED``).
+        # Deliberately created OUTSIDE ``add_children_as_readables()`` so it
+        # never appears in event rows or ``describe()``: gateway liveness is
+        # pre-flight / plan metadata, not shot data.  Read as ``str`` (CA
+        # serves the enum *choice string* for a string read); only the exact
+        # :data:`~geecs_bluesky.devices.ca._pv.GATEWAY_DISCONNECTED` value
+        # means down, so a mock backend's ``""`` default — and any gateway
+        # old enough to lack status PVs — reads as live (fail-open).
+        self.connected_status = epics_signal_r(
+            str, ca_pv(experiment, device, "CONNECTED")
+        )
         super().__init__(name=name)
         # Persistent-monitor state (populated by _on_acq_timestamp): the latest
         # seen value, and a bounded queue of updates trigger() waits on.
