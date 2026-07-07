@@ -30,6 +30,7 @@ __all__ = [
     "GeecsMotorTimeoutError",
     "GeecsT0SyncError",
     "GeecsConfigurationError",
+    "GeecsStaleDevicesError",
 ]
 
 
@@ -127,3 +128,14 @@ class GeecsT0SyncError(GeecsError):
 
 class GeecsConfigurationError(GeecsError):
     """Runtime configuration is incomplete or inconsistent."""
+
+
+class GeecsStaleDevicesError(GeecsError):
+    """Synchronous device(s) look dead in the free-run pre-flight check.
+
+    Carried inside the pre-claim operator dialog raised by
+    ``BlueskyScanner._preflight_check_free_run_freshness`` when a device's
+    cached ``acq_timestamp`` is missing or too old before a free-run scan.
+    The message is operator-facing: it names the stale device(s), how stale
+    they are, and what the dialog's options mean.
+    """

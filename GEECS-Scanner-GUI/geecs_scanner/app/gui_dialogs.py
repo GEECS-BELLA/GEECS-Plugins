@@ -87,6 +87,29 @@ def _build_device_error_message(exc: Exception) -> tuple[str, str]:
     return title, body
 
 
+def _resolve_dialog_content(request: DialogRequest) -> tuple[str, str, str, str]:
+    """Return ``(title, body, continue_label, abort_label)`` for *request*.
+
+    Requests carrying their own ``title`` or button labels (e.g. the Bluesky
+    pre-flight stale-device dialog) use ``str(request.exc)`` verbatim as the
+    body \u2014 the request author owns the wording of what each button means.
+    Plain requests keep the legacy device-command-error message construction.
+    """
+    if request.title or request.continue_label or request.abort_label:
+        title = request.title or "Device Error"
+        body = str(request.exc)
+    else:
+        title, body = _build_device_error_message(request.exc)
+    if request.context:
+        body += f"\n\n{request.context}"
+    return (
+        title,
+        body,
+        request.continue_label or "Continue",
+        request.abort_label or "Abort",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main-thread dialog display  (call only from the Qt main thread)
 # ---------------------------------------------------------------------------
@@ -105,9 +128,7 @@ def show_device_error_dialog(request: DialogRequest) -> None:
     """
     from PyQt5.QtWidgets import QApplication, QMessageBox
 
-    title, body = _build_device_error_message(request.exc)
-    if request.context:
-        body += f"\n\n{request.context}"
+    title, body, continue_label, abort_label = _resolve_dialog_content(request)
     logger.warning(
         "Showing device error dialog to user — %s: %s",
         type(request.exc).__name__,
@@ -126,7 +147,8 @@ def show_device_error_dialog(request: DialogRequest) -> None:
     msg_box.setWindowTitle(title)
     msg_box.setText(body)
     msg_box.setStandardButtons(QMessageBox.Ok | QMessageBox.Abort)
-    msg_box.button(QMessageBox.Ok).setText("Continue")
+    msg_box.button(QMessageBox.Ok).setText(continue_label)
+    msg_box.button(QMessageBox.Abort).setText(abort_label)
     msg_box.setDefaultButton(QMessageBox.Abort)
 
     response = msg_box.exec_()

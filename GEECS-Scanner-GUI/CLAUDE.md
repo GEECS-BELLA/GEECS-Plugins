@@ -130,7 +130,8 @@ argument wins, else the `GEECS_USE_BLUESKY` env var (`1/true/yes/on` →
 Bluesky), else legacy. The GUI constructs `RunControl` without the argument,
 so the env var is the supported way to switch a GUI session's backend.
 Both backends receive the same `on_event` callback; the Bluesky backend
-currently emits lifecycle events only (no step/dialog events — see
+emits lifecycle, step/progress, and pre-flight dialog events (no
+`DeviceCommandEvent` translation — deliberate; see
 `Planning/gui_stewardship/00_overview.md`).
 
 ## Threading Model
@@ -329,9 +330,9 @@ optimization setup) and into richer event emission from `BlueskyScanner`.
 
 ## Known Tech Debt
 
-- **Bluesky backend emits lifecycle events only**: no `ScanStepEvent`, so the
-  progress bar does not advance in Bluesky mode; no `ScanDialogEvent`, so no
-  operator dialogs.  See `Planning/gui_stewardship/00_overview.md` §4–5.
+- **Bluesky backend does not translate `DeviceCommandEvent`s** (deliberate —
+  nothing consumes them).  Step/progress and pre-flight dialog events landed
+  2026-07-07; see `Planning/gui_stewardship/00_overview.md` §4–5.
 - **Stale docstrings referencing the removed 200 ms timer**: e.g. the
   `engine/dialog_request.py` module docstring and `ScanDialogEvent`'s
   "In Block 7 ..." note.  Fix in the next code PR touching those files.

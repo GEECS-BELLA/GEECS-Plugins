@@ -4,6 +4,36 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-07-07
+
+### Added
+
+- **GUI progress events in Bluesky mode** — `BlueskyScanner._on_document`
+  now emits a `ScanStepEvent` (shot-level, `phase="completed"`) for every
+  Bluesky event document through the same `on_event` callback as the
+  lifecycle events, so the Scanner GUI progress bar advances identically
+  for both backends with no GUI changes (`shots_completed` = running
+  event-document count, clamped at `total_shots` so the free-run
+  tail-flush overcount stays cosmetic; step index derived from the
+  schema-v1 `bin_number` column). Closes the "progress bar never advances
+  in Bluesky mode" gap — see `Planning/gui_stewardship/00_overview.md` §5.
+- **Free-run dead-contributor pre-flight dialog** — before a
+  `free_run_time_sync` scan claims its folder (so an abort burns no scan
+  number), every synchronous device's persistent-monitor cache
+  (`_last_acq`) is checked for freshness (default threshold 10 s
+  wall-clock; one ~2 s re-check grace for just-connected monitors).
+  Stale devices raise an operator dialog through the legacy channel
+  (`DialogRequest` inside a `ScanDialogEvent`): stale contributors offer
+  drop-and-continue (devices disconnected, removed from the detector
+  list, logged loudly) vs abort; a stale reference (pacemaker) is
+  abort-only in v1 (second button is a clearly-labeled "Try Anyway");
+  all-stale blames the trigger ("may be off / not free-running") instead
+  of the cameras. Headless (`on_event=None`), missing geecs_scanner, or
+  an unanswered dialog (30 s timeout) preserve today's behavior — proceed
+  and let t0 sync fail loudly. New `GeecsStaleDevicesError` carries the
+  operator-facing message. Implements the stewardship plan's first
+  concrete use case (`Planning/gui_stewardship/00_overview.md` §4).
+
 ## [0.20.0] - 2026-07-06
 
 ### Added

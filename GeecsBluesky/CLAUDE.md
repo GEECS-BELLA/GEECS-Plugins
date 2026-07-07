@@ -104,12 +104,14 @@ scanner.stop_scanning_thread()      # RE.abort() + thread join
 session, the `GEECS_USE_BLUESKY` env var (resolved by
 `geecs_scanner.engine.backend_selection`; explicit argument wins, default
 legacy).  That path loads the selected shot-control YAML and passes it as
-`shot_control_information`, and passes the `on_event` callback
-(BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`).
-Still not done in Bluesky mode: `ActionControl` / setup-closeout actions, and
-translating per-shot Bluesky documents into the richer `ScanStepEvent` /
-`DeviceCommandEvent` stream (only lifecycle events are emitted — so the GUI
-progress bar does not advance in Bluesky mode; see
+`shot_control_information`, and passes the `on_event` callback:
+BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`,
+shot-level `ScanStepEvent`s per event document via `_on_document` (so the
+GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
+from the free-run dead-contributor check (all defensive imports — headless
+installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
+translation is deliberately skipped (no consumer).  Still not done in
+Bluesky mode: `ActionControl` / setup-closeout actions (see
 `Planning/gui_stewardship/00_overview.md`).  Acquisition mode is chosen by
 the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
 (intentional; bluesky is still being derisked).
@@ -289,7 +291,7 @@ api_key = <key>
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
 
-## Known Gaps (as of 0.19.0)
+## Known Gaps (as of 0.21.0)
 
 The acquisition-modes architecture is complete and hardware-verified (both
 modes, including single-shot; GUI-launched scans verified live 2026-07-06).
@@ -301,14 +303,11 @@ Remaining items are features/tuning, not architecture — see
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
-- **Only lifecycle `ScanEvent`s are emitted** via `on_event` (through
-  `_set_state`).  Per-shot/step Bluesky documents are not translated into the
-  richer `ScanStepEvent` / `DeviceCommandEvent` stream, so the GUI progress
-  bar does not advance in Bluesky mode and no operator dialogs
-  (`ScanDialogEvent`) can be raised.  `ScanStepEvent` emission and a
-  pre-flight dead-contributor dialog are the recommended next investments —
-  see `Planning/gui_stewardship/00_overview.md` §4–5.
-  (`DeviceCommandEvent` translation may never be needed.)
+- **`DeviceCommandEvent`s are not translated** (deliberate — the GUI does
+  not render them; see `Planning/gui_stewardship/00_overview.md` §5).
+  Lifecycle, step/progress, and pre-flight dialog events are emitted as of
+  0.21.0; the free-run pre-flight staleness threshold (10 s) still needs a
+  lab session of tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.

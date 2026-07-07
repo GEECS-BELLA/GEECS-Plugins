@@ -43,6 +43,7 @@ import logging
 import os
 import queue
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
@@ -50,7 +51,7 @@ from typing import Any, Callable
 import numpy as np
 
 
-from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsStaleDevicesError
 from geecs_bluesky.models.shot_control import ShotControlConfig
 from geecs_bluesky.plans.run_wrapper import claim_scan, claim_scan_number
 from geecs_bluesky.session import GeecsSession
@@ -65,20 +66,55 @@ except Exception:
 
 try:
     from geecs_scanner.engine.scan_events import (
+        ScanDialogEvent,
         ScanEvent,
         ScanLifecycleEvent,
         ScanState,
+        ScanStepEvent,
     )
 except Exception:
+    ScanDialogEvent = None  # type: ignore[assignment]
     ScanEvent = Any  # type: ignore[misc,assignment]
     ScanLifecycleEvent = None  # type: ignore[assignment]
     ScanState = None  # type: ignore[assignment]
+    ScanStepEvent = None  # type: ignore[assignment]
+
+# DialogRequest lives in a separate geecs_scanner module (it pulls in
+# geecs_python_api), so it gets its own defensive import: without it no
+# operator dialogs can be raised and pre-flight checks fall back to today's
+# fail-loud behavior (proceed; t0 sync aborts on genuinely dead devices).
+try:
+    from geecs_scanner.engine.dialog_request import DialogRequest
+except Exception:
+    DialogRequest = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
 _CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
 _THREAD_JOIN_TIMEOUT = 15.0
+
+# Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch
+# (1970-01-01).  Device ``acq_timestamp`` values are LabVIEW-epoch.
+_LABVIEW_EPOCH_OFFSET = 2_082_844_800
+
+# Free-run pre-flight freshness: a synchronous device whose cached
+# ``acq_timestamp`` is older than this (wall-clock seconds; control machines
+# are NTP-synced) — or that has no cached frame at all — is considered stale.
+# The trigger free-runs before a free-run scan, so live devices have frames
+# no older than one trigger period.
+_STALE_SYNC_THRESHOLD_S = 10.0
+
+# Grace period before re-checking: a just-connected persistent monitor may not
+# have delivered its first frame yet, so one stale verdict gets a second look
+# after roughly one trigger period.
+_STALE_RECHECK_WAIT_S = 2.0
+
+# How long the scan thread waits for the operator to answer a pre-flight
+# dialog.  On timeout the scan proceeds with today's default behavior
+# (fail-loud at t0 sync) — a headless or unattended scan must never hang on a
+# dialog nobody will answer.
+_PREFLIGHT_DIALOG_TIMEOUT_S = 30.0
 
 _STRICT_MODE = "strict_shot_control"
 _FREE_RUN_MODE = "free_run_time_sync"
@@ -206,6 +242,7 @@ class BlueskyScanner:
             )
 
         self._total_shots: int = 0
+        self._total_steps: int = 0
         self._completed_shots: int = 0
         # uid of the most recent run's start document (for the Tiled exporter)
         self._last_run_uid: str | None = None
@@ -262,6 +299,7 @@ class BlueskyScanner:
 
         self._completed_shots = 0
         self._total_shots = 0
+        self._total_steps = 0
         self._session.rep_rate_hz = self._rep_rate_hz
 
         # Disconnect any leftover devices from a previous scan
@@ -422,6 +460,51 @@ class BlueskyScanner:
             self._last_run_uid = doc.get("uid")
         elif name == "event":
             self._completed_shots += 1
+            self._emit_step_progress(doc)
+
+    def _emit_step_progress(self, doc: dict) -> None:
+        """Emit a :class:`ScanStepEvent` for one Bluesky event document.
+
+        Runs on the RunEngine thread — thread-safe the same way the lifecycle
+        events are: the GUI's ``on_event`` hops to the Qt main thread via the
+        ``_scan_event_received`` pyqtSignal, so events may be emitted from any
+        thread.
+
+        One event document is one completed shot, so every document carries a
+        shot-level progress update (``phase="completed"``); the GUI computes
+        its progress fraction from ``shots_completed`` against the
+        ``total_shots`` it cached from the INITIALIZING lifecycle event.  The
+        step index is derived from the schema-v1 ``bin_number`` column when
+        present (1-based → 0-based), else 0.
+
+        ``shots_completed`` is clamped at ``total_shots``: free-run scans emit
+        one extra tail-flush event document (known, cosmetic overcount), and
+        the progress bar must not report beyond 100 %.
+        """
+        if self._on_event is None or ScanStepEvent is None:
+            return
+        shots = self._completed_shots
+        if self._total_shots:
+            shots = min(shots, self._total_shots)
+        data = doc.get("data") or {}
+        try:
+            step_index = int(data.get("bin_number", 1)) - 1
+        except (TypeError, ValueError):
+            step_index = 0
+        step_index = max(step_index, 0)
+        if self._total_steps:
+            step_index = min(step_index, self._total_steps - 1)
+        try:
+            self._on_event(
+                ScanStepEvent(
+                    step_index=step_index,
+                    total_steps=self._total_steps,
+                    shots_completed=shots,
+                    phase="completed",
+                )
+            )
+        except Exception:
+            logger.debug("on_event callback raised; ignoring", exc_info=True)
 
     @staticmethod
     def _scan_state(state_name: str):
@@ -474,6 +557,228 @@ class BlueskyScanner:
             "aborting the scan before it reaches the RunEngine"
         )
         return True
+
+    # ------------------------------------------------------------------
+    # Free-run pre-flight: dead-contributor detection + operator dialog
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _device_label(device: Any) -> str:
+        """Return the GEECS device name for operator-facing messages."""
+        return str(
+            getattr(device, "_geecs_device_name", getattr(device, "name", device))
+        )
+
+    @staticmethod
+    def _find_stale_sync_devices(
+        sync_devices: list,
+    ) -> list[tuple[Any, float | None]]:
+        """Return ``(device, age_seconds_or_None)`` for stale sync devices.
+
+        A device is stale when its persistent-monitor cache (``_last_acq``,
+        LabVIEW-epoch seconds) is ``None`` (no frame seen since connect) or
+        older than :data:`_STALE_SYNC_THRESHOLD_S` against the NTP-synced
+        wall clock.  ``None`` age means "never acquired".
+        """
+        now_labview = time.time() + _LABVIEW_EPOCH_OFFSET
+        stale: list[tuple[Any, float | None]] = []
+        for device in sync_devices:
+            last = device._last_acq
+            if last is None:
+                stale.append((device, None))
+                continue
+            age = now_labview - float(last)
+            if age > _STALE_SYNC_THRESHOLD_S:
+                stale.append((device, age))
+        return stale
+
+    def _request_operator_decision(
+        self,
+        exc: Exception,
+        *,
+        title: str,
+        continue_label: str,
+        abort_label: str = "Abort Scan",
+        context: str | None = None,
+    ) -> str:
+        """Emit a ``ScanDialogEvent`` and wait for the operator's answer.
+
+        Reuses the legacy dialog channel end to end: the request is a
+        :class:`~geecs_scanner.engine.dialog_request.DialogRequest`, carried
+        by a ``ScanDialogEvent`` through the same ``on_event`` callback the
+        lifecycle events use; the GUI renders it on the Qt main thread and
+        answers by writing ``request.abort[0]`` and setting
+        ``request.response_event``, on which this (scan) thread blocks.
+
+        Returns
+        -------
+        str
+            ``"continue"`` or ``"abort"`` when the consumer answered;
+            ``"default"`` when there is no consumer (headless), the event
+            types are unavailable, or no answer arrived within
+            :data:`_PREFLIGHT_DIALOG_TIMEOUT_S` — callers must then preserve
+            today's behavior (proceed, fail loudly later).
+        """
+        if self._on_event is None or ScanDialogEvent is None or DialogRequest is None:
+            return "default"
+        request = DialogRequest(
+            exc=exc,
+            context=context,
+            title=title,
+            continue_label=continue_label,
+            abort_label=abort_label,
+        )
+        try:
+            self._on_event(ScanDialogEvent(request=request))
+        except Exception:
+            logger.debug("on_event callback raised; ignoring", exc_info=True)
+            return "default"
+        if not request.response_event.wait(timeout=_PREFLIGHT_DIALOG_TIMEOUT_S):
+            logger.warning(
+                "Pre-flight dialog %r got no response within %.0f s — "
+                "proceeding with default behavior",
+                title,
+                _PREFLIGHT_DIALOG_TIMEOUT_S,
+            )
+            return "default"
+        return "abort" if request.abort[0] else "continue"
+
+    def _preflight_check_free_run_freshness(self, detectors: list) -> list | None:
+        """Free-run pre-flight: catch dead sync devices before the claim.
+
+        Checks every synchronous device's cached ``acq_timestamp`` freshness
+        (the trigger free-runs before a free-run scan, so live devices have
+        fresh frames) and, when something looks dead, asks the operator via
+        the legacy dialog channel — all *before* the scan folder is claimed,
+        so an abort here burns no scan number.
+
+        Outcomes:
+
+        - every sync device fresh → detectors returned unchanged;
+        - some contributors stale, reference fresh → operator chooses between
+          dropping the stale devices (disconnected, removed from the list)
+          and aborting;
+        - the reference (pacemaker) stale → abort-only v1 (the second button
+          is a clearly-labeled "try anyway" because the dialog channel always
+          offers two options);
+        - ALL sync devices stale → the trigger is probably off / not
+          free-running; the dialog says so instead of accusing every camera;
+        - headless / no consumer / no answer → today's behavior is preserved:
+          proceed and let t0 sync fail loudly.
+
+        Returns
+        -------
+        list or None
+            The (possibly reduced) detector list to proceed with, or ``None``
+            when the operator chose to abort.
+        """
+        sync_devices = [d for d in detectors if hasattr(d, "_last_acq")]
+        if not sync_devices:
+            return detectors
+
+        stale = self._find_stale_sync_devices(sync_devices)
+        if stale and _STALE_RECHECK_WAIT_S > 0:
+            # A just-connected monitor may not have delivered its first frame
+            # yet; give the free-running trigger one more period.
+            time.sleep(_STALE_RECHECK_WAIT_S)
+            stale = self._find_stale_sync_devices(sync_devices)
+        if not stale:
+            return detectors
+
+        def _describe(device: Any, age: float | None) -> str:
+            if age is None:
+                return f"{self._device_label(device)} (no frames since connect)"
+            return f"{self._device_label(device)} (last frame {age:.0f} s ago)"
+
+        details = ", ".join(_describe(dev, age) for dev, age in stale)
+        stale_ids = {id(dev) for dev, _age in stale}
+        reference = sync_devices[0]
+
+        if len(stale) == len(sync_devices):
+            # Every sync device is stale — the likely culprit is the trigger,
+            # not N simultaneously dead cameras.
+            exc = GeecsStaleDevicesError(
+                f"No synchronous device has a fresh frame ({details}). "
+                "The trigger may be off / not free-running — free-run scans "
+                "need the trigger free-running before start. Starting anyway "
+                "will fail at t0 sync if nothing is firing."
+            )
+            decision = self._request_operator_decision(
+                exc,
+                title="Trigger May Be Off",
+                continue_label="Start Anyway",
+            )
+            if decision == "abort":
+                logger.warning("Pre-flight: operator aborted (all sync stale)")
+                return None
+            logger.warning(
+                "Pre-flight: proceeding with all sync devices stale (%s) — "
+                "t0 sync will fail loudly if the trigger is really off",
+                details,
+            )
+            return detectors
+
+        if id(reference) in stale_ids:
+            # v1: a dead reference (pacemaker) is abort-only — promotion is
+            # deliberately out of scope; the "continue" button is a clearly
+            # labeled try-anyway because the dialog always offers two options.
+            exc = GeecsStaleDevicesError(
+                f"The free-run reference (pacemaker) device looks dead: "
+                f"{details}. The scan cannot pace without it; aborting is "
+                "recommended. Trying anyway will fail at t0 sync if it is "
+                "really dead."
+            )
+            decision = self._request_operator_decision(
+                exc,
+                title="Reference Device Looks Dead",
+                continue_label="Try Anyway",
+            )
+            if decision == "abort":
+                logger.warning("Pre-flight: operator aborted (stale reference)")
+                return None
+            logger.warning(
+                "Pre-flight: proceeding with a stale reference (%s) — "
+                "t0 sync will fail loudly if it is really dead",
+                details,
+            )
+            return detectors
+
+        # Some-but-not-all contributors stale, reference fresh: offer to drop
+        # the dead devices and take the scan without them.
+        exc = GeecsStaleDevicesError(
+            f"Synchronous device(s) look dead: {details}. "
+            "Drop them and continue the scan without their data, or abort."
+        )
+        decision = self._request_operator_decision(
+            exc,
+            title="Dead Contributor Device(s)",
+            continue_label="Drop && Continue",
+        )
+        if decision == "abort":
+            logger.warning("Pre-flight: operator aborted (stale contributors)")
+            return None
+        if decision == "default":
+            logger.warning(
+                "Pre-flight: stale contributor(s) %s but no operator answer — "
+                "proceeding unchanged; t0 sync will fail loudly if they are "
+                "really dead",
+                details,
+            )
+            return detectors
+
+        # Drop: disconnect the stale devices and remove them everywhere the
+        # cleanup path would otherwise touch them.
+        for device, _age in stale:
+            logger.warning(
+                "Pre-flight: dropping dead contributor %s from this scan "
+                "(operator chose drop-and-continue); disconnecting it",
+                self._device_label(device),
+            )
+            self._disconnect_device(device)
+        remaining = [d for d in detectors if id(d) not in stale_ids]
+        with self._device_lock:
+            self._detectors = [d for d in self._detectors if id(d) not in stale_ids]
+        return remaining
 
     @staticmethod
     def _log_claimed_scan_failure(
@@ -806,6 +1111,7 @@ class BlueskyScanner:
             max_iterations = len(_build_positions(scan_config))
             n_shots = max_iterations * self._shots_per_step
             self._total_shots = n_shots
+            self._total_steps = max_iterations
             self._set_state("INITIALIZING", total_shots=n_shots)
             logger.info(
                 "Optimization: up to %d iteration(s) × %d shots = %d events, "
@@ -883,6 +1189,16 @@ class BlueskyScanner:
             )
         self._session.shot_control(self._shot_control)
 
+        if not strict:
+            checked = self._preflight_check_free_run_freshness(detectors)
+            if checked is None:
+                # Mirror the _abort_before_acquisition path: setting the flag
+                # makes the scan thread's cleanup report ABORTED and
+                # disconnect every connected device — before any claim.
+                self._abort_requested = True
+                return
+            detectors = checked
+
         if self._abort_before_acquisition():
             return
 
@@ -890,6 +1206,7 @@ class BlueskyScanner:
 
         n_shots = len(positions) * self._shots_per_step
         self._total_shots = n_shots
+        self._total_steps = len(positions)
         self._set_state("INITIALIZING", total_shots=n_shots)
         logger.info(
             "%s: %d step(s) × %d shots/step = %d total events",
