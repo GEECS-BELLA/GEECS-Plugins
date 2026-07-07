@@ -26,6 +26,15 @@ from geecs_ca_gateway.pv_naming import pv_name
 #: ``ophyd_async.epics.core._signal.split_protocol_from_pv``.
 CA_TRANSPORT_PREFIX = "ca://"
 
+#: The gateway per-device status PV (``[Experiment:]Device:CONNECTED``,
+#: PV_CONTRACT.md §1) value meaning the device's TCP stream is down
+#: (enum_strings = ["Disconnected", "Connected"]; MAJOR severity while down).
+#: Liveness convention shared by every consumer in this package: ONLY this
+#: exact choice string reads as down — anything else (``"Connected"``, a mock
+#: backend's ``""`` default, or an unreadable PV) is treated as live, so a
+#: gateway without status PVs can never block a scan (fail-open).
+GATEWAY_DISCONNECTED = "Disconnected"
+
 
 def ca_pv(experiment: str | None, device: str, variable: str) -> str:
     """Gateway PV name for ``(experiment, device, variable)``, pinned to CA.

@@ -30,6 +30,8 @@ __all__ = [
     "GeecsMotorTimeoutError",
     "GeecsT0SyncError",
     "GeecsConfigurationError",
+    "GeecsDeviceDownError",
+    "GeecsStaleDevicesError",
 ]
 
 
@@ -127,3 +129,37 @@ class GeecsT0SyncError(GeecsError):
 
 class GeecsConfigurationError(GeecsError):
     """Runtime configuration is incomplete or inconsistent."""
+
+
+class GeecsDeviceDownError(GeecsError):
+    """A device's gateway ``CONNECTED`` PV reports ``Disconnected``.
+
+    The gateway serves every DB device's PVs whether or not the device's TCP
+    stream is up, so CA-connect success never implied device liveness; the
+    per-device ``[Experiment:]Device:CONNECTED`` status PV is the
+    authoritative signal (PV_CONTRACT.md §1/§5).  Raised (or carried inside
+    the pre-claim operator dialog) when that PV says a device is down:
+    by ``BlueskyScanner._preflight_check_sync_liveness`` before a scan, and
+    by :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
+    no-frame device turns out to be disconnected mid-scan (re-firing cannot
+    help a dead device).  The message is operator-facing.
+    """
+
+    def __init__(self, message: str, device_name: str | None = None) -> None:
+        self.device_name = device_name
+        super().__init__(message)
+
+
+class GeecsStaleDevicesError(GeecsError):
+    """Free-run sync device(s) are CONNECTED but have no fresh frames.
+
+    Carried inside the pre-claim operator dialog raised by
+    ``BlueskyScanner._preflight_check_sync_liveness`` (free-run mode only,
+    after the gateway-liveness stage passed) when cached ``acq_timestamp``
+    frames are missing or too old — all-stale means the trigger is probably
+    off / not free-running; a stale subset is a per-device acquisition
+    problem.  Genuinely *dead* devices are :class:`GeecsDeviceDownError`
+    territory (the ``CONNECTED`` PV), not this.  The message is
+    operator-facing: it names the stale device(s), how stale they are, and
+    what the dialog's options mean.
+    """

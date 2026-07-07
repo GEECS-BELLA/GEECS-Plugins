@@ -203,56 +203,46 @@ in both cases without claiming a folder.
 | Scan-thread → Qt-main-thread bridge | `_scan_event_received` pyqtSignal → `_handle_scan_event` → `_on_dialog_event` → `show_device_error_dialog` | Exists **and already renders dialog events** on the legacy path |
 | `on_event` plumbed to BlueskyScanner | `RunControl` passes the same callback to both backends | Exists |
 
-### What is missing
+### Landed (2026-07-07 — GeecsBluesky 0.21.0, GUI 0.32.0)
 
-1. **BlueskyScanner never emits `ScanDialogEvent`** — `_set_state` emits
-   lifecycle events only. (It also imports the event types defensively, so
-   the addition is symmetric with existing code.)
-2. **A pre-flight staleness check** in `_execute_scan` between
-   `_build_session_devices()` and `claim_scan()`: read each contributor's
-   cached `acq_timestamp`, flag devices whose last shot is older than a
-   threshold (something like `max(3/rep_rate_hz, a few seconds)`; `None` =
-   never acquired = dead).
-3. **Dialog wording.** `show_device_error_dialog` renders any
-   `DialogRequest`, but its text is phrased for device-command errors
-   (Abort/Continue). "Continue" must clearly mean *"drop U_Cam4 and take
-   the scan without it"*. Either a `kind`/message field on the request or a
-   second small dialog function.
-4. **Actually dropping the device**: on "continue", remove the stale device
-   from the detector list (and disconnect it) before handing the list to
-   `GeecsSession.scan()`. In free-run mode, if the stale device is the
-   *reference* (pacemaker), the next sync device must be promoted — that is
-   the one genuinely subtle bit.
+Liveness is **CONNECTED-based**, superseding the original staleness
+heuristic (maintainer decision 2026-07-07): the gateway serves a per-device
+`[Experiment:]Device:CONNECTED` status PV (enum Disconnected/Connected,
+MAJOR severity while the device's TCP stream is down —
+`GeecsCAGateway/PV_CONTRACT.md` §1/§5), and every CA sync device exposes it
+as a non-readable `connected_status` child (never in event rows or
+`describe()`). This closes the actual gap: the gateway serves every DB
+device's data PVs whether or not the device is up, so CA-connect success
+never detected a dead device.
 
-### Smallest honest implementation
-
-In `BlueskyScanner` (all on the scan thread, before the RunEngine is
-involved, so a blocking `response_event.wait(timeout)` is safe):
-
-```
-detectors = self._build_session_devices()
-stale = self._find_stale_contributors(detectors)      # new, ~30 lines
-for dev in stale:
-    request = DialogRequest(exc=StaleContributorError(dev), context=...)
-    self._emit_dialog(request)                        # new: on_event(ScanDialogEvent(request))
-    if not request.response_event.wait(timeout=120) or request.abort[0]:
-        self._set_state("ABORTED"); return            # before claim_scan — no folder burned
-    detectors = drop_and_disconnect(detectors, dev)   # promote reference if needed
-scan_tag, scan_folder = claim_scan(...)               # unchanged
-```
-
-Headless (`GeecsSession` direct, tests, no `on_event`): no callback wired →
-auto-abort, same as `escalate_device_error` does today — fail-loud behavior
-is preserved as the default, the dialog is strictly an upgrade when a human
-is attached.
-
-**Effort class: small.** Roughly a day of focused work plus one lab session
-to tune the staleness threshold and verify the reference-promotion case. No
-new architecture — every channel it needs already exists and is tested on
-the legacy path. The two design decisions worth thinking about first: the
-staleness threshold, and whether reference promotion in free-run mode is
-in-scope for v1 (a defensible v1: if the *reference* is dead, offer
-abort-only).
+`BlueskyScanner._preflight_check_sync_liveness` runs in `_execute_scan`'s
+pre-claim seam, **both modes**: each sync device's `connected_status` is
+read from the scan thread (`run_coroutine_threadsafe` on the RE loop, 2 s
+budget, fail-open — an unreadable CONNECTED PV logs at DEBUG and reads as
+live, so an old gateway can never block a scan). DISCONNECTED devices raise
+a `DialogRequest`-in-`ScanDialogEvent` through the legacy channel:
+drop-and-continue (disconnect + remove from the detector list) vs abort; a
+disconnected free-run *reference* → abort-only v1 (the second button is a
+clearly-labeled "Try Anyway" — promotion deferred). Free-run then keeps the
+`acq_timestamp` staleness check (10 s threshold — only relevant here now;
+~2 s re-check grace) purely for the trigger-must-be-free-running
+requirement: all CONNECTED + all stale → "trigger appears to be off"
+(Start Anyway / Abort); the residual CONNECTED-but-stale contributor with a
+fresh reference keeps the drop dialog (the fresh reference proves the
+trigger runs — a per-device acquisition problem, not a trigger problem).
+Strict is liveness-only (frames are not needed pre-scan; the trigger may
+sit OFF until ARMED — the earlier differential-staleness inference is
+removed). Headless / no consumer / unanswered (30 s timeout) → today's
+fail-loud proceed is preserved. Mid-scan, `geecs_single_shot`'s bounded
+refire is gated on the same signal: a no-frame device reporting
+DISCONNECTED raises `GeecsDeviceDownError` immediately ("went down
+mid-scan — not a frame drop") instead of burning refires.
+`DialogRequest` grew optional `title`/`continue_label`/`abort_label` fields
+so the dialog wording is owned by the request; `show_device_error_dialog`
+honors them (`_resolve_dialog_content`) and is otherwise unchanged. Pinned
+by `GeecsBluesky/tests/test_bluesky_scanner_progress_and_preflight.py`,
+`GeecsBluesky/tests/test_single_shot_plan.py` (refire gating), and
+`GEECS-Scanner-GUI/tests/app/test_gui_dialogs.py`.
 
 ---
 
@@ -272,11 +262,13 @@ option: Block 7 is *done* — what remains is teaching `BlueskyScanner` to
 speak the full event vocabulary the GUI already consumes. And most of that
 is disproportionately cheap:
 
-- **Step/progress events:** `BlueskyScanner._on_document` already counts
-  event documents; emitting a `ScanStepEvent(shots_completed=...)` there is
-  a handful of lines and makes the progress bar work in Bluesky mode. This
-  is the best value-per-line change available in the whole package.
-- **Dialog events:** the §4 use case.
+- **Step/progress events: LANDED 2026-07-07** (GeecsBluesky 0.21.0) —
+  `_on_document` emits a shot-level `ScanStepEvent(phase="completed")` per
+  event document (clamped at `total_shots` against the free-run tail-flush
+  overcount; step index from `bin_number`), so the progress bar works in
+  Bluesky mode with zero GUI changes.
+- **Dialog events: LANDED 2026-07-07** — the §4 use case (see §4's
+  "Landed" section).
 - **`DeviceCommandEvent` translation:** probably *never* worth it — the
   GUI doesn't render them, and the GeecsBluesky CLAUDE.md already suspects
   they "may not need to be" translated. Skip unless something consumes them.
@@ -297,8 +289,9 @@ legacy path is deleted and if a second front-end consumer actually appears.
 Concretely, in order:
 
 1. Emit `ScanStepEvent` from `BlueskyScanner._on_document` (progress bar in
-   Bluesky mode). Tiny.
+   Bluesky mode). Tiny. **Landed 2026-07-07.**
 2. Implement the dead-contributor pre-flight dialog (§4). Small.
+   **Landed 2026-07-07.**
 3. Freeze the legacy engine: no further decomposition, no new event types,
    bug fixes only.
 4. Skip `DeviceCommandEvent` translation and any speculative GUI
@@ -341,9 +334,11 @@ Not done / for later:
 
 - `Planning/STATUS.md` needs no banner — it was already deleted (2026-05-28,
   PR #388); its fate is recorded in §2. Do not resurrect it.
-- Stale *docstrings* referencing the 200 ms timer remain in code (e.g.
-  `engine/dialog_request.py` module docstring, `ScanDialogEvent`'s
-  "In Block 7 ..." note). Docstrings are code; fix them in the next code PR
-  that touches those files, not in this docs branch.
+- Stale *docstrings* referencing the 200 ms timer remain in code
+  (`ScanDialogEvent`'s "In Block 7 ..." note; the
+  `engine/dialog_request.py` module docstring was fixed 2026-07-07 when
+  the pre-flight dialog work touched that file). Docstrings are code; fix
+  them in the next code PR that touches those files, not in this docs
+  branch.
 - Block 4's missing CI guard (engine tests in a Qt-less env) is a
   nice-to-have; add it opportunistically if CI is being touched anyway.

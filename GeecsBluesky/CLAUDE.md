@@ -104,12 +104,17 @@ scanner.stop_scanning_thread()      # RE.abort() + thread join
 session, the `GEECS_USE_BLUESKY` env var (resolved by
 `geecs_scanner.engine.backend_selection`; explicit argument wins, default
 legacy).  That path loads the selected shot-control YAML and passes it as
-`shot_control_information`, and passes the `on_event` callback
-(BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`).
-Still not done in Bluesky mode: `ActionControl` / setup-closeout actions, and
-translating per-shot Bluesky documents into the richer `ScanStepEvent` /
-`DeviceCommandEvent` stream (only lifecycle events are emitted — so the GUI
-progress bar does not advance in Bluesky mode; see
+`shot_control_information`, and passes the `on_event` callback:
+BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`,
+shot-level `ScanStepEvent`s per event document via `_on_document` (so the
+GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
+from the gateway-liveness check (both modes: each sync device's
+`connected_status` — the gateway `CONNECTED` PV — is read pre-claim; free-run
+adds a staleness stage for the trigger-must-be-free-running requirement)
+(all defensive imports — headless
+installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
+translation is deliberately skipped (no consumer).  Still not done in
+Bluesky mode: `ActionControl` / setup-closeout actions (see
 `Planning/gui_stewardship/00_overview.md`).  Acquisition mode is chosen by
 the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
 (intentional; bluesky is still being derisked).
@@ -214,6 +219,11 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
   `acq_timestamp` feeding a local cache/queue (the CA analogue of the old TCP
   shot cache). Non-positive timestamps are ignored: `0.0` is the gateway
   channel's pre-acquisition placeholder, so "never acquired" reads as `None`.
+  Also carries a non-readable `connected_status` child on the gateway's
+  per-device `CONNECTED` PV (created outside `add_children_as_readables()`,
+  so never in event rows) — the authoritative liveness signal consumed by
+  the scanner pre-flight and the strict refire gate; only the exact
+  `"Disconnected"` reading means down (fail-open otherwise).
 - **`CaTriggerable`** — `trigger()` completes when `acq_timestamp` advances.
   The stale-drain and baseline happen **synchronously in `trigger()`** so a
   shot fired immediately after `bps.trigger` (strict single-shot) can't be
@@ -289,7 +299,7 @@ api_key = <key>
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
 
-## Known Gaps (as of 0.19.0)
+## Known Gaps (as of 0.21.0)
 
 The acquisition-modes architecture is complete and hardware-verified (both
 modes, including single-shot; GUI-launched scans verified live 2026-07-06).
@@ -301,14 +311,14 @@ Remaining items are features/tuning, not architecture — see
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
-- **Only lifecycle `ScanEvent`s are emitted** via `on_event` (through
-  `_set_state`).  Per-shot/step Bluesky documents are not translated into the
-  richer `ScanStepEvent` / `DeviceCommandEvent` stream, so the GUI progress
-  bar does not advance in Bluesky mode and no operator dialogs
-  (`ScanDialogEvent`) can be raised.  `ScanStepEvent` emission and a
-  pre-flight dead-contributor dialog are the recommended next investments —
-  see `Planning/gui_stewardship/00_overview.md` §4–5.
-  (`DeviceCommandEvent` translation may never be needed.)
+- **`DeviceCommandEvent`s are not translated** (deliberate — the GUI does
+  not render them; see `Planning/gui_stewardship/00_overview.md` §5).
+  Lifecycle, step/progress, and pre-flight dialog events are emitted as of
+  0.21.0.  Pre-flight liveness is CONNECTED-based (the gateway serves every
+  DB device's data PVs whether or not the device is up, so CA-connect
+  success never implied liveness); the 10 s staleness threshold now only
+  matters for the free-run trigger-off check and still needs a lab session
+  of tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.

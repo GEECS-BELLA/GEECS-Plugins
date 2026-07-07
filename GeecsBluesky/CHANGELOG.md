@@ -4,6 +4,65 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.21.0] - 2026-07-07
+
+### Added
+
+- **GUI progress events in Bluesky mode** — `BlueskyScanner._on_document`
+  now emits a `ScanStepEvent` (shot-level, `phase="completed"`) for every
+  Bluesky event document through the same `on_event` callback as the
+  lifecycle events, so the Scanner GUI progress bar advances identically
+  for both backends with no GUI changes (`shots_completed` = running
+  event-document count, clamped at `total_shots` so the free-run
+  tail-flush overcount stays cosmetic; step index derived from the
+  schema-v1 `bin_number` column). Closes the "progress bar never advances
+  in Bluesky mode" gap — see `Planning/gui_stewardship/00_overview.md` §5.
+- **Gateway-liveness pre-flight dialog (both acquisition modes)** — every
+  CA sync device now carries a non-readable `connected_status` child on the
+  gateway's per-device `[Experiment:]Device:CONNECTED` status PV (enum
+  `Disconnected`/`Connected`, MAJOR severity while the device's TCP stream
+  is down — PV_CONTRACT.md §1/§5), created outside
+  `add_children_as_readables()` so it never appears in event rows or
+  `describe()`. This is the authoritative, mode-independent liveness
+  signal: **the gateway serves every DB device's data PVs whether or not
+  the device is up, so CA-connect success never implied device liveness**
+  (an OFF camera's PVs connect fine — the root cause of the 2026-07-07
+  strict Scan006 incident, where a dead camera burned all three refires
+  post-claim). Before a scan claims its folder (so an abort burns no scan
+  number), `BlueskyScanner._preflight_check_sync_liveness` reads each sync
+  device's `connected_status` from the scan thread
+  (`run_coroutine_threadsafe` on the RE loop, 2 s budget, **fail-open**: an
+  unreadable CONNECTED PV — e.g. an old gateway without status PVs — logs
+  at DEBUG and reads as live). Devices reporting DISCONNECTED raise an
+  operator dialog through the legacy channel (`DialogRequest` inside a
+  `ScanDialogEvent`): drop-and-continue (disconnected, removed from the
+  detector list, logged loudly) vs abort; a disconnected free-run reference
+  (pacemaker) is abort-only in v1 (second button is a clearly-labeled
+  "Try Anyway"). In free-run mode a second stage keeps the `acq_timestamp`
+  staleness check (threshold 10 s — now relevant *only* here — with one
+  ~2 s re-check grace) for the trigger-must-be-free-running requirement,
+  now unambiguous: all devices CONNECTED but all frames stale → "trigger
+  appears to be off" dialog (Start Anyway / Abort); the residual
+  CONNECTED-but-stale contributor with a fresh reference keeps the drop
+  dialog (the fresh reference proves the trigger runs, so it is a
+  per-device acquisition problem). Strict mode is liveness-only — the
+  previous differential-staleness heuristic is removed (CONNECTED is
+  authoritative; frames are not needed pre-scan since the trigger may sit
+  OFF until ARMED). Headless (`on_event=None`), missing geecs_scanner, or
+  an unanswered dialog (30 s timeout) preserve today's behavior — proceed
+  and fail loudly downstream. New `GeecsDeviceDownError` carries the
+  disconnected-device message; `GeecsStaleDevicesError` remains for the
+  free-run staleness dialogs. Implements the stewardship plan's first
+  concrete use case (`Planning/gui_stewardship/00_overview.md` §4).
+- **Refire gated on gateway liveness** — `geecs_single_shot`'s bounded
+  refire now reads the frameless device's `connected_status` (via `bps.rd`
+  in plan context) before re-firing: a device reporting DISCONNECTED gets
+  no refire — the plan raises `GeecsDeviceDownError` immediately, naming
+  the device as down ("went down mid-scan — not a frame drop"), instead of
+  burning ~3 s attempts against hardware that cannot answer. A live or
+  unreadable status (fail-open) keeps the existing `max_refires` semantics
+  for genuine frame drops.
+
 ## [0.20.0] - 2026-07-06
 
 ### Added

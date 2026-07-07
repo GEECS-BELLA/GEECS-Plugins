@@ -1,14 +1,20 @@
 """Thread-safe dialog request type and device-error escalation helpers.
 
-Worker threads that encounter a device error create a :class:`DialogRequest`,
-put it on ``ScanManager.dialog_queue``, and block on ``response_event.wait()``.
-The Qt main thread (via the 200 ms QTimer in ``GEECSScannerWindow``) drains the
-queue and shows the dialog.  The actual Qt code lives in
-``geecs_scanner.app.gui_dialogs`` so this module stays import-safe in headless
-environments.
+Worker threads that need an operator decision create a :class:`DialogRequest`,
+emit it inside a ``ScanDialogEvent`` through the ``on_event`` callback, and
+block on ``response_event.wait()``.  The GUI receives the event on the Qt main
+thread (via the ``_scan_event_received`` pyqtSignal), shows the dialog, and
+answers by writing ``abort[0]`` and setting ``response_event``.  The actual Qt
+code lives in ``geecs_scanner.app.gui_dialogs`` so this module stays
+import-safe in headless environments.
+
+Both scan backends use this channel: the legacy engine for device-command
+escalation, and ``BlueskyScanner`` (GeecsBluesky) for pre-flight operator
+dialogs — the latter imports this module defensively, so it must stay free of
+Qt and of heavyweight imports.
 
 Issue #312 tracking note: the old module called Qt directly from worker threads
-(unsafe).  The queue-based pattern implemented here resolves that.
+(unsafe).  The request/response pattern implemented here resolves that.
 """
 
 from __future__ import annotations
@@ -93,10 +99,22 @@ class DialogRequest:
     Parameters
     ----------
     exc :
-        The device exception that triggered the dialog.
+        The exception that triggered the dialog.  For requests carrying
+        their own ``title``/labels, ``str(exc)`` is the full operator-facing
+        dialog body.
     context :
         Optional extra information shown in the dialog body — e.g. the full
         list of variables being set for a device when the error occurred.
+    title :
+        Optional dialog window title.  ``None`` (legacy device-command
+        requests) keeps the title derived from the exception type.
+    continue_label :
+        Optional text for the non-abort button (e.g. ``"Drop && Continue"``).
+        ``None`` keeps the default ``"Continue"``.  When set, the dialog body
+        is ``str(exc)`` verbatim — the request author owns the wording of
+        what "continue" means.
+    abort_label :
+        Optional text for the abort button.  ``None`` keeps ``"Abort"``.
     response_event :
         Set by the main thread once the user has responded.
     abort :
@@ -106,5 +124,8 @@ class DialogRequest:
 
     exc: Exception
     context: Optional[str] = None
+    title: Optional[str] = None
+    continue_label: Optional[str] = None
+    abort_label: Optional[str] = None
     response_event: threading.Event = field(default_factory=threading.Event)
     abort: list[bool] = field(default_factory=lambda: [False])

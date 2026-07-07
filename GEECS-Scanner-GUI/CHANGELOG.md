@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.0] — 2026-07-07
+
+### Added
+
+- **`DialogRequest` grew optional `title`, `continue_label`, and
+  `abort_label` fields** so a request author can own the dialog wording —
+  used by GeecsBluesky's free-run pre-flight dead-contributor dialog
+  ("Drop && Continue" vs "Abort Scan") emitted through the existing
+  `ScanDialogEvent` channel. Unset fields keep the legacy device-command
+  rendering byte-for-byte; existing positional `(exc, context)`
+  construction is pinned unchanged. See
+  `Planning/gui_stewardship/00_overview.md` §4.
+
+### Changed
+
+- **`show_device_error_dialog` honors the request's custom title/labels**
+  via a new pure helper `_resolve_dialog_content` (requests with custom
+  fields render `str(exc)` verbatim as the body; plain requests keep the
+  device-command message construction). With this plus GeecsBluesky
+  0.21.0's `ScanStepEvent` emission, the Bluesky backend drives the GUI
+  progress bar and operator dialogs with **no changes to the GUI event
+  handlers** (`_handle_scan_event` / `_on_step_event` / `_on_dialog_event`).
+- `engine/dialog_request.py` module docstring updated — it described the
+  removed 200 ms QTimer/`dialog_queue` pattern (flagged in
+  `Planning/gui_stewardship/00_overview.md` §6).
+
 ## [0.31.0] — 2026-07-06
 
 ### Added
