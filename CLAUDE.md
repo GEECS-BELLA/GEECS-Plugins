@@ -206,7 +206,10 @@ Every package has a `CHANGELOG.md` following
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`.
 
-Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
+Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
+deployed across experiments or one we may need to reproduce (e.g. the
+access-layer landing, 2026-07-06) — not on every merge. The per-package
+`CHANGELOG.md` + `pyproject.toml` versions are the routine record.
 
 ## Cross-package invariants
 
