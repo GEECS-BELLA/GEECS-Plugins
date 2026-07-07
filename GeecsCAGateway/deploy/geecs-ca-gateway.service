@@ -1,15 +1,20 @@
-# GEECS → EPICS Channel Access gateway — systemd unit for the lab deployment
-# on abmx-Super-Server (192.168.6.14), alongside the GEECS MySQL DB and Tiled.
+# GEECS → EPICS Channel Access gateway — systemd unit for the lab gateway host
+# (192.168.6.14, alongside the GEECS MySQL DB and Tiled).
+#
+# The User= and path lines below use a generic `geecs` service account —
+# substitute the real account on your box when installing; the copy in
+# /etc/systemd/system is the home for site specifics, not this file.
 #
 # Install (from the repo checkout on the box):
 #   sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
+#   sudoedit /etc/systemd/system/geecs-ca-gateway.service   # fix User + paths
 #   sudo systemctl daemon-reload
 #   sudo systemctl enable --now geecs-ca-gateway
 #
 # Upgrade / DB-resync (a restart IS both — config rebuilds live from the DB):
 #   git pull && poetry install && sudo systemctl restart geecs-ca-gateway
 #
-# Adjust User/paths for a different box; see deploy/README.md and DEPLOYMENT.md.
+# See deploy/README.md and DEPLOYMENT.md.
 
 [Unit]
 Description=GEECS to EPICS Channel Access gateway (Undulator)
@@ -21,14 +26,14 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=abmx
+User=geecs
 # Poetry resolves its cache/venvs under $HOME; systemd does not always set it.
-Environment=HOME=/home/abmx
-WorkingDirectory=/home/abmx/GEECS-Plugins/GeecsCAGateway
+Environment=HOME=/home/geecs
+WorkingDirectory=/home/geecs/GEECS-Plugins/GeecsCAGateway
 # Serve CA only on the lab interface (write-safety residual — no CA-level auth).
 Environment=EPICS_CAS_INTF_ADDR_LIST=192.168.6.14
 Environment=EPICS_CAS_BEACON_ADDR_LIST=192.168.6.255
-ExecStart=/home/abmx/.local/bin/poetry run python -m geecs_ca_gateway --experiment Undulator
+ExecStart=/home/geecs/.local/bin/poetry run python -m geecs_ca_gateway --experiment Undulator
 Restart=on-failure
 RestartSec=10
 # Remote restart: a CA put to <Experiment>:CAGateway:RESTART makes the gateway

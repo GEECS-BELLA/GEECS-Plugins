@@ -1,9 +1,12 @@
 # Deploying the gateway as a service
 
-`geecs-ca-gateway.service` is the systemd unit for the current lab deployment
-(user `abmx`, checkout at `/home/abmx/GEECS-Plugins`, serving on
-`192.168.6.14`). The full deployment context — config resolution, network
-scoping, the client-side recipe, smoke tests, log expectations — is in
+`geecs-ca-gateway.service` is the systemd unit for the lab deployment
+(serving on `192.168.6.14`). It is written against a generic `geecs` service
+account — substitute the real account/paths on your box in the installed copy
+(`User=`, `Environment=HOME=`, `WorkingDirectory=`, `ExecStart=`); site
+specifics belong in `/etc/systemd/system`, not in this repo. The full
+deployment context — config resolution, network scoping, the client-side
+recipe, smoke tests, log expectations — is in
 [`DEPLOYMENT.md`](../DEPLOYMENT.md).
 
 ## Install
@@ -20,6 +23,7 @@ poetry run python -m geecs_ca_gateway --experiment Undulator --log-level INFO
 # ^ run once in the foreground; Ctrl-C once PVs are serving cleanly
 
 sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
+sudoedit /etc/systemd/system/geecs-ca-gateway.service   # User= + the three paths
 sudo systemctl daemon-reload
 sudo systemctl enable --now geecs-ca-gateway
 ```
