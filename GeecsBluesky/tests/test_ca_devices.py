@@ -283,12 +283,14 @@ async def test_trigger_cold_cache_shot_before_coroutine_runs_not_lost() -> None:
     assert status.done
 
 
-async def test_trigger_cold_cache_placeholder_baseline_then_shot() -> None:
-    """Cold cache, empty queue: a 0.0 placeholder baseline never masks the shot.
+async def test_trigger_cold_cache_shot_after_coroutine_starts() -> None:
+    """Cold cache, no baseline get: a mid-wait first acquisition is the shot.
 
-    The gateway's acq_timestamp PV holds 0.0 before the device's first
-    acquisition; the cold path's CA get normalizes that placeholder to None so
-    a later positive update always passes the shot test.
+    The cold path deliberately takes no CA-get baseline (a get raced the shot
+    itself: a first acquisition landing inside the get's round-trip became
+    the baseline and the strict shot timed out — flagged in PR #452 review).
+    With t0 = None the first positive monitor update completes the trigger,
+    no matter when it arrives relative to the coroutine starting.
     """
     dev = CaTriggerable(
         "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
@@ -298,7 +300,7 @@ async def test_trigger_cold_cache_placeholder_baseline_then_shot() -> None:
     assert dev._last_acq is None  # mock backend initial value is the 0.0 placeholder
 
     status = dev.trigger()
-    await asyncio.sleep(0.05)  # let the coroutine run: empty queue, get -> 0.0
+    await asyncio.sleep(0.05)  # coroutine is already waiting on the queue
     set_mock_value(dev.acq_timestamp, 101.0)  # first real acquisition
     await asyncio.wait_for(status, timeout=2.0)
     assert status.done

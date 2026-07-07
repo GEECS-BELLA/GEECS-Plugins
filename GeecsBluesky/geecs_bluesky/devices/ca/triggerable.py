@@ -206,55 +206,37 @@ class CaTriggerable(CaAcqTimestampReadable):
     def trigger(self) -> AsyncStatus:
         """Return a status that completes once ``acq_timestamp`` has advanced.
 
-        When the monitor cache is already populated, the stale-update drain and
-        baseline capture happen synchronously *here*, not in the returned
-        coroutine — so a shot fired immediately after this call (the strict
-        single-shot pattern) can never be missed.  On a cold cache
-        (``_last_acq is None``) nothing is drained: no real acquisition has
-        ever reached the monitor, so anything that lands in the queue after
-        this call *is* the shot — see :meth:`_wait_for_shot`.
+        The stale-update drain and baseline capture happen synchronously
+        *here*, not in the returned coroutine — so a shot fired immediately
+        after this call (the strict single-shot pattern) can never be missed.
+
+        The drain runs on the cold path too (``_last_acq is None``): the only
+        thing it can discard there is a stale CA *subscribe replay* (the
+        monitor's initial current-value update after a (re)connect, which can
+        carry an old positive timestamp) that arrived between connect and this
+        call.  It can never discard a real requested shot — nothing fires
+        before ``trigger()`` returns — and in free-run mode pre-trigger frames
+        are exactly what "wait for the *next* shot" must ignore.
         """
         t0 = self._last_acq
-        if t0 is not None:
-            while not self._shot_queue.empty():
-                self._shot_queue.get_nowait()
+        while not self._shot_queue.empty():
+            self._shot_queue.get_nowait()
         return AsyncStatus(self._wait_for_shot(t0))
 
     async def _wait_for_shot(self, t0: float | None) -> None:
         """Wait for the next monitor update carrying a new ``acq_timestamp``.
 
-        Cold-cache path (``t0 is None``): the monitor callback filters
-        non-positive values and caches everything else, so a cold cache means
-        the monitor has delivered *no* real acquisition since subscribe.  Any
-        positive value in the queue at this point is therefore a genuinely new
-        acquisition — the shot — never a stale replay.  That invariant lets
-        this path (1) treat an already-queued value as the shot immediately,
-        (2) take a CA-get baseline only when the queue is empty, normalizing
-        the gateway's ``0.0`` pre-acquisition placeholder to ``None`` so every
-        future positive arrival passes the shot test, and (3) never drain the
-        queue here — this coroutine runs *after* ``trigger()`` returned, so a
-        drain could discard the strict-mode shot fired in between.
-
-        Residual race: a shot arriving between the queue check in (1) and
-        ``get_value()`` returning in (2) can hand back that same shot's
-        timestamp as the baseline, making the queued equal value fail the
-        ``!= t0`` test.  It requires the very first acquisition since
-        subscribe to land inside a single CA round-trip and is the only
-        remaining window; the persistent monitor normally warms the cache
-        long before a scan, so the cold path itself is not expected mid-scan.
+        Cold-cache path (``t0 is None``): there is deliberately **no CA-get
+        baseline** here.  A baseline get raced the shot itself — a first
+        acquisition landing inside the get's round-trip became the baseline,
+        the queued equal value failed the ``!= t0`` test, and the strict
+        single shot timed out.  It is also unnecessary: ``trigger()`` drained
+        everything older (including any stale subscribe replay, which arrives
+        at connect time — seconds before any trigger), and on an established
+        monitor every subsequent update is a genuinely new frame.  So on a
+        cold cache the first positive arrival after ``trigger()`` *is* the
+        shot, with no baseline to mistake it for.
         """
-        if t0 is None:
-            if not self._shot_queue.empty():
-                value = self._shot_queue.get_nowait()
-                logger.debug(
-                    "%s: shot detected on cold cache (queued %s)",
-                    self._geecs_device_name,
-                    value,
-                )
-                return
-            v = await self.acq_timestamp.get_value()
-            t0 = v if v and v > 0 else None
-
         logger.debug(
             "%s: waiting for %s to advance past %s (timeout=%.1fs)",
             self._geecs_device_name,

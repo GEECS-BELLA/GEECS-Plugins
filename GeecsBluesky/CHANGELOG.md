@@ -15,13 +15,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   coroutine and then drained the shot queue. A strict-mode shot fired
   immediately after `trigger()` could land before the coroutine ran and be
   (a) drained away, or (b) become the baseline itself — either way the
-  single shot timed out (`GeecsTriggerTimeoutError`). Because the monitor
-  callback filters non-positive placeholders, any positive queued value on a
-  cold cache is a genuinely new acquisition: the cold path now treats an
-  already-queued value as the shot, normalizes the gateway's `0.0`
-  pre-acquisition placeholder baseline to `None`, and never drains the
-  queue. Warm-path behavior (synchronous drain + baseline in `trigger()`)
-  is unchanged.
+  single shot timed out (`GeecsTriggerTimeoutError`). The cold path now
+  takes **no CA-get baseline at all** (review follow-up: the get raced the
+  shot — a first acquisition landing inside the get's round-trip became the
+  baseline). Instead, `trigger()` drains the queue synchronously on both
+  paths — on a cold cache the drain can only discard a stale CA subscribe
+  replay, never a requested shot, since nothing fires before `trigger()`
+  returns — and the first positive monitor update after `trigger()` is the
+  shot. Warm-path behavior (synchronous drain + `!= t0` baseline test in
+  `trigger()`) is unchanged.
 - **Off-network session/scanner construction no longer blocks on the Tiled
   server** — `subscribe_tiled` (used by `GeecsSession(tiled=True)`, and
   therefore `BlueskyScanner`) called `tiled.client.from_uri` unconditionally,
