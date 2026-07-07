@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.1] — 2026-07-06
+
+### Changed
+
+- Native-file naming is now imported from `geecs_data_utils.native_files`:
+  `optimization/session_bridge.py`'s `_expected_native_file` delegates to
+  the shared `native_file_path`, retiring the "do not refactor from here"
+  duplication note — the contract now lives in geecs-data-utils, shared with
+  GeecsBluesky's asset registry and ScanAnalysis's timestamp file mapping.
+  No behavior change; the `TestExpectedNativeFile` / `TestAwaitBinAssets`
+  tests pass unchanged.
+
 ## [0.30.0] — 2026-07-05
 
 ### Added

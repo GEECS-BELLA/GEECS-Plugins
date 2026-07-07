@@ -8,6 +8,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from geecs_data_utils import native_file_name, native_file_path
+
 from geecs_bluesky.assets.specs import (
     FROG_DEVICE_TYPE,
     GEECS_CAMERA_IMAGE,
@@ -99,9 +101,14 @@ def native_file_filename(
     acq_timestamp: float,
     extension: str,
 ) -> str:
-    """Return the native GEECS filename for one timestamped device file."""
+    """Return the native GEECS filename for one timestamped device file.
+
+    The naming contract itself lives in
+    :mod:`geecs_data_utils.native_files`; this wrapper only normalizes a
+    bare extension to a leading-dot file tail.
+    """
     normalized_extension = extension if extension.startswith(".") else f".{extension}"
-    return f"{device_name}_{acq_timestamp:.3f}{normalized_extension}"
+    return native_file_name(device_name, acq_timestamp, normalized_extension)
 
 
 def _camera_image_path(
@@ -122,19 +129,32 @@ def _native_file_path_builder(
     extension: str,
     directory_suffix: str = "",
 ) -> FilePathBuilder:
+    """Build a :data:`FilePathBuilder` over the shared naming contract.
+
+    ``save_path`` is the device's *bare* save folder
+    (``{scan_folder}/{device}``); a ``directory_suffix`` redirects to the
+    suffixed sibling folder via :func:`geecs_data_utils.native_file_path`,
+    which folds the suffix into both the folder and the filename stem.
+    """
+    file_tail = extension if extension.startswith(".") else f".{extension}"
+
     def build_path(
         save_path: str | Path,
         scan_number: int,
         device_name: str,
         acq_timestamp: float,
     ) -> Path:
-        directory = Path(save_path)
         if directory_suffix:
-            directory = directory.parent / f"{device_name}{directory_suffix}"
-        file_device_name = f"{device_name}{directory_suffix}"
-        return directory / native_file_filename(
+            return native_file_path(
+                Path(save_path).parent,
+                device_name,
+                acq_timestamp,
+                file_tail,
+                directory_suffix=directory_suffix,
+            )
+        return Path(save_path) / native_file_filename(
             scan_number=scan_number,
-            device_name=file_device_name,
+            device_name=device_name,
             acq_timestamp=acq_timestamp,
             extension=extension,
         )

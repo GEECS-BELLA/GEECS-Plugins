@@ -4,6 +4,18 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.2] - 2026-07-06
+
+### Changed
+
+- Native-file naming is now imported from `geecs_data_utils.native_files`:
+  `assets/registry.py`'s `native_file_filename` and the internal
+  `_native_file_path_builder` delegate to the shared contract module
+  (`native_file_name` / `native_file_path`, which folds `directory_suffix`
+  into both the folder and the filename stem). The registry keeps its
+  bare-extension normalization as a local wrapper. No behavior change; the
+  registry/asset tests pass unchanged.
+
 ## [0.19.1] - 2026-07-06
 
 ### Fixed

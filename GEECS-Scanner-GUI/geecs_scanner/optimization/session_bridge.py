@@ -38,6 +38,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from geecs_data_utils import native_file_path
 
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
 
@@ -57,20 +58,10 @@ def _expected_native_file(
     ...).  The suffixed stem names **both** the subfolder and the filename —
     a suffixed device never writes into the bare device folder.
 
-    This filename contract is currently duplicated across three packages:
-    ``geecs_bluesky.assets.registry`` (``native_file_filename`` +
-    ``_native_file_path_builder``, which folds ``directory_suffix`` into the
-    stem on the device-write side), ScanAnalysis's
-    ``SingleDeviceScanAnalyzer`` (``_establish_additional_paths`` +
-    ``_map_files_by_acq_timestamp``, which read via ``data_device_name``),
-    and this call site.  Keep the three consistent; do **not** refactor the
-    contract into a shared module from here.
+    The naming contract is owned by :mod:`geecs_data_utils.native_files`;
+    this is a thin wrapper for a pre-composed suffixed stem.
     """
-    return (
-        Path(scan_folder)
-        / file_device_name
-        / f"{file_device_name}_{acq_timestamp:.3f}{file_tail}"
-    )
+    return native_file_path(scan_folder, file_device_name, acq_timestamp, file_tail)
 
 
 def _column_map(devices: List[Any]) -> Dict[str, str]:
