@@ -31,6 +31,11 @@ Environment=EPICS_CAS_BEACON_ADDR_LIST=192.168.6.255
 ExecStart=/home/abmx/.local/bin/poetry run python -m geecs_ca_gateway --experiment Undulator
 Restart=on-failure
 RestartSec=10
+# Remote restart: a CA put to <Experiment>:CAGateway:RESTART makes the gateway
+# exit with code 86, which systemd treats as "relaunch" (clean, not a failure).
+# This is also how the served set resyncs after a GEECS DB edit — no SSH needed.
+SuccessExitStatus=86
+RestartForceExitStatus=86
 SyslogIdentifier=geecs-ca-gateway
 
 [Install]

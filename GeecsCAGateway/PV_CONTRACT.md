@@ -98,6 +98,16 @@ Every device gets exactly one status PV: `[Experiment:]Device:CONNECTED`.
 is **reserved**: a real GEECS device whose PVs would land there trips the
 collision guard at startup rather than silently clobbering the status PVs.
 
+**`[Experiment:]CAGateway:RESTART`** is the one *client-writable* PV in the
+namespace (the devIocStats `SYSRESET` pattern): an enum with states
+`["Idle", "Restart"]`. Writing `Restart` (label or index 1) makes the gateway
+shut down cleanly and exit with the restart code (86); under the shipped
+systemd unit that is an automatic relaunch, which — because the served set
+rebuilds live from the GEECS database at startup — is also the **DB-resync
+mechanism** after a device/get-list edit. Writing `Idle`/0 is a no-op.
+Expect a few seconds of CA disconnect; monitors reconnect automatically.
+Outside systemd (a foreground run) the process simply exits.
+
 ### Long-string (path) PVs
 
 EPICS `DBR_STRING` caps at 40 characters, and GEECS save paths routinely exceed
@@ -416,6 +426,7 @@ that branch and are part of this contract's target behavior.
 | Manifest as authoritative map; `:SP` only when settable | `test_gateway.py::test_experiment_prefix_and_manifest`, `::test_pvdb_contains_readback_and_setpoint` |
 | Genuine collision raises; exact duplicates tolerated | `test_gateway.py::test_pv_name_collision_raises`; `test_config_from_db.py::test_from_db_metadata_dedupes_duplicate_variables` |
 | Reserved `CAGateway`/status namespace guarded | `test_gateway.py::test_pvdb_has_connected_and_gateway_status_pvs`; `test_pv_contract.py::test_status_pv_namespace_is_collision_guarded` |
+| `CAGateway:RESTART` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |

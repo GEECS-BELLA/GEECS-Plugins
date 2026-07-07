@@ -15,6 +15,14 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   `GeecsDb.get_experiment_device_variables` — batch counterparts of
   `find_device` / `get_device_variables` that fetch a whole experiment's
   endpoints and variable metadata in one query each.
+- **`CAGateway:RESTART` PV — remote restart / DB resync from any CA client**
+  (the devIocStats `SYSRESET` pattern). Writing `Restart` makes the gateway
+  shut down cleanly and exit with code 86; the shipped systemd unit's
+  `RestartForceExitStatus` turns that into a relaunch, which rebuilds the
+  served set from the GEECS database. After a DB edit (device added/removed,
+  get-list changed) a Phoebus button, GUI action, or one-line `caproto-put`
+  resyncs the gateway — no SSH into the box. Writing `Idle`/0 is a no-op.
+  Documented in `PV_CONTRACT.md` §6 with pinned tests.
 
 ### Changed
 

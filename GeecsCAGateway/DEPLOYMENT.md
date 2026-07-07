@@ -267,6 +267,15 @@ sudo systemctl enable --now geecs-ca-gateway
 - A **restart is also the upgrade and the DB-resync mechanism**: `git pull &&
   poetry install && systemctl restart geecs-ca-gateway` — matching the
   existing GEECS master-GUI reboot pattern for device-set changes.
+- **DB edits don't need shell access**: any CA client can write the
+  `[Experiment:]CAGateway:RESTART` PV (devIocStats `SYSRESET` pattern) and
+  the gateway exits with code 86, which the unit's `RestartForceExitStatus`
+  turns into a relaunch — serving the freshly edited device/get-list set a
+  few seconds later. A Phoebus button, a GUI menu action, or a one-liner:
+
+  ```bash
+  caproto-put Undulator:CAGateway:RESTART Restart
+  ```
 - Later sharding for fault isolation = more units with different
   `--experiment`/subsystem configs; CA name resolution makes this invisible to
   clients (DESIGN.md).

@@ -50,6 +50,14 @@ cd GeecsCAGateway && poetry install
 sudo systemctl restart geecs-ca-gateway
 ```
 
+**After a DB edit, no shell needed**: write the restart PV from any CA client
+on the lab subnet (the unit's `RestartForceExitStatus=86` relaunches the
+service, which rebuilds its config from the DB):
+
+```bash
+caproto-put Undulator:CAGateway:RESTART Restart
+```
+
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,

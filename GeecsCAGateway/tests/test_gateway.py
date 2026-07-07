@@ -765,3 +765,23 @@ class TestEmptyValueSkip:
         callback = gw._make_callback(dev)
         await callback({"localsavingpath": ""})
         assert logs["localsavingpath"] == [""]
+
+
+async def test_run_returns_true_on_restart_request(monkeypatch) -> None:
+    """A CA put to CAGateway:RESTART ends run() cleanly, reporting the request.
+
+    The entrypoint turns the True return into the restart exit code, which the
+    systemd unit's RestartForceExitStatus converts into a service relaunch.
+    """
+    gw = GeecsCaGateway(GatewayConfig(devices=[]))
+
+    async def fake_serve() -> None:
+        await asyncio.sleep(30)  # stand in for the CA server (no real ports)
+
+    monkeypatch.setattr(gw, "serve", fake_serve)
+    run_task = asyncio.create_task(gw.run())
+    await asyncio.sleep(0.05)
+    assert not run_task.done()  # serving; no restart requested yet
+
+    await gw.pvdb["CAGateway:RESTART"].write("Restart")
+    assert await asyncio.wait_for(run_task, timeout=5) is True

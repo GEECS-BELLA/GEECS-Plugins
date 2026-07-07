@@ -30,3 +30,29 @@ def test_experiment_required() -> None:
     """--experiment is mandatory."""
     with pytest.raises(SystemExit):
         _parse_args([])
+
+
+def test_main_exits_with_restart_code(monkeypatch) -> None:
+    """A restart-requested run makes main() exit with RESTART_EXIT_CODE."""
+    from geecs_ca_gateway import __main__ as entry
+
+    async def fake_run(experiment: str, **kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(entry, "_run", fake_run)
+    # --show-missing: without it main() installs a process-global log filter
+    # that would swallow the warning test_transport asserts later in the run.
+    with pytest.raises(SystemExit) as exc_info:
+        entry.main(["--experiment", "X", "--show-missing"])
+    assert exc_info.value.code == entry.RESTART_EXIT_CODE
+
+
+def test_main_returns_normally_without_restart(monkeypatch) -> None:
+    """A normal shutdown does not raise SystemExit."""
+    from geecs_ca_gateway import __main__ as entry
+
+    async def fake_run(experiment: str, **kwargs: object) -> bool:
+        return False
+
+    monkeypatch.setattr(entry, "_run", fake_run)
+    entry.main(["--experiment", "X", "--show-missing"])  # no exception
