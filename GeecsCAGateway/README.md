@@ -23,6 +23,19 @@ protocol (`geecs_ca_gateway.transport`), the experiment database
 Bluesky side consumes the PVs as a service (stock ophyd-async EPICS signals)
 and imports only the library parts (`GeecsDb`, `pv_naming`).
 
+## Documentation
+
+- **[`PV_CONTRACT.md`](PV_CONTRACT.md)** — the normative contract every CA
+  client relies on: PV naming, readback/setpoint semantics, timestamps and
+  the frame-ordering guarantee, type mapping, alarm policy, collision and
+  failure semantics. Every claim is pinned by a test.
+- **[`DEPLOYMENT.md`](DEPLOYMENT.md)** — launching the gateway (CLI, config
+  resolution), the current dev deployment and its risks, the client-side
+  recipe (including Windows), smoke tests, and the target systemd shape.
+- **[`DESIGN.md`](DESIGN.md)** — why the gateway exists (one standard access
+  layer vs N bespoke bridges), the caproto decision, foundational decisions,
+  and the honest gap list.
+
 ## Try it (offline, no hardware or lab network)
 
 ```bash
@@ -37,20 +50,20 @@ serves PVs you can poke with real CA tools (`caget`/`camonitor`/`caput`).
 poetry run pytest        # offline tests (fake server)
 ```
 
-## Status — proof of concept
+## Status — in production use
 
-Working: dynamic PVs from a `GatewayConfig`, stream→readback, caput→UDP set,
-units/precision metadata, offline fake-server tests.
+Working and load-bearing: DB-driven whole-experiment config
+(`python -m geecs_ca_gateway --experiment NAME`), stream→readback with GEECS
+timestamps, caput→blocking UDP set, per-device reconnect supervisors with
+INVALID/`CONNECTED` liveness, units/precision/limits metadata, offline
+fake-server tests. Bluesky GUI scans and Phoebus displays consume it live.
 
-Deliberately deferred (the honest gap list):
+Deliberately deferred (the honest gap list — details in `DESIGN.md`):
 
-- **Reconnect supervisor** — `GeecsTcpSubscriber` exits on a dropped connection;
-  surviving a device power-cycle needs a supervising retry loop. This is the one
-  piece that earns the "robust as the legacy SVE tool" claim.
-- **DB-driven config** — specs are hand-built; the next step is generating them
-  from the GEECS database dict + attributes DB (units/precision/limits).
-- **Full metadata contract** — alarm limits, deadbands beyond units/precision.
-- **Sharding + systemd** — one central process today; shard by subsystem for
-  fault isolation in production (CA name resolution makes this invisible to
-  clients).
+- **Full alarm metadata** — no value-based alarms (HIHI/…) yet; severity means
+  liveness only (`PV_CONTRACT.md` §5).
+- **Archive-rate control** — MDEL/ADEL split when the Archiver Appliance
+  lands; the value deadband stays 0.0.
+- **Sharding + systemd** — one central process today; target shape sketched in
+  `DEPLOYMENT.md` §5.
 - **Images stay off CA** — scalars/controls only, by design.

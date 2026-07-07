@@ -13,7 +13,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
-| `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async |
+| `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 | `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |
 
@@ -206,7 +206,10 @@ Every package has a `CHANGELOG.md` following
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`.
 
-Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
+Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
+deployed across experiments or one we may need to reproduce (e.g. the
+access-layer landing, 2026-07-06) — not on every merge. The per-package
+`CHANGELOG.md` + `pyproject.toml` versions are the routine record.
 
 ## Cross-package invariants
 
