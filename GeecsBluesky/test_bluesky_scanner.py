@@ -5,6 +5,12 @@ the GUI. Requires lab network access (GEECS DB + one camera + U_ESP_JetXYZ +
 U_DG645_ShotControl). The camera defaults to UC_TopView and can be overridden
 with ``GEECS_BLUESKY_TEST_CAMERA``.
 
+Shot control follows the laser state: ``GEECS_BLUESKY_LASER=on`` uses the
+external-timing config (``HTU-Normal``), ``off`` (the default) uses internal
+single-shot (``HTU-LaserOFF``) so the test triggers without an external structure
+and never strands the DG645. The config is loaded from the configs repo (the
+production path); set it to match the actual laser state before running.
+
 Scenarios
 ---------
 1. NOSCAN  — fixed-position collection from the camera (acq_timestamp only)
@@ -38,9 +44,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from geecs_bluesky.db.geecs_db import GeecsDb
+from geecs_ca_gateway.db.geecs_db import GeecsDb
+from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.scanner_bridge import BlueskyScanner
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
+from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
 
 logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 
@@ -54,24 +62,40 @@ DETECTOR_DEVICES = {
     },
 }
 
-SHOT_CONTROL_INFO = {
-    "device": "U_DG645_ShotControl",
-    "variables": {
-        "Trigger.ExecuteSingleShot": {
-            "OFF": "",
-            "SCAN": "",
-            "ARMED": "",
-            "SINGLESHOT": "on",
-            "STANDBY": "",
-        },
-        "Trigger.Source": {
-            "OFF": "Single shot external rising edges",
-            "SCAN": "External rising edges",
-            "ARMED": "Single shot external rising edges",
-            "STANDBY": "External rising edges",
-        },
-    },
-}
+EXPERIMENT = "Undulator"
+
+# Laser on/off selects which shot-control config the scanner drives. With the
+# laser on we use external timing (HTU-Normal); with it off we use internal
+# single-shot (HTU-LaserOFF) so the test keeps triggering without an external
+# structure and never strands the DG645 in an external mode. Default OFF — the
+# fail-safe when GEECS_BLUESKY_LASER is unset.
+_SHOT_CONTROL_CONFIGS = {"on": "HTU-Normal.yaml", "off": "HTU-LaserOFF.yaml"}
+
+
+def _load_shot_control_info() -> ShotControlConfig:
+    """Load the laser-state-appropriate shot-control config from the configs repo.
+
+    ``GEECS_BLUESKY_LASER=on|off`` (default ``off``) selects laser-on external
+    timing (``HTU-Normal``) vs laser-off internal single-shot
+    (``HTU-LaserOFF``).  Validated by ``load_shot_control_config``; the ARMED
+    drift-catch keeps strict single-shot honest.
+    """
+    laser = os.environ.get("GEECS_BLUESKY_LASER", "off").strip().lower()
+    if laser not in _SHOT_CONTROL_CONFIGS:
+        raise RuntimeError(f"GEECS_BLUESKY_LASER={laser!r} invalid; use 'on' or 'off'.")
+    config = load_shot_control_config(_SHOT_CONTROL_CONFIGS[laser], EXPERIMENT)
+    if not config.defines_state("ARMED"):
+        raise RuntimeError(
+            f"{_SHOT_CONTROL_CONFIGS[laser]} defines no ARMED state; "
+            "strict single-shot requires one."
+        )
+    logging.getLogger(__name__).info(
+        "shot control: laser=%s -> %s", laser, _SHOT_CONTROL_CONFIGS[laser]
+    )
+    return config
+
+
+SHOT_CONTROL_INFO = _load_shot_control_info()
 
 SHOTS_PER_STEP = 3
 REP_RATE_HZ = 1.0

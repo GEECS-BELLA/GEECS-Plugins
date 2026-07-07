@@ -4,6 +4,385 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.0] - 2026-07-05
+
+### Added
+
+- **GUI optimization bridge support** — `BlueskyScanner` now runs
+  OPTIMIZATION scans: a GUI-injected `optimization_loader`
+  (`geecs_scanner.optimization.session_bridge.load_session_optimization`,
+  wired in `RunControl`) supplies the config-driven Xopt 3.1 stack
+  (evaluators, ScanAnalysis analyzers, generator factory) while the scanner
+  maps the request onto `GeecsSession.optimize` — VOCS variables become
+  session settables, save devices are the detectors, iterations come from the
+  configured step count. Dependency direction stays GUI → geecs_bluesky.
+- `plans/run_wrapper.py::claim_scan` — like `claim_scan_number` but returns
+  the full `ScanTag` (analyzers load native files by tag);
+  `claim_scan_number` is now a thin wrapper over it.
+- `GeecsSession.optimize` accepts pre-claimed `scan_number`/`scan_folder`
+  (mirroring `scan()`), so the scanner's per-scan log and the bridge's
+  `ScanTag` cover the whole run.
+- The per-scan log (`scan.log`) now also captures the
+  `geecs_scanner.optimization`, `scan_analysis`, and `image_analysis`
+  loggers, so an optimization scan's per-bin story (file mapping, analyzer
+  runs, objective values) is visible from the scan folder.
+- After `session.optimize` returns, `BlueskyScanner` invokes the bridge's
+  optional `finish()` hook (post-run bookkeeping, e.g. the legacy
+  `xopt_dump.yaml`).
+- `_write_scan_info` stamps `Scanner = "bluesky"` into ScanInfo — metadata
+  only (nothing depends on it for correctness), so tooling can tell
+  Bluesky-produced scans from legacy MC ones.
+
+- **Gateway address from the shared GEECS config** — clients resolve the CA
+  gateway like they resolve the database: `[epics] ca_addr_list` (and
+  optional `ca_auto_addr_list`, default `NO`) in
+  `~/.config/geecs_python_api/config.ini`, applied at package import before
+  aioca creates its CA context. An exported `EPICS_CA_ADDR_LIST` always
+  wins. Removes the per-shell env-var requirement for Windows GUI clients.
+- t0-sync failures now name the stale device(s) and their lag ("U_CamA
+  (5.000s behind U_CamB)") instead of only reporting the anonymous spread —
+  a dead/off contributor serves its cached timestamp forever, and with N
+  cameras the bare spread doesn't say which one to go look at.
+
+### Fixed
+
+- A synchronous save device with an empty `variable_list` (e.g. an
+  image-only camera element) is no longer silently dropped by
+  `BlueskyScanner`: `acq_timestamp` is always created as a dedicated child,
+  so the device is built normally — matching the legacy scanner, which
+  force-appends `acq_timestamp` to every synchronous device. Only an
+  asynchronous snapshot device with no variables is skipped, now with a
+  warning instead of a debug line. Found by the first unreachable-reference
+  live check: a healthy image-only camera was skipped at DEBUG and the scan
+  aborted blaming a connect failure that never happened; the pacemaker
+  abort message now also names each device's actual failure.
+- **Free-run pacing survives a reference connect failure** (PR #449 review
+  #2) — when the designated reference (pacemaker) fails to connect, the
+  next synchronous device is promoted to the reference role (built
+  Triggerable via `session.detector`); if none connects, the scan raises
+  `GeecsConfigurationError` instead of recording unpaced duplicate rows of
+  cached frames. `geecs_free_run_step_scan` additionally rejects any
+  non-`Triggerable` reference outright.
+- Stop works before the plan reaches the RunEngine (review #8): the scan
+  thread checks the abort flag after device connect and before claiming a
+  folder; `RE.abort()` is only called on a non-idle engine; and a timed-out
+  thread join keeps the handle so `is_scanning_active()` stays `True`
+  rather than letting a second scan start on a busy engine.
+- Early exits are ordered before `claim_scan_number` (review #14), so a
+  validation failure no longer leaves an empty claimed `ScanNNN/` folder;
+  VOCS settables join the cleanup list at connect time (no leaked CA
+  monitors); unavoidable post-claim failures log the claimed-but-incomplete
+  folder loudly (it is never deleted).
+- Strict-mode fail-fast gaps closed (review #11): `optimize()` validates
+  shot control like `scan()` and both validate *before* claiming; the
+  validator also requires a non-empty `SINGLESHOT` state (`fire_shot` would
+  be a silent no-op); shot-control setter PVs are reachability-checked when
+  `shot_control()` attaches, so a typo'd device fails in seconds instead of
+  blocking every mid-plan caput.
+- `optimization.json` is always valid JSON (review #15): non-finite
+  objective values serialize as `null`, with `allow_nan=False` so a
+  sanitizer regression fails loudly.
+- `scan()`/`optimize()` with `scan_number` but no `scan_folder` raise a
+  clear `GeecsConfigurationError` instead of crashing on `Path(None)`;
+  `shot_control({})` detaches cleanly like `shot_control(None)`.
+- One TiledWriter exception no longer kills Tiled persistence for the rest
+  of the session (review #9): `SafeDocumentCallback` re-enables at the next
+  run's start document and logs which run lost persistence.
+- CA devices bound their acq_timestamp monitor queue (drop-oldest ring,
+  32 entries) so idle contributors no longer grow memory every machine
+  shot, and every CA device type implements `disconnect()` (via ophyd-async
+  `SignalR.clear_sub`) so per-scan teardown really unsubscribes monitors —
+  it previously raised a silently-swallowed `AttributeError` (review #10).
+- `geecs_adaptive_scan` runs `propose()` (asset wait + analysis + Xopt) on
+  a worker thread, idling with `bps.sleep` — the RunEngine loop stays
+  responsive to pause/abort, CA monitors, and TiledWriter between bins
+  (review #12).
+
+### Removed
+
+- `BinData.images()` / `BinData.averaged_image()` and the `assets` plumbing —
+  redundant with the evaluator path: image/diagnostic analysis (including the
+  bin-average-then-analyze pattern) is config-driven through ScanAnalysis
+  analyzers, which load natively saved files by scan tag. `BinData` is now
+  pure scalar-row access (`rows` / `valid_rows` / `column`).
+
+## [0.18.0] - 2026-07-04
+
+### Added
+
+- **Optimization as a scan** — `GeecsSession.optimize()` +
+  `plans/optimize.py::geecs_adaptive_scan`: one scan number, one Tiled run,
+  iteration = `bin_number`, the same schema-v1 shot-matched rows and
+  acquisition modes as any scan (free-run reference-paced or strict
+  single-shot; requirement from Sam — no side-channel optimizer data à la
+  Badger). Between bins the objective is evaluated on that iteration's
+  `BinData` (rows + native images: `bin.images("cam")`,
+  `bin.averaged_image("cam")` for the average-then-analyze ImageAnalysis
+  pattern, matched to rows by filename `acq_timestamp` with a wait for
+  late-written files) and fed to the suggester (ask/tell protocol:
+  dependency-free `RandomSuggester`, `XoptSuggester` adapter behind the new
+  `optimize` extra, or any duck-typed generator). A failed objective records
+  NaN instead of aborting. The per-iteration history is returned and written
+  to `optimization.json` in the scan folder.
+- `on_finish` policy on `optimize()`: `"hold"` (scan convention, default),
+  `"initial"` (restore pre-optimization values; also applied on
+  abort/failure), `"best"` (move to the highest-objective inputs).
+- Verified live (laser off, physics-free objective): 6 random-search
+  iterations steering U_S1H toward 0.3 A found best I=0.276 A, all data as
+  one Tiled run, `on_finish='initial'` restored the magnet.
+
+## [0.17.0] - 2026-07-04
+
+### Removed
+
+- **The direct UDP/TCP device backend is deleted** — the CA backend reached
+  verified live parity (Scans 007–015), and per project direction the bespoke
+  path dies once the standard path wins. Gone: `GeecsDevice`, `GeecsSettable`,
+  `GeecsMotor`, `GeecsGenericDetector`, `GeecsTimestampedReadable`,
+  `GeecsSnapshotReadable`, `GeecsTriggerable`, `signals.py`, `backends/`,
+  `NonScalarSaveSupport._init_save_signals`, `ShotController.over_udp` /
+  `UdpSetter`, and the `GEECS_BLUESKY_DEVICE_BACKEND` selector (setting it to
+  anything but `ca` now raises). `BlueskyScanner` and `GeecsSession` are both
+  CA-only; the gateway is the one component speaking GEECS wire protocol.
+- **The GEECS access-layer core moved to GeecsCAGateway** (`transport/`,
+  `db/`, `testing/fake_device_server.py`, `pv_naming.py`, and the wire-level
+  exceptions), flipping the package dependency: geecs-bluesky now depends on
+  geecs-ca-gateway (library: `GeecsDb`, `pv_naming`, exceptions — re-exported
+  from `geecs_bluesky.exceptions` for compatibility; service: the PVs). This
+  package is now a pure EPICS/Bluesky consumer.
+
+### Changed
+
+- **`BlueskyScanner` is now the thin GUI adapter over `GeecsSession`** (the
+  endgame the deletion unblocked): the session owns the RunEngine, Tiled
+  subscription, device factories, saving/asset wiring, ScanInfo, and s-file
+  export; the scanner keeps only `exec_config` parsing, role classification,
+  thread/progress/lifecycle plumbing, and the per-scan log. `_execute_scan`
+  maps the GUI request onto `session.scan()` (with pre-claimed scan numbers so
+  the log wraps the run, and legacy-format ScanInfo field fidelity). The
+  scanner shrank ~990 → ~666 lines with zero duplicated discipline. Verified
+  live post-rewrite: NOSCAN and STANDARD scans through the GUI bridge.
+- The hermetic suite runs on ophyd-async mock backends
+  (`tests/ca_mock_helpers.py`: `set_mock_value` shots, an RE-loop pacer as the
+  free-running trigger, a setpoint→readback follower for motor convergence) —
+  no real sockets in device/plan tests, roughly halving suite runtime. The
+  plan/schema/domain tests (t0 sync, contributor labeling, strict single-shot
+  ownership, arm/disarm ordering, drift immunity) were ported, not deleted.
+- `CaAcqTimestampReadable` ignores non-positive `acq_timestamp` monitor values:
+  `0.0` is the gateway channel's pre-acquisition placeholder, so "never
+  acquired" now reads as `None` on CA exactly as it did on the direct cache
+  (and the placeholder→first-frame jump can't fake a shot).
+- Live re-verified post-deletion: scanner free-run NOSCAN over the gateway.
+
+## [0.16.0] - 2026-07-03
+
+### Added
+
+- `geecs_bluesky/devices/ca/` — CA-backed ophyd-async devices that consume the
+  GeecsCAGateway PVs as a stock EPICS IOC (no GEECS UDP/TCP): `CaReadable`
+  (scalar readbacks), `CaSettable` (put to the `…:SP` PV, read the streamed
+  readback), and `CaTriggerable` (whose `trigger()` gates on `acq_timestamp`
+  advancing via a persistent CA monitor). Verified live against the gateway: one
+  Bluesky row per real shot at 1 Hz. Requires the `ca` extra. These are the CA
+  counterpart of the direct UDP/TCP devices; shot-id/save-path/schema logic
+  stays shared, selected by backend rather than duplicated.
+- `geecs_bluesky/pv_naming.py` — the shared GEECS-name → PV naming contract
+  (`normalize_component` / `pv_name`), imported by both the CA devices and the
+  gateway (which now delegates to it) so the producer and consumer can't drift.
+- `CaGenericDetector` — the scanner's triggered detector over CA, composing the
+  same `ShotIdSupport` mixin as the direct `GeecsGenericDetector` (same tracker,
+  data keys, and NaN/valid semantics; only the `acq_timestamp` source differs).
+- **Backend selector**: `GEECS_BLUESKY_DEVICE_BACKEND=direct|ca` (default
+  `direct`) chooses the device family at `BlueskyScanner` construction — the one
+  seam where backends differ; plans, schema, scan numbering, and Tiled stay
+  shared. The CA backend currently supports reference/triggered scalar roles;
+  contributor/snapshot roles, `save_nonscalar_data`, and STANDARD-scan motors
+  (`CaMotor`) fail loud as not-yet-implemented rather than silently degrading.
+- **Backend equivalence verified live**: the same NOSCAN (free-run, laser off,
+  no shot control) run on both backends produced identical event counts
+  (5 primary + 1 flush) and a verbatim-identical event key set, with matching
+  shot_id/offset/valid behavior (Scan007 = CA, Scan008 = direct).
+- `CaMotor` — position-feedback motor over the gateway: the `…:SP` put rides
+  the blocking GEECS UDP set (native tolerance convergence) with the full
+  `move_timeout` as its CA budget, then a readback poll confirms the streamed
+  position arrived (belt-and-suspenders for devices whose set-timeout semantics
+  are ambiguous). Wired into `_run_standard_scan` for the `ca` backend.
+- **STANDARD-scan equivalence verified live**: jet 4→5 mm × 3 shots/step on
+  both backends → identical event counts (9 primary + 1 flush), verbatim-
+  identical key sets, motor readback in every event, and the same
+  shot-id-gap-across-moves semantics (Scan010 = CA, Scan011 = direct).
+- **Native file saving on the CA backend**: `CaGenericDetector` now composes
+  the shared `NonScalarSaveSupport` mixin (same save-path column and
+  Resource/Datum asset documents as the direct detector); only the
+  `localsavingpath` / `save` controls differ — CA signals that read the gateway
+  readback and write its `:SP` setpoint. The scanner's post-construction saving
+  block (save paths, asset definitions, `_saving_detectors`) is now shared
+  verbatim between backends. Requires gateway ≥ 0.3.0 (`include_settable` for
+  the control-surface PVs, long-string path PVs for >40-char save paths).
+  **Verified live (Scan013)**: a CA-backend NOSCAN with `save_nonscalar_data`
+  drove the camera's save controls over CA, native PNGs landed in the
+  `Y/MM/scans/ScanNNN/<device>/` layout with `device_<acq_timestamp>` names,
+  events carried `nonscalar_save_path` + image datum-id columns (Resource/Datum
+  asset docs), documents persisted to Tiled, and the legacy
+  `ScanDataScanNNN.txt` / `sNN.txt` exports were written back from Tiled — the
+  full-output contract in one run.
+
+- **Free-run contributor/snapshot roles on the CA backend.** The
+  reference-relative labeling semantics (row shot-id peeking, bounded grace
+  wait, offset/valid emission) moved verbatim from `GeecsTimestampedReadable`
+  into the shared `FreeRunContributorSupport` mixin
+  (`geecs_bluesky/devices/contributor.py`); the direct class and the new
+  `CaTimestampedReadable` both compose it, so the two backends cannot diverge.
+  `CaSnapshotReadable` covers async devices; `CaTriggerable`'s monitor plumbing
+  was factored into `CaAcqTimestampReadable` for the contributor to reuse.
+  The scanner's CA branch now dispatches all four roles
+  (`_build_ca_detector`). **Verified live (Scan014)**: a three-role free-run
+  NOSCAN (reference + contributor + snapshot) with coordinated t0 sync —
+  contributor shot_id equaled the reference's on every row (offset 0,
+  valid True), snapshot column present, Tiled + s-files written.
+- **Strict single-shot verified live on the CA backend (Scan015)**, using the
+  HTU-LaserOFF shot-control config: ARMED confirmed quiescent, three
+  plan-owned SINGLESHOT fires each captured by `CaTriggerable`'s
+  synchronous-baseline trigger (shot spacing ~0.4 s — commanded shots, not
+  free-run), finalize returned STANDBY, and the DG645 was restored to
+  Internal afterwards via the gateway's own `Trigger_Source:SP` PV.
+
+- **`GeecsSession` — headless scan execution** (`geecs_bluesky/session.py`;
+  design note in `Planning/geecs_session/00_overview.md`): the full GUI-scan
+  run discipline (scan numbering, ScanInfo, save-path layout, schema v1,
+  Tiled, s-file export, shot-control bracketing) from a notebook/script, CA-only
+  by design. Verified live: a free-run NOSCAN (reference + contributor +
+  snapshot, images saving) and a strict NOSCAN (HTU-LaserOFF) from six lines of
+  session code.
+- **`ShotController` extracted** (`geecs_bluesky/shot_controller.py`) — the
+  arm/disarm/quiesce/single-shot plan stubs left `BlueskyScanner` (closing the
+  long-standing "shot-control bracketing not extracted" gap). Two transports:
+  `over_udp` (the original path) and `over_ca` — puts to the gateway `:SP` PVs,
+  used automatically by the scanner on the `ca` backend and by sessions.
+  Verified live driving the DG645 through ARMED/SINGLESHOT/STANDBY over CA.
+- Supporting extractions, all delegated to by the scanner so the GUI path is
+  unchanged: `tiled_integration.py` (TiledWriter subscription + descriptor
+  patch), `data_paths.py` (local ↔ device-server path mapping, asset roots),
+  `scanner_configs.py` (configs-repo resolution + validated shot-control YAML
+  loading; the hardware test now uses it instead of its own copy).
+- **One orchestration recipe** — the scan composition (mode dispatch → run
+  wrapper → finalize disarm) extracted to
+  `plans/orchestration.py::build_step_scan_plan` and called by both
+  `GeecsSession.scan()` and `BlueskyScanner._run_step_scan`; the scanner's
+  duplicate recipe and its per-state plan stubs were deleted. Both front
+  doors re-verified live on the shared recipe (scanner ca-backend free-run;
+  session free-run with images and strict single-shot).
+
+### Notes
+
+- `CaTriggerable` closes the strict single-shot race the same way
+  `GeecsTriggerable` does: a persistent monitor on `acq_timestamp` feeds a local
+  cache/queue, and `trigger()` drains stale updates and captures the baseline
+  **synchronously before returning** — so a shot fired immediately after
+  `bps.trigger` (trigger → fire → wait) cannot land in a blind window and be
+  missed. Pinned by a mock race test (shot fired with zero awaits after
+  `trigger()`).
+
+## [0.15.0] - 2026-07-03
+
+### Added
+
+- Optional `ca` extra (`aioca`) for the forthcoming CA-backed device family
+  (`geecs_bluesky/devices/ca/`), which consumes the GeecsCAGateway PVs like any
+  EPICS IOC. `aioca` bundles libca via `epicscorelibs`, so no system EPICS base
+  is required. The direct UDP/TCP backend does not need it.
+
+### Changed
+
+- Bumped the `ophyd-async` floor from `>=0.16` to `>=0.19.3` to track the current
+  API (`init_devices`, `ophyd_async.epics.core`, `observe_value`) and stay
+  consistent with the GeecsCAGateway environment. The existing device/backend
+  code required no changes; the full hermetic suite passes on 0.19.3.
+- `pytest` now defaults to the hermetic FakeGeecsServer unit tests under `tests/`
+  only (`testpaths`), with hardware/integration markers deselected, so a fresh
+  checkout is green with no lab network or live-device access. The top-level
+  hardware scripts (`test_bluesky_scanner.py`, `test_hardware.py`) are run
+  explicitly.
+- The hardware integration test now loads its shot-control config from the
+  configs repo (the production path) via a `GEECS_BLUESKY_LASER=on|off` toggle
+  (default `off` → internal single-shot `HTU-LaserOFF`; `on` → external-timing
+  `HTU-Normal`), validated against `ShotControlConfig`. This replaces a hardcoded
+  inline config that had drifted (it was missing the `Amplitude.Ch AB` gating)
+  and prevents laser-off runs from stranding the DG645 in an external mode.
+
+## [0.14.0] - 2026-06-30
+
+### Added
+
+- Added a post-run analysis contract for Bluesky camera runs, including
+  sidecar metadata/features writers, ImageAnalysis analyzer adapters, optional
+  derived analysis-run documents, and tests for event-scope and scan-scope
+  analysis execution.
+- Added a local handler for native text-array external asset specs, plus generic
+  Tiled readback helpers for registered single-asset/event-field assets. TDMS
+  event assets remain file-backed until analysis supplies the required 1D
+  loader configuration.
+- Added `load_asset_from_tiled(...)` as the canonical date/scan raw-readback
+  helper for registered external assets; camera-specific readback helpers remain
+  compatibility wrappers.
+- Added generic Tiled asset-analysis helpers that run analyzers over registered
+  non-camera asset fields and load provenance-aware 1D assets, such as
+  `tdms_scope`, from registry defaults plus optional analyzer overrides.
+- Asset registry entries now describe payload shape, provenance-aware loader
+  names, loader config defaults, and whether analysis-time loader configuration
+  or SDK capabilities are required.
+- Synthetic local-fill Resource/Datum/Event streams now use an
+  `ExternalAssetDocumentSpec` request model and explicit
+  `geecs_external_asset_document_schema` marker.
+- Added `tiled_camera_analysis_sidecar.ipynb` to exercise local Tiled camera
+  asset fill, BeamAnalyzer execution, sidecar writing, and optional analysis
+  run publication.
+
+### Changed
+
+- Analysis config resolution now uses the unified scan-analysis config root
+  instead of falling back to legacy image-analysis config paths.
+- Tiled raw-run lookup now ignores derived analysis runs so analysis records do
+  not collide with acquisition runs that share the same date and scan number.
+
+### Documentation
+
+- Added planning notes for sidecar-first analysis results and linked them from
+  the external-assets roadmap.
+
+## [0.13.6] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_device_variables` now also returns `tolerance` (numeric, or
+  `None`) — useful as a monitor deadband.
+
+## [0.13.5] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_subscribed_variables(experiment)` — returns `{device: [var, ...]}`
+  for `get='yes'` variables in `expt_device_variable` (the per-shot monitoring
+  subset), in one query. Useful for down-selecting a sensible variable set.
+
+## [0.13.4] - 2026-07-02
+
+### Added
+
+- `GeecsDb.get_device_variables` now also returns `variabletype` (`numeric`,
+  `choice`, `string`, `path`, `image`, `1darray`, …) and `choices` (the
+  comma-separated option string from the `choice` table for `choice` variables),
+  so callers can map GEECS types onto typed PVs. Numeric `min`/`max` parsing is
+  now tolerant of non-numeric strings.
+
+## [0.13.3] - 2026-07-01
+
+### Added
+
+- `GeecsDb.list_devices(experiment, enabled_only=True)` — optionally filter to
+  devices whose `expt_device.enabled` is `"yes"` (a device may belong to an
+  experiment but be disabled). Default `False` preserves existing behavior.
+
 ## [0.13.2] - 2026-06-26
 
 ### Changed

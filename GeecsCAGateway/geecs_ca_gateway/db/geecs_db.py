@@ -1,0 +1,330 @@
+"""Lightweight GEECS MySQL database client.
+
+Reads connection credentials from the standard GEECS configuration files —
+the same sources used by geecs-python-api — so no extra setup is needed
+on machines that already have GEECS installed.
+
+Credential discovery order
+--------------------------
+1. Look for ``~/.config/geecs_python_api/config.ini`` and read the
+   ``[Paths] geecs_data`` key to find the user-data directory.
+2. Open ``{geecs_data}/Configurations.INI`` for ``[Database]`` credentials.
+
+This mirrors what ``geecs_python_api.controls.interface.geecs_database``
+does, but without dragging in the rest of that package.
+"""
+
+from __future__ import annotations
+
+import configparser
+import logging
+import os
+from pathlib import Path
+from typing import Optional
+
+from geecs_ca_gateway.exceptions import GeecsDeviceNotFoundError
+
+logger = logging.getLogger(__name__)
+
+# Cached connection parameters so we only parse config files once.
+_credentials: Optional[dict] = None
+
+
+def _find_credentials() -> dict:
+    """Return DB connection params parsed from GEECS config files."""
+    global _credentials
+    if _credentials is not None:
+        return _credentials
+
+    # Step 1: resolve user-data directory.
+    user_cfg_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
+    if not user_cfg_path.exists():
+        raise FileNotFoundError(
+            f"GEECS user config not found at {user_cfg_path}. "
+            "Ensure geecs_python_api is configured on this machine."
+        )
+
+    user_cfg = configparser.ConfigParser()
+    user_cfg.read(user_cfg_path)
+
+    try:
+        geecs_data = user_cfg["Paths"]["geecs_data"]
+    except KeyError as exc:
+        raise KeyError(f"[Paths] geecs_data key missing from {user_cfg_path}") from exc
+
+    # Step 2: read Configurations.INI for DB credentials.
+    db_ini_path = Path(os.path.expandvars(geecs_data)) / "Configurations.INI"
+    if not db_ini_path.exists():
+        raise FileNotFoundError(f"GEECS database config not found at {db_ini_path}")
+
+    db_cfg = configparser.ConfigParser()
+    db_cfg.read(db_ini_path)
+
+    try:
+        section = db_cfg["Database"]
+        _credentials = {
+            "host": section["ipaddress"],
+            "port": int(section.get("port", 3306)),
+            "database": section["name"],
+            "user": section["user"],
+            "password": section["password"],
+        }
+    except KeyError as exc:
+        raise KeyError(
+            f"Missing key in [Database] section of {db_ini_path}: {exc}"
+        ) from exc
+
+    logger.debug("GEECS DB credentials loaded from %s", db_ini_path)
+    return _credentials
+
+
+def _connect_mysql(mysql_connector):
+    """Open a MySQL connection using the pure-Python connector implementation.
+
+    The mysql-connector-python 9.x C extension has crashed silently on Windows in
+    the legacy API layer.  GeecsBluesky runs on the same lab machines, so use the
+    pure implementation here too.
+    """
+    return mysql_connector.connect(**_find_credentials(), use_pure=True)
+
+
+class GeecsDb:
+    """Namespace for GEECS database queries.
+
+    All methods are class-level; no instance needed::
+
+        host, port = GeecsDb.find_device("U_ESP_JetXYZ")
+    """
+
+    @classmethod
+    def find_device(cls, device_name: str) -> tuple[str, int]:
+        """Return ``(ip_address, port)`` for *device_name*.
+
+        Parameters
+        ----------
+        device_name:
+            GEECS device name exactly as it appears in the database
+            (e.g. ``"U_ESP_JetXYZ"``).
+
+        Raises
+        ------
+        RuntimeError
+            If the device is not found in the database.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups. "
+                "Install with: pip install mysql-connector-python"
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT ipaddress, commport FROM device WHERE name = %s",
+                (device_name,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise GeecsDeviceNotFoundError(device_name)
+
+        ip, port_str = row
+        return ip.strip(), int(port_str)
+
+    @classmethod
+    def get_device_type(cls, device_name: str) -> str:
+        """Return the GEECS database device type for *device_name*.
+
+        Parameters
+        ----------
+        device_name:
+            GEECS device name exactly as it appears in the database
+            (e.g. ``"UC_TopView"``).
+
+        Raises
+        ------
+        GeecsDeviceNotFoundError
+            If the device is not found in the database.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups. "
+                "Install with: pip install mysql-connector-python"
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT devicetype FROM device WHERE name = %s",
+                (device_name,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+        if row is None:
+            raise GeecsDeviceNotFoundError(device_name)
+
+        return str(row[0]).strip()
+
+    @classmethod
+    def list_devices(
+        cls, experiment: Optional[str] = None, *, enabled_only: bool = False
+    ) -> list[str]:
+        """Return all device names, optionally filtered by experiment.
+
+        Parameters
+        ----------
+        experiment:
+            If given, only return devices belonging to this experiment
+            (e.g. ``"Undulator"``).
+        enabled_only:
+            If true (only meaningful with ``experiment``), return only devices
+            whose ``expt_device.enabled`` field is ``"yes"``.  A device may
+            belong to an experiment but be disabled.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            if experiment is not None:
+                query = (
+                    "SELECT DISTINCT ed.device FROM expt_device ed "
+                    "JOIN expt e ON e.name = ed.expt "
+                    "WHERE e.name = %s"
+                )
+                if enabled_only:
+                    query += " AND LOWER(ed.enabled) = 'yes'"
+                query += " ORDER BY ed.device"
+                cur.execute(query, (experiment,))
+            else:
+                cur.execute("SELECT name FROM device ORDER BY name")
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        return [r[0] for r in rows]
+
+    @classmethod
+    def get_subscribed_variables(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict:
+        """Return ``{device: [variablename, ...]}`` for ``get='yes'`` variables.
+
+        ``expt_device_variable`` records, per device *instance* in an experiment,
+        which variables are logged on every shot (``get='yes'``).  That is the
+        experiment's meaningful monitoring subset — far smaller than every
+        device-type variable — so it makes a sensible default set of PVs to serve.
+
+        (The table's ``set``/``startvalue``/``endvalue`` fields describe scan
+        start/end actions and are unrelated to whether a PV is writable, which
+        comes from ``devicetype_variable``.)
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+
+        Returns
+        -------
+        dict
+            Device name → ordered list of subscribed variable names.  Devices
+            with no ``get`` variables are absent.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT ed.device, edv.variablename "
+                "FROM expt_device_variable edv "
+                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.expt = %s AND edv.get = 'yes'"
+            )
+            if enabled_only:
+                query += " AND LOWER(ed.enabled) = 'yes'"
+            query += " ORDER BY ed.device, edv.variablename"
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        result: dict = {}
+        for device, variablename in rows:
+            result.setdefault(device, []).append(variablename)
+        return result
+
+    @classmethod
+    def get_device_variables(cls, device_name: str) -> list[dict]:
+        """Return variable metadata for *device_name*.
+
+        Each entry is a dict with keys: ``name``, ``units``, ``min``, ``max``,
+        ``settable`` (bool), ``variabletype`` (``"numeric"``, ``"choice"``,
+        ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), ``choices``
+        (comma-separated option string from the ``choice`` table for ``choice``
+        variables, else ``None``), and ``tolerance`` (numeric, or ``None``).
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
+                "dtv.variabletype, c.choices, dtv.tolerance "
+                "FROM devicetype_variable dtv "
+                "JOIN device d ON d.devicetype = dtv.devicetype "
+                "LEFT JOIN choice c ON c.id = dtv.choice_id "
+                "WHERE d.name = %s ORDER BY dtv.name",
+                (device_name,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        def _num(value: object) -> Optional[float]:
+            try:
+                return float(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return None
+
+        return [
+            {
+                "name": r[0],
+                "units": r[1] or "",
+                "min": _num(r[2]),
+                "max": _num(r[3]),
+                "settable": (r[4] or "no").lower() == "yes",
+                "variabletype": (r[5] or "").strip().lower() or None,
+                "choices": r[6],
+                "tolerance": _num(r[7]),
+            }
+            for r in rows
+        ]

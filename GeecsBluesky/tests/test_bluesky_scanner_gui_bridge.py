@@ -10,12 +10,18 @@ import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.plans.orchestration import build_step_scan_plan
+from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.scanner_bridge import bluesky_scanner
-from geecs_bluesky.scanner_bridge.bluesky_scanner import (
-    BlueskyScanner,
-    _prepare_descriptor_for_tiled,
-    _SafeDocumentCallback,
-    _translate_save_path_for_device_server,
+from geecs_bluesky.data_paths import (
+    translate_save_path_for_device_server as _translate_save_path_for_device_server,
+)
+from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+from geecs_bluesky.tiled_integration import (
+    SafeDocumentCallback as _SafeDocumentCallback,
+)
+from geecs_bluesky.tiled_integration import (
+    prepare_descriptor_for_tiled as _prepare_descriptor_for_tiled,
 )
 
 
@@ -109,11 +115,6 @@ def test_translate_save_path_for_device_server() -> None:
     assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
 
 
-# ---------------------------------------------------------------------------
-# Acquisition-mode resolution
-# ---------------------------------------------------------------------------
-
-
 def test_resolve_acquisition_mode_defaults_to_strict() -> None:
     options = SimpleNamespace(rep_rate_hz=1.0)  # no acquisition_mode attr
     mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
@@ -145,24 +146,26 @@ def test_resolve_acquisition_mode_unknown_raises() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _scanner_with_shot_control(
-    information: dict | None, setters: dict | None = None
-) -> BlueskyScanner:
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._shot_control = ShotControlConfig.from_information(information)
-    scanner._shot_control_setters = setters or {}
-    return scanner
-
-
-def test_strict_single_shot_requires_shot_control_config() -> None:
-    scanner = _scanner_with_shot_control(None)
-
-    with pytest.raises(GeecsConfigurationError, match="shot_control_information"):
-        scanner._require_strict_single_shot()
+def test_strict_plan_requires_a_shot_controller() -> None:
+    """Building a strict plan without shot control fails loudly."""
+    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
+        build_step_scan_plan(
+            strict=True,
+            motor=None,
+            positions=[None],
+            reference=None,
+            detectors=[object()],
+            shots_per_step=1,
+            controller=None,
+            experiment="Test",
+            scan_number=None,
+            scan_folder=None,
+            saving_detectors=[],
+        )
 
 
 def test_strict_single_shot_requires_nonempty_armed_state() -> None:
-    scanner = _scanner_with_shot_control(
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
@@ -171,44 +174,62 @@ def test_strict_single_shot_requires_nonempty_armed_state() -> None:
                     "ARMED": "",
                 }
             },
-        },
-        setters={"Trigger.Source": object()},
+        }
     )
-
+    controller = ShotController(config, {"Trigger.Source": object()})
     with pytest.raises(GeecsConfigurationError, match="non-empty ARMED"):
-        scanner._require_strict_single_shot()
+        controller.require_strict_single_shot()
 
 
-def test_strict_single_shot_requires_reachable_setters() -> None:
-    scanner = _scanner_with_shot_control(
+def test_strict_single_shot_requires_nonempty_singleshot_state() -> None:
+    """All-empty SINGLESHOT entries would make fire_shot a silent no-op."""
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
                 "Trigger.Source": {
                     "ARMED": "Single shot external rising edges",
-                }
+                    "SINGLESHOT": "",
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": ""},
             },
         }
     )
+    controller = ShotController(config, {"Trigger.Source": object()})
+    with pytest.raises(GeecsConfigurationError, match="non-empty SINGLESHOT"):
+        controller.require_strict_single_shot()
 
-    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
-        scanner._require_strict_single_shot()
 
-
-def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
-    scanner = _scanner_with_shot_control(
+def test_strict_single_shot_requires_reachable_setters() -> None:
+    config = ShotControlConfig.from_information(
         {
             "device": "U_DG645_ShotControl",
             "variables": {
                 "Trigger.Source": {
                     "ARMED": "Single shot external rising edges",
-                }
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": "on"},
             },
-        },
-        setters={"Trigger.Source": object()},
+        }
     )
+    controller = ShotController(config, {})
+    with pytest.raises(GeecsConfigurationError, match="reachable shot-control"):
+        controller.require_strict_single_shot()
 
-    scanner._require_strict_single_shot()
+
+def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
+    config = ShotControlConfig.from_information(
+        {
+            "device": "U_DG645_ShotControl",
+            "variables": {
+                "Trigger.Source": {
+                    "ARMED": "Single shot external rising edges",
+                },
+                "Trigger.ExecuteSingleShot": {"SINGLESHOT": "on"},
+            },
+        }
+    )
+    ShotController(config, {"Trigger.Source": object()}).require_strict_single_shot()
 
 
 # ---------------------------------------------------------------------------
@@ -245,3 +266,149 @@ def test_classify_roles_free_run_all_async_has_no_reference() -> None:
     roles = dict(BlueskyScanner._classify_device_roles(devices, "free_run_time_sync"))
     assert "reference" not in roles.values()
     assert roles == {"U_Stage": "snapshot"}
+
+
+# ---------------------------------------------------------------------------
+# Optimization mode (GUI-injected loader → session.optimize)
+# ---------------------------------------------------------------------------
+
+
+class _FakeBridge:
+    """Stands in for the GUI's SessionOptimizationBridge."""
+
+    def __init__(self) -> None:
+        self.variable_names = ["U_S1H:Current", "U_S1V:Current"]
+        self.bound_with: dict | None = None
+
+    def bind(self, *, devices, scan_tag, scan_folder=None):
+        self.bound_with = {
+            "devices": list(devices),
+            "scan_tag": scan_tag,
+            "scan_folder": scan_folder,
+        }
+        return (lambda bin_data: 1.0), self
+
+    def finish(self):
+        self.finished = True
+
+
+class _FakeOptSession:
+    """Records settable/optimize calls; no RunEngine involved."""
+
+    def __init__(self) -> None:
+        self.settables: list[tuple[str, str]] = []
+        self.optimize_kwargs: dict | None = None
+        self.shot_control_called_with: object = "unset"
+
+    def shot_control(self, config):
+        self.shot_control_called_with = config
+
+    def settable(self, device, variable, *, name=None):
+        self.settables.append((device, variable))
+        return SimpleNamespace(name=name, _geecs_device_name=device)
+
+    def optimize(self, **kwargs):
+        self.optimize_kwargs = kwargs
+        return "uid", []
+
+
+def _make_optimization_scanner(session, bridge, monkeypatch, *, loader=True):
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._session = session
+    scanner._experiment_dir = "TestExp"
+    scanner._shot_control = None
+    scanner._acquisition_mode = "free_run_time_sync"
+    scanner._shots_per_step = 5
+    scanner._detectors = []
+    scanner._device_lock = __import__("threading").Lock()
+    scanner._on_event = None
+    scanner._current_state = None
+    scanner._total_shots = 0
+    scanner._abort_requested = False
+    scanner._optimization_loader = (lambda path: bridge) if loader else None
+    monkeypatch.setattr(
+        bluesky_scanner,
+        "claim_scan",
+        lambda experiment: (SimpleNamespace(number=42), "/tmp/Scan042"),
+    )
+    monkeypatch.setattr(
+        BlueskyScanner,
+        "_build_session_devices",
+        lambda self: [SimpleNamespace(name="ref")],
+    )
+    return scanner
+
+
+def test_run_optimization_maps_config_onto_session_optimize(monkeypatch) -> None:
+    session = _FakeOptSession()
+    bridge = _FakeBridge()
+    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
+
+    scan_config = SimpleNamespace(
+        optimizer_config_path="/cfg/opt.yaml",
+        start=0.0,
+        end=4.0,
+        step=1.0,
+        wait_time=5.0,
+        additional_description="steer",
+    )
+    scanner._run_optimization(scan_config)
+
+    # VOCS variables became session settables keyed by "Device:Variable"
+    assert session.settables == [("U_S1H", "Current"), ("U_S1V", "Current")]
+    kwargs = session.optimize_kwargs
+    assert kwargs is not None
+    assert set(kwargs["variables"]) == {"U_S1H:Current", "U_S1V:Current"}
+    # Iterations from the configured step count, shots from rep_rate×wait_time
+    assert kwargs["max_iterations"] == 5
+    assert kwargs["shots_per_iteration"] == 5
+    assert kwargs["mode"] == "free_run"
+    # Pre-claimed number/folder passed through; bridge got the real tag
+    assert kwargs["scan_number"] == 42
+    assert kwargs["scan_folder"] == "/tmp/Scan042"
+    assert bridge.bound_with is not None
+    assert bridge.bound_with["scan_tag"].number == 42
+    # Bound devices = movables + detectors
+    assert len(bridge.bound_with["devices"]) == 3
+    assert kwargs["suggester"] is bridge
+    # No on_finish attribute on the bridge -> session default "hold"
+    assert kwargs["on_finish"] == "hold"
+    # Post-run bookkeeping hook invoked after the session run
+    assert getattr(bridge, "finished", False) is True
+
+
+def test_run_optimization_passes_bridge_on_finish(monkeypatch) -> None:
+    session = _FakeOptSession()
+    bridge = _FakeBridge()
+    bridge.on_finish = "best"
+    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
+    scan_config = SimpleNamespace(
+        optimizer_config_path="/cfg/opt.yaml",
+        start=0.0,
+        end=1.0,
+        step=1.0,
+        wait_time=5.0,
+        additional_description="",
+    )
+    scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs["on_finish"] == "best"
+
+
+def test_run_optimization_without_loader_skips(monkeypatch, caplog) -> None:
+    session = _FakeOptSession()
+    scanner = _make_optimization_scanner(
+        session, _FakeBridge(), monkeypatch, loader=False
+    )
+    scan_config = SimpleNamespace(optimizer_config_path="/cfg/opt.yaml")
+    with caplog.at_level(logging.WARNING):
+        scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs is None
+    assert "no optimization_loader" in caplog.text
+
+
+def test_run_optimization_requires_config_path(monkeypatch) -> None:
+    session = _FakeOptSession()
+    scanner = _make_optimization_scanner(session, _FakeBridge(), monkeypatch)
+    scan_config = SimpleNamespace(optimizer_config_path=None)
+    scanner._run_optimization(scan_config)
+    assert session.optimize_kwargs is None

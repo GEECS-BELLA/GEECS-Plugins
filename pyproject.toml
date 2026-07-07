@@ -35,6 +35,10 @@ ruff = "^0.4"  # Use compatible version with ruff-pre-commit
 pydocstyle = "^6.3"
 interrogate = "^1.7"  # For docstring coverage reporting
 
+pytest = ">=8.1"  # importlib import-mode only adds rootdirs to sys.path from 8.1 (tests.* imports)
+pytest-asyncio = ">=0.23"  # GeecsBluesky async suites in the integrated env
+pytest-timeout = ">=2.4"
+
 jupyterlab = "^4.0"
 mkdocs-jupyter = "^0.24.6"  # or latest version
 ipykernel = "^6.30.1"

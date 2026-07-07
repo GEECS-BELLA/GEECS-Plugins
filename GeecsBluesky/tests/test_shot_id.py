@@ -1,8 +1,8 @@
 """Tests for ShotIdTracker and the coordinated t0-sync plan stage.
 
-ShotIdTracker tests are pure unit tests; t0-sync tests run real
-GeecsGenericDetector instances against FakeGeecsServer and drive the plan
-generator by hand (no RunEngine needed).
+ShotIdTracker tests are pure unit tests; t0-sync tests run CA-mock
+CaGenericDetector instances (set_mock_value drives acq_timestamp) and drive the
+plan generator by hand (no RunEngine needed).
 """
 
 from __future__ import annotations
@@ -13,11 +13,15 @@ from typing import Any
 
 import pytest
 
-from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
 from geecs_bluesky.devices.shot_id import ShotIdTracker
 from geecs_bluesky.exceptions import GeecsT0SyncError
 from geecs_bluesky.plans.t0_sync import geecs_t0_sync
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+
+pytest.importorskip("aioca")
+
+from ophyd_async.core import set_mock_value  # noqa: E402
+
+from geecs_bluesky.devices.ca import CaGenericDetector  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +92,7 @@ class TestShotIdTracker:
 
 
 # ---------------------------------------------------------------------------
-# geecs_t0_sync
+# geecs_t0_sync (CA-mock detectors)
 # ---------------------------------------------------------------------------
 
 
@@ -106,151 +110,90 @@ async def _drive(plan, on_sleep=None) -> Any:
     return result
 
 
-async def _wait_for_cache(det: GeecsGenericDetector, timeout: float = 2.0) -> None:
-    """Wait until the detector's TCP cache holds an acq_timestamp."""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while det.last_acq_timestamp is None:
-        if asyncio.get_running_loop().time() > deadline:
-            raise TimeoutError("TCP cache never populated")
-        await asyncio.sleep(0.05)
+async def _sync_detector(
+    device: str, name: str, acq_timestamp: float | None
+) -> CaGenericDetector:
+    """Connected CA-mock detector, optionally with a populated shot cache."""
+    det = CaGenericDetector(device, ["Signal"], experiment="Test", name=name)
+    await det.connect(mock=True)
+    det.configure_shot_id(rep_rate_hz=1.0)
+    if acq_timestamp is not None:
+        set_mock_value(det.acq_timestamp, acq_timestamp)
+        await asyncio.sleep(0)  # deliver the monitor update
+    return det
 
 
-def _sync_device(name: str, acq_timestamp: float) -> FakeGeecsDevice:
-    return FakeGeecsDevice(
-        name=name,
-        variables={"Signal": 1.0, "acq_timestamp": acq_timestamp},
-    )
-
-
-@pytest.mark.fake_server
 class TestGeecsT0Sync:
     async def test_seeds_all_devices_from_common_shot(self) -> None:
         """Timestamps within the window seed every tracker with its own t0."""
-        fake_a = _sync_device("U_CamA", 1000.00)
-        fake_b = _sync_device("U_CamB", 1000.05)  # 50 ms NTP skew
-        async with FakeGeecsServer(fake_a) as srv_a, FakeGeecsServer(fake_b) as srv_b:
-            det_a = GeecsGenericDetector(
-                "U_CamA", ["Signal"], srv_a.host, srv_a.port, name="cam_a"
-            )
-            det_b = GeecsGenericDetector(
-                "U_CamB", ["Signal"], srv_b.host, srv_b.port, name="cam_b"
-            )
-            await det_a.connect()
-            await det_b.connect()
-            det_a.configure_shot_id(rep_rate_hz=1.0)
-            det_b.configure_shot_id(rep_rate_hz=1.0)
-            await _wait_for_cache(det_a)
-            await _wait_for_cache(det_b)
+        det_a = await _sync_detector("U_CamA", "cam_a", 1000.00)
+        det_b = await _sync_detector("U_CamB", "cam_b", 1000.05)  # 50 ms skew
 
-            t0s = await _drive(geecs_t0_sync([det_a, det_b], window_s=0.2))
+        t0s = await _drive(geecs_t0_sync([det_a, det_b], window_s=0.2))
 
-            assert t0s == {
-                "U_CamA": pytest.approx(1000.00),
-                "U_CamB": pytest.approx(1000.05),
-            }
-            assert det_a.shot_id_tracker is not None
-            assert det_b.shot_id_tracker is not None
-            assert det_a.shot_id_tracker.t0_acq_timestamp == pytest.approx(1000.00)
-            assert det_b.shot_id_tracker.t0_acq_timestamp == pytest.approx(1000.05)
-            # Same physical trigger → equal shot IDs despite the skew
-            assert det_a.shot_id_tracker.update(1003.00) == 4
-            assert det_b.shot_id_tracker.update(1003.05) == 4
+        assert t0s == {
+            "U_CamA": pytest.approx(1000.00),
+            "U_CamB": pytest.approx(1000.05),
+        }
+        assert det_a.shot_id_tracker is not None
+        assert det_b.shot_id_tracker is not None
+        assert det_a.shot_id_tracker.t0_acq_timestamp == pytest.approx(1000.00)
+        assert det_b.shot_id_tracker.t0_acq_timestamp == pytest.approx(1000.05)
+        # Same physical trigger → equal shot IDs despite the skew
+        assert det_a.shot_id_tracker.update(1003.00) == 4
+        assert det_b.shot_id_tracker.update(1003.05) == 4
 
     async def test_raises_when_spread_exceeds_window(self) -> None:
         """Caches from different physical triggers must fail loudly."""
-        fake_a = _sync_device("U_CamA", 1000.0)
-        fake_b = _sync_device("U_CamB", 1005.0)  # 5 trigger periods apart
-        async with FakeGeecsServer(fake_a) as srv_a, FakeGeecsServer(fake_b) as srv_b:
-            det_a = GeecsGenericDetector(
-                "U_CamA", ["Signal"], srv_a.host, srv_a.port, name="cam_a"
-            )
-            det_b = GeecsGenericDetector(
-                "U_CamB", ["Signal"], srv_b.host, srv_b.port, name="cam_b"
-            )
-            await det_a.connect()
-            await det_b.connect()
-            det_a.configure_shot_id(rep_rate_hz=1.0)
-            det_b.configure_shot_id(rep_rate_hz=1.0)
-            await _wait_for_cache(det_a)
-            await _wait_for_cache(det_b)
+        det_a = await _sync_detector("U_CamA", "cam_a", 1000.0)
+        det_b = await _sync_detector("U_CamB", "cam_b", 1005.0)  # 5 periods apart
 
-            with pytest.raises(GeecsT0SyncError) as excinfo:
-                await _drive(geecs_t0_sync([det_a, det_b], window_s=0.2, retries=0))
-            assert "spread" in str(excinfo.value)
-            assert det_a.shot_id_tracker is not None
-            assert not det_a.shot_id_tracker.is_seeded
+        with pytest.raises(GeecsT0SyncError) as excinfo:
+            await _drive(geecs_t0_sync([det_a, det_b], window_s=0.2, retries=0))
+        assert "spread" in str(excinfo.value)
+        # The laggard is named with its lag — "spread exceeds window" alone
+        # doesn't say which of N devices is dead/off (live find, 2026-07-06).
+        assert "stale device(s): U_CamA (5.000s behind U_CamB)" in str(excinfo.value)
+        assert det_a.shot_id_tracker is not None
+        assert not det_a.shot_id_tracker.is_seeded
 
     async def test_retry_recovers_when_lagging_frame_arrives(self) -> None:
         """A frame still propagating at the first attempt succeeds on retry."""
-        fake_a = _sync_device("U_CamA", 1000.0)
-        fake_b = _sync_device("U_CamB", 995.0)  # stale — last push pre-dates A's
-        async with FakeGeecsServer(fake_a) as srv_a, FakeGeecsServer(fake_b) as srv_b:
-            det_a = GeecsGenericDetector(
-                "U_CamA", ["Signal"], srv_a.host, srv_a.port, name="cam_a"
-            )
-            det_b = GeecsGenericDetector(
-                "U_CamB", ["Signal"], srv_b.host, srv_b.port, name="cam_b"
-            )
-            await det_a.connect()
-            await det_b.connect()
-            det_a.configure_shot_id(rep_rate_hz=1.0)
-            det_b.configure_shot_id(rep_rate_hz=1.0)
-            await _wait_for_cache(det_a)
-            await _wait_for_cache(det_b)
+        det_a = await _sync_detector("U_CamA", "cam_a", 1000.0)
+        det_b = await _sync_detector("U_CamB", "cam_b", 995.0)  # stale frame
 
-            async def deliver_lagging_frame() -> None:
-                fake_b.variables["acq_timestamp"] = 1000.1
-                await asyncio.sleep(0.3)  # let the 5 Hz push propagate
+        async def deliver_lagging_frame() -> None:
+            set_mock_value(det_b.acq_timestamp, 1000.1)
+            await asyncio.sleep(0)
 
-            t0s = await _drive(
-                geecs_t0_sync([det_a, det_b], window_s=0.2, retries=2),
-                on_sleep=deliver_lagging_frame,
-            )
-            assert t0s["U_CamB"] == pytest.approx(1000.1)
+        t0s = await _drive(
+            geecs_t0_sync([det_a, det_b], window_s=0.2, retries=2),
+            on_sleep=deliver_lagging_frame,
+        )
+        assert t0s["U_CamB"] == pytest.approx(1000.1)
 
     async def test_missing_acq_timestamp_reports_device(self) -> None:
         """A device whose acq_timestamp never populated names itself in the error."""
-        # Empty value → push frame pair never parses → cache never gets the key
-        fake = FakeGeecsDevice(
-            name="U_CamA", variables={"Signal": 1.0, "acq_timestamp": ""}
-        )
-        async with FakeGeecsServer(fake) as srv:
-            det = GeecsGenericDetector(
-                "U_CamA", ["Signal"], srv.host, srv.port, name="cam_a"
-            )
-            await det.connect()
-            det.configure_shot_id(rep_rate_hz=1.0)
-            await asyncio.sleep(0.3)  # pushes arrive, but carry no acq_timestamp
+        det = await _sync_detector("U_CamA", "cam_a", None)  # cache never fills
 
-            with pytest.raises(GeecsT0SyncError) as excinfo:
-                await _drive(geecs_t0_sync([det], window_s=0.2, retries=0))
-            assert "U_CamA" in str(excinfo.value)
+        with pytest.raises(GeecsT0SyncError) as excinfo:
+            await _drive(geecs_t0_sync([det], window_s=0.2, retries=0))
+        assert "U_CamA" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------
-# Stable keys / NaN policy on GeecsGenericDetector
+# Stable keys / NaN policy on the generic detector
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.fake_server
 async def test_detector_emits_nan_companions_before_first_shot() -> None:
     """All described companion columns appear even with no shot data yet."""
-    # Empty value → push frame pair never parses → cache never gets the key
-    fake = FakeGeecsDevice(
-        name="U_CamA", variables={"Signal": 1.0, "acq_timestamp": ""}
-    )
-    async with FakeGeecsServer(fake) as srv:
-        det = GeecsGenericDetector(
-            "U_CamA", ["Signal"], srv.host, srv.port, name="cam_a"
-        )
-        await det.connect()
-        det.configure_shot_id(rep_rate_hz=1.0)
-        await asyncio.sleep(0.3)  # pushes arrive, but carry no acq_timestamp
+    det = await _sync_detector("U_CamA", "cam_a", None)  # no acq_timestamp yet
 
-        desc = await det.describe()
-        reading = await det.read()
-        for key in desc:
-            assert key in reading, f"described key {key} missing from reading"
-        assert math.isnan(reading["cam_a-shot_id"]["value"])
-        assert math.isnan(reading["cam_a-shot_offset"]["value"])
-        assert reading["cam_a-valid"]["value"] is False
+    desc = await det.describe()
+    reading = await det.read()
+    for key in desc:
+        assert key in reading, f"described key {key} missing from reading"
+    assert math.isnan(reading["cam_a-shot_id"]["value"])
+    assert math.isnan(reading["cam_a-shot_offset"]["value"])
+    assert reading["cam_a-valid"]["value"] is False

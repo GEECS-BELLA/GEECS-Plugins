@@ -15,7 +15,9 @@ jobs:
           python-version: '3.10'
 
       - name: Install pre-commit
-        run: pip install pre-commit
+        # nbconvert provides the `jupyter nbconvert` the local
+        # notebook-clear-output hook (language: system) shells out to.
+        run: pip install pre-commit nbconvert
 
       - name: Run pre-commit on changed files
         run: |

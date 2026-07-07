@@ -244,12 +244,13 @@ class BCaveMagSpecStitcherAnalyzer(StandardAnalyzer):
 
 if __name__ == "__main__":
     # Example usage
-    from geecs_data_utils.config_roots import image_analysis_config
+    from geecs_data_utils.config_roots import scan_analysis_config
 
     current_dir = Path(__file__).resolve().parent.parent
 
     geecs_plugins_dir = current_dir.parent.parent.parent
-    image_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
+    # load_camera_config resolves through the unified scan_analysis_config root
+    scan_analysis_config.set_base_dir(geecs_plugins_dir / "image_analysis_configs")
 
     from image_analysis.config.loader import load_camera_config
 

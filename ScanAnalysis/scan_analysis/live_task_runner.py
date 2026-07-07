@@ -30,6 +30,43 @@ from watchdog.observers.polling import PollingObserver
 logger = logging.getLogger(__name__)
 
 
+def apply_config_roots(
+    config_dir: Optional[Path] = None,
+    image_config_dir: Optional[Path] = None,
+) -> None:
+    """Point the shared config-root managers at explicit override directories.
+
+    ImageAnalysis's camera/line config loader
+    (``image_analysis.config.loader``) resolves through the unified
+    ``scan_analysis_config`` root, so an ``image_config_dir`` override must
+    land on that instance to take effect. The legacy
+    ``image_analysis_config`` alias is kept in sync for callers that still
+    read it directly.
+
+    Parameters
+    ----------
+    config_dir : Path, optional
+        Base dir for scan analysis configs (groups/diagnostics).
+    image_config_dir : Path, optional
+        Base dir for image analysis (camera/line) configs. When both
+        parameters are given, this one wins for camera/line lookup; group
+        loading keeps using ``config_dir`` (passed explicitly by callers).
+    """
+    if config_dir:
+        scan_analysis_config.set_base_dir(config_dir)
+    if image_config_dir:
+        if config_dir and Path(config_dir) != Path(image_config_dir):
+            logger.warning(
+                "config_dir (%s) and image_config_dir (%s) differ; camera/line "
+                "configs will resolve under image_config_dir via the unified "
+                "config root.",
+                config_dir,
+                image_config_dir,
+            )
+        scan_analysis_config.set_base_dir(image_config_dir)
+        image_analysis_config.set_base_dir(image_config_dir)
+
+
 class AnalysisEventHandler(FileSystemEventHandler):
     """Watchdog handler that enqueues ScanTags when new s-files appear."""
 
@@ -84,7 +121,9 @@ class LiveTaskRunner:
         config_dir : Path, optional
             Base dir for scan analysis configs (if None, uses scan_analysis_config.base_dir).
         image_config_dir : Path, optional
-            Base dir for image analysis configs (if None, uses image_analysis_config.base_dir).
+            Base dir for image analysis (camera/line) configs. Applied to the
+            unified ``scan_analysis_config`` root that ImageAnalysis's loader
+            resolves through (if None, the current root is left unchanged).
         gdoc_enabled : bool
             Master switch for all Google Doc uploads. Defaults to False — no uploads
             occur unless explicitly enabled. Set to True when running live with a
@@ -116,13 +155,10 @@ class LiveTaskRunner:
                     document_id,
                 )
         self.document_id = document_id
-        if config_dir:
-            scan_analysis_config.set_base_dir(config_dir)
-        if image_config_dir:
-            image_analysis_config.set_base_dir(image_config_dir)
+        apply_config_roots(config_dir=config_dir, image_config_dir=image_config_dir)
 
         self.analyzers = load_analyzers_from_config(
-            analyzer_group, config_dir=scan_analysis_config.base_dir
+            analyzer_group, config_dir=config_dir or scan_analysis_config.base_dir
         )
         self.queue: Queue = Queue()
         self.observer = PollingObserver()

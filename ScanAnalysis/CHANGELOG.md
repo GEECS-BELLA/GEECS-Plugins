@@ -3,6 +3,44 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.14.0] — 2026-07-05
+
+### Added
+
+- **acq_timestamp file mapping** — `SingleDeviceScanAnalyzer` can now analyze
+  Bluesky-produced scan folders, whose native files are named by the device's
+  own `acq_timestamp` rather than MC-convention shot numbers. When the
+  auxiliary frame carries this device's `acq_timestamp` column (any spelling:
+  s-file `"Device acq_timestamp"`, in-memory `"Device:acq_timestamp"`, raw
+  event key `"device-acq_timestamp"`), shots join to files by canonicalising
+  both timestamp representations to integer milliseconds — a deterministic
+  per-device lookup, not a tolerance window. Rows flagged invalid for this
+  device are skipped (their frame belongs to a different physical shot).
+  Legacy shot-number filename mapping is unchanged and remains the fallback
+  for MC-produced scans; the timestamp join is attempted when the column is
+  present and shot-number mapping takes over if it matches no files.
+
+### Fixed
+
+- **Legacy scans no longer re-analyze to zero files** (PR #449 review #1) —
+  MC-produced scans carry a force-appended `<Device> acq_timestamp` column
+  *and* shot-number-named files, so selecting the timestamp join on column
+  presence alone mapped nothing. When the join maps zero files the analyzer
+  now falls back to shot-number filename mapping (a *partial* join never
+  falls back — invalid rows on Bluesky scans keep meaning "no file").
+  Pinned by a canonical-legacy-scan fixture (real s-file column spelling +
+  `ScanNNN_<device>_NNN` filenames).
+- Legacy re-analysis no longer pays for doomed timestamp probes: when the
+  data directory contains only shot-number-named files (and no
+  timestamp-named ones), the per-shot direct-stat probes are skipped —
+  observed ~7 s of dead time per device over SMB. Empty or ambiguous
+  listings keep probing, preserving the stale-SMB-listing defence for live
+  Bluesky scans.
+- `LiveTaskRunner`'s `image_config_dir` parameter works again (review #6):
+  it now sets the config root the ImageAnalysis loader actually resolves
+  through (`scan_analysis_config`), keeping the legacy alias in sync and
+  warning when the two roots conflict.
+
 ## [1.13.1] — 2026-06-26
 
 ### Changed

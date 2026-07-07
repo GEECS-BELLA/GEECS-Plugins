@@ -6,14 +6,10 @@ the scanner-owned save directory (``<dev>-nonscalar_save_path``) and the device
 ``acq_timestamp`` so notebooks join events to native timestamped files by
 timestamp, not by a synthetic shot counter.
 
-This mixin gives both
-:class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector` (strict /
-free-run reference) and
-:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`
-(free-run contributor) one implementation of that capability, so the two cannot
-diverge.  The host device must be a
-:class:`~geecs_bluesky.devices.geecs_device.GeecsDevice` (for the shared UDP
-client) and call :meth:`_init_save_signals` from its ``__init__``.
+This mixin gives both the triggered detector (strict / free-run reference)
+and the free-run contributor one implementation of that capability, so the two
+cannot diverge.  Host devices create their own ``localsavingpath`` / ``save``
+control signals (CA signals writing the gateway ``:SP`` setpoints).
 """
 
 from __future__ import annotations
@@ -31,8 +27,6 @@ from event_model import DataKey
 from event_model.documents import Datum, PartialResource
 
 from geecs_bluesky.assets import AssetDefinition
-from geecs_bluesky.signals import geecs_signal_rw
-from geecs_bluesky.transport.udp_client import GeecsUdpClient
 
 logger = logging.getLogger(__name__)
 
@@ -51,29 +45,6 @@ class NonScalarSaveSupport:
     _asset_root_path: str | None = None
     _asset_local_root_path: str | None = None
     _pending_asset_docs: deque[Asset]
-
-    def _init_save_signals(
-        self,
-        device_name: str,
-        host: str,
-        port: int,
-        udp: GeecsUdpClient,
-    ) -> None:
-        """Create the writable ``localsavingpath`` / ``save`` controls.
-
-        Call from ``__init__`` after ``super().__init__`` (so the device's
-        shared UDP client exists).  No-op unless ``_save_nonscalar_data`` is
-        set.  The two signals are writable controls, not readable signals, so
-        they live outside ``add_children_as_readables``.
-        """
-        if not self._save_nonscalar_data:
-            return
-        self.localsavingpath = geecs_signal_rw(
-            str, device_name, "localsavingpath", host, port, shared_udp=udp
-        )
-        self.save = geecs_signal_rw(
-            str, device_name, "save", host, port, shared_udp=udp
-        )
 
     def configure_nonscalar_file_logging(self, save_path: str | Path) -> None:
         """Record the scanner-owned save directory for the ``nonscalar_save_path`` column."""
@@ -205,7 +176,19 @@ class NonScalarSaveSupport:
         datum_id = f"{resource_uid}/0"
         resource_kwargs: dict[str, object] = {
             "data_key": definition.event_key(device_name),
+            "device_name": device_name,
+            "device_type": definition.device_type,
+            "event_field": definition.event_field,
+            "payload_kind": definition.payload_kind.value,
+            "loader_name": definition.loader_kind.value,
+            "loader_kind": definition.loader_kind.value,
         }
+        if definition.loader_config_defaults:
+            resource_kwargs["loader_config_defaults"] = (
+                definition.loader_config_defaults
+            )
+        if definition.requires_loader_config:
+            resource_kwargs["requires_loader_config"] = True
         companion_paths = definition.companion_file_paths(
             save_path=self._nonscalar_save_path,
             scan_number=self._asset_scan_number,

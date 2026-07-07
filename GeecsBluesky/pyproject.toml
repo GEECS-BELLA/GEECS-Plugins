@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.13.2"
+version = "0.19.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -8,26 +8,42 @@ packages = [{ include = "geecs_bluesky" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
-# Pin to the 0.16 API (source() as method, put() with no wait/timeout arg).
-# The solver struggles with pydantic-numpy's multi-Python markers; see INSTALL.md
-# for the pip-based bootstrap if `poetry install` fails.
-ophyd-async = ">=0.16,<1.0"
+# Track the current ophyd-async 0.19.x API (init_devices, ophyd_async.epics.core,
+# observe_value) — kept consistent with the GeecsCAGateway env.  The solver can
+# struggle with pydantic-numpy's multi-Python markers; see INSTALL.md for the
+# pip-based bootstrap if `poetry install` fails.
+ophyd-async = ">=0.19.3,<1.0"
 bluesky = ">=1.12"
 
 # Scan numbering (claim_scan_number) and the Tiled→s-file exporter
 # (write_scalar_files_from_tiled) live here; it also supplies pandas/nptdms
 # transitively, so they are not pinned separately above.
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
+imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
-# Note: DB lookup (GeecsDevice.from_db) also requires geecs-pythonapi, but
-# that package uses a separate Poetry env (Python <3.12).  Install it manually:
-#   pip install -e ../GEECS-PythonAPI
-# It is intentionally omitted here to keep the build-system dependency-free.
+# The GEECS access layer: GeecsDb metadata, pv_naming, transport-level
+# exceptions (library use), and the CA gateway PVs (service use). We import
+# its library modules; we never import its server.
+geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
+
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
-mysql-connector-python = "^9.7.0"
+
+# CA client for the ophyd-async CA backend (devices/ca/*), which consumes the
+# GeecsCAGateway PVs like any EPICS IOC.  Optional: only the `ca` device backend
+# needs it; the direct UDP/TCP backend does not.  aioca bundles libca via
+# epicscorelibs, so no system EPICS base is required.
+aioca = { version = ">=1.7", optional = true }
+
+# Optimization algorithms for GeecsSession.optimize (XoptSuggester). Heavy
+# (pulls torch/botorch); the built-in RandomSuggester needs nothing. Pinned to
+# the same major as GEECS-Scanner-GUI (^3.1) so the two never drift.
+xopt = { version = "^3.1", optional = true }
 
 [tool.poetry.extras]
 tiled = ["tiled"]
+analysis = ["imageanalysis"]
+ca = ["aioca"]
+optimize = ["xopt"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
@@ -40,6 +56,14 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Default run = the hermetic FakeGeecsServer unit tests under tests/ only, so a
+# fresh checkout is green with NO lab network and NO live-device access. The
+# top-level test_bluesky_scanner.py / test_hardware.py are manual hardware
+# scripts (they drive real scans) and are deliberately excluded from default
+# collection — run them explicitly, e.g. `poetry run python test_hardware.py`.
+# The marker filter additionally skips the DB-touching integration tests.
+testpaths = ["tests"]
+addopts = "-m 'not hardware and not integration'"
 markers = [
     "integration: tests that touch external lab services such as the GEECS database",
     "hardware: tests that require live GEECS devices",

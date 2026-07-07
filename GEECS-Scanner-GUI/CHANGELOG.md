@@ -3,6 +3,59 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] — 2026-07-05
+
+### Added
+
+- **Bluesky/CA optimization bridge** —
+  `optimization/session_bridge.py`: runs the existing config-driven
+  optimization stack (BaseOptimizer, Xopt 3.1 generators, evaluators with
+  ScanAnalysis analyzers incl. per-bin image averaging) on a
+  `GeecsSession.optimize` scan. `SessionBinSource` presents the session's
+  schema-v1 event rows as the legacy DataLogger-shaped frame
+  (`Device:Variable` columns, `Bin #`, `Shotnumber`); `SessionOptimizationBridge`
+  adapts the optimizer's ask/tell surface to the session suggester protocol
+  (with the legacy 2-random-init behavior). `RunControl` injects
+  `load_session_optimization` into `BlueskyScanner`, so GUI optimization
+  scans now work with `use_bluesky=True` using the same optimizer YAML
+  configs.
+  The bridge awaits each bin's expected native files (direct stat — immune
+  to stale SMB directory listings) before running the evaluator, and its
+  `finish()` writes `xopt_dump.yaml` into the scan folder at scan end
+  (legacy parity; the `seed_dump_files` warm-start source).
+- `BaseEvaluator` engine seam: `EvaluatorDataSource` protocol +
+  `DataLoggerSource` (the legacy in-memory path, extracted verbatim from
+  `get_current_data`). New optional `data_source=` / `scan_tag=` constructor
+  kwargs; passing `data_logger` alone (including post-construction
+  assignment) is unchanged behavior.
+
+- `GEECS_USE_BLUESKY` env var (`1/true/yes/on`) switches a GUI session onto
+  the Bluesky backend without touching source — the GUI constructs
+  `RunControl` without the `use_bluesky` argument, so the env var is the
+  supported switch during the legacy → Bluesky transition (mirroring
+  `GEECS_BLUESKY_ACQUISITION_MODE`). Resolver lives in
+  `engine/backend_selection.py` (PyQt5-free, testable headless).
+
+### Fixed
+
+- `_await_bin_assets` builds expected native-file paths with the
+  analyzer's `data_device_name` (the asset registry's `directory_suffix`),
+  so suffixed diagnostics (FROG/magspec-style) no longer burn the full
+  timeout with spurious warnings every bin; the wait also refuses to block
+  a thread with a running asyncio loop (the RunEngine-loop blocking itself
+  is fixed plan-side in geecs-bluesky). (PR #449 review #12)
+- Fresh installs can now run the Bluesky/CA backend: the `geecs-bluesky`
+  path dependency gains the `ca` extra (aioca), and the lockfile — which
+  predated both the GeecsBluesky→GeecsCAGateway dependency and the
+  ophyd-async 0.19.3 bump — was regenerated (the root `geecs-docs` lock
+  likewise). Previously a from-lock install produced an environment with
+  no gateway library, no aioca, and ophyd-async 0.16.
+- Defused a latent order-dependent import cycle:
+  `base_evaluator → config_models` (module-level model rebuild) `→ engine →
+  scan_executor → base_optimizer → base_evaluator`. Importing
+  `base_evaluator` first now works (the `config_models` import is deferred
+  into `__init__`).
+
 ## [0.29.0] — 2026-06-24
 
 ### Changed (BREAKING — Xopt 2.6 → 3.1 upgrade)

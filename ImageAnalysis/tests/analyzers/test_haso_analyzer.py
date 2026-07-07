@@ -22,8 +22,14 @@ import numpy as np
 import pytest
 from geecs_data_utils import GeecsPathsConfig, ScanPaths, ScanTag
 
-# Skip the whole module if the WaveKit SDK is unavailable.
-pytest.importorskip("image_analysis.third_party_sdks.wavekit_43.wavekit_py")
+# Skip the whole module if the WaveKit SDK is unavailable. exc_type covers
+# the SDK's Windows-only `from _ctypes import FreeLibrary`, which raises a
+# bare ImportError elsewhere — pytest >= 8 only auto-skips
+# ModuleNotFoundError, so without it collection *errors* on Linux/macOS.
+pytest.importorskip(
+    "image_analysis.third_party_sdks.wavekit_43.wavekit_py",
+    exc_type=ImportError,
+)
 
 from image_analysis.analyzers.HASO_himg_has_processor import (  # noqa: E402
     HASOHimgHasProcessor,

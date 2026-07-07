@@ -9,20 +9,65 @@ hooks; either or both can be implemented).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Tuple, Union
 
 import numpy as np
 
 from image_analysis.config import load_diagnostic
 from scan_analysis.config import create_scan_analyzer
 
-from geecs_scanner.optimization.config_models import _split_analyzer_entry
-
 if TYPE_CHECKING:
+    import pandas as pd
+
     from geecs_scanner.engine.data_logger import DataLogger
     from geecs_scanner.engine.scan_data_manager import ScanDataManager
 
 logger = logging.getLogger(__name__)
+
+
+class EvaluatorDataSource(Protocol):
+    """Where the evaluator reads per-shot rows and writes results back.
+
+    This is the single seam between the evaluator and whichever engine is
+    running the scan. The legacy ScanManager path uses
+    :class:`DataLoggerSource` (in-memory ``DataLogger.log_entries``); the
+    Bluesky/CA path provides a source over the session's per-bin event rows.
+    Everything downstream of :meth:`BaseEvaluator.get_current_data` —
+    analyzers, s-file scalars, objective/observable hooks — sees only the
+    DataFrame this produces and is engine-agnostic.
+    """
+
+    def fetch(self) -> Tuple["pd.DataFrame", int]:
+        """Return (full log frame, current bin number).
+
+        The frame must carry ``"Bin #"``, ``"Elapsed Time"`` and a
+        ``"Shotnumber"`` column reflecting acquisition order.
+        """
+        ...
+
+    def record(self, elapsed_time: float, key: str, value: float) -> None:
+        """Write one result column back for the shot row keyed by *elapsed_time*."""
+        ...
+
+
+class DataLoggerSource:
+    """Legacy source: the ScanManager path's in-memory ``DataLogger``."""
+
+    def __init__(self, data_logger: "DataLogger") -> None:
+        self.data_logger = data_logger
+
+    def fetch(self) -> Tuple["pd.DataFrame", int]:
+        """Build the sorted log frame from ``log_entries`` (Shotnumber = order)."""
+        import pandas as pd
+
+        df = pd.DataFrame.from_dict(self.data_logger.log_entries, orient="index")
+        df = df.sort_values(by="Elapsed Time").reset_index(drop=True)
+        df["Shotnumber"] = df.index + 1
+        return df, self.data_logger.bin_num
+
+    def record(self, elapsed_time: float, key: str, value: float) -> None:
+        """Write into the live log entry so the value lands in the s-file."""
+        self.data_logger.log_entries[elapsed_time][key] = value
 
 
 # Per-analyzer device-requirements template. Lifted from the old
@@ -84,6 +129,14 @@ class BaseEvaluator:
         Override the auto-generated requirements. The default is the union
         of per-analyzer blocks (each keyed on the GEECS device name).
     scan_data_manager, data_logger : injected at construction time
+    data_source : EvaluatorDataSource, optional
+        The engine seam. Defaults to ``DataLoggerSource(data_logger)`` when
+        only ``data_logger`` is given (legacy path); the Bluesky/CA path
+        injects a source over the session's per-bin rows instead.
+    scan_tag : ScanTag, optional
+        Explicit scan tag for analyzer file loading. Defaults to
+        ``scan_data_manager.scan_paths.get_tag()`` when a manager is given;
+        engines without a ScanDataManager pass the tag directly.
 
     Attributes
     ----------
@@ -113,6 +166,10 @@ class BaseEvaluator:
     # Defaults to class name in __init__ if not overridden by subclass.
     objective_tag: str = ""
 
+    # Class-level default so the data_source property works on instances
+    # built without running BaseEvaluator.__init__ (test doubles do this).
+    _data_source: Optional["EvaluatorDataSource"] = None
+
     def __init__(
         self,
         analyzers: Optional[List[Union[str, Dict[str, Any]]]] = None,
@@ -121,7 +178,14 @@ class BaseEvaluator:
         device_requirements: Optional[Dict[str, Any]] = None,
         scan_data_manager: Optional["ScanDataManager"] = None,
         data_logger: Optional["DataLogger"] = None,
+        data_source: Optional[EvaluatorDataSource] = None,
+        scan_tag: Optional[Any] = None,  # ScanTag; Any avoids a hard dep here
     ):
+        # Deferred: config_models' module-level model rebuild walks into
+        # geecs_scanner.engine, which imports back through base_optimizer
+        # to this module — a cycle when base_evaluator is imported first.
+        from geecs_scanner.optimization.config_models import _split_analyzer_entry
+
         # --- Data sources ---------------------------------------------
         # Load each diagnostic into a typed config; build one scan
         # analyzer per diagnostic, keyed on the GEECS device name. Both
@@ -154,13 +218,21 @@ class BaseEvaluator:
         self.device_requirements = device_requirements
 
         # --- Injected runtime context ---------------------------------
+        # data_source is the engine seam (EvaluatorDataSource). When only
+        # data_logger is present — including assigned after construction,
+        # a long-standing pattern — the data_source property lazily wraps
+        # it in a DataLoggerSource (legacy behavior).
         self.scan_data_manager = scan_data_manager
         self.data_logger = data_logger
-        self.scan_tag = (
-            self.scan_data_manager.scan_paths.get_tag()
-            if self.scan_data_manager is not None
-            else None
-        )
+        self._data_source = data_source
+        if scan_tag is not None:
+            self.scan_tag = scan_tag
+        else:
+            self.scan_tag = (
+                self.scan_data_manager.scan_paths.get_tag()
+                if self.scan_data_manager is not None
+                else None
+            )
 
         # --- Per-evaluation state -------------------------------------
         self.bin_number: int = 0
@@ -182,6 +254,27 @@ class BaseEvaluator:
     # ------------------------------------------------------------------
 
     @property
+    def data_source(self) -> Optional[EvaluatorDataSource]:
+        """The engine seam, lazily wrapping ``data_logger`` when not injected.
+
+        Tracks ``data_logger`` reassignment (a long-standing pattern) so the
+        wrapper never points at a stale logger.
+        """
+        if self.data_logger is not None and (
+            self._data_source is None
+            or (
+                isinstance(self._data_source, DataLoggerSource)
+                and self._data_source.data_logger is not self.data_logger
+            )
+        ):
+            self._data_source = DataLoggerSource(self.data_logger)
+        return self._data_source
+
+    @data_source.setter
+    def data_source(self, value: Optional[EvaluatorDataSource]) -> None:
+        self._data_source = value
+
+    @property
     def primary_device(self) -> Optional[str]:
         """GEECS device name of the first listed diagnostic, or None.
 
@@ -195,20 +288,17 @@ class BaseEvaluator:
     # ------------------------------------------------------------------
 
     def get_current_data(self) -> None:
-        """Refresh ``current_data_bin`` and ``current_shot_numbers`` from data_logger.
+        """Refresh ``current_data_bin`` and ``current_shot_numbers`` from the data source.
 
-        Converts ``log_entries`` to a DataFrame (sorted by elapsed time so
-        ``Shotnumber`` reflects acquisition order), then filters to the
-        current bin.
+        Fetches the full log frame and current bin number from
+        :attr:`data_source`, then filters to the current bin.
         """
-        import pandas as pd
-
-        log_entries = self.data_logger.log_entries
-        self.bin_number = self.data_logger.bin_num
-
-        df = pd.DataFrame.from_dict(log_entries, orient="index")
-        df = df.sort_values(by="Elapsed Time").reset_index(drop=True)
-        df["Shotnumber"] = df.index + 1
+        if self.data_source is None:
+            raise RuntimeError(
+                "BaseEvaluator has no data source: construct with data_logger= "
+                "(legacy ScanManager path) or data_source= (engine seam)."
+            )
+        df, self.bin_number = self.data_source.fetch()
         self.log_df = df
 
         bin_mask = df["Bin #"] == self.bin_number
@@ -392,7 +482,7 @@ class BaseEvaluator:
                 if self.output_key is not None and k == self.output_key
                 else f"Observable:{k}"
             )
-            self.data_logger.log_entries[elapsed_time][key] = v
+            self.data_source.record(elapsed_time, key, v)
             logger.info("Logged %s = %s for shot %s", key, v, shot_num)
 
     # ------------------------------------------------------------------

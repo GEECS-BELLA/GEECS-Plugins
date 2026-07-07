@@ -81,9 +81,20 @@ def geecs_t0_sync(
         values = [ts for ts in timestamps.values() if ts is not None]
         spread = max(values) - min(values)
         if spread > window_s:
+            # Name the laggards: a dead/off device serves a stale cached
+            # timestamp forever, and "spread exceeds window" alone doesn't
+            # say which of N devices to go look at.
+            newest = max(values)
+            newest_name = next(name for name, ts in timestamps.items() if ts == newest)
+            stale = ", ".join(
+                f"{name} ({newest - ts:.3f}s behind {newest_name})"
+                for name, ts in sorted(timestamps.items(), key=lambda kv: kv[1] or 0.0)
+                if ts is not None and newest - ts > window_s
+            )
             last_error = (
                 f"acq_timestamp spread {spread:.3f}s exceeds window "
-                f"{window_s:.3f}s — cached frames are not from one trigger"
+                f"{window_s:.3f}s — cached frames are not from one trigger; "
+                f"stale device(s): {stale}"
             )
             logger.info("t0 sync attempt %d: %s", attempt + 1, last_error)
             continue

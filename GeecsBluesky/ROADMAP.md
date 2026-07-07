@@ -1,5 +1,13 @@
 # GeecsBluesky — Roadmap
 
+> **Historical note (2026-07-04):** the direct UDP/TCP device backend this
+> roadmap tracked (`GeecsSignalBackend`, `GeecsDevice`, `GeecsTriggerable`,
+> `GeecsMotor`, `GeecsGenericDetector`, `GeecsTimestampedReadable`, …) was
+> **completed, verified, and then deleted** after the CA-gateway backend
+> reached live parity. Devices are now CA-backed via GeecsCAGateway; the
+> checked items below are kept as the historical record of that path.
+
+
 Current status (2026-06-14): the **two-acquisition-mode architecture is complete
 and hardware-verified** (GeecsBluesky 0.8.0, branch
 `geecs-bluesky-acquisition-modes`).  `BlueskyScanner` runs STANDARD and

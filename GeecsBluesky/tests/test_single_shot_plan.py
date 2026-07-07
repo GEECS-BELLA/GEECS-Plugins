@@ -1,7 +1,8 @@
-"""Tests for the strict single-shot acquisition path.
+"""Tests for the strict single-shot acquisition path (CA-mock devices).
 
-No free-running firer here: the fake device fires **only** when the plan's
-``fire_shot`` callable executes, proving the plan owns every shot.
+No free-running pacer here: the mock device's ``acq_timestamp`` advances
+**only** when the plan's ``fire_shot`` callable executes, proving the plan
+owns every shot.
 """
 
 from __future__ import annotations
@@ -13,20 +14,19 @@ import bluesky.plan_stubs as bps
 import pytest
 from bluesky import RunEngine
 
-from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
-from geecs_bluesky.devices.motor import GeecsMotor
 from geecs_bluesky.exceptions import (
     GeecsQuiescenceTimeoutError,
     GeecsTriggerTimeoutError,
 )
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
 from geecs_bluesky.plans.step_scan import geecs_step_scan
-from geecs_bluesky.testing.fake_device_server import FakeGeecsDevice
-from tests.fake_server_helpers import (
-    BackgroundFakeServers,
-    connect_devices,
-    disconnect_devices,
-)
+
+pytest.importorskip("aioca")
+
+from ophyd_async.core import set_mock_value  # noqa: E402
+
+from geecs_bluesky.devices.ca import CaGenericDetector, CaMotor  # noqa: E402
+from tests.ca_mock_helpers import connect_mock, follow_setpoint  # noqa: E402
 
 
 class _StubTsDevice:
@@ -80,53 +80,48 @@ def test_confirm_quiescent_no_sync_devices_is_noop() -> None:
 
 
 @contextmanager
-def _setup_scan() -> Iterator[
-    tuple[FakeGeecsDevice, GeecsMotor, GeecsGenericDetector, RunEngine, list]
-]:
-    fake = FakeGeecsDevice(
-        name="U_Combined",
-        variables={"Position (mm)": 0.0, "Sig": 1.0, "acq_timestamp": 1000.0},
-    )
-    with BackgroundFakeServers(fake) as server:
-        host, port = server.endpoint
+def _setup_scan() -> Iterator[tuple[CaMotor, CaGenericDetector, RunEngine, list]]:
+    motor = CaMotor("U_Combined", "Position (mm)", name="scan_motor")
+    cam = CaGenericDetector("U_Combined", ["Sig"], name="cam")
+    cam.configure_shot_id(rep_rate_hz=1.0)
 
-        motor = GeecsMotor("U_Combined", "Position (mm)", host, port, name="scan_motor")
-        cam = GeecsGenericDetector("U_Combined", ["Sig"], host, port, name="cam")
-        cam.configure_shot_id(rep_rate_hz=1.0)
-
-        events: list[dict] = []
-        RE = RunEngine()
-        RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
-        connect_devices(RE, motor, cam)
-        try:
-            yield fake, motor, cam, RE, events
-        finally:
-            disconnect_devices(RE, motor, cam)
+    events: list[dict] = []
+    RE = RunEngine()
+    RE.subscribe(lambda name, doc: events.append(doc) if name == "event" else None)
+    connect_mock(RE, motor, cam)
+    follow_setpoint(motor)
+    set_mock_value(cam.acq_timestamp, 1000.0)
+    yield motor, cam, RE, events
 
 
-@pytest.mark.fake_server
+def _make_fire(cam: CaGenericDetector, counter: dict) -> object:
+    """Fire hook: advancing acq_timestamp IS the shot (runs in the RE loop)."""
+    state = {"t": 1000.0}
+
+    def fire():
+        counter["fire"] = counter.get("fire", 0) + 1
+        state["t"] += 1.0
+        set_mock_value(cam.acq_timestamp, state["t"])
+        yield from bps.null()
+
+    return fire
+
+
 def test_strict_scan_fires_each_shot_itself() -> None:
     """One fire → one complete row; no free-running trigger required."""
-    with _setup_scan() as (fake, motor, cam, RE, events):
-        fire_count = 0
-
-        def fire():
-            nonlocal fire_count
-            fire_count += 1
-            fake.fire_shot()
-            yield from bps.null()
-
+    with _setup_scan() as (motor, cam, RE, events):
+        calls: dict = {}
         RE(
             geecs_step_scan(
                 motor=motor,
                 positions=[0.0, 1.0],
                 detectors=[cam],
                 shots_per_step=2,
-                fire_shot=fire,
+                fire_shot=_make_fire(cam, calls),
             )
         )
 
-        assert fire_count == 4
+        assert calls["fire"] == 4
         assert len(events) == 4
         # Plan-owned shots are consecutive: the trigger only ticks when fired
         assert [ev["data"]["cam-shot_id"] for ev in events] == [1, 2, 3, 4]
@@ -135,19 +130,13 @@ def test_strict_scan_fires_each_shot_itself() -> None:
             assert ev["data"]["cam-shot_offset"] == 0
 
 
-@pytest.mark.fake_server
 def test_strict_scan_setup_trigger_runs_once_before_shots() -> None:
     """setup_trigger (arm + confirm) runs once at scan start, not per shot."""
-    with _setup_scan() as (fake, _motor, cam, RE, events):
-        calls = {"setup": 0, "fire": 0}
+    with _setup_scan() as (_motor, cam, RE, events):
+        calls: dict = {}
 
         def setup():
-            calls["setup"] += 1
-            yield from bps.null()
-
-        def fire():
-            calls["fire"] += 1
-            fake.fire_shot()
+            calls["setup"] = calls.get("setup", 0) + 1
             yield from bps.null()
 
         RE(
@@ -157,21 +146,19 @@ def test_strict_scan_setup_trigger_runs_once_before_shots() -> None:
                 detectors=[cam],
                 shots_per_step=3,
                 setup_trigger=setup,
-                fire_shot=fire,
+                fire_shot=_make_fire(cam, calls),
             )
         )
 
         assert calls["setup"] == 1, "setup_trigger must run exactly once"
         assert calls["fire"] == 3
         assert len(events) == 3
-        # Start doc records that the plan fired its own shots
         assert all(ev["data"]["cam-valid"] for ev in events)
 
 
-@pytest.mark.fake_server
 def test_strict_scan_hard_fails_when_device_misses_the_shot() -> None:
     """A device not responding to the plan's own shot aborts the scan."""
-    with _setup_scan() as (_fake, motor, cam, RE, events):
+    with _setup_scan() as (motor, cam, RE, events):
         cam._trigger_timeout = 0.5  # keep the failure fast
 
         def dead_fire():

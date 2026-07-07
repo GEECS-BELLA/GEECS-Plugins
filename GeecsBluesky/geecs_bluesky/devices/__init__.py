@@ -1,19 +1,29 @@
-"""ophyd-async Device classes for GEECS hardware."""
+"""ophyd-async Device classes for GEECS hardware (CA-backed via the gateway)."""
 
-from .geecs_device import GeecsDevice
-from .generic_detector import GeecsGenericDetector
+from .ca import (
+    CaAcqTimestampReadable,
+    CaGenericDetector,
+    CaMotor,
+    CaSettable,
+    CaSnapshotReadable,
+    CaTimestampedReadable,
+    CaTriggerable,
+)
+from .contributor import FreeRunContributorSupport
+from .nonscalar_save import NonScalarSaveSupport
 from .scan_context import ScanContext
-from .settable import GeecsSettable
 from .shot_id import ShotIdSupport, ShotIdTracker
-from .snapshot import GeecsSnapshotReadable
-from .timestamped_readable import GeecsTimestampedReadable
 
 __all__ = [
-    "GeecsDevice",
-    "GeecsGenericDetector",
-    "GeecsSettable",
-    "GeecsSnapshotReadable",
-    "GeecsTimestampedReadable",
+    "CaAcqTimestampReadable",
+    "CaGenericDetector",
+    "CaMotor",
+    "CaSettable",
+    "CaSnapshotReadable",
+    "CaTimestampedReadable",
+    "CaTriggerable",
+    "FreeRunContributorSupport",
+    "NonScalarSaveSupport",
     "ScanContext",
     "ShotIdSupport",
     "ShotIdTracker",

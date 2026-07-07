@@ -15,7 +15,7 @@ Typical pattern: construct **`ScanData`** (or **`ScanPaths`**) for one scan, the
 
 - **`GeecsPathsConfig`** — Experiment-aware defaults for where GEECS data and plugin config roots live (INI-backed / deployment-specific behavior; see module docstring).
 - **`ConfigDirManager`** (`config_base`) — Reusable “config directory + cached lookups” helper (env var bootstrap, optional fallback resolver).
-- **`image_analysis_config`** / **`scan_analysis_config`** (`config_roots`) — Pre-wired **`ConfigDirManager`** instances for ImageAnalysis and ScanAnalysis config trees (documented env vars and fallbacks in that module).
+- **`scan_analysis_config`** (`config_roots`) — Pre-wired **`ConfigDirManager`** for the unified Scan/ImageAnalysis config tree (`SCAN_ANALYSIS_CONFIG_DIR` or `scan_analysis_configs_path` in the shared user config). **`image_analysis_config`** remains as a legacy compatibility manager that resolves from the same root.
 - **`SysPath`**, **`ConfigurationError`**, **`month_to_int`** (`utils`) — Shared typing for path-like values, configuration failures, and month parsing used by scan path logic.
 
 ## Scan identifiers & modes (`type_defs`)

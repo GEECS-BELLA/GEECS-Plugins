@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner-gui"
-version = "0.29.0"
+version = "0.30.0"
 
 
 description = ""
@@ -16,7 +16,7 @@ geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
 imageanalysis = {path = "../ImageAnalysis", develop = true}
 scananalysis = {path = "../ScanAnalysis", develop = true}
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
-geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled"] }
+geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "ca"] }
 
 pint = ">=0.24"
 pyyaml = "^6.0.2"

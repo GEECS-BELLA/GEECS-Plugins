@@ -40,13 +40,15 @@ def _saving_detector_paths(item: Sequence) -> tuple[Any, str, str]:
     return det, str(event_path), str(device_command_path)
 
 
-def claim_scan_number(experiment: str = "") -> tuple[int | None, str | None]:
-    """Claim the next day-scoped scan number and folder via ``geecs_data_utils``.
+def claim_scan(experiment: str = "") -> tuple[Any | None, str | None]:
+    """Claim the next day-scoped scan via ``geecs_data_utils``; return (ScanTag, folder).
 
     Scanner-side operation — this is the one place (outside the GUI's own
     ``ScanDataManager``) allowed to bring a ``scans/ScanNNN/`` folder into
     existence.  Returns ``(None, None)`` if ``geecs_data_utils`` is unavailable,
-    the NetApp is unreachable, or the claim fails.
+    the NetApp is unreachable, or the claim fails.  The full ``ScanTag`` is
+    returned for callers that need it (e.g. ScanAnalysis analyzers load files
+    by tag); use :func:`claim_scan_number` when only the number matters.
 
     Parameters
     ----------
@@ -66,10 +68,16 @@ def claim_scan_number(experiment: str = "") -> tuple[int | None, str | None]:
         scan_data = ScanPaths(tag=tag, read_mode=False)
         folder = scan_data.get_folder()
         logger.info("Claimed scan number %d -> %s", tag.number, folder)
-        return tag.number, str(folder) if folder else None
+        return tag, str(folder) if folder else None
     except Exception:
         logger.warning("Could not claim scan number", exc_info=True)
         return None, None
+
+
+def claim_scan_number(experiment: str = "") -> tuple[int | None, str | None]:
+    """Claim the next day-scoped scan number and folder (see :func:`claim_scan`)."""
+    tag, folder = claim_scan(experiment)
+    return (tag.number if tag is not None else None), folder
 
 
 def _save_cleanup_plan(saving_detectors: list[tuple]):

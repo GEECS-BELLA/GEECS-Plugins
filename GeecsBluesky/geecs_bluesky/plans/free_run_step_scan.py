@@ -35,6 +35,7 @@ from typing import Any, Callable, Iterable
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.protocols import Triggerable
 
 from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.shot_id import ShotIdSupport
@@ -100,12 +101,26 @@ def geecs_free_run_step_scan(
 
     Raises
     ------
+    TypeError
+        If *reference* is not a bluesky ``Triggerable``.
+        ``bps.trigger_and_read`` only waits on devices that implement
+        ``trigger()`` — a non-Triggerable reference would never pace the
+        rows, so the plan would record unpaced duplicates of whatever frame
+        each device last cached (silent data corruption).
     ValueError
         If *reference* has no shot-ID tracker configured — contributors
         cannot compute row validity without it.
     GeecsT0SyncError
         If the t0-sync stage cannot establish a common physical shot.
     """
+    if not isinstance(reference, Triggerable):
+        raise TypeError(
+            "free-run scan requires a Triggerable reference (pacemaker) — "
+            "without a real trigger(), trigger_and_read would not wait for "
+            "shots and every row would duplicate the last cached frame; got "
+            f"{type(reference).__name__} "
+            f"{getattr(reference, 'name', reference)!r}"
+        )
     if not isinstance(reference, ShotIdSupport) or reference.shot_id_tracker is None:
         raise ValueError(
             "free-run scan requires a reference with configure_shot_id() done; "

@@ -1,0 +1,99 @@
+"""Tests for lightweight GEECS database lookup helpers."""
+
+from __future__ import annotations
+
+import sys
+import types
+
+
+from geecs_ca_gateway.db import geecs_db
+from geecs_ca_gateway.db.geecs_db import GeecsDb
+
+
+class _FakeCursor:
+    """Minimal cursor fake for a single device lookup."""
+
+    def execute(self, *_args, **_kwargs) -> None:
+        """Accept any query without side effects."""
+        pass
+
+    def fetchone(self) -> tuple[str, int]:
+        """Return one fake device row."""
+        return ("192.168.1.10", 12345)
+
+
+class _FakeConnection:
+    """Minimal connection fake returning a fake cursor."""
+
+    def cursor(self) -> _FakeCursor:
+        """Return a cursor fake."""
+        return _FakeCursor()
+
+    def close(self) -> None:
+        """Close without side effects."""
+        pass
+
+
+def test_find_device_uses_pure_python_mysql_connector(monkeypatch) -> None:
+    """DB lookups should avoid the crash-prone mysql C extension on Windows."""
+    calls: list[dict] = []
+
+    def connect(**kwargs):
+        calls.append(kwargs)
+        return _FakeConnection()
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    connector_mod.connect = connect
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(
+        geecs_db,
+        "_find_credentials",
+        lambda: {
+            "host": "db",
+            "port": 3306,
+            "database": "geecs",
+            "user": "user",
+            "password": "pw",
+        },
+    )
+
+    assert GeecsDb.find_device("U_TestDevice") == ("192.168.1.10", 12345)
+    assert calls and calls[0]["use_pure"] is True
+
+
+def test_get_device_type_queries_device_table(monkeypatch) -> None:
+    """Device type lookup should return the database ``device.devicetype`` value."""
+    queries: list[tuple[str, tuple[str, ...]]] = []
+
+    class _DeviceTypeCursor:
+        def execute(self, query: str, params: tuple[str, ...]) -> None:
+            queries.append((query, params))
+
+        def fetchone(self) -> tuple[str]:
+            return ("Point Grey Camera",)
+
+    class _DeviceTypeConnection:
+        def cursor(self) -> _DeviceTypeCursor:
+            return _DeviceTypeCursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(
+        geecs_db,
+        "_connect_mysql",
+        lambda _connector: _DeviceTypeConnection(),
+    )
+
+    assert GeecsDb.get_device_type("UC_TopView") == "Point Grey Camera"
+    assert queries == [
+        ("SELECT devicetype FROM device WHERE name = %s", ("UC_TopView",))
+    ]

@@ -3,6 +3,35 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.10.0] — 2026-06-30
+
+### Added
+- `ImageAnalyzerResult.feature_scalars()` returns JSON-serializable scalar
+  feature values for downstream analysis logging.
+
+### Changed
+- String-based camera/line config lookup now prefers the unified
+  ScanAnalysis config root (`SCAN_ANALYSIS_CONFIG_DIR` /
+  `scan_analysis_configs_path`); the legacy ImageAnalysis config root is no
+  longer part of active config discovery.
+- `image_analysis.data_1d_utils` now re-exports the shared 1D file readers from
+  `geecs_data_utils.io.array1d`; existing imports keep working while Bluesky can
+  use the same loaders without importing ImageAnalysis.
+
+### Fixed
+
+- The HASO test module's `importorskip` now passes `exc_type=ImportError`:
+  the WaveKit SDK's Windows-only `_ctypes.FreeLibrary` import raises a bare
+  ImportError elsewhere, which pytest >= 8 no longer auto-skips — collection
+  errored on Linux/macOS instead of skipping.
+- Widened the stray runtime `pytest` constraint from `^7.4` to `>=7.4` — it
+  was the only pin holding the integrated monorepo env below pytest 8
+  (moving it out of runtime deps entirely is deferred cleanup).
+- The two Undulator demo `__main__` blocks (`hi_res_mag_cam_analyzer`,
+  `BCaveMagSpecStitcher`) set the camera-config root on the instance the
+  loader actually consults (`scan_analysis_config`), so the demos resolve
+  their local config dirs again. (PR #449 review #6)
+
 ## [1.9.1] — 2026-06-25
 
 ### Changed
