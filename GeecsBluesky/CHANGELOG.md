@@ -4,6 +4,49 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-07-06
+
+### Added
+
+- **Analyzer-device auto-provisioning for optimization scans (legacy
+  parity)** — `BlueskyScanner._run_optimization` now merges the optimizer
+  config's `device_requirements` (exposed duck-typed on the optimization
+  bridge, like `on_finish`/`finish`) into the save-device set before
+  session devices are built, mirroring the legacy
+  `device_manager.load_from_dictionary` path: a required device absent
+  from the GUI save list is added with the requirement's config
+  (synchronous, `save_nonscalar_data`, variable list — the auto-generated
+  analyzer template), while a device already on the GUI list keeps its GUI
+  settings and only gains missing required variables. Auto-provisioning is
+  logged at INFO. Objectives' cameras no longer need to be added to the
+  save list manually.
+- **Case-insensitive device-requirement merge** (live-observed 2026-07-06,
+  first GUI optimization test) — GEECS is internally case-inconsistent
+  about device-name spelling (the DB said `UC_Amp4_IR_input`, the
+  optimizer config `UC_Amp4_IR_Input`), and the case-sensitive merge added
+  a duplicate wrong-case device whose gateway PVs could never connect (CA
+  names are case-sensitive). Requirement names now match existing GUI save
+  devices via `str.casefold`; on a hit the requirement merges into the
+  existing entry under the GUI's spelling (the one that connects), with
+  the case difference logged at INFO. Genuinely new devices keep the
+  requirement's spelling, and the auto-provisioning log now hints to
+  verify the spelling against the GEECS database.
+- **Bounded refire for strict-mode single shots**
+  (`geecs_single_shot(..., max_refires=2)`) — live evidence from the first
+  GUI optimization campaign (2026-07-06, Undulator Scan011): 84 SINGLESHOT
+  fires produced 83 camera frames; the one no-frame fire (the Basler's
+  known ~1% frame-drop intermittency) failed the group wait and aborted
+  the whole optimization. A missed pulse never yields a frame, so a
+  device that produces nothing now gets the shot re-fired (fresh trigger
+  group per attempt, WARNING naming the device) up to `max_refires` times
+  before the `FailedStatus` propagates. Strict semantics are preserved:
+  a failed attempt records nothing, and any orphan frame from a partial
+  miss is drained by the next attempt's `trigger()` baseline, so every
+  recorded row is one physical shot. The 3.0 s trigger timeout was
+  measured adequate (fire→frame offset median 0.21 s, max 1.06 s across
+  the 83 good shots), so no timeout knob was added — waiting longer
+  cannot recover a dropped frame; re-firing can.
+
 ## [0.19.2] - 2026-07-06
 
 ### Changed
@@ -15,6 +58,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   into both the folder and the filename stem). The registry keeps its
   bare-extension normalization as a local wrapper. No behavior change; the
   registry/asset tests pass unchanged.
+
 
 ## [0.19.1] - 2026-07-06
 
@@ -59,6 +103,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PV, so event keys and source strings are unchanged.
   `ShotController.over_ca`'s setters intentionally keep bare PV names — they
   talk to aioca directly, which treats a prefix as part of the PV name.
+
 
 ## [0.19.0] - 2026-07-05
 

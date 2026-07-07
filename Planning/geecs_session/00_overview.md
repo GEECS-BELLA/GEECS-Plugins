@@ -101,19 +101,17 @@ scanner uses it too, making a scan fully gateway-mediated.
 
 Deliberately not blocking the PR; each has a natural forcing function.
 
-- **Feed Xopt the measured readback, not the proposal.** GEECS set
-  convergence is tolerance-bounded (e.g. 0.05 A on magnet PSUs), so the
-  evaluated point can differ from the proposed one by up to the tolerance.
-  Rows record the true readback; the bridge's `observe()` could substitute
-  the bin-mean readback as the input Xopt learns from (~5 lines,
-  `session_bridge.py`). Legacy has the same flaw, so this is an
-  improvement, not parity. Decide when a real tuning problem exists.
-- **Analyzer-device auto-provisioning for optimization scans.** Legacy
-  merges `optimizer.device_requirements` into the save-device set
-  (`device_manager.load_from_dictionary`); the Bluesky path currently uses
-  only the GUI save list, so an objective's camera must be added manually.
-  Fix in `BlueskyScanner._run_optimization` (merge into `_devices_config`)
-  alongside the first GUI-launched optimization test.
+- **Feed Xopt the measured readback, not the proposal.** ~~Open~~ —
+  **landed 2026-07-06** (geecs-scanner 0.31.0): `observe()` substitutes
+  each variable's proposal with the bin-mean measured readback from the
+  bin rows (NaN rows excluded; proposal fallback when the column is
+  missing/empty/all-NaN).
+- **Analyzer-device auto-provisioning for optimization scans.** ~~Open~~ —
+  **landed 2026-07-06** (geecs-bluesky 0.20.0):
+  `BlueskyScanner._run_optimization` merges the bridge-exposed
+  `device_requirements` into `_devices_config` before device build (absent
+  devices added per the requirement; GUI devices keep their config and
+  gain missing variables).
 - **Per-shot `Objective:`/`Observable:` s-file columns** are not exported
   on the Bluesky path (iteration-level values live in `optimization.json`
   + `xopt_dump.yaml`). Parked with the "analysis artifacts in Tiled"
