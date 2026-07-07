@@ -25,6 +25,7 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
     CaTimestampedReadable,
     CaTriggerable,
 )
+from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsMotorTimeoutError,
     GeecsTriggerTimeoutError,
@@ -42,6 +43,87 @@ def test_pv_name_policy() -> None:
     assert pv_name("Undulator", "U_S1H", "Current") == "Undulator:U_S1H:Current"
     assert pv_name(None, "U_DG645", "Trigger.Source") == "U_DG645:Trigger_Source"
     assert normalize_component("Beam Current (A)") == "Beam_Current_A"
+
+
+def test_ca_pv_pins_the_transport_on_gateway_names() -> None:
+    """ca_pv is pv_name with the explicit CA transport scheme prepended."""
+    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://Undulator:U_S1H:Current"
+    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://U_DG645:Trigger_Source"
+
+
+# --------------------------------------------------------------------------
+# CA transport pinning (ca:// prefix on every device PV)
+# --------------------------------------------------------------------------
+#
+# ophyd-async picks the default EPICS transport for UN-prefixed PV names by
+# import luck (p4p installed + aioca missing flips signals to PVA, and every
+# connect against the CA-only gateway times out with a generic error).  Every
+# signal a CA device builds must therefore carry an explicit ca:// source.
+# The prefix is stripped before the backend stores the PV, so it must appear
+# exactly once in the re-derived source string — never doubled, never leaked
+# into event keys.
+
+
+async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
+    """All signals on every CA device class carry ca://-prefixed sources."""
+    settable = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
+    motor = CaMotor("U_ESP_JetXYZ", "Position.Axis 1", experiment="Undulator")
+    snap = CaSnapshotReadable("U_S1H", "Current", experiment="Undulator", name="s1h")
+    con = CaTimestampedReadable(
+        "UC_TopView",
+        ["centroidx"],
+        experiment="Undulator",
+        name="con",
+        save_nonscalar_data=True,
+    )
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp",
+        save_nonscalar_data=True,
+    )
+    signals = [
+        settable.readback,
+        settable._setpoint,
+        motor.position,
+        motor._setpoint,
+        snap.current,
+        con.centroidx,
+        con.acq_timestamp,
+        con.localsavingpath,
+        con.save,
+        det.centroidx,
+        det.acq_timestamp,
+        det.localsavingpath,
+        det.save,
+    ]
+    for device in (settable, motor, snap, con, det):
+        await device.connect(mock=True)
+    for signal in signals:
+        # Mock backends wrap the CA backend: "mock+ca://<pv>".  The prefix
+        # appears exactly once and never doubles into the PV portion.
+        assert "ca://" in signal.source, signal.source
+        assert signal.source.count("ca://") == 1, signal.source
+    # Write PVs (":SP") pin the transport too, not just readbacks.
+    assert settable._setpoint.source.endswith("ca://Undulator:U_S1H:Current:SP")
+
+
+async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
+    """describe()/read() keys stay `<name>-<var>`; sources are single-ca://."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    desc = await det.describe()
+    reading = await det.read()
+    assert set(desc) == {"amp-centroidx", "amp-acq_timestamp"}
+    assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
+    assert desc["amp-centroidx"]["source"] == (
+        "mock+ca://Undulator:UC_Amp2_IR_input:centroidx"
+    )
+    # Exporter column headers keep the legacy "Device Variable" form.
+    assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
 
 
 # --------------------------------------------------------------------------

@@ -18,7 +18,7 @@ import logging
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_bluesky.devices.ca._pv import ca_pv
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class CaSettable(StandardReadable):
         datatype: type = float,
         _readback_attr: str = "readback",
     ) -> None:
-        readback_pv = pv_name(experiment, device, variable)
+        readback_pv = ca_pv(experiment, device, variable)
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
         self._setpoint = epics_signal_rw(datatype, f"{readback_pv}:SP")

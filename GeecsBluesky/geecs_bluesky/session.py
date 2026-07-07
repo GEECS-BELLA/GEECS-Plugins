@@ -98,7 +98,9 @@ class GeecsSession:
     tiled : bool
         Subscribe a TiledWriter (default true); the catalog location comes
         from ``tiled_uri``/``tiled_api_key`` or, when omitted, the standard
-        config file.
+        config file.  When the server is unreachable (bounded TCP pre-check,
+        e.g. off the lab network), construction proceeds promptly with Tiled
+        persistence disabled for the session (warning logged).
     mock : bool
         Connect devices with ophyd-async mock backends (hermetic tests only).
     """

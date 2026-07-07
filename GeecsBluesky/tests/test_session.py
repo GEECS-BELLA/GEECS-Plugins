@@ -8,6 +8,9 @@ construction, wiring, and validation surface.
 from __future__ import annotations
 
 import json
+import logging
+import socket
+import time
 from pathlib import Path
 
 import pytest
@@ -58,6 +61,36 @@ def test_factories_build_connected_named_devices() -> None:
     assert con.acq_timestamp.source.endswith("Undulator:UC_TopView:acq_timestamp")
     assert snap.current.source.endswith("Undulator:U_S1H:Current")
     assert jet._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+
+
+def test_construction_with_unreachable_tiled_server_is_prompt(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """tiled=True off-network: no hang, warning logged, session still usable.
+
+    Before the reachability pre-check, ``GeecsSession(...)`` (tiled defaults
+    true) synchronously called ``tiled.client.from_uri`` and blocked for the
+    full HTTP connect timeout just to build a session off the lab network.
+    """
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    dead_port = probe.getsockname()[1]
+    probe.close()
+    uri = f"http://127.0.0.1:{dead_port}"
+    monkeypatch.setattr(
+        "geecs_bluesky.tiled_integration.read_tiled_config", lambda: (uri, None)
+    )
+
+    started = time.monotonic()
+    with caplog.at_level(logging.WARNING):
+        s = GeecsSession("Undulator", mock=True)  # tiled defaults to True
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 3.0, f"construction took {elapsed:.1f}s — Tiled blocked it"
+    assert f"Tiled server {uri} unreachable" in caplog.text
+    # Session remains fully usable with Tiled disabled.
+    det = s.detector("UC_Amp2_IR_input", ["centroidx"])
+    assert det.name == "uc_amp2_ir_input"
 
 
 def test_shot_control_attaches_ca_controller() -> None:

@@ -20,11 +20,11 @@ import logging
 
 from ophyd_async.epics.core import epics_signal_rw
 
+from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable
 from geecs_bluesky.devices.contributor import FreeRunContributorSupport
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
-from geecs_ca_gateway.pv_naming import pv_name
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class CaTimestampedReadable(
             # Writable controls, not readable signals: read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set).
             for attr in ("localsavingpath", "save"):
-                readback = pv_name(experiment, device, attr)
+                readback = ca_pv(experiment, device, attr)
                 setattr(
                     self,
                     attr,
