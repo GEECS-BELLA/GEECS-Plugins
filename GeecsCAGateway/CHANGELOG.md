@@ -16,6 +16,13 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   posted before its timestamp variable(s) (stable sort, so device payload
   order is preserved among the data variables), so a client triggering on
   `acq_timestamp` always observes the completed frame.
+- Empty-string readback values for numeric/enum variables skip at DEBUG
+  instead of warning "DB variabletype mismatch" — devices push `''` for
+  values they haven't computed yet (camera analysis fields before the first
+  acquisition, idle devices' whole frames), which produced dozens of
+  misleading warnings at every gateway start against live hardware.
+  String/path dtypes still pass `''` through (a cleared save path is a real
+  value).
 - `enum_geecs_value` (the **setpoint** direction) gets the same
   numeric-label treatment: a caput of text `"2.0"` against labels
   `["1","2","5"]` now sends `"2"` to GEECS instead of `choices[2] == "5"`.

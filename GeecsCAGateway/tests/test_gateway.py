@@ -697,3 +697,71 @@ async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
     gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
     with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
         await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+
+
+class _ValueRecordingChannel:
+    """Fake readback channel that records written values."""
+
+    def __init__(self, log: list) -> None:
+        self._log = log
+
+    async def write(self, value, **kwargs) -> None:
+        """Record the written value, in call order."""
+        self._log.append(value)
+
+
+def _empty_skip_gateway(variables):
+    cfg = GatewayConfig(
+        devices=[DeviceSpec(name=DEVICE, host="127.0.0.1", port=1, variables=variables)]
+    )
+    gw = GeecsCaGateway(cfg)
+    logs: dict[str, list] = {}
+    for var, (_channel, spec) in list(gw._readbacks[DEVICE].items()):
+        logs[var] = []
+        gw._readbacks[DEVICE][var] = (_ValueRecordingChannel(logs[var]), spec)
+    return gw, cfg.devices[0], logs
+
+
+class TestEmptyValueSkip:
+    """'' from a device means "no value yet" for numeric/enum variables.
+
+    Observed at every gateway start against live hardware (2026-07-06):
+    cameras push '' for analysis fields until their first acquisition, and
+    idle devices push '' for whole frames — dozens of misleading "DB
+    variabletype mismatch" warnings. Empty numeric/enum values now skip at
+    DEBUG; string/path dtypes still pass '' through (a cleared save path is
+    a real value).
+    """
+
+    async def test_empty_numeric_and_enum_skip_without_warning(self, caplog) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [
+                VariableSpec(geecs_var="centroidx", dtype="float"),
+                VariableSpec(
+                    geecs_var="roistatus", dtype="enum", choices=["on", "off"]
+                ),
+            ]
+        )
+        callback = gw._make_callback(dev)
+        with caplog.at_level(logging.DEBUG):
+            await callback({"centroidx": "", "roistatus": ""})
+        assert logs["centroidx"] == []
+        assert logs["roistatus"] == []
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    async def test_real_value_after_empty_still_posts(self) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [VariableSpec(geecs_var="centroidx", dtype="float")]
+        )
+        callback = gw._make_callback(dev)
+        await callback({"centroidx": ""})
+        await callback({"centroidx": "12.5"})
+        assert logs["centroidx"] == [12.5]
+
+    async def test_empty_string_dtype_passes_through(self) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [VariableSpec(geecs_var="localsavingpath", dtype="path")]
+        )
+        callback = gw._make_callback(dev)
+        await callback({"localsavingpath": ""})
+        assert logs["localsavingpath"] == [""]

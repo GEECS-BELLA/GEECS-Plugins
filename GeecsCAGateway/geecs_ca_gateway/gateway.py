@@ -302,6 +302,24 @@ class GeecsCaGateway:
                 if entry is None:
                     continue
                 channel, spec = entry
+                if (
+                    spec.dtype in ("float", "int", "enum")
+                    and isinstance(raw, str)
+                    and not raw.strip()
+                ):
+                    # Devices push '' for numeric/enum values they haven't
+                    # computed yet (camera analysis fields before the first
+                    # acquisition, idle devices' whole frames). Not a type
+                    # mismatch — skip quietly and leave the PV at its
+                    # previous/placeholder value until real data arrives.
+                    # (string/path dtypes are exempt: '' is a legitimate
+                    # value there, e.g. a cleared save path.)
+                    logger.debug(
+                        "%s: %s is empty (no value yet); skipping",
+                        device_name,
+                        var,
+                    )
+                    continue
                 try:
                     if spec.dtype == "enum":
                         value = enum_index(spec.choices, raw)
