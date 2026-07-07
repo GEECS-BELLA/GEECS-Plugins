@@ -283,14 +283,43 @@ class GeecsCaGateway:
         ts_vars = dev.timestamp_vars
 
         async def callback(update: dict[str, Any]) -> None:
+            """Fan one push frame into readback PVs, timestamp variables last.
+
+            Ordering guarantee: all data variables of a frame are posted before
+            its timestamp variable(s), so a client triggering on
+            ``acq_timestamp`` observes the completed frame.  Each PV write is
+            an ``await``, so posting the shot id first would let a strict-mode
+            Bluesky ``CaTriggerable`` complete its ``trigger()`` on the new
+            shot while the data PVs still hold the previous frame's values.
+            The stable sort preserves the device's payload order among the
+            data variables themselves.
+            """
             timestamp = _extract_timestamp(update, ts_vars)
             extra = {"timestamp": timestamp} if timestamp is not None else {}
             last_map = self._last_written.setdefault(device_name, {})
-            for var, raw in update.items():
+            for var, raw in sorted(update.items(), key=lambda kv: kv[0] in ts_vars):
                 entry = readback_map.get(var)
                 if entry is None:
                     continue
                 channel, spec = entry
+                if (
+                    spec.dtype in ("float", "int", "enum")
+                    and isinstance(raw, str)
+                    and not raw.strip()
+                ):
+                    # Devices push '' for numeric/enum values they haven't
+                    # computed yet (camera analysis fields before the first
+                    # acquisition, idle devices' whole frames). Not a type
+                    # mismatch — skip quietly and leave the PV at its
+                    # previous/placeholder value until real data arrives.
+                    # (string/path dtypes are exempt: '' is a legitimate
+                    # value there, e.g. a cleared save path.)
+                    logger.debug(
+                        "%s: %s is empty (no value yet); skipping",
+                        device_name,
+                        var,
+                    )
+                    continue
                 try:
                     if spec.dtype == "enum":
                         value = enum_index(spec.choices, raw)

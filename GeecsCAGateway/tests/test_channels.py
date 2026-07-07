@@ -52,6 +52,36 @@ def test_enum_index_tolerant_and_none() -> None:
     assert enum_index(["on", "off"], "bogus") is None
 
 
+def test_enum_index_numeric_labels_match_by_value_not_index() -> None:
+    """Numeric labels resolve by VALUE — "2.000000" is the label "2", not index 2.
+
+    Regression (strict shot control): DG645-style configs have numeric option
+    labels (["1", "2", "5"]).  A device streaming "2.000000" missed the exact
+    label match and was interpreted as INDEX 2, silently selecting "5".
+    """
+    choices = ["1", "2", "5"]
+    assert enum_index(choices, "2.0") == 1
+    assert enum_index(choices, "2.000000") == 1
+    assert enum_index(choices, "2") == 1  # exact label match still first
+    assert enum_index(choices, "5.0") == 2
+    assert enum_index(choices, "1.000000") == 0
+
+
+def test_enum_index_numeric_labels_no_value_match_is_none() -> None:
+    """Numeric labels with no value match yield None — never an index guess."""
+    assert enum_index(["1", "2", "5"], "0") is None
+    assert enum_index(["1", "2", "5"], "3.0") is None
+
+
+def test_enum_index_index_fallback_only_without_numeric_labels() -> None:
+    """Non-numeric labels keep the index-interpretation fallback."""
+    assert enum_index(["Off", "On"], "1") == 1
+    assert enum_index(["Off", "On"], "1.0") == 1
+    assert enum_index(["Off", "On"], "On") == 1  # exact label match still first
+    assert enum_index(["Off", "On"], "2") is None  # out of range
+    assert enum_index(["Off", "On"], "garbage") is None
+
+
 def test_enum_geecs_value_index_and_label() -> None:
     """Setpoint: a CA index (or label) maps to the GEECS option string."""
     assert enum_geecs_value(["on", "off"], 1) == "off"  # caput by index
@@ -96,3 +126,28 @@ async def test_path_setpoint_forwards_full_text() -> None:
     # A char-array put (integer codes) decodes to the same text.
     await channel.write([ord(c) for c in _LONG_PATH])
     assert sent[-1] == _LONG_PATH
+
+
+class TestEnumGeecsValueNumericLabels:
+    """Setpoint direction of the numeric-label fix (readback side: enum_index).
+
+    A caput of "2.0" against labels ["1", "2", "5"] must send "2" to GEECS,
+    not choices[2] == "5". Genuine int/float puts stay CA enum indices.
+    """
+
+    def test_numeric_text_matches_label_by_value(self):
+        assert enum_geecs_value(["1", "2", "5"], "2.0") == "2"
+        assert enum_geecs_value(["1", "2", "5"], "2.000000") == "2"
+
+    def test_exact_label_still_wins(self):
+        assert enum_geecs_value(["1", "2", "5"], "2") == "2"
+
+    def test_int_put_is_still_an_index(self):
+        assert enum_geecs_value(["1", "2", "5"], 2) == "5"
+
+    def test_index_interpretation_only_without_numeric_labels(self):
+        assert enum_geecs_value(["Off", "On"], "1") == "On"
+
+    def test_unmatched_numeric_text_with_numeric_labels_passes_through(self):
+        # GEECS itself rejects it — better than silently sending choices[0].
+        assert enum_geecs_value(["1", "2", "5"], "0") == "0"

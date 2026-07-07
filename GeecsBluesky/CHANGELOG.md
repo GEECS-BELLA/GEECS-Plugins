@@ -4,6 +4,50 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.1] - 2026-07-06
+
+### Fixed
+
+- **`CaTriggerable` cold-cache race: the first shot after connect can no
+  longer be lost or mis-baselined** — with a cold monitor cache
+  (`_last_acq is None`, i.e. no acquisition delivered since subscribe), the
+  cold path of `_wait_for_shot` took a CA-get baseline inside the returned
+  coroutine and then drained the shot queue. A strict-mode shot fired
+  immediately after `trigger()` could land before the coroutine ran and be
+  (a) drained away, or (b) become the baseline itself — either way the
+  single shot timed out (`GeecsTriggerTimeoutError`). The cold path now
+  takes **no CA-get baseline at all** (review follow-up: the get raced the
+  shot — a first acquisition landing inside the get's round-trip became the
+  baseline). Instead, `trigger()` drains the queue synchronously on both
+  paths — on a cold cache the drain can only discard a stale CA subscribe
+  replay, never a requested shot, since nothing fires before `trigger()`
+  returns — and the first positive monitor update after `trigger()` is the
+  shot. Warm-path behavior (synchronous drain + `!= t0` baseline test in
+  `trigger()`) is unchanged.
+- **Off-network session/scanner construction no longer blocks on the Tiled
+  server** — `subscribe_tiled` (used by `GeecsSession(tiled=True)`, and
+  therefore `BlueskyScanner`) called `tiled.client.from_uri` unconditionally,
+  hanging for the full HTTP connect timeout when the catalog server was
+  unreachable (the routine off-lab-network case). A bounded TCP reachability
+  pre-check (`tiled_server_reachable`, budget
+  `TILED_REACHABILITY_TIMEOUT_S` = 2 s) now runs before the client is
+  created; an unreachable server logs a clear warning ("Tiled server <uri>
+  unreachable; Tiled persistence disabled for this session") and skips the
+  subscription, leaving the session fully usable. On-network behavior,
+  `tiled=False`, and the missing-config/missing-package paths are unchanged.
+- **CA transport pinned on every device PV** — all PV strings handed to
+  ophyd-async `epics_signal_r/rw` in `devices/ca/*` now carry an explicit
+  `ca://` prefix (new shared helper `devices/ca/_pv.py::ca_pv`). ophyd-async
+  selects the default transport for un-prefixed names by what is importable:
+  with `p4p` installed but `aioca` missing, every PV silently flipped to PVA
+  and each connect against the CA-only gateway timed out with generic
+  errors. Pinned, such an environment now fails loudly at signal
+  construction ("Protocol ca not available, did you `pip install
+  ophyd_async[ca]`?"). The prefix is stripped before the backend stores the
+  PV, so event keys and source strings are unchanged.
+  `ShotController.over_ca`'s setters intentionally keep bare PV names — they
+  talk to aioca directly, which treats a prefix as part of the PV name.
+
 ## [0.19.0] - 2026-07-05
 
 ### Added

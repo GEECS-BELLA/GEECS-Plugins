@@ -105,24 +105,62 @@ def cast_value(dtype: DType, value: Any) -> Any:
 
 
 def enum_index(choices: list[str], value: Any) -> int | None:
-    """Map a GEECS value (option string, or a numeric index) to the enum index.
+    """Map a GEECS readback value to its enum index.
 
-    Returns ``None`` if it cannot be resolved, so the caller can skip the update.
+    Resolution order:
+
+    1. **Exact label match** — the wire text equals a choice verbatim.
+    2. **Numeric-value match** — if the wire text parses as a number, compare
+       it against every choice that itself parses as a number ("2.000000"
+       matches the label "2").  Devices stream numeric option values in
+       arbitrary float formatting, so a numeric label must be matched by
+       *value*, never mistaken for an index (DG645-style trigger configs have
+       labels like ["1", "2", "5"], where treating "2.0" as index 2 would
+       select "5").
+    3. **Index fallback** — only when *no* choice is numeric (e.g. labels
+       ["Off", "On"] with wire value "1"), a numeric wire value is interpreted
+       as the option index.
+
+    If the choices contain numeric labels but none value-matches, returns
+    ``None`` rather than guessing an index.  Returns ``None`` whenever the
+    value cannot be resolved, so the caller can warn and skip the update.
     """
     value = _unwrap(value)
     text = str(value).strip()
     for i, choice in enumerate(choices):
         if choice == text:
             return i
-    try:  # tolerate a numeric index arriving instead of the label
-        i = int(float(text))
+    try:
+        number = float(text)
     except (TypeError, ValueError):
         return None
+    # Numeric-value match against numeric labels.
+    any_numeric_choice = False
+    for i, choice in enumerate(choices):
+        try:
+            choice_number = float(choice)
+        except (TypeError, ValueError):
+            continue
+        any_numeric_choice = True
+        if choice_number == number:
+            return i
+    if any_numeric_choice:
+        return None  # numeric labels exist but nothing matched — don't guess
+    # No numeric labels at all: tolerate a numeric index arriving instead.
+    i = int(number)
     return i if 0 <= i < len(choices) else None
 
 
 def enum_geecs_value(choices: list[str], value: Any) -> str:
-    """Map a CA put (option index or label) to the GEECS option string."""
+    """Map a CA put (option index or label) to the GEECS option string.
+
+    A genuine numeric put (``int``/``float``/``bool``) is a CA enum *index* —
+    standard Channel Access semantics.  **Text** puts resolve like
+    :func:`enum_index`: exact label first, then numeric-value match against
+    numeric labels (``"2.0"`` selects the label ``"2"``, never index 2), and
+    index interpretation only when no label is numeric.  Unresolvable text is
+    returned verbatim so GEECS itself rejects it (unchanged fallback).
+    """
     value = _unwrap(value)
     if isinstance(value, bool):
         value = int(value)
@@ -134,11 +172,22 @@ def enum_geecs_value(choices: list[str], value: Any) -> str:
     if text in choices:
         return text
     try:
-        i = int(float(text))
+        number = float(text)
+    except (TypeError, ValueError):
+        return text
+    any_numeric_choice = False
+    for choice in choices:
+        try:
+            choice_number = float(choice)
+        except (TypeError, ValueError):
+            continue
+        any_numeric_choice = True
+        if choice_number == number:
+            return choice
+    if not any_numeric_choice:
+        i = int(number)
         if 0 <= i < len(choices):
             return choices[i]
-    except (TypeError, ValueError):
-        pass
     return text
 
 

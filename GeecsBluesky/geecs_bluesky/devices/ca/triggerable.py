@@ -38,8 +38,8 @@ from typing import Any
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r
 
+from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.exceptions import GeecsTriggerTimeoutError
-from geecs_ca_gateway.pv_naming import pv_name
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -105,10 +105,10 @@ class CaAcqTimestampReadable(StandardReadable):
                 setattr(
                     self,
                     safe_name(var),
-                    epics_signal_r(datatype, pv_name(experiment, device, var)),
+                    epics_signal_r(datatype, ca_pv(experiment, device, var)),
                 )
             self.acq_timestamp = epics_signal_r(
-                float, pv_name(experiment, device, self._acq_timestamp_variable)
+                float, ca_pv(experiment, device, self._acq_timestamp_variable)
             )
         super().__init__(name=name)
         # Persistent-monitor state (populated by _on_acq_timestamp): the latest
@@ -206,28 +206,37 @@ class CaTriggerable(CaAcqTimestampReadable):
     def trigger(self) -> AsyncStatus:
         """Return a status that completes once ``acq_timestamp`` has advanced.
 
-        When the monitor cache is already populated, the stale-update drain and
-        baseline capture happen synchronously *here*, not in the returned
-        coroutine — so a shot fired immediately after this call (the strict
-        single-shot pattern) can never be missed.
+        The stale-update drain and baseline capture happen synchronously
+        *here*, not in the returned coroutine — so a shot fired immediately
+        after this call (the strict single-shot pattern) can never be missed.
+
+        The drain runs on the cold path too (``_last_acq is None``): the only
+        thing it can discard there is a stale CA *subscribe replay* (the
+        monitor's initial current-value update after a (re)connect, which can
+        carry an old positive timestamp) that arrived between connect and this
+        call.  It can never discard a real requested shot — nothing fires
+        before ``trigger()`` returns — and in free-run mode pre-trigger frames
+        are exactly what "wait for the *next* shot" must ignore.
         """
         t0 = self._last_acq
-        if t0 is not None:
-            while not self._shot_queue.empty():
-                self._shot_queue.get_nowait()
+        while not self._shot_queue.empty():
+            self._shot_queue.get_nowait()
         return AsyncStatus(self._wait_for_shot(t0))
 
     async def _wait_for_shot(self, t0: float | None) -> None:
-        """Wait for the next monitor update carrying a new ``acq_timestamp``."""
-        if t0 is None:
-            # No monitor update yet at trigger() time (e.g. device INVALID or
-            # just connected) — fall back to an async CA get for the baseline.
-            # Best-effort: the persistent monitor normally populates the cache
-            # long before a scan, so this path is not expected mid-scan.
-            t0 = await self.acq_timestamp.get_value()
-            while not self._shot_queue.empty():
-                self._shot_queue.get_nowait()
+        """Wait for the next monitor update carrying a new ``acq_timestamp``.
 
+        Cold-cache path (``t0 is None``): there is deliberately **no CA-get
+        baseline** here.  A baseline get raced the shot itself — a first
+        acquisition landing inside the get's round-trip became the baseline,
+        the queued equal value failed the ``!= t0`` test, and the strict
+        single shot timed out.  It is also unnecessary: ``trigger()`` drained
+        everything older (including any stale subscribe replay, which arrives
+        at connect time — seconds before any trigger), and on an established
+        monitor every subsequent update is a genuinely new frame.  So on a
+        cold cache the first positive arrival after ``trigger()`` *is* the
+        shot, with no baseline to mistake it for.
+        """
         logger.debug(
             "%s: waiting for %s to advance past %s (timeout=%.1fs)",
             self._geecs_device_name,

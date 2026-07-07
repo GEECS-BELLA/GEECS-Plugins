@@ -15,7 +15,7 @@ import logging
 from ophyd_async.core import StandardReadable
 from ophyd_async.epics.core import epics_signal_r
 
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ class CaSnapshotReadable(StandardReadable):
                 setattr(
                     self,
                     safe_name(var),
-                    epics_signal_r(datatype, pv_name(experiment, device, var)),
+                    epics_signal_r(datatype, ca_pv(experiment, device, var)),
                 )
         super().__init__(name=name)
         self._column_headers = {

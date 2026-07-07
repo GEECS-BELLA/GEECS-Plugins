@@ -25,6 +25,7 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
     CaTimestampedReadable,
     CaTriggerable,
 )
+from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsMotorTimeoutError,
     GeecsTriggerTimeoutError,
@@ -42,6 +43,87 @@ def test_pv_name_policy() -> None:
     assert pv_name("Undulator", "U_S1H", "Current") == "Undulator:U_S1H:Current"
     assert pv_name(None, "U_DG645", "Trigger.Source") == "U_DG645:Trigger_Source"
     assert normalize_component("Beam Current (A)") == "Beam_Current_A"
+
+
+def test_ca_pv_pins_the_transport_on_gateway_names() -> None:
+    """ca_pv is pv_name with the explicit CA transport scheme prepended."""
+    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://Undulator:U_S1H:Current"
+    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://U_DG645:Trigger_Source"
+
+
+# --------------------------------------------------------------------------
+# CA transport pinning (ca:// prefix on every device PV)
+# --------------------------------------------------------------------------
+#
+# ophyd-async picks the default EPICS transport for UN-prefixed PV names by
+# import luck (p4p installed + aioca missing flips signals to PVA, and every
+# connect against the CA-only gateway times out with a generic error).  Every
+# signal a CA device builds must therefore carry an explicit ca:// source.
+# The prefix is stripped before the backend stores the PV, so it must appear
+# exactly once in the re-derived source string — never doubled, never leaked
+# into event keys.
+
+
+async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
+    """All signals on every CA device class carry ca://-prefixed sources."""
+    settable = CaSettable("U_S1H", "Current", experiment="Undulator", name="cur")
+    motor = CaMotor("U_ESP_JetXYZ", "Position.Axis 1", experiment="Undulator")
+    snap = CaSnapshotReadable("U_S1H", "Current", experiment="Undulator", name="s1h")
+    con = CaTimestampedReadable(
+        "UC_TopView",
+        ["centroidx"],
+        experiment="Undulator",
+        name="con",
+        save_nonscalar_data=True,
+    )
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp",
+        save_nonscalar_data=True,
+    )
+    signals = [
+        settable.readback,
+        settable._setpoint,
+        motor.position,
+        motor._setpoint,
+        snap.current,
+        con.centroidx,
+        con.acq_timestamp,
+        con.localsavingpath,
+        con.save,
+        det.centroidx,
+        det.acq_timestamp,
+        det.localsavingpath,
+        det.save,
+    ]
+    for device in (settable, motor, snap, con, det):
+        await device.connect(mock=True)
+    for signal in signals:
+        # Mock backends wrap the CA backend: "mock+ca://<pv>".  The prefix
+        # appears exactly once and never doubles into the PV portion.
+        assert "ca://" in signal.source, signal.source
+        assert signal.source.count("ca://") == 1, signal.source
+    # Write PVs (":SP") pin the transport too, not just readbacks.
+    assert settable._setpoint.source.endswith("ca://Undulator:U_S1H:Current:SP")
+
+
+async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
+    """describe()/read() keys stay `<name>-<var>`; sources are single-ca://."""
+    det = CaGenericDetector(
+        "UC_Amp2_IR_input", ["centroidx"], experiment="Undulator", name="amp"
+    )
+    await det.connect(mock=True)
+    desc = await det.describe()
+    reading = await det.read()
+    assert set(desc) == {"amp-centroidx", "amp-acq_timestamp"}
+    assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
+    assert desc["amp-centroidx"]["source"] == (
+        "mock+ca://Undulator:UC_Amp2_IR_input:centroidx"
+    )
+    # Exporter column headers keep the legacy "Device Variable" form.
+    assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
 
 
 # --------------------------------------------------------------------------
@@ -174,6 +256,52 @@ async def test_trigger_immediate_shot_not_missed() -> None:
 
     status = dev.trigger()
     set_mock_value(dev.acq_timestamp, 101.0)  # fire NOW — no await since trigger()
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
+async def test_trigger_cold_cache_shot_before_coroutine_runs_not_lost() -> None:
+    """Cold-cache race: the first-ever shot fires right after trigger().
+
+    With no monitor update since subscribe (``_last_acq is None``), the old
+    cold path took a CA-get baseline inside the coroutine and THEN drained the
+    queue — discarding a shot that landed between trigger() returning and the
+    coroutine running (and/or baselining on that shot's own timestamp).  A
+    cold cache means the monitor has delivered no positive value yet, so any
+    queued positive value IS the shot: trigger() must complete, not time out.
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 1.0
+    await dev.connect(mock=True)
+    assert dev._last_acq is None  # cold cache: no update since subscribe
+
+    status = dev.trigger()
+    set_mock_value(dev.acq_timestamp, 101.0)  # first shot, before the coroutine runs
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
+async def test_trigger_cold_cache_shot_after_coroutine_starts() -> None:
+    """Cold cache, no baseline get: a mid-wait first acquisition is the shot.
+
+    The cold path deliberately takes no CA-get baseline (a get raced the shot
+    itself: a first acquisition landing inside the get's round-trip became
+    the baseline and the strict shot timed out — flagged in PR #452 review).
+    With t0 = None the first positive monitor update completes the trigger,
+    no matter when it arrives relative to the coroutine starting.
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 1.0
+    await dev.connect(mock=True)
+    assert dev._last_acq is None  # mock backend initial value is the 0.0 placeholder
+
+    status = dev.trigger()
+    await asyncio.sleep(0.05)  # coroutine is already waiting on the queue
+    set_mock_value(dev.acq_timestamp, 101.0)  # first real acquisition
     await asyncio.wait_for(status, timeout=2.0)
     assert status.done
 

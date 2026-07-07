@@ -427,6 +427,67 @@ async def test_setpoint_write_reaches_geecs() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Push-frame fan-out ordering: timestamp variables are posted last
+# ---------------------------------------------------------------------------
+
+
+class _OrderRecordingChannel:
+    """Fake readback channel that records the order of PV writes."""
+
+    def __init__(self, var: str, log: list[str]) -> None:
+        self._var = var
+        self._log = log
+
+    async def write(self, value: Any, **kwargs: Any) -> None:
+        """Record this variable as written, in call order."""
+        self._log.append(self._var)
+
+
+async def test_callback_posts_timestamp_variables_last() -> None:
+    """A frame listing acq_timestamp FIRST still writes it to its PV LAST.
+
+    Frame-completeness ordering guarantee for strict shot control: each PV
+    write is an await, so posting acq_timestamp before the data variables
+    would let a Bluesky CaTriggerable complete trigger() on the new shot id
+    while data PVs still hold the previous frame — pairing shot N's id with
+    shot N-1's values. Data variables must keep their device payload order.
+    """
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(geecs_var="Position", dtype="float"),
+                    VariableSpec(geecs_var="Voltage", dtype="float"),
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    dev = cfg.devices[0]
+    writes: list[str] = []
+    for var, (_channel, spec) in list(gw._readbacks[DEVICE].items()):
+        gw._readbacks[DEVICE][var] = (_OrderRecordingChannel(var, writes), spec)
+    callback = gw._make_callback(dev)
+
+    # Device payload lists the timestamp FIRST (echo order is not guaranteed).
+    await callback(
+        {"acq_timestamp": LABVIEW_OFFSET + 5.0, "Position": 1.0, "Voltage": 2.0}
+    )
+
+    assert writes == ["Position", "Voltage", "acq_timestamp"]
+
+    # Next frame: data-variable relative order is preserved, timestamp still last.
+    writes.clear()
+    await callback(
+        {"Voltage": 3.0, "acq_timestamp": LABVIEW_OFFSET + 6.0, "Position": 4.0}
+    )
+    assert writes == ["Voltage", "Position", "acq_timestamp"]
+
+
+# ---------------------------------------------------------------------------
 # Self-diagnostics: read-only readbacks + status PVs
 # ---------------------------------------------------------------------------
 
@@ -636,3 +697,71 @@ async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
     gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
     with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
         await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+
+
+class _ValueRecordingChannel:
+    """Fake readback channel that records written values."""
+
+    def __init__(self, log: list) -> None:
+        self._log = log
+
+    async def write(self, value, **kwargs) -> None:
+        """Record the written value, in call order."""
+        self._log.append(value)
+
+
+def _empty_skip_gateway(variables):
+    cfg = GatewayConfig(
+        devices=[DeviceSpec(name=DEVICE, host="127.0.0.1", port=1, variables=variables)]
+    )
+    gw = GeecsCaGateway(cfg)
+    logs: dict[str, list] = {}
+    for var, (_channel, spec) in list(gw._readbacks[DEVICE].items()):
+        logs[var] = []
+        gw._readbacks[DEVICE][var] = (_ValueRecordingChannel(logs[var]), spec)
+    return gw, cfg.devices[0], logs
+
+
+class TestEmptyValueSkip:
+    """'' from a device means "no value yet" for numeric/enum variables.
+
+    Observed at every gateway start against live hardware (2026-07-06):
+    cameras push '' for analysis fields until their first acquisition, and
+    idle devices push '' for whole frames — dozens of misleading "DB
+    variabletype mismatch" warnings. Empty numeric/enum values now skip at
+    DEBUG; string/path dtypes still pass '' through (a cleared save path is
+    a real value).
+    """
+
+    async def test_empty_numeric_and_enum_skip_without_warning(self, caplog) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [
+                VariableSpec(geecs_var="centroidx", dtype="float"),
+                VariableSpec(
+                    geecs_var="roistatus", dtype="enum", choices=["on", "off"]
+                ),
+            ]
+        )
+        callback = gw._make_callback(dev)
+        with caplog.at_level(logging.DEBUG):
+            await callback({"centroidx": "", "roistatus": ""})
+        assert logs["centroidx"] == []
+        assert logs["roistatus"] == []
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    async def test_real_value_after_empty_still_posts(self) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [VariableSpec(geecs_var="centroidx", dtype="float")]
+        )
+        callback = gw._make_callback(dev)
+        await callback({"centroidx": ""})
+        await callback({"centroidx": "12.5"})
+        assert logs["centroidx"] == [12.5]
+
+    async def test_empty_string_dtype_passes_through(self) -> None:
+        gw, dev, logs = _empty_skip_gateway(
+            [VariableSpec(geecs_var="localsavingpath", dtype="path")]
+        )
+        callback = gw._make_callback(dev)
+        await callback({"localsavingpath": ""})
+        assert logs["localsavingpath"] == [""]

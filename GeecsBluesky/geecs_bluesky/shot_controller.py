@@ -93,6 +93,9 @@ class ShotController:
         put_timeout: float = 10.0,
     ) -> "ShotController":
         """Build with gateway ``:SP`` setters (no DB lookup, no connection dance)."""
+        # Bare PV names (no ca:// transport prefix): CaPutSetter talks to aioca
+        # directly, not through ophyd-async's transport-prefix parsing — aioca
+        # is the CA transport, and it treats the prefix as part of the PV name.
         setters = {
             var: CaPutSetter(
                 f"{pv_name(experiment, config.device, var)}:SP", timeout=put_timeout
