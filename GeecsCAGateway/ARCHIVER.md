@@ -413,7 +413,7 @@ gateway + archiver + Tiled with a decade of storage headroom:
 | CPU | Xeon E-2434 (stock option) | The whole stack is I/O-light; 4 cores is genuinely enough |
 | RAM | 32 GB DDR5 ECC (2×16 GB) | ECC for a data-integrity box; ample for JVM(≤1 GB)+gateway+Tiled; 2 slots free — larger tiers (64 GB = 4×16 at ~3× the price) are markup, not need |
 | OS drive | 1 TB M.2 NVMe | OS + service venvs, separate from the data pair |
-| Data | 2× 4 TB SATA SSD, bays 1–2 | The mirror: Tiled metadata + data, archiver STS/MTS/LTS |
+| Data | 2× 4 TB SATA SSD, bays 1–2 — **self-sourced, not from ABMX** | The mirror: Tiled metadata + data, archiver STS/MTS/LTS. ABMX quotes ~$2k/drive for commodity ~$300–700 parts; order the bays empty (confirm trays/caddies ship with the chassis) and install street-priced drives — mdadm has no vendor-compatibility constraint |
 | Bays 3–4 | empty | Growth is a hot-swap insert, not a new server |
 | OS | none shipped | Ubuntu LTS, self-installed |
 
