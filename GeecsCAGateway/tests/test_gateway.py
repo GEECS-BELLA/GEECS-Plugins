@@ -427,6 +427,67 @@ async def test_setpoint_write_reaches_geecs() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Push-frame fan-out ordering: timestamp variables are posted last
+# ---------------------------------------------------------------------------
+
+
+class _OrderRecordingChannel:
+    """Fake readback channel that records the order of PV writes."""
+
+    def __init__(self, var: str, log: list[str]) -> None:
+        self._var = var
+        self._log = log
+
+    async def write(self, value: Any, **kwargs: Any) -> None:
+        """Record this variable as written, in call order."""
+        self._log.append(self._var)
+
+
+async def test_callback_posts_timestamp_variables_last() -> None:
+    """A frame listing acq_timestamp FIRST still writes it to its PV LAST.
+
+    Frame-completeness ordering guarantee for strict shot control: each PV
+    write is an await, so posting acq_timestamp before the data variables
+    would let a Bluesky CaTriggerable complete trigger() on the new shot id
+    while data PVs still hold the previous frame — pairing shot N's id with
+    shot N-1's values. Data variables must keep their device payload order.
+    """
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(geecs_var="Position", dtype="float"),
+                    VariableSpec(geecs_var="Voltage", dtype="float"),
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    dev = cfg.devices[0]
+    writes: list[str] = []
+    for var, (_channel, spec) in list(gw._readbacks[DEVICE].items()):
+        gw._readbacks[DEVICE][var] = (_OrderRecordingChannel(var, writes), spec)
+    callback = gw._make_callback(dev)
+
+    # Device payload lists the timestamp FIRST (echo order is not guaranteed).
+    await callback(
+        {"acq_timestamp": LABVIEW_OFFSET + 5.0, "Position": 1.0, "Voltage": 2.0}
+    )
+
+    assert writes == ["Position", "Voltage", "acq_timestamp"]
+
+    # Next frame: data-variable relative order is preserved, timestamp still last.
+    writes.clear()
+    await callback(
+        {"Voltage": 3.0, "acq_timestamp": LABVIEW_OFFSET + 6.0, "Position": 4.0}
+    )
+    assert writes == ["Voltage", "Position", "acq_timestamp"]
+
+
+# ---------------------------------------------------------------------------
 # Self-diagnostics: read-only readbacks + status PVs
 # ---------------------------------------------------------------------------
 

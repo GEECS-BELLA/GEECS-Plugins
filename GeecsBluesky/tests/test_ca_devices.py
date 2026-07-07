@@ -178,6 +178,50 @@ async def test_trigger_immediate_shot_not_missed() -> None:
     assert status.done
 
 
+async def test_trigger_cold_cache_shot_before_coroutine_runs_not_lost() -> None:
+    """Cold-cache race: the first-ever shot fires right after trigger().
+
+    With no monitor update since subscribe (``_last_acq is None``), the old
+    cold path took a CA-get baseline inside the coroutine and THEN drained the
+    queue — discarding a shot that landed between trigger() returning and the
+    coroutine running (and/or baselining on that shot's own timestamp).  A
+    cold cache means the monitor has delivered no positive value yet, so any
+    queued positive value IS the shot: trigger() must complete, not time out.
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 1.0
+    await dev.connect(mock=True)
+    assert dev._last_acq is None  # cold cache: no update since subscribe
+
+    status = dev.trigger()
+    set_mock_value(dev.acq_timestamp, 101.0)  # first shot, before the coroutine runs
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
+async def test_trigger_cold_cache_placeholder_baseline_then_shot() -> None:
+    """Cold cache, empty queue: a 0.0 placeholder baseline never masks the shot.
+
+    The gateway's acq_timestamp PV holds 0.0 before the device's first
+    acquisition; the cold path's CA get normalizes that placeholder to None so
+    a later positive update always passes the shot test.
+    """
+    dev = CaTriggerable(
+        "UC_Amp2_IR_input", "centroidx", experiment="Undulator", name="amp"
+    )
+    dev._trigger_timeout = 1.0
+    await dev.connect(mock=True)
+    assert dev._last_acq is None  # mock backend initial value is the 0.0 placeholder
+
+    status = dev.trigger()
+    await asyncio.sleep(0.05)  # let the coroutine run: empty queue, get -> 0.0
+    set_mock_value(dev.acq_timestamp, 101.0)  # first real acquisition
+    await asyncio.wait_for(status, timeout=2.0)
+    assert status.done
+
+
 async def test_trigger_ignores_stale_updates_before_trigger() -> None:
     """Updates queued before trigger() are drained, not mistaken for a shot."""
     dev = CaTriggerable(

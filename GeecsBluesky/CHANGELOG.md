@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.19.1] - 2026-07-06
+
+### Fixed
+
+- **`CaTriggerable` cold-cache race: the first shot after connect can no
+  longer be lost or mis-baselined** — with a cold monitor cache
+  (`_last_acq is None`, i.e. no acquisition delivered since subscribe), the
+  cold path of `_wait_for_shot` took a CA-get baseline inside the returned
+  coroutine and then drained the shot queue. A strict-mode shot fired
+  immediately after `trigger()` could land before the coroutine ran and be
+  (a) drained away, or (b) become the baseline itself — either way the
+  single shot timed out (`GeecsTriggerTimeoutError`). Because the monitor
+  callback filters non-positive placeholders, any positive queued value on a
+  cold cache is a genuinely new acquisition: the cold path now treats an
+  already-queued value as the shot, normalizes the gateway's `0.0`
+  pre-acquisition placeholder baseline to `None`, and never drains the
+  queue. Warm-path behavior (synchronous drain + baseline in `trigger()`)
+  is unchanged.
+
 ## [0.19.0] - 2026-07-05
 
 ### Added

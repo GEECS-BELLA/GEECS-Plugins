@@ -3,6 +3,29 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.5.2] - 2026-07-06
+
+### Fixed
+
+- **Push-frame fan-out posts timestamp variables last** — the subscription
+  callback wrote PVs in device-payload order with an `await` per write, so a
+  frame that happened to list `acq_timestamp` first could complete a strict
+  Bluesky `CaTriggerable.trigger()` on the new shot id while the data PVs
+  still held the previous frame's values — pairing shot N's id with shot
+  N-1's data. The fan-out now guarantees all data variables of a frame are
+  posted before its timestamp variable(s) (stable sort, so device payload
+  order is preserved among the data variables), so a client triggering on
+  `acq_timestamp` always observes the completed frame.
+- **Numeric enum labels resolve by value, not index** — `enum_index` fell
+  back to interpreting any non-matching numeric wire text as an option
+  *index*, so a device streaming `"2.000000"` for the label `"2"`
+  (DG645-style trigger configs have labels like `["1", "2", "5"]`) resolved
+  to index 2 and silently selected `"5"`. Numeric wire values are now
+  matched by value against numeric labels; if numeric labels exist but
+  nothing value-matches, the update is skipped (with a warning) rather than
+  guessed. Choice sets with no numeric labels (e.g. `["Off", "On"]` with
+  wire `"1"`) keep the index-interpretation fallback.
+
 ## [0.5.1] - 2026-07-05
 
 ### Fixed

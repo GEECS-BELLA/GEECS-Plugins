@@ -209,7 +209,10 @@ class CaTriggerable(CaAcqTimestampReadable):
         When the monitor cache is already populated, the stale-update drain and
         baseline capture happen synchronously *here*, not in the returned
         coroutine — so a shot fired immediately after this call (the strict
-        single-shot pattern) can never be missed.
+        single-shot pattern) can never be missed.  On a cold cache
+        (``_last_acq is None``) nothing is drained: no real acquisition has
+        ever reached the monitor, so anything that lands in the queue after
+        this call *is* the shot — see :meth:`_wait_for_shot`.
         """
         t0 = self._last_acq
         if t0 is not None:
@@ -218,15 +221,39 @@ class CaTriggerable(CaAcqTimestampReadable):
         return AsyncStatus(self._wait_for_shot(t0))
 
     async def _wait_for_shot(self, t0: float | None) -> None:
-        """Wait for the next monitor update carrying a new ``acq_timestamp``."""
+        """Wait for the next monitor update carrying a new ``acq_timestamp``.
+
+        Cold-cache path (``t0 is None``): the monitor callback filters
+        non-positive values and caches everything else, so a cold cache means
+        the monitor has delivered *no* real acquisition since subscribe.  Any
+        positive value in the queue at this point is therefore a genuinely new
+        acquisition — the shot — never a stale replay.  That invariant lets
+        this path (1) treat an already-queued value as the shot immediately,
+        (2) take a CA-get baseline only when the queue is empty, normalizing
+        the gateway's ``0.0`` pre-acquisition placeholder to ``None`` so every
+        future positive arrival passes the shot test, and (3) never drain the
+        queue here — this coroutine runs *after* ``trigger()`` returned, so a
+        drain could discard the strict-mode shot fired in between.
+
+        Residual race: a shot arriving between the queue check in (1) and
+        ``get_value()`` returning in (2) can hand back that same shot's
+        timestamp as the baseline, making the queued equal value fail the
+        ``!= t0`` test.  It requires the very first acquisition since
+        subscribe to land inside a single CA round-trip and is the only
+        remaining window; the persistent monitor normally warms the cache
+        long before a scan, so the cold path itself is not expected mid-scan.
+        """
         if t0 is None:
-            # No monitor update yet at trigger() time (e.g. device INVALID or
-            # just connected) — fall back to an async CA get for the baseline.
-            # Best-effort: the persistent monitor normally populates the cache
-            # long before a scan, so this path is not expected mid-scan.
-            t0 = await self.acq_timestamp.get_value()
-            while not self._shot_queue.empty():
-                self._shot_queue.get_nowait()
+            if not self._shot_queue.empty():
+                value = self._shot_queue.get_nowait()
+                logger.debug(
+                    "%s: shot detected on cold cache (queued %s)",
+                    self._geecs_device_name,
+                    value,
+                )
+                return
+            v = await self.acq_timestamp.get_value()
+            t0 = v if v and v > 0 else None
 
         logger.debug(
             "%s: waiting for %s to advance past %s (timeout=%.1fs)",
