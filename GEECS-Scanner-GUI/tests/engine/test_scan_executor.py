@@ -8,6 +8,10 @@ from __future__ import annotations
 
 
 from geecs_python_api.controls.interface.geecs_errors import GeecsDeviceCommandFailed
+from geecs_scanner.engine.device_error_suppression import (
+    DeviceErrorSuppressionPolicy,
+    SuppressedSetErrorRule,
+)
 
 from tests.engine.conftest import FakeScanDevice
 
@@ -22,6 +26,21 @@ _TOLERANCE = 100.0  # wide tolerance so all tests pass unless we want failure
 def _exp_info_for(device_name: str, var_name: str, tolerance: float = _TOLERANCE):
     """Return a minimal fake exp_info dict for one device variable."""
     return {device_name: {var_name: {"tolerance": tolerance}}}
+
+
+class _NoneReturningZaberDevice(FakeScanDevice):
+    def __init__(self, readback: float):
+        super().__init__("HTT-B-Zaber_Chain-B")
+        self._readback = readback
+        self._get_call_count = 0
+
+    def set(self, variable, value, **_kw):
+        self._set_call_count += 1
+        return None
+
+    def get(self, variable):
+        self._get_call_count += 1
+        return self._readback
 
 
 # ---------------------------------------------------------------------------
@@ -159,4 +178,79 @@ class TestRetryExhaustion:
         )
         executor.cmd_executor.on_escalate = lambda exc, ctx: True
         executor.move_devices_parallel_by_device({"BadDev:V": 1.0}, False)
+        assert executor.stop_scanning_thread_event.is_set()
+
+
+class TestSuppressedSetWarnings:
+    def test_specific_zaber_none_result_reads_back_and_continues(self, make_executor):
+        device = _NoneReturningZaberDevice(readback=3.0)
+        executor = make_executor(
+            devices={"HTT-B-Zaber_Chain-B": device},
+            exp_info_devices=_exp_info_for(
+                "HTT-B-Zaber_Chain-B", "Position.Ch6", tolerance=0.1
+            ),
+        )
+
+        executor.move_devices_parallel_by_device(
+            {"HTT-B-Zaber_Chain-B:Position.Ch6": 3.0}, False
+        )
+
+        assert device._set_call_count == 1
+        assert device._get_call_count == 1
+
+    def test_device_wide_none_result_reads_back_and_continues(self, make_executor):
+        device = _NoneReturningZaberDevice(readback=3.0)
+        device.name = "DeviceWide"
+        executor = make_executor(
+            devices={"DeviceWide": device},
+            exp_info_devices=_exp_info_for("DeviceWide", "AnyPosition", tolerance=0.1),
+        )
+        executor.cmd_executor.suppression_policy = DeviceErrorSuppressionPolicy(
+            rules=(
+                SuppressedSetErrorRule(
+                    device="DeviceWide",
+                    variable=None,
+                    required_fragments=("unused for listener-thread path",),
+                ),
+            )
+        )
+
+        executor.move_devices_parallel_by_device({"DeviceWide:AnyPosition": 3.0}, False)
+
+        assert device._set_call_count == 1
+        assert device._get_call_count == 1
+
+    def test_specific_zaber_none_result_escalates_when_readback_misses_tolerance(
+        self, make_executor
+    ):
+        device = _NoneReturningZaberDevice(readback=4.0)
+        executor = make_executor(
+            devices={"HTT-B-Zaber_Chain-B": device},
+            exp_info_devices=_exp_info_for(
+                "HTT-B-Zaber_Chain-B", "Position.Ch6", tolerance=0.1
+            ),
+        )
+        executor.cmd_executor.on_escalate = lambda exc, ctx: True
+
+        executor.move_devices_parallel_by_device(
+            {"HTT-B-Zaber_Chain-B:Position.Ch6": 3.0}, False
+        )
+
+        assert executor.stop_scanning_thread_event.is_set()
+
+    def test_other_none_result_still_escalates(self, make_executor):
+        class _NoneReturningDevice(FakeScanDevice):
+            def set(self, variable, value, **_kw):
+                self._set_call_count += 1
+                return None
+
+        device = _NoneReturningDevice("OtherDev")
+        executor = make_executor(
+            devices={"OtherDev": device},
+            exp_info_devices=_exp_info_for("OtherDev", "V"),
+        )
+        executor.cmd_executor.on_escalate = lambda exc, ctx: True
+
+        executor.move_devices_parallel_by_device({"OtherDev:V": 1.0}, False)
+
         assert executor.stop_scanning_thread_event.is_set()

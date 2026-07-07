@@ -20,6 +20,11 @@ from geecs_python_api.controls.interface.geecs_errors import (
 )
 from geecs_data_utils import ScanConfig, ScanMode
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.device_error_suppression import (
+    DeviceErrorSuppressionPolicy,
+    SuppressedSetErrorRule,
+    SuppressedSetResult,
+)
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
     DeviceCommandEvent,
@@ -63,6 +68,32 @@ class _AlwaysFailDevice(FakeScanDevice):
 class _HappyGetDevice(FakeScanDevice):
     def get(self, variable):
         return 5.0
+
+
+class _ZaberWarningDevice(FakeScanDevice):
+    def __init__(self):
+        super().__init__("HTT-B-Zaber_Chain-B")
+
+    def set(self, variable, value, **kw):
+        self._set_call_count += 1
+        raise GeecsDeviceCommandFailed(
+            self.name,
+            f"set{variable}",
+            "Zaber A Series.lvlib:Error Query.vi<ERR>\n"
+            "Instrument 06 0 reports 1 warnings:  WL",
+            actual_value="3.5",
+        )
+
+
+class _DeviceWideWarningDevice(FakeScanDevice):
+    def set(self, variable, value, **kw):
+        self._set_call_count += 1
+        raise GeecsDeviceCommandFailed(
+            self.name,
+            f"set{variable}",
+            "known benign warning",
+            actual_value="7.0",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +156,40 @@ class TestDeviceCommandSetEvents:
 
         outcomes = {e.outcome for e in _cmd_events(events)}
         assert "failed" in outcomes
+
+    def test_specific_zaber_warning_emits_suppressed_outcome(self):
+        events: List[ScanEvent] = []
+        result = self._exe(events).set(_ZaberWarningDevice(), "Position.Ch6", 3.5)
+
+        assert isinstance(result, SuppressedSetResult)
+        assert result.readback == 3.5
+        outcomes = {e.outcome for e in _cmd_events(events)}
+        assert "suppressed" in outcomes
+
+    def test_device_wide_rule_suppresses_any_set_variable(self):
+        events: List[ScanEvent] = []
+        policy = DeviceErrorSuppressionPolicy(
+            rules=(
+                SuppressedSetErrorRule(
+                    device="AnyVarDevice",
+                    variable=None,
+                    required_fragments=("known benign warning",),
+                ),
+            )
+        )
+        exe = DeviceCommandExecutor(
+            max_retries=1,
+            retry_delay=0.0,
+            on_event=events.append,
+            suppression_policy=policy,
+        )
+
+        result = exe.set(_DeviceWideWarningDevice("AnyVarDevice"), "VarA", 7.0)
+
+        assert isinstance(result, SuppressedSetResult)
+        assert result.readback == 7.0
+        outcomes = {e.outcome for e in _cmd_events(events)}
+        assert "suppressed" in outcomes
 
     def test_event_carries_device_and_variable_names(self):
         events: List[ScanEvent] = []

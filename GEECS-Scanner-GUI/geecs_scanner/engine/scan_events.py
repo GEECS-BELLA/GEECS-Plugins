@@ -139,13 +139,16 @@ class DeviceCommandEvent(ScanEvent):
         - ``"sent"``     — command dispatched; response not yet known.
         - ``"accepted"`` — device acknowledged the command.
         - ``"rejected"`` — :class:`GeecsDeviceCommandRejected` raised.
-        - ``"failed"``   — :class:`GeecsDeviceCommandFailed` raised.
-        - ``"timeout"``  — :class:`GeecsDeviceExeTimeout` raised.
+        - ``"failed"``     — :class:`GeecsDeviceCommandFailed` raised.
+        - ``"timeout"``    — :class:`GeecsDeviceExeTimeout` raised.
+        - ``"suppressed"`` — a known benign hardware warning was logged and ignored.
     """
 
     device: str = ""
     variable: str = ""
-    outcome: Literal["sent", "accepted", "rejected", "failed", "timeout"] = "sent"
+    outcome: Literal[
+        "sent", "accepted", "rejected", "failed", "timeout", "suppressed"
+    ] = "sent"
 
 
 # ---------------------------------------------------------------------------
