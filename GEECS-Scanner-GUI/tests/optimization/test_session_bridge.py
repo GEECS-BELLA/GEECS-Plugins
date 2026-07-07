@@ -208,6 +208,96 @@ class TestSessionOptimizationBridge:
         bridge.finish()  # must not raise
 
 
+class TestObserveReadbackSubstitution:
+    """observe() feeds Xopt the bin-mean measured readback, not the proposal."""
+
+    def _bound_bridge(self):
+        bridge = SessionOptimizationBridge(_make_optimizer())
+        devices = [
+            SimpleNamespace(_column_headers={"U_S1H_Current-readback": "U_S1H Current"})
+        ]
+        objective, _ = bridge.bind(devices=devices, scan_tag=None)
+        return bridge, objective
+
+    def test_tell_receives_bin_mean_readback(self):
+        bridge, objective = self._bound_bridge()
+        inputs = bridge.suggest()
+        # GEECS set convergence is tolerance-bounded: the readback settles a
+        # tolerance away from the proposal.
+        readbacks = [
+            inputs["U_S1H:Current"] + 0.04,
+            inputs["U_S1H:Current"] + 0.06,
+        ]
+        bin_data = _fake_bin(1, readbacks)
+        value = objective(bin_data)
+        bridge.observe(inputs, value, bin_data)
+
+        data = bridge.optimizer.xopt.data
+        assert data["U_S1H:Current"].iloc[-1] == pytest.approx(
+            float(np.mean(readbacks))
+        )
+        assert data["U_S1H:Current"].iloc[-1] != pytest.approx(inputs["U_S1H:Current"])
+
+    def test_missing_readback_column_falls_back_to_proposal(self):
+        bridge = SessionOptimizationBridge(_make_optimizer())
+        bridge.bind(devices=[], scan_tag=None)  # no column map → column absent
+        inputs = bridge.suggest()
+        bin_data = _fake_bin(1, [0.5])
+        bridge.source.push_bin(bin_data)
+        bridge._pending_outputs = {"f": 1.0}
+        bridge.observe(inputs, 1.0, bin_data)
+
+        data = bridge.optimizer.xopt.data
+        assert data["U_S1H:Current"].iloc[-1] == pytest.approx(inputs["U_S1H:Current"])
+
+    def test_nan_readback_rows_are_excluded_from_the_mean(self):
+        bridge, _ = self._bound_bridge()
+        inputs = bridge.suggest()
+        bin_data = _fake_bin(1, [0.2, float("nan"), 0.4])
+        bridge.source.push_bin(bin_data)
+        bridge._pending_outputs = {"f": 1.0}
+        bridge.observe(inputs, 1.0, bin_data)
+
+        data = bridge.optimizer.xopt.data
+        assert data["U_S1H:Current"].iloc[-1] == pytest.approx(0.3)
+
+    def test_all_nan_readback_falls_back_to_proposal(self):
+        bridge, _ = self._bound_bridge()
+        inputs = bridge.suggest()
+        bin_data = _fake_bin(1, [float("nan"), float("nan")])
+        bridge.source.push_bin(bin_data)
+        bridge._pending_outputs = {"f": 1.0}
+        bridge.observe(inputs, 1.0, bin_data)
+
+        data = bridge.optimizer.xopt.data
+        assert data["U_S1H:Current"].iloc[-1] == pytest.approx(inputs["U_S1H:Current"])
+
+
+class TestDeviceRequirementsExposure:
+    """The bridge exposes optimizer device_requirements for BlueskyScanner."""
+
+    def test_bridge_exposes_optimizer_device_requirements(self):
+        reqs = {
+            "Devices": {
+                "UC_ObjCam": {
+                    "add_all_variables": False,
+                    "save_nonscalar_data": True,
+                    "synchronous": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+        bridge = SessionOptimizationBridge(_make_optimizer(device_requirements=reqs))
+        assert bridge.device_requirements == reqs
+
+    def test_missing_requirements_read_as_empty_dict(self):
+        optimizer = SimpleNamespace(
+            evaluator=SimpleNamespace(data_source=None), n_seeded=0
+        )
+        bridge = SessionOptimizationBridge(optimizer)
+        assert bridge.device_requirements == {}
+
+
 # ---------------------------------------------------------------------------
 # _await_bin_assets: expected-path construction + RE-loop-safe waiting
 # ---------------------------------------------------------------------------

@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.0] — 2026-07-06
+
+### Added
+
+- **Xopt learns from measured readbacks, not proposals** —
+  `SessionOptimizationBridge.observe()` now substitutes each VOCS
+  variable's proposed value with the bin-mean measured readback from the
+  session's bin rows (the variable's `Device:Variable` column, NaN rows
+  excluded), falling back to the proposal when the column is missing,
+  empty, or all-NaN. GEECS set convergence is tolerance-bounded (e.g.
+  0.05 A on magnet PSUs), so the evaluated point can differ from the
+  proposed one by up to the tolerance; the optimizer now sees the point
+  actually visited. Substitutions that change a value are logged at DEBUG;
+  `xopt_dump.yaml` / history shapes are unchanged.
+- **Optimizer device requirements exposed on the session bridge (legacy
+  parity)** — `SessionOptimizationBridge.device_requirements` surfaces
+  `BaseOptimizer.device_requirements` (`{"Devices": {...}}`) so
+  `BlueskyScanner` can auto-provision the objective's analyzer devices
+  into the save-device set, mirroring the legacy ScanManager's
+  `device_manager.load_from_dictionary` merge. Read duck-typed via
+  `getattr` on the geecs_bluesky side — the dependency direction stays
+  GUI → geecs_bluesky.
+
 ## [0.30.1] — 2026-07-06
 
 ### Changed
@@ -14,6 +37,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   GeecsBluesky's asset registry and ScanAnalysis's timestamp file mapping.
   No behavior change; the `TestExpectedNativeFile` / `TestAwaitBinAssets`
   tests pass unchanged.
+
 
 ## [0.30.0] — 2026-07-05
 

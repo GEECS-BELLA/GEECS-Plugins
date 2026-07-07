@@ -498,6 +498,141 @@ def test_variableless_snapshot_is_skipped_with_warning(caplog) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Analyzer-device auto-provisioning (legacy device_requirements parity)
+# ---------------------------------------------------------------------------
+
+
+class _FakeBridge:
+    """Duck-typed optimization bridge (mirrors SessionOptimizationBridge)."""
+
+    variable_names = ["U_S1H:Current"]
+    on_finish = "hold"
+
+    def __init__(self, device_requirements: dict | None = None) -> None:
+        if device_requirements is not None:
+            self.device_requirements = device_requirements
+        self.bound_kwargs: dict | None = None
+
+    def bind(self, **kwargs):
+        self.bound_kwargs = kwargs
+        return (lambda bin_data: 0.0), self
+
+
+def _opt_scan_config() -> SimpleNamespace:
+    return SimpleNamespace(
+        optimizer_config_path="/cfg/opt.yaml",
+        start=0.0,
+        end=1.0,
+        step=1.0,
+        wait_time=1.0,
+        additional_description="",
+    )
+
+
+def _run_optimization_with_bridge(monkeypatch, scanner, bridge) -> None:
+    scanner._optimization_loader = lambda path: bridge
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    _patch_claim(monkeypatch, [], result=(None, None))
+    scanner._run_optimization(_opt_scan_config())
+
+
+def test_optimization_auto_provisions_required_analyzer_device(
+    monkeypatch, caplog
+) -> None:
+    """A required device absent from the GUI list is built as a sync detector."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}},
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()  # strict mode only checks presence here
+    bridge = _FakeBridge(
+        {
+            "Devices": {
+                "UC_ObjCam": {
+                    "add_all_variables": False,
+                    "save_nonscalar_data": True,
+                    "synchronous": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    # Merged before _build_session_devices: synchronous → detector factory.
+    assert ("detector", "UC_ObjCam") in session.calls
+    cfg = scanner._devices_config["UC_ObjCam"]
+    assert cfg["synchronous"] is True
+    assert cfg["save_nonscalar_data"] is True
+    assert cfg["variable_list"] == ["acq_timestamp"]
+    detector_names = [d.name for d in session.optimize_kwargs["detectors"]]
+    assert "uc_objcam" in detector_names
+    assert "auto-provisioned" in caplog.text
+
+
+def test_optimization_merges_required_variables_into_gui_device(
+    monkeypatch, caplog
+) -> None:
+    """An overlapping device keeps its GUI config and gains missing variables."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {
+            "UC_ObjCam": {
+                "synchronous": True,
+                "save_nonscalar_data": False,
+                "variable_list": ["MeanCounts"],
+            }
+        },
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    bridge = _FakeBridge(
+        {
+            "Devices": {
+                "UC_ObjCam": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["MeanCounts", "acq_timestamp"],
+                }
+            }
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    cfg = scanner._devices_config["UC_ObjCam"]
+    # Union of variables; GUI settings (save flag) preserved.
+    assert cfg["variable_list"] == ["MeanCounts", "acq_timestamp"]
+    assert cfg["save_nonscalar_data"] is False
+    assert session.calls.count(("detector", "UC_ObjCam")) == 1
+    assert "GUI settings preserved" in caplog.text
+
+
+def test_optimization_bridge_without_requirements_is_unchanged(monkeypatch) -> None:
+    """A bridge without a device_requirements attribute changes nothing."""
+    session = _FakeSession()
+    gui_devices = {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}}
+    scanner = _make_scanner(
+        session,
+        {name: dict(cfg) for name, cfg in gui_devices.items()},
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    bridge = _FakeBridge()  # no device_requirements attribute at all
+
+    _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    assert scanner._devices_config == gui_devices
+    assert [c for c in session.calls if c[0] == "detector"] == [("detector", "U_Ref")]
+
+
 def test_reference_abort_message_names_the_failing_devices() -> None:
     """The loud abort says WHY each device failed, not just that it did."""
     session = _FakeSession(fail={"U_RefCam"})

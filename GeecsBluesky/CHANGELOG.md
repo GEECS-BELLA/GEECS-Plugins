@@ -4,6 +4,23 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.20.0] - 2026-07-06
+
+### Added
+
+- **Analyzer-device auto-provisioning for optimization scans (legacy
+  parity)** — `BlueskyScanner._run_optimization` now merges the optimizer
+  config's `device_requirements` (exposed duck-typed on the optimization
+  bridge, like `on_finish`/`finish`) into the save-device set before
+  session devices are built, mirroring the legacy
+  `device_manager.load_from_dictionary` path: a required device absent
+  from the GUI save list is added with the requirement's config
+  (synchronous, `save_nonscalar_data`, variable list — the auto-generated
+  analyzer template), while a device already on the GUI list keeps its GUI
+  settings and only gains missing required variables. Auto-provisioning is
+  logged at INFO. Objectives' cameras no longer need to be added to the
+  save list manually.
+
 ## [0.19.2] - 2026-07-06
 
 ### Changed
@@ -15,6 +32,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   into both the folder and the filename stem). The registry keeps its
   bare-extension normalization as a local wrapper. No behavior change; the
   registry/asset tests pass unchanged.
+
 
 ## [0.19.1] - 2026-07-06
 
@@ -59,6 +77,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PV, so event keys and source strings are unchanged.
   `ShotController.over_ca`'s setters intentionally keep bare PV names — they
   talk to aioca directly, which treats a prefix as part of the PV name.
+
 
 ## [0.19.0] - 2026-07-05
 
