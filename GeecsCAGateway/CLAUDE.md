@@ -103,8 +103,8 @@ One asyncio event loop runs everything:
   GEECS config chain. `config.py` maps DB rows → specs; the network-free core
   is `from_db_metadata` (unit-tested without MySQL);
   `from_geecs_experiment` builds a whole experiment (get='yes' subset +
-  control surface by default; see DEPLOYMENT.md for the zero-get-variables
-  gap).
+  control surface by default — settable-only devices keep their `:SP` PVs)
+  from three batched DB queries.
 
 ## Wire-protocol quirks that bit us (do not relearn these live)
 

@@ -6,7 +6,7 @@ Exercises the pure ``DeviceSpec.from_db_metadata`` core using rows shaped like
 
 from __future__ import annotations
 
-from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
+from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -269,67 +269,121 @@ def test_choice_exceeding_ca_enum_limits_falls_back_to_string() -> None:
     assert spec.variables[0].choices == []
 
 
-def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
-    """Default: down-select to get='yes' vars (passed as include); skip failures."""
+def _patch_experiment_db(
+    monkeypatch,
+    *,
+    endpoints: dict,
+    var_map: dict,
+    sub_map: dict,
+) -> None:
+    """Stub the three batched GeecsDb queries from_geecs_experiment issues."""
     from geecs_ca_gateway.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,
-        "get_subscribed_variables",
-        classmethod(
-            lambda cls, experiment, *, enabled_only=True: {
-                "U_A": ["Current"],
-                "U_BAD": ["Current"],
-                "U_B": ["Current", "Voltage"],
-            }
-        ),
+        "get_experiment_devices",
+        classmethod(lambda cls, experiment, *, enabled_only=True: endpoints),
     )
-    seen_include: dict[str, object] = {}
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_experiment_device_variables",
+        classmethod(lambda cls, experiment, *, enabled_only=True: var_map),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_subscribed_variables",
+        classmethod(lambda cls, experiment, *, enabled_only=True: sub_map),
+    )
 
-    def fake_from_db(cls, name, *, experiment=None, include=None, **kwargs):
-        seen_include[name] = include
-        if name == "U_BAD":
-            raise RuntimeError("device not resolvable")
-        return DeviceSpec(
-            name=name,
-            host="h",
-            port=1,
-            experiment=experiment,
-            variables=[
-                VariableSpec(geecs_var=v, settable=True) for v in (include or [])
-            ],
-        )
 
-    monkeypatch.setattr(DeviceSpec, "from_geecs_db", classmethod(fake_from_db))
+def _meta(name: str, *, settable: bool = False) -> dict:
+    return {"name": name, "units": "", "min": None, "max": None, "settable": settable}
+
+
+def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
+    """Default: down-select to get='yes' vars; a broken device skips, not aborts."""
+    _patch_experiment_db(
+        monkeypatch,
+        endpoints={"U_A": ("h", 1), "U_B": ("h", 2), "U_BAD": ("h", 3)},
+        var_map={
+            "U_A": [_meta("Current", settable=True), _meta("Voltage")],
+            "U_B": [_meta("Current", settable=True), _meta("Voltage")],
+            "U_BAD": [{"units": "malformed row without a name"}],
+        },
+        sub_map={"U_A": ["Current"], "U_B": ["Current", "Voltage"], "U_BAD": ["X"]},
+    )
 
     cfg = GatewayConfig.from_geecs_experiment("Undulator")
     assert {d.name for d in cfg.devices} == {"U_A", "U_B"}  # U_BAD skipped, not fatal
-    assert seen_include["U_B"] == ["Current", "Voltage"]  # get-vars → include filter
+    by_name = {d.name: d for d in cfg.devices}
+    # U_A monitors only Current; Voltage is neither subscribed nor settable
+    assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current"}
+    assert {v.geecs_var for v in by_name["U_B"].variables} == {"Current", "Voltage"}
     gw = GeecsCaGateway(cfg)
     assert "Undulator:U_B:Voltage" in gw.pvdb
 
 
-def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
-    """subscribed_only=False enumerates all enabled devices, no include filter."""
-    from geecs_ca_gateway.db.geecs_db import GeecsDb
+def test_from_geecs_experiment_keeps_settable_only_devices(monkeypatch) -> None:
+    """A device with zero get='yes' variables keeps its :SP control surface.
 
-    monkeypatch.setattr(
-        GeecsDb,
-        "list_devices",
-        classmethod(lambda cls, experiment, *, enabled_only=True: ["U_A", "U_B"]),
+    Losing every PV of a device just because nothing is monitored per shot was
+    a real deployment gap (DEPLOYMENT.md documented it as known): the device's
+    settable variables are its control surface and must survive subscribed mode.
+    """
+    _patch_experiment_db(
+        monkeypatch,
+        endpoints={"U_MON": ("h", 1), "U_CTRL": ("h", 2), "U_IDLE": ("h", 3)},
+        var_map={
+            "U_MON": [_meta("Voltage")],
+            "U_CTRL": [_meta("save", settable=True), _meta("Voltage")],
+            "U_IDLE": [_meta("Voltage")],  # nothing subscribed, nothing settable
+        },
+        sub_map={"U_MON": ["Voltage"]},  # U_CTRL and U_IDLE absent from get-map
     )
 
-    def fake_from_db(cls, name, *, experiment=None, include=None, **kwargs):
-        assert include is None  # no down-select
-        return DeviceSpec(
-            name=name,
-            host="h",
-            port=1,
-            experiment=experiment,
-            variables=[VariableSpec(geecs_var="Current")],
-        )
+    cfg = GatewayConfig.from_geecs_experiment("Undulator")
+    by_name = {d.name: d for d in cfg.devices}
+    # control surface survives: only the settable variable, not the readback set
+    assert {v.geecs_var for v in by_name["U_CTRL"].variables} == {"save"}
+    gw = GeecsCaGateway(cfg)
+    assert "Undulator:U_CTRL:save:SP" in gw.pvdb
+    # a device exposing nothing at all is dropped (no pointless connections)
+    assert "U_IDLE" not in by_name
+    # --no-settable restores the strict get-list behavior
+    cfg = GatewayConfig.from_geecs_experiment("Undulator", include_settable=False)
+    assert {d.name for d in cfg.devices} == {"U_MON"}
 
-    monkeypatch.setattr(DeviceSpec, "from_geecs_db", classmethod(fake_from_db))
+
+def test_from_geecs_experiment_warns_on_endpointless_device(
+    monkeypatch, caplog
+) -> None:
+    """A get-map device missing from the device table is warned about, not lost."""
+    _patch_experiment_db(
+        monkeypatch,
+        endpoints={"U_A": ("h", 1)},
+        var_map={"U_A": [_meta("Current", settable=True)]},
+        sub_map={"U_A": ["Current"], "U_GHOST": ["Current"]},
+    )
+
+    with caplog.at_level("WARNING"):
+        cfg = GatewayConfig.from_geecs_experiment("Undulator")
+    assert {d.name for d in cfg.devices} == {"U_A"}
+    assert any("U_GHOST" in r.message for r in caplog.records)
+
+
+def test_from_geecs_experiment_all_variables(monkeypatch) -> None:
+    """subscribed_only=False exposes every variable of every enabled device."""
+    _patch_experiment_db(
+        monkeypatch,
+        endpoints={"U_A": ("h", 1), "U_B": ("h", 2)},
+        var_map={
+            "U_A": [_meta("Current", settable=True), _meta("Voltage")],
+            "U_B": [_meta("Voltage")],
+        },
+        sub_map={},  # not consulted when subscribed_only=False
+    )
 
     cfg = GatewayConfig.from_geecs_experiment("Undulator", subscribed_only=False)
-    assert {d.name for d in cfg.devices} == {"U_A", "U_B"}
+    by_name = {d.name: d for d in cfg.devices}
+    assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current", "Voltage"}
+    assert {v.geecs_var for v in by_name["U_B"].variables} == {"Voltage"}

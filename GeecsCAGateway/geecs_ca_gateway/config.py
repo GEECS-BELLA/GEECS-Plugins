@@ -323,7 +323,12 @@ class GatewayConfig(BaseModel):
         *monitoring* subset, but settable variables are the device's *control
         surface* (camera ``save`` / ``localsavingpath``, magnet setpoints, …)
         and CA clients need their ``:SP`` PVs for writes regardless of what is
-        monitored per shot.
+        monitored per shot.  A device with *zero* ``get='yes'`` variables still
+        gets its control surface (an empty monitoring list is not "no PVs").
+
+        Everything comes from three batched queries (endpoints, variable
+        metadata, get-list) rather than per-device lookups — whole-experiment
+        startup cost is constant in the number of devices.
 
         This is the live-from-DB path (the DB is the source of truth); further
         curation belongs in a separate overlay applied on top, not here.
@@ -346,25 +351,40 @@ class GatewayConfig(BaseModel):
         """
         from geecs_ca_gateway.db.geecs_db import GeecsDb
 
+        endpoints = GeecsDb.get_experiment_devices(
+            experiment, enabled_only=enabled_only
+        )
+        var_map = GeecsDb.get_experiment_device_variables(
+            experiment, enabled_only=enabled_only
+        )
+        sub_map: dict[str, list[str]] = {}
         if subscribed_only:
             sub_map = GeecsDb.get_subscribed_variables(
                 experiment, enabled_only=enabled_only
             )
-            targets = list(sub_map.items())
-        else:
-            names = GeecsDb.list_devices(experiment, enabled_only=enabled_only)
-            targets = [(name, None) for name in names]
+            for name in sub_map.keys() - endpoints.keys():
+                logger.warning(
+                    "from_geecs_experiment: %s has get='yes' variables but no "
+                    "device-table endpoint — skipping",
+                    name,
+                )
 
         devices: list[DeviceSpec] = []
-        for name, include in targets:
+        for name, (host, port) in endpoints.items():
+            # In subscribed mode a device absent from the get-map still gets an
+            # (empty) include list: nothing is monitored, but include_settable
+            # keeps its settable control surface — losing every :SP PV because
+            # no variable is logged per shot was a real deployment gap.
+            include = sub_map.get(name, []) if subscribed_only else None
             try:
-                devices.append(
-                    DeviceSpec.from_geecs_db(
-                        name,
-                        experiment=experiment,
-                        include=include,
-                        include_settable=include_settable and include is not None,
-                    )
+                spec = DeviceSpec.from_db_metadata(
+                    name,
+                    host,
+                    port,
+                    var_map.get(name, []),
+                    include=include,
+                    include_settable=include_settable and include is not None,
+                    experiment=experiment,
                 )
             except Exception:
                 logger.warning(
@@ -372,10 +392,18 @@ class GatewayConfig(BaseModel):
                     name,
                     exc_info=True,
                 )
+                continue
+            if not spec.variables:
+                logger.debug(
+                    "from_geecs_experiment: %s exposes no variables — skipping",
+                    name,
+                )
+                continue
+            devices.append(spec)
         logger.info(
             "from_geecs_experiment(%s): built %d/%d device spec(s)",
             experiment,
             len(devices),
-            len(targets),
+            len(endpoints),
         )
         return cls(devices=devices)

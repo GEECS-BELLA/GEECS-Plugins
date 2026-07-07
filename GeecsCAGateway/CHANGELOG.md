@@ -3,6 +3,37 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.6.0] - 2026-07-07
+
+### Added
+
+- **`deploy/` directory** with the production systemd unit
+  (`geecs-ca-gateway.service`) for the lab deployment on 192.168.6.14 and an
+  install/verify/upgrade recipe (`deploy/README.md`). `DEPLOYMENT.md` §5 now
+  points at the shipped unit instead of an inline sketch.
+- `GeecsDb.get_experiment_devices` and
+  `GeecsDb.get_experiment_device_variables` — batch counterparts of
+  `find_device` / `get_device_variables` that fetch a whole experiment's
+  endpoints and variable metadata in one query each.
+
+### Changed
+
+- **Settable-only devices are no longer dropped in subscribed mode.**
+  `GatewayConfig.from_geecs_experiment` previously built its device list from
+  the `get='yes'` map alone, so a device with zero subscribed variables lost
+  its entire `:SP` control surface (documented as a known gap in
+  `DEPLOYMENT.md`). It now enumerates all enabled devices and gives devices
+  absent from the get-map an empty monitoring list, keeping their settable
+  variables. Devices that would expose nothing at all (nothing subscribed,
+  nothing settable) are skipped entirely — previously they opened idle
+  TCP/UDP connections in `--all-variables` builds.
+- **Whole-experiment config building is three batched DB queries** instead of
+  2 per device (~230 sequential MySQL connections and ~80 s for Undulator's
+  114 devices). Startup — which is also the upgrade and DB-resync mechanism
+  for the systemd service — now takes seconds. A `get='yes'` device missing
+  from the device table is warned about explicitly instead of failing its
+  per-device lookup.
+
 ## [0.5.2] - 2026-07-06
 
 ### Fixed

@@ -60,16 +60,13 @@ devices' settable variables (the *control surface* — camera
 `save`/`localsavingpath`, magnet setpoints — which clients need for writes
 regardless of what is monitored; disable with `--no-settable`).
 
-**Known gap, honestly stated:** with `subscribed_only=True` (the default), a
-device with **zero** `get='yes'` variables is absent from
-`GeecsDb.get_subscribed_variables` and therefore gets **no PVs at all — its
-`:SP` control surface disappears**, even though `include_settable` is on
-(`config.py::GatewayConfig.from_geecs_experiment` builds its target list from
-the get-map alone). Workarounds today: `--all-variables`, or add one `get`
-variable to the device in the experiment config. The planned fix is to
-enumerate *all* enabled devices and union in settable-only devices with an
-empty include list; until that lands, check that any device you intend to
-*control* (not just monitor) has at least one subscribed variable.
+A device with **zero** `get='yes'` variables is *not* dropped: it keeps its
+settable variables (an empty monitoring list is not "no PVs"), so the `:SP`
+control surface of a device nobody logs per shot still exists. A device that
+would expose nothing at all (nothing subscribed, nothing settable) is skipped
+entirely — no idle TCP/UDP connections. Config building costs three batched
+DB queries total (endpoints, variable metadata, get-list), not per-device
+lookups, so startup is quick even for 100+ device experiments.
 
 ### Network scoping
 
@@ -251,35 +248,22 @@ no-hardware smoke test.)
 
 ## 5. Target production shape
 
-### systemd unit (sketch — example only, not installed by the package)
+### systemd unit
 
-```ini
-# /etc/systemd/system/geecs-ca-gateway.service
-[Unit]
-Description=GEECS to EPICS Channel Access gateway (%i-style: one unit per experiment)
-After=network-online.target mysql.service
-Wants=network-online.target
+The unit for the lab deployment ships in
+[`deploy/geecs-ca-gateway.service`](deploy/geecs-ca-gateway.service), with
+install/verify/upgrade steps in [`deploy/README.md`](deploy/README.md):
 
-[Service]
-Type=simple
-User=geecs
-WorkingDirectory=/opt/GEECS-Plugins/GeecsCAGateway
-Environment=EPICS_CAS_INTF_ADDR_LIST=192.168.6.14
-Environment=EPICS_CAS_BEACON_ADDR_LIST=192.168.6.255
-ExecStart=/usr/bin/poetry run python -m geecs_ca_gateway --experiment Undulator
-Restart=on-failure
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+```bash
+sudo cp deploy/geecs-ca-gateway.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now geecs-ca-gateway
 ```
 
 - `Restart=on-failure` + `RestartSec=10` is enough: startup is cheap and
   idempotent (config rebuilds from the DB; clients' CA monitors reconnect
-  automatically when the server returns). The known slow bit is the per-device
-  DB enumeration (~80 s for Undulator's 114 devices — the 2-queries-per-device
-  follow-up in `DESIGN.md`), so expect PVs to appear about a minute after
-  start.
+  automatically when the server returns). Config building is three batched DB
+  queries, so PVs appear within seconds of start.
 - A **restart is also the upgrade and the DB-resync mechanism**: `git pull &&
   poetry install && systemctl restart geecs-ca-gateway` — matching the
   existing GEECS master-GUI reboot pattern for device-set changes.
