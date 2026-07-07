@@ -63,13 +63,34 @@ built to consume. No GEECS-specific code is required in the archive path.
 
 ## 1. Decisions to make up front
 
-### Host: `abmx` (192.168.6.14), same box as the gateway — for the pilot
+### Host topology: pilot on the existing box, production on a new one
 
-Same reasoning and same honesty as `DEPLOYMENT.md` §2: co-located with the
-gateway (its only data source) and MySQL (its config store), always-on,
-low-latency, zero new hardware to procure. And the same risks, now heavier:
-this box becomes MySQL + Tiled + gateway + archiver. Two additions specific
-to the archiver:
+**Decided (2026-07-07).** The existing server (`abmx`, 192.168.6.14 — MySQL +
+Tiled + gateway) has only **100 GB of local storage**, which disqualifies it
+as the long-term home of anything whose steady-state job is to grow disk.
+A new box is being procured (§10 for the example config), and the split is:
+
+- **New box: gateway + archiver + Tiled** — the modern stack, co-located
+  with the mirrored terabytes its two storage-growing services (Tiled,
+  archiver LTS) need. Give it a stable hostname/IP before anything points
+  at it; clients get repointed exactly once.
+- **Existing abmx: MySQL only.** The GEECS DB is small and slow-growing —
+  100 GB is generous for a dedicated DB box. The criticality alignment is
+  the real win: abmx becomes the boring, stable, *LabVIEW-critical* box
+  nobody touches, and a failure of the new (experimental-stack) box leaves
+  LabVIEW GEECS entirely unaffected.
+- **MySQL does not move.** It is wired into every GEECS config and the
+  LabVIEW device layer; relocating it touches everything for zero benefit.
+  The archiver's config schema (§1 below) lives in this existing MySQL,
+  reached over the LAN like every other client. abmx's MySQL dumps should
+  land *off-box* (NetApp or the new box) so a dead abmx disk is not a dead
+  experiment database.
+
+Phase 1 (the throwaway pilot) does not wait on procurement — it can run on
+abmx or any Linux box on the lab subnet, since it stores nothing worth
+keeping. Phase 2 lands on the new box.
+
+Archiver-specific notes that hold wherever it runs:
 
 - **Disk is the resource that matters.** The archiver is the first service
   whose *steady-state job* is to grow local storage (§5 for the math). Disk
@@ -77,13 +98,18 @@ to the archiver:
 - **JVM memory.** The engine holds per-PV buffers; for O(500) PVs the
   defaults are fine (this thing is built for millions of PVs), but Tomcat's
   heap should be capped explicitly (`-Xmx1G` is generous for our scale) so
-  a JVM can never squeeze MySQL or Tiled.
+  a JVM can never squeeze Tiled or the gateway.
 
-A dedicated archiver box is the eventual production answer (the appliance's
-data is precisely what you want to survive a control-server rebuild), but
-that is a later migration — the appliance's storage directories move with
-`rsync` and the config exports/imports via its REST API, so nothing about
-starting on abmx is a one-way door.
+### Tiled migration (small, one idle window)
+
+Moving Tiled to the new box is deliberately part of this plan — it removes
+the 100 GB time bomb. Steps: stop `tiled.service` on abmx → copy the metadata
+database and data directory to the new box's mirror → mount the NetApp data
+share on the new box (Tiled *references* image assets there; the mount is
+required, not optional — an absent mount also degrades scan-number claiming)
+→ replicate the systemd unit → update the `tiled_uri` clients use. Keep the
+storage placement rules of `DEPLOYMENT.md` §2: metadata on local (mirrored)
+disk, bulk assets on NetApp, never a live database on SMB.
 
 ### Install route: native Tomcat + systemd (recommended), not Docker
 
@@ -104,14 +130,16 @@ uses. If Phase 1 reveals the native install is genuinely painful, Docker
 remains available as the fallback, with our own (small) Dockerfile as the
 accepted cost.
 
-### Appliance config persistence: MySQL, already on the box
+### Appliance config persistence: the existing MySQL on abmx
 
 The quickstart mode holds PV configs in memory (lost on restart — fine for
 the pilot, disqualifying for production). Production installs persist config
-in a MySQL schema. We already run MySQL on this host for GEECS; the appliance
-gets its **own schema and own user** (e.g. `archappl`), so the GEECS database
-and the archiver never share tables or credentials. This is the single
-biggest "production-ize" step between Phase 1 and Phase 2.
+in a MySQL schema. We already run MySQL on abmx for GEECS; the appliance
+gets its **own schema and own user** (e.g. `archappl`), reached over the LAN
+— so the GEECS database and the archiver never share tables or credentials,
+and abmx stays the one DB box. This is the single biggest "production-ize"
+step between Phase 1 and Phase 2. (The config schema is tiny — PV list +
+policies, not data — so the LAN hop costs nothing.)
 
 ---
 
@@ -177,34 +205,44 @@ verdict, not the install.
 
 ---
 
-## 3. Phase 2 — Production install on abmx
+## 3. Phase 2 — Production install on the new box
 
-Only entered if Phase 1 passes. Deliverables, in order:
+Only entered if Phase 1 passes and the new box (§1, §10) is racked. On the
+new box, Ubuntu LTS with the data mirror mounted; then, in order:
 
-1. **MySQL schema + user** for appliance config (`archappl`), per the
+1. **MySQL schema + user** for appliance config (`archappl`) on abmx's
+   existing MySQL, per the
    [official install guide](https://epicsarchiver.readthedocs.io/en/latest/sysadmin/installguide.html).
    MySQL connector jar goes into Tomcat's lib.
 2. **Site install layout** under `/opt/archappl` (or the box's convention):
    Tomcat 11, the four WARs deployed via the release's install scripts,
    `appliances.xml` declaring a **single appliance** with identity
-   `appliance0`, all URLs bound to `192.168.6.14`.
-3. **Storage tiers** on local disk (see §5 for sizing):
-   - STS (short-term, minutes–hours): tmpfs or fast local disk
-   - MTS (medium-term, days): local disk
-   - LTS (long-term): local disk partition to start.
+   `appliance0`, all URLs bound to the new box's (stable) address.
+3. **Storage tiers** on the data mirror (see §5 for sizing):
+   - STS (short-term, minutes–hours): tmpfs or the mirror
+   - MTS (medium-term, days): the mirror
+   - LTS (long-term): the mirror.
      PB files are plain append-only files, so *unlike* the Tiled SQLite
      database, moving LTS to NetApp later is not automatically forbidden —
      but it stays local until someone demonstrates the ETL job behaves on
      SMB. Storage placement rules in `DEPLOYMENT.md` §2 still apply.
-4. **Environment:** `EPICS_CA_ADDR_LIST=192.168.6.14`,
+4. **Environment:** `EPICS_CA_ADDR_LIST=<gateway host>`,
    `EPICS_CA_AUTO_ADDR_LIST=NO` in the service environment — explicit,
    same-box or not, so the archiver can never wander off looking for PVs
-   by broadcast.
+   by broadcast. (Once the gateway also moves to this box, that is
+   localhost/the box's own address — set it explicitly anyway.)
 5. **systemd unit** (`archappl.service`) modeled on `tiled.service` /
    `DEPLOYMENT.md` §5: `Restart=on-failure`, journald capture, explicit
-   `-Xmx` heap cap, `After=mysql.service`.
+   `-Xmx` heap cap, `After=network-online.target` (its MySQL is remote).
 6. **Config-DB backup**: the archiver's MySQL schema joins whatever dump
    schedule the GEECS DB uses (it is tiny — PV list + policies, not data).
+
+The gateway's own move to this box is the same recipe as its abmx deploy
+(`DEPLOYMENT.md`: clone + poetry install + config.ini + systemd unit), plus
+a one-time client repoint: `[epics] ca_addr_list` in the shared config.ini
+on the Windows machines, and `EPICS_CAS_INTF_ADDR_LIST` in the unit. It can
+move before, with, or after the archiver — the archiver reconnects either
+way.
 
 Ordering note vs the gateway-as-a-service work: the archiver does not
 *require* the gateway to be under systemd first (CA clients reconnect), but
@@ -339,7 +377,8 @@ exists. Optional, later, only if a wall-dashboard need appears.
 | caproto↔CAJ interop defect | Low, but the one untested seam | Phase 1 exists solely to retire this; bail-out defined |
 | Unfamiliar JVM/Tomcat ops | Certain, cost unknown | Pilot on quickstart first; heap-capped systemd unit; logs in journald like everything else |
 | Disk growth surprises | Medium | §5 math + measured pilot week before full onboarding; disk alert is a Phase 2 deliverable |
-| Box concentration (4 load-bearing services) | Acknowledged, accepted for pilot | Same posture as `DEPLOYMENT.md` §2; archiver is the most portable service on the box (rsync + config export) |
+| Box concentration | Reduced by the two-box split (§1) | abmx = MySQL only (LabVIEW-critical, untouched); new box = the modern stack, whose failure LabVIEW never notices |
+| Existing abmx disk (100 GB) | Real today | Tiled moves to the new box's mirror (§1); MySQL alone is comfortable in 100 GB; dumps go off-box |
 | Mgmt UI/REST has no auth | Real | Lab-subnet exposure only (same stance as CA itself); no port-forwarding to it |
 | Appliance project health | Low — active releases through 2026, multi-lab userbase | Data is in a documented open format (PB, protobuf-based; Parquet backend landing in 2.3+) — not a Citadel-style lock-in |
 
@@ -358,3 +397,41 @@ Each phase ends at a stable, useful state; nothing before Phase 3 commits
 more than an afternoon. The gateway needs **zero code changes** for any of
 this — the onboarding script (Phase 3) is the only new code in the repo,
 and it is a client of existing config machinery.
+
+---
+
+## 10. Hardware — the new box
+
+Decided 2026-07-07: buy from ABMX (the vendor of the existing server —
+convenience premium accepted deliberately). Example configuration, sized for
+gateway + archiver + Tiled with a decade of storage headroom:
+
+**ABMX 1267S3CL** (1U, 4× hot-swap 3.5" bays, ~$4.5–5k configured):
+
+| Item | Pick | Rationale |
+|---|---|---|
+| CPU | Xeon E-2434 (stock option) | The whole stack is I/O-light; 4 cores is genuinely enough |
+| RAM | 64 GB DDR5 ECC (2×32 GB) | ECC for a data-integrity box; 2 DIMM slots left free |
+| OS drive | 1 TB M.2 NVMe | OS + service venvs, separate from the data pair |
+| Data | 2× 4 TB SATA SSD, bays 1–2 | The mirror: Tiled metadata + data, archiver STS/MTS/LTS |
+| Bays 3–4 | empty | Growth is a hot-swap insert, not a new server |
+| OS | none shipped | Ubuntu LTS, self-installed |
+
+Included for free on this chassis: a full BMC (ASPEED AST2600, IPMI 2.0 with
+HTML5 KVM) — remote console over the lab network/VPN with no license fee.
+
+Setup rules that are not optional:
+
+- **Build the mirror in Linux — `mdadm` RAID1 or a ZFS mirror — during the
+  Ubuntu install. Do not enable the Intel chipset RAID in the BIOS.**
+  Chipset fake-RAID is opaque like hardware RAID *and* motherboard-bound
+  like software RAID; a plain mdadm/ZFS mirror can be read on any other
+  Linux machine, which is exactly the property the box holding the lab's
+  history needs.
+- Redundant PSU deliberately skipped (single point of acceptable failure;
+  the LabVIEW-critical services live elsewhere). Mirrored data disks are
+  the one redundancy this box must have: it holds the primary copy of the
+  continuous archive and Tiled metadata — data that exists nowhere else.
+- Give it its stable hostname/IP at install time (§1) — everything
+  downstream (CA address lists, `tiled_uri`, `appliances.xml`) hard-codes
+  it once.
