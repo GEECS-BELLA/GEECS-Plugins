@@ -4,8 +4,10 @@ Bridges the GEECS hardware control system to the
 [Bluesky](https://blueskyproject.io/) experiment orchestration ecosystem.
 The primary product is `BlueskyScanner` — a RunEngine-backed scan executor
 designed to become a `ScanManager` replacement.  It runs from the
-`GEECS-Scanner-GUI` (`use_bluesky=True`) and has been hardware-verified for both
-acquisition modes (free-run and strict) including DG645 shot control.
+`GEECS-Scanner-GUI` (`use_bluesky=True`, or the `GEECS_USE_BLUESKY` env var
+for a stock GUI session) and has been hardware-verified for both acquisition
+modes (free-run and strict) including DG645 shot control; first GUI-launched
+scans ran in production on 2026-07-06.
 
 ## Two acquisition modes (the core architecture)
 
@@ -56,6 +58,14 @@ geecs_bluesky/
     nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
     contributor.py          # FreeRunContributorSupport — reference-relative labeling
     scan_context.py         # ScanContext — bin_number / shot_index_in_bin / scan_event_index
+  analysis/                 # Post-run analysis contracts: models (AnalysisResult,
+                            #   FeatureRow, provenance), derived analysis runs
+                            #   published to Tiled, ImageAnalyzerAdapter, camera
+                            #   end-to-end analysis over archived Tiled runs
+  assets/                   # External asset helpers for native GEECS files
+                            #   (handlers, readback, registry)
+  epics_env.py              # Applies [epics] ca_addr_list from the shared config
+                            #   before aioca import (called by geecs_bluesky/__init__)
   shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
   optimize.py               # suggester protocol, RandomSuggester, XoptSuggester, BinData
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
@@ -90,14 +100,19 @@ scanner.stop_scanning_thread()      # RE.abort() + thread join
 ```
 
 `RunControl` in `GEECS-Scanner-GUI` switches between `ScanManager` and
-`BlueskyScanner` via `use_bluesky=True`.  That path now loads the selected
-shot-control YAML and passes it as `shot_control_information`, and passes the
-`on_event` callback (BlueskyScanner emits `ScanLifecycleEvent`s through it via
-`_set_state`).  Still not done in Bluesky mode: `ActionControl` /
-setup-closeout actions, and translating per-shot Bluesky documents into the
-richer `ScanStepEvent` / `DeviceCommandEvent` stream (only lifecycle events are
-emitted).  Acquisition mode is chosen by the `GEECS_BLUESKY_ACQUISITION_MODE`
-env var — there is no GUI toggle (intentional; bluesky is experimental).
+`BlueskyScanner` via an explicit `use_bluesky=True` or, for a stock GUI
+session, the `GEECS_USE_BLUESKY` env var (resolved by
+`geecs_scanner.engine.backend_selection`; explicit argument wins, default
+legacy).  That path loads the selected shot-control YAML and passes it as
+`shot_control_information`, and passes the `on_event` callback
+(BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`).
+Still not done in Bluesky mode: `ActionControl` / setup-closeout actions, and
+translating per-shot Bluesky documents into the richer `ScanStepEvent` /
+`DeviceCommandEvent` stream (only lifecycle events are emitted — so the GUI
+progress bar does not advance in Bluesky mode; see
+`Planning/gui_stewardship/00_overview.md`).  Acquisition mode is chosen by
+the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
+(intentional; bluesky is still being derisked).
 
 ### exec_config duck-typing
 
@@ -228,40 +243,24 @@ Hermetic testing uses ophyd-async mock backends (`tests/ca_mock_helpers.py`):
 `set_mock_value` on `acq_timestamp` is a shot, `start_pacer` on the RE loop is
 the free-running trigger, `follow_setpoint` stands in for GEECS convergence.
 
-## Transport Layer (gateway-facing — devices do not use it)
+## Transport Layer — moved to GeecsCAGateway
 
-### GeecsUdpClient
-
-Two-stage protocol: command sent to port N, ACK received on port N, EXE response
-received on port N+1.  ACK format: `"get{var}>>>>accepted"`.  EXE success:
-`"no error,"`.  Holds an `asyncio.Lock` for serialisation.
-
-Local IP detected at connect time via a no-op UDP socket against the OS routing
-table — handles VPN/PPP lab links.
-
-### GeecsTcpSubscriber
-
-Framed TCP: 4-byte big-endian length prefix + JSON payload.  Pushed by device at
-~5 Hz.  Feeds a shared `_shot_cache` dict; `GeecsTriggerable` watches for
-`acq_timestamp` advances via an `asyncio.Queue`.
+The GEECS wire-protocol transport (`GeecsUdpClient`, `GeecsTcpSubscriber`)
+no longer lives in this package: it moved to
+`GeecsCAGateway/geecs_ca_gateway/transport/`, alongside the DB layer and PV
+naming.  This package touches GEECS devices **only** through the gateway's
+CA PVs; it imports the gateway's library modules (`GeecsDb`, `pv_naming`,
+wire-level exceptions) and never the transport or the server.  See
+`GeecsCAGateway/README.md` and `GeecsCAGateway/DESIGN.md` for the protocol
+details that used to be documented here.
 
 ## Test Infrastructure
 
-### FakeGeecsServer / FakeGeecsDevice
-
-An in-process UDP/TCP server that speaks the real GEECS wire protocol.  Use as an
-async context manager:
-
-```python
-device = FakeGeecsDevice("U_DG645", variables={"Trigger.Source": "External rising edges"})
-async with FakeGeecsServer(device) as srv:
-    udp = GeecsUdpClient(srv.host, srv.port, device_name="U_DG645")
-    await udp.connect()
-    val = await udp.get("Trigger.Source")
-```
-
-`device.fire_shot()` advances `acq_timestamp` and broadcasts a TCP push — used to
-simulate hardware shot events in tests.
+`FakeGeecsServer` / `FakeGeecsDevice` (the in-process UDP/TCP server that
+speaks the real GEECS wire protocol) also moved to GeecsCAGateway
+(`geecs_ca_gateway.testing`).  This package's hermetic tests are built on
+ophyd-async **mock backends** instead (`tests/ca_mock_helpers.py`) — see the
+Device Layer section above.
 
 ### Hardware integration test
 
@@ -290,19 +289,26 @@ api_key = <key>
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
 
-## Known Gaps (as of 0.8.0)
+## Known Gaps (as of 0.19.0)
 
 The acquisition-modes architecture is complete and hardware-verified (both
-modes, including single-shot).  Remaining items are features/tuning, not
-architecture — see `Planning/acquisition_modes/00_overview.md` "Deferred".
+modes, including single-shot; GUI-launched scans verified live 2026-07-06).
+Remaining items are features/tuning, not architecture — see
+`Planning/acquisition_modes/00_overview.md` "Deferred".
 
 - **Strict single-shot needs an `ARMED` state** in the shot-control YAML to
-  engage.  The experiment configs gained one on the `geecs-plugins-configs`
-  branch `add-bluesky-armed-shot-control`.  Without `ARMED` or a reachable
-  shot-control device, strict aborts before acquisition.
+  engage (the production experiment configs have one).  Without `ARMED` or a
+  reachable shot-control device, strict aborts before acquisition
+  (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
+  trigger acquisition.
 - **Only lifecycle `ScanEvent`s are emitted** via `on_event` (through
   `_set_state`).  Per-shot/step Bluesky documents are not translated into the
-  richer `ScanStepEvent` / `DeviceCommandEvent` stream (and may not need to be).
+  richer `ScanStepEvent` / `DeviceCommandEvent` stream, so the GUI progress
+  bar does not advance in Bluesky mode and no operator dialogs
+  (`ScanDialogEvent`) can be raised.  `ScanStepEvent` emission and a
+  pre-flight dead-contributor dialog are the recommended next investments —
+  see `Planning/gui_stewardship/00_overview.md` §4–5.
+  (`DeviceCommandEvent` translation may never be needed.)
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.

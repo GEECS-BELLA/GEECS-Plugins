@@ -26,19 +26,24 @@ geecs_scanner/
     shot_control_editor.py    # Dialog: timing/trigger device configuration
     action_library.py         # Dialog: scripted action sequences
     multi_scanner.py          # Dialog: batch scan queue
+    gui_dialogs.py            # Qt dialog helpers (device-error dialogs; main thread only)
     gui/                      # Qt Designer *_ui.py files (auto-generated)
     lib/
       action_control.py       # Standalone ActionManager wrapper (used by GUI outside scans)
       gui_utilities.py        # YAML loading, misc helpers
   engine/
     scan_manager.py           # Central scan orchestrator (runs in a thread)
+    backend_selection.py      # Legacy-vs-Bluesky backend resolution (GEECS_USE_BLUESKY)
+    lifecycle.py              # ScanLifecycleStateMachine (extracted from ScanManager)
     device_manager.py         # Device subscriptions + config loading
     data_logger.py            # Per-shot data polling + file management
+    file_mover.py             # Worker-thread file move/retry logic (extracted from DataLogger)
     scan_executor.py          # Step-by-step scan execution logic
+    default_scan_manager.py   # Run ScanManager headless (no GUI) from default configs
     action_manager.py         # Automated action execution
     scan_data_manager.py      # Output path setup, data conversion, file I/O
     device_command_executor.py # Single policy point for all device.set()/get() calls
-    scan_events.py            # Typed ScanEvent hierarchy + ScanState enum (Block 3)
+    scan_events.py            # Typed ScanEvent hierarchy + ScanState enum
     database_dict_lookup.py   # GEECS device database query interface
     trigger_controller.py     # Timing/trigger management (OFF/STANDBY/SCAN/SINGLESHOT)
     dialog_request.py         # Thread-safe dialog request type + escalation helpers
@@ -80,8 +85,12 @@ uncaught exceptions to the logger, then creates and shows `GEECSScannerWindow`.
 - Manages the list of available vs. selected save elements
 - Four scan modes (radio buttons): **No-Scan**, **1D Scan**, **Optimization**,
   **Background**
-- 200ms `QTimer` polling `update_gui_status()` → updates progress bar and
-  status text without blocking the Qt event loop
+- Event-driven status: the engine's `on_event` callback feeds the
+  `_scan_event_received` pyqtSignal, whose main-thread handler
+  (`_handle_scan_event`) updates the progress bar, status light, and buttons.
+  There is **no polling timer** for scan state (the old 200 ms `QTimer` was
+  removed in D5); the only remaining timer is a 10 s `scan_number_timer`
+  that expires the cached scan-number display.
 - Launches all auxiliary dialogs (SaveElementEditor, ShotControlEditor, etc.)
 
 ## Scan Execution Flow
@@ -108,8 +117,21 @@ User clicks Start
             wait_for_acquisition()
             DataLogger logs per-shot heartbeat + updates shot_id context
         stop_scan()                       (data written before device teardown)
-  GUI QTimer polls ScanManager.estimate_current_completion() every 200ms
+  GUI updates arrive as ScanEvents: on_event → _scan_event_received pyqtSignal
+  → _handle_scan_event on the Qt main thread (no polling)
 ```
+
+### Scan backends
+
+`RunControl` owns one of two interchangeable backends: the legacy
+`ScanManager` (default) or `BlueskyScanner` from GeecsBluesky. Selection is
+resolved by `engine/backend_selection.py`: an explicit `use_bluesky`
+argument wins, else the `GEECS_USE_BLUESKY` env var (`1/true/yes/on` →
+Bluesky), else legacy. The GUI constructs `RunControl` without the argument,
+so the env var is the supported way to switch a GUI session's backend.
+Both backends receive the same `on_event` callback; the Bluesky backend
+currently emits lifecycle events only (no step/dialog events — see
+`Planning/gui_stewardship/00_overview.md`).
 
 ## Threading Model
 
@@ -198,9 +220,11 @@ Retry policy (per error type):
 - `GeecsDeviceExeTimeout` → escalate immediately (device hung; retry makes it worse)
 - `GeecsDeviceCommandFailed` → escalate immediately (hardware error)
 
-Escalation calls `on_escalate(exc, context) -> bool` on the main thread via
-`ScanManager.dialog_queue` + `DialogRequest`.  `True` = Abort (sets `stop_event`);
-`False` = Continue.
+Escalation wraps the exception in a `DialogRequest` and emits a
+`ScanDialogEvent`; the GUI renders it on the Qt main thread
+(`app/gui_dialogs.show_device_error_dialog`) while the scan thread blocks on
+`request.response_event`.  `True` = Abort (sets `stop_event`);
+`False` = Continue.  (The old `ScanManager.dialog_queue` is gone.)
 
 Scanner exception hierarchy (`utils/exceptions.py`):
 ```
@@ -220,12 +244,14 @@ ScanError
 `GeecsDeviceInstantiationError` (from the API layer) is caught at device-open
 boundaries and re-raised or logged with context.
 
-## Scan Event System (Block 3)
+## Scan Event System
 
 The engine emits a typed event stream via an `on_event` callback injected at
-construction time.  The GUI does not yet consume this stream (Block 7 will replace
-the 200 ms polling timer); the callback is intended for headless consumers, tests,
-and future GUI wiring.
+construction time.  The GUI consumes this stream: `RunControl` wires
+`on_event` to the window's `_scan_event_received` pyqtSignal, and
+`_handle_scan_event` dispatches to per-type handlers on the Qt main thread
+(progress, status light, restore-failure warnings, device-error dialogs).
+The same callback also serves headless consumers and tests.
 
 ### Event hierarchy (`engine/scan_events.py`)
 
@@ -237,7 +263,8 @@ ScanEvent
 ├── DeviceCommandEvent   device, variable, outcome ("accepted"/"rejected"/"failed"/"timeout")
 ├── ScanErrorEvent       message, recoverable: bool, exc: BaseException | None
 ├── ScanRestoreFailedEvent  device, message
-└── ScanDialogEvent      request: DialogRequest  — for Block 7 GUI wiring
+└── ScanDialogEvent      request: DialogRequest  — rendered by the GUI as a
+                         modal device-error dialog (app/gui_dialogs.py)
 ```
 
 `ScanState` is a `str, enum.Enum` — values serialise naturally to JSON / log messages.
@@ -284,32 +311,33 @@ guaranteed shot count.
 8. `geecs_scanner/engine/models/scan_execution_config.py` — validated scan config model
 9. `geecs_scanner/app/save_element_editor.py` — pattern for YAML-backed dialogs
 
-## Current Direction: Decompose Phase
+## Current Direction: Stewardship
 
-The event stream, `DeviceCommandExecutor`, state machine, and `pyqtSignal` bridge
-are now in place.  The next work is to **remove complexity** using those structures,
-not add more.  See `Planning/STATUS.md` (in the repo root) for the ordered steps.
+The old refactor roadmap ("Blocks", decompose steps D1–D5, tracked in the
+now-deleted `Planning/STATUS.md`) **completed**: the typed event stream, the
+`pyqtSignal` bridge, `FileMover` and `ScanLifecycleStateMachine` extraction,
+phased `_start_scan()`, and removal of the 200 ms polling timer all landed.
+The GUI is fully event-driven on the legacy path.
 
-Success criterion: every class can be described in one sentence without the word "and".
-
-The five decompose steps in order:
-1. **D1** — Behavioral tests for `DataLogger` (safety net before touching it)
-2. **D2** — Extract `FileMover` into its own module (`engine/file_mover.py`)
-3. **D3** — Extract `ScanLifecycleStateMachine` into `engine/lifecycle.py`
-4. **D4** — Make `ScanManager._start_scan()` readable via named phase methods
-5. **D5** — Remove the 200ms polling `QTimer` from `GEECSScannerWindow`
+Current direction is stewardship, not decomposition — see
+`Planning/gui_stewardship/00_overview.md` (repo root) for the audit,
+strategic frame, and recommended investments. In short: the legacy engine
+(`ScanManager`/`DataLogger`/`DeviceManager`) is frozen (bug fixes only)
+while the Bluesky backend grows; GUI investment goes into the durable
+front-end jobs (config editing, progress display, operator dialogs,
+optimization setup) and into richer event emission from `BlueskyScanner`.
 
 ## Known Tech Debt
 
-- **Dead `on_device_error`**: `ScanManager.__init__` assigns it on `ScanStepExecutor`
-  and `ScanDataManager`; neither reads it (both use `cmd_executor`).  Remove during D4.
-- **`DataLogger` contains `FileMover`**: ~400 lines of worker-thread logic that
-  has no business living inside the logger.  Addressed by D2.
-- **`ScanManager` is still ~1100 lines**: mixes orchestration, state management,
-  device lifecycle, and scan math.  D3 extracts the state machine; D4 phases `_start_scan()`.
-- **200ms `QTimer` races with event handlers**: `update_gui_status()` still fires every
-  200ms even though events now drive the scan state.  Addressed by D5.
-- **DEBUG `logger.info` in `geecs_scanner.py`**: line ~1647 — remove when touching that file.
+- **Bluesky backend emits lifecycle events only**: no `ScanStepEvent`, so the
+  progress bar does not advance in Bluesky mode; no `ScanDialogEvent`, so no
+  operator dialogs.  See `Planning/gui_stewardship/00_overview.md` §4–5.
+- **Stale docstrings referencing the removed 200 ms timer**: e.g. the
+  `engine/dialog_request.py` module docstring and `ScanDialogEvent`'s
+  "In Block 7 ..." note.  Fix in the next code PR touching those files.
+- **`ScanManager` is still ~1200 lines** even after the state-machine and
+  phase extractions.  Frozen by policy — do not decompose further; the
+  Bluesky path replaces it.
 - **`GeecsDevice` `None` return on hardware rejection**: `device.set()` can return `None`
   when `GeecsDeviceCommandFailed` is raised in the UDP listener thread.  Guarded in
   `scan_executor.py` with a `None` check; root fix requires API changes.

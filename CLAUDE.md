@@ -108,6 +108,8 @@ ImageAnalysis        →  GEECS-Data-Utils
 GeecsCAGateway       →  (no intra-repo deps — the GEECS access layer:
                         wire protocol, DB, PV naming, CA server)
 GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway
+                        (+ ImageAnalysis, optional via the `analysis` extra —
+                        post-run image analysis over archived Tiled runs)
 GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
@@ -204,7 +206,8 @@ cd GEECS-PythonAPI   && poetry version patch   # 0.3.0 → 0.3.1
 Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
-`ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`.
+`ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
+`GeecsBluesky/`, `GeecsCAGateway/`.
 
 Git tags on merge to master: `geecs-scanner-v0.8.0`, `geecs-python-api-v0.3.1`, etc.
 
