@@ -12,6 +12,9 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceExeTimeout,
 )
 
+from geecs_scanner.engine.device_error_suppression import (
+    DeviceErrorSuppressionPolicy,
+)
 from geecs_scanner.engine.dialog_request import DEVICE_COMMAND_ERRORS
 from geecs_scanner.engine.scan_events import DeviceCommandEvent
 from geecs_scanner.utils.exceptions import DeviceCommandError
@@ -37,8 +40,10 @@ class DeviceCommandExecutor:
       refused the command; retrying is reasonable.
     - ``GeecsDeviceExeTimeout`` — escalate immediately.  The device is hung;
       retrying the same command makes it worse.
-    - ``GeecsDeviceCommandFailed`` — escalate immediately.  A hardware-level
-      failure; retry will not fix it.
+    - ``GeecsDeviceCommandFailed`` — escalate immediately unless the configured
+      suppression policy classifies it as a known benign warning.  Suppressed
+      failures are logged and still go through scan-step tolerance validation
+      before acquisition continues.
 
     Attributes
     ----------
@@ -58,12 +63,16 @@ class DeviceCommandExecutor:
         max_retries: int = 3,
         retry_delay: float = 0.5,
         on_event: Optional[Callable[[ScanEvent], None]] = None,
+        suppression_policy: Optional[DeviceErrorSuppressionPolicy] = None,
     ):
         self.on_escalate = on_escalate
         self.stop_event = stop_event
         self.max_retries = max_retries
         self.retry_delay = retry_delay
         self.on_event = on_event
+        self.suppression_policy = (
+            suppression_policy or DeviceErrorSuppressionPolicy.default()
+        )
 
     def _emit(self, event: ScanEvent) -> None:
         if self.on_event is not None:
@@ -149,6 +158,25 @@ class DeviceCommandExecutor:
                 device_name, f"set {variable}", variable=variable
             ) from exc
         except GeecsDeviceCommandFailed as exc:
+            suppressed = self.suppression_policy.suppress_result_for(
+                device_name=device_name,
+                variable=variable,
+                exc=exc,
+            )
+            if suppressed is not None:
+                self._emit(
+                    DeviceCommandEvent(
+                        device=device_name, variable=variable, outcome="suppressed"
+                    )
+                )
+                logger.warning(
+                    "[%s] suppressing known benign set warning for %s: %s",
+                    device_name,
+                    variable,
+                    exc,
+                )
+                return suppressed
+
             self._emit(
                 DeviceCommandEvent(
                     device=device_name, variable=variable, outcome="failed"
@@ -240,6 +268,10 @@ class DeviceCommandExecutor:
             self.stop_event.set()
 
         return abort
+
+    def suppresses_set_failure(self, device_name: str, variable: str) -> bool:
+        """Return True when any rule allows this set failure to be considered."""
+        return self.suppression_policy.suppresses_set_failure(device_name, variable)
 
     # ------------------------------------------------------------------
     # Internal helpers

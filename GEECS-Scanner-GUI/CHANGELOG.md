@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.1] — 2026-07-07
+
+### Fixed
+- Suppressed the known benign Zaber `WL` warning for
+  `HTT-B-Zaber_Chain-B:Position.Ch6` set commands during non-Bluesky scans.
+  The warning is still logged, and the scan step still validates the
+  reported/read-back position against the configured tolerance before
+  continuing.
+
 ## [0.29.0] — 2026-06-24
 
 ### Changed (BREAKING — Xopt 2.6 → 3.1 upgrade)

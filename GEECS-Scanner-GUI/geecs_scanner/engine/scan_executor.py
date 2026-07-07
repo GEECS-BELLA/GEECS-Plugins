@@ -16,6 +16,7 @@ from xopt.vocs import random_inputs
 
 from geecs_python_api.controls.devices.geecs_device import GeecsDevice
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
+from geecs_scanner.engine.device_error_suppression import SuppressedSetResult
 from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.trigger_controller import TriggerController
 from geecs_scanner.optimization.base_optimizer import BaseOptimizer
@@ -207,21 +208,48 @@ class ScanStepExecutor:
                 logger.info("[%s] setting %s → %s", device_name, var_name, set_val)
                 tol = _get_tolerance(device, device_name, var_name)
                 ret_val = self.cmd_executor.set(device, var_name, set_val)
+                suppressed_set_warning = False
+
+                if isinstance(ret_val, SuppressedSetResult):
+                    suppressed_set_warning = True
+                    ret_val = ret_val.readback
 
                 # device.set() returns None when the device rejected the command
                 # via the UDP listener thread (exception raised there, not here).
                 if ret_val is None:
-                    raise DeviceCommandError(
-                        device_name, f"set {var_name}", variable=var_name
-                    )
+                    if self.cmd_executor.suppresses_set_failure(device_name, var_name):
+                        suppressed_set_warning = True
+                        logger.warning(
+                            "[%s] set %s returned no value after a known benign "
+                            "warning; reading back before continuing",
+                            device_name,
+                            var_name,
+                        )
+                        ret_val = self.cmd_executor.get(device, var_name)
+                    if ret_val is None:
+                        raise DeviceCommandError(
+                            device_name, f"set {var_name}", variable=var_name
+                        )
 
-                if ret_val - tol <= set_val <= ret_val + tol:
+                try:
+                    within_tolerance = ret_val - tol <= set_val <= ret_val + tol
+                except TypeError as exc:
+                    if suppressed_set_warning:
+                        raise DeviceCommandError(
+                            device_name, f"set {var_name}", variable=var_name
+                        ) from exc
+                    raise
+                if within_tolerance:
                     logger.debug(
                         "[%s] %s=%s within tolerance %s",
                         device_name,
                         var_name,
                         ret_val,
                         tol,
+                    )
+                elif suppressed_set_warning:
+                    raise DeviceCommandError(
+                        device_name, f"set {var_name}", variable=var_name
                     )
                 else:
                     logger.warning(
