@@ -31,6 +31,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the case difference logged at INFO. Genuinely new devices keep the
   requirement's spelling, and the auto-provisioning log now hints to
   verify the spelling against the GEECS database.
+- **Bounded refire for strict-mode single shots**
+  (`geecs_single_shot(..., max_refires=2)`) — live evidence from the first
+  GUI optimization campaign (2026-07-06, Undulator Scan011): 84 SINGLESHOT
+  fires produced 83 camera frames; the one no-frame fire (the Basler's
+  known ~1% frame-drop intermittency) failed the group wait and aborted
+  the whole optimization. A missed pulse never yields a frame, so a
+  device that produces nothing now gets the shot re-fired (fresh trigger
+  group per attempt, WARNING naming the device) up to `max_refires` times
+  before the `FailedStatus` propagates. Strict semantics are preserved:
+  a failed attempt records nothing, and any orphan frame from a partial
+  miss is drained by the next attempt's `trigger()` baseline, so every
+  recorded row is one physical shot. The 3.0 s trigger timeout was
+  measured adequate (fire→frame offset median 0.21 s, max 1.06 s across
+  the 83 good shots), so no timeout knob was added — waiting longer
+  cannot recover a dropped frame; re-firing can.
 
 ## [0.19.2] - 2026-07-06
 
