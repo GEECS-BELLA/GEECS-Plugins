@@ -168,6 +168,10 @@ class SessionOptimizationBridge:
         self._pending_outputs: Optional[Dict[str, float]] = None
         self._scan_folder: Optional[Path] = None
         self._n_random_init = max(0, 2 - optimizer.n_seeded)
+        # Lazy, cached casefolded → canonical DB device-name map (see
+        # _database_device_names); None after a failed/empty load.
+        self._db_device_names: Optional[Dict[str, str]] = None
+        self._db_device_names_loaded = False
 
     @property
     def variable_names(self) -> List[str]:
@@ -187,8 +191,96 @@ class SessionOptimizationBridge:
         (``getattr``, like ``on_finish``/``finish``) and merges it into its
         device config before building session devices — geecs_bluesky never
         imports geecs_scanner.
+
+        Device names are canonicalized against the experiment database
+        best-effort (see :meth:`_canonicalize_device_requirements`): GEECS
+        is case-inconsistent about device-name spelling, and the gateway's
+        CA PV names follow the DB — a wrong-case config spelling fails to
+        connect (live-observed 2026-07-06 with ``UC_Amp4_IR_Input`` vs the
+        DB's ``UC_Amp4_IR_input``).
         """
-        return getattr(self.optimizer, "device_requirements", None) or {}
+        requirements = getattr(self.optimizer, "device_requirements", None) or {}
+        return self._canonicalize_device_requirements(requirements)
+
+    def _database_device_names(self) -> Optional[Dict[str, str]]:
+        """Return a cached casefolded → canonical DB device-name map, or None.
+
+        Built once per bridge from ``DatabaseDictLookup`` — the same
+        experiment-database dict ``RunControl`` loads; ``reload()`` without
+        an experiment name resolves the default experiment from
+        ``config.ini``, which is the experiment the GUI runs with.  The
+        bridge is constructed GUI-side where DB access is a given, but this
+        is strictly best-effort: any failure (no config, off-network, empty
+        dict) caches ``None`` with a DEBUG log so headless/test use is
+        never broken and the lookup is never retried.
+        """
+        if self._db_device_names_loaded:
+            return self._db_device_names
+        self._db_device_names_loaded = True
+        try:
+            # Local import: keeps module import light and avoids pulling
+            # the engine (and geecs_python_api) in for headless bridge use.
+            from geecs_scanner.engine import DatabaseDictLookup
+
+            lookup = DatabaseDictLookup()
+            lookup.reload()  # default experiment from config.ini
+            database = lookup.get_database() or {}
+            self._db_device_names = {
+                str(name).casefold(): str(name) for name in database
+            } or None
+            if self._db_device_names is None:
+                logger.debug(
+                    "Experiment database dict is empty; optimizer device "
+                    "requirements are used verbatim"
+                )
+        except Exception:
+            self._db_device_names = None
+            logger.debug(
+                "Could not load the experiment database dict; optimizer "
+                "device requirements are used verbatim",
+                exc_info=True,
+            )
+        return self._db_device_names
+
+    def _canonicalize_device_requirements(
+        self, requirements: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Correct requirement device names to the DB's canonical spelling.
+
+        Case-insensitive match against the experiment database's
+        device-name keys; a corrected spelling is logged at INFO.  GEECS is
+        internally case-inconsistent (a device's native files may spell it
+        differently than the DB), so config spellings drift — but the
+        gateway PVs use the DB spelling and CA names are case-sensitive.
+        Best-effort: without a database map the requirements pass through
+        verbatim, and an unmatched name keeps the config's spelling.
+        """
+        devices = (
+            requirements.get("Devices") if isinstance(requirements, dict) else None
+        )
+        if not devices:
+            return requirements
+        names = self._database_device_names()
+        if not names:
+            return requirements
+        corrected: Dict[str, Any] = {}
+        changed = False
+        for device_name, cfg in devices.items():
+            canonical = names.get(str(device_name).casefold(), device_name)
+            if canonical != device_name:
+                changed = True
+                logger.info(
+                    "Optimization config device %r corrected to the GEECS "
+                    "database spelling %r (CA PV names are case-sensitive)",
+                    device_name,
+                    canonical,
+                )
+            corrected[canonical] = cfg
+        if not changed:
+            return requirements
+        out = dict(requirements)
+        out["Devices"] = corrected
+        return out
 
     @property
     def on_finish(self) -> str:

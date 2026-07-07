@@ -25,6 +25,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `device_manager.load_from_dictionary` merge. Read duck-typed via
   `getattr` on the geecs_bluesky side — the dependency direction stays
   GUI → geecs_bluesky.
+- **Device requirements are canonicalized against the experiment
+  database** (live-observed 2026-07-06, first GUI optimization test) —
+  the DB (and therefore the gateway's case-sensitive CA PV names) spelled
+  the camera `UC_Amp4_IR_input` while the optimizer config said
+  `UC_Amp4_IR_Input`, so the auto-provisioned device failed to connect on
+  every PV and aborted the scan. `SessionOptimizationBridge.device_requirements`
+  now case-insensitively matches each requirement device name against the
+  experiment database dict (`DatabaseDictLookup`, default experiment from
+  `config.ini`) and substitutes the canonical DB spelling, logging
+  corrections at INFO. Strictly best-effort and cached per bridge: any DB
+  failure (no config, off-network, empty dict) logs at DEBUG and returns
+  the requirements verbatim, so headless/test use is unaffected.
 
 ## [0.30.1] — 2026-07-06
 

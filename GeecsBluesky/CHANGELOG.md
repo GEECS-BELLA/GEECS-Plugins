@@ -20,6 +20,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   settings and only gains missing required variables. Auto-provisioning is
   logged at INFO. Objectives' cameras no longer need to be added to the
   save list manually.
+- **Case-insensitive device-requirement merge** (live-observed 2026-07-06,
+  first GUI optimization test) — GEECS is internally case-inconsistent
+  about device-name spelling (the DB said `UC_Amp4_IR_input`, the
+  optimizer config `UC_Amp4_IR_Input`), and the case-sensitive merge added
+  a duplicate wrong-case device whose gateway PVs could never connect (CA
+  names are case-sensitive). Requirement names now match existing GUI save
+  devices via `str.casefold`; on a hit the requirement merges into the
+  existing entry under the GUI's spelling (the one that connects), with
+  the case difference logged at INFO. Genuinely new devices keep the
+  requirement's spelling, and the auto-provisioning log now hints to
+  verify the spelling against the GEECS database.
 
 ## [0.19.2] - 2026-07-06
 

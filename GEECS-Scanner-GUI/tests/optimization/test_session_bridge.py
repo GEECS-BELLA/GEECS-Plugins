@@ -7,6 +7,7 @@ Xopt-backed bridge test uses the ``random`` generator (no GP fitting).
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 import time
 from pathlib import Path
@@ -23,6 +24,26 @@ from geecs_scanner.optimization.session_bridge import (
     _column_map,
     _expected_native_file,
 )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_database(monkeypatch):
+    """Hermetic guard: no test in this module may reach the experiment DB.
+
+    ``SessionOptimizationBridge.device_requirements`` best-effort
+    canonicalizes device names via ``DatabaseDictLookup`` (lazily imported
+    from ``geecs_scanner.engine``); off-network that lookup blocks for the
+    full MySQL connect timeout.  Default every test to a lookup that fails
+    at construction — the bridge must fall back to verbatim requirements.
+    Canonicalization tests install their own fakes on top.
+    """
+    import geecs_scanner.engine as engine
+
+    class _OfflineLookup:
+        def __init__(self) -> None:
+            raise RuntimeError("hermetic test: no experiment database")
+
+    monkeypatch.setattr(engine, "DatabaseDictLookup", _OfflineLookup)
 
 
 def _fake_bin(iteration: int, currents: list, start_index: int = 1):
@@ -296,6 +317,102 @@ class TestDeviceRequirementsExposure:
         )
         bridge = SessionOptimizationBridge(optimizer)
         assert bridge.device_requirements == {}
+
+
+class TestDeviceRequirementsCanonicalization:
+    """device_requirements corrects device-name case against the GEECS DB.
+
+    Live-observed 2026-07-06: the DB (and therefore the gateway's
+    case-sensitive CA PV names) spelled a camera ``UC_Amp4_IR_input``
+    while the optimizer config said ``UC_Amp4_IR_Input`` — the wrong-case
+    auto-provisioned device failed to connect on every PV.  The bridge now
+    canonicalizes best-effort; any DB failure falls back verbatim.
+    """
+
+    @staticmethod
+    def _reqs(name: str = "UC_Amp4_IR_Input") -> dict:
+        return {
+            "Devices": {
+                name: {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+
+    @staticmethod
+    def _patch_db(monkeypatch, database: dict) -> dict:
+        """Install a fake DatabaseDictLookup; return construction counters."""
+        import geecs_scanner.engine as engine
+
+        calls = {"constructed": 0}
+
+        class _FakeLookup:
+            def __init__(self) -> None:
+                calls["constructed"] += 1
+
+            def reload(self, experiment_name=None) -> None:
+                pass
+
+            def get_database(self) -> dict:
+                return database
+
+        monkeypatch.setattr(engine, "DatabaseDictLookup", _FakeLookup)
+        return calls
+
+    def test_case_mismatch_corrected_to_db_spelling(self, monkeypatch, caplog):
+        self._patch_db(monkeypatch, {"UC_Amp4_IR_input": {}, "U_S1H": {}})
+        bridge = SessionOptimizationBridge(
+            _make_optimizer(device_requirements=self._reqs("UC_Amp4_IR_Input"))
+        )
+        with caplog.at_level(logging.INFO):
+            reqs = bridge.device_requirements
+        assert list(reqs["Devices"]) == ["UC_Amp4_IR_input"]
+        # The device config rides along under the corrected key.
+        assert reqs["Devices"]["UC_Amp4_IR_input"]["variable_list"] == ["acq_timestamp"]
+        assert "corrected to the GEECS database spelling" in caplog.text
+        assert "UC_Amp4_IR_input" in caplog.text
+
+    def test_matching_spelling_passes_through_unchanged(self, monkeypatch, caplog):
+        self._patch_db(monkeypatch, {"UC_Amp4_IR_input": {}})
+        reqs = self._reqs("UC_Amp4_IR_input")
+        bridge = SessionOptimizationBridge(_make_optimizer(device_requirements=reqs))
+        with caplog.at_level(logging.INFO):
+            assert bridge.device_requirements == reqs
+        assert "corrected" not in caplog.text
+
+    def test_unknown_device_keeps_config_spelling(self, monkeypatch):
+        self._patch_db(monkeypatch, {"U_S1H": {}})
+        reqs = self._reqs("UC_NotInDb_Cam")
+        bridge = SessionOptimizationBridge(_make_optimizer(device_requirements=reqs))
+        assert bridge.device_requirements == reqs
+
+    def test_db_failure_falls_back_verbatim(self, caplog):
+        # The autouse _no_real_database fixture installs a lookup that
+        # raises at construction — the off-network / no-config case.
+        reqs = self._reqs()
+        bridge = SessionOptimizationBridge(_make_optimizer(device_requirements=reqs))
+        with caplog.at_level(logging.DEBUG):
+            assert bridge.device_requirements == reqs  # must not raise
+        assert "used verbatim" in caplog.text
+
+    def test_empty_database_falls_back_verbatim(self, monkeypatch, caplog):
+        self._patch_db(monkeypatch, {})
+        reqs = self._reqs()
+        bridge = SessionOptimizationBridge(_make_optimizer(device_requirements=reqs))
+        with caplog.at_level(logging.DEBUG):
+            assert bridge.device_requirements == reqs
+        assert "used verbatim" in caplog.text
+
+    def test_lookup_result_is_cached_on_the_bridge(self, monkeypatch):
+        calls = self._patch_db(monkeypatch, {"UC_Amp4_IR_input": {}})
+        bridge = SessionOptimizationBridge(
+            _make_optimizer(device_requirements=self._reqs())
+        )
+        bridge.device_requirements
+        bridge.device_requirements
+        assert calls["constructed"] == 1
 
 
 # ---------------------------------------------------------------------------

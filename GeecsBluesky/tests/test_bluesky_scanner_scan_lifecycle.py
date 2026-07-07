@@ -615,6 +615,96 @@ def test_optimization_merges_required_variables_into_gui_device(
     assert "GUI settings preserved" in caplog.text
 
 
+def test_optimization_case_mismatched_requirement_merges_into_gui_device(
+    monkeypatch, caplog
+) -> None:
+    """A requirement differing only in case merges under the GUI spelling.
+
+    Live-observed 2026-07-06: the DB (and gateway PVs) spelled the camera
+    ``UC_Amp4_IR_input`` while the optimizer config said ``UC_Amp4_IR_Input``;
+    the case-sensitive merge added a duplicate wrong-case device whose PVs
+    could never connect.  The GUI/DB spelling must win.
+    """
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {
+            "UC_Cam_input": {
+                "synchronous": True,
+                "save_nonscalar_data": False,
+                "variable_list": ["MeanCounts"],
+            }
+        },
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    bridge = _FakeBridge(
+        {
+            "Devices": {
+                "UC_Cam_Input": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["MeanCounts", "acq_timestamp"],
+                }
+            }
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    # One device, under the GUI's spelling — no wrong-case duplicate.
+    assert "UC_Cam_Input" not in scanner._devices_config
+    cfg = scanner._devices_config["UC_Cam_input"]
+    assert cfg["variable_list"] == ["MeanCounts", "acq_timestamp"]
+    assert cfg["save_nonscalar_data"] is False  # GUI settings preserved
+    assert [c for c in session.calls if c[0] == "detector"] == [
+        ("detector", "UC_Cam_input")
+    ]
+    # The case difference is called out, naming the spelling that was used.
+    assert "differs only in case" in caplog.text
+    assert "merging under the GUI spelling UC_Cam_input" in caplog.text
+
+
+def test_optimization_auto_provision_hints_at_case_sensitive_pv_names(
+    monkeypatch, caplog
+) -> None:
+    """A genuinely-new device is still added, with the spelling hint logged.
+
+    When no GUI save element covers the required device, the requirement's
+    own spelling is all we have — the log must point the operator at the
+    failure mode (wrong-case spellings abort the scan with NotConnectedError
+    on every PV).
+    """
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session,
+        {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}},
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    bridge = _FakeBridge(
+        {
+            "Devices": {
+                "UC_ObjCam": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+    )
+
+    with caplog.at_level(logging.INFO):
+        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    assert "UC_ObjCam" in scanner._devices_config  # requirement spelling kept
+    assert ("detector", "UC_ObjCam") in session.calls
+    assert "auto-provisioned" in caplog.text
+    assert "verify the spelling matches the GEECS database" in caplog.text
+    assert "CA PV names are case-sensitive" in caplog.text
+
+
 def test_optimization_bridge_without_requirements_is_unchanged(monkeypatch) -> None:
     """A bridge without a device_requirements attribute changes nothing."""
     session = _FakeSession()

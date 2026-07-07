@@ -643,6 +643,16 @@ class BlueskyScanner:
           gains required variables it was missing (the legacy
           ``subscribe_var_values`` extension).
 
+        Device names are matched **case-insensitively** (``str.casefold``):
+        GEECS itself is case-inconsistent about device-name spelling (the DB
+        may say ``UC_Amp4_IR_input`` while native files say
+        ``UC_Amp4_IR_Input``), so optimizer configs drift.  On a
+        case-insensitive hit the requirement merges into the *existing*
+        entry under the GUI's spelling — the GUI/DB spelling is the one
+        whose CA PVs actually connect (CA names are case-sensitive) — and
+        the difference is logged at INFO.  Live-observed 2026-07-06: a
+        wrong-case duplicate entry NotConnectedError'd on every PV.
+
         *requirements* is duck-typed off the bridge object (``Any``): a
         ``{"Devices": ...}`` mapping, or ``None``/empty when the bridge
         exposes no requirements (unchanged behavior).
@@ -654,7 +664,29 @@ class BlueskyScanner:
             return
         for device_name, req in devices.items():
             req_vars = list(_cfg_field(req, "variable_list", []) or [])
+            configured_name = device_name
             existing = self._devices_config.get(device_name)
+            if existing is None:
+                folded = device_name.casefold()
+                match = next(
+                    (
+                        name
+                        for name in self._devices_config
+                        if name.casefold() == folded
+                    ),
+                    None,
+                )
+                if match is not None:
+                    configured_name = match
+                    existing = self._devices_config[match]
+                    logger.info(
+                        "Optimization: required device %s differs only in "
+                        "case from configured device %s; merging under the "
+                        "GUI spelling %s (CA PV names are case-sensitive)",
+                        device_name,
+                        match,
+                        match,
+                    )
             if existing is None:
                 entry = {
                     "synchronous": bool(_cfg_field(req, "synchronous", False)),
@@ -666,7 +698,9 @@ class BlueskyScanner:
                 self._devices_config[device_name] = entry
                 logger.info(
                     "Optimization: auto-provisioned required device %s "
-                    "(synchronous=%s, save_nonscalar=%s, variables=%s)",
+                    "(synchronous=%s, save_nonscalar=%s, variables=%s) — "
+                    "verify the spelling matches the GEECS database; "
+                    "CA PV names are case-sensitive",
                     device_name,
                     entry["synchronous"],
                     entry["save_nonscalar_data"],
@@ -686,7 +720,7 @@ class BlueskyScanner:
                     "Optimization: added required variable(s) %s to "
                     "configured device %s (GUI settings preserved)",
                     missing,
-                    device_name,
+                    configured_name,
                 )
 
     def _run_optimization(self, scan_config: Any) -> None:
