@@ -309,8 +309,13 @@ def test_fresh_devices_no_dialog_no_behavior_change(monkeypatch) -> None:
     assert claims == ["TestExp"]
 
 
-def test_strict_mode_skips_preflight(monkeypatch) -> None:
-    """The pre-flight is free-run only — strict scans never see a dialog."""
+def test_strict_all_stale_proceeds_silently(monkeypatch) -> None:
+    """Strict + ALL sync devices stale → no dialog, proceed.
+
+    All-stale is a legitimate strict-mode pre-scan state: the trigger can sit
+    OFF before a strict scan (ARMED starts it), leaving every cache stale.
+    Only differential staleness is diagnostic there.
+    """
     _patch_dialog_channel(monkeypatch)
     claims: list = []
     _patch_claim(monkeypatch, claims)
@@ -328,6 +333,66 @@ def test_strict_mode_skips_preflight(monkeypatch) -> None:
 
     assert not any(isinstance(e, _FakeDialogEvent) for e in events)
     assert session.scan_kwargs is not None
+
+
+def test_strict_differential_stale_raises_drop_dialog(monkeypatch) -> None:
+    """Strict + one stale among fresh devices → drop dialog, device removed.
+
+    Live-observed 2026-07-07 (Scan006): a camera that was simply OFF ran a
+    strict scan into 3 wasted refires and a post-claim abort. Differential
+    staleness (some fresh, some stale) can only mean genuinely dead devices,
+    so strict mode now gets the same pre-claim dialog as free-run.
+    """
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(last_acq={"U_Cam2": _stale()})
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Cam1": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+        },
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    answers: dict = {}
+    events: list = []
+    consumer = _dialog_consumer(events, claims, answers, abort=False)
+    scanner._on_event = consumer
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert answers["claims_at_dialog"] == []  # asked before any claim
+    assert session.scan_kwargs is not None
+    names = [d._geecs_device_name for d in session.scan_kwargs["detectors"]]
+    assert names == ["U_Cam1"]  # stale device dropped
+
+
+def test_strict_differential_stale_abort_is_pre_claim(monkeypatch) -> None:
+    """Strict differential staleness + operator abort → nothing claimed."""
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims)
+    session = _FakeSession(last_acq={"U_Cam2": _stale()})
+    scanner = _make_scanner(
+        session,
+        {
+            "U_Cam1": {"synchronous": True, "variable_list": ["Sig"]},
+            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
+        },
+        mode="strict_shot_control",
+    )
+    scanner._shot_control = object()
+    answers: dict = {}
+    events: list = []
+    scanner._on_event = _dialog_consumer(events, claims, answers, abort=True)
+
+    scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
+
+    assert claims == []
+    assert session.scan_kwargs is None
+    assert scanner._abort_requested
 
 
 # ---------------------------------------------------------------------------

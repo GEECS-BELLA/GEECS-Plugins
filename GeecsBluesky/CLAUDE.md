@@ -108,7 +108,8 @@ legacy).  That path loads the selected shot-control YAML and passes it as
 BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`,
 shot-level `ScanStepEvent`s per event document via `_on_document` (so the
 GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
-from the free-run dead-contributor check (all defensive imports — headless
+from the dead-sync-device check (both modes; strict dialogs only on
+differential staleness) (all defensive imports — headless
 installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
 translation is deliberately skipped (no consumer).  Still not done in
 Bluesky mode: `ActionControl` / setup-closeout actions (see

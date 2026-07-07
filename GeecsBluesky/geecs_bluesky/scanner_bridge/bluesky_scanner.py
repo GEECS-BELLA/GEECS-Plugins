@@ -643,16 +643,18 @@ class BlueskyScanner:
             return "default"
         return "abort" if request.abort[0] else "continue"
 
-    def _preflight_check_free_run_freshness(self, detectors: list) -> list | None:
-        """Free-run pre-flight: catch dead sync devices before the claim.
+    def _preflight_check_sync_freshness(
+        self, detectors: list, *, strict: bool = False
+    ) -> list | None:
+        """Pre-flight: catch dead sync devices before the claim.
 
         Checks every synchronous device's cached ``acq_timestamp`` freshness
-        (the trigger free-runs before a free-run scan, so live devices have
-        fresh frames) and, when something looks dead, asks the operator via
-        the legacy dialog channel — all *before* the scan folder is claimed,
-        so an abort here burns no scan number.
+        and, when something looks dead, asks the operator via the legacy
+        dialog channel — all *before* the scan folder is claimed, so an abort
+        here burns no scan number.
 
-        Outcomes:
+        Free-run outcomes (the trigger free-runs before a free-run scan, so
+        live devices always have fresh frames):
 
         - every sync device fresh → detectors returned unchanged;
         - some contributors stale, reference fresh → operator chooses between
@@ -662,9 +664,21 @@ class BlueskyScanner:
           is a clearly-labeled "try anyway" because the dialog channel always
           offers two options);
         - ALL sync devices stale → the trigger is probably off / not
-          free-running; the dialog says so instead of accusing every camera;
-        - headless / no consumer / no answer → today's behavior is preserved:
-          proceed and let t0 sync fail loudly.
+          free-running; the dialog says so instead of accusing every camera.
+
+        Strict outcomes differ in one deliberate way: ALL-stale is a
+        *legitimate* pre-scan state (the trigger may sit OFF before a strict
+        scan; ``ARMED`` starts it), so it proceeds silently — only
+        **differential** staleness (some devices fresh, some not, which can
+        only mean genuinely dead devices) raises the drop-or-abort dialog.
+        Without this check a dead camera in strict mode burned every refire
+        (~9 s) and aborted *after* the claim (live-observed 2026-07-07,
+        Scan006). Strict mode has no pacemaker, so there is no
+        reference-special case.
+
+        Headless / no consumer / no answer → today's behavior is preserved:
+        proceed and fail loudly downstream (t0 sync in free-run, refire
+        exhaustion in strict).
 
         Returns
         -------
@@ -683,6 +697,17 @@ class BlueskyScanner:
             time.sleep(_STALE_RECHECK_WAIT_S)
             stale = self._find_stale_sync_devices(sync_devices)
         if not stale:
+            return detectors
+
+        if strict and len(stale) == len(sync_devices):
+            # Legitimate strict-mode state: the trigger can be OFF before a
+            # strict scan (ARMED starts it), leaving every cache stale.
+            # Only differential staleness is diagnostic in strict mode.
+            logger.info(
+                "Pre-flight: all synchronous devices stale before a strict "
+                "scan — expected when the trigger is off pre-scan; ARMED "
+                "will start it"
+            )
             return detectors
 
         def _describe(device: Any, age: float | None) -> str:
@@ -718,10 +743,12 @@ class BlueskyScanner:
             )
             return detectors
 
-        if id(reference) in stale_ids:
+        if not strict and id(reference) in stale_ids:
             # v1: a dead reference (pacemaker) is abort-only — promotion is
             # deliberately out of scope; the "continue" button is a clearly
             # labeled try-anyway because the dialog always offers two options.
+            # (Strict mode has no pacemaker; a stale first device there is
+            # just another droppable device, handled below.)
             exc = GeecsStaleDevicesError(
                 f"The free-run reference (pacemaker) device looks dead: "
                 f"{details}. The scan cannot pace without it; aborting is "
@@ -743,25 +770,27 @@ class BlueskyScanner:
             )
             return detectors
 
-        # Some-but-not-all contributors stale, reference fresh: offer to drop
-        # the dead devices and take the scan without them.
+        # Some-but-not-all sync devices stale (free-run: contributors with the
+        # reference fresh; strict: any subset — differential staleness can
+        # only mean genuinely dead devices): offer to drop them.
         exc = GeecsStaleDevicesError(
             f"Synchronous device(s) look dead: {details}. "
             "Drop them and continue the scan without their data, or abort."
         )
         decision = self._request_operator_decision(
             exc,
-            title="Dead Contributor Device(s)",
+            title="Dead Sync Device(s)",
             continue_label="Drop && Continue",
         )
         if decision == "abort":
-            logger.warning("Pre-flight: operator aborted (stale contributors)")
+            logger.warning("Pre-flight: operator aborted (stale sync devices)")
             return None
         if decision == "default":
             logger.warning(
-                "Pre-flight: stale contributor(s) %s but no operator answer — "
-                "proceeding unchanged; t0 sync will fail loudly if they are "
-                "really dead",
+                "Pre-flight: stale sync device(s) %s but no operator answer — "
+                "proceeding unchanged; the scan will fail loudly downstream "
+                "(t0 sync in free-run, refire exhaustion in strict) if they "
+                "are really dead",
                 details,
             )
             return detectors
@@ -1189,15 +1218,14 @@ class BlueskyScanner:
             )
         self._session.shot_control(self._shot_control)
 
-        if not strict:
-            checked = self._preflight_check_free_run_freshness(detectors)
-            if checked is None:
-                # Mirror the _abort_before_acquisition path: setting the flag
-                # makes the scan thread's cleanup report ABORTED and
-                # disconnect every connected device — before any claim.
-                self._abort_requested = True
-                return
-            detectors = checked
+        checked = self._preflight_check_sync_freshness(detectors, strict=strict)
+        if checked is None:
+            # Mirror the _abort_before_acquisition path: setting the flag
+            # makes the scan thread's cleanup report ABORTED and
+            # disconnect every connected device — before any claim.
+            self._abort_requested = True
+            return
+        detectors = checked
 
         if self._abort_before_acquisition():
             return

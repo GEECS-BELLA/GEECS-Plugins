@@ -17,9 +17,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tail-flush overcount stays cosmetic; step index derived from the
   schema-v1 `bin_number` column). Closes the "progress bar never advances
   in Bluesky mode" gap — see `Planning/gui_stewardship/00_overview.md` §5.
-- **Free-run dead-contributor pre-flight dialog** — before a
-  `free_run_time_sync` scan claims its folder (so an abort burns no scan
-  number), every synchronous device's persistent-monitor cache
+- **Dead sync-device pre-flight dialog (both acquisition modes)** — before
+  a scan claims its folder (so an abort burns no scan number), every
+  synchronous device's persistent-monitor cache
   (`_last_acq`) is checked for freshness (default threshold 10 s
   wall-clock; one ~2 s re-check grace for just-connected monitors).
   Stale devices raise an operator dialog through the legacy channel
@@ -30,9 +30,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   all-stale blames the trigger ("may be off / not free-running") instead
   of the cameras. Headless (`on_event=None`), missing geecs_scanner, or
   an unanswered dialog (30 s timeout) preserve today's behavior — proceed
-  and let t0 sync fail loudly. New `GeecsStaleDevicesError` carries the
-  operator-facing message. Implements the stewardship plan's first
-  concrete use case (`Planning/gui_stewardship/00_overview.md` §4).
+  and fail loudly downstream (t0 sync in free-run, refire exhaustion in
+  strict). In `strict_shot_control` only **differential** staleness (some
+  devices fresh, some not) raises the dialog — all-stale is a legitimate
+  pre-scan state there (the trigger may sit OFF; ARMED starts it), and
+  strict has no pacemaker so no reference case. Live-motivated twice over:
+  the 2026-07-06 free-run t0-sync abort and the 2026-07-07 strict Scan006,
+  where an OFF camera burned all three refires post-claim. New
+  `GeecsStaleDevicesError` carries the operator-facing message. Implements
+  the stewardship plan's first concrete use case
+  (`Planning/gui_stewardship/00_overview.md` §4).
 
 ## [0.20.0] - 2026-07-06
 
