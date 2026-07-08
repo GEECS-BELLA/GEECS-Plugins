@@ -222,6 +222,36 @@ the right abstraction — they survive. What changes:
   one-PV client, and "what state is the trigger in?" has one answer for every
   tool — instead of each client privately replaying a write-matrix.
 
+### 4.4b The four layers of scan setup
+
+"Setup" is not one thing; the design gives each kind its own home, from
+universal to specific (each layer extends the ones above it, and the
+resolver records everything applied, so provenance shows the full stack):
+
+1. **DB experiment table** — device-level baseline applied to *every* scan
+   (e.g. analysis→on at scan start, off at end). Deliberately inflexible:
+   it is the invariant, and — because Master Control reads the same table —
+   the layer that keeps device behavior identical whichever stack runs the
+   scan during the transition. Fits the "device facts live below the
+   configs" principle. (Open: whether the Python scanner honors it today or
+   it is MC-only; and the table's exact vocabulary — to be checked against
+   the live DB.)
+2. **ExperimentDefaults** — experiment-wide YAML defaults (default trigger
+   profile, standard setup/closeout actions), applied where a ScanRequest
+   is silent, always recorded.
+3. **SaveSet entry `setup`/`closeout`** — the device's traveling ritual:
+   selecting the element brings its preparation along (WedgeInsert is the
+   exemplar).
+4. **ScanRequest `actions`** — this specific scan's procedure, including
+   `per_step`.
+
+The old system's limitation — exactly one global "scan" behavior in the DB
+— becomes a feature in this picture: the base layer *should* be invariant;
+per-scan-type flexibility lives in the layers above. TriggerProfile is the
+sibling mechanism for the *synchronous* machine states (multi-device
+ordered writes per state; `htu-normal` / `htu-nogas`-style named profiles
+are the operator shortcuts).
+
 ### 4.5 ActionPlans (today: action library + setup/closeout)
 
 In a Bluesky world, an action sequence *is* a plan. The action YAML (steps of
