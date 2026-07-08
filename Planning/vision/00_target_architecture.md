@@ -375,6 +375,21 @@ Two recurring cases with standard EPICS answers our stack is shaped for
   with alarm limits living on the physical quantity. A deliberate, small
   dent in the gateway's 1:1-mirror purity, same category as `TRIG:STATE`;
   40 years of calc-record precedent says this belongs in the IOC layer.
+  Placement when built: the `DerivedChannel` model joins `geecs_schemas`
+  (the vocabulary package sits at the bottom of the import graph; the
+  gateway gaining that one pydantic-only dep is a deliberate, ratify-then
+  layering change) so derived channels get operator descriptions, docgen,
+  and the no-drift guard like every other config. Coherence rules:
+  **same-device multi-input calcs are frame-coherent** (computed once per
+  pushed frame under the existing ordering guarantee — rigorous);
+  **cross-device calcs are latest-value semantics** (the honest EPICS calc
+  answer — fine for slow/ambient quantities, guarded by a declared
+  staleness window that drives the PV to INVALID severity rather than
+  serving mixed-epoch numbers); **shot-synchronized combinations are
+  analysis, not derived channels** — if the inputs need a shot in common,
+  that is what the event rows' shot-id alignment machinery is for,
+  downstream. The shutter `kind` likewise joins the ScanVariables catalog
+  at its milestone (the designed kind-extension point).
 - **Two-state positioners with limit feedback (shutters).** Solenoid
   command + inserted/removed switches = the discrete cousin of `CaMotor`:
   a small `CaShutter` whose `set()` completes when the corresponding limit
