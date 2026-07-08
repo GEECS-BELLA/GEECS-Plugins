@@ -408,9 +408,12 @@ class GeecsCaGateway:
                     alarm_kwargs = self._alarm_write_kwargs(
                         device_name, var, spec, value
                     )
-                    await channel.write(value, **extra)
-                    if alarm_kwargs:
-                        await channel.alarm.write(**alarm_kwargs)
+                    await channel.write(
+                        value,
+                        **extra,
+                        **alarm_kwargs,
+                        verify_value=not bool(alarm_kwargs),
+                    )
                 except Exception:
                     self._warn_once(
                         device_name,
@@ -610,6 +613,7 @@ class GeecsCaGateway:
                     channel.value,
                     severity=AlarmSeverity.INVALID_ALARM,
                     status=AlarmStatus.COMM,
+                    verify_value=False,
                 )
             except Exception:
                 logger.debug("failed to mark %s INVALID", pv, exc_info=True)

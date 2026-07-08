@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 import types
 
@@ -222,12 +223,16 @@ def test_get_ca_alarm_limits_returns_validated_rows(monkeypatch) -> None:
     }
 
 
-def test_get_ca_alarm_limits_missing_table_is_fail_open(monkeypatch) -> None:
+def test_get_ca_alarm_limits_missing_table_is_fail_open(monkeypatch, caplog) -> None:
     """The optional alarm table can be absent during rollout."""
+    caplog.set_level(logging.INFO)
+
+    class _MissingTableError(Exception):
+        errno = 1146
 
     class _Cursor:
         def execute(self, _query: str, _params: tuple) -> None:
-            raise RuntimeError("table does not exist")
+            raise _MissingTableError("table does not exist")
 
     class _Connection:
         def cursor(self) -> _Cursor:
@@ -244,3 +249,29 @@ def test_get_ca_alarm_limits_missing_table_is_fail_open(monkeypatch) -> None:
     monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
 
     assert GeecsDb.get_ca_alarm_limits("Undulator") == {}
+    assert "table is absent" in caplog.text
+
+
+def test_get_ca_alarm_limits_query_failure_is_warning(monkeypatch, caplog) -> None:
+    """Unexpected DB errors stay fail-open but are visible above INFO."""
+
+    class _Cursor:
+        def execute(self, _query: str, _params: tuple) -> None:
+            raise RuntimeError("permission denied")
+
+    class _Connection:
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+    assert GeecsDb.get_ca_alarm_limits("Undulator") == {}
+    assert "ca_alarm_limits lookup failed" in caplog.text

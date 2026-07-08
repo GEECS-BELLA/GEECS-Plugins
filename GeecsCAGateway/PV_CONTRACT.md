@@ -324,6 +324,9 @@ Only non-null threshold columns apply. The gateway validates rows at startup,
 attaches them only to served numeric readbacks, and treats the table as optional:
 if it is absent during rollout, the IOC starts with no value alarms. DB `min` /
 `max` remain display metadata and are **never** interpreted as alarm limits.
+Curated alarm thresholds are evaluated only by the gateway overlay; they are not
+exported as native DBR_CTRL alarm/warning limit metadata, because caproto would
+otherwise run a second independent limit evaluator on every write.
 
 **Not yet implemented** (be honest with your displays):
 

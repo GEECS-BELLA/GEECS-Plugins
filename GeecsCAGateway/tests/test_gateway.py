@@ -257,6 +257,69 @@ async def test_value_alarm_limits_set_live_readback_severity() -> None:
     assert int(rb.status) == int(AlarmStatus.NO_ALARM)
 
 
+async def test_high_only_alarm_row_does_not_trigger_native_low_alarm() -> None:
+    """A partial curated row must not activate caproto's native limit evaluator."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(
+                        geecs_var="Position",
+                        dtype="float",
+                        alarm_limits=AlarmLimits(high=5.0),
+                    )
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE}:Position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": -1.0})
+
+    assert rb.value == pytest.approx(-1.0)
+    assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+    assert int(rb.status) == int(AlarmStatus.NO_ALARM)
+
+
+async def test_alarm_hysteresis_holds_hihi_before_stepping_down() -> None:
+    """HIHI does not chatter to HIGH until value exits the hysteresis band."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(
+                        geecs_var="Position",
+                        dtype="float",
+                        alarm_limits=AlarmLimits(high=4.0, hihi=5.0, hysteresis=0.1),
+                    )
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE}:Position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": 5.1})
+    assert int(rb.status) == int(AlarmStatus.HIHI)
+
+    await callback({"Position": 4.95})
+    assert int(rb.status) == int(AlarmStatus.HIHI)
+    assert int(rb.severity) == int(AlarmSeverity.MAJOR_ALARM)
+
+    await callback({"Position": 4.89})
+    assert int(rb.status) == int(AlarmStatus.HIGH)
+    assert int(rb.severity) == int(AlarmSeverity.MINOR_ALARM)
+
+
 async def test_invalid_liveness_overrides_value_alarm_until_live_frame() -> None:
     """A disconnect still reports INVALID/COMM; the next live value recomputes."""
     cfg = _alarm_config()

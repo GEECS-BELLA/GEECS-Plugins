@@ -34,7 +34,5 @@ CREATE TABLE IF NOT EXISTS ca_alarm_limits (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ON UPDATE CURRENT_TIMESTAMP,
 
-  PRIMARY KEY (experiment, device, `variable`),
-  CONSTRAINT fk_ca_alarm_limits_device
-    FOREIGN KEY (device) REFERENCES device(name)
+  PRIMARY KEY (experiment, device, `variable`)
 );

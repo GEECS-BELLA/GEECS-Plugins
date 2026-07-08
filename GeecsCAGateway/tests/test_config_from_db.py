@@ -48,6 +48,20 @@ def test_alarm_limits_validate_order_and_presence() -> None:
         AlarmLimits(low=5.0, high=1.0)
 
 
+def test_alarm_limits_hysteresis_holds_level_before_stepdown() -> None:
+    """HIHI stays active through its hysteresis band before dropping to HIGH."""
+    limits = AlarmLimits(high=4.0, hihi=5.0, hysteresis=0.1)
+
+    assert limits.evaluate(5.1).level == "HIHI"
+    held = limits.evaluate(4.95, previous=limits.evaluate(5.1).level)
+    assert held is not None
+    assert held.level == "HIHI"
+
+    stepped_down = limits.evaluate(4.89, previous=held.level)
+    assert stepped_down is not None
+    assert stepped_down.level == "HIGH"
+
+
 def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> None:
     """DB alarm rows attach only to served numeric readback variables."""
     monkeypatch.setattr(

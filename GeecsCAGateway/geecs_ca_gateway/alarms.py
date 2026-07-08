@@ -100,13 +100,11 @@ class AlarmLimits(BaseModel):
         current = self._direct_evaluate(value)
         if self.hysteresis is None or self.hysteresis == 0 or previous is None:
             return current
-        if current is not None and current.level != previous:
-            return current
-        if current is not None:
+        if current is not None and _more_extreme(current.level, previous):
             return current
         if self._inside_hysteresis_band(value, previous):
             return self._evaluation_for(previous)
-        return None
+        return current
 
     def _direct_evaluate(self, value: float) -> AlarmEvaluation | None:
         """Evaluate without considering hysteresis."""
@@ -143,3 +141,12 @@ class AlarmLimits(BaseModel):
             AlarmLevel.HIHI: self.hihi_severity,
         }
         return AlarmEvaluation(level=level, severity=severities[level])
+
+
+def _more_extreme(current: AlarmLevel, previous: AlarmLevel) -> bool:
+    """Return whether *current* is farther out of range than *previous*."""
+    more_extreme_than = {
+        AlarmLevel.HIGH: {AlarmLevel.HIHI},
+        AlarmLevel.LOW: {AlarmLevel.LOLO},
+    }
+    return current in more_extreme_than.get(previous, set())

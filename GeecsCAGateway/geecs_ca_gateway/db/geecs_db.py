@@ -138,6 +138,11 @@ def _alarm_row_to_limits(row: tuple) -> AlarmLimits:
     )
 
 
+def _is_missing_table_error(exc: Exception) -> bool:
+    """Return whether *exc* is MySQL's ER_NO_SUCH_TABLE rollout case."""
+    return getattr(exc, "errno", None) == 1146
+
+
 class GeecsDb:
     """Namespace for GEECS database queries.
 
@@ -481,7 +486,7 @@ class GeecsDb:
         try:
             conn = _connect_mysql(mysql.connector)
         except Exception:
-            logger.info(
+            logger.warning(
                 "ca_alarm_limits lookup failed before query; starting without "
                 "curated value alarms",
                 exc_info=True,
@@ -501,12 +506,18 @@ class GeecsDb:
                     (experiment,),
                 )
                 rows = cur.fetchall()
-            except Exception:
-                logger.info(
-                    "ca_alarm_limits lookup failed or table is absent; "
-                    "starting without curated value alarms",
-                    exc_info=True,
-                )
+            except Exception as exc:
+                if _is_missing_table_error(exc):
+                    logger.info(
+                        "ca_alarm_limits table is absent; starting without "
+                        "curated value alarms"
+                    )
+                else:
+                    logger.warning(
+                        "ca_alarm_limits lookup failed; starting without "
+                        "curated value alarms",
+                        exc_info=True,
+                    )
                 return {}
         finally:
             conn.close()
