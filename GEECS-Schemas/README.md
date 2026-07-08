@@ -38,7 +38,7 @@ it yet — it lands first, consumers migrate to it converter-first.
 | Kind (registry key) | Model | Replaces |
 |---|---|---|
 | `scan_request` | `ScanRequest` | scan presets, `ScanConfig`, GUI submission state |
-| `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) |
+| `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) — now tier 1 of the two-tier recording model: the *required* devices with guarantees; everything else is background telemetry (soft, read-only, never waited on) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` |
 | `trigger_profile` | `TriggerProfile` | shot-control configs (incl. laser-on/off file pairs → variants); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
@@ -58,8 +58,11 @@ action-plan name references — the device's ritual travels with it through
 composition — plus the DB scan-default surfaces: `at_scan_start` /
 `at_scan_end` per-variable overrides of the DB's start/end writes, where a
 value replaces the DB's, an explicit `null` suppresses the write, and
-absence inherits; and opt-in `db_scalars` for the DB's scan-logging
-telemetry), `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
+absence inherits; and `db_scalars`, on by default for new configs, making
+the DB's scan-logging telemetry the standard scalar source with `scalars`
+as additive extras — converted legacy elements carry an explicit
+`db_scalars: false` to preserve their exact old behavior),
+`ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
 `TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
 step types.
 

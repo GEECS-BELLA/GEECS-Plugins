@@ -18,19 +18,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     outer-product grid (first axis outermost/slowest); `grid_shape()` /
     `n_steps()` derive the grid size. Schema-side only in this milestone;
     grid execution lands later.
-  - `SaveSet` — declarative what-to-record entries; `synchronous` / roles /
-    `acq_timestamp` are derived, with the derivation rules documented.
-    Entries carry optional `setup` / `closeout` action-plan name references
-    so a device's ritual travels with it when entries are composed into
-    bigger save sets (references de-duplicate; each plan runs once).
-    Entries also surface the GEECS DB's scan defaults: `at_scan_start` /
-    `at_scan_end` per-variable overrides of the DB's set='yes' start/end
-    writes (a value replaces the DB's, an explicit `null` suppresses the
-    write, absent inherits), and opt-in `db_scalars` to also record the
-    DB's get='yes' scan-logging telemetry. The DB rows themselves get no
-    schema (device facts live below configs); the engine applies them at
-    runtime for participating devices only, skipping save/localsavingpath,
-    and records everything applied for provenance.
+  - `SaveSet` — tier 1 of the **two-tier recording model**: the devices a
+    scan *requires* (guarantees, dialogs, strict completeness, images,
+    roles, rituals). Tier 2 — background telemetry — softly records every
+    other live experiment device's get='yes' variables from the gateway's
+    monitor cache (read-only, never waited on, dead devices dropped with a
+    log line; no scan start/end writes for the soft tier). `synchronous` /
+    roles / `acq_timestamp` are derived, with the derivation rules
+    documented. Entries carry optional `setup` / `closeout` action-plan
+    name references so a device's ritual travels with it when entries are
+    composed into bigger save sets (references de-duplicate; each plan runs
+    once). Entries also surface the GEECS DB's scan defaults:
+    `at_scan_start` / `at_scan_end` per-variable overrides of the DB's
+    set='yes' start/end writes (a value replaces the DB's, an explicit
+    `null` suppresses the write, absent inherits), and `db_scalars` —
+    **on by default for new configs**, making the DB's get='yes' telemetry
+    the standard scalar source with `scalars` as additive extras; the
+    converter emits an explicit `db_scalars: false` on every legacy
+    element so converted configs keep their exact old behavior. The DB
+    rows themselves get no schema (device facts live below configs); the
+    engine applies them at runtime for participating devices only,
+    skipping save/localsavingpath, and records everything applied for
+    provenance.
   - `ScanVariables` — friendly-name catalog; `setpoint` / `motor` kinds plus
     `pseudo` composite variables with verbatim numexpr forward expressions.
   - `TriggerProfile` — device-agnostic *machine* states, each an **ordered,
@@ -43,9 +52,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     setup/closeout plans) applied where a scan request is silent; defaults
     run first, then the scan's own. Includes `apply_db_scan_defaults`
     (default true = MC parity; false runs the experiment purely
-    config-driven, ignoring the DB's start/end writes). No legacy dialect
-    behind it; resolvers must record applied defaults into the resolved
-    request for provenance.
+    config-driven, ignoring the DB's start/end writes) and
+    `background_telemetry` (default true; the per-scan
+    `ScanRequest.background_telemetry` is tri-state — unset inherits this,
+    true/false overrides). No legacy dialect behind it; resolvers must
+    record applied defaults into the resolved request for provenance.
   - `ActionPlan` / `ActionPlanLibrary` — set / wait / check / run steps with
     legacy ActionManager semantics; nested plan references validated.
 - `SCHEMA_REGISTRY` mapping config kind → model for generic tooling.

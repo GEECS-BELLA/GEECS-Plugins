@@ -48,8 +48,10 @@ class TestSaveElements:
         # the element's ritual travels with the entry as a name reference
         assert entry.setup == ["UC_Aline1_setup"]
         assert entry.closeout == []
-        # the DB scan-default surfaces are never set by the converter —
-        # legacy elements have no counterpart (explicitness pin)
+        # converted legacy elements preserve exact legacy behavior: the
+        # converter emits an EXPLICIT db_scalars=False (the DB-first True
+        # default is for new configs only) and never populates the
+        # start/end override maps
         assert entry.db_scalars is False
         assert entry.at_scan_start == {} and entry.at_scan_end == {}
         assert_matches_golden(

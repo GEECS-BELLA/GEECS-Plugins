@@ -124,16 +124,21 @@ class TestDbScanDefaults:
         assert again == entry
         assert again.at_scan_start["exposure"] is None
 
-    def test_defaults_are_empty_and_off(self):
+    def test_new_entry_defaults_are_db_first(self):
+        # New configs are DB-first: a required device records its standard
+        # telemetry (get='yes') by default; 'scalars' adds extras on top.
+        # Override maps start empty.
         save_set = make_save_set()
         for entry in save_set.entries:
-            assert entry.db_scalars is False
+            assert entry.db_scalars is True
             assert entry.at_scan_start == {}
             assert entry.at_scan_end == {}
 
-    def test_db_scalars_opt_in(self):
-        save_set = make_save_set(entries=[{"device": "X", "db_scalars": True}])
-        assert save_set.entries[0].db_scalars is True
+    def test_db_scalars_opt_out(self):
+        # Explicit opt-out records only the listed scalars — exactly what
+        # the converter emits for every legacy element.
+        save_set = make_save_set(entries=[{"device": "X", "db_scalars": False}])
+        assert save_set.entries[0].db_scalars is False
 
     def test_non_string_override_value_rejected(self):
         with pytest.raises(ValidationError, match="at_scan_start"):

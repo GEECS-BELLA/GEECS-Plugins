@@ -89,6 +89,18 @@ class ExperimentDefaults(VersionedSchemaModel):
             "start/end writes everywhere."
         ),
     )
+    background_telemetry: bool = Field(
+        True,
+        description=(
+            "Log every live experiment device that is not in a scan's save "
+            "set as best-effort snapshot columns, read from the gateway's "
+            "always-on monitor cache. Safe by construction: read-only and "
+            "never waited on, so it cannot slow or stall a scan — a dead "
+            "device is just dropped with a log line. On by default so no "
+            "data is silently lost; individual scans can override with "
+            "their own 'background_telemetry' setting."
+        ),
+    )
     description: str = Field(
         "",
         description="Optional note about what these defaults are for.",

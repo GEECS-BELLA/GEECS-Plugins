@@ -22,6 +22,10 @@ rules — see ``geecs_schemas.save_set``):
 - ``variable_list`` → ``scalars``; the bookkeeping ``acq_timestamp`` entry is
   dropped (implicit) with a note.
 - ``add_all_variables`` → ``all_scalars``.
+- Every converted entry gets an **explicit** ``db_scalars: False`` — the
+  new-config default is DB-first recording, but a converted element must
+  keep its exact legacy behavior and record precisely the old variable
+  list, nothing more.
 - ``synchronous: false`` → ``role: snapshot``; ``synchronous: true`` needs no
   role (derived from the acquisition mode).
 - ``setup_action`` / ``closeout_action`` become standalone
@@ -155,7 +159,11 @@ def convert_save_element(
                 f"{context}: dropped 'acq_timestamp' from the scalar list — "
                 "it is recorded implicitly for every entry."
             )
-        entry: dict = {"device": device, "scalars": scalars}
+        # Explicit db_scalars=False: a converted element must keep its exact
+        # legacy behavior — record precisely the old variable list, nothing
+        # more. DB-first recording (db_scalars=True) is the default for NEW
+        # configs only.
+        entry: dict = {"device": device, "scalars": scalars, "db_scalars": False}
         if config.get("save_nonscalar_data"):
             entry["images"] = True
         if config.get("add_all_variables"):

@@ -58,6 +58,17 @@ class TestExperimentDefaults:
         again = ExperimentDefaults.model_validate(defaults.model_dump(mode="json"))
         assert again.apply_db_scan_defaults is False
 
+    def test_background_telemetry_on_by_default(self):
+        # Soft recording is free and read-only, so nothing is silently lost
+        # unless the experiment explicitly opts out.
+        assert ExperimentDefaults.model_validate({}).background_telemetry is True
+
+    def test_background_telemetry_opt_out_round_trips(self):
+        defaults = ExperimentDefaults.model_validate({"background_telemetry": False})
+        assert defaults.background_telemetry is False
+        again = ExperimentDefaults.model_validate(defaults.model_dump(mode="json"))
+        assert again.background_telemetry is False
+
     def test_merge_rule_documented_in_operator_language(self):
         # The resolver contract is part of the schema's documentation:
         # defaults run first, then the scan's own.
