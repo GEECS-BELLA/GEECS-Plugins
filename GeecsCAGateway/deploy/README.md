@@ -95,7 +95,8 @@ DB-backed config.
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,
-`--include-disabled`, a different `--experiment`), then
+`--include-disabled`, `--derived-channels /path/to/derived_channels.yaml`, a
+different `--experiment`), then
 `sudo systemctl daemon-reload && sudo systemctl restart geecs-ca-gateway`.
 Serving a second experiment = a second copy of the unit with a different name
 and `--experiment`; CA name resolution makes the split invisible to clients.

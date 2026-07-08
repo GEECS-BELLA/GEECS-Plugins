@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-ca-gateway"
-version = "0.7.0"
+version = "0.8.0"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -13,6 +13,8 @@ geecs-ca-gateway = "geecs_ca_gateway.__main__:main"
 python = ">=3.11,<3.12"
 caproto = ">=1.1"
 pydantic = ">=2"
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+pyyaml = "^6.0"
 # This package IS the GEECS access layer: the UDP/TCP wire protocol
 # (transport/), the experiment database (db/), the PV naming contract
 # (pv_naming), and the CA server that mirrors it all as EPICS PVs.

@@ -170,6 +170,20 @@ actions:
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
+    "derived_channels": """\
+schema_version: 1
+derived_channels:
+  - device: U_ChamberVac
+    variable: Pressure
+    expression: "10**(v - 5)"
+    inputs:
+      - symbol: v
+        device: U_DaqPad1
+        variable: "Analog Input 10"
+    egu: Torr
+    precision: 3
+    description: "Convectron pressure from DAQ analog input 10"
+""",
 }
 
 

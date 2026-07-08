@@ -67,8 +67,10 @@ geecs_ca_gateway/
 Dependency direction: **GeecsBluesky depends on this package, never the other
 way around**. GeecsBluesky imports the *library* parts (`GeecsDb`, `pv_naming`,
 exceptions, `FakeGeecsServer`) and consumes the *service* (the PVs, via stock
-ophyd-async EPICS signals). The gateway env is deliberately slim: caproto +
-pydantic + mysql-connector — no ophyd/bluesky/pandas.
+ophyd-async EPICS signals). The gateway also imports `geecs-schemas` for
+schema-validated derived-channel overlay files. The gateway env is deliberately
+slim: caproto + pydantic + geecs-schemas + mysql-connector + PyYAML — no
+ophyd/bluesky/pandas.
 
 ## Architecture
 

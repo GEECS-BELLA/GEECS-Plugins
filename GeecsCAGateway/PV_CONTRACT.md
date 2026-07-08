@@ -25,6 +25,7 @@ in `DEPLOYMENT.md`.
 ```
 [Experiment:]Device:Variable          readback
 [Experiment:]Device:Variable:SP       setpoint (only when the variable is settable)
+[Experiment:]Device:Variable          derived readback (when declared)
 [Experiment:]Device:CONNECTED         per-device status
 [Experiment:]CAGateway:<SUFFIX>       gateway self-diagnostics
 ```
@@ -71,8 +72,9 @@ sides can never drift. `geecs_ca_gateway.naming` is a thin re-export.
 `Trigger.Source` and `Trigger Source` normalize to the same PV component.
 **Never reverse-engineer a GEECS name from a PV string.** The gateway holds the
 authoritative bidirectional map in `GeecsCaGateway.manifest`
-(`PV → (device, geecs_var, kind)` where kind is `"readback"`, `"setpoint"`, or
-`"status"`).
+(`PV → (device, geecs_var, kind)` where kind is `"readback"`, `"setpoint"`,
+`"derived"`, or `"status"`). For derived PVs, the manifest device is the
+source GEECS device whose frame drives the calculation.
 
 ### Setpoint PVs — `:SP`
 
@@ -213,6 +215,46 @@ payload order is preserved (the reorder is a stable sort on
 Clients must therefore trigger/latch on the timestamp PVs, not on a data PV,
 when they need whole-frame consistency. (Cross-*device* correlation remains out
 of scope — that is Bluesky's job, see DESIGN.md "scope boundaries".)
+
+### Derived numeric channels
+
+The gateway can load a `geecs-schemas` `DerivedChannels` YAML/JSON overlay
+(`--derived-channels PATH`) that exposes additional read-only float PVs
+computed from one source device's numeric push-frame values. The v1 schema is
+intentionally narrow:
+
+- A derived channel has one output PV (`device`, `variable`, optional
+  `experiment`/`pv` override) and one arithmetic expression.
+- Inputs bind expression symbols to `(device, variable)` sources, but **all
+  inputs must come from the same source device**. The gateway evaluates the
+  expression once per source frame, after raw data PVs are posted and before
+  that frame's timestamp PVs are posted. Therefore a client latching on the
+  source device's timestamp observes raw and derived values from the same
+  completed frame.
+- The expression subset is numeric arithmetic only: literals, input symbols,
+  `+ - * / % **`, unary `+/-`, and a small whitelist of `math` functions such
+  as `sqrt`, `exp`, `log`, and `log10`. Arbitrary Python, attributes,
+  indexing, comparisons, and conditionals are rejected during gateway startup.
+- Inputs may be subscribed solely for the calculation; they do not need to be
+  exposed as their own readback PVs.
+
+Example Convectron-style declaration shape:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: U_ChamberVac
+    variable: Pressure
+    expression: "10**(v - 5)"
+    inputs:
+      - symbol: v
+        device: U_DaqPad1
+        variable: "Analog Input 10"
+    egu: Torr
+```
+
+Cross-device latest-value expressions, staleness windows, enum/string bad-state
+expressions, and shot-synchronized analysis products are outside v1.
 
 ---
 
@@ -444,6 +486,9 @@ that branch and are part of this contract's target behavior.
 | PV stamped with device time; timestamp PVs carry raw LabVIEW value | `test_gateway.py::test_pv_timestamp_from_systimestamp`, `::test_timestamp_vars_exposed_as_pvs_with_raw_value` |
 | `0.0` pre-acquisition placeholder | `test_pv_contract.py::test_float_readback_initializes_to_zero_placeholder` |
 | Frame ordering: data before timestamps *(PR #452)* | `test_gateway.py::test_callback_posts_timestamp_variables_last` |
+| Derived-channel manifest kind and numeric output PV metadata | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest` |
+| Derived-channel expression subset and same-source-device v1 rule | `test_derived_channels.py::test_expression_evaluator_supports_convectron_formula`, `::test_expression_evaluator_rejects_non_numeric_python`, `::test_derived_channel_schema_is_single_source_device_v1` |
+| Derived values evaluate from one source frame; derived-only inputs are subscribed without raw PVs | `test_derived_channels.py::test_derived_channel_updates_from_same_source_frame`, `::test_derived_only_input_is_subscribed_without_raw_pv` |
 | DB type mapping, descriptors, enum degradation, blank-type inference | `test_config_from_db.py::test_from_db_metadata_maps_variable_types`, `::test_choice_pointing_at_type_descriptor_is_skipped`, `::test_blank_variabletype_inferred_from_choices`, `::test_choice_without_options_falls_back_to_string`, `::test_choice_exceeding_ca_enum_limits_falls_back_to_string` |
 | Long-string path PVs (>40 chars round-trip both directions) | `test_channels.py::test_cast_path_decodes_char_arrays`, `::test_path_readback_holds_long_string`, `::test_path_setpoint_forwards_full_text` |
 | Enum label↔index both directions over the gateway | `test_channels.py::test_enum_index_maps_label_to_index`, `::test_enum_geecs_value_index_and_label`; `test_gateway.py::test_enum_readback_and_setpoint` |

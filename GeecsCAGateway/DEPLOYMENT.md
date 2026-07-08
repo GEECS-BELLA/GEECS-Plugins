@@ -25,6 +25,7 @@ Actual CLI flags (`geecs_ca_gateway/__main__.py`):
 | `--all-variables` | off | Expose every device variable, not just the `get='yes'` monitoring set |
 | `--no-settable` | off | Do *not* add settable (control-surface) variables to the subscribed set |
 | `--include-disabled` | off | Include devices not `enabled` in the experiment |
+| `--derived-channels PATH` | unset | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
 | `--show-missing` | off | Keep the transport's "missing variable(s)" notices (quiet by default — subscribed-but-idle variables are normal for monitoring) |
 | `--log-level LEVEL` | `INFO` | Python logging level |
 
@@ -47,6 +48,28 @@ The gateway reads no config file of its own. Everything comes from:
    endpoints, variables, types, units, limits, settability. On a DB change,
    restart the gateway (this matches the existing master-GUI reboot pattern;
    hot reload is a later nicety).
+
+Optional derived readbacks come from a schema-validated overlay file passed by
+`--derived-channels`. The file is not a replacement for the DB; it only adds
+computed numeric PVs on top of the DB-backed raw device set:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: U_ChamberVac
+    variable: Pressure
+    expression: "10**(v - 5)"
+    inputs:
+      - symbol: v
+        device: U_DaqPad1
+        variable: "Analog Input 10"
+    egu: Torr
+    description: "Convectron pressure from DAQ analog input 10"
+```
+
+For the systemd service, install the file on the gateway host and add
+`--derived-channels /path/to/derived_channels.yaml` to `ExecStart`; then a
+normal restart reloads both the DB-backed raw PVs and the derived overlay.
 
 MySQL access uses the pure-Python connector (`use_pure=True`) — the C extension
 has crashed silently on the lab Windows machines.

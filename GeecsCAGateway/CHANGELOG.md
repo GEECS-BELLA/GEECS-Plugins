@@ -3,6 +3,17 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.8.0] - 2026-07-08
+
+### Added
+
+- Derived numeric channels loaded from a `geecs-schemas` YAML/JSON overlay via
+  `--derived-channels PATH`. Each entry declares a read-only float PV computed
+  from a restricted arithmetic expression over one source device's numeric
+  push-frame values. This initial implementation is same-source-device only,
+  so examples like a Convectron pressure PV derived from one DAQ analog input
+  are frame-coherent without introducing cross-device latest-value semantics.
+
 ## [0.7.0] - 2026-07-08
 
 ### Added
