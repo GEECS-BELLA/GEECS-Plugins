@@ -233,9 +233,18 @@ resolver records everything applied, so provenance shows the full stack):
    it is the invariant, and — because Master Control reads the same table —
    the layer that keeps device behavior identical whichever stack runs the
    scan during the transition. Fits the "device facts live below the
-   configs" principle. (Open: whether the Python scanner honors it today or
-   it is MC-only; and the table's exact vocabulary — to be checked against
-   the live DB.)
+   configs" principle. Surfacing: through the access layer's *library* half
+   (`GeecsDb`) — the ConfigResolver queries each SaveSet device's
+   scan-start/end rows and synthesizes them as layer-1 setup/closeout
+   writes, provenance-recorded; not live data, so no PVs needed (a
+   read-only info PV for Phoebus display is separable, later).
+   Overridable without touching MC: SaveSet entries grow optional
+   `at_scan_start:` / `at_scan_end:` maps — a value overrides the DB's, an
+   explicit null suppresses the write; MC keeps reading the raw table and
+   behaves as today. Precedence: DB row → entry override → actions.
+   (Gated on inspecting the real table: whether the Python scanner honors
+   it today or it is MC-only, and its exact vocabulary — schema fields are
+   not guessed before the table is read.)
 2. **ExperimentDefaults** — experiment-wide YAML defaults (default trigger
    profile, standard setup/closeout actions), applied where a ScanRequest
    is silent, always recorded.
