@@ -60,6 +60,12 @@ def main() -> None:
     )
     write("thomson_scan_variables.json", catalog.model_dump(mode="json"))
 
+    undulator = convert_scan_variables(
+        FIXTURES / "scan_devices/scan_devices_undulator.yaml",
+        FIXTURES / "scan_devices/composite_variables_undulator.yaml",
+    )
+    write("undulator_scan_variables.json", undulator.model_dump(mode="json"))
+
     base = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
     off = convert_shot_control(FIXTURES / "shot_control/HTU-LaserOFF.yaml")
     profile = merge_trigger_variant(base, off, "laser_off")

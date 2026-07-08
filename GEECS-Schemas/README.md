@@ -22,9 +22,11 @@ it yet — it lands first, consumers migrate to it converter-first.
   matrices, `shots_per_step` derived from rep-rate×wait). The new models
   declare *what*; the engine derives the rest. The derivation rules are
   documented on the models they replace (see `save_set.py`).
-- **Device facts live below the configs.** Limits, units, tolerances, and
-  enum choices belong to the GEECS DB, surfaced as gateway PV metadata —
-  client YAML never repeats them.
+- **Device facts live below the configs.** Limits, units, tolerances, enum
+  choices, and per-variable scan policy belong to the GEECS experiment
+  database (MySQL; the scan policy is the `expt_device_variable` table —
+  `get`/`set`/`startvalue`/`endvalue`), surfaced as gateway PV metadata —
+  client YAML never repeats them, it only overrides them.
 - **Operator-language documentation is part of the schema.** Every field's
   `description` and every model's first docstring paragraph are written for
   operators; `geecs_schemas.docgen` renders them to Markdown, and a test

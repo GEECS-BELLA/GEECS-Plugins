@@ -27,7 +27,8 @@ synchronization flags any more — the scanner works those out. The database's
 scan-start/end writes still apply, and an entry can override any of them per
 variable: replace the value, or suppress the write entirely with `null`.
 Devices *not* in the save set are still logged in the background — see
-"Required devices vs background telemetry" below.
+"Required devices vs background telemetry" below, including the box on
+where these database facts live.
 
 **Scan variables — "what am I allowed to sweep?"**
 The catalog behind the Variable dropdown. Each entry gives a friendly name
@@ -76,7 +77,25 @@ reason to throw the data away.
 **The one-hand rule: required devices get guarantees; everything else is
 logged if alive.** The save set is the *required* list — completeness
 checks, dialogs, images, rituals. Background telemetry is everything else
-the experiment publishes, kept because keeping it is free.
+the experiment marks for scan logging (see "Where the database facts come
+from" below), kept because keeping it is free.
+
+!!! info "Where the database facts come from"
+
+    The GEECS experiment database is **MySQL**. Per-experiment,
+    per-device-variable scan policy lives in one table,
+    **`expt_device_variable`** (joined to devices via `expt_device`).
+    Four columns drive everything this page calls "database behavior":
+
+    | Column | Meaning |
+    |---|---|
+    | `get` | `'yes'` = the variable is subscribed/logged for scans — the source of a device's standard telemetry (`db_scalars`) and of background telemetry |
+    | `set` | `'yes'` = the scan machinery writes this variable at scan boundaries |
+    | `startvalue` | the value written at scan start (what `at_scan_start` overrides) |
+    | `endvalue` | the value written at scan end (what `at_scan_end` overrides) |
+
+    The database rows themselves get no schema in this package — device
+    facts live below the configs; the configs only *override* them.
 
 Two boundaries follow from the design rather than from preference:
 

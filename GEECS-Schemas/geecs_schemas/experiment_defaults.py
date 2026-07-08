@@ -82,18 +82,21 @@ class ExperimentDefaults(VersionedSchemaModel):
     apply_db_scan_defaults: bool = Field(
         True,
         description=(
-            "Honor the device database's scan-start/end writes (its "
-            "set='yes' start/end values) for devices taking part in a scan. "
-            "On by default, matching how MC behaves; turn off to run the "
-            "experiment purely from config files, ignoring the database's "
-            "start/end writes everywhere."
+            "Honor the GEECS experiment database's scan-start/end writes "
+            "(MySQL table expt_device_variable: rows with set='yes', "
+            "writing their startvalue/endvalue) for devices taking part in "
+            "a scan. On by default, matching how MC behaves; turn off to "
+            "run the experiment purely from config files, ignoring the "
+            "database's start/end writes everywhere."
         ),
     )
     background_telemetry: bool = Field(
         True,
         description=(
             "Log every live experiment device that is not in a scan's save "
-            "set as best-effort snapshot columns, read from the gateway's "
+            "set as best-effort snapshot columns — the variables the GEECS "
+            "experiment database marks for scan logging (MySQL table "
+            "expt_device_variable, get='yes') — read from the gateway's "
             "always-on monitor cache. Safe by construction: read-only and "
             "never waited on, so it cannot slow or stall a scan — a dead "
             "device is just dropped with a log line. On by default so no "

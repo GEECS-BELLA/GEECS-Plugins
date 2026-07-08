@@ -13,8 +13,10 @@ Required vs recorded — the two-tier model
 required devices, with guarantees (strict-mode completeness, dialogs on
 death, images, roles, rituals, scan-start/end overrides).  **Tier 2** is
 background telemetry: every enabled experiment device with scan-logged
-(get='yes') variables that is *not* in the save set is still recorded as
-best-effort snapshot columns from the gateway's monitor cache — read-only,
+variables (marked ``get='yes'`` in the GEECS experiment database — MySQL
+table ``expt_device_variable``) that is *not* in the save set is still
+recorded as best-effort snapshot columns from the gateway's monitor cache
+— read-only,
 never waited on, dropped with a log line if dead at scan start, never a
 dialog or an abort.  So leaving a device out of the save set no longer means
 losing its data; it means giving up the *guarantees*.  Needing a device
@@ -89,8 +91,10 @@ class SaveSetEntry(SchemaModel):
     """One *required* device of a scan and the guarantees it gets.
 
     Name the device, say whether its images/files are saved, and — beyond
-    the database's standard telemetry list, which is recorded by default —
-    list any extra scalar readings you want as columns.
+    the device's standard telemetry list (the variables the GEECS experiment
+    database marks for scan logging: MySQL table ``expt_device_variable``,
+    column ``get='yes'``), which is recorded by default — list any extra
+    scalar readings you want as columns.
 
     Notes
     -----
@@ -104,10 +108,13 @@ class SaveSetEntry(SchemaModel):
     the plan itself stays a single named, editable object.
 
     **Runtime contract for the DB scan defaults** (``at_scan_start`` /
-    ``at_scan_end`` / ``db_scalars``): the GEECS device database's
-    ``expt_device_variable`` table marks variables with ``set='yes'`` and
-    carries per-variable ``startvalue`` / ``endvalue`` that MC applies at
-    scan start/end, and marks scan-logged telemetry with ``get='yes'``.
+    ``at_scan_end`` / ``db_scalars``): the GEECS experiment database (MySQL)
+    holds per-experiment device-variable policy in its
+    ``expt_device_variable`` table (joined to devices via ``expt_device``).
+    Rows with ``set='yes'`` name variables the scan machinery writes at scan
+    boundaries, using the row's ``startvalue`` / ``endvalue`` — exactly what
+    MC applies at scan start/end; rows with ``get='yes'`` mark scan-logged
+    telemetry.
     The engine reads those ``set='yes'`` start/end rows **only for devices
     participating in the scan**, always skips ``save`` /
     ``localsavingpath`` (native saving is owned by the run discipline, not
@@ -125,19 +132,20 @@ class SaveSetEntry(SchemaModel):
 
     device: str = Field(
         description=(
-            "GEECS device name exactly as it appears in the device database, "
-            "e.g. 'UC_ALineEbeam1'. Spelling (including case) is checked "
-            "against the database when the config is loaded."
+            "GEECS device name exactly as it appears in the GEECS experiment "
+            "database (MySQL), e.g. 'UC_ALineEbeam1'. Spelling (including "
+            "case) is checked against the database when the config is loaded."
         )
     )
     scalars: list[str] = Field(
         default_factory=list,
         description=(
             "EXTRA scalar readings to record beyond the device's standard "
-            "telemetry (which 'db_scalars' records by default), e.g. "
+            "telemetry — the variables the GEECS experiment database marks "
+            "for scan logging (MySQL table expt_device_variable, "
+            "get='yes'), which 'db_scalars' records by default. E.g. "
             "['MaxCounts', 'centroidx']. Usually empty — list variables "
-            "here only when you need something the database doesn't mark "
-            "for scan logging."
+            "here only when you need something the database doesn't mark."
         ),
     )
     all_scalars: bool = Field(
@@ -185,19 +193,22 @@ class SaveSetEntry(SchemaModel):
     db_scalars: bool = Field(
         True,
         description=(
-            "Record every variable the device database marks for scan "
-            "logging (get='yes') for this device — the MC-style 'standard "
-            "telemetry', and the default scalar source for a required "
-            "device. The 'scalars' list adds extras on top. Turn off to "
-            "record only what 'scalars' lists explicitly (converted legacy "
-            "elements do this, preserving their exact old behavior)."
+            "Record every variable the GEECS experiment database marks for "
+            "scan logging for this device (MySQL table "
+            "expt_device_variable, column get='yes') — the MC-style "
+            "'standard telemetry', and the default scalar source for a "
+            "required device. The 'scalars' list adds extras on top. Turn "
+            "off to record only what 'scalars' lists explicitly (converted "
+            "legacy elements do this, preserving their exact old behavior)."
         ),
     )
     at_scan_start: dict[str, Optional[str]] = Field(
         default_factory=dict,
         description=(
-            "Per-variable tweaks to what the device database writes to this "
-            "device when a scan starts. Three cases: a variable you don't "
+            "Per-variable tweaks to what the GEECS experiment database "
+            "writes to this device when a scan starts (its "
+            "expt_device_variable rows with set='yes'; the sent value is "
+            "the row's startvalue). Three cases: a variable you don't "
             "mention keeps its database behavior; 'Variable: \"value\"' "
             "sends your value instead of the database's; 'Variable: null' "
             "suppresses the database write entirely (nothing is sent)."
@@ -206,8 +217,10 @@ class SaveSetEntry(SchemaModel):
     at_scan_end: dict[str, Optional[str]] = Field(
         default_factory=dict,
         description=(
-            "Per-variable tweaks to what the device database writes to this "
-            "device when a scan ends — same three cases as 'at_scan_start': "
+            "Per-variable tweaks to what the GEECS experiment database "
+            "writes to this device when a scan ends (its "
+            "expt_device_variable rows with set='yes'; the sent value is "
+            "the row's endvalue) — same three cases as 'at_scan_start': "
             "unmentioned = database behavior, a value = replace the "
             "database's value, null = suppress the write entirely."
         ),

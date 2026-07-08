@@ -1,0 +1,373 @@
+{
+  "schema_version": 1,
+  "variables": {
+    "ALine_e_beam_angle_offset_x": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1",
+          "target": "U_S3H:Current"
+        },
+        {
+          "forward": "composite_var * -2",
+          "target": "U_S4H:Current"
+        }
+      ]
+    },
+    "ALine_e_beam_angle_offset_y": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1",
+          "target": "U_S3V:Current"
+        },
+        {
+          "forward": "composite_var * -2",
+          "target": "U_S4V:Current"
+        }
+      ]
+    },
+    "ALine_e_beam_position_offset_x": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1",
+          "target": "U_S3H:Current"
+        },
+        {
+          "forward": "composite_var * -1",
+          "target": "U_S4H:Current"
+        }
+      ]
+    },
+    "ALine_e_beam_position_offset_y": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1",
+          "target": "U_S3V:Current"
+        },
+        {
+          "forward": "composite_var * -1",
+          "target": "U_S4V:Current"
+        }
+      ]
+    },
+    "BCaveMagSepecCurrent": {
+      "kind": "setpoint",
+      "target": "U_BCaveMagSpecPS:Current_Limit.Ch1"
+    },
+    "Centtronic DUT position": {
+      "kind": "setpoint",
+      "target": "U_ASSERT_Stages:Position.Ch2"
+    },
+    "CompressorAndMode": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "absolute",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "U_CompAerotech:Position.Axis1"
+        },
+        {
+          "forward": "(composite_var-41000) * 14/1000 - 20",
+          "target": "U_ModeImagerESP:Position.Axis 1"
+        }
+      ]
+    },
+    "DonD Dipole": {
+      "kind": "setpoint",
+      "target": "U_DonD_DCStages:Position.Axis 1"
+    },
+    "DonD Q12 Gap": {
+      "kind": "setpoint",
+      "target": "U_DonD_Q12_Gap:Position"
+    },
+    "DonD Q34 Gap": {
+      "kind": "setpoint",
+      "target": "U_DonD_DCStages:Position.Axis 3"
+    },
+    "DonD Q34 Transverse": {
+      "kind": "setpoint",
+      "target": "U_DonD_DCStages:Position.Axis 2"
+    },
+    "DonDQ12": {
+      "kind": "setpoint",
+      "target": "U_DonD_Q12_Gap:Position"
+    },
+    "EMQ1 Current": {
+      "kind": "setpoint",
+      "target": "U_EMQTripletBipolar:Current_Limit.Ch1"
+    },
+    "EMQ2 Current": {
+      "kind": "setpoint",
+      "target": "U_EMQTripletBipolar:Current_Limit.Ch2"
+    },
+    "EMQ3 Current": {
+      "kind": "setpoint",
+      "target": "U_EMQTripletBipolar:Current_Limit.Ch3"
+    },
+    "ERROR_Laser_angle_offset_y": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1.0",
+          "target": "U_ESP302_02:Position.Axis 3"
+        },
+        {
+          "forward": "composite_var * -1.5",
+          "target": "U_ESP302_02:Position.Axis 1"
+        }
+      ]
+    },
+    "Gaia Lamp timing": {
+      "kind": "setpoint",
+      "target": "U_1HzShiftedBox:delay.Channel_C"
+    },
+    "Gas Pressure": {
+      "kind": "setpoint",
+      "target": "U_HP_Daq:AnalogOutput.Channel 1"
+    },
+    "Ghost Focus": {
+      "kind": "setpoint",
+      "target": "U_Zaber:Position.Ch2"
+    },
+    "Grating Separation (um)": {
+      "kind": "setpoint",
+      "target": "U_CompAerotech:Position.Axis1"
+    },
+    "HexY_S1H_relative": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "U_Hexapod:ypos"
+        },
+        {
+          "forward": "(composite_var)*8",
+          "target": "U_S1H:Current"
+        }
+      ]
+    },
+    "HexZ_S1V": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "absolute",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "U_Hexapod:zpos"
+        },
+        {
+          "forward": "-(composite_var + 0.2411) * 9",
+          "target": "U_S1V:Current"
+        }
+      ]
+    },
+    "HexZ_S1V_relative": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "U_Hexapod:zpos"
+        },
+        {
+          "forward": "-(composite_var)*9.0",
+          "target": "U_S1V:Current"
+        }
+      ]
+    },
+    "Hexapod Angle U": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:uangle"
+    },
+    "Hexapod Angle V": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:vangle"
+    },
+    "Hexapod Angle W": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:wangle"
+    },
+    "Hexapod X": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:xpos"
+    },
+    "Hexapod Y": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:ypos"
+    },
+    "Hexapod Z": {
+      "kind": "setpoint",
+      "target": "U_Hexapod:zpos"
+    },
+    "Jet Blade": {
+      "kind": "setpoint",
+      "target": "U_ModeImagerESP:Position.Axis 2"
+    },
+    "JetX (mm)": {
+      "kind": "setpoint",
+      "target": "U_ESP_JetXYZ:Position.Axis 1"
+    },
+    "JetY (mm)": {
+      "kind": "setpoint",
+      "target": "U_ESP_JetXYZ:Position.Axis 2"
+    },
+    "JetZ (mm)": {
+      "kind": "setpoint",
+      "target": "U_ESP_JetXYZ:Position.Axis 3"
+    },
+    "JetZ_with_probe": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "absolute",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "U_ESP_JetXYZ:Position.Axis 3"
+        },
+        {
+          "forward": "8.5 + (composite_var-10)*2.5",
+          "target": "U_ProbeCamStage:Position"
+        }
+      ]
+    },
+    "Laser_angle_offset_x": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "relative",
+      "targets": [
+        {
+          "forward": "composite_var * 1.5",
+          "target": "U_ESP302_02:Position.Axis 2"
+        },
+        {
+          "forward": "composite_var * -1.5",
+          "target": "U_ESP302_01:Position.Axis 3"
+        }
+      ]
+    },
+    "Mode Imager Stage": {
+      "kind": "setpoint",
+      "target": "U_ModeImagerESP:Position.Axis 1"
+    },
+    "R56_at_100MeV": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "absolute",
+      "targets": [
+        {
+          "forward": "sqrt(100 ** 2 * composite_var / 560968.636)",
+          "target": "U_ChicaneInner:Current"
+        },
+        {
+          "forward": "-sqrt(100 ** 2 * composite_var / 560968.636)",
+          "target": "U_ChicaneOuter:Current"
+        }
+      ]
+    },
+    "S1H": {
+      "kind": "setpoint",
+      "target": "U_S1H:Current"
+    },
+    "S1V": {
+      "kind": "setpoint",
+      "target": "U_S1V:Current"
+    },
+    "S2H": {
+      "kind": "setpoint",
+      "target": "U_S2H:Current"
+    },
+    "S2V": {
+      "kind": "setpoint",
+      "target": "U_S2V:Current"
+    },
+    "S3H": {
+      "kind": "setpoint",
+      "target": "U_S3H:Current"
+    },
+    "S3V": {
+      "kind": "setpoint",
+      "target": "U_S3V:Current"
+    },
+    "S4H": {
+      "kind": "setpoint",
+      "target": "U_S4H:Current"
+    },
+    "S4V": {
+      "kind": "setpoint",
+      "target": "U_S4V:Current"
+    },
+    "VS1H": {
+      "kind": "setpoint",
+      "target": "U_VS1H:Current"
+    },
+    "VS1V": {
+      "kind": "setpoint",
+      "target": "U_VS1V:Current"
+    },
+    "VS2H": {
+      "kind": "setpoint",
+      "target": "U_VS2H:Current"
+    },
+    "VS2V": {
+      "kind": "setpoint",
+      "target": "U_VS2V:Current"
+    },
+    "VS3H": {
+      "kind": "setpoint",
+      "target": "U_VS3H:Current"
+    },
+    "VS3V": {
+      "kind": "setpoint",
+      "target": "U_VS3V:Current"
+    },
+    "VS4H": {
+      "kind": "setpoint",
+      "target": "U_VS4H:Current"
+    },
+    "VS4V": {
+      "kind": "setpoint",
+      "target": "U_VS4V:Current"
+    },
+    "gaia_Qswitch_time": {
+      "kind": "setpoint",
+      "target": "U_1HzShiftedBox:delay.Channel_A"
+    },
+    "gas jet start time": {
+      "kind": "setpoint",
+      "target": "U_DG645_ShotControl:Delay.Ch A"
+    },
+    "haso stage": {
+      "kind": "setpoint",
+      "target": "U_Zaber:Position.Ch1"
+    },
+    "jet opening time": {
+      "kind": "setpoint",
+      "target": "U_DG645_ShotControl:Delay.Ch B"
+    },
+    "probe cam stage": {
+      "kind": "setpoint",
+      "target": "U_ProbeCamStage:Position"
+    },
+    "thorlabs dut position": {
+      "kind": "setpoint",
+      "target": "U_ASSERT_Stages:Position.Ch1"
+    }
+  }
+}
