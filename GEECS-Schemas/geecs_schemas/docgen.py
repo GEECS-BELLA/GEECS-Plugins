@@ -57,6 +57,9 @@ entries:
     scalars: [MaxCounts, centroidx]
   - device: U_HP_Daq
     scalars: [AnalogOutput.Channel 1]
+    db_scalars: true                 # + everything the DB marks for scan logging
+    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
+    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
   - device: U_BCaveHallProbe
     scalars: [Field, Rawfield]
     role: snapshot

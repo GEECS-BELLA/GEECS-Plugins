@@ -21,7 +21,10 @@ A saved preset *is* a scan request.
 The shopping list of devices to save: for each device, which scalar readings
 become columns in the scan data, and whether its images are saved. You don't
 declare timestamps or synchronization flags any more — the scanner works
-those out.
+those out. The device database's own scan defaults still apply — its
+scan-start/end writes and, if you opt in, its standard telemetry list — and
+an entry can override any of those writes per variable: replace the value,
+or suppress the write entirely with `null`.
 
 **Scan variables — "what am I allowed to sweep?"**
 The catalog behind the Variable dropdown. Each entry gives a friendly name

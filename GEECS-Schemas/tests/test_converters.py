@@ -48,6 +48,10 @@ class TestSaveElements:
         # the element's ritual travels with the entry as a name reference
         assert entry.setup == ["UC_Aline1_setup"]
         assert entry.closeout == []
+        # the DB scan-default surfaces are never set by the converter —
+        # legacy elements have no counterpart (explicitness pin)
+        assert entry.db_scalars is False
+        assert entry.at_scan_start == {} and entry.at_scan_end == {}
         assert_matches_golden(
             {
                 "save_set": result.save_set.model_dump(mode="json"),

@@ -31,7 +31,10 @@
     "entries": [
       {
         "all_scalars": false,
+        "at_scan_end": {},
+        "at_scan_start": {},
         "closeout": [],
+        "db_scalars": false,
         "device": "UC_ALineEbeam1",
         "images": true,
         "role": null,

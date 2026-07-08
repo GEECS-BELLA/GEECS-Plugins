@@ -76,6 +76,12 @@ class TestFullCorpus:
             for path in sorted(experiment.glob("save_devices/*.yaml")):
                 result = convert_save_element(path)
                 assert result.save_set is not None or result.actions, path
+                # the DB scan-default surfaces are opt-in and have no legacy
+                # counterpart — the converter must never populate them
+                for entry in result.save_set.entries if result.save_set else []:
+                    assert entry.db_scalars is False, path
+                    assert entry.at_scan_start == {}, path
+                    assert entry.at_scan_end == {}, path
                 converted += 1
         assert converted >= 70  # 71 files at the time of writing
 

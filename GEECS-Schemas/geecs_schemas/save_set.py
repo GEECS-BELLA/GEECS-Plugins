@@ -82,6 +82,19 @@ class SaveSetEntry(SchemaModel):
     experiment's action library), never inline plans — the ritual travels
     with the device when entries are composed into bigger save sets, while
     the plan itself stays a single named, editable object.
+
+    **Runtime contract for the DB scan defaults** (``at_scan_start`` /
+    ``at_scan_end`` / ``db_scalars``): the GEECS device database's
+    ``expt_device_variable`` table marks variables with ``set='yes'`` and
+    carries per-variable ``startvalue`` / ``endvalue`` that MC applies at
+    scan start/end, and marks scan-logged telemetry with ``get='yes'``.
+    The engine reads those ``set='yes'`` start/end rows **only for devices
+    participating in the scan**, always skips ``save`` /
+    ``localsavingpath`` (native saving is owned by the run discipline, not
+    per-device DB rows), applies this entry's ``at_scan_start`` /
+    ``at_scan_end`` overrides on top, and records every write it actually
+    applied into the run's metadata for provenance.  The DB rows
+    themselves get no schema — device facts live below the configs.
     """
 
     device: str = Field(
@@ -139,6 +152,34 @@ class SaveSetEntry(SchemaModel):
             "this device — its cleanup ritual. Collected and de-duplicated "
             "the same way as 'setup', and run once after the scan (even on "
             "abort)."
+        ),
+    )
+    db_scalars: bool = Field(
+        False,
+        description=(
+            "Also record every variable the device database marks for scan "
+            "logging (get='yes') for this device, on top of the 'scalars' "
+            "list — the MC-style 'standard telemetry' behavior. Off by "
+            "default: with it off, only what you list here is recorded."
+        ),
+    )
+    at_scan_start: dict[str, Optional[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-variable tweaks to what the device database writes to this "
+            "device when a scan starts. Three cases: a variable you don't "
+            "mention keeps its database behavior; 'Variable: \"value\"' "
+            "sends your value instead of the database's; 'Variable: null' "
+            "suppresses the database write entirely (nothing is sent)."
+        ),
+    )
+    at_scan_end: dict[str, Optional[str]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-variable tweaks to what the device database writes to this "
+            "device when a scan ends — same three cases as 'at_scan_start': "
+            "unmentioned = database behavior, a value = replace the "
+            "database's value, null = suppress the write entirely."
         ),
     )
 

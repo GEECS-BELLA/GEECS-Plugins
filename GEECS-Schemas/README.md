@@ -55,7 +55,11 @@ schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
 `EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
 `SaveSetEntry` / `SaveRole` (entries carry optional `setup` / `closeout`
 action-plan name references — the device's ritual travels with it through
-composition), `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
+composition — plus the DB scan-default surfaces: `at_scan_start` /
+`at_scan_end` per-variable overrides of the DB's start/end writes, where a
+value replaces the DB's, an explicit `null` suppresses the write, and
+absence inherits; and opt-in `db_scalars` for the DB's scan-logging
+telemetry), `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
 `TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
 step types.
 

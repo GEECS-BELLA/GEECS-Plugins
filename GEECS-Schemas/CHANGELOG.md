@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     Entries carry optional `setup` / `closeout` action-plan name references
     so a device's ritual travels with it when entries are composed into
     bigger save sets (references de-duplicate; each plan runs once).
+    Entries also surface the GEECS DB's scan defaults: `at_scan_start` /
+    `at_scan_end` per-variable overrides of the DB's set='yes' start/end
+    writes (a value replaces the DB's, an explicit `null` suppresses the
+    write, absent inherits), and opt-in `db_scalars` to also record the
+    DB's get='yes' scan-logging telemetry. The DB rows themselves get no
+    schema (device facts live below configs); the engine applies them at
+    runtime for participating devices only, skipping save/localsavingpath,
+    and records everything applied for provenance.
   - `ScanVariables` — friendly-name catalog; `setpoint` / `motor` kinds plus
     `pseudo` composite variables with verbatim numexpr forward expressions.
   - `TriggerProfile` — device-agnostic *machine* states, each an **ordered,
@@ -33,8 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     legacy file's device into every write.
   - `ExperimentDefaults` — per-experiment fallbacks (trigger profile,
     setup/closeout plans) applied where a scan request is silent; defaults
-    run first, then the scan's own. No legacy dialect behind it; resolvers
-    must record applied defaults into the resolved request for provenance.
+    run first, then the scan's own. Includes `apply_db_scan_defaults`
+    (default true = MC parity; false runs the experiment purely
+    config-driven, ignoring the DB's start/end writes). No legacy dialect
+    behind it; resolvers must record applied defaults into the resolved
+    request for provenance.
   - `ActionPlan` / `ActionPlanLibrary` — set / wait / check / run steps with
     legacy ActionManager semantics; nested plan references validated.
 - `SCHEMA_REGISTRY` mapping config kind → model for generic tooling.

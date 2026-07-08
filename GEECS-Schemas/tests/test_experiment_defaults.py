@@ -47,6 +47,17 @@ class TestExperimentDefaults:
         with pytest.raises(ValidationError, match="per_step"):
             ExperimentDefaults.model_validate({"actions": {"per_step": ["surprise"]}})
 
+    def test_apply_db_scan_defaults_on_by_default(self):
+        # MC parity: the DB's scan-start/end writes are honored unless the
+        # experiment explicitly opts out.
+        assert ExperimentDefaults.model_validate({}).apply_db_scan_defaults is True
+
+    def test_apply_db_scan_defaults_opt_out_round_trips(self):
+        defaults = ExperimentDefaults.model_validate({"apply_db_scan_defaults": False})
+        assert defaults.apply_db_scan_defaults is False
+        again = ExperimentDefaults.model_validate(defaults.model_dump(mode="json"))
+        assert again.apply_db_scan_defaults is False
+
     def test_merge_rule_documented_in_operator_language(self):
         # The resolver contract is part of the schema's documentation:
         # defaults run first, then the scan's own.

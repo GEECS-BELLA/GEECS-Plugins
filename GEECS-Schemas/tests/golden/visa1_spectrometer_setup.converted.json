@@ -78,9 +78,12 @@
     "entries": [
       {
         "all_scalars": false,
+        "at_scan_end": {},
+        "at_scan_start": {},
         "closeout": [
           "visa1_spectrometer_setup_closeout"
         ],
+        "db_scalars": false,
         "device": "UC_UndulatorRad2",
         "images": true,
         "role": null,
@@ -93,9 +96,12 @@
       },
       {
         "all_scalars": false,
+        "at_scan_end": {},
+        "at_scan_start": {},
         "closeout": [
           "visa1_spectrometer_setup_closeout"
         ],
+        "db_scalars": false,
         "device": "UC_VisaEBeam1",
         "images": true,
         "role": null,
@@ -106,9 +112,12 @@
       },
       {
         "all_scalars": false,
+        "at_scan_end": {},
+        "at_scan_start": {},
         "closeout": [
           "visa1_spectrometer_setup_closeout"
         ],
+        "db_scalars": false,
         "device": "U_BCaveICT",
         "images": true,
         "role": null,

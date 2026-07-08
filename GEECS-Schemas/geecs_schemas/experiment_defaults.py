@@ -79,6 +79,16 @@ class ExperimentDefaults(VersionedSchemaModel):
             "then the scan's own plans."
         ),
     )
+    apply_db_scan_defaults: bool = Field(
+        True,
+        description=(
+            "Honor the device database's scan-start/end writes (its "
+            "set='yes' start/end values) for devices taking part in a scan. "
+            "On by default, matching how MC behaves; turn off to run the "
+            "experiment purely from config files, ignoring the database's "
+            "start/end writes everywhere."
+        ),
+    )
     description: str = Field(
         "",
         description="Optional note about what these defaults are for.",
