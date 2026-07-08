@@ -1537,7 +1537,7 @@ ophyd-async = ">=0.19.3,<1.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/vision-m2-engine/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
 optimize = ["xopt (>=3.1,<4.0)"]
 tiled = ["tiled[client] (>=0.2)"]
