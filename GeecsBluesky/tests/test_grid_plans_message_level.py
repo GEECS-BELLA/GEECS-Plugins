@@ -177,3 +177,68 @@ def test_strict_per_step_actions_run_with_saving_already_on() -> None:
     )
     commands = [m.command for m in _collect(plan)]
     assert commands.index("save_on_marker") < commands.index("per_step_marker")
+
+
+def test_free_run_saving_without_shot_control_warns(caplog) -> None:
+    """A free-run scan that saves but has no controller can't window saving.
+
+    Native-save windowing needs the controller's quiesce to stop the trigger;
+    with ``controller=None`` there is no such point, so the build warns loudly
+    that frames may be saved as orphans (rather than silently leaking or
+    refusing the supported controllerless config — review finding #1).
+    """
+    import logging
+
+    from geecs_bluesky.plans.orchestration import build_step_scan_plan
+
+    ref = _NamedFake("cam")
+    with caplog.at_level(logging.WARNING):
+        build_step_scan_plan(
+            strict=False,
+            motor=None,
+            positions=[None],
+            reference=ref,
+            detectors=[ref],
+            shots_per_step=3,
+            controller=None,
+            experiment="Exp",
+            scan_number=None,
+            scan_folder=None,
+            saving_detectors=[(ref, "/tmp/save")],
+        )
+    assert "no shot control" in caplog.text
+    assert "cam" in caplog.text
+
+
+def test_free_run_saving_with_controller_does_not_warn(caplog) -> None:
+    """With a controller present, no orphan-frame warning is emitted."""
+    import logging
+
+    from geecs_bluesky.plans.orchestration import build_step_scan_plan
+
+    class _Controller:
+        def arm(self):
+            yield Msg("arm", None)
+
+        def disarm(self):
+            yield Msg("disarm", None)
+
+        def quiesce(self):
+            yield Msg("quiesce", None)
+
+    ref = _NamedFake("cam")
+    with caplog.at_level(logging.WARNING):
+        build_step_scan_plan(
+            strict=False,
+            motor=None,
+            positions=[None],
+            reference=ref,
+            detectors=[ref],
+            shots_per_step=3,
+            controller=_Controller(),
+            experiment="Exp",
+            scan_number=None,
+            scan_folder=None,
+            saving_detectors=[(ref, "/tmp/save")],
+        )
+    assert "no shot control" not in caplog.text

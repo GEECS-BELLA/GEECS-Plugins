@@ -95,7 +95,32 @@ entry that PR #461/#464 intentionally shipped without.
 
 ### Fixed
 
-Both items were found during Gate-2 hardware verification of this release
+Review-pass fixes (max-effort review of this milestone):
+
+- **Optimize-mode requests with actions no longer refuse — they run and skip
+  the actions (logged + recorded in run metadata).** `apply_experiment_defaults`
+  merges default setup/closeout into the request before the optimize check, so
+  the old `NotImplementedError` would have blocked *every* optimization the
+  moment an experiment defined default bracket actions (via a future
+  `experiment_defaults.yaml`), even with no per-request actions. Optimize has no
+  action hooks yet, so the actions (request, defaults, and save-set rituals) are
+  skipped rather than executed; the skip is a WARNING and lands in run metadata
+  under `skipped_action_plans`. Unknown action names still fail fast.
+- **Free-run scan with saving detectors but no shot controller now warns.**
+  Native-save windowing needs the controller's quiesce to stop the trigger;
+  with no controller there is no such point, so `build_step_scan_plan` logs a
+  clear warning that frames captured during t0-sync/moves may be orphaned
+  (rather than silently leaking or refusing the supported controllerless config).
+- **Lazy action-plan registry now only masks genuine "not found".** The bare
+  `except Exception` in `_LazyResolverRegistry` turned any resolver fault into a
+  `KeyError`/miss (misdirecting debugging to "plan not found" with no
+  candidates); it now catches only `GeecsConfigurationError` and lets unexpected
+  faults propagate.
+- Removed dead code: an unreachable `return` in `GeecsSession.optimize` and the
+  superseded `collect_save_set_action_names` (production uses
+  `collect_save_set_rituals`).
+
+Both items below were found during Gate-2 hardware verification of this release
 (2026-07-07: Scans 013–016 — the first ScanRequest-driven hardware runs).
 
 - **Native-save windowing** — saving is now enabled only while the trigger

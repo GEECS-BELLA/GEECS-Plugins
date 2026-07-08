@@ -139,6 +139,21 @@ def build_step_scan_plan(
                 "free-run scans require at least one synchronous device as "
                 "the reference (pacemaker)"
             )
+        if controller is None and saving:
+            # Native-save windowing relies on the controller's quiesce to stop
+            # the free-running trigger before saving turns on.  With no shot
+            # control there is no such point, so frames captured during t0-sync
+            # (and any moves) are saved as orphans joining no event row.  This
+            # is inherent to a controllerless free-run scan — surface it loudly
+            # rather than silently save orphans or refuse the (supported) config.
+            logger.warning(
+                "free-run scan has native-saving detectors but no shot "
+                "control: saving cannot be windowed to the trigger-stopped "
+                "span, so frames captured during t0-sync/moves may be saved "
+                "as orphans (no event row). Add a trigger_profile to window "
+                "saving. Detectors: %s",
+                [getattr(t[0], "name", str(t[0])) for t in saving],
+            )
         contributors = [d for d in detectors if d is not reference]
         inner = geecs_free_run_step_scan(
             motor=motor,

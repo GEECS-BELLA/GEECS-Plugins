@@ -6,11 +6,14 @@ devices_config derivation rules, the TriggerProfile → ShotControlWrites
 adapter (ordered, multi-device), action slot assembly + compilation +
 wiring, multi-axis grid execution, and the request execution mapping onto a
 fake GeecsSession.  The remaining documented v1 gaps (pseudo variables,
-``all_scalars``, optimize without injected callables / with actions) refuse
-loudly.
+``all_scalars``, optimize without injected callables) refuse loudly; optimize
+*with* actions runs but skips the actions (logged + recorded in metadata),
+since optimize has no action hooks yet.
 """
 
 from __future__ import annotations
+
+import logging
 
 import pytest
 from bluesky.utils import Msg
@@ -22,7 +25,7 @@ from geecs_bluesky.scan_request_runner import (
     ConfigsRepoResolver,
     apply_experiment_defaults,
     assemble_action_slots,
-    collect_save_set_action_names,
+    build_action_registry,
     collect_save_set_rituals,
     resolve_save_set_and_rituals,
     resolve_save_set_checked,
@@ -1108,14 +1111,12 @@ def test_entry_level_actions_collected() -> None:
             SaveSetEntry(device="U_B", scalars=["y"]),
         ],
     )
-    assert collect_save_set_action_names(save_set) == ["prep_cam", "park"]
     assert collect_save_set_rituals(save_set) == {
         "setup": ["prep_cam"],
         "closeout": ["park"],
     }
     # Entries without references contribute nothing.
     plain = SaveSet(name="s", entries=[SaveSetEntry(device="U_A", scalars=["x"])])
-    assert collect_save_set_action_names(plain) == []
     assert collect_save_set_rituals(plain) == {"setup": [], "closeout": []}
 
 
@@ -1290,24 +1291,78 @@ def test_full_fake_session_flow_axes_actions_multi_device_trigger(
     assert factory in session.disconnected
 
 
-def test_optimize_with_actions_is_a_documented_gap(legacy_resolver) -> None:
-    """Optimize mode has no action hooks yet — refused loudly, pre-hardware."""
+def test_optimize_skips_actions_and_records_them(legacy_resolver, caplog) -> None:
+    """Optimize runs; its action plans are skipped, logged, and recorded.
+
+    Optimize mode has no action hooks yet, but refusing would block every
+    optimization the moment an experiment defines default bracket actions.
+    So the run proceeds with the actions skipped — never silently: a WARNING
+    is logged and the skip lands in run metadata.
+    """
     session = _FakeSession()
-    request = _optimize_request(actions={"setup": ["scan_prep"]})
-    with pytest.raises(NotImplementedError, match="scan_prep"):
-        run_scan_request(session, request, legacy_resolver)
-    assert session.devices == []
+    request = _optimize_request(
+        actions={"setup": ["scan_prep"], "closeout": ["cam_park"]}
+    )
+
+    def objective(bin_data) -> float:
+        return 1.0
+
+    with caplog.at_level(logging.WARNING):
+        uid = run_scan_request(
+            session, request, legacy_resolver, objective=objective, suggester=object()
+        )
+    assert uid == "uid-opt"
+    skipped = session.optimize_kwargs["md"]["skipped_action_plans"]
+    assert skipped["setup"] == ["scan_prep"]
+    assert skipped["closeout"] == ["cam_park"]
+    assert "scan_prep" in caplog.text
 
 
-def test_optimize_with_entry_rituals_is_a_documented_gap(legacy_resolver) -> None:
+def test_optimize_skips_entry_rituals_and_records_them(legacy_resolver) -> None:
+    """Save-set entry rituals are skipped and recorded, not refused."""
     session = _FakeSession()
     request = _optimize_request(save_set="RitualSet")
 
     def objective(bin_data) -> float:
         return 1.0
 
-    with pytest.raises(NotImplementedError, match="cam_ritual"):
-        run_scan_request(
-            session, request, legacy_resolver, objective=objective, suggester=object()
-        )
-    assert session.devices == []
+    uid = run_scan_request(
+        session, request, legacy_resolver, objective=objective, suggester=object()
+    )
+    assert uid == "uid-opt"
+    assert (
+        "cam_ritual"
+        in session.optimize_kwargs["md"]["skipped_action_plans"]["save_set_rituals"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lazy action-plan registry: a real fault must not masquerade as "not found"
+# ---------------------------------------------------------------------------
+
+
+def test_lazy_registry_propagates_unexpected_resolver_faults() -> None:
+    """A non-"not found" fault propagates; only an unknown name is a miss.
+
+    The lazy registry converts a genuine "plan not in the library"
+    (``GeecsConfigurationError``) into ``KeyError`` for the compiler, but any
+    other fault (a resolver bug, transient IO) must surface — masking it as a
+    miss would misdirect debugging to "plan not found" with no candidates.
+    """
+
+    class _BoomResolver:
+        def resolve_action_plan(self, name: str):
+            if name == "missing":
+                raise GeecsConfigurationError("not in library")
+            raise RuntimeError("resolver exploded")
+
+    registry = build_action_registry(_BoomResolver())
+    # Unknown name → KeyError (the compiler's "not found" path).
+    with pytest.raises(KeyError):
+        registry["missing"]
+    # Any other fault propagates unchanged.
+    with pytest.raises(RuntimeError, match="exploded"):
+        registry["anything_else"]
+    assert registry.get("missing", "default") == "default"
+    with pytest.raises(RuntimeError, match="exploded"):
+        registry.get("anything_else")

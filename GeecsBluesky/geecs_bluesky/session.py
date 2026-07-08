@@ -746,7 +746,6 @@ class GeecsSession:
             if save_data and self._last_run_uid and scan_number is not None:
                 self._export_scalar_files(scan_number)
             return self._last_run_uid, history
-        return self._last_run_uid, history
 
     def run(
         self,

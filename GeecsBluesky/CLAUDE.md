@@ -386,9 +386,13 @@ lists via `ShotControlWrites`).  Action plans compile via
 every signal is prefetched/connected pre-claim (a lazy connect inside the
 RE loop would deadlock).  Names still resolve fail-fast pre-claim.
 Remaining validated-then-refused v1 gaps: pseudo scan variables,
-`all_scalars`, optimize without an injected objective/suggester, and
-actions on optimize-mode requests (`GeecsSession.optimize` has no action
-hooks yet).  The GUI bridge's `reinitialize(ScanRequest)` still refuses
+`all_scalars`, and optimize without an injected objective/suggester.
+Actions on an optimize-mode request are **not** refused — optimize has no
+action hooks yet, so the actions (request, experiment defaults, and
+save-set rituals) are skipped, logged (WARNING), and recorded in run
+metadata under `skipped_action_plans` (refusing would block every
+optimization the moment an experiment defines default bracket actions;
+unknown names still fail fast).  The GUI bridge's `reinitialize(ScanRequest)` still refuses
 actions/multi-axis with a pointer to `GeecsSession.run` — routing them
 through the bridge is the GUI submission milestone.  Experiment defaults
 (`experiment_defaults.yaml`) fill request fields left unset — never

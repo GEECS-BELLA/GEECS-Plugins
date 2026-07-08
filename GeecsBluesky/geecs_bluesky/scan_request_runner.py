@@ -808,16 +808,20 @@ class _LazyResolverRegistry(Mapping):
         self._resolver = resolver
 
     def __getitem__(self, name: str) -> ActionPlan:
+        # Only a genuine "not in the library" miss becomes a KeyError (which
+        # the compiler turns into ActionPlanNotFoundError).  Any other fault
+        # (transient IO, a bug in a resolver) must propagate — masking it as a
+        # miss would misdirect debugging to "plan not found" with no candidates.
         try:
             return self._resolver.resolve_action_plan(name)
-        except Exception:
+        except GeecsConfigurationError:
             raise KeyError(name) from None
 
     def get(self, name: str, default: Any = None) -> Any:
-        """Resolve *name*, returning *default* when the resolver refuses."""
+        """Resolve *name*, returning *default* only when the name is unknown."""
         try:
             return self._resolver.resolve_action_plan(name)
-        except Exception:
+        except GeecsConfigurationError:
             return default
 
     def __iter__(self):
@@ -935,33 +939,6 @@ def compile_action_slot(
             yield from compile_action_plan(plan, registry=registry, settables=settables)
 
     return _slot_plan, plans
-
-
-def collect_save_set_action_names(save_set: SaveSet) -> list[str]:
-    """Return entry-level setup/closeout ActionPlan references, if any.
-
-    Newer SaveSet schemas let an entry reference setup/closeout action
-    plans by name; older SaveSets have no such fields (this returns
-    ``[]``).  Duck-typed so both schema generations pass through.
-
-    Parameters
-    ----------
-    save_set :
-        The save set to inspect.
-
-    Returns
-    -------
-    list of str
-        Every referenced plan name, in entry order.
-    """
-    names: list[str] = []
-    for entry in save_set.entries:
-        for slot in ("setup", "closeout"):
-            value = getattr(entry, slot, None)
-            if not value:
-                continue
-            names.extend(value if isinstance(value, (list, tuple)) else [value])
-    return names
 
 
 def resolve_save_set_checked(resolver: ConfigResolver, name: str) -> SaveSet:
@@ -1248,13 +1225,15 @@ def run_scan_request(
     mode = "strict" if request.acquisition is AcquisitionMode.STRICT else "free_run"
 
     if request.mode is ScanRequestMode.OPTIMIZE:
-        if any(resolved_actions.values()):
-            raise NotImplementedError(
-                "action bindings on an optimize-mode ScanRequest are not "
-                "executed yet (GeecsSession.optimize has no action hooks); "
-                f"the names were resolved and are valid: "
-                f"{ {k: v for k, v in resolved_actions.items() if v} }"
-            )
+        # Optimize mode has no action hooks yet (GeecsSession.optimize runs an
+        # adaptive scan with no setup/per_step/closeout seam).  Rather than
+        # refuse — which would block every optimization the moment an
+        # experiment defines default bracket actions — we run the optimization
+        # and skip the actions, logging loudly and recording the skip in run
+        # metadata so the omission is never silent.  Safety/setup actions are
+        # intentionally not run during optimization for now (a new capability,
+        # not present in the legacy scanner either).
+        skipped_actions = {k: v for k, v in resolved_actions.items() if v}
         return _run_optimize_request(
             session,
             request,
@@ -1263,6 +1242,7 @@ def run_scan_request(
             objective=objective,
             suggester=suggester,
             applied_defaults=applied_defaults,
+            skipped_actions=skipped_actions,
         )
 
     if not request.save_set:
@@ -1396,6 +1376,7 @@ def _run_optimize_request(
     objective: Any | None,
     suggester: Any | None,
     applied_defaults: dict[str, Any] | None = None,
+    skipped_actions: dict[str, list[str]] | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1440,16 +1421,14 @@ def _run_optimize_request(
     detectors: list = []
     created: list = []
     try:
+        skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
         if request.save_set:
             save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
             ritual_names = [n for names in rituals.values() for n in names]
             if ritual_names:
-                raise NotImplementedError(
-                    "save-set entry rituals on an optimize-mode ScanRequest "
-                    "are not executed yet (GeecsSession.optimize has no "
-                    "action hooks); the names were resolved and are valid: "
-                    f"{ritual_names}"
-                )
+                # Save-set entry rituals can't run in optimize mode yet either;
+                # skip and record rather than refuse (see run_scan_request).
+                skipped["save_set_rituals"] = ritual_names
             detectors = _build_request_detectors(
                 session,
                 save_set_to_devices_config(save_set),
@@ -1471,6 +1450,14 @@ def _run_optimize_request(
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         if applied_defaults:
             md["applied_defaults"] = applied_defaults
+        if skipped:
+            md["skipped_action_plans"] = skipped
+            logger.warning(
+                "Optimize mode does not run action plans yet — skipping the "
+                "following for this optimization (setup/per_step/closeout "
+                "and save-set rituals do not run during optimization): %s",
+                skipped,
+            )
         uid, _history = session.optimize(
             variables=variables,
             detectors=detectors,
