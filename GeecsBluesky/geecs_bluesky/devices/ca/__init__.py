@@ -10,6 +10,7 @@ divergent domain logic (shot-id / save-path / schema stay shared).
 Requires the ``ca`` extra (``aioca``): ``poetry install --extras ca``.
 """
 
+from geecs_bluesky.devices.ca.action_signals import CaActionSignalFactory
 from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
 from geecs_bluesky.devices.ca.settable import CaSettable
@@ -19,6 +20,7 @@ from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable, CaTrigg
 
 __all__ = [
     "CaAcqTimestampReadable",
+    "CaActionSignalFactory",
     "CaGenericDetector",
     "CaMotor",
     "CaSettable",

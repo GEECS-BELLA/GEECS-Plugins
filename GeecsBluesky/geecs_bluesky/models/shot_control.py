@@ -121,3 +121,59 @@ class ShotControlConfig(BaseModel):
             for var, values in self.variables.items()
             if values.get(name)
         }
+
+
+class ShotControlWrites(BaseModel):
+    """Generalized shot control: per-state **ordered** multi-device write lists.
+
+    The engine-facing successor of the per-variable single-device
+    :class:`ShotControlConfig` pivot, matching the
+    ``geecs_schemas.trigger_profile.TriggerProfile`` semantics: a state
+    transition is an ordered list of ``(device, variable, value)`` writes,
+    applied top to bottom (order is schema-documented — e.g. raise an
+    amplitude before switching a trigger source), possibly spanning several
+    devices.  Values are verbatim wire strings; a state with no writes is
+    "not defined" for this controller.
+
+    This model stays pure data (no hardware, no schema imports) so the
+    trigger-profile adapter lives bluesky-side
+    (:func:`~geecs_bluesky.scan_request_runner.trigger_writes_from_profile`)
+    and the GUI bridge can store either generation in one slot.
+
+    Parameters
+    ----------
+    name:
+        Profile name, used in log/error messages (e.g. ``"htu_normal"``).
+    states:
+        ``{state_name: [(device, variable, value), ...]}`` — the ordered
+        writes per state.  Empty-string values are not expected here (the
+        TriggerProfile schema rejects them; omission is the no-op).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = ""
+    states: dict[str, list[tuple[str, str, str]]] = Field(default_factory=dict)
+
+    @staticmethod
+    def _state_name(state: "ShotControlState | str") -> str:
+        return state.value if isinstance(state, ShotControlState) else str(state)
+
+    @property
+    def devices(self) -> list[str]:
+        """Every device written, in order of first appearance."""
+        seen: dict[str, None] = {}
+        for writes in self.states.values():
+            for device, _variable, _value in writes:
+                seen.setdefault(device)
+        return list(seen)
+
+    def defines_state(self, state: "ShotControlState | str") -> bool:
+        """Whether driving to *state* would write anything at all."""
+        return bool(self.states.get(self._state_name(state)))
+
+    def writes_for_state(
+        self, state: "ShotControlState | str"
+    ) -> list[tuple[str, str, str]]:
+        """Return the ordered ``(device, variable, value)`` writes for *state*."""
+        return list(self.states.get(self._state_name(state), []))

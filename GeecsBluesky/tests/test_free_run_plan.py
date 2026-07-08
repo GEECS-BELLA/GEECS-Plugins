@@ -143,8 +143,10 @@ def test_free_run_quiesces_before_t0_sync() -> None:
     """The plan stops the trigger (quiesce_trigger) before establishing t0."""
     quiesce_log: list = []
     events, start, _flush = _run_free_run_scan(fire_cam=True, quiesce_log=quiesce_log)
-    # quiesce ran, and t0s were captured afterward (sync succeeded)
-    assert quiesce_log == ["quiesced"]
+    # quiesce ran before t0 sync (t0s captured afterward — sync succeeded)
+    # and again at end of scan, closing the trigger before the tail
+    # machinery (Gate-2: STANDBY frames leaked into native saving there).
+    assert quiesce_log == ["quiesced", "quiesced"]
     assert start["device_t0s"]["U_Ref"] == REF_T0
     assert len(events) == 4
 

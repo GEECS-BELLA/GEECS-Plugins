@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -38,17 +39,20 @@ from bluesky import RunEngine
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
+    CaActionSignalFactory,
     CaGenericDetector,
     CaMotor,
     CaSettable,
     CaSnapshotReadable,
     CaTimestampedReadable,
 )
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.optimize import BinData, Suggester
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
+from geecs_bluesky.plans.step_scan import normalize_motors
+from geecs_bluesky.scan_log import scan_log
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -274,40 +278,70 @@ class GeecsSession:
             )
         )
 
+    def action_signal_factory(self) -> CaActionSignalFactory:
+        """Build the SettableFactory for compiled action plans (CA-backed).
+
+        Returns a fresh per-scan factory: ``get_settable`` puts wire strings
+        to the variable's gateway ``:SP`` (put-completion rides the GEECS
+        blocking set — the ``wait_for_execution`` semantics), ``get_readable``
+        reads the streamed readback as a string.  Signals are cached per
+        ``(device, variable)`` and connected in this session's RE loop at
+        creation; pre-connect everything a plan will touch **before** running
+        it (see ``scan_request_runner.prefetch_action_signals``) and pass the
+        factory to :meth:`disconnect` with the scan's other devices.
+        """
+        return CaActionSignalFactory(self.experiment, self._connect)
+
     # ------------------------------------------------------------------
     # Shot control
     # ------------------------------------------------------------------
 
     def shot_control(
-        self, config: str | dict | ShotControlConfig | None
+        self, config: str | dict | ShotControlConfig | ShotControlWrites | None
     ) -> ShotController | None:
-        """Attach shot control from a configs-repo name, dict, or config.
+        """Attach shot control from a configs-repo name, dict, config, or writes.
 
         A configs-repo *name* (e.g. ``"HTU-LaserOFF"``) is loaded and
         validated; ``None`` or an empty/blank config (e.g. ``{}``) detaches.
-        The controller drives the device through the gateway's ``:SP`` PVs;
-        their reachability is verified here (short CA connect) so a typo'd
-        device name fails now, not ~10 s per caput mid-plan.
+        A :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`
+        (generalized per-state ordered write lists, possibly multi-device —
+        the TriggerProfile shape) builds the ordered controller; anything
+        else takes the legacy single-device
+        :class:`~geecs_bluesky.models.shot_control.ShotControlConfig` path
+        unchanged.  Either way the controller drives the gateway's ``:SP``
+        PVs; their reachability is verified here (short CA connect) so a
+        typo'd device name fails now, not ~10 s per caput mid-plan.
         """
         import asyncio
 
-        if isinstance(config, str):
-            config = load_shot_control_config(config, self.experiment)
+        controller: ShotController | None = None
+        attached_to = ""
+        if isinstance(config, ShotControlWrites):
+            if config.states:
+                controller = ShotController.from_writes(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = controller.describe_target
         else:
-            config = ShotControlConfig.from_information(config)
-        if config is None:
+            if isinstance(config, str):
+                config = load_shot_control_config(config, self.experiment)
+            else:
+                config = ShotControlConfig.from_information(config)
+            if config is not None:
+                controller = ShotController.over_ca(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = config.device
+        if controller is None:
             self._shot_controller = None
             logger.info("Shot control detached")
             return None
-        controller = ShotController.over_ca(
-            config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
-        )
         if not self._mock:
             asyncio.run_coroutine_threadsafe(
                 controller.connect_setters(), self.RE._loop
             ).result(timeout=20.0)
         self._shot_controller = controller
-        logger.info("Shot control attached: %s", config.device)
+        logger.info("Shot control attached: %s", attached_to)
         return self._shot_controller
 
     # ------------------------------------------------------------------
@@ -340,11 +374,11 @@ class GeecsSession:
         self,
         *,
         detectors: Sequence[Any],
-        motor: Any | None = None,
+        motor: Any | Sequence[Any] | None = None,
         start: float | None = None,
         end: float | None = None,
         step: float | None = None,
-        positions: Sequence[float | None] | None = None,
+        positions: Sequence[Any] | None = None,
         shots_per_step: int = 1,
         mode: str = _FREE_RUN,
         description: str = "",
@@ -353,6 +387,9 @@ class GeecsSession:
         scan_number: int | None = None,
         scan_folder: str | None = None,
         scan_info: dict | None = None,
+        setup: Any | None = None,
+        per_step: Any | None = None,
+        closeout: Any | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -366,14 +403,33 @@ class GeecsSession:
         overrides individual ScanInfo ini fields (``scan_parameter``,
         ``start``, ``end``, ``step``, ``shots``, ``background``,
         ``scan_mode``) for legacy-format fidelity.
+
+        *motor* may be a **sequence** of movables for a multi-axis grid scan
+        (outermost axis first); *positions* is then the explicit list of
+        grid points as tuples aligned with the motors (one bin per grid
+        point; only changed axes are re-moved).  All motors' readbacks are
+        recorded in every event row, exactly like the single-motor case.
+
+        ``setup`` / ``per_step`` / ``closeout`` are optional plan-stub
+        callables (typically compiled ActionPlans): setup runs in the plan
+        preamble before the first step, per_step at every step boundary
+        (after the move, before the shots), closeout in a finalize wrapper
+        that runs even on abort, after the trigger disarm.  See
+        :func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         detectors = list(detectors)
         if not detectors:
             raise ValueError("scan() needs at least one detector")
+        motors = normalize_motors(motor)
         if positions is None:
-            if motor is not None:
+            if len(motors) > 1:
+                raise ValueError(
+                    "multi-axis scans need explicit positions (a list of "
+                    "grid-point tuples, outermost axis first)"
+                )
+            if motors:
                 if None in (start, end, step):
                     raise ValueError("motor scans need start/end/step or positions")
                 positions = _positions(float(start), float(end), float(step))
@@ -392,9 +448,11 @@ class GeecsSession:
                 "(pre-claimed) or neither to claim a new scan"
             )
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -431,13 +489,21 @@ class GeecsSession:
             scan_folder=scan_folder,
             saving_detectors=saving_detectors,
             extra_md={"description": description, **(md or {})},
+            setup=setup,
+            per_step=per_step,
+            closeout=closeout,
         )
 
         self._last_run_uid = None
-        self.RE(plan)
+        # Headless scans get the same per-scan scan.log as bridge scans
+        # (Gate-2 finding).  Attach only when this call claimed the number:
+        # a pre-claimed number means the caller (e.g. the GUI bridge) owns
+        # the scan.log handler, and a second one would duplicate every line.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            self.RE(plan)
 
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
         return self._last_run_uid
 
     def optimize(
@@ -517,9 +583,11 @@ class GeecsSession:
             name: self._read_movable(movable) for name, movable in variables.items()
         }
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -631,48 +699,53 @@ class GeecsSession:
 
             run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
 
-        token = self.RE.subscribe(_collect)
-        self._last_run_uid = None
-        try:
-            self.RE(run_plan)
-        except BaseException:
-            if on_finish in ("initial", "best"):
-                self._move_movables(variables, initial_values)
-            raise
-        finally:
-            self.RE.unsubscribe(token)
-        _observe_previous(len(history) + 1)  # final bin
-
-        if on_finish in ("initial", "best"):
-            target = initial_values
-            if on_finish == "best":
-                finite = [h for h in history if np.isfinite(h["objective"])]
-                if finite:
-                    target = max(finite, key=lambda h: h["objective"])["inputs"]
-                else:
-                    logger.warning(
-                        "on_finish='best' but no finite objectives; restoring initial"
-                    )
-            self._move_movables(variables, target)
-            logger.info("optimize on_finish=%s -> %s", on_finish, target)
-
-        if save_data and scan_folder is not None and history:
-            import json
-
+        # Headless optimizations get the same per-scan scan.log as bridge
+        # runs (see scan()): attach only when this call claimed the number.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            token = self.RE.subscribe(_collect)
+            self._last_run_uid = None
             try:
-                path = Path(scan_folder) / "optimization.json"
-                # Failed objectives are NaN in-process; serialize them as
-                # null (allow_nan=False makes any regression fail loudly
-                # instead of writing invalid JSON).
-                path.write_text(
-                    json.dumps(_json_safe(history), indent=2, allow_nan=False)
-                )
-                logger.info("Optimization history written to %s", path)
-            except Exception:
-                logger.warning("Could not write optimization history", exc_info=True)
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
-        return self._last_run_uid, history
+                self.RE(run_plan)
+            except BaseException:
+                if on_finish in ("initial", "best"):
+                    self._move_movables(variables, initial_values)
+                raise
+            finally:
+                self.RE.unsubscribe(token)
+            _observe_previous(len(history) + 1)  # final bin
+
+            if on_finish in ("initial", "best"):
+                target = initial_values
+                if on_finish == "best":
+                    finite = [h for h in history if np.isfinite(h["objective"])]
+                    if finite:
+                        target = max(finite, key=lambda h: h["objective"])["inputs"]
+                    else:
+                        logger.warning(
+                            "on_finish='best' but no finite objectives; restoring initial"
+                        )
+                self._move_movables(variables, target)
+                logger.info("optimize on_finish=%s -> %s", on_finish, target)
+
+            if save_data and scan_folder is not None and history:
+                import json
+
+                try:
+                    path = Path(scan_folder) / "optimization.json"
+                    # Failed objectives are NaN in-process; serialize them as
+                    # null (allow_nan=False makes any regression fail loudly
+                    # instead of writing invalid JSON).
+                    path.write_text(
+                        json.dumps(_json_safe(history), indent=2, allow_nan=False)
+                    )
+                    logger.info("Optimization history written to %s", path)
+                except Exception:
+                    logger.warning(
+                        "Could not write optimization history", exc_info=True
+                    )
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
+            return self._last_run_uid, history
 
     def run(
         self,
@@ -692,9 +765,11 @@ class GeecsSession:
         this session's experiment in the configs repository, which loads
         new-schema YAML when present and converts legacy files otherwise —
         and the request is mapped onto :meth:`scan` / :meth:`optimize` by
-        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
-        docstring for the documented v1 gaps: multi-axis, actions, pseudo
-        variables, optimize without an injected objective/suggester).
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` —
+        including multi-axis grids, setup/per-step/closeout action
+        execution, and multi-device trigger profiles (see its docstring for
+        the remaining documented v1 gaps: pseudo variables, ``all_scalars``,
+        optimize without an injected objective/suggester).
 
         Parameters
         ----------
@@ -801,10 +876,17 @@ class GeecsSession:
             )
             return
         real = [p for p in positions if p is not None]
+        if real and isinstance(real[0], (list, tuple)):
+            # Multi-axis grid: the legacy 1-D ini fields (Start/End/Step)
+            # describe the outermost (slowest) axis; the full grid lives in
+            # the run metadata (scan_axes / grid_shape).
+            real = [p[0] for p in real]
         o = overrides or {}
-        scan_var = (
-            o.get("scan_parameter") or getattr(motor, "name", None) or "Shotnumber"
+        motors = normalize_motors(motor)
+        default_var = (
+            ",".join(getattr(m, "name", str(m)) for m in motors) if motors else None
         )
+        scan_var = o.get("scan_parameter") or default_var or "Shotnumber"
         start = o.get("start", real[0] if real else 0)
         end = o.get("end", real[-1] if real else 0)
         step = o.get("step", (real[1] - real[0]) if len(real) > 1 else 0)

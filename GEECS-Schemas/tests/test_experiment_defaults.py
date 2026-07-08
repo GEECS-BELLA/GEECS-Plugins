@@ -71,11 +71,20 @@ class TestExperimentDefaults:
 
     def test_merge_rule_documented_in_operator_language(self):
         # The resolver contract is part of the schema's documentation:
-        # defaults run first, then the scan's own.
+        # defaults run first on setup and last on closeout (teardown
+        # mirrors setup — ratified with the action-execution milestone).
         doc = inspect.getdoc(ExperimentDefaults) or ""
         module_doc = inspect.getmodule(ExperimentDefaults).__doc__ or ""
         assert "defaults run first" in (doc + module_doc).lower()
+        assert "mirrors" in (doc + module_doc).lower()
         actions_field = ExperimentDefaults.model_fields["actions"]
         assert "run first" in (actions_field.description or "")
+        assert "run last" in (actions_field.description or "")
+        # The mirrored closeout is pinned on the closeout field itself, so
+        # an editor tooltip states the ordering an operator will observe.
+        from geecs_schemas.experiment_defaults import DefaultActions
+
+        closeout_field = DefaultActions.model_fields["closeout"]
+        assert "after any" in (closeout_field.description or "")
         # provenance requirement is stated for resolver implementers
         assert "provenance" in module_doc

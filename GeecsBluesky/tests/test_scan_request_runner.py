@@ -2,30 +2,39 @@
 
 Covers the configs-repo resolver (new-schema YAML loads directly, legacy YAML
 converts — the whole existing corpus is usable immediately), the SaveSet →
-devices_config derivation rules, the TriggerProfile → ShotControlConfig
-adapter, and the request execution mapping onto a fake GeecsSession —
-including every documented v1 gap (multi-axis, actions, pseudo variables,
-optimize without injected callables) refusing loudly.
+devices_config derivation rules, the TriggerProfile → ShotControlWrites
+adapter (ordered, multi-device), action slot assembly + compilation +
+wiring, multi-axis grid execution, and the request execution mapping onto a
+fake GeecsSession.  The remaining documented v1 gaps (pseudo variables,
+``all_scalars``, optimize without injected callables) refuse loudly; optimize
+*with* actions runs but skips the actions (logged + recorded in metadata),
+since optimize has no action hooks yet.
 """
 
 from __future__ import annotations
 
+import logging
+
 import pytest
+from bluesky.utils import Msg
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.scan_request_runner import (
-    MULTI_AXIS_MESSAGE,
     ConfigResolver,
     ConfigsRepoResolver,
     apply_experiment_defaults,
-    collect_save_set_action_names,
+    assemble_action_slots,
+    build_action_registry,
+    collect_save_set_rituals,
+    resolve_save_set_and_rituals,
     resolve_save_set_checked,
     run_scan_request,
     save_set_to_devices_config,
-    shot_control_config_from_trigger_profile,
+    trigger_writes_from_profile,
 )
 from geecs_schemas import (
+    ActionPlan,
     ExperimentDefaults,
     PseudoScanVariable,
     SaveSet,
@@ -46,6 +55,35 @@ class _FakeDevice:
         self.kind = kind
 
 
+class _FakeActionSignal:
+    """Named stand-in for a CA action signal (message-level assertions only)."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _FakeActionFactory:
+    """Recording SettableFactory: named fakes, cached per (device, variable)."""
+
+    def __init__(self) -> None:
+        self.settables: dict[tuple[str, str], _FakeActionSignal] = {}
+        self.readables: dict[tuple[str, str], _FakeActionSignal] = {}
+        self.disconnected = False
+
+    def get_settable(self, device: str, variable: str) -> _FakeActionSignal:
+        return self.settables.setdefault(
+            (device, variable), _FakeActionSignal(f"{device}-{variable}")
+        )
+
+    def get_readable(self, device: str, variable: str) -> _FakeActionSignal:
+        return self.readables.setdefault(
+            (device, variable), _FakeActionSignal(f"{device}-{variable}")
+        )
+
+    async def disconnect(self) -> None:
+        self.disconnected = True
+
+
 class _FakeSession:
     def __init__(self) -> None:
         self.devices: list[tuple[str, str]] = []  # (device, factory)
@@ -53,6 +91,7 @@ class _FakeSession:
         self.scan_kwargs: dict | None = None
         self.optimize_kwargs: dict | None = None
         self.disconnected: list = []
+        self.action_factories: list[_FakeActionFactory] = []
 
     def _make(self, device: str, kind: str) -> _FakeDevice:
         self.devices.append((device, kind))
@@ -73,6 +112,11 @@ class _FakeSession:
     def settable(self, device, variable, *, name=None):
         return self._make(f"{device}:{variable}", "settable")
 
+    def action_signal_factory(self):
+        factory = _FakeActionFactory()
+        self.action_factories.append(factory)
+        return factory
+
     def shot_control(self, config):
         self.shot_control_calls.append(config)
 
@@ -86,6 +130,26 @@ class _FakeSession:
 
     def disconnect(self, *devices):
         self.disconnected.extend(devices)
+
+
+def _collect_messages(plan) -> list[Msg]:
+    """Drive a plan-stub generator without a RunEngine (no responses needed)."""
+    messages: list[Msg] = []
+    try:
+        message = plan.send(None)
+        while True:
+            messages.append(message)
+            message = plan.send(None)
+    except StopIteration:
+        pass
+    return messages
+
+
+def _set_targets(plan) -> list[tuple[str, object]]:
+    """The (signal name, value) sequence of a plan's 'set' messages."""
+    return [
+        (m.obj.name, m.args[0]) for m in _collect_messages(plan) if m.command == "set"
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -158,6 +222,7 @@ setup_action:
 LEGACY_SCAN_DEVICES = """\
 single_scan_devices:
   jet_z: "U_ESP_JetXYZ:Position.Axis 3"
+  jet_x: "U_ESP_JetXYZ:Position.Axis 1"
 """
 
 NEW_SCAN_VARIABLES = """\
@@ -180,6 +245,63 @@ actions:
         device: U_PLC
         variable: DO.Ch9
         value: 'on'
+  default_prep:
+    steps:
+      - action: set
+        device: U_PLC
+        variable: DO.Ch1
+        value: 'on'
+  scan_prep:
+    steps:
+      - action: set
+        device: U_PLC
+        variable: DO.Ch2
+        value: 'on'
+  between_steps:
+    steps:
+      - action: set
+        device: U_PLC
+        variable: DO.Ch3
+        value: 'on'
+  scan_cleanup:
+    steps:
+      - action: set
+        device: U_PLC
+        variable: DO.Ch4
+        value: 'off'
+  default_cleanup:
+    steps:
+      - action: set
+        device: U_PLC
+        variable: DO.Ch5
+        value: 'off'
+  cam_ritual:
+    steps:
+      - action: set
+        device: U_Cam
+        variable: Analysis
+        value: 'on'
+  cam_park:
+    steps:
+      - action: set
+        device: U_Cam
+        variable: Analysis
+        value: 'off'
+"""
+
+# New-schema save set whose entries carry setup/closeout rituals (shared
+# ritual named by both entries — must run once).
+RITUAL_SAVE_SET = """\
+schema_version: 1
+name: RitualSet
+entries:
+  - device: U_Cam
+    scalars: [MaxCounts]
+    setup: [cam_ritual]
+    closeout: [cam_park]
+  - device: U_Cam2
+    scalars: [Val]
+    setup: [cam_ritual]
 """
 
 
@@ -200,6 +322,7 @@ def configs_root(tmp_path):
     (legacy / "scan_devices" / "scan_devices.yaml").write_text(LEGACY_SCAN_DEVICES)
     (legacy / "action_library").mkdir()
     (legacy / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
+    (legacy / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
 
     modern = tmp_path / "ModernExp"
     (modern / "save_devices").mkdir(parents=True)
@@ -307,32 +430,35 @@ def test_action_plan_resolution(legacy_resolver) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TriggerProfile → ShotControlConfig adapter
+# TriggerProfile → ShotControlWrites adapter (ordered, multi-device)
 # ---------------------------------------------------------------------------
 
 
 def test_trigger_adapter_preserves_state_semantics(legacy_resolver) -> None:
-    """values_for_state / defines_state agree between the two models."""
+    """Per-state writes and defines_state agree between profile and writes."""
     profile = legacy_resolver.resolve_trigger_profile("HTU-Normal")
-    config = shot_control_config_from_trigger_profile(profile)
-    assert isinstance(config, ShotControlConfig)
-    assert config.device == profile.devices[0]
+    writes = trigger_writes_from_profile(profile)
+    assert isinstance(writes, ShotControlWrites)
+    assert writes.name == profile.name
+    assert writes.devices == profile.devices
     for state in ("OFF", "SCAN", "STANDBY", "SINGLESHOT", "ARMED"):
-        expected = {w.variable: w.value for w in profile.writes_for(state)}
-        assert config.values_for_state(state) == expected, state
-        assert config.defines_state(state) == profile.defines_state(state), state
+        expected = [(w.device, w.variable, w.value) for w in profile.writes_for(state)]
+        assert writes.writes_for_state(state) == expected, state
+        assert writes.defines_state(state) == profile.defines_state(state), state
 
 
 def test_trigger_adapter_applies_variant(modern_resolver) -> None:
     profile = modern_resolver.resolve_trigger_profile("NewProfile")
-    config = shot_control_config_from_trigger_profile(profile, "laser_off")
-    assert config.values_for_state("SCAN") == {"Trigger.Source": "Internal"}
+    writes = trigger_writes_from_profile(profile, "laser_off")
+    assert writes.writes_for_state("SCAN") == [
+        ("U_DG645_ShotControl", "Trigger.Source", "Internal")
+    ]
 
 
 def test_trigger_adapter_unknown_variant_raises(modern_resolver) -> None:
     profile = modern_resolver.resolve_trigger_profile("NewProfile")
     with pytest.raises(GeecsConfigurationError, match="laser_off"):
-        shot_control_config_from_trigger_profile(profile, "nope")
+        trigger_writes_from_profile(profile, "nope")
 
 
 # ---------------------------------------------------------------------------
@@ -468,9 +594,9 @@ def test_trigger_profile_is_attached_via_the_adapter(legacy_resolver) -> None:
     run_scan_request(
         session, _noscan_request(trigger_profile="HTU-Normal"), legacy_resolver
     )
-    (config,) = session.shot_control_calls
-    assert isinstance(config, ShotControlConfig)
-    assert config.device == "U_DG645_ShotControl"
+    (writes,) = session.shot_control_calls
+    assert isinstance(writes, ShotControlWrites)
+    assert writes.devices == ["U_DG645_ShotControl"]
 
 
 def test_step_request_setpoint_variable_uses_settable(legacy_resolver) -> None:
@@ -500,30 +626,126 @@ def test_step_request_motor_kind_and_position_list(modern_resolver) -> None:
     assert kwargs["positions"] == [4.0, 4.5, 6.0]
 
 
-def test_multi_axis_raises_not_implemented(legacy_resolver) -> None:
+# ---------------------------------------------------------------------------
+# Multi-axis grid execution (outer product, first axis outermost)
+# ---------------------------------------------------------------------------
+
+
+def test_two_axis_request_runs_as_outer_product_grid(legacy_resolver) -> None:
+    session = _FakeSession()
     request = _noscan_request(
         mode="step",
         axes=[
-            {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}},
-            {"variable": "jet_x", "positions": {"start": 0, "end": 1, "step": 0.5}},
+            {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 1}},
+            {"variable": "jet_x", "positions": {"values": [4.0, 5.0, 6.0]}},
         ],
     )
-    with pytest.raises(NotImplementedError, match=MULTI_AXIS_MESSAGE):
-        run_scan_request(_FakeSession(), request, legacy_resolver)
+    run_scan_request(session, request, legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    # N movables, outermost axis first.
+    assert [m._geecs_device_name for m in kwargs["motor"]] == [
+        "U_ESP_JetXYZ:Position.Axis 3",
+        "U_ESP_JetXYZ:Position.Axis 1",
+    ]
+    # Outer product in list order: first axis outermost/slowest.
+    assert kwargs["positions"] == [
+        (0.0, 4.0),
+        (0.0, 5.0),
+        (0.0, 6.0),
+        (1.0, 4.0),
+        (1.0, 5.0),
+        (1.0, 6.0),
+    ]
+    # ScanInfo carries both targets; its 1-D fields describe the outer axis.
+    info = kwargs["scan_info"]
+    assert info["scan_parameter"] == (
+        "U_ESP_JetXYZ:Position.Axis 3,U_ESP_JetXYZ:Position.Axis 1"
+    )
+    assert (info["start"], info["end"], info["step"]) == (0.0, 1.0, 1.0)
+    # Run metadata carries the axes and grid shape.
+    md = kwargs["md"]
+    assert md["scan_axes"] == ["jet_z", "jet_x"]
+    assert md["grid_shape"] == [2, 3]
+    assert md["num_grid_points"] == 6
+    assert md["scan_variable"] == "jet_z,jet_x"
+    # Both movables are disconnected with the scan's devices.
+    assert len(session.disconnected) == 5  # 3 detectors + 2 movables
 
 
-def test_valid_actions_are_validated_then_refused(legacy_resolver) -> None:
+def test_single_axis_request_shape_is_unchanged_by_grid_support(
+    legacy_resolver,
+) -> None:
+    """Regression: one axis still passes a bare motor + flat float positions."""
     session = _FakeSession()
-    request = _noscan_request(actions={"setup": ["close_shutters"]})
-    with pytest.raises(NotImplementedError, match="close_shutters"):
-        run_scan_request(session, request, legacy_resolver)
-    assert session.devices == []  # refused before any hardware was touched
+    request = _noscan_request(
+        mode="step",
+        axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}],
+    )
+    run_scan_request(session, request, legacy_resolver)
+    kwargs = session.scan_kwargs
+    assert not isinstance(kwargs["motor"], list)
+    assert kwargs["positions"] == [0.0, 0.5, 1.0]
+    assert "scan_axes" not in kwargs["md"]
+
+
+# ---------------------------------------------------------------------------
+# Action execution wiring (setup / per_step / closeout compiled + passed)
+# ---------------------------------------------------------------------------
+
+
+def test_actions_compile_into_session_scan_hooks(legacy_resolver) -> None:
+    session = _FakeSession()
+    request = _noscan_request(
+        actions={
+            "setup": ["scan_prep"],
+            "per_step": ["between_steps"],
+            "closeout": ["scan_cleanup"],
+        }
+    )
+    run_scan_request(session, request, legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    # Each hook is a plan-stub callable yielding the compiled steps.
+    assert _set_targets(kwargs["setup"]()) == [("U_PLC-DO.Ch2", "on")]
+    assert _set_targets(kwargs["per_step"]()) == [("U_PLC-DO.Ch3", "on")]
+    assert _set_targets(kwargs["closeout"]()) == [("U_PLC-DO.Ch4", "off")]
+    # Reusable: per_step must produce a fresh generator per step boundary.
+    assert _set_targets(kwargs["per_step"]()) == [("U_PLC-DO.Ch3", "on")]
+    # Provenance: the assembled slot order lands in the run metadata.
+    assert kwargs["md"]["action_plans"] == {
+        "setup": ["scan_prep"],
+        "per_step": ["between_steps"],
+        "closeout": ["scan_cleanup"],
+    }
+    # Signals were prefetched (connected pre-claim) on the session's factory,
+    # and the factory rides the scan's device cleanup.
+    (factory,) = session.action_factories
+    assert set(factory.settables) == {
+        ("U_PLC", "DO.Ch2"),
+        ("U_PLC", "DO.Ch3"),
+        ("U_PLC", "DO.Ch4"),
+    }
+    assert factory in session.disconnected
+
+
+def test_request_without_actions_passes_no_hooks(legacy_resolver) -> None:
+    session = _FakeSession()
+    run_scan_request(session, _noscan_request(), legacy_resolver)
+    kwargs = session.scan_kwargs
+    assert kwargs["setup"] is None
+    assert kwargs["per_step"] is None
+    assert kwargs["closeout"] is None
+    assert session.action_factories == []  # no factory built for nothing
+    assert "action_plans" not in kwargs["md"]
 
 
 def test_unknown_action_name_fails_validation_first(legacy_resolver) -> None:
+    session = _FakeSession()
     request = _noscan_request(actions={"closeout": ["not_a_plan"]})
     with pytest.raises(GeecsConfigurationError, match="not_a_plan"):
-        run_scan_request(_FakeSession(), request, legacy_resolver)
+        run_scan_request(session, request, legacy_resolver)
+    assert session.devices == []  # failed before any hardware was touched
 
 
 def test_pseudo_variable_raises_not_implemented(modern_resolver) -> None:
@@ -603,12 +825,12 @@ def test_optimize_maps_onto_session_optimize(legacy_resolver) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Multi-device trigger profiles: single-device fast path / engine-pending raise
+# Multi-device trigger profiles: ordered writes, single-device regression
 # ---------------------------------------------------------------------------
 
 
-def test_multi_device_shape_single_device_fast_path() -> None:
-    """Write lists that all name one device adapt exactly as before."""
+def test_single_device_profile_adapts_unchanged() -> None:
+    """Regression: one-device profiles carry the same writes as before."""
     profile = TriggerProfile(
         name="new-shape",
         states={
@@ -621,18 +843,18 @@ def test_multi_device_shape_single_device_fast_path() -> None:
             ],
         },
     )
-    config = shot_control_config_from_trigger_profile(profile)
-    assert config.device == "U_DG645"
-    assert config.values_for_state("SCAN") == {
-        "Trigger.Source": "Ext",
-        "Amplitude.Ch AB": "4.0",
-    }
-    assert config.values_for_state("STANDBY") == {"Amplitude.Ch AB": "0.5"}
-    assert not config.defines_state("OFF")
+    writes = trigger_writes_from_profile(profile)
+    assert writes.devices == ["U_DG645"]
+    assert writes.writes_for_state("SCAN") == [
+        ("U_DG645", "Trigger.Source", "Ext"),
+        ("U_DG645", "Amplitude.Ch AB", "4.0"),
+    ]
+    assert writes.writes_for_state("STANDBY") == [("U_DG645", "Amplitude.Ch AB", "0.5")]
+    assert not writes.defines_state("OFF")
 
 
-def test_multi_device_writes_are_engine_pending() -> None:
-    """Writes spanning devices are schema-legal but refused by the engine."""
+def test_multi_device_writes_preserve_declared_order() -> None:
+    """A transition spanning devices keeps the profile's write order."""
     profile = TriggerProfile(
         name="spans-devices",
         states={
@@ -640,18 +862,27 @@ def test_multi_device_writes_are_engine_pending() -> None:
                 {"device": "U_DG645", "variable": "Trigger.Source", "value": "Ext"},
                 {"device": "U_PLC", "variable": "DO.Ch9", "value": "on"},
             ],
+            "STANDBY": [
+                {"device": "U_PLC", "variable": "DO.Ch9", "value": "off"},
+                {"device": "U_DG645", "variable": "Trigger.Source", "value": "Int"},
+            ],
         },
     )
-    assert profile.devices == ["U_DG645", "U_PLC"]  # schema accepts it
-    with pytest.raises(
-        NotImplementedError,
-        match="multi-device trigger profiles land with a later milestone",
-    ):
-        shot_control_config_from_trigger_profile(profile)
+    writes = trigger_writes_from_profile(profile)
+    assert set(writes.devices) == {"U_DG645", "U_PLC"}
+    assert writes.writes_for_state("SCAN") == [
+        ("U_DG645", "Trigger.Source", "Ext"),
+        ("U_PLC", "DO.Ch9", "on"),
+    ]
+    # STANDBY declares the reverse device order — preserved verbatim.
+    assert writes.writes_for_state("STANDBY") == [
+        ("U_PLC", "DO.Ch9", "off"),
+        ("U_DG645", "Trigger.Source", "Int"),
+    ]
 
 
-def test_multi_device_span_via_variant_is_also_refused() -> None:
-    """A variant that drags in a second device trips the same refusal."""
+def test_multi_device_span_via_variant_adapts() -> None:
+    """A variant dragging in a second device lands in the writes."""
     profile = TriggerProfile(
         name="variant-spans",
         states={
@@ -669,16 +900,49 @@ def test_multi_device_span_via_variant_is_also_refused() -> None:
             }
         },
     )
-    # The base profile alone is single-device and adapts fine.
-    assert shot_control_config_from_trigger_profile(profile).device == "U_DG645"
-    with pytest.raises(NotImplementedError, match="multi-device"):
-        shot_control_config_from_trigger_profile(profile, "jet_on")
+    assert trigger_writes_from_profile(profile).devices == ["U_DG645"]
+    overlaid = trigger_writes_from_profile(profile, "jet_on")
+    assert overlaid.writes_for_state("SCAN") == [
+        ("U_DG645", "Trigger.Source", "Ext"),
+        ("U_Jet", "Pressure", "5"),
+    ]
+
+
+def test_multi_device_profile_runs_through_the_request(legacy_resolver) -> None:
+    """A request naming a multi-device profile executes with zero refusals."""
+    session = _FakeSession()
+    profile = TriggerProfile(
+        name="spans",
+        states={
+            "SCAN": [
+                {"device": "U_DG645", "variable": "Amplitude.Ch AB", "value": "4.0"},
+                {"device": "U_PLC", "variable": "DO.Ch9", "value": "on"},
+            ],
+        },
+    )
+
+    class _Resolver:
+        def resolve_save_set(self, name):
+            return legacy_resolver.resolve_save_set(name)
+
+        def resolve_trigger_profile(self, name):
+            return profile
+
+        def resolve_action_plan(self, name):
+            raise GeecsConfigurationError(name)
+
+        def resolve_scan_variable(self, name):
+            return legacy_resolver.resolve_scan_variable(name)
+
+    run_scan_request(session, _noscan_request(trigger_profile="spans"), _Resolver())
+    (writes,) = session.shot_control_calls
+    assert writes.devices == ["U_DG645", "U_PLC"]
 
 
 def test_profile_without_any_device_is_rejected() -> None:
     profile = TriggerProfile(name="empty", states={})
     with pytest.raises(GeecsConfigurationError, match="names no trigger device"):
-        shot_control_config_from_trigger_profile(profile)
+        trigger_writes_from_profile(profile)
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +968,47 @@ def test_apply_experiment_defaults_fills_unset_fields() -> None:
     # The original request is never mutated.
     assert request.trigger_profile is None
     assert request.actions.setup == []
+
+
+def test_apply_experiment_defaults_brackets_the_scans_own_plans() -> None:
+    """Mirrored merge: defaults prepend to setup, append to closeout."""
+    request = _noscan_request(
+        actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]}
+    )
+    defaults = {"actions": {"setup": ["default_prep"], "closeout": ["default_cleanup"]}}
+    updated, applied = apply_experiment_defaults(request, defaults)
+    assert updated.actions.setup == ["default_prep", "scan_prep"]
+    assert updated.actions.closeout == ["scan_cleanup", "default_cleanup"]
+    assert applied == {
+        "actions.setup": ["default_prep"],
+        "actions.closeout": ["default_cleanup"],
+    }
+
+
+def test_assemble_action_slots_layers_nest_like_context_managers() -> None:
+    """setup: defaults → rituals → scan's own; closeout: exact reverse."""
+    request = _noscan_request(
+        actions={
+            "setup": ["scan_prep"],
+            "per_step": ["between_steps"],
+            "closeout": ["scan_cleanup"],
+        }
+    )
+    defaults = {"actions": {"setup": ["default_prep"], "closeout": ["default_cleanup"]}}
+    merged, applied = apply_experiment_defaults(request, defaults)
+    rituals = {"setup": ["cam_ritual"], "closeout": ["cam_park"]}
+    slots = assemble_action_slots(merged.actions, applied, rituals)
+    assert slots == {
+        "setup": ["default_prep", "cam_ritual", "scan_prep"],
+        "per_step": ["between_steps"],
+        "closeout": ["scan_cleanup", "cam_park", "default_cleanup"],
+    }
+
+
+def test_assemble_action_slots_without_defaults_or_rituals() -> None:
+    request = _noscan_request(actions={"setup": ["scan_prep"]})
+    slots = assemble_action_slots(request.actions, {}, {"setup": [], "closeout": []})
+    assert slots == {"setup": ["scan_prep"], "per_step": [], "closeout": []}
 
 
 def test_apply_experiment_defaults_none_is_a_noop() -> None:
@@ -739,29 +1044,44 @@ def test_run_applies_defaults_and_records_provenance(
     session = _FakeSession()
     run_scan_request(session, _noscan_request(), legacy_resolver)
 
-    (config,) = session.shot_control_calls
-    assert isinstance(config, ShotControlConfig)
-    assert config.device == "U_DG645_ShotControl"
+    (writes,) = session.shot_control_calls
+    assert isinstance(writes, ShotControlWrites)
+    assert writes.devices == ["U_DG645_ShotControl"]
     assert session.scan_kwargs["md"]["applied_defaults"] == {
         "trigger_profile": "HTU-Normal"
     }
 
 
-def test_default_actions_get_the_same_refusal_treatment(
+def test_default_actions_execute_bracketing_the_scans_own(
     configs_root, legacy_resolver
 ) -> None:
-    """Defaults-supplied actions are validated, then refused like explicit ones."""
+    """Defaults-supplied plans run first on setup and last on closeout."""
     (configs_root / "LegacyExp" / "experiment_defaults.yaml").write_text(
-        "actions:\n  setup: [close_shutters]\n"
+        "actions:\n  setup: [default_prep]\n  closeout: [default_cleanup]\n"
     )
     session = _FakeSession()
-    with pytest.raises(NotImplementedError, match="close_shutters"):
-        run_scan_request(session, _noscan_request(), legacy_resolver)
-    assert session.devices == []  # refused before any hardware
+    request = _noscan_request(
+        actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]}
+    )
+    run_scan_request(session, request, legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    assert _set_targets(kwargs["setup"]()) == [
+        ("U_PLC-DO.Ch1", "on"),  # default_prep first
+        ("U_PLC-DO.Ch2", "on"),  # then the scan's own
+    ]
+    assert _set_targets(kwargs["closeout"]()) == [
+        ("U_PLC-DO.Ch4", "off"),  # the scan's own first
+        ("U_PLC-DO.Ch5", "off"),  # defaults last (outermost bracket)
+    ]
+    assert kwargs["md"]["action_plans"] == {
+        "setup": ["default_prep", "scan_prep"],
+        "closeout": ["scan_cleanup", "default_cleanup"],
+    }
 
 
 # ---------------------------------------------------------------------------
-# SaveSet entry-level setup/closeout references (newer SaveSet schema)
+# SaveSet entry-level setup/closeout rituals (collected, de-duplicated, run)
 # ---------------------------------------------------------------------------
 
 
@@ -778,7 +1098,7 @@ class _SaveSetResolver:
     def resolve_action_plan(self, name):
         if name not in self._known:
             raise GeecsConfigurationError(f"action plan {name!r} not found")
-        return object()
+        return ActionPlan.model_validate({"steps": [{"do": "wait", "seconds": 1.0}]})
 
 
 def test_entry_level_actions_collected() -> None:
@@ -791,10 +1111,25 @@ def test_entry_level_actions_collected() -> None:
             SaveSetEntry(device="U_B", scalars=["y"]),
         ],
     )
-    assert collect_save_set_action_names(save_set) == ["prep_cam", "park"]
+    assert collect_save_set_rituals(save_set) == {
+        "setup": ["prep_cam"],
+        "closeout": ["park"],
+    }
     # Entries without references contribute nothing.
     plain = SaveSet(name="s", entries=[SaveSetEntry(device="U_A", scalars=["x"])])
-    assert collect_save_set_action_names(plain) == []
+    assert collect_save_set_rituals(plain) == {"setup": [], "closeout": []}
+
+
+def test_entry_rituals_deduplicate_across_entries() -> None:
+    """Two entries naming the same ritual run it once (schema contract)."""
+    save_set = SaveSet(
+        name="s",
+        entries=[
+            SaveSetEntry(device="U_A", scalars=["x"], setup=["prep", "align"]),
+            SaveSetEntry(device="U_B", scalars=["y"], setup=["prep"]),
+        ],
+    )
+    assert collect_save_set_rituals(save_set)["setup"] == ["prep", "align"]
 
 
 def _entry_action_save_set(**entry_overrides) -> SaveSet:
@@ -803,30 +1138,231 @@ def _entry_action_save_set(**entry_overrides) -> SaveSet:
     return SaveSet.model_validate({"name": "s", "entries": [entry]})
 
 
-def test_entry_level_actions_validated_then_refused() -> None:
+def test_resolve_save_set_and_rituals_validates_names() -> None:
     resolver = _SaveSetResolver(_entry_action_save_set(setup=["prep_cam"]))
-    with pytest.raises(NotImplementedError, match="prep_cam"):
-        resolve_save_set_checked(resolver, "s")
+    save_set, rituals = resolve_save_set_and_rituals(resolver, "s")
+    assert rituals == {"setup": ["prep_cam"], "closeout": []}
 
 
 def test_entry_level_unknown_action_fails_validation_first() -> None:
     resolver = _SaveSetResolver(_entry_action_save_set(setup=["nope"]))
     with pytest.raises(GeecsConfigurationError, match="nope"):
+        resolve_save_set_and_rituals(resolver, "s")
+
+
+def test_bridge_path_still_refuses_entry_rituals() -> None:
+    """resolve_save_set_checked (GUI-bridge helper) refuses with a pointer."""
+    resolver = _SaveSetResolver(_entry_action_save_set(setup=["prep_cam"]))
+    with pytest.raises(NotImplementedError, match="GeecsSession.run"):
         resolve_save_set_checked(resolver, "s")
 
 
-def test_converted_element_actions_resolve_and_are_refused(legacy_resolver) -> None:
-    """A legacy element with setup_action converts to entry refs that
-    validate against the extracted plans and then get the M3b refusal."""
-    with pytest.raises(NotImplementedError, match="UC_WithActions_setup"):
-        resolve_save_set_checked(legacy_resolver, "UC_WithActions")
-
-
-def test_run_refuses_save_set_with_converted_element_actions(
+def test_entry_rituals_execute_between_defaults_and_request(
     legacy_resolver,
 ) -> None:
+    """Rituals from RitualSet land between defaults and the request's own
+    plans on setup, and mirrored on closeout — with the shared ritual
+    de-duplicated (both entries name cam_ritual; it runs once)."""
+    session = _FakeSession()
+    request = _noscan_request(
+        save_set="RitualSet",
+        actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]},
+    )
+    run_scan_request(session, request, legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    assert kwargs["md"]["action_plans"] == {
+        "setup": ["cam_ritual", "scan_prep"],
+        "closeout": ["scan_cleanup", "cam_park"],
+    }
+    assert _set_targets(kwargs["setup"]()) == [
+        ("U_Cam-Analysis", "on"),  # the entries' ritual, once
+        ("U_PLC-DO.Ch2", "on"),  # then the scan's own setup
+    ]
+    assert _set_targets(kwargs["closeout"]()) == [
+        ("U_PLC-DO.Ch4", "off"),  # the scan's own closeout first
+        ("U_Cam-Analysis", "off"),  # then the entries' ritual
+    ]
+
+
+def test_converted_element_actions_execute(legacy_resolver) -> None:
+    """A legacy element's setup_action converts to an entry ritual that the
+    runner compiles and executes (the extracted plan resolves by name)."""
     session = _FakeSession()
     request = _noscan_request(save_set="UC_WithActions")
-    with pytest.raises(NotImplementedError, match="UC_WithActions_setup"):
-        run_scan_request(session, request, legacy_resolver)
-    assert session.devices == []  # refused before any hardware
+    run_scan_request(session, request, legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    assert kwargs["md"]["action_plans"]["setup"] == ["UC_WithActions_setup"]
+    assert _set_targets(kwargs["setup"]()) == [("U_PLC-DO.Ch1", "on")]
+    assert kwargs["closeout"] is None
+
+
+# ---------------------------------------------------------------------------
+# End to end: axes + actions + multi-device profile, zero NotImplementedError
+# ---------------------------------------------------------------------------
+
+MULTI_DEVICE_PROFILE = """\
+schema_version: 1
+name: spans
+states:
+  SCAN:
+    - {device: U_DG645, variable: Amplitude.Ch AB, value: "4.0"}
+    - {device: U_PLC, variable: DO.Ch7, value: "on"}
+  STANDBY:
+    - {device: U_PLC, variable: DO.Ch7, value: "off"}
+    - {device: U_DG645, variable: Amplitude.Ch AB, value: "0.5"}
+"""
+
+
+def test_full_fake_session_flow_axes_actions_multi_device_trigger(
+    configs_root, legacy_resolver
+) -> None:
+    """The M3b acceptance flow: a ScanRequest carrying a 2-axis grid, all
+    three action slots, entry rituals, experiment defaults, and a
+    multi-device trigger profile drives the whole fake-session flow with
+    zero NotImplementedErrors."""
+    (
+        configs_root / "LegacyExp" / "shot_control_configurations" / "Spans.yaml"
+    ).write_text(MULTI_DEVICE_PROFILE)
+    (configs_root / "LegacyExp" / "experiment_defaults.yaml").write_text(
+        "actions:\n  setup: [default_prep]\n  closeout: [default_cleanup]\n"
+    )
+    session = _FakeSession()
+    request = ScanRequest.model_validate(
+        {
+            "mode": "step",
+            "shots_per_step": 2,
+            "acquisition": "free_run",
+            "save_set": "RitualSet",
+            "trigger_profile": "Spans",
+            "axes": [
+                {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 1}},
+                {"variable": "jet_x", "positions": {"values": [4.0, 5.0]}},
+            ],
+            "actions": {
+                "setup": ["scan_prep"],
+                "per_step": ["between_steps"],
+                "closeout": ["scan_cleanup"],
+            },
+            "description": "m3b acceptance",
+        }
+    )
+
+    uid = run_scan_request(session, request, legacy_resolver)
+
+    assert uid == "uid-scan"
+    # Multi-device trigger attached as ordered writes.
+    (writes,) = session.shot_control_calls
+    assert isinstance(writes, ShotControlWrites)
+    assert set(writes.devices) == {"U_DG645", "U_PLC"}
+    assert writes.writes_for_state("STANDBY") == [
+        ("U_PLC", "DO.Ch7", "off"),
+        ("U_DG645", "Amplitude.Ch AB", "0.5"),
+    ]
+    kwargs = session.scan_kwargs
+    # 2-axis grid: 2 × 2 grid points, tuples, both movables.
+    assert len(kwargs["positions"]) == 4
+    assert kwargs["md"]["grid_shape"] == [2, 2]
+    assert [m.kind for m in kwargs["motor"]] == ["settable", "settable"]
+    # All four layers assembled in nesting order (defaults outermost).
+    assert kwargs["md"]["action_plans"] == {
+        "setup": ["default_prep", "cam_ritual", "scan_prep"],
+        "per_step": ["between_steps"],
+        "closeout": ["scan_cleanup", "cam_park", "default_cleanup"],
+    }
+    assert _set_targets(kwargs["setup"]()) == [
+        ("U_PLC-DO.Ch1", "on"),
+        ("U_Cam-Analysis", "on"),
+        ("U_PLC-DO.Ch2", "on"),
+    ]
+    assert _set_targets(kwargs["closeout"]()) == [
+        ("U_PLC-DO.Ch4", "off"),
+        ("U_Cam-Analysis", "off"),
+        ("U_PLC-DO.Ch5", "off"),
+    ]
+    # Provenance of the applied defaults.
+    assert kwargs["md"]["applied_defaults"] == {
+        "actions.setup": ["default_prep"],
+        "actions.closeout": ["default_cleanup"],
+    }
+    # Cleanup: detectors + 2 movables + the action signal factory.
+    (factory,) = session.action_factories
+    assert factory in session.disconnected
+
+
+def test_optimize_skips_actions_and_records_them(legacy_resolver, caplog) -> None:
+    """Optimize runs; its action plans are skipped, logged, and recorded.
+
+    Optimize mode has no action hooks yet, but refusing would block every
+    optimization the moment an experiment defines default bracket actions.
+    So the run proceeds with the actions skipped — never silently: a WARNING
+    is logged and the skip lands in run metadata.
+    """
+    session = _FakeSession()
+    request = _optimize_request(
+        actions={"setup": ["scan_prep"], "closeout": ["cam_park"]}
+    )
+
+    def objective(bin_data) -> float:
+        return 1.0
+
+    with caplog.at_level(logging.WARNING):
+        uid = run_scan_request(
+            session, request, legacy_resolver, objective=objective, suggester=object()
+        )
+    assert uid == "uid-opt"
+    skipped = session.optimize_kwargs["md"]["skipped_action_plans"]
+    assert skipped["setup"] == ["scan_prep"]
+    assert skipped["closeout"] == ["cam_park"]
+    assert "scan_prep" in caplog.text
+
+
+def test_optimize_skips_entry_rituals_and_records_them(legacy_resolver) -> None:
+    """Save-set entry rituals are skipped and recorded, not refused."""
+    session = _FakeSession()
+    request = _optimize_request(save_set="RitualSet")
+
+    def objective(bin_data) -> float:
+        return 1.0
+
+    uid = run_scan_request(
+        session, request, legacy_resolver, objective=objective, suggester=object()
+    )
+    assert uid == "uid-opt"
+    assert (
+        "cam_ritual"
+        in session.optimize_kwargs["md"]["skipped_action_plans"]["save_set_rituals"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lazy action-plan registry: a real fault must not masquerade as "not found"
+# ---------------------------------------------------------------------------
+
+
+def test_lazy_registry_propagates_unexpected_resolver_faults() -> None:
+    """A non-"not found" fault propagates; only an unknown name is a miss.
+
+    The lazy registry converts a genuine "plan not in the library"
+    (``GeecsConfigurationError``) into ``KeyError`` for the compiler, but any
+    other fault (a resolver bug, transient IO) must surface — masking it as a
+    miss would misdirect debugging to "plan not found" with no candidates.
+    """
+
+    class _BoomResolver:
+        def resolve_action_plan(self, name: str):
+            if name == "missing":
+                raise GeecsConfigurationError("not in library")
+            raise RuntimeError("resolver exploded")
+
+    registry = build_action_registry(_BoomResolver())
+    # Unknown name → KeyError (the compiler's "not found" path).
+    with pytest.raises(KeyError):
+        registry["missing"]
+    # Any other fault propagates unchanged.
+    with pytest.raises(RuntimeError, match="exploded"):
+        registry["anything_else"]
+    assert registry.get("missing", "default") == "default"
+    with pytest.raises(RuntimeError, match="exploded"):
+        registry.get("anything_else")
