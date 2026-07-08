@@ -138,12 +138,21 @@ Everything a client submits is one model. Presets are saved ScanRequests;
 MultiScanner is a queue of them (and maps naturally onto queueserver later);
 `ScanInfo` and run metadata are projections of it.
 
+Scans may have one axis or several: `axes` form an outer product (first axis
+outermost/slowest), each grid point is one bin, and the step plan grows
+N-motor support — a native Bluesky idiom, not a new plan type. Honest
+caveat: acquisition and the data model handle grids naturally, but
+**ScanAnalysis today assumes a single scan parameter** for binning and
+rendering — multi-dimensional *analysis* is its own future thread, not
+implied by this schema.
+
 ```yaml
 schema_version: 1
 mode: step            # step | noscan | optimize
-variable: jet_z       # name from ScanVariables (absent for noscan)
-positions: {start: 4.0, end: 6.0, step: 0.5}
-shots_per_step: 10
+axes:                 # one axis = classic 1-D scan; several = a grid
+  - {variable: jet_z, positions: {start: 4.0, end: 6.0, step: 0.5}}
+  # - {variable: jet_x, positions: {start: -1.0, end: 1.0, step: 0.5}}
+shots_per_step: 10    # per grid point; each grid point is one bin
 acquisition: free_run # free_run | strict
 save_set: undulator_baseline      # name of a SaveSet
 trigger_profile: htu_laser_off    # name of a TriggerProfile
@@ -265,7 +274,31 @@ Already pointed the right way; the vision just finishes the thought:
 - One `config.ini` for infrastructure addresses (DB, Tiled, `[epics]`);
   everything experiment-shaped lives in the configs repo as schemas.
 
-## 7. What this doc is not
+## 7. Documentation is a deliverable
+
+The operator manual is maintainable by one person only if it cannot drift:
+
+- **Plain language lives in the schemas.** Every model field carries an
+  operator-voiced `description`; every model docstring opens with an
+  operator paragraph. A CI test fails when a field lacks operator language —
+  documentation debt is structurally impossible in the schema layer.
+- **The reference regenerates from code** (`geecs_schemas.docgen` → Markdown
+  field tables + validated examples); GUI editors consume the same
+  descriptions as tooltips. One sentence, written once, appears in the
+  manual and under the operator's cursor.
+- **Narrative is hand-written and thin**: a "how the configs fit together"
+  overview, and per-milestone operating walkthroughs (the docs site's
+  headless-screenshot workflow covers GUI pages).
+- **Standing rule for the vision build: a milestone PR is not complete
+  without its manual pages**, exactly as with tests.
+
+Also on the configs themselves: the sidecar configs repo gains a
+validation hook (pre-commit/CI importing `geecs_schemas`) so a bad config
+fails at commit rather than at scan time, and anything still living
+machine-locally (`~/.local/share/geecs_scanner`) migrates into the repo so
+provisioning a control machine is clone + config.ini.
+
+## 8. What this doc is not
 
 - Not a schedule. Sequencing lives in the planning docs and is gated on
   evidence (parity checklist + production confidence before deletion;
