@@ -199,6 +199,14 @@ e_beam_energy:           # composite
   inverse: "..."
 ```
 
+Configs speak **GEECS device/variable names, never PV names** — the domain
+identity that the DB validates, MC displays, and filenames carry. The PV
+encoding (`[Experiment:]Device:Variable`, `:SP`) is derived in exactly one
+place (the gateway's naming module / `ca_pv()`), inside the device
+factories; nothing above them sees a PV string. Named extension point: if a
+non-GEECS EPICS device ever joins, a ScanVariables entry grows an optional
+`pv:` escape hatch — an additive field, not a redesign.
+
 ### 4.4 TriggerProfile (today: timing/shot-control configs)
 
 The state *names* (OFF / STANDBY / SCAN / SINGLESHOT / ARMED) proved to be
