@@ -28,6 +28,7 @@ import time
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+from geecs_bluesky import preflight
 from geecs_bluesky.scanner_bridge import bluesky_scanner
 from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
 
@@ -930,7 +931,10 @@ def test_recheck_clears_transiently_stale_device(monkeypatch) -> None:
     events: list = []
     scanner._on_event = events.append
 
-    original_sleep = bluesky_scanner.time.sleep
+    # The staleness-recheck sleep lives in geecs_bluesky.preflight now
+    # (the pipeline module); patching its `time` module is the same
+    # global-time patch as before the move.
+    original_sleep = preflight.time.sleep
 
     def frame_arrives_during_grace(seconds: float) -> None:
         for det in scanner._detectors:
@@ -939,7 +943,7 @@ def test_recheck_clears_transiently_stale_device(monkeypatch) -> None:
         original_sleep(0)
 
     monkeypatch.setattr(bluesky_scanner, "_STALE_RECHECK_WAIT_S", 0.01)
-    monkeypatch.setattr(bluesky_scanner.time, "sleep", frame_arrives_during_grace)
+    monkeypatch.setattr(preflight.time, "sleep", frame_arrives_during_grace)
 
     scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
 

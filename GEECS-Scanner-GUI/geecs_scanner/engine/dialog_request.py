@@ -1,34 +1,36 @@
-"""Thread-safe dialog request type and device-error escalation helpers.
+"""Re-export shim for DialogRequest + legacy device-error escalation helpers.
 
-Worker threads that need an operator decision create a :class:`DialogRequest`,
-emit it inside a ``ScanDialogEvent`` through the ``on_event`` callback, and
-block on ``response_event.wait()``.  The GUI receives the event on the Qt main
-thread (via the ``_scan_event_received`` pyqtSignal), shows the dialog, and
-answers by writing ``abort[0]`` and setting ``response_event``.  The actual Qt
-code lives in ``geecs_scanner.app.gui_dialogs`` so this module stays
-import-safe in headless environments.
+:class:`DialogRequest` (the thread-safe worker→GUI operator question) moved
+down to ``geecs_bluesky.events`` with the rest of the event vocabulary
+(target-architecture vision §2); it is re-exported here so every existing
+import path keeps working verbatim — and it is the *same class object*, so
+isinstance checks agree across both import paths.  New code should import it
+from ``geecs_bluesky.events``.
 
-Both scan backends use this channel: the legacy engine for device-command
-escalation, and ``BlueskyScanner`` (GeecsBluesky) for pre-flight operator
-dialogs — the latter imports this module defensively, so it must stay free of
-Qt and of heavyweight imports.
-
-Issue #312 tracking note: the old module called Qt directly from worker threads
-(unsafe).  The request/response pattern implemented here resolves that.
+What genuinely stays here is the **legacy-engine** residue that cannot move
+down because it depends on ``geecs_python_api`` (which geecs_bluesky must not
+import): the :data:`DEVICE_COMMAND_ERRORS` tuple and the
+:func:`escalate_device_error` helper used by the legacy engine's
+device-command escalation path.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
-from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from geecs_bluesky.events import DialogRequest
 from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandFailed,
     GeecsDeviceCommandRejected,
     GeecsDeviceExeTimeout,
 )
+
+__all__ = [
+    "DialogRequest",
+    "DEVICE_COMMAND_ERRORS",
+    "escalate_device_error",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -80,52 +82,3 @@ def escalate_device_error(
         return on_escalate(exc, context=context)
     logger.error("Device error with no escalation callback — auto-aborting: %s", exc)
     return True
-
-
-# ---------------------------------------------------------------------------
-# Thread-safe request object
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class DialogRequest:
-    """Carries a device error across the worker→main-thread boundary.
-
-    The worker thread puts this on ScanManager's dialog queue and then
-    calls ``response_event.wait()``.  The main-thread timer picks it up,
-    shows the dialog, writes the result into ``abort``, and calls
-    ``response_event.set()``.
-
-    Parameters
-    ----------
-    exc :
-        The exception that triggered the dialog.  For requests carrying
-        their own ``title``/labels, ``str(exc)`` is the full operator-facing
-        dialog body.
-    context :
-        Optional extra information shown in the dialog body — e.g. the full
-        list of variables being set for a device when the error occurred.
-    title :
-        Optional dialog window title.  ``None`` (legacy device-command
-        requests) keeps the title derived from the exception type.
-    continue_label :
-        Optional text for the non-abort button (e.g. ``"Drop && Continue"``).
-        ``None`` keeps the default ``"Continue"``.  When set, the dialog body
-        is ``str(exc)`` verbatim — the request author owns the wording of
-        what "continue" means.
-    abort_label :
-        Optional text for the abort button.  ``None`` keeps ``"Abort"``.
-    response_event :
-        Set by the main thread once the user has responded.
-    abort :
-        Single-element list used as a mutable result container.
-        ``True`` → user chose Abort; ``False`` → user chose Continue.
-    """
-
-    exc: Exception
-    context: Optional[str] = None
-    title: Optional[str] = None
-    continue_label: Optional[str] = None
-    abort_label: Optional[str] = None
-    response_event: threading.Event = field(default_factory=threading.Event)
-    abort: list[bool] = field(default_factory=lambda: [False])

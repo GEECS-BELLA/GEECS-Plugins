@@ -36,8 +36,25 @@ bin), so it honours the same mode dispatch.
 ```
 geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
+                            #   + session.run(ScanRequest) — the schema front door
+  events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
+                            #   ScanState, DialogRequest — moved down from
+                            #   geecs_scanner (vision §2); geecs_scanner's
+                            #   scan_events.py / dialog_request.py are re-export
+                            #   shims of these same class objects
+  operator_channel.py       # OperatorChannel seam: ask(OperatorQuestion) →
+                            #   "continue"/"abort"/default; EventStreamOperator
+                            #   (GUI dialog path) / NullOperator (headless)
+  preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);
+                            #   GatewayLivenessCheck + FreeRunStalenessCheck,
+                            #   run pre-claim, questions via OperatorChannel
+  scan_request_runner.py    # run a geecs_schemas.ScanRequest: ConfigResolver
+                            #   protocol + ConfigsRepoResolver (new-schema YAML
+                            #   or legacy-convert), SaveSet→devices_config and
+                            #   TriggerProfile→ShotControlConfig adapters
   scanner_bridge/
     bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible GUI bridge
+                            #   (reinitialize also accepts a ScanRequest)
   plans/
     orchestration.py        # build_step_scan_plan — THE one scan recipe (both front doors)
     step_scan.py            # geecs_step_scan — step scan (motor optional; hooks)
@@ -298,6 +315,32 @@ api_key = <key>
 ```
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
+
+## Engine consolidation (0.22.0) — shim state
+
+The event vocabulary (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`)
+lives in `geecs_bluesky/events.py`; `geecs_scanner.engine.scan_events` and
+`geecs_scanner.engine.dialog_request` are **re-export shims** of the same
+class objects (the legacy `DEVICE_COMMAND_ERRORS` tuple and
+`escalate_device_error` stay in the shim — they need geecs_python_api).
+The scanner's old defensive try/except imports are gone; the remaining
+`is None` guards on the module-level names exist purely as test seams
+(hermetic tests monkeypatch them to simulate a consumer-less install).
+
+Operator interaction is one seam: `operator_channel.OperatorChannel`
+(`EventStreamOperator` = today's GUI dialog behavior, `NullOperator` =
+headless default-and-log).  Pre-flight is a pipeline
+(`preflight.run_preflight`); new checks are list entries.
+
+`ScanRequest` execution (`scan_request_runner` / `GeecsSession.run` /
+`reinitialize(ScanRequest)`) validates-then-refuses the documented v1 gaps:
+multi-axis grids, action bindings (names validated now — request-level and
+SaveSet entry-level alike; execution lands with the ActionPlan compiler
+milestone), pseudo scan variables, `all_scalars`, multi-device trigger
+profiles (single-device fast path only), optimize without an injected
+objective/suggester.  Experiment defaults (`experiment_defaults.yaml`) fill
+request fields left unset — never overriding explicit values — and every
+applied default is recorded into the run metadata for provenance.
 
 ## Known Gaps (as of 0.21.0)
 

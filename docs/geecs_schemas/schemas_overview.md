@@ -141,6 +141,25 @@ to gate shots, and the action plans run at their slots. Change what a name
 *means* (say, add a camera to the save set) and every preset using that name
 picks up the change; change the *request* and nothing else is touched.
 
+### What happens when you submit a scan request
+
+Submitting a request kicks off a short, predictable sequence. First a
+*resolver* turns every name in the request into the real thing: it opens the
+experiment's config folder, finds the save set, trigger profile, scan
+variable, and action plans you named, and checks each one — a new-style file
+is read directly, an old-style file is converted on the fly (your existing
+configs work as-is; nothing needs rewriting first). If a name doesn't exist
+or a file doesn't validate, the submission fails right there with a message
+naming exactly what's wrong — before any hardware is touched and before a
+scan number is used up. Then the engine builds the run from the resolved
+pieces: it connects the save set's devices, puts the trigger device under
+the profile's control, creates the scan variable's mover, and hands
+everything to the scan plan, which sweeps the positions (or just collects
+shots, or lets the optimizer steer) and records the data with the same run
+discipline as any other scan. Anything the engine can't execute yet — a
+multi-axis grid, attached action plans — is refused up front with a clear
+"not yet" message rather than attempted halfway.
+
 ## Two habits worth knowing
 
 - **Typos fail loudly.** Config files are checked when loaded — a misspelled
