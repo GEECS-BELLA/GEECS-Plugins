@@ -33,6 +33,7 @@ from geecs_ca_gateway.exceptions import GeecsConnectionError
 from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
 
+from .alarms import AlarmLevel, AlarmSeverityName
 from .channels import (
     cast_value,
     enum_index,
@@ -62,6 +63,19 @@ _UNSET = object()
 # axis is not a dead one". Gets keep the shorter GeecsUdpClient default — a
 # read that takes 10 s *is* a dead device.
 _SET_EXE_TIMEOUT = 30.0
+
+_ALARM_SEVERITY = {
+    AlarmSeverityName.MINOR: AlarmSeverity.MINOR_ALARM,
+    AlarmSeverityName.MAJOR: AlarmSeverity.MAJOR_ALARM,
+    AlarmSeverityName.INVALID: AlarmSeverity.INVALID_ALARM,
+}
+
+_ALARM_STATUS = {
+    AlarmLevel.LOLO: AlarmStatus.LOLO,
+    AlarmLevel.LOW: AlarmStatus.LOW,
+    AlarmLevel.HIGH: AlarmStatus.HIGH,
+    AlarmLevel.HIHI: AlarmStatus.HIHI,
+}
 
 
 def _extract_timestamp(update: dict[str, Any], ts_vars: list[str]) -> float | None:
@@ -129,6 +143,8 @@ class GeecsCaGateway:
         # (device, geecs_var) that have already logged a coercion warning, so a
         # mistyped variable warns once instead of every ~5 Hz frame.
         self._coerce_warned: set[tuple[str, str]] = set()
+        # Last active value-alarm threshold, for per-PV hysteresis handling.
+        self._value_alarm_levels: dict[tuple[str, str], AlarmLevel | None] = {}
         # devices currently logged as down, for one-line state-change logging
         # (a warning when it goes down, an info when it reconnects).
         self._down_logged: set[str] = set()
@@ -278,6 +294,33 @@ class GeecsCaGateway:
             self._coerce_warned.add(key)
             logger.warning(message)
 
+    def _alarm_write_kwargs(
+        self, device: str, geecs_var: str, spec: VariableSpec, value: Any
+    ) -> dict[str, Any]:
+        """Return caproto alarm kwargs for a live readback write.
+
+        Disconnect/stale INVALID is handled separately by
+        :meth:`_mark_device_invalid`.  This method only evaluates live values
+        against curated scalar alarm limits.
+        """
+        limits = spec.alarm_limits
+        if limits is None:
+            return {}
+        key = (device, geecs_var)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            self._value_alarm_levels[key] = None
+            return {"severity": AlarmSeverity.NO_ALARM, "status": AlarmStatus.NO_ALARM}
+        evaluation = limits.evaluate(numeric, self._value_alarm_levels.get(key))
+        self._value_alarm_levels[key] = None if evaluation is None else evaluation.level
+        if evaluation is None:
+            return {"severity": AlarmSeverity.NO_ALARM, "status": AlarmStatus.NO_ALARM}
+        return {
+            "severity": _ALARM_SEVERITY[evaluation.severity],
+            "status": _ALARM_STATUS[evaluation.level],
+        }
+
     def _make_callback(self, dev):
         """Return the subscription callback that fans a push frame into PVs.
 
@@ -362,7 +405,15 @@ class GeecsCaGateway:
                         continue
                 last_map[var] = value
                 try:
-                    await channel.write(value, **extra)
+                    alarm_kwargs = self._alarm_write_kwargs(
+                        device_name, var, spec, value
+                    )
+                    await channel.write(
+                        value,
+                        **extra,
+                        **alarm_kwargs,
+                        verify_value=not bool(alarm_kwargs),
+                    )
                 except Exception:
                     self._warn_once(
                         device_name,
@@ -562,6 +613,7 @@ class GeecsCaGateway:
                     channel.value,
                     severity=AlarmSeverity.INVALID_ALARM,
                     status=AlarmStatus.COMM,
+                    verify_value=False,
                 )
             except Exception:
                 logger.debug("failed to mark %s INVALID", pv, exc_info=True)

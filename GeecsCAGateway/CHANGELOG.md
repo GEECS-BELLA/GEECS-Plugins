@@ -3,6 +3,27 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.7.0] - 2026-07-08
+
+### Added
+
+- **Optional `ca_alarm_limits` MySQL overlay for curated scalar value alarms.**
+  Enabled rows are keyed by `(experiment, device, variable)` and provide
+  `LOLO` / `LOW` / `HIGH` / `HIHI` thresholds with configured severities.
+  The table is optional during rollout: if it is absent or unreadable, the
+  gateway starts with no value alarms.  Rows attach only to served numeric
+  readbacks; DB `min` / `max` remain display metadata and are never treated as
+  alarm limits.
+- `deploy/ca_alarm_limits.sql`, a non-destructive DDL snippet for creating the
+  optional alarm-limit table. Dropping the table restores pre-0.7 behavior.
+
+### Changed
+
+- Live numeric readback writes now recompute curated value-alarm severity.
+  Device disconnects still take precedence: stale readbacks remain
+  `INVALID/COMM` until the next live frame, which then reports either
+  `NO_ALARM` or the active value alarm.
+
 ## [0.6.0] - 2026-07-07
 
 ### Added

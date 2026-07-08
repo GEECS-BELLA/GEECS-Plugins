@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from geecs_ca_gateway.alarms import AlarmLimits
 from geecs_ca_gateway.channels import (
     cast_value,
     enum_geecs_value,
@@ -126,6 +127,19 @@ async def test_path_setpoint_forwards_full_text() -> None:
     # A char-array put (integer codes) decodes to the same text.
     await channel.write([ord(c) for c in _LONG_PATH])
     assert sent[-1] == _LONG_PATH
+
+
+def test_alarm_limits_do_not_populate_native_caproto_thresholds() -> None:
+    """Curated alarm limits are evaluated by the gateway overlay only."""
+    channel = make_readback_channel(
+        VariableSpec(
+            geecs_var="Current",
+            dtype="float",
+            alarm_limits=AlarmLimits(high=2.5),
+        )
+    )
+
+    assert channel.upper_warning_limit != 2.5
 
 
 class TestEnumGeecsValueNumericLabels:

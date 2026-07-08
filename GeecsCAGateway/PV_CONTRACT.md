@@ -308,20 +308,29 @@ What severity means **today**:
 
 | Condition | PV | Severity / status |
 |---|---|---|
-| Device TCP subscription live | readbacks | `NO_ALARM` (plain value writes reset severity) |
+| Device TCP subscription live, no configured value alarm active | readbacks | `NO_ALARM` |
+| Device TCP subscription live, configured scalar limit crossed | that numeric readback | configured severity (`MINOR_ALARM`, `MAJOR_ALARM`, or `INVALID_ALARM`) with status `LOW`, `LOLO`, `HIGH`, or `HIHI` |
 | Device TCP subscription dropped / unreachable | all of that device's **readback** PVs | **`INVALID_ALARM`**, status `COMM` — data is stale, last value retained |
 | Same event | that device's `CONNECTED` PV | value `Disconnected`, **`MAJOR_ALARM`**, status `COMM` |
-| Recovery (first live frame / reconnect) | both | automatic return to `NO_ALARM` |
+| Recovery (first live frame / reconnect) | both | automatic return to live-value severity (`NO_ALARM` unless a configured value alarm is active) |
 
 So: **INVALID on a readback means "not live", not "bad value"** — the held
 value is the last known good one. `CONNECTED` is the explicit liveness signal
 for Phoebus/alarm layers; prefer it over inferring liveness from data severity.
 
+Value-based alarms are an explicit curated overlay from the optional
+`ca_alarm_limits` MySQL table, keyed by `(experiment, device, variable)`.
+Only non-null threshold columns apply. The gateway validates rows at startup,
+attaches them only to served numeric readbacks, and treats the table as optional:
+if it is absent during rollout, the IOC starts with no value alarms. DB `min` /
+`max` remain display metadata and are **never** interpreted as alarm limits.
+Curated alarm thresholds are evaluated only by the gateway overlay; they are not
+exported as native DBR_CTRL alarm/warning limit metadata, because caproto would
+otherwise run a second independent limit evaluator on every write.
+
 **Not yet implemented** (be honest with your displays):
 
-- No value-based alarms: DB min/max are display limits only; there are no
-  HIHI/HIGH/LOW/LOLO thresholds, so a readback never goes `MINOR`/`MAJOR` on
-  value. A NaN or out-of-range value arrives as a plain `NO_ALARM` update.
+- No enum/string bad-state alarms yet; v1 value alarms are scalar limits only.
 - No archive deadbands (MDEL/ADEL split) — planned with the Archiver Appliance
   (DESIGN.md "Honest gaps").
 - A device merely going *quiet* raises no alarm and does not age severity —
@@ -444,6 +453,8 @@ that branch and are part of this contract's target behavior.
 | Zero deadband: every change posts, exact repeats suppressed | `test_pv_contract.py::test_zero_deadband_posts_changes_suppresses_exact_repeats` |
 | Explicit non-zero deadband suppression | `test_gateway.py::test_deadband_suppresses_small_changes` |
 | Display (not control) limits; NaN readback reported | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
+| Optional `ca_alarm_limits` table; curated scalar alarms attach only to served numeric readbacks | `test_geecs_db.py::test_get_ca_alarm_limits_returns_validated_rows`, `::test_get_ca_alarm_limits_missing_table_is_fail_open`; `test_config_from_db.py::test_alarm_limits_validate_order_and_presence`, `::test_from_geecs_experiment_attaches_numeric_alarm_limits` |
+| Value alarm severity/status on live readbacks; disconnect INVALID wins until next live frame | `test_gateway.py::test_value_alarm_limits_set_live_readback_severity`, `::test_invalid_liveness_overrides_value_alarm_until_live_frame` |
 | INVALID on drop, auto-recovery; CONNECTED MAJOR while down | `test_gateway.py::test_reconnect_and_validity`, `::test_set_connected_updates_pv_severity_and_count` |
 | Per-device bind-failure tolerance; clean caput error afterward | `test_gateway.py::test_one_device_bind_failure_does_not_abort_startup`, `::test_setpoint_write_without_udp_client_raises_cleanly` |
 | UDP reply correlation, echo form, malformed/stale discard | `test_udp_reply_correlation.py` (whole module) |

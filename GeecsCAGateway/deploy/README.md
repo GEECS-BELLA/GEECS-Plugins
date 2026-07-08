@@ -62,6 +62,36 @@ service, which rebuilds its config from the DB):
 caproto-put Undulator:CAGateway:RESTART Restart
 ```
 
+## CA alarm limits table
+
+The curated alarm overlay lives in the existing GEECS MySQL database as
+`ca_alarm_limits`. Apply the migration once per database before entering alarm
+rows:
+
+```bash
+cd ~/GEECS-Plugins/GeecsCAGateway
+mysql --host=<db-host> --user=<db-user> --password <db-name> \
+  < deploy/ca_alarm_limits.sql
+```
+
+The table is optional from the gateway's perspective: if it is absent, startup
+continues with no curated value alarms. After editing rows in `ca_alarm_limits`,
+restart through the service or `Undulator:CAGateway:RESTART` so the gateway
+reloads the DB-backed config.
+
+To smoke-test one configured row, drive the readback into one of its alarm
+bands and read the PV with status metadata:
+
+```bash
+caproto-get -a Undulator:U_S1H:Current
+```
+
+For example, with `high=2.5`, `hihi=4.5`, and the default high severity of
+`MINOR`, a live `U_S1H:Current` value of `3 A` should report `HIGH` /
+`MINOR_ALARM` in CA clients such as Phoebus. If you edit the DB row and do not
+see the metadata or severity change, restart the gateway so it reloads the
+DB-backed config.
+
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,
