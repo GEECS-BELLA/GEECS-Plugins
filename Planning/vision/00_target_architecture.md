@@ -180,6 +180,45 @@ UC_Amp4_IR_input:                           - device: UC_Amp4_IR_input
 Device-name spelling is validated against the DB at load (the case-drift
 lesson, 2026-07-06), not at first CA timeout.
 
+### 4.2b The two-tier recording model
+
+"Required" and "recorded" are orthogonal axes, and both legacy systems
+collapsed them: MC subscribed everything (one dead device of 117 could
+stall or kill a scan — making "is everything on and error-free?" a
+cumbersome, usually unnecessary burden), while GEECS-Scanner went opt-in
+(scans became robust, but the background logging of everything else was
+lost). The access layer dissolves the dilemma:
+
+- **Tier 1 — Required (the SaveSet).** Opt-in and explicit, exactly as
+  GEECS-Scanner pioneered. These devices get every guarantee: pre-flight
+  liveness dialogs, role assignment, strict-mode row completeness, refire,
+  abort semantics. Images are only ever recorded here. Scalars default to
+  the DB's `get='yes'` list (`db_scalars: true`) with the explicit
+  `scalars` field as additive extras; converted legacy elements keep
+  `db_scalars: false` for exact behavioral fidelity.
+- **Tier 2 — Background telemetry (soft).** Every enabled experiment
+  device with `get='yes'` variables not in the SaveSet is recorded as
+  best-effort snapshot columns sampled from the gateway's monitor cache,
+  carrying their own `acq_timestamp` + validity for downstream alignment.
+  Read-only (no scan start/end writes — writes to dead devices block),
+  never waited on, dead devices dropped at scan start with one log line —
+  never a dialog, never an abort. Toggleable (`background_telemetry`,
+  default on).
+
+**Why this is safe now when it wasn't before**: legacy subscription meant
+per-scan TCP connections, so a dead device cost timeouts and stalls. Over
+the gateway, monitors run permanently — a dead device is just stale PVs
+with `CONNECTED=false`, and reading cached values costs zero wait.
+Background recording structurally cannot hurt a scan.
+
+The operator's one-hand rule: **required devices get guarantees;
+everything else is logged if alive.** Needing a device synchronous to
+shots is the *definition* of required — softness and synchronicity are
+mutually exclusive by design. A side effect: the DB's `get` flags return
+to being a slow-moving statement of standard telemetry, and per-scan
+intent lives entirely in version-controlled configs — no more editing DB
+entries to change a scan.
+
 ### 4.3 ScanVariables (today: scan_devices.yaml + composite_variables.yaml)
 
 Scan variables become declared positioners rendered by a factory to
