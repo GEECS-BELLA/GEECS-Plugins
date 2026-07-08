@@ -82,13 +82,20 @@ Non-settable variables (including the intrinsic timestamp variables) have
 **no** `:SP` PV.
 
 Table precision (three DB tables carry a `set` flag with different meanings):
-the gateway's settable surface comes from `devicetype_variable.set` — the
-variable *class* capability, alongside min/max/units/tolerance/choices.
-`expt_device_variable.set` is a per-experiment *scan-write policy* flag (Master
-Control's scan start/end machinery) and plays no role in `:SP` creation;
-`expt_device_variable.get` selects the monitored/readback subscription set;
-`variable.set` is the per-device-instance definition table, not consumed by
-the gateway.
+**capability is an inheritance chain** — `devicetype_variable` defines the
+type default (settability, min/max/units/tolerance/choices) which every
+device instance inherits **unless overridden by a row in `variable`** (the
+per-instance definition table). `expt_device_variable.set` is a
+per-experiment *scan-write policy* flag (Master Control's scan start/end
+machinery) and plays no role in `:SP` creation; `expt_device_variable.get`
+selects the monitored/readback subscription set.
+
+**Known gap (2026-07-07, live-DB verified):** the gateway currently resolves
+capability/metadata from `devicetype_variable` only, ignoring `variable`
+overrides — 1032 live rows differ from their type defaults, including
+instance-level settability flips whose `:SP` PVs are therefore missing
+today. Fix pending one MC-semantics question (whole-row vs field-by-field
+override resolution).
 
 ### Per-device status PV — `CONNECTED`
 
