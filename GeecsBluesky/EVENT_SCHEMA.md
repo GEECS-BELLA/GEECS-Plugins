@@ -62,8 +62,7 @@ ScanRequest runs (`GeecsSession.run`) may also add, for provenance:
 |---|---|
 | `applied_defaults` | Experiment-defaults fields that filled a silent request |
 | `action_plans` | Assembled per-slot action execution order |
-| `db_scan_writes` | DB start/end setpoint writes actually applied (M3c): `{at_scan_start: [...], at_scan_end: [...]}`, each write `{device, variable, value, source}` (`source` = `db` or `override`) |
-| `background_telemetry` | `{device: [variables]}` recorded as Tier-2 telemetry (M3c; present only when telemetry ran) |
+| `background_telemetry` | `{device: [variables]}` recorded as Tier-2 telemetry (M3c get-side; present only when telemetry ran) |
 
 **`scan_id` note:** `scan_id` has no uniqueness contract in Bluesky — the
 day-scoped number resets to 1 each day, which is fine (`uid` is the real key).

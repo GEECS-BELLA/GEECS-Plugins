@@ -1369,17 +1369,17 @@ def test_lazy_registry_propagates_unexpected_resolver_faults() -> None:
 
 
 # ---------------------------------------------------------------------------
-# M3c: DB-integration runtime (db_scalars, start/end writes, telemetry)
+# M3c: DB-integration runtime (get-side: db_scalars + telemetry; set-side
+# disabled — reserved fields warn and are not applied)
 # ---------------------------------------------------------------------------
 
 
 class _M3cPolicy:
-    """In-memory ScalarPolicyProvider for the runner integration tests."""
+    """In-memory get-side ScalarPolicyProvider for the runner integration tests."""
 
-    def __init__(self, subscribed=None, all_vars=None, boundary=None) -> None:
+    def __init__(self, subscribed=None, all_vars=None) -> None:
         self._subscribed = subscribed or {}
         self._all = all_vars or {}
-        self._boundary = boundary or {}
 
     def get_variables(self, device):
         return list(self._subscribed.get(device, []))
@@ -1389,9 +1389,6 @@ class _M3cPolicy:
 
     def subscribed_by_device(self):
         return dict(self._subscribed)
-
-    def boundary_writes(self, device):
-        return list(self._boundary.get(device, []))
 
 
 class _M3cSession(_FakeSession):
@@ -1452,80 +1449,51 @@ def test_converted_legacy_element_pins_db_scalars_false(legacy_resolver) -> None
     assert config["U_Cam"]["variable_list"] == ["MaxCounts"]
 
 
-def test_start_writes_run_in_setup_end_writes_in_closeout(
-    monkeypatch, legacy_resolver
+def test_reserved_boundary_fields_warn_and_are_not_applied(
+    monkeypatch, legacy_resolver, caplog
 ) -> None:
-    policy = _M3cPolicy(
-        subscribed={"U_Cam": [], "U_Cam2": [], "U_Slow": []},
-        boundary={
-            "U_Cam": [
-                {"variable": "Mode", "startvalue": "Scan", "endvalue": "Idle"},
-                {"variable": "save", "startvalue": "on", "endvalue": "off"},
-            ]
-        },
-    )
-    _install_policy(monkeypatch, policy)
+    """A SaveSet entry that sets the reserved set-side fields is inert + warned.
+
+    The DB set-side (scan start/end writes) is disabled in this version.  An
+    entry that still carries ``at_scan_start`` / ``at_scan_end`` must NOT
+    produce any boundary write, must NOT chain anything into the
+    setup/closeout hooks, and must NOT record ``db_scan_writes`` metadata —
+    but the operator gets exactly one WARNING naming the device so they know
+    the values are inert.  The scan itself still runs.
+    """
+    _install_policy(monkeypatch, _M3cPolicy())
     session = _M3cSession()
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
-
-    kwargs = session.scan_kwargs
-    # Start writes are chained into the setup hook (after any setup actions).
-    start = _set_targets(kwargs["setup"]())
-    assert ("U_Cam-Mode", "Scan") in start
-    assert not any(name.endswith("-save") for name, _ in start)  # save skipped
-    # End writes are chained into the closeout hook (finalize path).
-    end = _set_targets(kwargs["closeout"]())
-    assert ("U_Cam-Mode", "Idle") in end
-    # Provenance recorded.
-    writes = kwargs["md"]["db_scan_writes"]
-    assert writes["at_scan_start"][0]["variable"] == "Mode"
-    assert writes["at_scan_end"][0]["value"] == "Idle"
-
-
-def test_start_end_writes_apply_overrides(monkeypatch, legacy_resolver) -> None:
-    policy = _M3cPolicy(
-        boundary={
-            "U_Cam": [
-                {"variable": "Mode", "startvalue": "Scan", "endvalue": "Idle"},
-                {"variable": "Gate", "startvalue": "1", "endvalue": "0"},
-            ]
-        },
-    )
-    _install_policy(monkeypatch, policy)
-    session = _M3cSession()
-    # Override Mode's start value; suppress Gate entirely.
     save_set = SaveSet(
-        name="s",
+        name="ReservedSet",
         entries=[
             SaveSetEntry(
-                device="U_Cam",
+                device="U_DG645_ShotControl",
                 scalars=["x"],
-                at_scan_start={"Mode": "Single", "Gate": None},
+                at_scan_start={"Trigger.Source": "External"},
+                at_scan_end={"Amplitude.Ch AB": "0"},
             )
         ],
     )
     monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
-    run_scan_request(session, _db_noscan_request(save_set="X"), legacy_resolver)
-    start = _set_targets(session.scan_kwargs["setup"]())
-    assert ("U_Cam-Mode", "Single") in start
-    assert not any(name == "U_Cam-Gate" for name, _ in start)  # suppressed
 
+    with caplog.at_level(logging.WARNING):
+        run_scan_request(session, _db_noscan_request(save_set="X"), legacy_resolver)
 
-def test_apply_db_scan_defaults_off_skips_writes(monkeypatch, legacy_resolver) -> None:
-    policy = _M3cPolicy(
-        boundary={"U_Cam": [{"variable": "Mode", "startvalue": "S", "endvalue": "E"}]}
-    )
-    _install_policy(monkeypatch, policy)
-    monkeypatch.setattr(
-        legacy_resolver,
-        "resolve_experiment_defaults",
-        lambda: ExperimentDefaults.model_validate(
-            {"schema_version": 1, "apply_db_scan_defaults": False}
-        ),
-    )
-    session = _M3cSession()
-    run_scan_request(session, _db_noscan_request(), legacy_resolver)
-    assert "db_scan_writes" not in session.scan_kwargs["md"]
+    # Exactly one reserved-not-honored warning, naming the device.
+    reserved = [
+        r
+        for r in caplog.records
+        if "reserved DB scan start/end fields" in r.getMessage()
+    ]
+    assert len(reserved) == 1
+    assert "U_DG645_ShotControl" in reserved[0].getMessage()
+
+    # The scan ran, but nothing was chained and no set-side metadata recorded.
+    kwargs = session.scan_kwargs
+    assert kwargs["setup"] is None
+    assert kwargs["closeout"] is None
+    assert "db_scan_writes" not in kwargs["md"]
+    assert "db_scan_runtime" not in kwargs["md"]
 
 
 def test_telemetry_selects_non_saveset_devices(monkeypatch, legacy_resolver) -> None:

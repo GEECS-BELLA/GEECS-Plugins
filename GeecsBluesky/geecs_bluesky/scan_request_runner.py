@@ -76,10 +76,8 @@ from typing import Any, Callable, Protocol, runtime_checkable
 import yaml
 
 from geecs_bluesky.db_runtime import (
-    BoundaryWrite,
     GeecsDbScalarPolicy,
     ScalarPolicyProvider,
-    collect_scan_boundary_writes,
     resolve_entry_scalars,
     select_telemetry_variables,
 )
@@ -1214,12 +1212,12 @@ def _build_request_detectors(
 
 
 # ---------------------------------------------------------------------------
-# DB-integration runtime (M3c): db_scalars, start/end writes, telemetry
+# DB-integration runtime (M3c): db_scalars + background telemetry (get-side)
 # ---------------------------------------------------------------------------
 
 
 def make_scalar_policy(session: Any) -> ScalarPolicyProvider | None:
-    """Build the DB scalar/boundary policy provider for *session*'s experiment.
+    """Build the get-side DB scalar policy provider for *session*'s experiment.
 
     Returns a :class:`~geecs_bluesky.db_runtime.GeecsDbScalarPolicy` bound to
     the session's experiment.  The provider itself is failure-tolerant (a DB
@@ -1244,130 +1242,41 @@ def make_scalar_policy(session: Any) -> ScalarPolicyProvider | None:
     return GeecsDbScalarPolicy(experiment)
 
 
-def participants_from_save_set_and_axes(
-    save_set: SaveSet | None,
-    axis_devices: list[str],
-) -> dict[str, dict[str, dict[str, Any]]]:
-    """Assemble the participating-device → override-dicts map for DB writes.
+def warn_if_reserved_boundary_overrides(save_set: SaveSet | None) -> None:
+    """Warn once if any entry sets the reserved (not-honored) set-side fields.
 
-    Participants are exactly the save-set devices plus the scan-variable
-    devices — **not** every experiment device (the maintainer's explicit
-    decision).  Each save-set entry contributes its ``at_scan_start`` /
-    ``at_scan_end`` override dicts; a scan-variable device with no save-set
-    entry participates with empty overrides (so its own ``set='yes'`` rows
-    still fire).
+    ``SaveSetEntry.at_scan_start`` / ``at_scan_end`` are **reserved and not
+    applied in this version**: the engine sets up triggering via the
+    TriggerProfile/shot controller and camera saving via its own
+    save-windowing, so DB set-side scan start/end writes are intentionally
+    disabled (they would race the shot controller on the DG645).  A config
+    that still sets them is not an error — it is honored by a future
+    re-enable — but the operator should know the values are inert now, so we
+    log one WARNING naming the device(s).
 
     Parameters
     ----------
     save_set :
-        The scan's save set (``None`` for a save-set-less scan).
-    axis_devices :
-        Device names of the scan variables (movables).
-
-    Returns
-    -------
-    dict
-        ``{device: {"at_scan_start": {...}, "at_scan_end": {...}}}``.
+        The scan's save set (``None`` = nothing to check).
     """
-    participants: dict[str, dict[str, dict[str, Any]]] = {}
-    if save_set is not None:
-        for entry in save_set.entries:
-            participants[entry.device] = {
-                "at_scan_start": dict(getattr(entry, "at_scan_start", {}) or {}),
-                "at_scan_end": dict(getattr(entry, "at_scan_end", {}) or {}),
-            }
-    for device in axis_devices:
-        participants.setdefault(device, {"at_scan_start": {}, "at_scan_end": {}})
-    return participants
-
-
-def make_boundary_write_plan(
-    writes: list[BoundaryWrite], factory: Any
-) -> Callable | None:
-    """Compile resolved boundary writes into a reusable plan-stub callable.
-
-    Each write is issued as a blocking ``abs_set(..., wait=True)`` against the
-    variable's CA setpoint (the same ``:SP`` path action plans use — the
-    factory's ``get_settable``), sequentially in the given order.  Returns a
-    callable producing a **fresh** generator per call (required for the
-    finalize path, which may re-instantiate the end writes on abort).  Signals
-    must be pre-connected before the RE runs (see
-    :func:`prefetch_boundary_signals`).
-
-    Parameters
-    ----------
-    writes :
-        The resolved :class:`~geecs_bluesky.db_runtime.BoundaryWrite` list.
-    factory :
-        The action :class:`SettableFactory` (``session.action_signal_factory``
-        output) — its ``get_settable`` yields the ``:SP`` movable.
-
-    Returns
-    -------
-    callable or None
-        A plan-stub callable, or ``None`` when there are no writes.
-    """
-    if not writes:
-        return None
-    import bluesky.plan_stubs as bps
-
-    def _plan():
-        for write in writes:
-            settable = factory.get_settable(write.device, write.variable)
-            logger.info(
-                "DB scan write (%s): %s:%s = %r",
-                write.source,
-                write.device,
-                write.variable,
-                write.value,
-            )
-            yield from bps.abs_set(settable, write.value, wait=True)
-
-    return _plan
-
-
-def _chain_plan_stubs(
-    first: Callable | None, second: Callable | None
-) -> Callable | None:
-    """Return a callable running *first* then *second* (each a fresh generator).
-
-    Used to graft the DB start/end writes onto the compiled action slots:
-    start writes run *after* setup actions, end writes run *before* the
-    action closeout (so the closeout finalize still nests correctly).  Either
-    argument may be ``None`` (identity — the other is returned unchanged).
-    """
-    if first is None:
-        return second
-    if second is None:
-        return first
-
-    def _chained():
-        yield from first()
-        yield from second()
-
-    return _chained
-
-
-def _write_record(write: BoundaryWrite) -> dict[str, str]:
-    """Serialize a :class:`BoundaryWrite` for run-metadata provenance."""
-    return {
-        "device": write.device,
-        "variable": write.variable,
-        "value": write.value,
-        "source": write.source,
-    }
-
-
-def prefetch_boundary_signals(writes: list[BoundaryWrite], factory: Any) -> None:
-    """Pre-connect the ``:SP`` signal for every boundary write.
-
-    A blocking connect inside the RunEngine loop would deadlock, so every
-    ``(device, variable)`` a write touches is created/connected here first
-    (the factory caches per target).  Fail-fast: an unreachable setpoint fails
-    now, before the scan claims a number.
-    """
-    for write in writes:
-        factory.get_settable(write.device, write.variable)
+    if save_set is None:
+        return
+    devices = [
+        entry.device
+        for entry in save_set.entries
+        if getattr(entry, "at_scan_start", None) or getattr(entry, "at_scan_end", None)
+    ]
+    if devices:
+        logger.warning(
+            "save set %r sets the reserved DB scan start/end fields "
+            "(at_scan_start / at_scan_end) on %s, but the set-side is disabled "
+            "in this version and these values are NOT applied — triggering is "
+            "owned by the TriggerProfile/shot controller and camera saving by "
+            "the scanner's save-windowing (kept reserved for a possible future "
+            "re-enable)",
+            save_set.name,
+            ", ".join(devices),
+        )
 
 
 def build_telemetry_readables(
@@ -1508,31 +1417,24 @@ def run_scan_request(
         )
     save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
 
-    # M3c DB-integration runtime tier.  The policy provider is failure-tolerant
-    # (empty policy on a missing/unreachable DB), so it never aborts a scan.
+    # M3c DB-integration runtime tier — get-side only.  The policy provider is
+    # failure-tolerant (empty policy on a missing/unreachable DB), so it never
+    # aborts a scan.  The DB set-side (scan start/end writes) is intentionally
+    # disabled in this version (see the module docstring); a config that still
+    # sets the reserved at_scan_start / at_scan_end fields gets one warning.
     scalar_policy = make_scalar_policy(session)
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
+    warn_if_reserved_boundary_overrides(save_set)
 
-    # Resolve the scan-variable device names up front (participants for the
-    # DB start/end writes = save-set devices + scan-variable devices).  Full
-    # movable construction happens later; only the names are needed here.
-    axis_devices: list[str] = []
+    # Resolve the scan-variable movable targets up front (full movable
+    # construction happens later; only the (device, variable, kind) triples
+    # are needed here for the standard-scan build below).
     axis_resolved: list[tuple[str, str, str]] = []
     for axis in request.axes:
         spec = resolver.resolve_scan_variable(axis.variable)
         device, variable, kind = resolve_movable_target(spec, axis.variable)
-        axis_devices.append(device)
         axis_resolved.append((device, variable, kind))
-
-    apply_db_writes = _defaults_flag(defaults, "apply_db_scan_defaults", True)
-    start_writes: list[BoundaryWrite] = []
-    end_writes: list[BoundaryWrite] = []
-    if apply_db_writes:
-        participants = participants_from_save_set_and_axes(save_set, axis_devices)
-        start_writes, end_writes = collect_scan_boundary_writes(
-            participants, scalar_policy
-        )
 
     telemetry_enabled = (
         request.background_telemetry
@@ -1544,13 +1446,9 @@ def run_scan_request(
     try:
         # Compile the action slots first: signal prefetch fail-fasts on an
         # unreachable action target before detectors are even built, and
-        # everything stays pre-claim.  The same action signal factory drives
-        # the DB start/end setpoint writes (M3c), so create it whenever either
-        # actions or DB writes are present.
+        # everything stays pre-claim.
         setup = per_step = closeout = None
-        boundary_start_plan = boundary_end_plan = None
-        need_factory = any(slots.values()) or bool(start_writes or end_writes)
-        if need_factory:
+        if any(slots.values()):
             factory = session.action_signal_factory()
             created.append(factory)
             registry = build_action_registry(resolver)
@@ -1566,18 +1464,6 @@ def run_scan_request(
             prefetch_action_signals(
                 setup_plans + per_step_plans + closeout_plans, registry, factory
             )
-            # DB start/end writes ride the same :SP setpoint path; pre-connect
-            # their signals (a lazy connect inside the RE loop would deadlock).
-            prefetch_boundary_signals(start_writes + end_writes, factory)
-            boundary_start_plan = make_boundary_write_plan(start_writes, factory)
-            boundary_end_plan = make_boundary_write_plan(end_writes, factory)
-
-        # Start writes run after setup actions, before acquisition (they are
-        # chained into the setup hook); end writes run in the finalize chain
-        # so they execute even on abort (chained into the closeout hook, which
-        # build_step_scan_plan wraps in a finalize_wrapper).
-        setup = _chain_plan_stubs(setup, boundary_start_plan)
-        closeout = _chain_plan_stubs(boundary_end_plan, closeout)
 
         detectors = _build_request_detectors(
             session, devices_config, free_run=mode == "free_run"
@@ -1603,12 +1489,6 @@ def run_scan_request(
             # Provenance: the assembled per-slot execution order (defaults +
             # entry rituals + the request's own, mirrored on closeout).
             md["action_plans"] = {k: v for k, v in slots.items() if v}
-        if start_writes or end_writes:
-            # Provenance: every DB-driven start/end write actually applied.
-            md["db_scan_writes"] = {
-                "at_scan_start": [_write_record(w) for w in start_writes],
-                "at_scan_end": [_write_record(w) for w in end_writes],
-            }
         if telemetry_enabled and telemetry_selected:
             md["background_telemetry"] = {
                 dev: list(vars_) for dev, vars_ in telemetry_selected.items()
@@ -1743,9 +1623,9 @@ def _run_optimize_request(
     try:
         skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
         # db_scalars resolution applies to optimize too (recorded-scalar
-        # consistency); the DB start/end writes and background telemetry do
-        # not run in optimize mode yet (no scan-boundary hook on
-        # GeecsSession.optimize) — same skip-and-record posture as actions.
+        # consistency); background telemetry does not run in optimize mode yet
+        # (no scan-boundary hook on GeecsSession.optimize).  The DB set-side
+        # (scan start/end writes) is disabled everywhere in this version.
         scalar_policy = make_scalar_policy(session)
         if request.save_set:
             save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
@@ -1783,13 +1663,12 @@ def _run_optimize_request(
                 "and save-set rituals do not run during optimization): %s",
                 skipped,
             )
-        # DB scan-boundary writes and background telemetry are not wired into
-        # optimize mode yet (GeecsSession.optimize has no scan-boundary hook);
-        # db_scalars resolution above still applies.  Recorded for provenance.
+        # Background telemetry is not wired into optimize mode yet
+        # (GeecsSession.optimize has no scan-boundary hook); db_scalars
+        # resolution above still applies.  The DB set-side is disabled
+        # everywhere in this version.  Recorded for provenance.
         md["db_scan_runtime"] = {
             "db_scalars": "applied",
-            "at_scan_start_writes": "not_run_in_optimize",
-            "at_scan_end_writes": "not_run_in_optimize",
             "background_telemetry": "not_run_in_optimize",
         }
         uid, _history = session.optimize(

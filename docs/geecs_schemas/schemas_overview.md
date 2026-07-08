@@ -23,10 +23,12 @@ a dialog if one dies), their images are saved if asked, and their
 setup/closeout rituals run around the scan. Each entry records the device's
 standard telemetry (what the device database marks for scan logging) by
 default, plus any extra scalars you list. You don't declare timestamps or
-synchronization flags any more — the scanner works those out. The database's
-scan-start/end writes still apply, and an entry can override any of them per
-variable: replace the value, or suppress the write entirely with `null`.
-Devices *not* in the save set are still logged in the background — see
+synchronization flags any more — the scanner works those out. (The
+database's *set-side* scan-start/end writes are **not applied in this
+version** — the scanner handles triggering and camera saving itself; the
+per-entry `at_scan_start` / `at_scan_end` override fields are reserved for a
+possible future re-enable.) Devices *not* in the save set are still logged
+in the background — see
 "Required devices vs background telemetry" below, including the box on
 where these database facts live.
 
@@ -90,9 +92,9 @@ from" below), kept because keeping it is free.
     | Column | Meaning |
     |---|---|
     | `get` | `'yes'` = the variable is subscribed/logged for scans — the source of a device's standard telemetry (`db_scalars`) and of background telemetry |
-    | `set` | `'yes'` = the scan machinery writes this variable at scan boundaries |
-    | `startvalue` | the value written at scan start (what `at_scan_start` overrides) |
-    | `endvalue` | the value written at scan end (what `at_scan_end` overrides) |
+    | `set` | `'yes'` = MC writes this variable at scan boundaries (the *set-side*; **not applied by the current engine** — reserved) |
+    | `startvalue` | the value MC writes at scan start (the reserved `at_scan_start` would override it) |
+    | `endvalue` | the value MC writes at scan end (the reserved `at_scan_end` would override it) |
 
     The database rows themselves get no schema in this package — device
     facts live below the configs; the configs only *override* them.

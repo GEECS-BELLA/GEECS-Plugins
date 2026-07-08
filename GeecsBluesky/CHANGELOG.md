@@ -8,8 +8,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 M3c — the DB-integration runtime tier lands, wiring the two-tier recording
 model (`SaveSetEntry` runtime contract, `ExperimentDefaults`) into
-`GeecsSession.run`.  All three capabilities are gated by the schema flags that
-already existed; the schema is untouched.
+`GeecsSession.run`.  **Get-side only:** `db_scalars` (Tier 1 recorded
+scalars) and background telemetry (Tier 2) are honored; the DB **set-side**
+(scan start/end writes from the `set='yes'` rows) is intentionally
+**disabled** in this version.  Live DB inspection showed the boundary writes
+would race the shot controller / TriggerProfile on the DG645
+(`U_DG645_ShotControl`'s `set='yes'` rows are the `Trigger.Source` /
+`Amplitude.Ch AB` variables the shot controller already drives), and the
+remaining `set='yes'` rows are almost all `save` / `localsavingpath` (the
+scanner owns saving via its save-windowing).  The reserved schema fields
+(`SaveSetEntry.at_scan_start` / `at_scan_end`,
+`ExperimentDefaults.apply_db_scan_defaults`) are kept on record for a
+possible future re-enable but are not applied.
 
 ### Added
 
@@ -32,19 +42,12 @@ already existed; the schema is untouched.
   recorded — strictly additive over M3b.  `all_scalars` is no longer a blanket
   `NotImplementedError`: it resolves when a policy is present, and only raises
   on the no-policy path.
-- **Scan start/end DB writes (participants-only).**  For devices participating
-  in the scan (save-set devices + scan-variable devices — never every
-  experiment device), the `set='yes'` rows' `startvalue` is written at scan
-  start and `endvalue` at scan end, through the same CA `:SP` setpoint path as
-  action plans.  Per-entry `at_scan_start` / `at_scan_end` overrides layer on
-  top (value replaces, explicit `null` suppresses, absence keeps the DB value);
-  `save` / `localsavingpath` are always skipped.  Start writes run after setup
-  actions / before acquisition (chained into the setup hook); end writes run in
-  the finalize chain so they execute even on abort (chained into the closeout
-  hook, which `build_step_scan_plan` wraps in a `finalize_wrapper`).  Gated on
-  `ExperimentDefaults.apply_db_scan_defaults` (default true).  Every write
-  actually applied is recorded in run metadata under `db_scan_writes` for
-  provenance.
+- **Scan start/end DB writes — set-side, intentionally disabled.**  The DB
+  `set='yes'` boundary writes are **not** applied by the engine in this
+  version (see the version summary above for the DG645-conflict rationale).
+  A save-set entry that still carries `at_scan_start` / `at_scan_end` is not
+  an error — the engine logs one WARNING naming the device and records
+  nothing; the values are inert.  No `db_scan_writes` metadata is produced.
 - **Background telemetry tier (Tier 2).**  Every live experiment device with a
   `get='yes'` variable not in the save set is recorded as best-effort snapshot
   columns via the new soft `CaTelemetryReadable`: read-only, sampled once per
@@ -63,11 +66,13 @@ already existed; the schema is untouched.
 ### Notes
 
 - Optimize mode resolves `db_scalars` (recorded-scalar consistency) but does
-  **not** run the DB start/end writes or telemetry yet (no scan-boundary hook
-  on `GeecsSession.optimize`) — skip-and-record, mirroring the action-skip
-  posture; recorded in run metadata under `db_scan_runtime`.
-- Requires the gateway ≥ 0.9.0 (new `GeecsDb.get_all_experiment_variables` and
-  `GeecsDb.get_scan_boundary_writes`).
+  **not** run background telemetry yet (no scan-boundary hook on
+  `GeecsSession.optimize`) — skip-and-record; recorded in run metadata under
+  `db_scan_runtime`.  The set-side is disabled everywhere in this version.
+- Requires the gateway ≥ 0.9.0 (new `GeecsDb.get_all_experiment_variables`).
+  `GeecsDb.get_scan_boundary_writes` also lands in 0.9.0 as a reserved,
+  currently-unused query (the set-side is disabled) — not consumed by the
+  engine.
 
 ## [0.23.0] - 2026-07-07
 

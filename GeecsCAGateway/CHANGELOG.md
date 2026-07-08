@@ -17,6 +17,12 @@ All notable changes to `geecs-ca-gateway` are documented here, following
     (`{device: [{"variable", "startvalue", "endvalue"}, ...]}`, values as raw
     wire strings or `None`), i.e. the Master-Control scan start/end write
     policy.  Row order is preserved so writes replay in a stable sequence.
+    **Reserved / currently unused:** the GeecsBluesky engine does not apply
+    these DB set-side boundary writes in the current version (the set-side is
+    intentionally disabled — triggering is owned by the trigger profile /
+    shot controller and camera saving by the scanner's save-windowing).  Kept
+    as a read-only library query for inspection and a possible future DB
+    scan-write feature.
 
 ## [0.8.0] - 2026-07-08
 

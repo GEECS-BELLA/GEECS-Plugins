@@ -107,27 +107,33 @@ class SaveSetEntry(SchemaModel):
     with the device when entries are composed into bigger save sets, while
     the plan itself stays a single named, editable object.
 
-    **Runtime contract for the DB scan defaults** (``at_scan_start`` /
-    ``at_scan_end`` / ``db_scalars``): the GEECS experiment database (MySQL)
-    holds per-experiment device-variable policy in its
+    **Runtime contract for the DB scan defaults**: the GEECS experiment
+    database (MySQL) holds per-experiment device-variable policy in its
     ``expt_device_variable`` table (joined to devices via ``expt_device``).
-    Rows with ``set='yes'`` name variables the scan machinery writes at scan
-    boundaries, using the row's ``startvalue`` / ``endvalue`` — exactly what
-    MC applies at scan start/end; rows with ``get='yes'`` mark scan-logged
-    telemetry.
-    The engine reads those ``set='yes'`` start/end rows **only for devices
-    participating in the scan**, always skips ``save`` /
-    ``localsavingpath`` (native saving is owned by the run discipline, not
-    per-device DB rows), applies this entry's ``at_scan_start`` /
-    ``at_scan_end`` overrides on top, and records every write it actually
-    applied into the run's metadata for provenance.  The DB rows
-    themselves get no schema — device facts live below the configs.
+    Rows with ``get='yes'`` mark scan-logged telemetry; rows with
+    ``set='yes'`` name variables MC writes at scan boundaries using the row's
+    ``startvalue`` / ``endvalue``.
 
-    The soft tier (background telemetry, see the module docstring) gets
-    **no** scan-start/end writes — writing to a possibly-dead device would
-    block, and softness means never waiting.  Soft-tier columns carry their
-    own ``acq_timestamp`` plus a validity marker for downstream alignment;
-    strict-mode completeness applies to required devices only.
+    - **``db_scalars`` IS honored (get-side).**  For a device recorded with
+      ``db_scalars=True`` (the default) the engine records its ``get='yes'``
+      variables (``all_scalars=True`` records every DB variable).  This is
+      the standard telemetry list; ``scalars`` adds extras on top.
+    - **``at_scan_start`` / ``at_scan_end`` are NOT honored in this version
+      (set-side, reserved).**  The DB set-side scan start/end writes are
+      intentionally disabled: the engine sets up triggering via the
+      TriggerProfile / shot controller and camera saving via its own
+      save-windowing, so writing the ``set='yes'`` rows at scan boundaries
+      would race the shot controller (on the DG645 the ``set='yes'`` rows
+      are the very trigger/amplitude variables the shot controller drives)
+      and duplicate the scanner's own saving.  These override fields are
+      kept on record for a possible future re-enable; a config that still
+      sets them is honored by nothing today (the engine logs one warning).
+
+    The soft tier (background telemetry, see the module docstring) never
+    gets scan-start/end writes either — writing to a possibly-dead device
+    would block, and softness means never waiting.  Soft-tier columns carry
+    their own ``acq_timestamp`` plus a validity marker for downstream
+    alignment; strict-mode completeness applies to required devices only.
     """
 
     device: str = Field(
@@ -205,24 +211,29 @@ class SaveSetEntry(SchemaModel):
     at_scan_start: dict[str, Optional[str]] = Field(
         default_factory=dict,
         description=(
-            "Per-variable tweaks to what the GEECS experiment database "
-            "writes to this device when a scan starts (its "
-            "expt_device_variable rows with set='yes'; the sent value is "
-            "the row's startvalue). Three cases: a variable you don't "
-            "mention keeps its database behavior; 'Variable: \"value\"' "
-            "sends your value instead of the database's; 'Variable: null' "
-            "suppresses the database write entirely (nothing is sent)."
+            "RESERVED AND NOT APPLIED in this version. The DB set-side scan "
+            "start/end writes are intentionally disabled: the engine sets up "
+            "triggering via the trigger profile / shot controller and camera "
+            "saving via its own save-windowing, so writing the database's "
+            "set='yes' start values here would race the shot controller. Kept "
+            "for a possible future re-enable — a config that sets it is not an "
+            "error but has no effect today (the engine logs a warning). When "
+            "honored again, it would tweak the database's scan-start writes "
+            "per variable (unmentioned = database value, a value = replace, "
+            "null = suppress)."
         ),
     )
     at_scan_end: dict[str, Optional[str]] = Field(
         default_factory=dict,
         description=(
-            "Per-variable tweaks to what the GEECS experiment database "
-            "writes to this device when a scan ends (its "
-            "expt_device_variable rows with set='yes'; the sent value is "
-            "the row's endvalue) — same three cases as 'at_scan_start': "
-            "unmentioned = database behavior, a value = replace the "
-            "database's value, null = suppress the write entirely."
+            "RESERVED AND NOT APPLIED in this version — the scan-end "
+            "counterpart of 'at_scan_start'. The DB set-side scan start/end "
+            "writes are intentionally disabled (triggering is owned by the "
+            "trigger profile / shot controller, camera saving by the "
+            "scanner's save-windowing), so this has no effect today; it is "
+            "kept for a possible future re-enable. When honored again, it "
+            "would tweak the database's scan-end writes per variable (same "
+            "three cases as 'at_scan_start')."
         ),
     )
 

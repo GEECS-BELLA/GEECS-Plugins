@@ -393,14 +393,21 @@ class GeecsDb:
         """Return the ``set='yes'`` scan start/end writes per device.
 
         ``expt_device_variable`` rows with ``set='yes'`` name the variables
-        the scan machinery writes at scan boundaries — exactly what Master
-        Control applies: the row's ``startvalue`` at scan start and
-        ``endvalue`` at scan end (see the ``SaveSetEntry`` runtime contract in
-        ``geecs_schemas.save_set``).  The values are returned as raw wire
-        strings (or ``None`` when the DB column is null); the caller decides
-        which participating devices to write and layers per-scan overrides on
-        top.  Row order is preserved (the DB's ``id`` order) so writes replay
-        in a stable sequence.
+        Master Control writes at scan boundaries — the row's ``startvalue`` at
+        scan start and ``endvalue`` at scan end.  The values are returned as
+        raw wire strings (or ``None`` when the DB column is null).  Row order
+        is preserved (the DB's ``id`` order) so writes replay in a stable
+        sequence.
+
+        .. note::
+
+           **Reserved / not currently consumed by the engine.**  This is a
+           read-only library query; the GeecsBluesky engine does *not* apply
+           these DB set-side boundary writes in the current version (the
+           set-side is intentionally disabled — triggering is owned by the
+           trigger profile / shot controller and camera saving by the
+           scanner's save-windowing).  The method is kept for inspection and
+           for a possible future DB scan-write feature.
 
         Parameters
         ----------
