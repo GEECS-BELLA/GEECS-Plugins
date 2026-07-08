@@ -400,6 +400,46 @@ overriding explicit values — and every applied default is recorded into
 the run metadata for provenance (closeout defaults append *after* the
 scan's own since geecs-schemas 0.2.0 — mirrored teardown).
 
+**M3c (0.24.0) — the DB-integration runtime tier, two-tier recording now
+live.**  Three capabilities, all gated by schema flags that already existed
+(the schema is untouched); the pure resolution logic lives in
+`geecs_bluesky/db_runtime.py`, the one place touching `GeecsDb` is its
+failure-tolerant `GeecsDbScalarPolicy` (a DB lookup that fails degrades to
+empty policy + a warning — a scan never aborts because the DB blipped):
+
+- **db_scalars (Tier 1 recorded scalars).**  A `SaveSetEntry`'s recorded
+  scalars = its DB `get='yes'` variables ∪ its explicit `scalars`
+  (`db_scalars=True`, default); `all_scalars=True` unions *every* DB variable;
+  `db_scalars=False` (the legacy-converter pin) = explicit-only.
+  `save_set_to_devices_config(save_set, scalar_policy)` threads it; with no
+  policy (GUI bridge / off-network) only the explicit list is recorded — M3b
+  behavior, strictly additive.
+- **Scan start/end DB writes (participants-only).**  For scan participants
+  (save-set devices + scan-variable devices — **not** every experiment
+  device), `set='yes'` rows' `startvalue` write at start and `endvalue` at
+  end, through the same CA `:SP` path actions use.  `at_scan_start` /
+  `at_scan_end` overrides layer on (value replaces, explicit `null`
+  suppresses, absence = DB value); `save` / `localsavingpath` always skipped.
+  Start writes chain into the setup hook (after setup actions, before
+  acquisition); end writes chain into the closeout hook (finalize — runs on
+  abort).  Gated on `ExperimentDefaults.apply_db_scan_defaults`; applied
+  writes recorded in run metadata (`db_scan_writes`).
+- **Background telemetry (Tier 2).**  Every live device with a `get='yes'`
+  variable not in the save set → soft `CaTelemetryReadable` columns
+  (`telemetry_<device>-…`): read-only, never waited on (a failed read is a
+  NaN cell, a dead-at-start device is dropped with a log line via
+  `session.telemetry` returning `None`).  Gated on
+  `ScanRequest.background_telemetry` else the experiment default; selection
+  recorded (`background_telemetry`).  **Softness vs synchronicity are
+  mutually exclusive — telemetry must never gate a shot; do not make it
+  participate in shot completion.**
+
+Optimize mode resolves db_scalars but does not run start/end writes or
+telemetry yet (no scan-boundary hook on `GeecsSession.optimize`) — recorded as
+`db_scan_runtime` in metadata.  Adding a new analyzer/writer still must not
+create scan folders (cross-package invariant); M3c is scanner-side but touches
+no scan-folder creation.
+
 ## Known Gaps (as of 0.21.0)
 
 The acquisition-modes architecture is complete and hardware-verified (both

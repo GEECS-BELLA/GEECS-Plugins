@@ -75,6 +75,14 @@ from typing import Any, Callable, Protocol, runtime_checkable
 
 import yaml
 
+from geecs_bluesky.db_runtime import (
+    BoundaryWrite,
+    GeecsDbScalarPolicy,
+    ScalarPolicyProvider,
+    collect_scan_boundary_writes,
+    resolve_entry_scalars,
+    select_telemetry_variables,
+)
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
@@ -545,7 +553,10 @@ def trigger_writes_from_profile(
     return ShotControlWrites(name=name, states=states)
 
 
-def save_set_to_devices_config(save_set: SaveSet) -> dict[str, dict[str, Any]]:
+def save_set_to_devices_config(
+    save_set: SaveSet,
+    scalar_policy: "ScalarPolicyProvider | None" = None,
+) -> dict[str, dict[str, Any]]:
     """Derive the legacy ``devices_config`` shape from a SaveSet.
 
     Applies the documented intent→mechanics derivation rules
@@ -553,17 +564,31 @@ def save_set_to_devices_config(save_set: SaveSet) -> dict[str, dict[str, Any]]:
 
     - ``synchronous`` is derived from the entry's role: ``snapshot`` →
       asynchronous, everything else → synchronous.
-    - ``images`` → ``save_nonscalar_data``; ``scalars`` → ``variable_list``
-      (``acq_timestamp`` stays implicit — the device layer always records it).
+    - ``images`` → ``save_nonscalar_data``; the recorded ``variable_list`` is
+      the entry's resolved scalar set (``acq_timestamp`` stays implicit — the
+      device layer always records it).
     - Role overrides shape the **ordering** (the downstream classifier
       assigns free-run roles by position): a ``reference``-flagged entry is
       moved first; ``contributor``-flagged entries are placed after the
       unmarked synchronous ones so they never inherit pacemaker duty.
 
+    The recorded ``variable_list`` follows the ``SaveSetEntry`` ``db_scalars``
+    contract (M3c), delegated to
+    :func:`~geecs_bluesky.db_runtime.resolve_entry_scalars`: with a
+    *scalar_policy* provider, ``db_scalars=True`` unions the device's DB
+    ``get='yes'`` variables (or every DB variable when ``all_scalars=True``)
+    with the explicit list; ``db_scalars=False`` records only the explicit
+    list (the legacy-converter pin).  Without a provider (the GUI-bridge path
+    or no DB access) only the explicit list is recorded — the M3b behavior,
+    with ``all_scalars`` still a documented gap.
+
     Parameters
     ----------
     save_set :
         The save set to translate.
+    scalar_policy :
+        Optional DB policy provider (M3c); ``None`` keeps the M3b
+        explicit-only behavior.
 
     Returns
     -------
@@ -577,8 +602,9 @@ def save_set_to_devices_config(save_set: SaveSet) -> dict[str, dict[str, Any]]:
         If more than one entry claims the ``reference`` role, or if every
         synchronous entry is ``contributor``-flagged (no pacemaker left).
     NotImplementedError
-        For ``all_scalars`` entries without an explicit ``scalars`` list —
-        enumerating a device's scalars needs the DB-backed validation pass.
+        For ``all_scalars`` entries without an explicit ``scalars`` list when
+        no *scalar_policy* is available — enumerating a device's scalars needs
+        the DB (which the provider supplies).
     """
     references = [e for e in save_set.entries if e.role is SaveRole.REFERENCE]
     if len(references) > 1:
@@ -599,17 +625,24 @@ def save_set_to_devices_config(save_set: SaveSet) -> dict[str, dict[str, Any]]:
 
     config: dict[str, dict[str, Any]] = {}
     for entry in references + unmarked + contributors + snapshots:
-        if entry.all_scalars and not entry.scalars:
+        if entry.all_scalars and not entry.scalars and scalar_policy is None:
             raise NotImplementedError(
                 f"save set {save_set.name!r}, device {entry.device!r}: "
-                "all_scalars needs the DB-backed scalar enumeration, which "
-                "lands with save-set validation — list the scalars "
-                "explicitly for now"
+                "all_scalars needs the DB-backed scalar enumeration — run the "
+                "request through GeecsSession.run (which supplies the DB "
+                "policy) or list the scalars explicitly"
             )
+        variable_list = resolve_entry_scalars(
+            entry.device,
+            list(entry.scalars),
+            db_scalars=entry.db_scalars,
+            all_scalars=entry.all_scalars,
+            provider=scalar_policy,
+        )
         config[entry.device] = {
             "synchronous": entry.role is not SaveRole.SNAPSHOT,
             "save_nonscalar_data": entry.images,
-            "variable_list": list(entry.scalars),
+            "variable_list": variable_list,
         }
     return config
 
@@ -1045,6 +1078,16 @@ def apply_experiment_defaults(
     return request, applied
 
 
+def resolve_experiment_defaults(resolver: ConfigResolver) -> Any | None:
+    """Return the resolver's experiment defaults, or ``None`` (tolerantly).
+
+    Resolvers without a ``resolve_experiment_defaults`` method are treated as
+    having no defaults.
+    """
+    resolve = getattr(resolver, "resolve_experiment_defaults", None)
+    return resolve() if callable(resolve) else None
+
+
 def resolve_defaults_for(
     resolver: ConfigResolver, request: ScanRequest
 ) -> tuple[ScanRequest, dict[str, Any]]:
@@ -1065,9 +1108,21 @@ def resolve_defaults_for(
     tuple
         As :func:`apply_experiment_defaults`.
     """
-    resolve = getattr(resolver, "resolve_experiment_defaults", None)
-    defaults = resolve() if callable(resolve) else None
-    return apply_experiment_defaults(request, defaults)
+    return apply_experiment_defaults(request, resolve_experiment_defaults(resolver))
+
+
+def _defaults_flag(defaults: Any | None, name: str, fallback: bool) -> bool:
+    """Read a boolean flag off the experiment defaults (model or mapping).
+
+    Returns *fallback* when there are no defaults or the flag is absent.
+    """
+    if defaults is None:
+        return fallback
+    if isinstance(defaults, dict):
+        value = defaults.get(name, fallback)
+    else:
+        value = getattr(defaults, name, fallback)
+    return fallback if value is None else bool(value)
 
 
 # ---------------------------------------------------------------------------
@@ -1158,6 +1213,206 @@ def _build_request_detectors(
     return detectors
 
 
+# ---------------------------------------------------------------------------
+# DB-integration runtime (M3c): db_scalars, start/end writes, telemetry
+# ---------------------------------------------------------------------------
+
+
+def make_scalar_policy(session: Any) -> ScalarPolicyProvider | None:
+    """Build the DB scalar/boundary policy provider for *session*'s experiment.
+
+    Returns a :class:`~geecs_bluesky.db_runtime.GeecsDbScalarPolicy` bound to
+    the session's experiment.  The provider itself is failure-tolerant (a DB
+    lookup that fails degrades to empty policy with a warning), so this never
+    raises for a missing DB; ``None`` is returned only when the session does
+    not expose an ``experiment`` attribute (defensive — every real session
+    does).
+
+    Parameters
+    ----------
+    session :
+        The :class:`~geecs_bluesky.session.GeecsSession` (duck-typed).
+
+    Returns
+    -------
+    ScalarPolicyProvider or None
+        A DB-backed policy provider, or ``None`` when no experiment is known.
+    """
+    experiment = getattr(session, "experiment", None)
+    if not experiment:
+        return None
+    return GeecsDbScalarPolicy(experiment)
+
+
+def participants_from_save_set_and_axes(
+    save_set: SaveSet | None,
+    axis_devices: list[str],
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Assemble the participating-device → override-dicts map for DB writes.
+
+    Participants are exactly the save-set devices plus the scan-variable
+    devices — **not** every experiment device (the maintainer's explicit
+    decision).  Each save-set entry contributes its ``at_scan_start`` /
+    ``at_scan_end`` override dicts; a scan-variable device with no save-set
+    entry participates with empty overrides (so its own ``set='yes'`` rows
+    still fire).
+
+    Parameters
+    ----------
+    save_set :
+        The scan's save set (``None`` for a save-set-less scan).
+    axis_devices :
+        Device names of the scan variables (movables).
+
+    Returns
+    -------
+    dict
+        ``{device: {"at_scan_start": {...}, "at_scan_end": {...}}}``.
+    """
+    participants: dict[str, dict[str, dict[str, Any]]] = {}
+    if save_set is not None:
+        for entry in save_set.entries:
+            participants[entry.device] = {
+                "at_scan_start": dict(getattr(entry, "at_scan_start", {}) or {}),
+                "at_scan_end": dict(getattr(entry, "at_scan_end", {}) or {}),
+            }
+    for device in axis_devices:
+        participants.setdefault(device, {"at_scan_start": {}, "at_scan_end": {}})
+    return participants
+
+
+def make_boundary_write_plan(
+    writes: list[BoundaryWrite], factory: Any
+) -> Callable | None:
+    """Compile resolved boundary writes into a reusable plan-stub callable.
+
+    Each write is issued as a blocking ``abs_set(..., wait=True)`` against the
+    variable's CA setpoint (the same ``:SP`` path action plans use — the
+    factory's ``get_settable``), sequentially in the given order.  Returns a
+    callable producing a **fresh** generator per call (required for the
+    finalize path, which may re-instantiate the end writes on abort).  Signals
+    must be pre-connected before the RE runs (see
+    :func:`prefetch_boundary_signals`).
+
+    Parameters
+    ----------
+    writes :
+        The resolved :class:`~geecs_bluesky.db_runtime.BoundaryWrite` list.
+    factory :
+        The action :class:`SettableFactory` (``session.action_signal_factory``
+        output) — its ``get_settable`` yields the ``:SP`` movable.
+
+    Returns
+    -------
+    callable or None
+        A plan-stub callable, or ``None`` when there are no writes.
+    """
+    if not writes:
+        return None
+    import bluesky.plan_stubs as bps
+
+    def _plan():
+        for write in writes:
+            settable = factory.get_settable(write.device, write.variable)
+            logger.info(
+                "DB scan write (%s): %s:%s = %r",
+                write.source,
+                write.device,
+                write.variable,
+                write.value,
+            )
+            yield from bps.abs_set(settable, write.value, wait=True)
+
+    return _plan
+
+
+def _chain_plan_stubs(
+    first: Callable | None, second: Callable | None
+) -> Callable | None:
+    """Return a callable running *first* then *second* (each a fresh generator).
+
+    Used to graft the DB start/end writes onto the compiled action slots:
+    start writes run *after* setup actions, end writes run *before* the
+    action closeout (so the closeout finalize still nests correctly).  Either
+    argument may be ``None`` (identity — the other is returned unchanged).
+    """
+    if first is None:
+        return second
+    if second is None:
+        return first
+
+    def _chained():
+        yield from first()
+        yield from second()
+
+    return _chained
+
+
+def _write_record(write: BoundaryWrite) -> dict[str, str]:
+    """Serialize a :class:`BoundaryWrite` for run-metadata provenance."""
+    return {
+        "device": write.device,
+        "variable": write.variable,
+        "value": write.value,
+        "source": write.source,
+    }
+
+
+def prefetch_boundary_signals(writes: list[BoundaryWrite], factory: Any) -> None:
+    """Pre-connect the ``:SP`` signal for every boundary write.
+
+    A blocking connect inside the RunEngine loop would deadlock, so every
+    ``(device, variable)`` a write touches is created/connected here first
+    (the factory caches per target).  Fail-fast: an unreachable setpoint fails
+    now, before the scan claims a number.
+    """
+    for write in writes:
+        factory.get_settable(write.device, write.variable)
+
+
+def build_telemetry_readables(
+    session: Any,
+    save_set: SaveSet | None,
+    scalar_policy: ScalarPolicyProvider | None,
+) -> tuple[list, dict[str, list[str]]]:
+    """Build the Tier-2 background-telemetry readables (soft, dropped-if-dead).
+
+    Selects every experiment device with a ``get='yes'`` variable not in the
+    save set (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`),
+    then builds one soft telemetry readable per device via
+    ``session.telemetry`` — which returns ``None`` for a device unreachable at
+    scan start (dropped with a log line, never an abort).  Devices that connect
+    are appended to the scan's read set as extra columns; the softness (never
+    waited on) lives in the device's own tolerant ``read``.
+
+    Parameters
+    ----------
+    session :
+        The session (its ``telemetry`` factory connects each device softly).
+    save_set :
+        The scan's save set (its devices are excluded from telemetry).
+    scalar_policy :
+        Supplies ``get='yes'`` variables; ``None`` means no telemetry.
+
+    Returns
+    -------
+    tuple
+        ``(readables, selected)`` — the connected telemetry devices and the
+        ``{device: [variables]}`` selection (recorded in run metadata).
+    """
+    if scalar_policy is None:
+        return [], {}
+    selected = select_telemetry_variables(
+        save_set, scalar_policy.subscribed_by_device()
+    )
+    readables: list = []
+    for device, variables in selected.items():
+        readable = session.telemetry(device, variables)
+        if readable is not None:
+            readables.append(readable)
+    return readables, selected
+
+
 def run_scan_request(
     session: Any,
     request: ScanRequest,
@@ -1211,7 +1466,8 @@ def run_scan_request(
     GeecsConfigurationError
         Unresolvable names, or a step/noscan request without a save set.
     """
-    request, applied_defaults = resolve_defaults_for(resolver, request)
+    defaults = resolve_experiment_defaults(resolver)
+    request, applied_defaults = apply_experiment_defaults(request, defaults)
     resolved_actions = resolve_and_validate_actions(request.actions, resolver)
 
     if request.trigger_profile:
@@ -1251,16 +1507,50 @@ def run_scan_request(
             "without one the scan would record nothing"
         )
     save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
-    devices_config = save_set_to_devices_config(save_set)
+
+    # M3c DB-integration runtime tier.  The policy provider is failure-tolerant
+    # (empty policy on a missing/unreachable DB), so it never aborts a scan.
+    scalar_policy = make_scalar_policy(session)
+    devices_config = save_set_to_devices_config(save_set, scalar_policy)
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
+
+    # Resolve the scan-variable device names up front (participants for the
+    # DB start/end writes = save-set devices + scan-variable devices).  Full
+    # movable construction happens later; only the names are needed here.
+    axis_devices: list[str] = []
+    axis_resolved: list[tuple[str, str, str]] = []
+    for axis in request.axes:
+        spec = resolver.resolve_scan_variable(axis.variable)
+        device, variable, kind = resolve_movable_target(spec, axis.variable)
+        axis_devices.append(device)
+        axis_resolved.append((device, variable, kind))
+
+    apply_db_writes = _defaults_flag(defaults, "apply_db_scan_defaults", True)
+    start_writes: list[BoundaryWrite] = []
+    end_writes: list[BoundaryWrite] = []
+    if apply_db_writes:
+        participants = participants_from_save_set_and_axes(save_set, axis_devices)
+        start_writes, end_writes = collect_scan_boundary_writes(
+            participants, scalar_policy
+        )
+
+    telemetry_enabled = (
+        request.background_telemetry
+        if request.background_telemetry is not None
+        else _defaults_flag(defaults, "background_telemetry", True)
+    )
 
     created: list = []
     try:
         # Compile the action slots first: signal prefetch fail-fasts on an
         # unreachable action target before detectors are even built, and
-        # everything stays pre-claim.
+        # everything stays pre-claim.  The same action signal factory drives
+        # the DB start/end setpoint writes (M3c), so create it whenever either
+        # actions or DB writes are present.
         setup = per_step = closeout = None
-        if any(slots.values()):
+        boundary_start_plan = boundary_end_plan = None
+        need_factory = any(slots.values()) or bool(start_writes or end_writes)
+        if need_factory:
             factory = session.action_signal_factory()
             created.append(factory)
             registry = build_action_registry(resolver)
@@ -1276,11 +1566,33 @@ def run_scan_request(
             prefetch_action_signals(
                 setup_plans + per_step_plans + closeout_plans, registry, factory
             )
+            # DB start/end writes ride the same :SP setpoint path; pre-connect
+            # their signals (a lazy connect inside the RE loop would deadlock).
+            prefetch_boundary_signals(start_writes + end_writes, factory)
+            boundary_start_plan = make_boundary_write_plan(start_writes, factory)
+            boundary_end_plan = make_boundary_write_plan(end_writes, factory)
+
+        # Start writes run after setup actions, before acquisition (they are
+        # chained into the setup hook); end writes run in the finalize chain
+        # so they execute even on abort (chained into the closeout hook, which
+        # build_step_scan_plan wraps in a finalize_wrapper).
+        setup = _chain_plan_stubs(setup, boundary_start_plan)
+        closeout = _chain_plan_stubs(boundary_end_plan, closeout)
 
         detectors = _build_request_detectors(
             session, devices_config, free_run=mode == "free_run"
         )
         created.extend(detectors)
+
+        telemetry_selected: dict[str, list[str]] = {}
+        if telemetry_enabled:
+            telemetry_readables, telemetry_selected = build_telemetry_readables(
+                session, save_set, scalar_policy
+            )
+            # Telemetry is soft: appended to the read set as extra snapshot
+            # columns, never as the reference (index 0 stays the save set's).
+            detectors = list(detectors) + telemetry_readables
+            created.extend(telemetry_readables)
 
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         if applied_defaults:
@@ -1291,6 +1603,16 @@ def run_scan_request(
             # Provenance: the assembled per-slot execution order (defaults +
             # entry rituals + the request's own, mirrored on closeout).
             md["action_plans"] = {k: v for k, v in slots.items() if v}
+        if start_writes or end_writes:
+            # Provenance: every DB-driven start/end write actually applied.
+            md["db_scan_writes"] = {
+                "at_scan_start": [_write_record(w) for w in start_writes],
+                "at_scan_end": [_write_record(w) for w in end_writes],
+            }
+        if telemetry_enabled and telemetry_selected:
+            md["background_telemetry"] = {
+                dev: list(vars_) for dev, vars_ in telemetry_selected.items()
+            }
         scan_info: dict[str, Any] = {
             "shots": request.shots_per_step,
             "background": request.background,
@@ -1315,9 +1637,7 @@ def run_scan_request(
         movables: list = []
         targets: list[str] = []
         value_lists: list[list[float]] = []
-        for axis in request.axes:
-            spec = resolver.resolve_scan_variable(axis.variable)
-            device, variable, kind = resolve_movable_target(spec, axis.variable)
+        for (device, variable, kind), axis in zip(axis_resolved, request.axes):
             movable = (
                 session.motor(device, variable)
                 if kind == "motor"
@@ -1422,6 +1742,11 @@ def _run_optimize_request(
     created: list = []
     try:
         skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
+        # db_scalars resolution applies to optimize too (recorded-scalar
+        # consistency); the DB start/end writes and background telemetry do
+        # not run in optimize mode yet (no scan-boundary hook on
+        # GeecsSession.optimize) — same skip-and-record posture as actions.
+        scalar_policy = make_scalar_policy(session)
         if request.save_set:
             save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
             ritual_names = [n for names in rituals.values() for n in names]
@@ -1431,7 +1756,7 @@ def _run_optimize_request(
                 skipped["save_set_rituals"] = ritual_names
             detectors = _build_request_detectors(
                 session,
-                save_set_to_devices_config(save_set),
+                save_set_to_devices_config(save_set, scalar_policy),
                 free_run=mode == "free_run",
             )
             created.extend(detectors)
@@ -1458,6 +1783,15 @@ def _run_optimize_request(
                 "and save-set rituals do not run during optimization): %s",
                 skipped,
             )
+        # DB scan-boundary writes and background telemetry are not wired into
+        # optimize mode yet (GeecsSession.optimize has no scan-boundary hook);
+        # db_scalars resolution above still applies.  Recorded for provenance.
+        md["db_scan_runtime"] = {
+            "db_scalars": "applied",
+            "at_scan_start_writes": "not_run_in_optimize",
+            "at_scan_end_writes": "not_run_in_optimize",
+            "background_telemetry": "not_run_in_optimize",
+        }
         uid, _history = session.optimize(
             variables=variables,
             detectors=detectors,

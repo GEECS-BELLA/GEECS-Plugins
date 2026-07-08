@@ -183,6 +183,61 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
     assert result["U_B"][0]["settable"] is False
 
 
+def test_get_all_experiment_variables_groups_and_dedupes(monkeypatch) -> None:
+    """Every expt_device_variable row per device, deduped, in stable order."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [
+            ("U_A", "MaxCounts"),
+            ("U_A", "centroidx"),
+            ("U_A", "centroidx"),  # duplicate DB row (known quirk) → collapsed
+            ("U_B", "Pressure"),
+        ],
+        queries,
+    )
+
+    result = GeecsDb.get_all_experiment_variables("Undulator")
+    assert result == {"U_A": ["MaxCounts", "centroidx"], "U_B": ["Pressure"]}
+    assert len(queries) == 1 and queries[0][1] == ("Undulator",)
+    assert "LOWER(ed.enabled) = 'yes'" in queries[0][0]
+
+    queries.clear()
+    GeecsDb.get_all_experiment_variables("Undulator", enabled_only=False)
+    assert "enabled" not in queries[0][0]
+
+
+def test_get_scan_boundary_writes_returns_set_yes_rows(monkeypatch) -> None:
+    """set='yes' rows carry startvalue/endvalue as strings (None preserved)."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [
+            ("U_DG", "TriggerMode", "Scan", "Standby"),
+            ("U_DG", "Amplitude", 4.0, None),  # numeric coerced to str; None kept
+            ("U_Cam", "Shutter", "Open", "Closed"),
+        ],
+        queries,
+    )
+
+    result = GeecsDb.get_scan_boundary_writes("Undulator")
+    assert result["U_DG"] == [
+        {"variable": "TriggerMode", "startvalue": "Scan", "endvalue": "Standby"},
+        {"variable": "Amplitude", "startvalue": "4.0", "endvalue": None},
+    ]
+    assert result["U_Cam"] == [
+        {"variable": "Shutter", "startvalue": "Open", "endvalue": "Closed"}
+    ]
+    assert len(queries) == 1 and queries[0][1] == ("Undulator",)
+    query = queries[0][0]
+    assert "`set` = 'yes'" in query
+    assert "LOWER(ed.enabled) = 'yes'" in query
+
+    queries.clear()
+    GeecsDb.get_scan_boundary_writes("Undulator", enabled_only=False)
+    assert "enabled" not in queries[0][0]
+
+
 def test_get_ca_alarm_limits_returns_validated_rows(monkeypatch) -> None:
     """Optional alarm-limit rows are keyed by device/variable."""
     queries: list = []

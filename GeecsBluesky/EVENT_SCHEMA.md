@@ -56,6 +56,15 @@ Free-run mode adds:
 | `device_t0s` | device → t0 `acq_timestamp` captured by the t0-sync stage |
 | `t0_sync_window_s` | Acceptance window used by the t0-sync stage |
 
+ScanRequest runs (`GeecsSession.run`) may also add, for provenance:
+
+| Key | Meaning |
+|---|---|
+| `applied_defaults` | Experiment-defaults fields that filled a silent request |
+| `action_plans` | Assembled per-slot action execution order |
+| `db_scan_writes` | DB start/end setpoint writes actually applied (M3c): `{at_scan_start: [...], at_scan_end: [...]}`, each write `{device, variable, value, source}` (`source` = `db` or `override`) |
+| `background_telemetry` | `{device: [variables]}` recorded as Tier-2 telemetry (M3c; present only when telemetry ran) |
+
 **`scan_id` note:** `scan_id` has no uniqueness contract in Bluesky — the
 day-scoped number resets to 1 each day, which is fine (`uid` is the real key).
 Never look a run up by `scan_id` alone; qualify with the day, or use
@@ -91,6 +100,20 @@ truthfully-labeled data for realignment downstream by `shot_id`).
 
 **Per snapshot device** (asynchronous, no `acq_timestamp`) — every row: its
 data variables, sampled at row emission. No companion columns.
+
+**Background-telemetry columns** (Tier 2, best-effort) — every live experiment
+device with a `get='yes'` variable *not* in the save set is recorded as soft
+snapshot columns read from the gateway monitor cache. They are distinguished
+from Tier-1 save-set data by a **device-name prefix**: the ophyd device is
+`telemetry_<device>`, so every column it contributes is keyed
+`telemetry_<device>-<safe_var>`. Telemetry is read-only, sampled once per row,
+**never waited on** — a value that cannot be read (a device that went dead
+mid-scan) is a NaN cell, and a device unreachable at scan start is dropped with
+a log line, never a dialog or abort. Telemetry columns are **not** added to
+`geecs_scalar_headers` (they are Tier 2, not legacy s-file scalars). The
+start-doc `background_telemetry` key (present only when telemetry ran) records
+the `{device: [variables]}` actually selected. This is an additive
+device-name convention, not a new schema field — it does not bump the version.
 
 **Free-run tail flush:** after the last shot, free-run runs emit one final
 event on a separate `flush` stream (one extra read of all devices) so a

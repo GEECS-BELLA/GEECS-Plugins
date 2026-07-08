@@ -4,6 +4,63 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-07-08
+
+M3c — the DB-integration runtime tier lands, wiring the two-tier recording
+model (`SaveSetEntry` runtime contract, `ExperimentDefaults`) into
+`GeecsSession.run`.  All three capabilities are gated by the schema flags that
+already existed; the schema is untouched.
+
+### Added
+
+- **db_scalars resolution (Tier 1).**  A save-set entry's recorded scalars are
+  now its DB `get='yes'` variables (from `expt_device_variable`) unioned with
+  its explicit `scalars` list (`db_scalars=True`, the default);
+  `all_scalars=True` unions every DB variable instead; `db_scalars=False` (what
+  the legacy converter pins) records only the explicit list.  Resolution is a
+  pure function (`db_runtime.resolve_entry_scalars`) threaded through
+  `save_set_to_devices_config(save_set, scalar_policy)`.  With no DB policy
+  (the GUI-bridge path, or off the lab network) only the explicit list is
+  recorded — strictly additive over M3b.  `all_scalars` is no longer a blanket
+  `NotImplementedError`: it resolves when a policy is present, and only raises
+  on the no-policy path.
+- **Scan start/end DB writes (participants-only).**  For devices participating
+  in the scan (save-set devices + scan-variable devices — never every
+  experiment device), the `set='yes'` rows' `startvalue` is written at scan
+  start and `endvalue` at scan end, through the same CA `:SP` setpoint path as
+  action plans.  Per-entry `at_scan_start` / `at_scan_end` overrides layer on
+  top (value replaces, explicit `null` suppresses, absence keeps the DB value);
+  `save` / `localsavingpath` are always skipped.  Start writes run after setup
+  actions / before acquisition (chained into the setup hook); end writes run in
+  the finalize chain so they execute even on abort (chained into the closeout
+  hook, which `build_step_scan_plan` wraps in a `finalize_wrapper`).  Gated on
+  `ExperimentDefaults.apply_db_scan_defaults` (default true).  Every write
+  actually applied is recorded in run metadata under `db_scan_writes` for
+  provenance.
+- **Background telemetry tier (Tier 2).**  Every live experiment device with a
+  `get='yes'` variable not in the save set is recorded as best-effort snapshot
+  columns via the new soft `CaTelemetryReadable`: read-only, sampled once per
+  event row, never waited on — a signal read that fails degrades to a NaN cell
+  instead of aborting, and a device unreachable at scan start is dropped with a
+  log line (`GeecsSession.telemetry` returns `None`).  Telemetry columns carry
+  the `telemetry_<device>-` name prefix so they are distinguishable from Tier-1
+  save-set data (see `EVENT_SCHEMA.md`); selection is recorded in run metadata
+  under `background_telemetry`.  Gated on `ScanRequest.background_telemetry`
+  (else `ExperimentDefaults.background_telemetry`, default true).
+- New `geecs_bluesky/db_runtime.py` — the pure resolution logic plus the
+  DB-backed `GeecsDbScalarPolicy` provider (the one place touching `GeecsDb`),
+  failure-tolerant: a DB lookup that fails degrades to empty policy with a
+  warning, so a scan never aborts because the DB was briefly unreachable.
+
+### Notes
+
+- Optimize mode resolves `db_scalars` (recorded-scalar consistency) but does
+  **not** run the DB start/end writes or telemetry yet (no scan-boundary hook
+  on `GeecsSession.optimize`) — skip-and-record, mirroring the action-skip
+  posture; recorded in run metadata under `db_scan_runtime`.
+- Requires the gateway ≥ 0.9.0 (new `GeecsDb.get_all_experiment_variables` and
+  `GeecsDb.get_scan_boundary_writes`).
+
 ## [0.23.0] - 2026-07-07
 
 M3b — every engine-pending ScanRequest seam closes: actions execute inside

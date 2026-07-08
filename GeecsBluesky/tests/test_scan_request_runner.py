@@ -1366,3 +1366,239 @@ def test_lazy_registry_propagates_unexpected_resolver_faults() -> None:
     assert registry.get("missing", "default") == "default"
     with pytest.raises(RuntimeError, match="exploded"):
         registry.get("anything_else")
+
+
+# ---------------------------------------------------------------------------
+# M3c: DB-integration runtime (db_scalars, start/end writes, telemetry)
+# ---------------------------------------------------------------------------
+
+
+class _M3cPolicy:
+    """In-memory ScalarPolicyProvider for the runner integration tests."""
+
+    def __init__(self, subscribed=None, all_vars=None, boundary=None) -> None:
+        self._subscribed = subscribed or {}
+        self._all = all_vars or {}
+        self._boundary = boundary or {}
+
+    def get_variables(self, device):
+        return list(self._subscribed.get(device, []))
+
+    def all_variables(self, device):
+        return list(self._all.get(device, []))
+
+    def subscribed_by_device(self):
+        return dict(self._subscribed)
+
+    def boundary_writes(self, device):
+        return list(self._boundary.get(device, []))
+
+
+class _M3cSession(_FakeSession):
+    """Fake session exposing experiment + soft telemetry factory."""
+
+    experiment = "TestExp"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.telemetry_calls: list = []
+        self.dead_devices: set = set()
+
+    def telemetry(self, device, variables, *, name=None):
+        self.telemetry_calls.append((device, list(variables)))
+        if device in self.dead_devices:
+            return None  # unreachable at scan start → dropped
+        return self._make(f"telemetry:{device}", "telemetry")
+
+
+def _install_policy(monkeypatch, policy) -> None:
+    """Force run_scan_request to use *policy* instead of a real GeecsDb."""
+    import geecs_bluesky.scan_request_runner as runner
+
+    monkeypatch.setattr(runner, "make_scalar_policy", lambda session: policy)
+
+
+def _db_noscan_request(**overrides):
+    base = dict(
+        mode="noscan",
+        shots_per_step=2,
+        acquisition="strict",
+        save_set="UC_Test",
+    )
+    base.update(overrides)
+    return ScanRequest.model_validate(base)
+
+
+def test_db_scalars_union_reaches_devices_config(monkeypatch, legacy_resolver) -> None:
+    # UC_Test's converted element pins db_scalars=False per device, so its
+    # recorded list stays explicit-only.  Verify the resolver-level policy is
+    # threaded by checking a save set with db_scalars left at the True default.
+    policy = _M3cPolicy(subscribed={"U_Cam": ["MaxCounts", "centroidx"]})
+    save_set = SaveSet(
+        name="s",
+        entries=[SaveSetEntry(device="U_Cam", scalars=["Extra"])],  # db_scalars=True
+    )
+    config = save_set_to_devices_config(save_set, policy)
+    assert config["U_Cam"]["variable_list"] == ["MaxCounts", "centroidx", "Extra"]
+
+
+def test_converted_legacy_element_pins_db_scalars_false(legacy_resolver) -> None:
+    # The legacy converter sets db_scalars=False, so even with a policy the
+    # recorded scalars are exactly the element's explicit variable_list.
+    policy = _M3cPolicy(subscribed={"U_Cam": ["ShouldNotAppear"]})
+    save_set = legacy_resolver.resolve_save_set("UC_Test")
+    config = save_set_to_devices_config(save_set, policy)
+    assert "ShouldNotAppear" not in config["U_Cam"]["variable_list"]
+    assert config["U_Cam"]["variable_list"] == ["MaxCounts"]
+
+
+def test_start_writes_run_in_setup_end_writes_in_closeout(
+    monkeypatch, legacy_resolver
+) -> None:
+    policy = _M3cPolicy(
+        subscribed={"U_Cam": [], "U_Cam2": [], "U_Slow": []},
+        boundary={
+            "U_Cam": [
+                {"variable": "Mode", "startvalue": "Scan", "endvalue": "Idle"},
+                {"variable": "save", "startvalue": "on", "endvalue": "off"},
+            ]
+        },
+    )
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+
+    kwargs = session.scan_kwargs
+    # Start writes are chained into the setup hook (after any setup actions).
+    start = _set_targets(kwargs["setup"]())
+    assert ("U_Cam-Mode", "Scan") in start
+    assert not any(name.endswith("-save") for name, _ in start)  # save skipped
+    # End writes are chained into the closeout hook (finalize path).
+    end = _set_targets(kwargs["closeout"]())
+    assert ("U_Cam-Mode", "Idle") in end
+    # Provenance recorded.
+    writes = kwargs["md"]["db_scan_writes"]
+    assert writes["at_scan_start"][0]["variable"] == "Mode"
+    assert writes["at_scan_end"][0]["value"] == "Idle"
+
+
+def test_start_end_writes_apply_overrides(monkeypatch, legacy_resolver) -> None:
+    policy = _M3cPolicy(
+        boundary={
+            "U_Cam": [
+                {"variable": "Mode", "startvalue": "Scan", "endvalue": "Idle"},
+                {"variable": "Gate", "startvalue": "1", "endvalue": "0"},
+            ]
+        },
+    )
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    # Override Mode's start value; suppress Gate entirely.
+    save_set = SaveSet(
+        name="s",
+        entries=[
+            SaveSetEntry(
+                device="U_Cam",
+                scalars=["x"],
+                at_scan_start={"Mode": "Single", "Gate": None},
+            )
+        ],
+    )
+    monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
+    run_scan_request(session, _db_noscan_request(save_set="X"), legacy_resolver)
+    start = _set_targets(session.scan_kwargs["setup"]())
+    assert ("U_Cam-Mode", "Single") in start
+    assert not any(name == "U_Cam-Gate" for name, _ in start)  # suppressed
+
+
+def test_apply_db_scan_defaults_off_skips_writes(monkeypatch, legacy_resolver) -> None:
+    policy = _M3cPolicy(
+        boundary={"U_Cam": [{"variable": "Mode", "startvalue": "S", "endvalue": "E"}]}
+    )
+    _install_policy(monkeypatch, policy)
+    monkeypatch.setattr(
+        legacy_resolver,
+        "resolve_experiment_defaults",
+        lambda: ExperimentDefaults.model_validate(
+            {"schema_version": 1, "apply_db_scan_defaults": False}
+        ),
+    )
+    session = _M3cSession()
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    assert "db_scan_writes" not in session.scan_kwargs["md"]
+
+
+def test_telemetry_selects_non_saveset_devices(monkeypatch, legacy_resolver) -> None:
+    policy = _M3cPolicy(
+        subscribed={
+            "U_Cam": ["MaxCounts"],  # in save set (UC_Test) → excluded
+            "U_Press": ["Pressure"],  # not in save set → telemetry
+        }
+    )
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
+    # Telemetry device appended to the read set, never the reference.
+    assert ("telemetry:U_Press", "telemetry") in session.devices
+    assert session.scan_kwargs["md"]["background_telemetry"] == {
+        "U_Press": ["Pressure"]
+    }
+
+
+def test_telemetry_dead_device_dropped_not_raised(
+    monkeypatch, legacy_resolver, caplog
+) -> None:
+    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    session.dead_devices = {"U_Press"}
+    # Must not raise even though the telemetry device is unreachable.
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    # Attempted, returned None → not in the read set.
+    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
+    assert not any(d[0].startswith("telemetry:") for d in session.devices)
+
+
+def test_background_telemetry_off_skips_telemetry(monkeypatch, legacy_resolver) -> None:
+    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    run_scan_request(
+        session,
+        _db_noscan_request(background_telemetry=False),
+        legacy_resolver,
+    )
+    assert session.telemetry_calls == []
+    assert "background_telemetry" not in session.scan_kwargs["md"]
+
+
+def test_request_telemetry_flag_overrides_experiment_default(
+    monkeypatch, legacy_resolver
+) -> None:
+    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
+    _install_policy(monkeypatch, policy)
+    # Experiment default off, request explicitly on → telemetry runs.
+    monkeypatch.setattr(
+        legacy_resolver,
+        "resolve_experiment_defaults",
+        lambda: ExperimentDefaults.model_validate(
+            {"schema_version": 1, "background_telemetry": False}
+        ),
+    )
+    session = _M3cSession()
+    run_scan_request(
+        session,
+        _db_noscan_request(background_telemetry=True),
+        legacy_resolver,
+    )
+    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
+
+
+def test_no_provider_leaves_m3b_behavior_unchanged(legacy_resolver) -> None:
+    # A session with no experiment attribute → no policy → no DB writes, no
+    # telemetry, explicit-only scalars (the M3b path, still green).
+    session = _FakeSession()
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    assert "db_scan_writes" not in session.scan_kwargs["md"]
+    assert "background_telemetry" not in session.scan_kwargs["md"]

@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.9.0] - 2026-07-08
+
+### Added
+
+- Two `GeecsDb` query methods backing the GeecsBluesky M3c DB-integration
+  runtime (library-only; the gateway server is unchanged):
+  - `get_all_experiment_variables(experiment)` — every `expt_device_variable`
+    row per device (`{device: [variablename, ...]}`, deduped), the
+    `all_scalars` counterpart of `get_subscribed_variables` (`get='yes'`).
+  - `get_scan_boundary_writes(experiment)` — the `set='yes'` rows'
+    `startvalue` / `endvalue` per device
+    (`{device: [{"variable", "startvalue", "endvalue"}, ...]}`, values as raw
+    wire strings or `None`), i.e. the Master-Control scan start/end write
+    policy.  Row order is preserved so writes replay in a stable sequence.
+
 ## [0.8.0] - 2026-07-08
 
 ### Added
