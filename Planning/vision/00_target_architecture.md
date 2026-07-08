@@ -246,9 +246,12 @@ resolver records everything applied, so provenance shows the full stack):
    `expt_device_variable(expt_device_id, variablename, get, set,
    defaultvalue, startvalue, endvalue)`. **Table precision matters — three
    DB tables carry a `set` flag with different meanings**:
-   `devicetype_variable.set` is the *capability* ("writable at all"; the
-   gateway builds its `:SP` surface and PV metadata from it),
-   `variable.set` is the per-device-instance definition (MC territory), and
+   capability is an *inheritance chain* — `devicetype_variable` defines the
+   type default (settability, limits, units, tolerance) which every device
+   instance inherits unless overridden by a `variable` row (live DB: 1032
+   instance rows differ from type defaults, including settability flips);
+   the gateway must resolve the chain, not just the type table (known gap,
+   fix pending the whole-row-vs-field-by-field MC semantics answer) — and
    `expt_device_variable.set` is the per-experiment *scan-write policy*
    ("the scan machinery writes this variable") — while
    `expt_device_variable.get` is the monitoring policy the gateway's
