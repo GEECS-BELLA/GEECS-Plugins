@@ -67,15 +67,16 @@ top of the DB-backed raw device set:
 ```yaml
 schema_version: 1
 derived_channels:
-  - device: U_ChamberVac
+  - device: TargetChamberPressure
     variable: Pressure
-    expression: "10**(v - 5)"
+    expression: "10**(v - 6)"
     inputs:
       - symbol: v
-        device: U_DaqPad1
-        variable: "Analog Input 10"
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
     egu: Torr
-    description: "Convectron pressure from DAQ analog input 10"
+    precision: 6
+    description: "Convectron pressure from U_VacuumGauge analog input 0"
 ```
 
 The configs repo root is resolved the same way as scanner configs:
@@ -262,6 +263,9 @@ poetry run caproto-get Undulator:CAGateway:DEVICES_CONNECTED
 
 # 3. Readback streaming? (should tick with the device's ~1–5 Hz stream)
 poetry run caproto-monitor Undulator:U_S1H:Current
+
+# 3b. Derived readback loaded from the configs repo? (example: target chamber)
+poetry run caproto-get -a Undulator:TargetChamberPressure:Pressure
 
 # 4. Write path (pick a harmless settable variable; put-completion = GEECS
 #    convergence, so this blocks until the device converges)

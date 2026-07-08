@@ -70,22 +70,24 @@ def test_load_derived_channels_yaml(tmp_path) -> None:
         """
 schema_version: 1
 derived_channels:
-  - device: U_ChamberVac
+  - device: TargetChamberPressure
     variable: Pressure
-    expression: "10**(v - 5)"
+    expression: "10**(v - 6)"
     inputs:
       - symbol: v
-        device: U_DaqPad1
-        variable: "Analog Input 10"
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
     egu: Torr
+    precision: 6
 """,
         encoding="utf-8",
     )
 
     [spec] = load_derived_channels(path)
-    assert spec.device == "U_ChamberVac"
-    assert spec.inputs[0].variable == "Analog Input 10"
+    assert spec.device == "TargetChamberPressure"
+    assert spec.inputs[0].variable == "AI_mean.Channel 0"
     assert spec.egu == "Torr"
+    assert spec.precision == 6
 
 
 def test_default_derived_channels_path_from_configs_repo_env(

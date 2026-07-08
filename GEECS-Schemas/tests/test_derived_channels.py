@@ -11,18 +11,18 @@ def make_document() -> DerivedChannels:
         {
             "derived_channels": [
                 {
-                    "device": "U_ChamberVac",
+                    "device": "TargetChamberPressure",
                     "variable": "Pressure",
-                    "expression": "10**(v - 5)",
+                    "expression": "10**(v - 6)",
                     "inputs": [
                         {
                             "symbol": "v",
-                            "device": "U_DaqPad1",
-                            "variable": "Analog Input 10",
+                            "device": "U_VacuumGauge",
+                            "variable": "AI_mean.Channel 0",
                         }
                     ],
                     "egu": "Torr",
-                    "precision": 3,
+                    "precision": 6,
                 }
             ]
         }

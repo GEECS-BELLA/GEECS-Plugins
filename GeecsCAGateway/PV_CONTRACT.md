@@ -245,14 +245,15 @@ Example Convectron-style declaration shape:
 ```yaml
 schema_version: 1
 derived_channels:
-  - device: U_ChamberVac
+  - device: TargetChamberPressure
     variable: Pressure
-    expression: "10**(v - 5)"
+    expression: "10**(v - 6)"
     inputs:
       - symbol: v
-        device: U_DaqPad1
-        variable: "Analog Input 10"
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
     egu: Torr
+    precision: 6
 ```
 
 Cross-device latest-value expressions, staleness windows, enum/string bad-state
