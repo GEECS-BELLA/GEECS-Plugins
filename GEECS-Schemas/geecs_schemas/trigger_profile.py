@@ -1,11 +1,13 @@
-"""TriggerProfile — how the machine trigger is driven through its named states.
+"""TriggerProfile — how the machine is driven through its named trigger states.
 
-A trigger profile tells the scanner which device controls the shot trigger
-(and the gas jet gating that rides on it) and exactly what to write to put it
-in each state: OFF, STANDBY, SCAN, SINGLESHOT, ARMED.  You would edit one
-when the timing hardware changes, or when a state needs an extra write (a
-different delay, a different amplitude).  A scan picks a profile by name in
-its :class:`~geecs_schemas.scan_request.ScanRequest`.
+A trigger profile describes *machine* states — OFF, STANDBY, SCAN,
+SINGLESHOT, ARMED — and exactly which device writes put the machine into
+each one.  A state transition may touch several devices (the delay generator
+that fires the trigger, a gas-jet controller, a shutter …); each state lists
+its writes **in the order they are sent**.  You would edit a profile when
+timing hardware changes, when a state needs an extra write, or when a new
+device joins the transition.  A scan picks a profile by name in its
+:class:`~geecs_schemas.scan_request.ScanRequest`.
 
 Variants replace parallel files
 -------------------------------
@@ -20,21 +22,27 @@ Successor of the shot-control YAML validated today by
 ``geecs_bluesky.models.shot_control.ShotControlConfig``.  Semantics are kept,
 not contradicted:
 
-- The layout pivots from per-variable ``{variable: {state: value}}`` to
-  per-state ``{state: {variable: value}}`` — the state is the unit an
-  operator (and the future ``TRIG:STATE`` PV) thinks in.
+- The layout pivots from one implicit device with per-variable
+  ``{variable: {state: value}}`` tables to per-state **ordered write lists**
+  ``[{device, variable, value}, ...]``.  The old single-device shape was an
+  accident of the DG645 carrying everything (gas jet gated by its Ch AB
+  amplitude); conceptually the states are machine states and a transition
+  may write several devices.
+- **Order matters within a transition**: writes are applied top to bottom
+  (e.g. raise an amplitude before switching a trigger source).  A state may
+  write each (device, variable) at most once.
 - Values are **verbatim wire strings** ("4.0", "on", enum labels); nothing is
   coerced.
 - The legacy empty-string "no-op for this state" convention is retired:
-  a no-op is expressed by *omitting* the variable from the state (matching
+  a no-op is expressed by *omitting* the write from the state (matching
   ``ShotControlConfig.values_for_state``, which skipped empty strings).
   Empty-string values are rejected.
 - A state with no writes is "not defined" for this profile, exactly like
   ``ShotControlConfig.defines_state``.
 
 The model is deliberately **device-agnostic**: shot-control devices are
-usually DG645 delay generators, but nothing here assumes that — any device
-with settable variables can be a trigger device.
+usually DG645 delay generators, but nothing here assumes that — any devices
+with settable variables can take part in a transition.
 """
 
 from __future__ import annotations
@@ -47,7 +55,7 @@ from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
 
 class TriggerState(str, Enum):
-    """The named states a trigger device can be driven to.
+    """The named states the machine trigger can be driven to.
 
     These names survived from the legacy system because they match how
     operators think about the machine.
@@ -75,9 +83,62 @@ class TriggerState(str, Enum):
     ARMED = "ARMED"
 
 
-# {variable name: verbatim wire value}. A variable simply absent from a state
-# means "leave it alone" — the retired legacy convention used "" for this.
-StateWrites = dict[str, str]
+class TriggerWrite(SchemaModel):
+    """One device variable set during a state transition.
+
+    A transition is an ordered list of these; they are sent top to bottom.
+    """
+
+    device: str = Field(
+        min_length=1,
+        description=(
+            "The device to write to, e.g. 'U_DG645_ShotControl' or a gas-jet "
+            "controller — any settable device can take part in a transition."
+        ),
+    )
+    variable: str = Field(
+        min_length=1,
+        description="Which variable on the device to set, e.g. 'Trigger.Source'.",
+    )
+    value: str = Field(
+        description=(
+            "The value to send, exactly as the device expects it — a number "
+            "as text ('4.0'), a word ('on'), or a device option name "
+            "('External rising edges')."
+        ),
+    )
+
+    @field_validator("value")
+    @classmethod
+    def _no_empty_value(cls, value: str) -> str:
+        """Reject empty-string writes (legacy no-op convention is retired).
+
+        Parameters
+        ----------
+        value : str
+            The proposed wire value.
+
+        Returns
+        -------
+        str
+            The validated value, unchanged.
+
+        Raises
+        ------
+        ValueError
+            If the value is an empty string.
+        """
+        if value == "":
+            raise ValueError(
+                "A write's value must not be empty. To leave a variable "
+                "untouched in a state, omit the write from that state "
+                "instead."
+            )
+        return value
+
+
+# One state's transition: the writes to send, in order, top to bottom.
+StateWrites = list[TriggerWrite]
 
 
 def _normalize_state_keys(states: dict) -> dict:
@@ -101,13 +162,13 @@ def _normalize_state_keys(states: dict) -> dict:
     return states
 
 
-def _reject_empty_values(states: dict) -> dict:
-    """Reject empty-string writes (legacy no-op convention is retired).
+def _reject_duplicate_targets(states: dict) -> dict:
+    """Reject a state that writes the same (device, variable) twice.
 
     Parameters
     ----------
     states : dict
-        Mapping of state → {variable: value}.
+        Mapping of state → ordered write list (already model-validated).
 
     Returns
     -------
@@ -117,17 +178,21 @@ def _reject_empty_values(states: dict) -> dict:
     Raises
     ------
     ValueError
-        If any variable's value is an empty string.
+        If any state lists two writes to the same device variable — the
+        intended value would be ambiguous.
     """
     for state, writes in states.items():
-        for variable, value in (writes or {}).items():
-            if value == "":
+        seen: set[tuple[str, str]] = set()
+        for write in writes or []:
+            target = (write.device, write.variable)
+            if target in seen:
                 state_name = getattr(state, "value", state)
                 raise ValueError(
-                    f"State {state_name!r} gives variable {variable!r} an "
-                    "empty value. To leave a variable untouched in a state, "
-                    "omit it from that state instead."
+                    f"State {state_name!r} writes "
+                    f"{write.device}:{write.variable} more than once — keep "
+                    "one write per device variable per state."
                 )
+            seen.add(target)
     return states
 
 
@@ -142,7 +207,9 @@ class TriggerVariant(SchemaModel):
     states: dict[TriggerState, StateWrites] = Field(
         description=(
             "Only the writes that differ from the base profile, per state. "
-            "Anything not listed here keeps its base value."
+            "A write here replaces the base write to the same device "
+            "variable; writes to new device variables are added after the "
+            "base ones. Anything not listed keeps its base value."
         )
     )
     description: str = Field(
@@ -151,42 +218,36 @@ class TriggerVariant(SchemaModel):
     )
 
     _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)
-    _no_empty = field_validator("states")(_reject_empty_values)
+    _no_duplicates = field_validator("states")(_reject_duplicate_targets)
 
 
 class TriggerProfile(VersionedSchemaModel):
-    """The writes that drive one trigger device through its named states.
+    """The device writes that drive the machine through its trigger states.
 
-    Names the device that controls shots and, for each state (OFF, STANDBY,
-    SCAN, SINGLESHOT, ARMED), lists exactly which variables to set and to
-    what.  Edit it when timing hardware or its settings change; add a
-    variant when you need a named alternative condition (e.g. laser off)
-    instead of a copy of the whole file.
+    For each state (OFF, STANDBY, SCAN, SINGLESHOT, ARMED) list the writes —
+    possibly to several devices — that put the machine into it, **in the
+    order they should be sent**.  Edit it when timing hardware or its
+    settings change; add a variant when you need a named alternative
+    condition (e.g. laser off) instead of a copy of the whole file.
 
     Notes
     -----
     Values are sent verbatim over the GEECS wire protocol.  Use
-    :meth:`writes_for` / :meth:`defines_state` instead of digging the dicts —
+    :meth:`writes_for` / :meth:`defines_state` instead of digging the lists —
     they implement the variant overlay and the "state with no writes is not
-    defined" rule.
+    defined" rule.  :attr:`devices` lists every device the profile touches.
     """
 
     name: str = Field(
         description="The name scans use to refer to this trigger profile."
     )
-    device: str = Field(
-        min_length=1,
-        description=(
-            "The device that controls the shot trigger, e.g. "
-            "'U_DG645_ShotControl'. Any settable device works — nothing here "
-            "is specific to one hardware type."
-        ),
-    )
     states: dict[TriggerState, StateWrites] = Field(
         default_factory=dict,
         description=(
-            "For each trigger state, the variable values that put the device "
-            "into it. Omit a variable from a state to leave it untouched."
+            "For each trigger state, the writes that put the machine into "
+            "it, applied in order from top to bottom. A transition may "
+            "write several devices. Omit a device variable from a state to "
+            "leave it untouched."
         ),
     )
     variants: dict[str, TriggerVariant] = Field(
@@ -202,12 +263,31 @@ class TriggerProfile(VersionedSchemaModel):
     )
 
     _fix_off_key = field_validator("states", mode="before")(_normalize_state_keys)
-    _no_empty = field_validator("states")(_reject_empty_values)
+    _no_duplicates = field_validator("states")(_reject_duplicate_targets)
+
+    @property
+    def devices(self) -> list[str]:
+        """Every device this profile writes, in order of first appearance.
+
+        Returns
+        -------
+        list of str
+            Distinct device names across all base states and variants.
+        """
+        seen: dict[str, None] = {}
+        for writes in self.states.values():
+            for write in writes:
+                seen.setdefault(write.device)
+        for variant in self.variants.values():
+            for writes in variant.states.values():
+                for write in writes:
+                    seen.setdefault(write.device)
+        return list(seen)
 
     def writes_for(
         self, state: "TriggerState | str", variant: str | None = None
     ) -> StateWrites:
-        """Return the ``{variable: value}`` writes that drive *state*.
+        """Return the ordered writes that drive *state*.
 
         Parameters
         ----------
@@ -218,9 +298,10 @@ class TriggerProfile(VersionedSchemaModel):
 
         Returns
         -------
-        dict of str to str
-            The merged writes (base state writes, overridden/extended by the
-            variant's writes for that state).
+        list of TriggerWrite
+            The merged transition: base writes in their declared order, with
+            variant writes replacing same-(device, variable) entries in
+            place and any additional variant writes appended after them.
 
         Raises
         ------
@@ -228,14 +309,21 @@ class TriggerProfile(VersionedSchemaModel):
             If *variant* is given but not defined on this profile.
         """
         key = TriggerState(state)
-        writes = dict(self.states.get(key, {}))
+        writes = list(self.states.get(key, []))
         if variant is not None:
             if variant not in self.variants:
                 raise KeyError(
                     f"Trigger profile {self.name!r} has no variant "
                     f"{variant!r}. Known variants: {sorted(self.variants)}"
                 )
-            writes.update(self.variants[variant].states.get(key, {}))
+            overlay = {
+                (write.device, write.variable): write
+                for write in self.variants[variant].states.get(key, [])
+            }
+            writes = [
+                overlay.pop((write.device, write.variable), write) for write in writes
+            ]
+            writes.extend(overlay.values())
         return writes
 
     def defines_state(

@@ -165,6 +165,17 @@ class TestScanRequest:
         assert request.axes == []
         assert not request.background
 
+    def test_background_telemetry_inherits_by_default(self):
+        # None = inherit the experiment default (ExperimentDefaults).
+        assert make_step_request().background_telemetry is None
+
+    def test_background_telemetry_per_scan_override_round_trips(self):
+        for override in (True, False):
+            request = make_step_request(background_telemetry=override)
+            assert request.background_telemetry is override
+            again = ScanRequest.model_validate(request.model_dump(mode="json"))
+            assert again.background_telemetry is override
+
     def test_optimize_requires_block(self):
         with pytest.raises(ValidationError, match="optimization"):
             ScanRequest.model_validate({"mode": "optimize"})

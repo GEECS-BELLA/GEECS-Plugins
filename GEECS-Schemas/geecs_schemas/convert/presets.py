@@ -131,6 +131,20 @@ def compose_save_sets(name: str, parts: list[SaveSet]) -> SaveSet:
                     f"gets conflicting role overrides "
                     f"({existing.role.value!r} vs {entry.role.value!r})."
                 )
+            for field_name in ("at_scan_start", "at_scan_end"):
+                first = getattr(existing, field_name)
+                second = getattr(entry, field_name)
+                conflicts = sorted(
+                    variable
+                    for variable in set(first) & set(second)
+                    if first[variable] != second[variable]
+                )
+                if conflicts:
+                    raise SchemaConversionError(
+                        f"Composing save set {name!r}: device "
+                        f"{entry.device!r} gets conflicting {field_name} "
+                        f"overrides for {conflicts}."
+                    )
             merged[entry.device] = SaveSetEntry(
                 device=entry.device,
                 scalars=existing.scalars
@@ -138,6 +152,13 @@ def compose_save_sets(name: str, parts: list[SaveSet]) -> SaveSet:
                 all_scalars=existing.all_scalars or entry.all_scalars,
                 images=existing.images or entry.images,
                 role=existing.role or entry.role,
+                setup=existing.setup
+                + [p for p in entry.setup if p not in existing.setup],
+                closeout=existing.closeout
+                + [p for p in entry.closeout if p not in existing.closeout],
+                db_scalars=existing.db_scalars or entry.db_scalars,
+                at_scan_start={**existing.at_scan_start, **entry.at_scan_start},
+                at_scan_end={**existing.at_scan_end, **entry.at_scan_end},
             )
     return SaveSet(name=name, entries=list(merged.values()))
 

@@ -422,8 +422,23 @@ class ScanRequest(VersionedSchemaModel):
     save_set: Optional[str] = Field(
         None,
         description=(
-            "Name of the save set that lists which devices to record. Unset "
-            "means record nothing beyond scan bookkeeping."
+            "Name of the save set listing the devices this scan REQUIRES — "
+            "the ones that get guarantees (completeness, dialogs, images, "
+            "rituals). Unset means no required devices beyond scan "
+            "bookkeeping."
+        ),
+    )
+    background_telemetry: Optional[bool] = Field(
+        None,
+        description=(
+            "Also log every other live experiment device as best-effort "
+            "snapshot columns — the variables the GEECS experiment database "
+            "marks for scan logging (MySQL table expt_device_variable, "
+            "get='yes') — read from the gateway's always-on monitor cache: "
+            "read-only and never waited on, so it cannot slow or stall the "
+            "scan; dead devices are dropped with a log line, never a dialog "
+            "or abort. Leave unset to inherit the experiment default; set "
+            "true/false to override for this scan."
         ),
     )
     trigger_profile: Optional[str] = Field(

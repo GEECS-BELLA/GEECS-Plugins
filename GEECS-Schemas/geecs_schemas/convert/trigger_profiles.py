@@ -16,7 +16,10 @@ validated today by ``geecs_bluesky.models.shot_control.ShotControlConfig``)::
 
 Mapping (semantics reused, not contradicted):
 
-- The per-variable table pivots to per-state ``states: {STATE: {var: value}}``.
+- The single-device per-variable table pivots to per-state **ordered write
+  lists**: the legacy file's one ``device`` is emitted into every write, and
+  within each state the writes keep the file's variable order (which is the
+  order the legacy controller sent them).
 - Empty-string values (the legacy "no-op" convention) are simply omitted —
   exactly what ``ShotControlConfig.values_for_state`` did when building the
   writes for a state.
@@ -41,7 +44,12 @@ from geecs_schemas.convert._common import (
     require_known_keys,
     source_name,
 )
-from geecs_schemas.trigger_profile import TriggerProfile, TriggerState, TriggerVariant
+from geecs_schemas.trigger_profile import (
+    TriggerProfile,
+    TriggerState,
+    TriggerVariant,
+    TriggerWrite,
+)
 
 
 def convert_shot_control(
@@ -81,7 +89,10 @@ def convert_shot_control(
         document, ["device", "variables"], f"shot control {profile_name!r}"
     )
 
-    states: dict[str, dict[str, str]] = {}
+    device = document["device"]
+    states: dict[str, list[dict]] = {}
+    # Iterate variables in file order so each state's write list keeps the
+    # order the legacy controller sent them.
     for variable, state_values in (document.get("variables") or {}).items():
         for state, value in (state_values or {}).items():
             try:
@@ -94,9 +105,15 @@ def convert_shot_control(
                 ) from exc
             if value is None or value == "":
                 continue  # legacy no-op convention: omit the write
-            states.setdefault(state_key, {})[variable] = as_wire_value(value)
+            states.setdefault(state_key, []).append(
+                {
+                    "device": device,
+                    "variable": variable,
+                    "value": as_wire_value(value),
+                }
+            )
 
-    return TriggerProfile(name=profile_name, device=document["device"], states=states)
+    return TriggerProfile(name=profile_name, states=states)
 
 
 def merge_trigger_variant(
@@ -111,7 +128,7 @@ def merge_trigger_variant(
         ``HTU-Normal``).
     other : TriggerProfile
         The parallel condition to express as a variant (e.g. converted
-        ``HTU-LaserOFF``).  Must drive the same device.
+        ``HTU-LaserOFF``).
     variant_name : str
         Name for the variant (e.g. ``"laser_off"``).
 
@@ -124,33 +141,29 @@ def merge_trigger_variant(
     Raises
     ------
     SchemaConversionError
-        If the profiles drive different devices, or *other* omits a write
-        that *base* has (a variant can override and add writes, but cannot
-        remove one).
+        If *other* omits a device variable that *base* writes (a variant
+        overlay can override and add writes, but cannot remove one).
     """
-    if base.device != other.device:
-        raise SchemaConversionError(
-            f"Cannot fold {other.name!r} into {base.name!r} as a variant: "
-            f"they drive different devices ({other.device!r} vs "
-            f"{base.device!r})."
-        )
-
-    overlay: dict[str, dict[str, str]] = {}
+    overlay: dict[str, list[TriggerWrite]] = {}
     for state in TriggerState:
-        base_writes = base.writes_for(state)
+        base_values = {
+            (write.device, write.variable): write.value
+            for write in base.writes_for(state)
+        }
         other_writes = other.writes_for(state)
-        removed = sorted(set(base_writes) - set(other_writes))
+        other_targets = {(write.device, write.variable) for write in other_writes}
+        removed = sorted(set(base_values) - other_targets)
         if removed:
             raise SchemaConversionError(
                 f"Cannot fold {other.name!r} into {base.name!r} as variant "
                 f"{variant_name!r}: state {state.value} drops write(s) "
                 f"{removed}, which a variant overlay cannot express."
             )
-        diff = {
-            variable: value
-            for variable, value in other_writes.items()
-            if base_writes.get(variable) != value
-        }
+        diff = [
+            write
+            for write in other_writes
+            if base_values.get((write.device, write.variable)) != write.value
+        ]
         if diff:
             overlay[state.value] = diff
 

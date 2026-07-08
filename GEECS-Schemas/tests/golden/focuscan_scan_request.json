@@ -16,6 +16,7 @@
     }
   ],
   "background": false,
+  "background_telemetry": null,
   "description": "Focus Scan",
   "mode": "step",
   "optimization": null,

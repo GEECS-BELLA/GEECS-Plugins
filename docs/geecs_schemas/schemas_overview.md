@@ -17,11 +17,18 @@ plans to use. A step scan can sweep one axis or several — several axes form
 a grid, with the first axis as the slowest loop and the last as the fastest.
 A saved preset *is* a scan request.
 
-**Save set — "what data gets recorded?"**
-The shopping list of devices to save: for each device, which scalar readings
-become columns in the scan data, and whether its images are saved. You don't
-declare timestamps or synchronization flags any more — the scanner works
-those out.
+**Save set — "which devices does this scan *require*?"**
+The devices the scan cannot do without: they get guarantees (complete data,
+a dialog if one dies), their images are saved if asked, and their
+setup/closeout rituals run around the scan. Each entry records the device's
+standard telemetry (what the device database marks for scan logging) by
+default, plus any extra scalars you list. You don't declare timestamps or
+synchronization flags any more — the scanner works those out. The database's
+scan-start/end writes still apply, and an entry can override any of them per
+variable: replace the value, or suppress the write entirely with `null`.
+Devices *not* in the save set are still logged in the background — see
+"Required devices vs background telemetry" below, including the box on
+where these database facts live.
 
 **Scan variables — "what am I allowed to sweep?"**
 The catalog behind the Variable dropdown. Each entry gives a friendly name
@@ -30,8 +37,10 @@ several devices together from one number (a jet position that also tracks a
 probe stage, for example).
 
 **Trigger profile — "how are shots fired?"**
-Which device controls the machine trigger, and exactly what to write to put
-it in each state: OFF, STANDBY, SCAN, SINGLESHOT, ARMED. Alternative
+The machine's trigger states — OFF, STANDBY, SCAN, SINGLESHOT, ARMED — and,
+for each one, the exact device writes that put the machine there, in the
+order they are sent. A transition can touch several devices (the delay
+generator, a gas-jet controller, a shutter), not just one. Alternative
 conditions that used to be copy-pasted files — laser on vs laser off — are
 now *variants* inside one profile, so the difference is explicit and
 reviewable.
@@ -42,13 +51,75 @@ another plan. A scan request points at them in three slots: `setup` (before
 the scan), `per_step` (between positions), and `closeout` (after, even on
 abort).
 
+## Required devices vs background telemetry
+
+"Required" and "recorded" used to be the same decision. They aren't any
+more, and the reason is worth two minutes.
+
+**Why the old opt-in existed.** In the legacy scanner, recording a device
+meant *depending* on it: the scan subscribed to it, waited on it, and one
+dead device out of 117 could stall or kill the whole run. So operators
+declared only the devices that truly mattered — sensible self-defence, but
+it meant everything else vanished from the record. If nobody thought to add
+the vacuum gauges to the save element, the vacuum history of that scan is
+simply gone.
+
+**Why background logging is safe now.** The gateway's monitors run
+permanently, whether or not a scan is happening. A dead device is no longer
+a hang waiting to happen — it's just a set of stale PVs with
+`CONNECTED = false`. Reading a cached value costs zero wait. So the scanner
+can *softly* record every live experiment device — best-effort snapshot
+columns taken from the monitor cache, read-only, never waited on. A device
+that's dead at scan start is dropped with a log line. No dialog, no abort,
+no slowdown: soft recording cannot hurt a scan, so there is no longer a
+reason to throw the data away.
+
+**The one-hand rule: required devices get guarantees; everything else is
+logged if alive.** The save set is the *required* list — completeness
+checks, dialogs, images, rituals. Background telemetry is everything else
+the experiment marks for scan logging (see "Where the database facts come
+from" below), kept because keeping it is free.
+
+!!! info "Where the database facts come from"
+
+    The GEECS experiment database is **MySQL**. Per-experiment,
+    per-device-variable scan policy lives in one table,
+    **`expt_device_variable`** (joined to devices via `expt_device`).
+    Four columns drive everything this page calls "database behavior":
+
+    | Column | Meaning |
+    |---|---|
+    | `get` | `'yes'` = the variable is subscribed/logged for scans — the source of a device's standard telemetry (`db_scalars`) and of background telemetry |
+    | `set` | `'yes'` = the scan machinery writes this variable at scan boundaries |
+    | `startvalue` | the value written at scan start (what `at_scan_start` overrides) |
+    | `endvalue` | the value written at scan end (what `at_scan_end` overrides) |
+
+    The database rows themselves get no schema in this package — device
+    facts live below the configs; the configs only *override* them.
+
+Two boundaries follow from the design rather than from preference:
+
+- **Images are only ever required-tier.** File saving needs coordination
+  with the device; there is no "soft" version of it.
+- **If you need a device synchronous to the shots, it is required — by
+  definition.** Softness means never waiting; synchronicity means waiting.
+  A device can't be both, so "can this stay background?" has a one-question
+  answer: does any analysis need it shot-by-shot?
+
+Background telemetry is on by default for the experiment
+(`ExperimentDefaults.background_telemetry`) and can be overridden per scan
+(`ScanRequest.background_telemetry`). Converted legacy save elements keep
+their exact old recording behavior — they record precisely the variable
+lists they always did; the database-first defaults apply to new configs
+only.
+
 ## How they fit together when a scan runs
 
 ```mermaid
 flowchart LR
     SR["Scan request<br/><i>the thing you submit</i>"]
     SV["Scan variables<br/><i>what 'jet_z' actually moves</i>"]
-    SS["Save set<br/><i>what to record</i>"]
+    SS["Save set<br/><i>the required devices</i>"]
     TP["Trigger profile<br/><i>how shots are fired</i>"]
     AP["Action plans<br/><i>setup / per-step / closeout</i>"]
     SCAN(("the scan"))

@@ -20,6 +20,7 @@ from geecs_schemas.action_plan import (
     SetStep,
     WaitStep,
 )
+from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.save_set import SaveRole, SaveSet, SaveSetEntry
 from geecs_schemas.scan_request import (
     AcquisitionMode,
@@ -46,6 +47,7 @@ from geecs_schemas.trigger_profile import (
     TriggerProfile,
     TriggerState,
     TriggerVariant,
+    TriggerWrite,
 )
 
 __all__ = [
@@ -78,6 +80,10 @@ __all__ = [
     "TriggerProfile",
     "TriggerVariant",
     "TriggerState",
+    "TriggerWrite",
+    # experiment_defaults
+    "ExperimentDefaults",
+    "DefaultActions",
     # action_plan
     "ActionPlan",
     "ActionPlanLibrary",
@@ -98,4 +104,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "trigger_profile": TriggerProfile,
     "action_plan": ActionPlan,
     "action_plan_library": ActionPlanLibrary,
+    "experiment_defaults": ExperimentDefaults,
 }

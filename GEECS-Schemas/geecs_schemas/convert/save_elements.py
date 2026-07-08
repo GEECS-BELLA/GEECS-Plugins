@@ -22,11 +22,19 @@ rules — see ``geecs_schemas.save_set``):
 - ``variable_list`` → ``scalars``; the bookkeeping ``acq_timestamp`` entry is
   dropped (implicit) with a note.
 - ``add_all_variables`` → ``all_scalars``.
+- Every converted entry gets an **explicit** ``db_scalars: False`` — the
+  new-config default is DB-first recording, but a converted element must
+  keep its exact legacy behavior and record precisely the old variable
+  list, nothing more.
 - ``synchronous: false`` → ``role: snapshot``; ``synchronous: true`` needs no
   role (derived from the acquisition mode).
 - ``setup_action`` / ``closeout_action`` become standalone
   :class:`~geecs_schemas.action_plan.ActionPlan` objects named
-  ``<element>_setup`` / ``<element>_closeout``.
+  ``<element>_setup`` / ``<element>_closeout``, **and** every entry of the
+  element references those plan names in its ``setup`` / ``closeout``
+  fields — so the ritual keeps travelling with the devices when entries are
+  composed into bigger save sets (references de-duplicate; each plan runs
+  once per scan).
 - Per-device ``scan_setup`` ``[pre, post]`` pairs become set-steps appended
   to those setup/closeout plans (creating them if needed) — same writes at
   the same moments as the legacy DeviceManager.
@@ -151,7 +159,11 @@ def convert_save_element(
                 f"{context}: dropped 'acq_timestamp' from the scalar list — "
                 "it is recorded implicitly for every entry."
             )
-        entry: dict = {"device": device, "scalars": scalars}
+        # Explicit db_scalars=False: a converted element must keep its exact
+        # legacy behavior — record precisely the old variable list, nothing
+        # more. DB-first recording (db_scalars=True) is the default for NEW
+        # configs only.
+        entry: dict = {"device": device, "scalars": scalars, "db_scalars": False}
         if config.get("save_nonscalar_data"):
             entry["images"] = True
         if config.get("add_all_variables"):
@@ -197,6 +209,16 @@ def convert_save_element(
             steps=closeout_steps,
             description=f"Extracted from legacy save element {set_name!r}.",
         )
+
+    # The element's ritual travels with its devices: every entry references
+    # the extracted plans by name (references are de-duplicated and each
+    # plan runs once per scan, so N entries do not mean N runs).
+    if entries and actions:
+        for entry in entries:
+            if setup_steps:
+                entry["setup"] = [f"{set_name}_setup"]
+            if closeout_steps:
+                entry["closeout"] = [f"{set_name}_closeout"]
 
     save_set: SaveSet | None = None
     if entries:

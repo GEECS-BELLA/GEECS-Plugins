@@ -76,6 +76,14 @@ class TestFullCorpus:
             for path in sorted(experiment.glob("save_devices/*.yaml")):
                 result = convert_save_element(path)
                 assert result.save_set is not None or result.actions, path
+                # converted legacy elements preserve exact legacy behavior:
+                # explicit db_scalars=False on EVERY entry (the DB-first
+                # True default is for new configs only), start/end override
+                # maps untouched
+                for entry in result.save_set.entries if result.save_set else []:
+                    assert entry.db_scalars is False, path
+                    assert entry.at_scan_start == {}, path
+                    assert entry.at_scan_end == {}, path
                 converted += 1
         assert converted >= 70  # 71 files at the time of writing
 
@@ -123,9 +131,16 @@ class TestFullCorpus:
             off = convert_shot_control(directory / f"{off_name}.yaml")
             merged = merge_trigger_variant(base, off, "laser_off")
             for state in ("OFF", "STANDBY", "SCAN", "SINGLESHOT", "ARMED"):
-                assert merged.writes_for(state, variant="laser_off") == (
-                    off.writes_for(state)
-                ), (experiment, state)
+                # set comparison: write order within a transition may differ
+                # when the variant appends writes the base lacked
+                resolved = {
+                    (w.device, w.variable, w.value)
+                    for w in merged.writes_for(state, variant="laser_off")
+                }
+                expected = {
+                    (w.device, w.variable, w.value) for w in off.writes_for(state)
+                }
+                assert resolved == expected, (experiment, state)
 
     def test_every_action_library_converts(self):
         libraries = {}
