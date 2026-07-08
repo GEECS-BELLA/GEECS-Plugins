@@ -244,8 +244,16 @@ resolver records everything applied, so provenance shows the full stack):
    behaves as today. Precedence: DB row → entry override → actions.
    **Verified against the live DB (2026-07-07)**: the table is
    `expt_device_variable(expt_device_id, variablename, get, set,
-   defaultvalue, startvalue, endvalue)`. Consumption rule: honor rows with
-   `set='yes'` and non-empty start/end — that filter separates the real
+   defaultvalue, startvalue, endvalue)`. **Table precision matters — three
+   DB tables carry a `set` flag with different meanings**:
+   `devicetype_variable.set` is the *capability* ("writable at all"; the
+   gateway builds its `:SP` surface and PV metadata from it),
+   `variable.set` is the per-device-instance definition (MC territory), and
+   `expt_device_variable.set` is the per-experiment *scan-write policy*
+   ("the scan machinery writes this variable") — while
+   `expt_device_variable.get` is the monitoring policy the gateway's
+   subscription list uses. Consumption rule for this layer: honor rows with
+   `expt_device_variable.set='yes'` and non-empty start/end — that filter separates the real
    baseline (Undulator: 92 rows, `save on→off` / `Analysis on→on` with
    deliberate per-device exceptions) from bulk-filled defaults on get-only
    rows (450 noise rows). Two implementation rules: (a) variables the run
