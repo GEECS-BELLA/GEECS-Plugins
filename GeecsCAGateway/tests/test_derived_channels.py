@@ -361,6 +361,54 @@ async def test_missing_derived_input_marks_invalid_udf() -> None:
     assert int(pressure.status) == int(AlarmStatus.UDF)
 
 
+async def test_repeated_derived_failure_does_not_republish_invalid(monkeypatch) -> None:
+    """A persistently failing derived PV publishes only the INVALID transition."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_DaqPad1",
+                host="127.0.0.1",
+                port=1,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Analog Input 10", dtype="float")],
+            )
+        ],
+        derived_channels=[
+            DerivedChannelSpec(
+                device="U_ChamberVac",
+                variable="Pressure",
+                expression="1 / v",
+                inputs=[
+                    DerivedInputSpec(
+                        symbol="v",
+                        device="U_DaqPad1",
+                        variable="Analog Input 10",
+                    )
+                ],
+            )
+        ],
+    )
+    gw = GeecsCaGateway(cfg)
+    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    callback = gw._make_callback(cfg.devices[0])
+    writes = 0
+    original_write = pressure.write
+
+    async def counted_write(*args, **kwargs):
+        nonlocal writes
+        writes += 1
+        return await original_write(*args, **kwargs)
+
+    monkeypatch.setattr(pressure, "write", counted_write)
+
+    await callback({"Analog Input 10": 0.0})
+    await callback({"Analog Input 10": 0.0})
+
+    assert writes == 1
+    assert int(pressure.severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(pressure.status) == int(AlarmStatus.CALC)
+
+
 async def test_derived_reconnect_clears_invalid_even_when_value_unchanged() -> None:
     """Derived deadband cache is cleared so reconnect recovery always posts."""
     port = _free_port()

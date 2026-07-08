@@ -16,6 +16,12 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   implementation is same-source-device only, so examples like a Convectron
   pressure PV derived from one DAQ analog input are frame-coherent without
   introducing cross-device latest-value semantics.
+- Derived PVs report operator-visible failure states: `INVALID/UDF` until first
+  successful compute or while inputs are missing/non-numeric, `INVALID/CALC` on
+  expression runtime failure, and `INVALID/COMM` when the source device
+  disconnects. Repeated identical INVALID failures publish only the transition;
+  the next successful compute clears severity even if the numeric value is
+  unchanged.
 
 ## [0.7.0] - 2026-07-08
 

@@ -515,6 +515,8 @@ class GeecsCaGateway:
     ) -> None:
         """Mark a derived PV invalid and clear its deadband cache."""
         self._derived_last_written.pop(pv, None)
+        if channel.severity == AlarmSeverity.INVALID_ALARM and channel.status == status:
+            return
         try:
             await channel.write(
                 channel.value,
