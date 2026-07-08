@@ -90,12 +90,15 @@ per-experiment *scan-write policy* flag (Master Control's scan start/end
 machinery) and plays no role in `:SP` creation; `expt_device_variable.get`
 selects the monitored/readback subscription set.
 
-**Known gap (2026-07-07, live-DB verified):** the gateway currently resolves
-capability/metadata from `devicetype_variable` only, ignoring `variable`
-overrides — 1032 live rows differ from their type defaults, including
-instance-level settability flips whose `:SP` PVs are therefore missing
-today. Fix pending one MC-semantics question (whole-row vs field-by-field
-override resolution).
+The gateway resolves this chain **whole-row** (maintainer-confirmed
+semantics, 2026-07-07): when a `variable` row exists for a device+variable
+(linked via `variable.devicetype_variable_id`), *every* served field —
+settability, name, units, limits, tolerance, choices — comes from that
+instance row, with no field-level fallback to the type defaults (an instance
+row with NULL limits means that instance has no limits). Instance rows are
+ground truth; an instance row with no surviving type link (NULL or dangling
+`devicetype_variable_id`) defines an instance-only variable and is served
+too. Pinned by the inheritance-chain tests in `tests/test_geecs_db.py`.
 
 ### Per-device status PV — `CONNECTED`
 
