@@ -42,8 +42,9 @@ from .channels import (
     make_setpoint_channel,
     read_only,
 )
-from .pv_naming import pv_name
 from .config import GatewayConfig, VariableSpec
+from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
+from .pv_naming import pv_name
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,12 @@ class GeecsCaGateway:
         self._restart_requested = asyncio.Event()
         # device name -> {geecs_var -> (readback channel, variable spec)}
         self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
+        # source device -> derived channel specs evaluated from that device's frame
+        self._derived_by_source: dict[
+            str, list[tuple[DerivedChannelSpec, ChannelData, ExpressionEvaluator, str]]
+        ] = {}
+        # full derived PV name -> last value written, for deadband suppression
+        self._derived_last_written: dict[str, Any] = {}
         self._build_pvdb()
 
     # ------------------------------------------------------------------
@@ -218,7 +225,50 @@ class GeecsCaGateway:
                 self.pvdb[conn_pv] = conn
                 self._connected[dev.name] = conn
 
+        self._build_derived_pvs()
         self._build_gateway_status_pvs()
+
+    def _default_experiment(self) -> str | None:
+        """Return the first configured experiment prefix, if any."""
+        return next((d.experiment for d in self.config.devices if d.experiment), None)
+
+    def _build_derived_pvs(self) -> None:
+        """Build read-only PVs for configured derived channels."""
+        if not self.config.derived_channels:
+            return
+        source_devices = {dev.name for dev in self.config.devices}
+        default_experiment = self._default_experiment()
+        for spec in self.config.derived_channels:
+            if spec.source_device not in source_devices:
+                raise ValueError(
+                    f"Derived channel {spec.device}:{spec.variable} references "
+                    f"unknown source device {spec.source_device!r}"
+                )
+            full = derived_pv_name(spec, default_experiment)
+            if not self._register(full, spec.source_device, spec.variable, "derived"):
+                continue
+            var_spec = VariableSpec(
+                geecs_var=spec.variable,
+                pv=spec.pv,
+                dtype="float",
+                egu=spec.egu,
+                precision=spec.precision,
+                lo=spec.lo,
+                hi=spec.hi,
+                deadband=spec.deadband,
+            )
+            channel = make_readback_channel(
+                var_spec,
+                initial_severity=AlarmSeverity.INVALID_ALARM,
+                initial_status=AlarmStatus.UDF,
+            )
+            self.pvdb[full] = channel
+            evaluator = ExpressionEvaluator(
+                spec.expression, {inp.symbol for inp in spec.inputs}
+            )
+            self._derived_by_source.setdefault(spec.source_device, []).append(
+                (spec, channel, evaluator, full)
+            )
 
     def _build_gateway_status_pvs(self) -> None:
         """Expose gateway self-diagnostics under ``[Experiment:]CAGateway:*``."""
@@ -321,6 +371,162 @@ class GeecsCaGateway:
             "status": _ALARM_STATUS[evaluation.level],
         }
 
+    async def _write_stream_value(
+        self,
+        device_name: str,
+        var: str,
+        raw: Any,
+        channel: ChannelData,
+        spec: VariableSpec,
+        extra: dict[str, Any],
+    ) -> None:
+        """Cast and write one raw stream value into its readback PV."""
+        if (
+            spec.dtype in ("float", "int", "enum")
+            and isinstance(raw, str)
+            and not raw.strip()
+        ):
+            # Devices push '' for numeric/enum values they haven't computed yet
+            # (camera analysis fields before the first acquisition, idle devices'
+            # whole frames). Not a type mismatch — skip quietly and leave the PV
+            # at its previous/placeholder value until real data arrives.
+            # (string/path dtypes are exempt: '' is a legitimate value there,
+            # e.g. a cleared save path.)
+            logger.debug("%s: %s is empty (no value yet); skipping", device_name, var)
+            return
+        try:
+            if spec.dtype == "enum":
+                value = enum_index(spec.choices, raw)
+                if value is None:
+                    self._warn_once(
+                        device_name,
+                        var,
+                        f"{device_name}: {var}={raw!r} not in enum choices "
+                        f"{spec.choices}; ignoring (DB choice mismatch?)",
+                    )
+                    return
+            else:
+                value = cast_value(spec.dtype, raw)
+        except (ValueError, TypeError):
+            self._warn_once(
+                device_name,
+                var,
+                f"{device_name}: {var}={raw!r} is not a {spec.dtype} "
+                f"(likely a DB variabletype mismatch); ignoring this variable",
+            )
+            return
+
+        # Deadband / change suppression: don't re-post an unchanged value
+        # (floats within the deadband). Keeps CA + archiver traffic to real
+        # changes; a static device costs nothing.
+        last_map = self._last_written.setdefault(device_name, {})
+        prev = last_map.get(var, _UNSET)
+        if prev is not _UNSET:
+            if spec.dtype == "float":
+                both_nan = math.isnan(value) and math.isnan(prev)
+                if both_nan or abs(value - prev) <= spec.deadband:
+                    return
+            elif value == prev:
+                return
+        last_map[var] = value
+        try:
+            # Curated value-alarm severity rides the live write (device
+            # disconnect/stale INVALID is handled separately by
+            # _mark_device_invalid). verify_value is disabled only when we
+            # supply alarm state, so caproto's native limit evaluation never
+            # fights the overlay (the single-evaluator contract).
+            alarm_kwargs = self._alarm_write_kwargs(device_name, var, spec, value)
+            await channel.write(
+                value,
+                **extra,
+                **alarm_kwargs,
+                verify_value=not bool(alarm_kwargs),
+            )
+        except Exception:
+            self._warn_once(
+                device_name,
+                var,
+                f"{device_name}: failed to write PV {var}={value!r} "
+                f"(skipping this variable)",
+            )
+
+    async def _write_derived_channels(
+        self, device_name: str, update: dict[str, Any], extra: dict[str, Any]
+    ) -> None:
+        """Evaluate derived PVs whose inputs are present in this source frame."""
+        for spec, channel, evaluator, pv in self._derived_by_source.get(
+            device_name, []
+        ):
+            values: dict[str, float] = {}
+            missing = False
+            for inp in spec.inputs:
+                raw = update.get(inp.variable, _UNSET)
+                if raw is _UNSET or (isinstance(raw, str) and not raw.strip()):
+                    missing = True
+                    break
+                try:
+                    values[inp.symbol] = float(raw)
+                except (TypeError, ValueError):
+                    self._warn_once(
+                        device_name,
+                        pv,
+                        f"{device_name}: derived PV {pv} input "
+                        f"{inp.variable}={raw!r} is not numeric; marking INVALID",
+                    )
+                    missing = True
+                    break
+            if missing:
+                await self._mark_derived_invalid(channel, pv, AlarmStatus.UDF)
+                continue
+            try:
+                value = evaluator.evaluate(values)
+            except Exception:
+                self._warn_once(
+                    device_name,
+                    pv,
+                    f"{device_name}: derived PV {pv} expression failed; "
+                    "marking INVALID",
+                )
+                await self._mark_derived_invalid(channel, pv, AlarmStatus.CALC)
+                continue
+            prev = self._derived_last_written.get(pv, _UNSET)
+            if prev is not _UNSET:
+                both_nan = math.isnan(value) and math.isnan(prev)
+                if both_nan or abs(value - prev) <= spec.deadband:
+                    continue
+            self._derived_last_written[pv] = value
+            try:
+                await channel.write(
+                    value,
+                    **extra,
+                    severity=AlarmSeverity.NO_ALARM,
+                    status=AlarmStatus.NO_ALARM,
+                    verify_value=False,
+                )
+            except Exception:
+                self._warn_once(
+                    device_name,
+                    pv,
+                    f"{device_name}: failed to write derived PV {pv}={value!r}",
+                )
+
+    async def _mark_derived_invalid(
+        self, channel: ChannelData, pv: str, status: AlarmStatus
+    ) -> None:
+        """Mark a derived PV invalid and clear its deadband cache."""
+        self._derived_last_written.pop(pv, None)
+        if channel.severity == AlarmSeverity.INVALID_ALARM and channel.status == status:
+            return
+        try:
+            await channel.write(
+                channel.value,
+                severity=AlarmSeverity.INVALID_ALARM,
+                status=status,
+                verify_value=False,
+            )
+        except Exception:
+            logger.debug("failed to mark derived PV %s INVALID", pv, exc_info=True)
+
     def _make_callback(self, dev):
         """Return the subscription callback that fans a push frame into PVs.
 
@@ -340,87 +546,35 @@ class GeecsCaGateway:
             ``acq_timestamp`` observes the completed frame.  Each PV write is
             an ``await``, so posting the shot id first would let a strict-mode
             Bluesky ``CaTriggerable`` complete its ``trigger()`` on the new
-            shot while the data PVs still hold the previous frame's values.
-            The stable sort preserves the device's payload order among the
-            data variables themselves.
+            shot while the data PVs still hold the previous frame's values. The
+            stable split preserves device payload order among data variables;
+            derived channels post after raw data and before timestamps.
             """
             timestamp = _extract_timestamp(update, ts_vars)
             extra = {"timestamp": timestamp} if timestamp is not None else {}
-            last_map = self._last_written.setdefault(device_name, {})
-            for var, raw in sorted(update.items(), key=lambda kv: kv[0] in ts_vars):
+            data_items = [
+                (var, raw) for var, raw in update.items() if var not in ts_vars
+            ]
+            timestamp_items = [
+                (var, raw) for var, raw in update.items() if var in ts_vars
+            ]
+            for var, raw in data_items:
                 entry = readback_map.get(var)
                 if entry is None:
                     continue
                 channel, spec = entry
-                if (
-                    spec.dtype in ("float", "int", "enum")
-                    and isinstance(raw, str)
-                    and not raw.strip()
-                ):
-                    # Devices push '' for numeric/enum values they haven't
-                    # computed yet (camera analysis fields before the first
-                    # acquisition, idle devices' whole frames). Not a type
-                    # mismatch — skip quietly and leave the PV at its
-                    # previous/placeholder value until real data arrives.
-                    # (string/path dtypes are exempt: '' is a legitimate
-                    # value there, e.g. a cleared save path.)
-                    logger.debug(
-                        "%s: %s is empty (no value yet); skipping",
-                        device_name,
-                        var,
-                    )
+                await self._write_stream_value(
+                    device_name, var, raw, channel, spec, extra
+                )
+            await self._write_derived_channels(device_name, update, extra)
+            for var, raw in timestamp_items:
+                entry = readback_map.get(var)
+                if entry is None:
                     continue
-                try:
-                    if spec.dtype == "enum":
-                        value = enum_index(spec.choices, raw)
-                        if value is None:
-                            self._warn_once(
-                                device_name,
-                                var,
-                                f"{device_name}: {var}={raw!r} not in enum choices "
-                                f"{spec.choices}; ignoring (DB choice mismatch?)",
-                            )
-                            continue
-                    else:
-                        value = cast_value(spec.dtype, raw)
-                except (ValueError, TypeError):
-                    self._warn_once(
-                        device_name,
-                        var,
-                        f"{device_name}: {var}={raw!r} is not a {spec.dtype} "
-                        f"(likely a DB variabletype mismatch); ignoring this variable",
-                    )
-                    continue
-
-                # Deadband / change suppression: don't re-post an unchanged value
-                # (floats within the deadband). Keeps CA + archiver traffic to
-                # real changes; a static device costs nothing.
-                prev = last_map.get(var, _UNSET)
-                if prev is not _UNSET:
-                    if spec.dtype == "float":
-                        both_nan = math.isnan(value) and math.isnan(prev)
-                        if both_nan or abs(value - prev) <= spec.deadband:
-                            continue
-                    elif value == prev:
-                        continue
-                last_map[var] = value
-                try:
-                    alarm_kwargs = self._alarm_write_kwargs(
-                        device_name, var, spec, value
-                    )
-                    await channel.write(
-                        value,
-                        **extra,
-                        **alarm_kwargs,
-                        verify_value=not bool(alarm_kwargs),
-                    )
-                except Exception:
-                    self._warn_once(
-                        device_name,
-                        var,
-                        f"{device_name}: failed to write PV {var}={value!r} "
-                        f"(skipping this variable)",
-                    )
+                channel, spec = entry
+                await self._write_stream_value(
+                    device_name, var, raw, channel, spec, extra
+                )
 
         return callback
 
@@ -489,7 +643,14 @@ class GeecsCaGateway:
         # Subscribe to data variables plus the timestamp ladder (deduped, order
         # preserved) so the device pushes the timestamp alongside the data.
         data_vars = [v.geecs_var for v in dev.variables]
-        variables = list(dict.fromkeys(data_vars + dev.timestamp_vars))
+        derived_inputs = [
+            inp.variable
+            for spec, _channel, _evaluator, _pv in self._derived_by_source.get(
+                dev.name, []
+            )
+            for inp in spec.inputs
+        ]
+        variables = list(dict.fromkeys(data_vars + derived_inputs + dev.timestamp_vars))
         # Text-typed variables must reach cast_value as the exact wire text —
         # numeric coercion round-trips '007' → 7 → "7", mangling string PVs.
         # Enums are included too: choice labels are strings, and a numeric-
@@ -508,6 +669,10 @@ class GeecsCaGateway:
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
+                for _spec, _channel, _evaluator, pv in self._derived_by_source.get(
+                    dev.name, []
+                ):
+                    self._derived_last_written.pop(pv, None)
                 if dev.name in self._down_logged:
                     self._down_logged.discard(dev.name)
                     logger.info("%s: reconnected", dev.name)
@@ -605,9 +770,11 @@ class GeecsCaGateway:
         recovery is automatic — only the disconnect transition is set here.
         """
         for pv, (dev, _var, kind) in self.manifest.items():
-            if dev != device or kind != "readback":
+            if dev != device or kind not in ("readback", "derived"):
                 continue
             channel = self.pvdb[pv]
+            if kind == "derived":
+                self._derived_last_written.pop(pv, None)
             try:
                 await channel.write(
                     channel.value,

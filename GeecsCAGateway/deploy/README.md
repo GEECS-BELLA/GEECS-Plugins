@@ -95,7 +95,15 @@ DB-backed config.
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,
-`--include-disabled`, a different `--experiment`), then
+`--include-disabled`, an explicit `--derived-channels /path/to/file.yaml`
+override, a different `--experiment`), then
 `sudo systemctl daemon-reload && sudo systemctl restart geecs-ca-gateway`.
 Serving a second experiment = a second copy of the unit with a different name
 and `--experiment`; CA name resolution makes the split invisible to clients.
+
+Derived channels normally do not require an `ExecStart` edit: put
+`derived_channels.yaml` under
+`GEECS-Plugins-Configs/scanner_configs/experiments/<Experiment>/gateway/` and
+restart the gateway. The service discovers that file through
+`GEECS_SCANNER_CONFIG_DIR`, `GEECS_PLUGINS_CONFIGS`, or
+`config.ini [Paths] scanner_config_root_path`.

@@ -3,6 +3,26 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.8.0] - 2026-07-08
+
+### Added
+
+- Derived numeric channels loaded from a `geecs-schemas` YAML/JSON overlay.
+  The gateway auto-loads the configs-repo convention
+  `scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml`
+  when present, with `--derived-channels PATH` as an explicit override. Each
+  entry declares a read-only float PV computed from a restricted arithmetic
+  expression over one source device's numeric push-frame values. This initial
+  implementation is same-source-device only, so examples like a Convectron
+  pressure PV derived from one DAQ analog input are frame-coherent without
+  introducing cross-device latest-value semantics.
+- Derived PVs report operator-visible failure states: `INVALID/UDF` until first
+  successful compute or while inputs are missing/non-numeric, `INVALID/CALC` on
+  expression runtime failure, and `INVALID/COMM` when the source device
+  disconnects. Repeated identical INVALID failures publish only the transition;
+  the next successful compute clears severity even if the numeric value is
+  unchanged.
+
 ## [0.7.0] - 2026-07-08
 
 ### Added

@@ -25,6 +25,7 @@ Actual CLI flags (`geecs_ca_gateway/__main__.py`):
 | `--all-variables` | off | Expose every device variable, not just the `get='yes'` monitoring set |
 | `--no-settable` | off | Do *not* add settable (control-surface) variables to the subscribed set |
 | `--include-disabled` | off | Include devices not `enabled` in the experiment |
+| `--derived-channels PATH` | configs-repo convention if present | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
 | `--show-missing` | off | Keep the transport's "missing variable(s)" notices (quiet by default — subscribed-but-idle variables are normal for monitoring) |
 | `--log-level LEVEL` | `INFO` | Python logging level |
 
@@ -47,6 +48,48 @@ The gateway reads no config file of its own. Everything comes from:
    endpoints, variables, types, units, limits, settability. On a DB change,
    restart the gateway (this matches the existing master-GUI reboot pattern;
    hot reload is a later nicety).
+
+Optional derived readbacks come from a schema-validated overlay file in the
+configs repo. By convention, the gateway auto-loads:
+
+```text
+GEECS-Plugins-Configs/
+  scanner_configs/
+    experiments/
+      <Experiment>/
+        gateway/
+          derived_channels.yaml
+```
+
+The file is not a replacement for the DB; it only adds computed numeric PVs on
+top of the DB-backed raw device set:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: TargetChamberPressure
+    variable: Pressure
+    expression: "10**(v - 6)"
+    inputs:
+      - symbol: v
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
+    egu: Torr
+    precision: 6
+    description: "Convectron pressure from U_VacuumGauge analog input 0"
+```
+
+The configs repo root is resolved the same way as scanner configs:
+`GEECS_SCANNER_CONFIG_DIR` may point directly at
+`scanner_configs/experiments`, `GEECS_PLUGINS_CONFIGS` may point at the
+configs repo root, or `~/.config/geecs_python_api/config.ini`
+`[Paths] scanner_config_root_path` may point at the configs repo root. If the
+conventional file is absent, the gateway starts normally with no derived PVs.
+Use `--derived-channels /path/to/file.yaml` only to override the convention.
+
+For the systemd service, keep a checked-out configs repo on the gateway host
+and ensure one of those resolution paths is configured; then a normal restart
+reloads both the DB-backed raw PVs and the derived overlay.
 
 MySQL access uses the pure-Python connector (`use_pure=True`) — the C extension
 has crashed silently on the lab Windows machines.
@@ -220,6 +263,9 @@ poetry run caproto-get Undulator:CAGateway:DEVICES_CONNECTED
 
 # 3. Readback streaming? (should tick with the device's ~1–5 Hz stream)
 poetry run caproto-monitor Undulator:U_S1H:Current
+
+# 3b. Derived readback loaded from the configs repo? (example: target chamber)
+poetry run caproto-get -a Undulator:TargetChamberPressure:Pressure
 
 # 4. Write path (pick a harmless settable variable; put-completion = GEECS
 #    convergence, so this blocks until the device converges)

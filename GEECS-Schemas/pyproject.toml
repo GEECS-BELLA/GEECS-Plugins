@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-schemas"
-version = "0.2.0"
+version = "0.3.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

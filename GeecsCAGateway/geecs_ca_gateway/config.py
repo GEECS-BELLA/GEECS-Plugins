@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from .alarms import AlarmLimits
+from .derived import DerivedChannelSpec
 from .naming import normalize_pv_component
 
 logger = logging.getLogger(__name__)
@@ -297,6 +298,7 @@ class GatewayConfig(BaseModel):
     """Top-level gateway configuration: the set of devices to serve."""
 
     devices: list[DeviceSpec] = Field(default_factory=list)
+    derived_channels: list[DerivedChannelSpec] = Field(default_factory=list)
 
     @classmethod
     def from_geecs_experiment(

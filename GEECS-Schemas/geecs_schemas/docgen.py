@@ -170,6 +170,20 @@ actions:
 background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
+    "derived_channels": """\
+schema_version: 1
+derived_channels:
+  - device: TargetChamberPressure
+    variable: Pressure
+    expression: "10**(v - 6)"
+    inputs:
+      - symbol: v
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
+    egu: Torr
+    precision: 6
+    description: "Convectron pressure from U_VacuumGauge analog input 0"
+""",
 }
 
 

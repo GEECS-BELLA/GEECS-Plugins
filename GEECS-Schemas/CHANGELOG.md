@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-07-08
+
+### Added
+
+- `DerivedChannels` schema for CA gateway derived readbacks: operator-curated
+  read-only float PVs computed from one source device's numeric push-frame
+  values. Schema version 1 enforces same-source-device inputs so calculations
+  such as Convectron pressure from one DAQ analog input are frame-coherent.
+
 ## [0.2.0] - 2026-07-07
 
 ### Changed

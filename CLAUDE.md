@@ -105,7 +105,8 @@ GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 
 ImageAnalysis        →  GEECS-Data-Utils
-GeecsCAGateway       →  (no intra-repo deps — the GEECS access layer:
+GeecsCAGateway       →  GEECS-Schemas (schema-only vocabulary for optional
+                        derived-channel overlays; otherwise the GEECS access layer:
                         wire protocol, DB, PV naming, CA server)
 GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway
                         (+ ImageAnalysis, optional via the `analysis` extra —

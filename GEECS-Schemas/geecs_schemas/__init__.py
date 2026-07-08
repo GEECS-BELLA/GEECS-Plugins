@@ -2,9 +2,9 @@
 
 Configs are schemas; YAML is just serialization.  This package is the single
 home of the models (vision doc §4): scan requests, save sets, scan variables,
-trigger profiles, and action plans — plus converters from every legacy YAML
-dialect (``geecs_schemas.convert``) and a Markdown reference generator
-(``geecs_schemas.docgen``).
+trigger profiles, action plans, and gateway derived channels — plus converters
+from every legacy YAML dialect (``geecs_schemas.convert``) and a Markdown
+reference generator (``geecs_schemas.docgen``).
 
 It depends on Pydantic only, so anything — engine, GUI, scripts, docs
 tooling — can import it without dragging in hardware or analysis stacks.
@@ -19,6 +19,11 @@ from geecs_schemas.action_plan import (
     RunPlanStep,
     SetStep,
     WaitStep,
+)
+from geecs_schemas.derived_channels import (
+    DerivedChannel,
+    DerivedChannels,
+    DerivedInput,
 )
 from geecs_schemas.experiment_defaults import DefaultActions, ExperimentDefaults
 from geecs_schemas.save_set import SaveRole, SaveSet, SaveSetEntry
@@ -65,6 +70,10 @@ __all__ = [
     "OptimizationSpec",
     "EvaluatorSpec",
     "GeneratorSpec",
+    # derived_channels
+    "DerivedChannels",
+    "DerivedChannel",
+    "DerivedInput",
     # save_set
     "SaveSet",
     "SaveSetEntry",
@@ -105,4 +114,5 @@ SCHEMA_REGISTRY: dict[str, type[VersionedSchemaModel]] = {
     "action_plan": ActionPlan,
     "action_plan_library": ActionPlanLibrary,
     "experiment_defaults": ExperimentDefaults,
+    "derived_channels": DerivedChannels,
 }

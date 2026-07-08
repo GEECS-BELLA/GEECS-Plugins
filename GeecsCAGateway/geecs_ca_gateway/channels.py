@@ -20,6 +20,9 @@ from typing import Any, Awaitable, Callable
 
 from caproto import (
     AccessRights,
+    AlarmSeverity,
+    AlarmStatus,
+    ChannelAlarm,
     ChannelChar,
     ChannelData,
     ChannelDouble,
@@ -228,9 +231,19 @@ def _initial(dtype: DType) -> Any:
     return ""
 
 
-def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
+def _metadata_kwargs(
+    spec: VariableSpec,
+    *,
+    initial_severity: AlarmSeverity | None = None,
+    initial_status: AlarmStatus | None = None,
+) -> dict[str, Any]:
     """Caproto kwargs (value + EGU/precision/limits) for a scalar channel."""
     kwargs: dict[str, Any] = {"value": _initial(spec.dtype)}
+    if initial_severity is not None or initial_status is not None:
+        kwargs["alarm"] = ChannelAlarm(
+            severity=initial_severity or AlarmSeverity.NO_ALARM,
+            status=initial_status or AlarmStatus.NO_ALARM,
+        )
     if spec.dtype == "float":
         kwargs["precision"] = spec.precision
     if spec.dtype in ("float", "int"):
@@ -246,15 +259,40 @@ def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
     return kwargs
 
 
-def make_readback_channel(spec: VariableSpec) -> ChannelData:
+def make_readback_channel(
+    spec: VariableSpec,
+    *,
+    initial_severity: AlarmSeverity | None = None,
+    initial_status: AlarmStatus | None = None,
+) -> ChannelData:
     """Build a client-read-only channel populated by the subscription stream."""
     if spec.dtype == "enum":
-        return read_only(ChannelEnum)(value=0, enum_strings=list(spec.choices))
+        kwargs: dict[str, Any] = {"value": 0, "enum_strings": list(spec.choices)}
+        if initial_severity is not None or initial_status is not None:
+            kwargs["alarm"] = ChannelAlarm(
+                severity=initial_severity or AlarmSeverity.NO_ALARM,
+                status=initial_status or AlarmStatus.NO_ALARM,
+            )
+        return read_only(ChannelEnum)(**kwargs)
     if spec.dtype == "path":
-        return read_only(ChannelChar)(
-            value="", string_encoding="utf-8", max_length=_PATH_MAX_LENGTH
+        kwargs = {
+            "value": "",
+            "string_encoding": "utf-8",
+            "max_length": _PATH_MAX_LENGTH,
+        }
+        if initial_severity is not None or initial_status is not None:
+            kwargs["alarm"] = ChannelAlarm(
+                severity=initial_severity or AlarmSeverity.NO_ALARM,
+                status=initial_status or AlarmStatus.NO_ALARM,
+            )
+        return read_only(ChannelChar)(**kwargs)
+    return read_only(_SCALAR_BASE[spec.dtype])(
+        **_metadata_kwargs(
+            spec,
+            initial_severity=initial_severity,
+            initial_status=initial_status,
         )
-    return read_only(_SCALAR_BASE[spec.dtype])(**_metadata_kwargs(spec))
+    )
 
 
 def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
