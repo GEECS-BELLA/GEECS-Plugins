@@ -1,0 +1,43 @@
+{
+  "description": "",
+  "device": "U_DG645_ShotControl",
+  "name": "HTU-Normal",
+  "schema_version": 1,
+  "states": {
+    "ARMED": {
+      "Amplitude.Ch AB": "4.0",
+      "Trigger.Source": "Single shot external rising edges"
+    },
+    "OFF": {
+      "Amplitude.Ch AB": "0.5",
+      "Trigger.Source": "Single shot external rising edges"
+    },
+    "SCAN": {
+      "Amplitude.Ch AB": "4.0",
+      "Trigger.Source": "External rising edges"
+    },
+    "SINGLESHOT": {
+      "Trigger.ExecuteSingleShot": "on"
+    },
+    "STANDBY": {
+      "Amplitude.Ch AB": "0.5",
+      "Trigger.Source": "External rising edges"
+    }
+  },
+  "variants": {
+    "laser_off": {
+      "description": "Folded from legacy profile 'HTU-LaserOFF'.",
+      "states": {
+        "ARMED": {
+          "Trigger.Source": "Single shot"
+        },
+        "OFF": {
+          "Trigger.Source": "Single shot"
+        },
+        "SCAN": {
+          "Trigger.Source": "Internal"
+        }
+      }
+    }
+  }
+}

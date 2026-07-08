@@ -1,0 +1,43 @@
+{
+  "actions": {
+    "UC_Aline1_setup": {
+      "description": "Extracted from legacy save element 'UC_Aline1'.",
+      "schema_version": 1,
+      "steps": [
+        {
+          "do": "wait",
+          "seconds": 0.1
+        },
+        {
+          "device": "UC_ALineEbeam1",
+          "do": "set",
+          "value": "on",
+          "variable": "Analysis",
+          "wait_for_execution": true
+        },
+        {
+          "device": "UC_ALineEbeam1",
+          "do": "set",
+          "value": "on",
+          "variable": "trigger",
+          "wait_for_execution": true
+        }
+      ]
+    }
+  },
+  "notes": [],
+  "save_set": {
+    "description": "",
+    "entries": [
+      {
+        "all_scalars": false,
+        "device": "UC_ALineEbeam1",
+        "images": true,
+        "role": null,
+        "scalars": []
+      }
+    ],
+    "name": "UC_Aline1",
+    "schema_version": 1
+  }
+}

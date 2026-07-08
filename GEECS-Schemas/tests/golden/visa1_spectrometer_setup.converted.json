@@ -1,0 +1,109 @@
+{
+  "actions": {
+    "visa1_spectrometer_setup_closeout": {
+      "description": "Extracted from legacy save element 'visa1_spectrometer_setup'.",
+      "schema_version": 1,
+      "steps": [
+        {
+          "device": "UC_UndulatorRad2",
+          "do": "set",
+          "value": "off",
+          "variable": "Analysis",
+          "wait_for_execution": true
+        }
+      ]
+    },
+    "visa1_spectrometer_setup_setup": {
+      "description": "Extracted from legacy save element 'visa1_spectrometer_setup'.",
+      "schema_version": 1,
+      "steps": [
+        {
+          "do": "run",
+          "plan": "remove_visa_plungers"
+        },
+        {
+          "device": "U_VisaPlungers",
+          "do": "set",
+          "value": "on",
+          "variable": "DigitalOutput.Channel 7",
+          "wait_for_execution": true
+        },
+        {
+          "device": "U_Velmex",
+          "do": "set",
+          "value": 3888,
+          "variable": "Position",
+          "wait_for_execution": true
+        },
+        {
+          "device": "U_UndulatorSpecStage",
+          "do": "set",
+          "value": 21.0,
+          "variable": "Position.Ch1",
+          "wait_for_execution": true
+        },
+        {
+          "device": "U_UndulatorSpecStage",
+          "do": "set",
+          "value": 25.4,
+          "variable": "Position.Ch2",
+          "wait_for_execution": true
+        },
+        {
+          "device": "U_PLC",
+          "do": "set",
+          "value": "off",
+          "variable": "DO.Ch18",
+          "wait_for_execution": true
+        },
+        {
+          "device": "U_PLC",
+          "do": "set",
+          "value": "off",
+          "variable": "DO.Ch8",
+          "wait_for_execution": true
+        },
+        {
+          "device": "UC_UndulatorRad2",
+          "do": "set",
+          "value": "on",
+          "variable": "Analysis",
+          "wait_for_execution": true
+        }
+      ]
+    }
+  },
+  "save_set": {
+    "description": "",
+    "entries": [
+      {
+        "all_scalars": false,
+        "device": "UC_UndulatorRad2",
+        "images": true,
+        "role": null,
+        "scalars": [
+          "MeanCounts"
+        ]
+      },
+      {
+        "all_scalars": false,
+        "device": "UC_VisaEBeam1",
+        "images": true,
+        "role": null,
+        "scalars": []
+      },
+      {
+        "all_scalars": false,
+        "device": "U_BCaveICT",
+        "images": true,
+        "role": null,
+        "scalars": [
+          "Python Results.ChA",
+          "Python Results.ChB"
+        ]
+      }
+    ],
+    "name": "visa1_spectrometer_setup",
+    "schema_version": 1
+  }
+}

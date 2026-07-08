@@ -27,6 +27,7 @@ geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
 geecs-pythonapi = {path = "GEECS-PythonAPI", develop = true}
 imageanalysis = { path = "ImageAnalysis", develop = true }
 geecs_data_utils = { path = "GEECS-Data-Utils", develop = true, extras = ["ml"] }
+geecs-schemas = { path = "GEECS-Schemas", develop = true }
 scananalysis = {path = "ScanAnalysis", develop = true}
 LogMaker4GoogleDocs = {path = "LogMaker4GoogleDocs", develop = true}
 
@@ -51,7 +52,7 @@ build-backend = "poetry.core.masonry.api"
 # Pytest settings
 # -------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests"]
+testpaths = ["tests", "ImageAnalysis/tests", "ScanAnalysis/tests", "GEECS-Data-Utils/tests", "GEECS-Schemas/tests"]
 # importlib import mode avoids collisions between identically-named test
 # directories across subpackages (e.g. ImageAnalysis/tests/conftest.py and
 # GEECS-Data-Utils/tests/conftest.py both being imported as

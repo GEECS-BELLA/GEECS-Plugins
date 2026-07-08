@@ -103,6 +103,9 @@ nav:
           - Correlation Analysis: geecs_data_utils/examples/correlation_analysis.ipynb
           - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
 
+  - GEECS Schemas:
+      - Scanner Configs Overview: geecs_schemas/schemas_overview.md
+
   # Skills is intentionally last — experimental (agentic tooling), not core suite.
   - Skills:
       - Overview: skills/overview.md

@@ -1,0 +1,12 @@
+Devices:
+- D_OAPLeakage
+- EDiag_EMSpectrometer
+- TC_Shadow
+- TC_TopJet
+- VHEE_ICT
+- VHEE_LANEX
+- VHEE_Probe
+- Long_Probe_Delay_Stage
+Info: 50 shots, no gas, samples in Probe Delay Stage 589.696
+Num Shots: 50
+Scan Mode: No Scan

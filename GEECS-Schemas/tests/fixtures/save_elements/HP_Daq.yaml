@@ -1,0 +1,6 @@
+Devices:
+  U_HP_Daq:
+    save_nonscalar_data: true
+    synchronous: true
+    variable_list:
+    - AnalogOutput.Channel 1
