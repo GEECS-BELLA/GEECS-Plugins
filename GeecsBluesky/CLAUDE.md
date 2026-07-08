@@ -208,17 +208,25 @@ How they compose per mode (native saving is **windowed** to the
 trigger-stopped part of the scan — Gate-2 hardware finding: an eager save-on
 let free-running frames be saved as orphan images joining no event row):
 ```
-free-run:  quiesce[OFF] → save-on → t0_sync → per step: mv → arm[SCAN] → N×(ref-paced read) → disarm[STANDBY] → tail flush
+free-run:  quiesce[OFF] → save-on → t0_sync → per step: mv → arm[SCAN] → N×(ref-paced read) → disarm[STANDBY] → end: quiesce[OFF] → tail flush
 strict:    setup once: arm[ARMED] → confirm quiescent → save-on → per shot: trigger→fire[SINGLESHOT]→await→read
 ```
 (`geecs_run_wrapper(defer_save_on=True)` + the step plans' `enable_saving`
 hook yielding `save_enable_plan`; ScanRequest setup actions run before the
-save-on point by construction.)
+save-on point by construction.  The end-of-scan quiesce closes the tail:
+STANDBY passes external edges, so without it frames kept landing between
+the last disarm and the finalize save-off.)
 
 A `bpp.finalize_wrapper` around the plan guarantees the disarm (→ `STANDBY`)
-runs even on mid-scan abort; the finalize nesting is save-off → disarm →
-closeout, so saving always stops while the trigger is still unable to
-free-run.
+runs even on mid-scan abort; the finalize nesting is quiesce[OFF]
+(free-run abort parity, inside the plan; skipped when the end-of-scan
+quiesce already ran) → save-off → disarm → closeout, so saving always
+stops while the trigger cannot pass edges, and hardware is restored to the
+legacy free-running STANDBY end state last.  **Accepted window, do not
+"fix"**: between-step STANDBY frames in multi-step free-run scans — the
+per-step disarm during moves is deliberate legacy parity (jet off during
+moves); frames there join by timestamp and orphans are ignorable — never
+turn this into per-step save toggling.
 
 `ARMED` is **config-specific**: it sets data-taking output (jet amplitude /
 delay) + the single-shot trigger source — *external* single-shot when the laser

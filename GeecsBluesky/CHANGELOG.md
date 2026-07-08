@@ -115,6 +115,21 @@ Both items were found during Gate-2 hardware verification of this release
   `GeecsSession.optimize`'s adaptive scan still enables saving eagerly
   (known remaining window — the step-scan paths were the hardware-verified
   offenders).
+  **Tail closed too** (Gate-2 re-verify on 26_0708: strict Scan001 was
+  perfect — exactly 3 images for 3 shots — but free-run Scan002 saved 7
+  images for 5 shots: STANDBY passes external edges, so frames kept
+  arriving between the last per-step disarm and the finalize save-off,
+  stretched by close_run/Tiled document writes): the free-run plan now
+  quiesces to OFF **after the last step's shots, before the tail flush**
+  (the flush reads cached last values by design, so flushing while OFF is
+  safe), and an internal abort-parity finalize quiesces before the caller's
+  cleanup when the scan dies mid-plan — so completion and abort share one
+  end order: quiesce[OFF] → tail flush → save-off → finalize
+  disarm[STANDBY] (legacy free-running end state) → closeout.
+  **Accepted, deliberately not fixed**: between-step STANDBY frames in
+  multi-step free-run scans — per-step disarm during moves is legacy-parity
+  behavior (jet off during moves); those frames join by timestamp and
+  orphans are ignorable. Do not turn this into per-step save toggling.
 - **`scan.log` for headless GeecsSession runs** — Scans 013–016 had no
   per-scan log because the handler lived bridge-side only. The helper moved
   to a shared `geecs_bluesky/scan_log.py` (`scan_log()` context manager +

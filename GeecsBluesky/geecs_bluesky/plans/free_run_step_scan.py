@@ -24,9 +24,22 @@ Run stages
 2. **Step loop** — identical bracketing to
    :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`:
    move → arm → ``shots_per_step`` rows → disarm.
-3. **Tail flush** (after the final disarm): one extra read of all devices
-   emitted to a separate ``flush`` event stream, so a contributor lagging at
-   ``shot_offset = -1`` still gets its final shot recorded.
+3. **End-of-scan quiesce + tail flush**: after the last step's disarm the
+   trigger is stopped again (quiesce → OFF — STANDBY keeps passing external
+   edges, and the tail machinery, close_run document writes, and the
+   caller's finalize save-off all take wall time; Gate-2 re-verify: Scan002
+   saved 7 images for 5 shots from exactly that window).  Then one extra
+   read of all devices is emitted to a separate ``flush`` event stream, so
+   a contributor lagging at ``shot_offset = -1`` still gets its final shot
+   recorded — the flush reads cached last values by design, so flushing
+   while OFF is safe.  The caller's outer finalize restores STANDBY
+   (free-running, output off — the legacy end state) afterwards.
+
+Accepted, deliberately-not-fixed window: **between-step STANDBY frames in
+multi-step free-run scans**.  The per-step disarm to STANDBY during motor
+moves is legacy-parity behavior (jet off during moves, trigger free-running)
+— frames arriving there join by timestamp and orphans are ignorable.  Do
+not "fix" this into per-step save toggling.
 """
 
 from __future__ import annotations
@@ -102,6 +115,10 @@ def geecs_free_run_step_scan(
         trigger, then read acq_timestamps" procedure — DG645 ``OFF`` state).
         ``SCAN``/``STANDBY`` keep the trigger free-running, so they cannot
         serve this role.  Falls back to ``disarm_trigger`` when not given.
+        Also run at **end of scan** (after the last step, before the tail
+        flush) and — via an internal finalize — on abort, so native saving
+        is never left enabled while the trigger passes external edges (see
+        the module docstring's run stages).
     per_step:
         Optional plan-stub callable run at **every** step boundary — after
         the move completes, before that step's ``arm_trigger``/shots.  This
@@ -228,6 +245,14 @@ def geecs_free_run_step_scan(
                 yield from bps.trigger_and_read(_read_devices)
             if disarm_trigger is not None:
                 yield from disarm_trigger()
+        # End of scan: stop the trigger BEFORE the tail machinery.  STANDBY
+        # keeps passing external edges, and the tail flush + close_run +
+        # document writes + the caller's finalize save-off all take wall
+        # time — with native saving still on, STANDBY frames landed as
+        # orphan images (Gate-2 re-verify: Scan002, 7 images for 5 shots).
+        if _quiesce is not None:
+            yield from _quiesce()
+            _end_quiesced["done"] = True
         if tail_flush:
             # No trigger: the reference would wait for a shot that may never
             # come once the trigger window is closed.
@@ -236,4 +261,15 @@ def geecs_free_run_step_scan(
                 yield from bps.read(dev)
             yield from bps.save()
 
-    yield from _inner()
+    _end_quiesced = {"done": False}
+
+    def _quiesce_before_cleanup():
+        # Abort parity: guarantee the trigger is stopped before the caller's
+        # finalize save-off runs, making completion and abort uniform
+        # (quiesce[OFF] → save-off → disarm[STANDBY] → closeout).  Skipped
+        # when the end-of-scan quiesce above already ran, so a completed
+        # scan does not write OFF twice.
+        if _quiesce is not None and not _end_quiesced["done"]:
+            yield from _quiesce()
+
+    yield from bpp.finalize_wrapper(_inner(), _quiesce_before_cleanup)

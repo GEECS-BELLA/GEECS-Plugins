@@ -151,7 +151,8 @@ def test_setup_per_step_closeout_order_in_the_full_composition() -> None:
         "per_step",
         ("trigger", "Ext"),  # arm (SCAN)
         ("trigger", "Ext"),  # disarm (STANDBY)
-        ("trigger", "Ext"),  # finalize disarm (STANDBY)
+        ("trigger", "Single"),  # end-of-scan quiesce (OFF) before tail flush
+        ("trigger", "Ext"),  # finalize disarm (STANDBY) — legacy end state
         "closeout",
     ]
 
@@ -165,11 +166,14 @@ def test_closeout_runs_even_when_the_scan_dies_mid_plan() -> None:
             per_step=_marker(journal, "per_step", fail_on_call=2),
             closeout=_marker(journal, "closeout"),
         )
-    # The abort path still disarms (STANDBY) and then runs closeout — and
-    # closeout comes after the disarm write (finalize nesting).
+    # The abort path quiesces (OFF, abort-parity finalize inside the
+    # free-run plan), then disarms (STANDBY), then runs closeout.
     assert "closeout" in journal
-    assert journal[-1] == "closeout"
-    assert journal[-2] == ("trigger", "Ext")  # the finalize disarm
+    assert journal[-3:] == [
+        ("trigger", "Single"),  # abort-parity quiesce (OFF)
+        ("trigger", "Ext"),  # finalize disarm (STANDBY)
+        "closeout",
+    ]
 
 
 def test_closeout_runs_when_setup_itself_fails() -> None:
@@ -188,10 +192,12 @@ def test_free_run_save_window_opens_after_quiesce_and_closes_before_disarm(
 ) -> None:
     """Gate-2 windowing: save-on only once the trigger is stopped.
 
-    Hardware evidence (Scan013/015): eager save-on let free-running frames
-    from the pre-quiesce / setup-action window be saved as orphans.  The
-    fixed order is setup actions → quiesce[OFF] → save-on → (t0-sync) →
-    steps → save-off → finalize disarm[STANDBY] → closeout.
+    Hardware evidence (Scan013/015 front, Scan002 tail): eager save-on let
+    free-running frames from the pre-quiesce / setup-action window be saved
+    as orphans, and STANDBY frames leaked after the last disarm while the
+    tail machinery ran.  The fixed order is setup actions → quiesce[OFF] →
+    save-on → (t0-sync) → steps → quiesce[OFF] → tail flush → save-off →
+    finalize disarm[STANDBY] → closeout.
     """
     journal: list = []
     _run_composed(
@@ -208,14 +214,15 @@ def test_free_run_save_window_opens_after_quiesce_and_closes_before_disarm(
         ("trigger", "Ext"),  # disarm (STANDBY)
         ("trigger", "Ext"),  # arm (SCAN)
         ("trigger", "Ext"),  # disarm (STANDBY)
-        ("save", "off"),  # save-off first (innermost finalize) ...
-        ("trigger", "Ext"),  # ... then the finalize disarm (STANDBY)
+        ("trigger", "Single"),  # end-of-scan quiesce (OFF): tail closed ...
+        ("save", "off"),  # ... then save-off (tail flush ran while OFF)
+        ("trigger", "Ext"),  # finalize disarm (STANDBY) — legacy end state
         "closeout",  # closeout actions last
     ]
 
 
 def test_free_run_save_off_still_runs_on_mid_scan_abort(tmp_path) -> None:
-    """Abort path: save-off fires before the finalize disarm, then closeout."""
+    """Abort path mirrors completion: quiesce → save-off → disarm → closeout."""
     journal: list = []
     with pytest.raises(RuntimeError, match="per_step failed on call 2"):
         _run_composed(
@@ -224,4 +231,9 @@ def test_free_run_save_off_still_runs_on_mid_scan_abort(tmp_path) -> None:
             closeout=_marker(journal, "closeout"),
             save_dir=tmp_path / "images",
         )
-    assert journal[-3:] == [("save", "off"), ("trigger", "Ext"), "closeout"]
+    assert journal[-4:] == [
+        ("trigger", "Single"),  # abort-parity quiesce (OFF) ...
+        ("save", "off"),  # ... then save-off, uniform with completion
+        ("trigger", "Ext"),  # finalize disarm (STANDBY)
+        "closeout",
+    ]
