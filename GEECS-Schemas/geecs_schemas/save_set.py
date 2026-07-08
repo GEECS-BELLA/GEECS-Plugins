@@ -24,9 +24,12 @@ engine can derive.  In this schema they are gone, with these derivation rules
   *override* for the exceptional case (e.g. pinning a specific camera as the
   free-run reference, or forcing a slow device to ``snapshot``).
 - ``save_nonscalar_data`` became the plain ``images`` flag.
-- The legacy per-device ``scan_setup`` pre/post value pairs are expressed as
-  setup/closeout :class:`~geecs_schemas.action_plan.ActionPlan` steps (the
-  converter extracts them); a save set holds only *what to record*.
+- Legacy element-level ``setup_action`` / ``closeout_action`` blocks and
+  per-device ``scan_setup`` pre/post pairs are extracted into **named**
+  :class:`~geecs_schemas.action_plan.ActionPlan` objects; entries carry
+  only name *references* to them (``setup`` / ``closeout`` fields), so
+  selecting a device still brings its ritual along without inlining plans
+  into the save set.
 """
 
 from __future__ import annotations
@@ -74,6 +77,11 @@ class SaveSetEntry(SchemaModel):
     ``acq_timestamp`` is recorded automatically for every entry — do not list
     it in ``scalars``.  ``role`` is normally left unset (derived from the
     acquisition mode; see the module docstring for the rules).
+
+    ``setup`` / ``closeout`` hold action-plan *names* (references into the
+    experiment's action library), never inline plans — the ritual travels
+    with the device when entries are composed into bigger save sets, while
+    the plan itself stays a single named, editable object.
     """
 
     device: str = Field(
@@ -112,6 +120,25 @@ class SaveSetEntry(SchemaModel):
             "Override for how this device is synchronized with shots. Leave "
             "unset to let the scanner decide; set 'snapshot' for slow "
             "readbacks that don't produce one value per shot."
+        ),
+    )
+    setup: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of action plans that must run before any scan that "
+            "records this device — its setup ritual (turn analysis on, "
+            "insert a stage, ...). The plans named by all entries of a save "
+            "set are collected together, de-duplicated by name, and each "
+            "runs once before the scan."
+        ),
+    )
+    closeout: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Names of action plans that run after any scan that records "
+            "this device — its cleanup ritual. Collected and de-duplicated "
+            "the same way as 'setup', and run once after the scan (even on "
+            "abort)."
         ),
     )
 

@@ -123,9 +123,16 @@ class TestFullCorpus:
             off = convert_shot_control(directory / f"{off_name}.yaml")
             merged = merge_trigger_variant(base, off, "laser_off")
             for state in ("OFF", "STANDBY", "SCAN", "SINGLESHOT", "ARMED"):
-                assert merged.writes_for(state, variant="laser_off") == (
-                    off.writes_for(state)
-                ), (experiment, state)
+                # set comparison: write order within a transition may differ
+                # when the variant appends writes the base lacked
+                resolved = {
+                    (w.device, w.variable, w.value)
+                    for w in merged.writes_for(state, variant="laser_off")
+                }
+                expected = {
+                    (w.device, w.variable, w.value) for w in off.writes_for(state)
+                }
+                assert resolved == expected, (experiment, state)
 
     def test_every_action_library_converts(self):
         libraries = {}

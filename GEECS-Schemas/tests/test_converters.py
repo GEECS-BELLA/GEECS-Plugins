@@ -45,6 +45,9 @@ class TestSaveElements:
         assert entry.device == "UC_ALineEbeam1"
         assert entry.images and entry.scalars == [] and entry.role is None
         assert set(result.actions) == {"UC_Aline1_setup"}
+        # the element's ritual travels with the entry as a name reference
+        assert entry.setup == ["UC_Aline1_setup"]
+        assert entry.closeout == []
         assert_matches_golden(
             {
                 "save_set": result.save_set.model_dump(mode="json"),
@@ -78,6 +81,11 @@ class TestSaveElements:
             getattr(s, "variable", None) == "Analysis" and s.value == "off"
             for s in closeout.steps
         )
+        # every entry of the element references the extracted plans, so the
+        # ritual survives composition into bigger save sets
+        for entry in result.save_set.entries:
+            assert entry.setup == ["visa1_spectrometer_setup_setup"]
+            assert entry.closeout == ["visa1_spectrometer_setup_closeout"]
         assert_matches_golden(
             {
                 "save_set": result.save_set.model_dump(mode="json"),
@@ -167,13 +175,21 @@ class TestScanVariables:
             )
 
 
+def as_tuples(writes):
+    return [(w.device, w.variable, w.value) for w in writes]
+
+
 class TestTriggerProfiles:
     def test_htu_normal_converts(self):
         profile = convert_shot_control(FIXTURES / "shot_control/HTU-Normal.yaml")
-        assert profile.device == "U_DG645_ShotControl"
+        # the legacy file's single device was emitted into every write
+        assert profile.devices == ["U_DG645_ShotControl"]
         # empty-string legacy no-ops were omitted, not stored
-        assert profile.writes_for("SINGLESHOT") == {"Trigger.ExecuteSingleShot": "on"}
-        assert profile.writes_for("SCAN")["Amplitude.Ch AB"] == "4.0"
+        assert as_tuples(profile.writes_for("SINGLESHOT")) == [
+            ("U_DG645_ShotControl", "Trigger.ExecuteSingleShot", "on")
+        ]
+        scan = {(w.device, w.variable): w.value for w in profile.writes_for("SCAN")}
+        assert scan[("U_DG645_ShotControl", "Amplitude.Ch AB")] == "4.0"
 
     def test_empty_and_deviceless_convert_to_none(self):
         assert convert_shot_control(FIXTURES / "shot_control/Bella Normal.yaml") is None
@@ -186,12 +202,16 @@ class TestTriggerProfiles:
         assert set(profile.variants) == {"laser_off"}
         # the variant carries only the differing writes
         overlay = profile.variants["laser_off"].states
-        assert overlay[TriggerState.SCAN] == {"Trigger.Source": "Internal"}
-        # resolving through the variant reproduces the parallel file exactly
+        assert as_tuples(overlay[TriggerState.SCAN]) == [
+            ("U_DG645_ShotControl", "Trigger.Source", "Internal")
+        ]
+        # resolving through the variant reproduces the parallel file's writes
+        # (as a set — order within a transition may legitimately differ when
+        # the variant appends writes the base lacked)
         for state in TriggerState:
-            assert profile.writes_for(state, variant="laser_off") == (
-                off.writes_for(state)
-            )
+            assert set(
+                as_tuples(profile.writes_for(state, variant="laser_off"))
+            ) == set(as_tuples(off.writes_for(state)))
         assert_matches_golden(
             profile.model_dump(mode="json"), "htu_trigger_profile.json"
         )

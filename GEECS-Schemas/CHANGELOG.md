@@ -20,10 +20,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     grid execution lands later.
   - `SaveSet` — declarative what-to-record entries; `synchronous` / roles /
     `acq_timestamp` are derived, with the derivation rules documented.
+    Entries carry optional `setup` / `closeout` action-plan name references
+    so a device's ritual travels with it when entries are composed into
+    bigger save sets (references de-duplicate; each plan runs once).
   - `ScanVariables` — friendly-name catalog; `setpoint` / `motor` kinds plus
     `pseudo` composite variables with verbatim numexpr forward expressions.
-  - `TriggerProfile` — device-agnostic per-state write tables with explicit
-    named **variants** replacing parallel laser-on/off files.
+  - `TriggerProfile` — device-agnostic *machine* states, each an **ordered,
+    possibly multi-device** write list (`TriggerWrite`; order matters
+    within a transition), with explicit named **variants** replacing
+    parallel laser-on/off files. The legacy single-device shape was an
+    accident of the DG645 carrying everything; the converter emits the
+    legacy file's device into every write.
+  - `ExperimentDefaults` — per-experiment fallbacks (trigger profile,
+    setup/closeout plans) applied where a scan request is silent; defaults
+    run first, then the scan's own. No legacy dialect behind it; resolvers
+    must record applied defaults into the resolved request for provenance.
   - `ActionPlan` / `ActionPlanLibrary` — set / wait / check / run steps with
     legacy ActionManager semantics; nested plan references validated.
 - `SCHEMA_REGISTRY` mapping config kind → model for generic tooling.

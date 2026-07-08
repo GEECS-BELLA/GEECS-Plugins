@@ -30,8 +30,10 @@ several devices together from one number (a jet position that also tracks a
 probe stage, for example).
 
 **Trigger profile — "how are shots fired?"**
-Which device controls the machine trigger, and exactly what to write to put
-it in each state: OFF, STANDBY, SCAN, SINGLESHOT, ARMED. Alternative
+The machine's trigger states — OFF, STANDBY, SCAN, SINGLESHOT, ARMED — and,
+for each one, the exact device writes that put the machine there, in the
+order they are sent. A transition can touch several devices (the delay
+generator, a gas-jet controller, a shutter), not just one. Alternative
 conditions that used to be copy-pasted files — laser on vs laser off — are
 now *variants* inside one profile, so the difference is explicit and
 reviewable.

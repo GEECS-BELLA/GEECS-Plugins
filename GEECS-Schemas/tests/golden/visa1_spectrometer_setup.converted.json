@@ -78,28 +78,46 @@
     "entries": [
       {
         "all_scalars": false,
+        "closeout": [
+          "visa1_spectrometer_setup_closeout"
+        ],
         "device": "UC_UndulatorRad2",
         "images": true,
         "role": null,
         "scalars": [
           "MeanCounts"
+        ],
+        "setup": [
+          "visa1_spectrometer_setup_setup"
         ]
       },
       {
         "all_scalars": false,
+        "closeout": [
+          "visa1_spectrometer_setup_closeout"
+        ],
         "device": "UC_VisaEBeam1",
         "images": true,
         "role": null,
-        "scalars": []
+        "scalars": [],
+        "setup": [
+          "visa1_spectrometer_setup_setup"
+        ]
       },
       {
         "all_scalars": false,
+        "closeout": [
+          "visa1_spectrometer_setup_closeout"
+        ],
         "device": "U_BCaveICT",
         "images": true,
         "role": null,
         "scalars": [
           "Python Results.ChA",
           "Python Results.ChB"
+        ],
+        "setup": [
+          "visa1_spectrometer_setup_setup"
         ]
       }
     ],

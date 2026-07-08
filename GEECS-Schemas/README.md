@@ -40,9 +40,10 @@ it yet — it lands first, consumers migrate to it converter-first.
 | `scan_request` | `ScanRequest` | scan presets, `ScanConfig`, GUI submission state |
 | `save_set` | `SaveSet` | save elements (`save_devices/*.yaml`) |
 | `scan_variables` | `ScanVariables` | `scan_devices.yaml` + `composite_variables.yaml` |
-| `trigger_profile` | `TriggerProfile` | shot-control configs (incl. laser-on/off file pairs → variants) |
+| `trigger_profile` | `TriggerProfile` | shot-control configs (incl. laser-on/off file pairs → variants); states are machine states holding *ordered, multi-device* write lists |
 | `action_plan` | `ActionPlan` | one entry of the action library |
 | `action_plan_library` | `ActionPlanLibrary` | `action_library/actions.yaml` |
+| `experiment_defaults` | `ExperimentDefaults` | (new — legacy kept these choices in GUI state) per-experiment fallbacks where a scan request is silent; defaults run first, then the scan's own |
 
 `SCHEMA_REGISTRY` in `geecs_schemas/__init__.py` maps the kind strings to the
 models for generic tooling.
@@ -52,8 +53,11 @@ multi-axis request is an outer-product grid, first axis outermost/slowest;
 schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
 (setup / **per_step** / closeout slots), `OptimizationSpec` (+
 `EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
-`SaveSetEntry` / `SaveRole`, `ScanVariable` / `PseudoScanVariable`,
-`TriggerVariant` / `TriggerState`, and the four action step types.
+`SaveSetEntry` / `SaveRole` (entries carry optional `setup` / `closeout`
+action-plan name references — the device's ritual travels with it through
+composition), `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
+`TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
+step types.
 
 ## Converter usage
 

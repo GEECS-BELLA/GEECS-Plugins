@@ -49,3 +49,36 @@ class TestSaveSet:
     def test_bad_role_rejected(self):
         with pytest.raises(ValidationError, match="role"):
             make_save_set(entries=[{"device": "X", "role": "pacemaker"}])
+
+    def test_entry_action_references(self):
+        # setup/closeout are ActionPlan NAME references travelling with the
+        # device, not inline plans.
+        save_set = make_save_set(
+            entries=[
+                {
+                    "device": "UC_UndulatorRad2",
+                    "images": True,
+                    "setup": ["visa1_setup", "spectrometer_warmup"],
+                    "closeout": ["visa1_closeout"],
+                }
+            ]
+        )
+        [entry] = save_set.entries
+        assert entry.setup == ["visa1_setup", "spectrometer_warmup"]
+        assert entry.closeout == ["visa1_closeout"]
+
+    def test_entry_action_references_default_empty(self):
+        save_set = make_save_set()
+        assert all(e.setup == [] and e.closeout == [] for e in save_set.entries)
+
+    def test_inline_plan_in_setup_rejected(self):
+        # References are names; an inline plan dict must fail loudly.
+        with pytest.raises(ValidationError, match="setup"):
+            make_save_set(
+                entries=[
+                    {
+                        "device": "X",
+                        "setup": [{"steps": [{"do": "wait", "seconds": 1}]}],
+                    }
+                ]
+            )

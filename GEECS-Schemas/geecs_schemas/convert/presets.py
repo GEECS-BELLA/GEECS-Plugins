@@ -138,6 +138,10 @@ def compose_save_sets(name: str, parts: list[SaveSet]) -> SaveSet:
                 all_scalars=existing.all_scalars or entry.all_scalars,
                 images=existing.images or entry.images,
                 role=existing.role or entry.role,
+                setup=existing.setup
+                + [p for p in entry.setup if p not in existing.setup],
+                closeout=existing.closeout
+                + [p for p in entry.closeout if p not in existing.closeout],
             )
     return SaveSet(name=name, entries=list(merged.values()))
 

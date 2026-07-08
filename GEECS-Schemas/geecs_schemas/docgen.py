@@ -60,6 +60,13 @@ entries:
   - device: U_BCaveHallProbe
     scalars: [Field, Rawfield]
     role: snapshot
+  - device: UC_UndulatorRad2
+    images: true
+    scalars: [MeanCounts]
+    # this device's ritual travels with it: these named plans run once
+    # before/after any scan whose save set includes this entry
+    setup: [visa1_spectrometer_setup]
+    closeout: [visa1_spectrometer_closeout]
 """,
     "scan_variables": """\
 schema_version: 1
@@ -81,19 +88,41 @@ variables:
     "trigger_profile": """\
 schema_version: 1
 name: htu_shot_control
-device: U_DG645_ShotControl
+# each state lists its writes IN ORDER (top to bottom); a transition may
+# touch several devices
 states:
-  OFF: {Amplitude.Ch AB: "0.5", Trigger.Source: Single shot external rising edges}
-  STANDBY: {Amplitude.Ch AB: "0.5", Trigger.Source: External rising edges}
-  SCAN: {Amplitude.Ch AB: "4.0", Trigger.Source: External rising edges}
-  ARMED: {Amplitude.Ch AB: "4.0", Trigger.Source: Single shot external rising edges}
-  SINGLESHOT: {Trigger.ExecuteSingleShot: "on"}
+  OFF:
+    - {device: U_DG645_ShotControl, variable: Amplitude.Ch AB, value: "0.5"}
+    - {device: U_DG645_ShotControl, variable: Trigger.Source,
+       value: Single shot external rising edges}
+  STANDBY:
+    - {device: U_DG645_ShotControl, variable: Amplitude.Ch AB, value: "0.5"}
+    - {device: U_DG645_ShotControl, variable: Trigger.Source,
+       value: External rising edges}
+  SCAN:
+    - {device: U_DG645_ShotControl, variable: Amplitude.Ch AB, value: "4.0"}
+    - {device: U_DG645_ShotControl, variable: Trigger.Source,
+       value: External rising edges}
+    - {device: U_GasJetPLC, variable: DO.Jet, value: "on"}
+  ARMED:
+    - {device: U_DG645_ShotControl, variable: Amplitude.Ch AB, value: "4.0"}
+    - {device: U_DG645_ShotControl, variable: Trigger.Source,
+       value: Single shot external rising edges}
+  SINGLESHOT:
+    - {device: U_DG645_ShotControl, variable: Trigger.ExecuteSingleShot,
+       value: "on"}
 variants:
   laser_off:
     states:
-      OFF: {Trigger.Source: Single shot}
-      SCAN: {Trigger.Source: Internal}
-      ARMED: {Trigger.Source: Single shot}
+      OFF:
+        - {device: U_DG645_ShotControl, variable: Trigger.Source,
+           value: Single shot}
+      SCAN:
+        - {device: U_DG645_ShotControl, variable: Trigger.Source,
+           value: Internal}
+      ARMED:
+        - {device: U_DG645_ShotControl, variable: Trigger.Source,
+           value: Single shot}
 """,
     "action_plan": """\
 schema_version: 1
@@ -125,6 +154,16 @@ plans:
     steps:
       - do: run
         plan: zero_pressure_voltage
+""",
+    "experiment_defaults": """\
+schema_version: 1
+# applied only where a scan request is silent: defaults run first,
+# then the scan's own
+trigger_profile: htu_shot_control
+actions:
+  setup: [pre_scan_checklist]
+  closeout: [experiment_closeout]
+description: "HTU standing defaults"
 """,
 }
 

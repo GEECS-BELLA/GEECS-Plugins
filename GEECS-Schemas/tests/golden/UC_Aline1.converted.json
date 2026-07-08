@@ -31,10 +31,14 @@
     "entries": [
       {
         "all_scalars": false,
+        "closeout": [],
         "device": "UC_ALineEbeam1",
         "images": true,
         "role": null,
-        "scalars": []
+        "scalars": [],
+        "setup": [
+          "UC_Aline1_setup"
+        ]
       }
     ],
     "name": "UC_Aline1",
