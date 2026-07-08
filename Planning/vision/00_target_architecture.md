@@ -362,6 +362,29 @@ Already pointed the right way; the vision just finishes the thought:
   run catalog instead of watching s-files. s-files and legacy scalar exports
   remain **exports**, produced for compatibility, never load-bearing.
 
+### 4.7 Device-intelligence patterns (future, named so they're ready)
+
+Two recurring cases with standard EPICS answers our stack is shaped for
+(neither is current-phase work):
+
+- **Derived channels (the calc-record equivalent).** Config-driven derived
+  readbacks evaluated in the gateway's fan-out: a YAML declaration (name,
+  input variables, expression, units) serves e.g. a Convectron gauge's
+  pressure computed from its raw voltage — one formula, versioned in the
+  configs repo, visible to every consumer (scan rows, Phoebus, archiver),
+  with alarm limits living on the physical quantity. A deliberate, small
+  dent in the gateway's 1:1-mirror purity, same category as `TRIG:STATE`;
+  40 years of calc-record precedent says this belongs in the IOC layer.
+- **Two-state positioners with limit feedback (shutters).** Solenoid
+  command + inserted/removed switches = the discrete cousin of `CaMotor`:
+  a small `CaShutter` whose `set()` completes when the corresponding limit
+  switch confirms (timeout names the missing switch; both-true or
+  neither = loud fault). Optionally a gateway-derived state enum
+  (Inserted/Removed/Moving/Fault) for displays and the archiver. Payoff
+  already visible in the corpus: legacy shutter actions use blind
+  `wait: 3.0` steps — limit-confirmed completion makes them event-driven
+  and turns a jammed shutter from silently-absorbed into an honest error.
+
 ## 5. Front-ends in the target picture
 
 - **Scanner GUI thins to three jobs**: schema-driven editors (SaveSets,
