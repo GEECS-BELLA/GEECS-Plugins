@@ -265,9 +265,13 @@ resolver records everything applied, so provenance shows the full stack):
    rows close a real Bluesky-path gap today — cameras with analysis off
    push empty-string scalars (the `''` flood observed at gateway startup),
    which MC scans never showed because this table fixed it at scan start.
-   Open MC-semantics question: rows applied to all enabled devices or only
-   scan participants (default: participants only; confirm against MC when
-   convenient).
+   **Decided (maintainer, 2026-07-07): rows apply to scan participants
+   only** (SaveSet devices and axis-target devices), never the whole
+   experiment. Schema surfaces: SaveSet entry `at_scan_start`/`at_scan_end`
+   override maps (null suppresses), opt-in `db_scalars` (record the
+   device's DB get='yes' telemetry without hand-listing), and an
+   experiment-wide `apply_db_scan_defaults` switch (default true = MC
+   parity).
 2. **ExperimentDefaults** — experiment-wide YAML defaults (default trigger
    profile, standard setup/closeout actions), applied where a ScanRequest
    is silent, always recorded.
