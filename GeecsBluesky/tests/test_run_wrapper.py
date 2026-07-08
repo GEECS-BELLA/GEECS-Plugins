@@ -146,3 +146,62 @@ def test_wrapper_injects_merged_scalar_headers() -> None:
 def test_wrapper_omits_scalar_headers_when_no_devices() -> None:
     start = _run_capture_start(geecs_run_wrapper(_tiny_run(), scan_number=3))
     assert "geecs_scalar_headers" not in start
+
+
+def test_wrapper_defer_save_on_leaves_enable_to_the_plan(tmp_path) -> None:
+    """defer_save_on=True: no eager save-on; finalize save-off + md kept."""
+    from geecs_bluesky.plans.run_wrapper import save_enable_plan
+
+    det = _FakeSavingDetector("topcam")
+    save_dir = tmp_path / "Scan007" / "UC_TopCam"
+
+    def _inner_with_windowed_save():
+        # The step plans yield save_enable_plan at the trigger-stopped point.
+        yield from save_enable_plan([(det, str(save_dir))])
+        yield from _tiny_run()
+
+    start = _run_capture_start(
+        geecs_run_wrapper(
+            _inner_with_windowed_save(),
+            scan_number=7,
+            saving_detectors=[(det, str(save_dir))],
+            defer_save_on=True,
+        )
+    )
+    # Exactly one on (from the inner plan) and one off (finalize) — the
+    # wrapper itself added no eager enable.
+    assert det.save.sets == ["on", "off"]
+    assert det.localsavingpath.sets == [str(save_dir)]
+    assert save_dir.is_dir()
+    # The save-path metadata is unaffected by the deferral.
+    assert start["nonscalar_save_paths"] == {"TOPCAM": str(save_dir)}
+
+
+def test_wrapper_defer_without_inner_enable_still_cleans_up(tmp_path) -> None:
+    """Even if the inner plan never enabled saving, finalize still turns it off."""
+    det = _FakeSavingDetector("topcam")
+    save_dir = tmp_path / "Scan007" / "UC_TopCam"
+    _run_capture_start(
+        geecs_run_wrapper(
+            _tiny_run(),
+            scan_number=7,
+            saving_detectors=[(det, str(save_dir))],
+            defer_save_on=True,
+        )
+    )
+    assert det.save.sets == ["off"]  # idempotent, harmless
+    assert det.localsavingpath.sets == []
+
+
+def test_save_enable_plan_alone(tmp_path) -> None:
+    """The extracted stub creates the dir and writes path + save='on'."""
+    from bluesky import RunEngine
+
+    from geecs_bluesky.plans.run_wrapper import save_enable_plan
+
+    det = _FakeSavingDetector("topcam")
+    save_dir = tmp_path / "Scan008" / "UC_TopCam"
+    RunEngine()(save_enable_plan([(det, str(save_dir))]))
+    assert det.localsavingpath.sets == [str(save_dir)]
+    assert det.save.sets == ["on"]
+    assert save_dir.is_dir()

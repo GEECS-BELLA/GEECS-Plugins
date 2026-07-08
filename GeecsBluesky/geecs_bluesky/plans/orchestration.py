@@ -25,6 +25,16 @@ Action placement (the §4.4b/§4.5 seams, decided here):
   mid-scan abort (legacy ActionControl parity), and because it wraps the
   disarm finalize it always executes *after* the trigger has returned to
   STANDBY (data-taking output off, trigger free-running).
+
+Native-save windowing (Gate-2 hardware finding, 2026-07-07): saving is
+enabled only while the trigger cannot free-run.  The run wrapper defers its
+save-on (``defer_save_on=True``); the step plans yield
+:func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan` at the first
+orphan-free moment — strict: after ARMED + quiescence confirmation;
+free-run: immediately after quiesce[OFF], before t0-sync.  Setup actions run
+before that point by construction, so their duration can no longer produce
+saved orphan frames (Scan015 saved 6 images for 3 shots).  Save-off remains
+the innermost finalize, before the disarm.
 """
 
 from __future__ import annotations
@@ -36,7 +46,7 @@ import bluesky.preprocessors as bpp
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.plans.run_wrapper import geecs_run_wrapper
+from geecs_bluesky.plans.run_wrapper import geecs_run_wrapper, save_enable_plan
 from geecs_bluesky.plans.step_scan import geecs_step_scan, normalize_motors
 from geecs_bluesky.shot_controller import ShotController
 
@@ -100,6 +110,10 @@ def build_step_scan_plan(
         closeout), ready for ``RE()``.
     """
     detectors = list(detectors)
+    saving = list(saving_detectors)
+    # Native-save windowing: saving turns on inside the step plans, at the
+    # first point where the trigger cannot free-run (module docstring).
+    enable_saving = (lambda: save_enable_plan(saving)) if saving else None
 
     if strict:
         if controller is None:
@@ -117,6 +131,7 @@ def build_step_scan_plan(
             setup_trigger=lambda: controller.arm_single_shot(detectors),
             fire_shot=controller.fire_shot,
             per_step=per_step,
+            enable_saving=enable_saving,
         )
     else:
         if reference is None:
@@ -135,6 +150,7 @@ def build_step_scan_plan(
             disarm_trigger=controller.disarm if controller else None,
             quiesce_trigger=controller.quiesce if controller else None,
             per_step=per_step,
+            enable_saving=enable_saving,
         )
 
     if setup is not None:
@@ -149,9 +165,10 @@ def build_step_scan_plan(
         experiment=experiment,
         scan_number=scan_number,
         scan_folder=scan_folder,
-        saving_detectors=list(saving_detectors),
+        saving_detectors=saving,
         devices=scalar_devices,
         extra_md=extra_md or {},
+        defer_save_on=True,
     )
     # Finalize nesting (innermost → outermost): save-off (inside the run
     # wrapper) → disarm (→ STANDBY) → closeout actions.  Every layer runs

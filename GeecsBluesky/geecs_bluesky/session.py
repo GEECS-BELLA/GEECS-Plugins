@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
@@ -51,6 +52,7 @@ from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
 from geecs_bluesky.plans.step_scan import normalize_motors
+from geecs_bluesky.scan_log import scan_log
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -446,9 +448,11 @@ class GeecsSession:
                 "(pre-claimed) or neither to claim a new scan"
             )
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -491,10 +495,15 @@ class GeecsSession:
         )
 
         self._last_run_uid = None
-        self.RE(plan)
+        # Headless scans get the same per-scan scan.log as bridge scans
+        # (Gate-2 finding).  Attach only when this call claimed the number:
+        # a pre-claimed number means the caller (e.g. the GUI bridge) owns
+        # the scan.log handler, and a second one would duplicate every line.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            self.RE(plan)
 
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
         return self._last_run_uid
 
     def optimize(
@@ -574,9 +583,11 @@ class GeecsSession:
             name: self._read_movable(movable) for name, movable in variables.items()
         }
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -688,47 +699,53 @@ class GeecsSession:
 
             run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
 
-        token = self.RE.subscribe(_collect)
-        self._last_run_uid = None
-        try:
-            self.RE(run_plan)
-        except BaseException:
-            if on_finish in ("initial", "best"):
-                self._move_movables(variables, initial_values)
-            raise
-        finally:
-            self.RE.unsubscribe(token)
-        _observe_previous(len(history) + 1)  # final bin
-
-        if on_finish in ("initial", "best"):
-            target = initial_values
-            if on_finish == "best":
-                finite = [h for h in history if np.isfinite(h["objective"])]
-                if finite:
-                    target = max(finite, key=lambda h: h["objective"])["inputs"]
-                else:
-                    logger.warning(
-                        "on_finish='best' but no finite objectives; restoring initial"
-                    )
-            self._move_movables(variables, target)
-            logger.info("optimize on_finish=%s -> %s", on_finish, target)
-
-        if save_data and scan_folder is not None and history:
-            import json
-
+        # Headless optimizations get the same per-scan scan.log as bridge
+        # runs (see scan()): attach only when this call claimed the number.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            token = self.RE.subscribe(_collect)
+            self._last_run_uid = None
             try:
-                path = Path(scan_folder) / "optimization.json"
-                # Failed objectives are NaN in-process; serialize them as
-                # null (allow_nan=False makes any regression fail loudly
-                # instead of writing invalid JSON).
-                path.write_text(
-                    json.dumps(_json_safe(history), indent=2, allow_nan=False)
-                )
-                logger.info("Optimization history written to %s", path)
-            except Exception:
-                logger.warning("Could not write optimization history", exc_info=True)
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
+                self.RE(run_plan)
+            except BaseException:
+                if on_finish in ("initial", "best"):
+                    self._move_movables(variables, initial_values)
+                raise
+            finally:
+                self.RE.unsubscribe(token)
+            _observe_previous(len(history) + 1)  # final bin
+
+            if on_finish in ("initial", "best"):
+                target = initial_values
+                if on_finish == "best":
+                    finite = [h for h in history if np.isfinite(h["objective"])]
+                    if finite:
+                        target = max(finite, key=lambda h: h["objective"])["inputs"]
+                    else:
+                        logger.warning(
+                            "on_finish='best' but no finite objectives; restoring initial"
+                        )
+                self._move_movables(variables, target)
+                logger.info("optimize on_finish=%s -> %s", on_finish, target)
+
+            if save_data and scan_folder is not None and history:
+                import json
+
+                try:
+                    path = Path(scan_folder) / "optimization.json"
+                    # Failed objectives are NaN in-process; serialize them as
+                    # null (allow_nan=False makes any regression fail loudly
+                    # instead of writing invalid JSON).
+                    path.write_text(
+                        json.dumps(_json_safe(history), indent=2, allow_nan=False)
+                    )
+                    logger.info("Optimization history written to %s", path)
+                except Exception:
+                    logger.warning(
+                        "Could not write optimization history", exc_info=True
+                    )
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
+            return self._last_run_uid, history
         return self._last_run_uid, history
 
     def run(

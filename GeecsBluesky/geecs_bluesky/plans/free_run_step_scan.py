@@ -57,6 +57,7 @@ def geecs_free_run_step_scan(
     disarm_trigger: Callable | None = None,
     quiesce_trigger: Callable | None = None,
     per_step: Callable | None = None,
+    enable_saving: Callable | None = None,
     t0_sync_window_s: float = 0.2,
     tail_flush: bool = True,
     md: dict[str, Any] | None = None,
@@ -108,6 +109,17 @@ def geecs_free_run_step_scan(
         arm/disarm bracketing means per-step actions always run with the
         shot controller *disarmed* (data-taking output off), never inside
         the acquisition window.
+    enable_saving:
+        Optional plan-stub callable that turns native file saving on
+        (typically :func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan`).
+        Run once, immediately **after** the quiesce (OFF — the trigger is
+        stopped) and before the t0-sync stage: no shots can occur from here
+        until the first per-step arm[SCAN], so no orphan frames from the
+        still-free-running trigger get saved during setup actions or the
+        pre-quiesce window (Gate-2 hardware finding).  Without a quiesce
+        hook (no shot control) it runs at the same point, unwindowed —
+        there is no trigger to stop.  Save-*off* stays the run wrapper's
+        innermost finalize, before the caller's disarm.
     t0_sync_window_s:
         Acceptance window for the t0-sync stage.
     tail_flush:
@@ -185,6 +197,11 @@ def geecs_free_run_step_scan(
     _quiesce = quiesce_trigger or disarm_trigger
     if _quiesce is not None:
         yield from _quiesce()
+    if enable_saving is not None:
+        # The trigger is now stopped (OFF) and stays stopped through t0 sync
+        # until the first per-step arm[SCAN] — the earliest orphan-free
+        # moment to start native saving (Gate-2 hardware finding).
+        yield from enable_saving()
     t0s = yield from geecs_t0_sync(sync_devices, window_s=t0_sync_window_s)
     _md["device_t0s"] = t0s
 

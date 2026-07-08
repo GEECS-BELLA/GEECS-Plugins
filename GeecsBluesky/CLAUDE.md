@@ -36,7 +36,8 @@ bin), so it honours the same mode dispatch.
 ```
 geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
-                            #   + session.run(ScanRequest) — the schema front door
+                            #   + session.run(ScanRequest) — the schema front door;
+                            #   writes scan.log when it claimed the scan number
   events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
                             #   ScanState, DialogRequest — moved down from
                             #   geecs_scanner (vision §2); geecs_scanner's
@@ -95,6 +96,9 @@ geecs_bluesky/
                             #   (handlers, readback, registry)
   epics_env.py              # Applies [epics] ca_addr_list from the shared config
                             #   before aioca import (called by geecs_bluesky/__init__)
+  scan_log.py               # shared per-scan scan.log handler (scan_log() ctx
+                            #   manager) — bridge delegates; GeecsSession
+                            #   attaches it when it claimed the scan number
   shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
   optimize.py               # suggester protocol, RandomSuggester, XoptSuggester, BinData
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
@@ -200,14 +204,21 @@ Both `BlueskyScanner` and `GeecsSession` use it:
 - `arm_single_shot(detectors)` → `ARMED` then `geecs_confirm_quiescent`, and
   `fire_shot()` → `SINGLESHOT` (strict plan-owned single-shot)
 
-How they compose per mode:
+How they compose per mode (native saving is **windowed** to the
+trigger-stopped part of the scan — Gate-2 hardware finding: an eager save-on
+let free-running frames be saved as orphan images joining no event row):
 ```
-free-run:  quiesce[OFF] → t0_sync → per step: mv → arm[SCAN] → N×(ref-paced read) → disarm[STANDBY] → tail flush
-strict:    setup once: arm[ARMED] → confirm quiescent → per shot: trigger→fire[SINGLESHOT]→await→read
+free-run:  quiesce[OFF] → save-on → t0_sync → per step: mv → arm[SCAN] → N×(ref-paced read) → disarm[STANDBY] → tail flush
+strict:    setup once: arm[ARMED] → confirm quiescent → save-on → per shot: trigger→fire[SINGLESHOT]→await→read
 ```
+(`geecs_run_wrapper(defer_save_on=True)` + the step plans' `enable_saving`
+hook yielding `save_enable_plan`; ScanRequest setup actions run before the
+save-on point by construction.)
 
 A `bpp.finalize_wrapper` around the plan guarantees the disarm (→ `STANDBY`)
-runs even on mid-scan abort.
+runs even on mid-scan abort; the finalize nesting is save-off → disarm →
+closeout, so saving always stops while the trigger is still unable to
+free-run.
 
 `ARMED` is **config-specific**: it sets data-taking output (jet amplitude /
 delay) + the single-shot trigger source — *external* single-shot when the laser

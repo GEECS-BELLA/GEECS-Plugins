@@ -44,7 +44,6 @@ import os
 import queue
 import threading
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
@@ -94,6 +93,7 @@ from geecs_bluesky.scan_request_runner import (
     save_set_to_devices_config,
     trigger_writes_from_profile,
 )
+from geecs_bluesky.scan_log import scan_log
 from geecs_bluesky.session import GeecsSession
 from geecs_bluesky.utils import safe_name
 from geecs_schemas import AcquisitionMode, ScanRequest, ScanRequestMode
@@ -153,18 +153,6 @@ def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
     if isinstance(cfg, dict):
         return cfg.get(key, default)
     return getattr(cfg, key, default)
-
-
-class _ScanLogContextFilter(logging.Filter):
-    """Add scan id context to records written to one scan log."""
-
-    def __init__(self, scan_id: str) -> None:
-        super().__init__()
-        self._scan_id = scan_id
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.scan_id = self._scan_id
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -980,56 +968,17 @@ class BlueskyScanner:
 
     @contextmanager
     def _scan_log(self, scan_number: int | None, scan_folder: str | None):
-        """Attach a per-scan log file for Bluesky scanner runs."""
-        if scan_number is None or scan_folder is None:
-            yield
-            return
+        """Attach a per-scan log file (the shared scan_log helper).
 
-        folder = Path(scan_folder)
-        if not folder.is_dir():
-            logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
+        The implementation lives in :mod:`geecs_bluesky.scan_log` so headless
+        :class:`~geecs_bluesky.session.GeecsSession` scans get the identical
+        ``scan.log``; the bridge keeps this thin method because its scans
+        pre-claim the number and wrap device building + the session call.
+        The GeecsSession side only self-attaches when *it* claimed the
+        number, so bridge scans never get a second (duplicating) handler.
+        """
+        with scan_log(scan_number, scan_folder):
             yield
-            return
-
-        scan_id = f"Scan{scan_number:03d}"
-        handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
-        handler.setLevel(logging.INFO)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
-                "[%(threadName)s] scan=%(scan_id)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-        handler.addFilter(_ScanLogContextFilter(scan_id))
-
-        # Capture the whole scan story, not just this package: during
-        # optimization scans the evaluator (geecs_scanner.optimization) and
-        # its analyzers (scan_analysis, image_analysis) do the per-bin work,
-        # and their file-mapping / objective lines belong in scan.log too.
-        capture_loggers = [
-            logging.getLogger(name)
-            for name in (
-                "geecs_bluesky",
-                "geecs_scanner.optimization",
-                "scan_analysis",
-                "image_analysis",
-            )
-        ]
-        old_levels = [lg.level for lg in capture_loggers]
-        for lg in capture_loggers:
-            if lg.level == logging.NOTSET or lg.level > logging.INFO:
-                lg.setLevel(logging.INFO)
-            lg.addHandler(handler)
-        try:
-            logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
-            yield
-            logger.info("scan %s: finished", scan_id)
-        finally:
-            for lg, old_level in zip(capture_loggers, old_levels):
-                lg.removeHandler(handler)
-                lg.setLevel(old_level)
-            handler.close()
 
     def _run_request_step_scan(
         self, scan_config: Any, request_step: dict[str, Any]

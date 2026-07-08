@@ -122,3 +122,58 @@ def test_grid_point_arity_mismatch_raises() -> None:
     )
     with pytest.raises(ValueError, match="positions must align"):
         _collect(plan)
+
+
+# ---------------------------------------------------------------------------
+# Native-save windowing (Gate-2): save-on only after the trigger is stopped
+# ---------------------------------------------------------------------------
+
+
+def test_strict_save_on_after_armed_before_first_shot() -> None:
+    """Strict: enable_saving runs after setup_trigger (ARMED + quiescence).
+
+    Gate-2 hardware evidence (Scan015): save-on before arming let free-run
+    STANDBY frames be saved as orphans during the setup-action window.
+    """
+
+    def setup_trigger():
+        yield Msg("armed_marker", None)
+
+    def enable_saving():
+        yield Msg("save_on_marker", None)
+
+    plan = geecs_step_scan(
+        motor=None,
+        positions=[None],
+        detectors=[_NamedFake("cam")],
+        shots_per_step=2,
+        setup_trigger=setup_trigger,
+        enable_saving=enable_saving,
+    )
+    commands = [m.command for m in _collect(plan)]
+    assert commands.index("open_run") < commands.index("armed_marker")
+    assert commands.index("armed_marker") < commands.index("save_on_marker")
+    # Saving is on before the first shot is taken.
+    assert commands.index("save_on_marker") < commands.index("create")
+    assert commands.count("save_on_marker") == 1  # once per run, not per step
+
+
+def test_strict_per_step_actions_run_with_saving_already_on() -> None:
+    """per_step comes after the one-time ARMED/save-on preamble."""
+
+    def enable_saving():
+        yield Msg("save_on_marker", None)
+
+    def per_step():
+        yield Msg("per_step_marker", None)
+
+    plan = geecs_step_scan(
+        motor=None,
+        positions=[None, None],
+        detectors=[_NamedFake("cam")],
+        shots_per_step=1,
+        enable_saving=enable_saving,
+        per_step=per_step,
+    )
+    commands = [m.command for m in _collect(plan)]
+    assert commands.index("save_on_marker") < commands.index("per_step_marker")

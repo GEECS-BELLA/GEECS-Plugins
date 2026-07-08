@@ -153,6 +153,7 @@ def geecs_step_scan(
     fire_shot: Callable | None = None,
     setup_trigger: Callable | None = None,
     per_step: Callable | None = None,
+    enable_saving: Callable | None = None,
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -212,6 +213,15 @@ def geecs_step_scan(
         land (vision doc §4.5: per-step actions are a hook plus a named
         plan, never a new plan type).  In strict mode every shot is
         plan-owned, so the machine is quiescent while per-step actions run.
+    enable_saving:
+        Optional plan-stub callable that turns native file saving on
+        (typically :func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan`).
+        Run once, **after** ``setup_trigger`` — i.e. after ARMED +
+        quiescence confirmation in strict mode, when the trigger can no
+        longer free-run — so no orphan frames from a still-running trigger
+        are saved during the pre-arm window (Gate-2 hardware finding).
+        Save-*off* stays the run wrapper's innermost finalize, before the
+        caller's disarm.
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -254,6 +264,11 @@ def geecs_step_scan(
     def _inner():
         if setup_trigger is not None:
             yield from setup_trigger()
+        if enable_saving is not None:
+            # Only after the trigger is stopped (ARMED + quiescence in
+            # strict) may native saving start — otherwise residual free-run
+            # frames get saved as orphans joining no event row.
+            yield from enable_saving()
         scan_event_index = 0
         previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):

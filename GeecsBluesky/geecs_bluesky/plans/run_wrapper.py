@@ -93,6 +93,43 @@ def _save_cleanup_plan(saving_detectors: list[tuple]):
     yield from bps.mv(*mv_args)
 
 
+def save_enable_plan(saving_detectors: list[tuple]):
+    """Plan stub: create save dirs, set ``localsavingpath`` + ``save='on'``.
+
+    The device puts (``:SP`` writes on connected devices) that start native
+    file saving.  Callers that window saving to the trigger-stopped part of
+    the scan (Gate-2 hardware finding: frames from the still-free-running
+    trigger between save-on and arming were saved as orphans joining no
+    event row) pass this as the step plans' ``enable_saving`` hook and give
+    :func:`geecs_run_wrapper` ``defer_save_on=True``; direct
+    ``geecs_run_wrapper`` users keep the eager default.
+
+    Parameters
+    ----------
+    saving_detectors:
+        ``(detector, event_path[, device_command_path])`` tuples, as in
+        :func:`geecs_run_wrapper`.
+
+    Yields
+    ------
+    Bluesky messages (one concurrent ``mv`` over all detectors).
+    """
+    saving = list(saving_detectors or [])
+    if not saving:
+        return
+    mv_args: list = []
+    for det, event_path, device_command_path in map(_saving_detector_paths, saving):
+        os.makedirs(event_path, exist_ok=True)
+        logger.info(
+            "Save path for %s: event=%s, device=%s",
+            det.name,
+            event_path,
+            device_command_path,
+        )
+        mv_args.extend([det.localsavingpath, device_command_path, det.save, "on"])
+    yield from bps.mv(*mv_args)
+
+
 def _collect_scalar_headers(devices: list) -> dict[str, str]:
     """Merge each device's ``_column_headers`` into one event-key → header map.
 
@@ -118,6 +155,7 @@ def geecs_run_wrapper(
     saving_detectors: list[tuple] | None = None,
     devices: list | None = None,
     extra_md: dict[str, Any] | None = None,
+    defer_save_on: bool = False,
 ):
     """Wrap *plan* with GEECS scan-number metadata and native file saving.
 
@@ -136,6 +174,14 @@ def geecs_run_wrapper(
         ``(detector, save_path)`` tuples for devices that write native files.
         Each gets ``localsavingpath`` + ``save="on"`` before the run and
         ``save="off"`` in a finalize wrapper (runs even on abort).
+    defer_save_on:
+        When true, the wrapper does **not** enable saving itself — the inner
+        plan is expected to yield :func:`save_enable_plan` at the point where
+        the trigger can no longer free-run (strict: after ARMED + quiescence;
+        free-run: after quiesce[OFF]), so no orphan frames are saved during
+        setup actions or the pre-arm window (Gate-2 hardware finding).  The
+        finalize ``save="off"`` and the ``nonscalar_save_paths`` metadata are
+        emitted either way.
     devices:
         All devices contributing scalar columns (detectors + scan motor).
         Their ``_column_headers`` are merged into a ``geecs_scalar_headers``
@@ -183,15 +229,9 @@ def geecs_run_wrapper(
         yield from wrapped
         return
 
-    mv_args: list = []
-    for det, event_path, device_command_path in map(_saving_detector_paths, saving):
-        os.makedirs(event_path, exist_ok=True)
-        logger.info(
-            "Save path for %s: event=%s, device=%s",
-            det.name,
-            event_path,
-            device_command_path,
-        )
-        mv_args.extend([det.localsavingpath, device_command_path, det.save, "on"])
-    yield from bps.mv(*mv_args)
+    if not defer_save_on:
+        yield from save_enable_plan(saving)
+    # Save-off stays the innermost finalize: it runs (even on abort) BEFORE
+    # the caller's disarm/closeout finalizes, so saving is always stopped
+    # while the trigger is still unable to free-run.
     yield from bpp.finalize_wrapper(wrapped, _save_cleanup_plan(saving))

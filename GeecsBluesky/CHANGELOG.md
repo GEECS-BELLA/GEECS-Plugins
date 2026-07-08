@@ -93,6 +93,38 @@ entry that PR #461/#464 intentionally shipped without.
   entry rituals are refused loudly (`GeecsSession.optimize` has no action
   hooks yet — new documented gap).
 
+### Fixed
+
+Both items were found during Gate-2 hardware verification of this release
+(2026-07-07: Scans 013–016 — the first ScanRequest-driven hardware runs).
+
+- **Native-save windowing** — saving is now enabled only while the trigger
+  cannot free-run. The run wrapper's eager save-on (before arming) let
+  free-running frames be saved as orphans that join no event row: Scan015
+  (strict) saved 6 images for 3 shots (three 1 Hz STANDBY frames during the
+  ~5 s setup-action window), Scan013 (free-run) saved 6 for 5 (one frame in
+  the window between save-on and quiesce[OFF]). `geecs_run_wrapper` grew
+  `defer_save_on` + a public `save_enable_plan` stub; the step plans grew an
+  `enable_saving` hook yielded at the first orphan-free moment — strict:
+  after ARMED + quiescence confirmation; free-run: immediately after
+  quiesce[OFF], before t0-sync. Setup actions run before that point by
+  construction (their duration was producing the orphans). Save-off is
+  unchanged: the innermost finalize, before the disarm — so on completion
+  *and* abort the order is save-off → disarm[STANDBY] → closeout. Direct
+  `geecs_run_wrapper` users (no `defer_save_on`) keep the eager behavior;
+  `GeecsSession.optimize`'s adaptive scan still enables saving eagerly
+  (known remaining window — the step-scan paths were the hardware-verified
+  offenders).
+- **`scan.log` for headless GeecsSession runs** — Scans 013–016 had no
+  per-scan log because the handler lived bridge-side only. The helper moved
+  to a shared `geecs_bluesky/scan_log.py` (`scan_log()` context manager +
+  `ScanLogContextFilter`, verbatim behavior; `BlueskyScanner._scan_log`
+  delegates to it), and `GeecsSession.scan`/`optimize` now attach it around
+  the run + exports whenever the session itself claimed the scan number.
+  Pre-claimed scans (the GUI bridge path, or any caller that opened its own
+  per-scan log) deliberately do not self-attach — the claiming caller owns
+  the handler, and a second one would duplicate every line.
+
 ### Removed
 
 - `shot_control_config_from_trigger_profile` and its multi-device
