@@ -418,8 +418,17 @@ the DB blipped):
 - **Background telemetry (Tier 2).**  Every live device with a `get='yes'`
   variable not in the save set → soft `CaTelemetryReadable` columns
   (`telemetry_<device>-…`): read-only, never waited on (a failed read is a
-  NaN cell, a dead-at-start device is dropped with a log line via
-  `session.telemetry` returning `None`).  Gated on
+  dtype-appropriate null cell — NaN for numeric, `""` for string — and a
+  dead-at-start device is dropped with a log line via `session.telemetry`
+  returning `None`).  Telemetry is **dtype-tolerant, per-variable**: signal
+  type is inferred from the PV (`epics_signal_r(datatype=None, …)`), so
+  numerics stay float (downstream analysis unaffected) while enum/string/path
+  variables (e.g. `U_VisaPlungers` `DigitalOutput.Channel N`) are logged as
+  their label string.  **No telemetry variable — and no telemetry device — is
+  dropped for a *type* reason** (one awkward non-numeric channel must never
+  take the device's other columns down; do NOT regress this back to a forced
+  `datatype=float`).  A device is dropped only when genuinely unreachable.
+  The rule: if we `get` it, we log it.  Gated on
   `ScanRequest.background_telemetry` else the experiment default; selection
   recorded (`background_telemetry`).  **Softness vs synchronicity are
   mutually exclusive — telemetry must never gate a shot; do not make it

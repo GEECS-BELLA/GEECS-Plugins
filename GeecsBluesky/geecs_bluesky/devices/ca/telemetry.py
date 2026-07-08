@@ -52,20 +52,33 @@ class CaTelemetryReadable(StandardReadable):
     read yields NaN for its value instead of aborting the plan.  This is the
     softness half of the two-tier model — telemetry can never gate a shot.
 
+    Signal datatype is **inferred per-variable** from the PV's native CA type
+    (``epics_signal_r(datatype=None, …)``): numeric PVs stay ``float`` so
+    downstream telemetry analysis keeps working, while enum/string PVs (e.g.
+    ``U_VisaPlungers`` ``DigitalOutput.Channel N``) are captured as their
+    string/label value instead of failing to connect.  This is what keeps the
+    tier's rule honest — *if we ``get`` it, we log it*: a non-numeric
+    ``get='yes'`` variable no longer drops the whole device on a type mismatch.
+    Type tolerance is per-variable, never whole-device.
+
     Parameters
     ----------
     device : str
         GEECS device name.
     variable_list : str or list of str
-        Variable name(s) to expose as read-only float signals.
+        Variable name(s) to expose as read-only signals (dtype inferred per PV).
     experiment : str, optional
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str, optional
         Ophyd-async device name; defaults to ``telemetry_<device>`` so the
         columns are self-identifying.  A caller-supplied name must keep the
         :data:`TELEMETRY_NAME_PREFIX` for the schema marking to hold.
-    datatype : type
-        Scalar CA datatype for the variables (default ``float``).
+    datatype : type, optional
+        Scalar CA datatype for the variables.  Defaults to ``None`` — let
+        ophyd-async infer each PV's native type (float for numeric, str for
+        enum/string).  A caller may pin an explicit type, but the default
+        inference is what makes telemetry dtype-tolerant; forcing ``float``
+        here reintroduces the connect-time drop for non-numeric variables.
     """
 
     def __init__(
@@ -75,7 +88,7 @@ class CaTelemetryReadable(StandardReadable):
         *,
         experiment: str | None = None,
         name: str | None = None,
-        datatype: type = float,
+        datatype: type | None = None,
     ) -> None:
         if isinstance(variable_list, str):
             variable_list = [variable_list]
@@ -94,18 +107,21 @@ class CaTelemetryReadable(StandardReadable):
         self._column_headers: dict[str, str] = {}
 
     async def read(self) -> dict[str, Any]:
-        """Read all telemetry signals, substituting NaN for any that fail.
+        """Read all telemetry signals, substituting a null cell for any that fail.
 
         Overrides :meth:`StandardReadable.read` so one unreadable signal (a
-        device that went dead mid-scan) degrades to a NaN cell rather than
+        device that went dead mid-scan) degrades to a null cell rather than
         raising into ``trigger_and_read`` and aborting the scan — the soft-tier
-        guarantee.  Reads are issued concurrently; the row's timestamp is best
-        effort.
+        guarantee.  The substituted value is dtype-appropriate: ``NaN`` for a
+        numeric signal, ``""`` for a string/enum signal (so a failed read never
+        forces a string column to hold a float).  Reads are issued
+        concurrently; the row's timestamp is best effort.
 
         Returns
         -------
         dict
-            The ophyd reading dict, with failed signals reported as NaN.
+            The ophyd reading dict, with failed signals reported as a
+            dtype-appropriate null (NaN for numeric, ``""`` for string).
         """
         import asyncio
         import time
@@ -118,15 +134,16 @@ class CaTelemetryReadable(StandardReadable):
         for sig, result in zip(signals, results):
             if isinstance(result, BaseException):
                 logger.debug(
-                    "telemetry read failed for %s (%s); recording NaN",
+                    "telemetry read failed for %s (%s); recording null cell",
                     getattr(sig, "name", sig),
                     self._geecs_device_name,
                     exc_info=result,
                 )
                 now = time.time()
+                fill = await _null_value_for(sig)
                 for key in _reading_keys(sig):
                     reading[key] = {
-                        "value": float("nan"),
+                        "value": fill,
                         "timestamp": now,
                         "alarm_severity": 3,  # INVALID
                     }
@@ -135,11 +152,29 @@ class CaTelemetryReadable(StandardReadable):
         return reading
 
 
+async def _null_value_for(signal: Any) -> Any:
+    """Dtype-appropriate null for a signal whose read failed.
+
+    A numeric signal degrades to ``NaN``; a string/enum signal degrades to
+    ``""`` so a failed read never forces a string telemetry column to carry a
+    float.  The dtype is taken from the signal's *cached* descriptor (set at
+    connect, no network I/O); if even that is unavailable we fall back to NaN.
+    """
+    try:
+        desc = await signal.describe()
+    except Exception:
+        return float("nan")
+    for entry in desc.values():
+        if entry.get("dtype") == "string":
+            return ""
+    return float("nan")
+
+
 def _reading_keys(signal: Any) -> list[str]:
     """Best-effort event-key list for *signal* (its ophyd name).
 
     A read signal reports one key equal to its name; falling back to the name
-    keeps a failed read's NaN cell aligned with the descriptor's stable shape.
+    keeps a failed read's null cell aligned with the descriptor's stable shape.
     """
     name = getattr(signal, "name", None)
     return [name] if name else []

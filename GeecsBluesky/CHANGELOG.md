@@ -51,13 +51,23 @@ possible future re-enable but are not applied.
 - **Background telemetry tier (Tier 2).**  Every live experiment device with a
   `get='yes'` variable not in the save set is recorded as best-effort snapshot
   columns via the new soft `CaTelemetryReadable`: read-only, sampled once per
-  event row, never waited on — a signal read that fails degrades to a NaN cell
-  instead of aborting, and a device unreachable at scan start is dropped with a
-  log line (`GeecsSession.telemetry` returns `None`).  Telemetry columns carry
-  the `telemetry_<device>-` name prefix so they are distinguishable from Tier-1
-  save-set data (see `EVENT_SCHEMA.md`); selection is recorded in run metadata
-  under `background_telemetry`.  Gated on `ScanRequest.background_telemetry`
-  (else `ExperimentDefaults.background_telemetry`, default true).
+  event row, never waited on — a signal read that fails degrades to a
+  dtype-appropriate null cell (NaN for a numeric column, `""` for a string
+  column) instead of aborting, and a device unreachable at scan start is dropped
+  with a log line (`GeecsSession.telemetry` returns `None`).  Telemetry is
+  **dtype-tolerant, per-variable**: each signal's type is inferred from its PV
+  (`epics_signal_r(datatype=None, …)`), so numeric variables stay numeric
+  (float) for downstream analysis while enum/string/path variables — e.g.
+  `U_VisaPlungers` `DigitalOutput.Channel N` — are logged as their string/label
+  value.  A single non-numeric `get='yes'` variable no longer fails to connect
+  and take the whole device (including its numeric columns) down with it: **no
+  telemetry variable or device is dropped for a type reason** — only a
+  genuinely unreachable device degrades to a dropped device.  If we `get` it,
+  we log it.  Telemetry columns carry the `telemetry_<device>-` name prefix so
+  they are distinguishable from Tier-1 save-set data (see `EVENT_SCHEMA.md`);
+  selection is recorded in run metadata under `background_telemetry`.  Gated on
+  `ScanRequest.background_telemetry` (else
+  `ExperimentDefaults.background_telemetry`, default true).
 - New `geecs_bluesky/db_runtime.py` — the pure resolution logic plus the
   DB-backed `GeecsDbScalarPolicy` provider (the one place touching `GeecsDb`),
   failure-tolerant: a DB lookup that fails degrades to empty policy with a

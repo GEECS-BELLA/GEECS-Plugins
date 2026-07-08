@@ -105,10 +105,21 @@ device with a `get='yes'` variable *not* in the save set is recorded as soft
 snapshot columns read from the gateway monitor cache. They are distinguished
 from Tier-1 save-set data by a **device-name prefix**: the ophyd device is
 `telemetry_<device>`, so every column it contributes is keyed
-`telemetry_<device>-<safe_var>`. Telemetry is read-only, sampled once per row,
-**never waited on** — a value that cannot be read (a device that went dead
-mid-scan) is a NaN cell, and a device unreachable at scan start is dropped with
-a log line, never a dialog or abort. Telemetry columns are **not** added to
+`telemetry_<device>-<safe_var>`. Telemetry is **dtype-tolerant**: each column's
+type is inferred from its PV — numeric variables stay numeric (float) so
+downstream telemetry analysis keeps working, while enum/string/path variables
+(e.g. `U_VisaPlungers` `DigitalOutput.Channel N`) are recorded as their
+string/label value. A telemetry column set may therefore mix float and string
+columns; do not assume every telemetry column is float. Typing is
+**per-variable** — one non-numeric variable is captured as a string and never
+drops the device's other (numeric) columns. Telemetry is read-only, sampled
+once per row, **never waited on** — a value that cannot be read (a device that
+went dead mid-scan) degrades to a dtype-appropriate null cell (NaN for a
+numeric column, `""` for a string column), and a device unreachable at scan
+start is dropped with a log line, never a dialog or abort. No telemetry
+variable — and no telemetry device — is dropped for a *type* reason; only a
+genuinely unreachable device degrades to a dropped device. Telemetry columns
+are **not** added to
 `geecs_scalar_headers` (they are Tier 2, not legacy s-file scalars). The
 start-doc `background_telemetry` key (present only when telemetry ran) records
 the `{device: [variables]}` actually selected. This is an additive

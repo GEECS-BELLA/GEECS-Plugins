@@ -259,6 +259,12 @@ class GeecsSession:
         never an error** — so this returns ``None`` after warning instead of
         propagating (unlike the strict device factories, whose failures fail
         loudly).
+
+        The telemetry readable infers each variable's dtype from its PV
+        (numeric stays float, enum/string is captured as a label), so a device
+        is dropped here only when it is genuinely unreachable — never for a
+        variable *type* mismatch.  A single non-numeric ``get='yes'`` variable
+        no longer takes the device's other columns down with it.
         """
         det = CaTelemetryReadable(
             device,
