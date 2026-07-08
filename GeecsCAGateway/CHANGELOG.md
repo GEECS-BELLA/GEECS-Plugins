@@ -7,12 +7,15 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 
 ### Added
 
-- Derived numeric channels loaded from a `geecs-schemas` YAML/JSON overlay via
-  `--derived-channels PATH`. Each entry declares a read-only float PV computed
-  from a restricted arithmetic expression over one source device's numeric
-  push-frame values. This initial implementation is same-source-device only,
-  so examples like a Convectron pressure PV derived from one DAQ analog input
-  are frame-coherent without introducing cross-device latest-value semantics.
+- Derived numeric channels loaded from a `geecs-schemas` YAML/JSON overlay.
+  The gateway auto-loads the configs-repo convention
+  `scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml`
+  when present, with `--derived-channels PATH` as an explicit override. Each
+  entry declares a read-only float PV computed from a restricted arithmetic
+  expression over one source device's numeric push-frame values. This initial
+  implementation is same-source-device only, so examples like a Convectron
+  pressure PV derived from one DAQ analog input are frame-coherent without
+  introducing cross-device latest-value semantics.
 
 ## [0.7.0] - 2026-07-08
 

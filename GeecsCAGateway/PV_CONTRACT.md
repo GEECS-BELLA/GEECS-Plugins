@@ -218,10 +218,12 @@ of scope — that is Bluesky's job, see DESIGN.md "scope boundaries".)
 
 ### Derived numeric channels
 
-The gateway can load a `geecs-schemas` `DerivedChannels` YAML/JSON overlay
-(`--derived-channels PATH`) that exposes additional read-only float PVs
-computed from one source device's numeric push-frame values. The v1 schema is
-intentionally narrow:
+The gateway can load a `geecs-schemas` `DerivedChannels` YAML/JSON overlay from
+the configs repo convention
+`scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml` (or an
+explicit `--derived-channels PATH` override). That overlay exposes additional
+read-only float PVs computed from one source device's numeric push-frame
+values. The v1 schema is intentionally narrow:
 
 - A derived channel has one output PV (`device`, `variable`, optional
   `experiment`/`pv` override) and one arithmetic expression.

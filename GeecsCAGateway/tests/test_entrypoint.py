@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from geecs_ca_gateway.__main__ import _parse_args
+from geecs_ca_gateway.config import GatewayConfig
 
 
 def test_defaults() -> None:
@@ -71,3 +72,63 @@ def test_main_returns_normally_without_restart(monkeypatch) -> None:
         ["--experiment", "X", "--derived-channels", "derived.yaml", "--show-missing"]
     )  # no exception
     assert seen["derived_channels_path"] == Path("derived.yaml")
+
+
+async def test_run_loads_default_derived_channels_from_configs_repo(
+    monkeypatch, tmp_path
+) -> None:
+    """Without an explicit path, _run loads the configs-repo convention file."""
+    from geecs_ca_gateway import __main__ as entry
+
+    repo = tmp_path / "GEECS-Plugins-Configs"
+    path = (
+        repo
+        / "scanner_configs"
+        / "experiments"
+        / "Undulator"
+        / "gateway"
+        / "derived_channels.yaml"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        """
+schema_version: 1
+derived_channels:
+  - device: U_ChamberVac
+    variable: Pressure
+    expression: "v"
+    inputs:
+      - symbol: v
+        device: U_DaqPad1
+        variable: "Analog Input 10"
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("GEECS_PLUGINS_CONFIGS", str(repo))
+    monkeypatch.setattr(
+        entry.GatewayConfig,
+        "from_geecs_experiment",
+        classmethod(lambda cls, *args, **kwargs: GatewayConfig()),
+    )
+    seen: dict[str, GatewayConfig] = {}
+
+    class FakeGateway:
+        def __init__(self, config: GatewayConfig) -> None:
+            seen["config"] = config
+            self.pvdb = {}
+
+        async def run(self) -> bool:
+            return False
+
+    monkeypatch.setattr(entry, "GeecsCaGateway", FakeGateway)
+
+    restart = await entry._run(
+        "Undulator",
+        subscribed_only=True,
+        enabled_only=True,
+        include_settable=True,
+    )
+
+    assert restart is False
+    assert seen["config"].derived_channels[0].device == "U_ChamberVac"

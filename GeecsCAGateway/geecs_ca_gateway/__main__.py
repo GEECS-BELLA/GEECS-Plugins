@@ -20,7 +20,7 @@ import logging
 from pathlib import Path
 
 from .config import GatewayConfig
-from .derived import load_derived_channels
+from .derived import default_derived_channels_path, load_derived_channels
 from .gateway import GeecsCaGateway
 
 logger = logging.getLogger("geecs_ca_gateway")
@@ -78,8 +78,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=Path,
         help=(
             "YAML/JSON derived-channel overlay validated by geecs-schemas. "
-            "The file adds read-only computed numeric PVs on top of the DB "
-            "device set."
+            "Defaults to the configs-repo convention "
+            "scanner_configs/experiments/<experiment>/gateway/"
+            "derived_channels.yaml when that file exists."
         ),
     )
     parser.add_argument(
@@ -110,11 +111,15 @@ async def _run(
         include_settable=include_settable,
     )
     if derived_channels_path is not None:
-        config.derived_channels = load_derived_channels(derived_channels_path)
+        path = derived_channels_path
+    else:
+        path = default_derived_channels_path(experiment)
+    if path is not None:
+        config.derived_channels = load_derived_channels(path)
         logger.info(
             "loaded %d derived channel(s) from %s",
             len(config.derived_channels),
-            derived_channels_path,
+            path,
         )
     gateway = GeecsCaGateway(config)
     logger.info(

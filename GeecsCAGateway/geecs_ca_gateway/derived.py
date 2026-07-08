@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import configparser
 import json
 import math
+import os
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,8 @@ _ALLOWED_CONSTS = {"e": math.e, "pi": math.pi, "tau": math.tau}
 _RESERVED_NAMES = set(_ALLOWED_FUNCS) | set(_ALLOWED_CONSTS)
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)
 _ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
+GATEWAY_CONFIG_FOLDER = "gateway"
+DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
 
 __all__ = [
     "DerivedChannelSpec",
@@ -43,8 +47,10 @@ __all__ = [
     "DerivedExpressionError",
     "DerivedInputSpec",
     "ExpressionEvaluator",
+    "default_derived_channels_path",
     "derived_pv_name",
     "load_derived_channels",
+    "scanner_configs_base",
 ]
 
 
@@ -81,6 +87,43 @@ def load_derived_channels(path: str | Path) -> list[DerivedChannelSpec]:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     document = DerivedChannels.model_validate(data or {})
     return list(document.derived_channels)
+
+
+def scanner_configs_base() -> Path | None:
+    """Resolve the configs repo ``scanner_configs/experiments`` base if known.
+
+    Resolution mirrors the scanner/Bluesky production path without importing
+    either package:
+
+    1. ``GEECS_SCANNER_CONFIG_DIR`` points directly at
+       ``scanner_configs/experiments``.
+    2. ``GEECS_PLUGINS_CONFIGS`` points at the configs repo root.
+    3. ``~/.config/geecs_python_api/config.ini`` has
+       ``[Paths] scanner_config_root_path`` pointing at the configs repo root.
+    """
+    env = os.environ.get("GEECS_SCANNER_CONFIG_DIR")
+    if env:
+        return Path(env).expanduser().resolve()
+    repo_env = os.environ.get("GEECS_PLUGINS_CONFIGS")
+    if repo_env:
+        return Path(repo_env).expanduser().resolve() / "scanner_configs" / "experiments"
+    config_ini = Path("~/.config/geecs_python_api/config.ini").expanduser()
+    if config_ini.exists():
+        parser = configparser.ConfigParser()
+        parser.read(config_ini)
+        root = parser.get("Paths", "scanner_config_root_path", fallback=None)
+        if root:
+            return Path(root).expanduser().resolve() / "scanner_configs" / "experiments"
+    return None
+
+
+def default_derived_channels_path(experiment: str) -> Path | None:
+    """Return the conventional configs-repo derived-channel file, if present."""
+    base = scanner_configs_base()
+    if base is None:
+        return None
+    path = base / experiment / GATEWAY_CONFIG_FOLDER / DERIVED_CHANNELS_FILENAME
+    return path if path.exists() else None
 
 
 class ExpressionEvaluator:

@@ -25,7 +25,7 @@ Actual CLI flags (`geecs_ca_gateway/__main__.py`):
 | `--all-variables` | off | Expose every device variable, not just the `get='yes'` monitoring set |
 | `--no-settable` | off | Do *not* add settable (control-surface) variables to the subscribed set |
 | `--include-disabled` | off | Include devices not `enabled` in the experiment |
-| `--derived-channels PATH` | unset | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
+| `--derived-channels PATH` | configs-repo convention if present | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
 | `--show-missing` | off | Keep the transport's "missing variable(s)" notices (quiet by default — subscribed-but-idle variables are normal for monitoring) |
 | `--log-level LEVEL` | `INFO` | Python logging level |
 
@@ -49,9 +49,20 @@ The gateway reads no config file of its own. Everything comes from:
    restart the gateway (this matches the existing master-GUI reboot pattern;
    hot reload is a later nicety).
 
-Optional derived readbacks come from a schema-validated overlay file passed by
-`--derived-channels`. The file is not a replacement for the DB; it only adds
-computed numeric PVs on top of the DB-backed raw device set:
+Optional derived readbacks come from a schema-validated overlay file in the
+configs repo. By convention, the gateway auto-loads:
+
+```text
+GEECS-Plugins-Configs/
+  scanner_configs/
+    experiments/
+      <Experiment>/
+        gateway/
+          derived_channels.yaml
+```
+
+The file is not a replacement for the DB; it only adds computed numeric PVs on
+top of the DB-backed raw device set:
 
 ```yaml
 schema_version: 1
@@ -67,9 +78,17 @@ derived_channels:
     description: "Convectron pressure from DAQ analog input 10"
 ```
 
-For the systemd service, install the file on the gateway host and add
-`--derived-channels /path/to/derived_channels.yaml` to `ExecStart`; then a
-normal restart reloads both the DB-backed raw PVs and the derived overlay.
+The configs repo root is resolved the same way as scanner configs:
+`GEECS_SCANNER_CONFIG_DIR` may point directly at
+`scanner_configs/experiments`, `GEECS_PLUGINS_CONFIGS` may point at the
+configs repo root, or `~/.config/geecs_python_api/config.ini`
+`[Paths] scanner_config_root_path` may point at the configs repo root. If the
+conventional file is absent, the gateway starts normally with no derived PVs.
+Use `--derived-channels /path/to/file.yaml` only to override the convention.
+
+For the systemd service, keep a checked-out configs repo on the gateway host
+and ensure one of those resolution paths is configured; then a normal restart
+reloads both the DB-backed raw PVs and the derived overlay.
 
 MySQL access uses the pure-Python connector (`use_pure=True`) — the C extension
 has crashed silently on the lab Windows machines.

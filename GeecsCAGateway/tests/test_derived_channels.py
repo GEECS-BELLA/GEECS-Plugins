@@ -13,7 +13,9 @@ from geecs_ca_gateway.derived import (
     DerivedExpressionError,
     DerivedInputSpec,
     ExpressionEvaluator,
+    default_derived_channels_path,
     load_derived_channels,
+    scanner_configs_base,
 )
 from geecs_ca_gateway.gateway import GeecsCaGateway
 from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
@@ -84,6 +86,30 @@ derived_channels:
     assert spec.device == "U_ChamberVac"
     assert spec.inputs[0].variable == "Analog Input 10"
     assert spec.egu == "Torr"
+
+
+def test_default_derived_channels_path_from_configs_repo_env(
+    monkeypatch, tmp_path
+) -> None:
+    """The production configs repo convention is discoverable by experiment."""
+    repo = tmp_path / "GEECS-Plugins-Configs"
+    path = (
+        repo
+        / "scanner_configs"
+        / "experiments"
+        / "Undulator"
+        / "gateway"
+        / "derived_channels.yaml"
+    )
+    path.parent.mkdir(parents=True)
+    path.write_text("schema_version: 1\nderived_channels: []\n", encoding="utf-8")
+
+    monkeypatch.delenv("GEECS_SCANNER_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("GEECS_PLUGINS_CONFIGS", str(repo))
+
+    assert scanner_configs_base() == repo / "scanner_configs" / "experiments"
+    assert default_derived_channels_path("Undulator") == path
+    assert default_derived_channels_path("Missing") is None
 
 
 def test_derived_pvdb_has_numeric_readback_and_manifest() -> None:
