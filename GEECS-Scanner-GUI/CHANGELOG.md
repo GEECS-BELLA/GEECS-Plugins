@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.1] — 2026-07-07
+
+### Changed
+
+- **`engine/scan_events.py` and `engine/dialog_request.py` are now
+  re-export shims** — the typed event vocabulary (`ScanEvent` hierarchy,
+  `ScanState`, `DialogRequest`) moved down to `geecs_bluesky.events`
+  (engine consolidation; the engine owns its vocabulary, front-ends import
+  from below). The shims re-import the *same class objects*, so every
+  existing import path and isinstance check works verbatim; no GUI code
+  changes. `DEVICE_COMMAND_ERRORS` and `escalate_device_error` stay in
+  `dialog_request.py` (they depend on geecs_python_api, which the engine
+  package must not import). Pinned by `tests/engine/test_event_shims.py`.
+
 ## [0.32.0] — 2026-07-07
 
 ### Added

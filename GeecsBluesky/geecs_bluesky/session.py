@@ -674,6 +674,55 @@ class GeecsSession:
             self._export_scalar_files(scan_number)
         return self._last_run_uid, history
 
+    def run(
+        self,
+        request: Any,  # geecs_schemas.ScanRequest (imported lazily below)
+        resolver: Any | None = None,  # scan_request_runner.ConfigResolver
+        *,
+        objective: Any | None = None,
+        suggester: Any | None = None,
+    ) -> str | None:
+        """Run one :class:`~geecs_schemas.scan_request.ScanRequest`; return the uid.
+
+        The submission front door of the target architecture (vision doc
+        §4.1): the request's names (save set, trigger profile, scan
+        variables, action plans) are resolved through *resolver* — by
+        default a
+        :class:`~geecs_bluesky.scan_request_runner.ConfigsRepoResolver` over
+        this session's experiment in the configs repository, which loads
+        new-schema YAML when present and converts legacy files otherwise —
+        and the request is mapped onto :meth:`scan` / :meth:`optimize` by
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
+        docstring for the documented v1 gaps: multi-axis, actions, pseudo
+        variables, optimize without an injected objective/suggester).
+
+        Parameters
+        ----------
+        request :
+            The scan request to run.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver).
+        objective, suggester :
+            Ready-made optimization callables, required for ``optimize``
+            mode (the evaluator/generator specs are instantiated by the
+            caller's stack, not here).
+
+        Returns
+        -------
+        str or None
+            The Bluesky run uid (``None`` when nothing was persisted).
+        """
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            run_scan_request,
+        )
+
+        if resolver is None:
+            resolver = ConfigsRepoResolver(self.experiment)
+        return run_scan_request(
+            self, request, resolver, objective=objective, suggester=suggester
+        )
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
