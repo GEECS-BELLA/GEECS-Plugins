@@ -97,11 +97,14 @@ def _num(value: object) -> Optional[float]:
 
 
 def _variable_row_to_meta(row: tuple) -> dict:
-    """Map a ``devicetype_variable`` (+ ``choice``) row onto the metadata dict.
+    """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
     Row order: name, units, min, max, set, variabletype, choices, tolerance —
-    the shared SELECT column order of :meth:`GeecsDb.get_device_variables` and
-    :meth:`GeecsDb.get_experiment_device_variables`.
+    the shared SELECT column order (after the leading id/link column) of
+    :meth:`GeecsDb.get_device_variables` and
+    :meth:`GeecsDb.get_experiment_device_variables`.  Both the type-default
+    table (``devicetype_variable``) and the per-instance table (``variable``)
+    carry the same columns, so one mapper serves both.
     """
     return {
         "name": row[0],
@@ -113,6 +116,76 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "choices": row[6],
         "tolerance": _num(row[7]),
     }
+
+
+def _merge_variable_rows(
+    type_rows: list[tuple], instance_rows: list[tuple]
+) -> list[dict]:
+    """Resolve the GEECS capability inheritance chain for one device.
+
+    ``devicetype_variable`` rows define type defaults which a device instance
+    inherits *unless* a row exists for that device+variable in the ``variable``
+    table — and when one exists it is used **wholesale**: every field comes
+    from the instance row, with no field-level fallback.  An instance row with
+    NULL limits means that instance has *no* limits, even if the type row has
+    them.  The link is explicit: ``variable.devicetype_variable_id →
+    devicetype_variable.id``.
+
+    Parameters
+    ----------
+    type_rows:
+        ``(id, name, units, min, max, set, variabletype, choices, tolerance)``
+        rows from ``devicetype_variable``.
+    instance_rows:
+        ``(devicetype_variable_id, name, units, min, max, set, variabletype,
+        choices, tolerance)`` rows from ``variable`` for the same device.
+
+    Returns
+    -------
+    list[dict]
+        Metadata dicts (:func:`_variable_row_to_meta` shape) in type-row
+        order, with overridden entries replaced in place; instance-only
+        variables are appended at the end.
+
+    Notes
+    -----
+    An instance row whose ``devicetype_variable_id`` is NULL or points at no
+    type row of this device defines an *instance-only* variable.  It has no
+    explicit link to key on, so it is keyed by ``name`` instead: a same-named
+    type row is replaced (instance rows are ground truth) rather than served
+    alongside it — two entries normalizing to one PV name would otherwise
+    collide at gateway startup.
+    """
+    linked: dict[object, tuple] = {}
+    unlinked: list[tuple] = []
+    for row in instance_rows:
+        if row[0] is None:
+            unlinked.append(row)
+        else:
+            linked[row[0]] = row
+
+    result: list[dict] = []
+    used_links: set = set()
+    for row in type_rows:
+        instance = linked.get(row[0])
+        if instance is not None:
+            used_links.add(row[0])
+            result.append(_variable_row_to_meta(instance[1:]))
+        else:
+            result.append(_variable_row_to_meta(row[1:]))
+
+    # Dangling links (type row absent) behave like instance-only variables.
+    unlinked.extend(row for link, row in linked.items() if link not in used_links)
+    for row in unlinked:
+        meta = _variable_row_to_meta(row[1:])
+        replaced = False
+        for i, existing in enumerate(result):
+            if existing["name"] == meta["name"]:
+                result[i] = meta
+                replaced = True
+        if not replaced:
+            result.append(meta)
+    return result
 
 
 class GeecsDb:
@@ -312,6 +385,10 @@ class GeecsDb:
         ``"string"``, ``"path"``, ``"image"``, ``"1darray"``, …), ``choices``
         (comma-separated option string from the ``choice`` table for ``choice``
         variables, else ``None``), and ``tolerance`` (numeric, or ``None``).
+
+        Metadata resolves the capability inheritance chain: type defaults come
+        from ``devicetype_variable``; a per-instance row in ``variable``
+        replaces its type row **wholesale** (see :func:`_merge_variable_rows`).
         """
         try:
             import mysql.connector
@@ -324,7 +401,7 @@ class GeecsDb:
         try:
             cur = conn.cursor()
             cur.execute(
-                "SELECT dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
+                "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
                 "dtv.variabletype, c.choices, dtv.tolerance "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
@@ -332,11 +409,20 @@ class GeecsDb:
                 "WHERE d.name = %s ORDER BY dtv.name",
                 (device_name,),
             )
-            rows = cur.fetchall()
+            type_rows = cur.fetchall()
+            cur.execute(
+                "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
+                "v.`set`, v.variabletype, c.choices, v.tolerance "
+                "FROM variable v "
+                "LEFT JOIN choice c ON c.id = v.choice_id "
+                "WHERE v.device = %s ORDER BY v.name",
+                (device_name,),
+            )
+            instance_rows = cur.fetchall()
         finally:
             conn.close()
 
-        return [_variable_row_to_meta(r) for r in rows]
+        return _merge_variable_rows(type_rows, instance_rows)
 
     @classmethod
     def get_experiment_devices(
@@ -388,9 +474,11 @@ class GeecsDb:
         """Return ``{device: [variable metadata, ...]}`` for an experiment.
 
         The batch counterpart of :meth:`get_device_variables`: metadata for
-        every device in *experiment* in a single query, with the same per-row
-        dict shape.  Duplicate ``devicetype_variable`` rows (a known DB quirk)
-        are passed through — spec building dedupes by name.
+        every device in *experiment* in two batched queries (type defaults +
+        per-instance overrides), with the same per-row dict shape and the same
+        wholesale inheritance-chain resolution (see
+        :func:`_merge_variable_rows`).  Duplicate ``devicetype_variable`` rows
+        (a known DB quirk) are passed through — spec building dedupes by name.
 
         Parameters
         ----------
@@ -406,25 +494,46 @@ class GeecsDb:
                 "mysql-connector-python is required for DB lookups."
             ) from exc
 
+        enabled = " AND LOWER(ed.enabled) = 'yes'" if enabled_only else ""
         conn = _connect_mysql(mysql.connector)
         try:
             cur = conn.cursor()
-            query = (
-                "SELECT d.name, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices, dtv.tolerance "
+            type_query = (
+                "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
+                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
                 "JOIN devicetype_variable dtv ON dtv.devicetype = d.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
                 "ORDER BY d.name, dtv.name"
-            ).format(enabled=" AND LOWER(ed.enabled) = 'yes'" if enabled_only else "")
-            cur.execute(query, (experiment,))
-            rows = cur.fetchall()
+            ).format(enabled=enabled)
+            cur.execute(type_query, (experiment,))
+            type_rows = cur.fetchall()
+            instance_query = (
+                "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
+                "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance "
+                "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
+                "      WHERE ed.expt = %s{enabled}) sel "
+                "JOIN variable v ON v.device = sel.device "
+                "LEFT JOIN choice c ON c.id = v.choice_id "
+                "ORDER BY v.device, v.name"
+            ).format(enabled=enabled)
+            cur.execute(instance_query, (experiment,))
+            instance_rows = cur.fetchall()
         finally:
             conn.close()
 
-        result: dict[str, list[dict]] = {}
-        for row in rows:
-            result.setdefault(row[0], []).append(_variable_row_to_meta(row[1:]))
-        return result
+        type_by_device: dict[str, list[tuple]] = {}
+        for row in type_rows:
+            type_by_device.setdefault(row[0], []).append(row[1:])
+        instance_by_device: dict[str, list[tuple]] = {}
+        for row in instance_rows:
+            instance_by_device.setdefault(row[0], []).append(row[1:])
+
+        return {
+            device: _merge_variable_rows(
+                type_by_device.get(device, []), instance_by_device.get(device, [])
+            )
+            for device in sorted(type_by_device.keys() | instance_by_device.keys())
+        }
