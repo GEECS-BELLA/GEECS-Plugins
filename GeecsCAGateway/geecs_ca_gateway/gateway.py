@@ -257,7 +257,11 @@ class GeecsCaGateway:
                 hi=spec.hi,
                 deadband=spec.deadband,
             )
-            channel = make_readback_channel(var_spec)
+            channel = make_readback_channel(
+                var_spec,
+                initial_severity=AlarmSeverity.INVALID_ALARM,
+                initial_status=AlarmStatus.UDF,
+            )
             self.pvdb[full] = channel
             evaluator = ExpressionEvaluator(
                 spec.expression, {inp.symbol for inp in spec.inputs}
@@ -465,22 +469,25 @@ class GeecsCaGateway:
                 except (TypeError, ValueError):
                     self._warn_once(
                         device_name,
-                        spec.variable,
+                        pv,
                         f"{device_name}: derived PV {pv} input "
-                        f"{inp.variable}={raw!r} is not numeric; skipping",
+                        f"{inp.variable}={raw!r} is not numeric; marking INVALID",
                     )
                     missing = True
                     break
             if missing:
+                await self._mark_derived_invalid(channel, pv, AlarmStatus.UDF)
                 continue
             try:
                 value = evaluator.evaluate(values)
             except Exception:
                 self._warn_once(
                     device_name,
-                    spec.variable,
-                    f"{device_name}: derived PV {pv} expression failed; skipping",
+                    pv,
+                    f"{device_name}: derived PV {pv} expression failed; "
+                    "marking INVALID",
                 )
+                await self._mark_derived_invalid(channel, pv, AlarmStatus.CALC)
                 continue
             prev = self._derived_last_written.get(pv, _UNSET)
             if prev is not _UNSET:
@@ -489,13 +496,34 @@ class GeecsCaGateway:
                     continue
             self._derived_last_written[pv] = value
             try:
-                await channel.write(value, **extra)
+                await channel.write(
+                    value,
+                    **extra,
+                    severity=AlarmSeverity.NO_ALARM,
+                    status=AlarmStatus.NO_ALARM,
+                    verify_value=False,
+                )
             except Exception:
                 self._warn_once(
                     device_name,
-                    spec.variable,
+                    pv,
                     f"{device_name}: failed to write derived PV {pv}={value!r}",
                 )
+
+    async def _mark_derived_invalid(
+        self, channel: ChannelData, pv: str, status: AlarmStatus
+    ) -> None:
+        """Mark a derived PV invalid and clear its deadband cache."""
+        self._derived_last_written.pop(pv, None)
+        try:
+            await channel.write(
+                channel.value,
+                severity=AlarmSeverity.INVALID_ALARM,
+                status=status,
+                verify_value=False,
+            )
+        except Exception:
+            logger.debug("failed to mark derived PV %s INVALID", pv, exc_info=True)
 
     def _make_callback(self, dev):
         """Return the subscription callback that fans a push frame into PVs.
@@ -639,6 +667,10 @@ class GeecsCaGateway:
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
+                for _spec, _channel, _evaluator, pv in self._derived_by_source.get(
+                    dev.name, []
+                ):
+                    self._derived_last_written.pop(pv, None)
                 if dev.name in self._down_logged:
                     self._down_logged.discard(dev.name)
                     logger.info("%s: reconnected", dev.name)
@@ -739,6 +771,8 @@ class GeecsCaGateway:
             if dev != device or kind not in ("readback", "derived"):
                 continue
             channel = self.pvdb[pv]
+            if kind == "derived":
+                self._derived_last_written.pop(pv, None)
             try:
                 await channel.write(
                     channel.value,

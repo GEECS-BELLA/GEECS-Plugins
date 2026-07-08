@@ -74,18 +74,21 @@ def derived_pv_name(
 def load_derived_channels(path: str | Path) -> list[DerivedChannelSpec]:
     """Load a YAML or JSON derived-channel document from *path*."""
     config_path = Path(path)
-    if config_path.suffix.lower() == ".json":
-        data = json.loads(config_path.read_text(encoding="utf-8"))
-    else:
-        try:
-            import yaml
-        except ImportError as exc:
-            raise ImportError(
-                "PyYAML is required to load derived-channel YAML files. "
-                "Install the GeecsCAGateway package dependencies."
-            ) from exc
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    document = DerivedChannels.model_validate(data or {})
+    try:
+        if config_path.suffix.lower() == ".json":
+            data = json.loads(config_path.read_text(encoding="utf-8"))
+        else:
+            try:
+                import yaml
+            except ImportError as exc:
+                raise ImportError(
+                    "PyYAML is required to load derived-channel YAML files. "
+                    "Install the GeecsCAGateway package dependencies."
+                ) from exc
+            data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        document = DerivedChannels.model_validate(data or {})
+    except Exception as exc:
+        raise ValueError(f"failed to load derived channels from {config_path}") from exc
     return list(document.derived_channels)
 
 

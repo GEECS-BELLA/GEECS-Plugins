@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 
 import pytest
+from caproto import AlarmSeverity, AlarmStatus
 from pydantic import ValidationError
 
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
@@ -23,6 +25,15 @@ from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGee
 pytestmark = pytest.mark.fake_server
 
 
+def _free_port() -> int:
+    """Return an available localhost TCP port."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    _, port = sock.getsockname()
+    sock.close()
+    return port
+
+
 async def _wait_until(predicate, timeout: float = 6.0, interval: float = 0.05) -> bool:
     """Poll ``predicate`` until true or ``timeout`` elapses."""
     waited = 0.0
@@ -32,6 +43,21 @@ async def _wait_until(predicate, timeout: float = 6.0, interval: float = 0.05) -
         await asyncio.sleep(interval)
         waited += interval
     return predicate()
+
+
+async def _start_on_port(device: FakeGeecsDevice, port: int) -> FakeGeecsServer:
+    """Start a fake server bound to a specific localhost port."""
+    last_error: OSError | None = None
+    for _ in range(10):
+        srv = FakeGeecsServer(device, host="127.0.0.1", port=port)
+        try:
+            await srv.start()
+            return srv
+        except OSError as exc:
+            last_error = exc
+            await asyncio.sleep(0.05)
+    assert last_error is not None
+    raise last_error
 
 
 def test_expression_evaluator_supports_convectron_formula() -> None:
@@ -88,6 +114,15 @@ derived_channels:
     assert spec.inputs[0].variable == "AI_mean.Channel 0"
     assert spec.egu == "Torr"
     assert spec.precision == 6
+
+
+def test_load_derived_channels_error_names_path(tmp_path) -> None:
+    """Bad overlay files fail with the offending path in the exception."""
+    path = tmp_path / "derived_channels.yaml"
+    path.write_text("derived_channels: [", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=str(path)):
+        load_derived_channels(path)
 
 
 def test_default_derived_channels_path_from_configs_repo_env(
@@ -149,6 +184,8 @@ def test_derived_pvdb_has_numeric_readback_and_manifest() -> None:
     assert pv in gw.pvdb
     assert gw.pvdb[pv].units == "Torr"
     assert gw.pvdb[pv].precision == 4
+    assert int(gw.pvdb[pv].severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(gw.pvdb[pv].status) == int(AlarmStatus.UDF)
     assert gw.manifest[pv] == ("U_DaqPad1", "Pressure", "derived")
 
 
@@ -238,3 +275,145 @@ async def test_derived_only_input_is_subscribed_without_raw_pv() -> None:
             assert await _wait_until(lambda: pressure.value == pytest.approx(1.0))
         finally:
             await gw.close()
+
+
+async def test_derived_expression_failure_marks_invalid_calc() -> None:
+    """Persistent runtime failures do not leave the last good value looking live."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_DaqPad1",
+                host="127.0.0.1",
+                port=1,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Analog Input 10", dtype="float")],
+            )
+        ],
+        derived_channels=[
+            DerivedChannelSpec(
+                device="U_ChamberVac",
+                variable="Pressure",
+                expression="1 / v",
+                inputs=[
+                    DerivedInputSpec(
+                        symbol="v",
+                        device="U_DaqPad1",
+                        variable="Analog Input 10",
+                    )
+                ],
+            )
+        ],
+    )
+    gw = GeecsCaGateway(cfg)
+    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Analog Input 10": 2.0})
+    assert pressure.value == pytest.approx(0.5)
+    assert int(pressure.severity) == int(AlarmSeverity.NO_ALARM)
+
+    await callback({"Analog Input 10": 0.0})
+    assert pressure.value == pytest.approx(0.5)
+    assert int(pressure.severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(pressure.status) == int(AlarmStatus.CALC)
+
+    await callback({"Analog Input 10": 4.0})
+    assert pressure.value == pytest.approx(0.25)
+    assert int(pressure.severity) == int(AlarmSeverity.NO_ALARM)
+    assert int(pressure.status) == int(AlarmStatus.NO_ALARM)
+
+
+async def test_missing_derived_input_marks_invalid_udf() -> None:
+    """A mistyped or absent source variable does not serve a valid-looking zero."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_DaqPad1",
+                host="127.0.0.1",
+                port=1,
+                experiment="Undulator",
+                variables=[],
+            )
+        ],
+        derived_channels=[
+            DerivedChannelSpec(
+                device="U_ChamberVac",
+                variable="Pressure",
+                expression="10**(v - 5)",
+                inputs=[
+                    DerivedInputSpec(
+                        symbol="v",
+                        device="U_DaqPad1",
+                        variable="Analog Input 10",
+                    )
+                ],
+            )
+        ],
+    )
+    gw = GeecsCaGateway(cfg)
+    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Other Input": 5.0})
+
+    assert pressure.value == pytest.approx(0.0)
+    assert int(pressure.severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(pressure.status) == int(AlarmStatus.UDF)
+
+
+async def test_derived_reconnect_clears_invalid_even_when_value_unchanged() -> None:
+    """Derived deadband cache is cleared so reconnect recovery always posts."""
+    port = _free_port()
+    device = FakeGeecsDevice("U_DaqPad1", variables={"Analog Input 10": 5.0})
+    srv = await _start_on_port(device, port)
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_DaqPad1",
+                host="127.0.0.1",
+                port=port,
+                experiment="Undulator",
+                variables=[],
+            )
+        ],
+        derived_channels=[
+            DerivedChannelSpec(
+                device="U_ChamberVac",
+                variable="Pressure",
+                expression="10**(v - 5)",
+                inputs=[
+                    DerivedInputSpec(
+                        symbol="v",
+                        device="U_DaqPad1",
+                        variable="Analog Input 10",
+                    )
+                ],
+            )
+        ],
+    )
+    gw = GeecsCaGateway(cfg, reconnect_min_s=0.2, reconnect_max_s=0.4)
+    await gw.connect()
+    await gw.subscribe()
+    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    try:
+        assert await _wait_until(lambda: pressure.value == pytest.approx(1.0))
+        assert int(pressure.severity) == int(AlarmSeverity.NO_ALARM)
+
+        await srv.stop()
+        assert await _wait_until(
+            lambda: int(pressure.severity) == int(AlarmSeverity.INVALID_ALARM)
+        )
+
+        srv2 = await _start_on_port(
+            FakeGeecsDevice("U_DaqPad1", variables={"Analog Input 10": 5.0}),
+            port,
+        )
+        try:
+            assert await _wait_until(
+                lambda: int(pressure.severity) == int(AlarmSeverity.NO_ALARM)
+                and pressure.value == pytest.approx(1.0)
+            )
+        finally:
+            await srv2.stop()
+    finally:
+        await gw.close()
