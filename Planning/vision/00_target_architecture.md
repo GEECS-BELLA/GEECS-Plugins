@@ -242,9 +242,21 @@ resolver records everything applied, so provenance shows the full stack):
    `at_scan_start:` / `at_scan_end:` maps — a value overrides the DB's, an
    explicit null suppresses the write; MC keeps reading the raw table and
    behaves as today. Precedence: DB row → entry override → actions.
-   (Gated on inspecting the real table: whether the Python scanner honors
-   it today or it is MC-only, and its exact vocabulary — schema fields are
-   not guessed before the table is read.)
+   **Verified against the live DB (2026-07-07)**: the table is
+   `expt_device_variable(expt_device_id, variablename, get, set,
+   defaultvalue, startvalue, endvalue)`. Consumption rule: honor rows with
+   `set='yes'` and non-empty start/end — that filter separates the real
+   baseline (Undulator: 92 rows, `save on→off` / `Analysis on→on` with
+   deliberate per-device exceptions) from bulk-filled defaults on get-only
+   rows (450 noise rows). Two implementation rules: (a) variables the run
+   discipline already owns (`save`/`localsavingpath`) are SKIPPED — the
+   engine's native-saving machinery supersedes them; (b) the `Analysis on`
+   rows close a real Bluesky-path gap today — cameras with analysis off
+   push empty-string scalars (the `''` flood observed at gateway startup),
+   which MC scans never showed because this table fixed it at scan start.
+   Open MC-semantics question: rows applied to all enabled devices or only
+   scan participants (default: participants only; confirm against MC when
+   convenient).
 2. **ExperimentDefaults** — experiment-wide YAML defaults (default trigger
    profile, standard setup/closeout actions), applied where a ScanRequest
    is silent, always recorded.
