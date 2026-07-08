@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.21.0"
+version = "0.22.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -25,6 +25,11 @@ imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 # exceptions (library use), and the CA gateway PVs (service use). We import
 # its library modules; we never import its server.
 geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
+
+# The schema layer (vision doc §4): ScanRequest + the config models and
+# legacy-YAML converters consumed by scan_request_runner / session.run().
+# Pydantic-only — deliberately lightweight.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 

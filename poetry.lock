@@ -1519,7 +1519,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.21.0"
+version = "0.22.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1532,11 +1532,12 @@ aioca = {version = ">=1.7", optional = true}
 bluesky = ">=1.12"
 geecs-ca-gateway = {path = "../GeecsCAGateway", develop = true}
 geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
+geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 ophyd-async = ">=0.19.3,<1.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/vision-m1-schemas/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/vision-m2-engine/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
 optimize = ["xopt (>=3.1,<4.0)"]
 tiled = ["tiled[client] (>=0.2)"]
@@ -1630,7 +1631,7 @@ url = "GEECS-PythonAPI"
 
 [[package]]
 name = "geecs-scanner-gui"
-version = "0.32.0"
+version = "0.32.1"
 description = ""
 optional = false
 python-versions = ">=3.11,<3.12"

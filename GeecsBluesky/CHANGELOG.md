@@ -4,6 +4,94 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.22.0] - 2026-07-07
+
+Engine consolidation (target-architecture vision §2): the engine owns its
+event vocabulary, operator interaction is one injected seam, pre-flight is a
+declarative pipeline, and a `ScanRequest` can drive a scan end to end.
+Everything is behind compatibility shims — no GUI changes, no behavior
+changes on the existing paths.
+
+### Added
+
+- **`geecs_bluesky/events.py`** — the typed scan event vocabulary
+  (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`) moved here verbatim
+  from `geecs_scanner.engine.scan_events` / `dialog_request` (semantics
+  preserved exactly; `DialogRequest` no longer needs geecs_python_api —
+  the `DEVICE_COMMAND_ERRORS` tuple stayed behind in the legacy shim).
+  `geecs_scanner`'s modules are now re-export shims of the *same class
+  objects*, so every existing import path and isinstance check keeps
+  working. The engine's defensive try/except imports of its own vocabulary
+  are gone — `bluesky_scanner` imports directly from `geecs_bluesky.events`.
+- **`geecs_bluesky/operator_channel.py`** — the one seam through which the
+  engine asks the operator anything: `OperatorChannel.ask(OperatorQuestion)
+  → "continue" | "abort" | default`. Two implementations:
+  `EventStreamOperator` (today's exact GUI behavior — DialogRequest inside
+  a ScanDialogEvent via `on_event`, blocking on `response_event` with a
+  timeout) and `NullOperator` (headless: logs, returns the question's
+  default). `BlueskyScanner._request_operator_decision` and the pre-flight
+  now route through the channel; the scanner builds `EventStreamOperator`
+  when `on_event` is wired, else `NullOperator`. Byte-identical behavior,
+  pinned by the existing dialog tests.
+- **`geecs_bluesky/preflight.py`** — pre-flight checks as a pipeline:
+  checks return pass / ask(question, handlers) / abort, and `run_preflight`
+  executes the list, routing questions through the OperatorChannel. The two
+  existing checks moved in with their exact semantics
+  (`GatewayLivenessCheck`: CONNECTED PV both modes, fail-open on unreadable
+  status, abort-only for a dead free-run reference;
+  `FreeRunStalenessCheck`: trigger-running staleness with the recheck
+  grace, all-stale trigger-off wording, abort-only stale reference).
+  `BlueskyScanner._preflight_check_sync_liveness` is now a thin call into
+  the pipeline; new checks are list entries, not new scanner branches.
+- **`geecs_bluesky/scan_request_runner.py` + `GeecsSession.run(request)`** —
+  execute a `geecs_schemas.ScanRequest` end to end: a `ConfigResolver`
+  protocol resolves the request's names (save set, trigger profile, scan
+  variable, action plans) to schema models, and `ConfigsRepoResolver` reads
+  the real configs repo — new-schema YAML (`schema_version` present) loads
+  directly, legacy YAML converts via `geecs_schemas.convert`, so the whole
+  existing corpus works immediately. Mapping helpers derive the engine
+  shapes (`save_set_to_devices_config` with the documented role-derivation
+  rules; `shot_control_config_from_trigger_profile`, living bluesky-side to
+  respect the dependency direction). Documented v1 gaps refuse loudly
+  (`NotImplementedError`): multi-axis grids, action bindings (names are
+  *validated* now, executed when the ActionPlan compiler lands), pseudo
+  scan variables, `all_scalars`, and optimize mode without an injected
+  objective/suggester.
+- **`BlueskyScanner.reinitialize` accepts a ScanRequest** (duck-detected by
+  type) as a parallel entry beside the untouched `exec_config` path; a
+  request is resolved fail-fast and mapped onto the same internal
+  machinery. Parity pin: `tests/test_bluesky_scanner_scan_request_seam.py::
+  test_scan_request_noscan_parity_with_exec_config` asserts a ScanRequest
+  noscan drives the identical fake-session `scan()` call as the equivalent
+  exec_config.
+- **geecs-schemas is now a dependency** (path dep; pydantic-only).
+- **Scan-setup schema addendum support** (multi-device trigger states,
+  SaveSet action refs, ExperimentDefaults — landed in geecs-schemas the
+  same day): the trigger adapter handles both TriggerProfile generations —
+  the retired single-device shape and the landed multi-device shape
+  (per-state ordered write lists carrying their own `device`) — via a
+  **single-device fast path**; writes spanning devices raise
+  `NotImplementedError` ("multi-device trigger profiles land with a later
+  milestone"), the same schema-accepts/engine-pending pattern as
+  multi-axis. Resolvers gained `resolve_experiment_defaults()`
+  (`ConfigsRepoResolver` reads and validates
+  `<experiment>/experiment_defaults.yaml`); the merge rule is the model's
+  — a default trigger profile applies only when the request names none,
+  default setup/closeout plans are *prepended* to the request's own — and
+  every applied default is recorded into the run metadata
+  (`md["applied_defaults"]`) for provenance. SaveSet **entry-level**
+  setup/closeout plan references get the same
+  validate-now/refuse-until-the-actions-milestone treatment as
+  request-level bindings (`resolve_save_set_checked`; plans the
+  save-element converter extracts from legacy `setup_action`/`scan_setup`
+  blocks resolve too).
+
+### Changed
+
+- The unanswered-dialog warning is logged by `EventStreamOperator` as
+  "Operator dialog … got no response" (was "Pre-flight dialog …") — the
+  channel is no longer pre-flight-specific. Log wording only.
+
 ## [0.21.0] - 2026-07-07
 
 ### Added
