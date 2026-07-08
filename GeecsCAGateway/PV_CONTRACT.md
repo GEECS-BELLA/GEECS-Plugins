@@ -76,9 +76,19 @@ authoritative bidirectional map in `GeecsCaGateway.manifest`
 
 ### Setpoint PVs — `:SP`
 
-A variable whose DB `set` flag is `yes` gets a companion setpoint PV at the
-literal suffix `:SP` appended to the full readback name. Non-settable variables
-(including the intrinsic timestamp variables) have **no** `:SP` PV.
+A variable whose **`devicetype_variable.set`** flag is `yes` gets a companion
+setpoint PV at the literal suffix `:SP` appended to the full readback name.
+Non-settable variables (including the intrinsic timestamp variables) have
+**no** `:SP` PV.
+
+Table precision (three DB tables carry a `set` flag with different meanings):
+the gateway's settable surface comes from `devicetype_variable.set` — the
+variable *class* capability, alongside min/max/units/tolerance/choices.
+`expt_device_variable.set` is a per-experiment *scan-write policy* flag (Master
+Control's scan start/end machinery) and plays no role in `:SP` creation;
+`expt_device_variable.get` selects the monitored/readback subscription set;
+`variable.set` is the per-device-instance definition table, not consumed by
+the gateway.
 
 ### Per-device status PV — `CONNECTED`
 
