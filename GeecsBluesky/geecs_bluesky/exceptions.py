@@ -32,6 +32,9 @@ __all__ = [
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsStaleDevicesError",
+    "ActionCheckFailedError",
+    "ActionPlanNotFoundError",
+    "ActionPlanCycleError",
 ]
 
 
@@ -163,3 +166,82 @@ class GeecsStaleDevicesError(GeecsError):
     operator-facing: it names the stale device(s), how stale they are, and
     what the dialog's options mean.
     """
+
+
+# ---------------------------------------------------------------------------
+# Action-plan errors — compiled ActionPlan execution (plans/action_compiler)
+# ---------------------------------------------------------------------------
+
+
+class ActionCheckFailedError(GeecsError):
+    """A ``check`` step read a value that did not match what the plan expected.
+
+    Raised by the compiled action plan (see
+    :func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) when a
+    ``check`` step's readback differs from its ``expected`` value.  This is
+    the strict-mode counterpart of the legacy ActionManager mismatch, which
+    prompted the operator and auto-aborted when headless — here the plan
+    always stops, so the mismatch is never papered over.  The message is
+    operator-facing: it names the device, the variable, what was expected,
+    and what actually came back.
+    """
+
+    def __init__(
+        self,
+        device: str,
+        variable: str,
+        expected: object,
+        actual: object,
+    ) -> None:
+        self.device = device
+        self.variable = variable
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"Check failed: {device}:{variable} read back {actual!r} but the "
+            f"plan expected {expected!r}. The action plan stopped here so the "
+            "mismatch can be looked at before anything else runs."
+        )
+
+
+class ActionPlanNotFoundError(GeecsError):
+    """A ``run`` step referenced a plan name that is not in the registry.
+
+    Raised while a compiled action plan executes a nested ``run`` step whose
+    ``plan`` name has no entry in the plan registry — typically a renamed or
+    deleted plan that something still points at.  The legacy ActionManager
+    raised ``ActionError("Action '<name>' is not defined.")`` for the same
+    situation.
+    """
+
+    def __init__(self, plan_name: str, known_plans: list[str] | None = None) -> None:
+        self.plan_name = plan_name
+        self.known_plans = sorted(known_plans) if known_plans else []
+        known = (
+            f" Known plans: {', '.join(self.known_plans)}."
+            if self.known_plans
+            else " The registry is empty."
+        )
+        super().__init__(
+            f"Action plan {plan_name!r} is not defined in the plan registry — "
+            f"it may have been renamed or removed.{known}"
+        )
+
+
+class ActionPlanCycleError(GeecsError):
+    """Nested ``run`` steps form a loop, so the plan would never finish.
+
+    Raised before recursing into a nested plan whose name is already on the
+    execution stack (for example plan A runs B, and B runs A again).  The
+    legacy ActionManager had no such guard — a cyclic library recursed until
+    Python's recursion limit; here the cycle is reported up front with the
+    chain of plan names that closes the loop.
+    """
+
+    def __init__(self, chain: list[str]) -> None:
+        self.chain = list(chain)
+        super().__init__(
+            "Action plans call each other in a loop and would never finish: "
+            + " -> ".join(self.chain)
+            + ". Remove one of the 'run' steps to break the cycle."
+        )
