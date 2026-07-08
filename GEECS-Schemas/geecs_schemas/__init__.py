@@ -30,6 +30,7 @@ from geecs_schemas.scan_request import (
     PositionList,
     PositionRange,
     Positions,
+    ScanAxis,
     ScanRequest,
     ScanRequestMode,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "AcquisitionMode",
     "ActionBindings",
     "PositionRange",
+    "ScanAxis",
     "PositionList",
     "Positions",
     "OptimizationSpec",

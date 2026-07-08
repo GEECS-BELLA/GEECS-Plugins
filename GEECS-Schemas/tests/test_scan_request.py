@@ -16,8 +16,12 @@ from geecs_schemas import (
 def make_step_request(**overrides):
     base = {
         "mode": "step",
-        "variable": "jet_z",
-        "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+        "axes": [
+            {
+                "variable": "jet_z",
+                "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+            }
+        ],
         "shots_per_step": 10,
         "save_set": "undulator_baseline",
         "trigger_profile": "htu_shot_control",
@@ -48,13 +52,19 @@ class TestScanRequest:
         assert again == request
 
     def test_vision_yaml_sketch_validates(self):
-        # The exact shape from vision doc §4.1.
+        # The vision doc §4.1 sketch, updated for the axes-list shape (the
+        # single variable/positions pair became a one-entry axes list when
+        # grid scans were added — maintainer scope addition, 2026-07-07).
         request = ScanRequest.model_validate(
             {
                 "schema_version": 1,
                 "mode": "step",
-                "variable": "jet_z",
-                "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+                "axes": [
+                    {
+                        "variable": "jet_z",
+                        "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+                    }
+                ],
                 "shots_per_step": 10,
                 "acquisition": "free_run",
                 "save_set": "undulator_baseline",
@@ -64,6 +74,56 @@ class TestScanRequest:
             }
         )
         assert request.actions.setup == ["pre_scan_ebeam"]
+
+    def test_two_axis_grid_round_trip(self):
+        request = make_step_request(
+            axes=[
+                {
+                    "variable": "jet_z",
+                    "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+                },
+                {
+                    "variable": "gas_pressure",
+                    "positions": {"values": [1.5, 2.0, 2.5]},
+                },
+            ]
+        )
+        assert [axis.variable for axis in request.axes] == [
+            "jet_z",
+            "gas_pressure",
+        ]
+        again = ScanRequest.model_validate(request.model_dump(mode="json"))
+        assert again == request
+
+    def test_grid_shape_and_step_count(self):
+        request = make_step_request(
+            axes=[
+                {
+                    "variable": "jet_z",
+                    "positions": {"start": 4.0, "end": 6.0, "step": 0.5},
+                },  # 5 positions — outermost (slowest) loop
+                {
+                    "variable": "gas_pressure",
+                    "positions": {"values": [1.5, 2.0, 2.5]},
+                },  # 3 positions — innermost (fastest) loop
+            ]
+        )
+        assert request.grid_shape() == (5, 3)
+        assert request.n_steps() == 15
+
+    def test_noscan_is_one_bin(self):
+        request = ScanRequest.model_validate({"mode": "noscan"})
+        assert request.grid_shape() == ()
+        assert request.n_steps() == 1
+
+    def test_duplicate_axis_variable_rejected(self):
+        with pytest.raises(ValidationError, match="more than once"):
+            make_step_request(
+                axes=[
+                    {"variable": "jet_z", "positions": {"values": [1.0]}},
+                    {"variable": "jet_z", "positions": {"values": [2.0]}},
+                ]
+            )
 
     def test_per_step_actions_slot(self):
         # The architecture's acceptance test: actions between scan steps are
@@ -75,17 +135,34 @@ class TestScanRequest:
         with pytest.raises(ValidationError, match="shots_per_stpe"):
             make_step_request(shots_per_stpe=10)
 
-    def test_step_requires_variable_and_positions(self):
-        with pytest.raises(ValidationError, match="variable"):
+    def test_step_requires_axes(self):
+        with pytest.raises(ValidationError, match="axes"):
             ScanRequest.model_validate({"mode": "step"})
+        with pytest.raises(ValidationError, match="axes"):
+            ScanRequest.model_validate({"mode": "step", "axes": []})
 
-    def test_noscan_forbids_variable(self):
-        with pytest.raises(ValidationError, match="only apply to 'step'"):
-            ScanRequest.model_validate({"mode": "noscan", "variable": "jet_z"})
+    def test_noscan_forbids_axes(self):
+        with pytest.raises(ValidationError, match="only applies to 'step'"):
+            ScanRequest.model_validate(
+                {
+                    "mode": "noscan",
+                    "axes": [{"variable": "jet_z", "positions": {"values": [1.0]}}],
+                }
+            )
+
+    def test_optimize_forbids_axes(self):
+        with pytest.raises(ValidationError, match="optimization' block"):
+            ScanRequest.model_validate(
+                {
+                    "mode": "optimize",
+                    "optimization": make_optimization_block(),
+                    "axes": [{"variable": "jet_z", "positions": {"values": [1.0]}}],
+                }
+            )
 
     def test_noscan_minimal(self):
         request = ScanRequest.model_validate({"mode": "noscan", "shots_per_step": 100})
-        assert request.positions is None
+        assert request.axes == []
         assert not request.background
 
     def test_optimize_requires_block(self):
@@ -114,9 +191,12 @@ class TestScanRequest:
             )
 
     def test_explicit_position_list(self):
-        request = make_step_request(positions={"values": [0.0, 0.5, 2.0]})
-        assert isinstance(request.positions, PositionList)
-        assert request.positions.to_values() == [0.0, 0.5, 2.0]
+        request = make_step_request(
+            axes=[{"variable": "jet_z", "positions": {"values": [0.0, 0.5, 2.0]}}]
+        )
+        positions = request.axes[0].positions
+        assert isinstance(positions, PositionList)
+        assert positions.to_values() == [0.0, 0.5, 2.0]
 
 
 class TestPositions:

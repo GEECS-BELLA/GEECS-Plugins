@@ -26,6 +26,12 @@ Design decisions carried from the legacy system:
 - ``actions.per_step`` exists from day one: "actions between scan steps" is
   composition (a named plan at the step boundary), never a new plan type —
   that is this schema's acceptance test (vision doc §4.5).
+- Step scans declare ``axes: [ScanAxis]`` (variable + positions per axis).
+  One axis is the legacy 1-D scan; several form an outer-product grid
+  (first axis outermost/slowest, last innermost/fastest). The schema is
+  axes-only — no top-level ``variable``/``positions`` aliases; converters do
+  the adapting. Grid *execution* lands in a later milestone; v1 has no
+  traversal-ordering options (see the class docstring).
 """
 
 from __future__ import annotations
@@ -150,6 +156,28 @@ class PositionList(SchemaModel):
 # Either shape works in YAML: {start, end, step} or {values: [...]}. The two
 # are disjoint under extra="forbid", so smart-union resolution is unambiguous.
 Positions = Union[PositionRange, PositionList]
+
+
+class ScanAxis(SchemaModel):
+    """One swept variable and the positions it visits.
+
+    A step scan sweeps one or more axes.  One axis is the familiar 1-D
+    scan; several axes form a grid — see :class:`ScanRequest` for how the
+    axes loop together.
+    """
+
+    variable: str = Field(
+        description=(
+            "The friendly name of the variable this axis sweeps (from the "
+            "experiment's scan-variables catalog)."
+        )
+    )
+    positions: Positions = Field(
+        description=(
+            "The positions this axis visits, either as {start, end, step} "
+            "or as {values: [...]}."
+        )
+    )
 
 
 class ActionBindings(SchemaModel):
@@ -335,10 +363,16 @@ class OptimizationSpec(SchemaModel):
 class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
-    Fill in the mode (sweep / stand still / optimize), the variable and
-    positions if sweeping, how many shots per position, and the names of the
-    save set, trigger profile, and action plans to use.  Saving a request
-    you like *is* a preset.
+    Fill in the mode (sweep / stand still / optimize), the axis (or axes) to
+    sweep, how many shots per position, and the names of the save set,
+    trigger profile, and action plans to use.  Saving a request you like
+    *is* a preset.
+
+    A step scan may sweep **one axis or several**.  With several axes the
+    scan visits every combination (a grid): the *first* axis in the list is
+    the outermost, slowest-changing loop and the *last* axis is the
+    innermost, fastest-changing one.  ``shots_per_step`` shots are taken at
+    each grid point, and each grid point is one bin in the scan data.
 
     Notes
     -----
@@ -346,35 +380,35 @@ class ScanRequest(VersionedSchemaModel):
     ``actions``) are resolved against the experiment's config library at
     submission time; this model checks shape and mode consistency, not name
     existence.
+
+    v1 grid semantics are a plain outer product in list order.  Traversal
+    ordering options (snake/raster, per-axis direction) are deliberately not
+    modelled yet; a future ``ordering`` field on this model is the
+    anticipated extension point.
     """
 
     mode: ScanRequestMode = Field(
         description=(
-            "What kind of scan: 'step' sweeps a variable, 'noscan' collects "
-            "shots without moving anything, 'optimize' lets an algorithm "
-            "pick the settings."
+            "What kind of scan: 'step' sweeps one or more axes, 'noscan' "
+            "collects shots without moving anything, 'optimize' lets an "
+            "algorithm pick the settings."
         )
     )
-    variable: Optional[str] = Field(
-        None,
+    axes: list[ScanAxis] = Field(
+        default_factory=list,
         description=(
-            "For step scans: the friendly name of the variable to sweep "
-            "(from the experiment's scan-variables catalog). Leave unset for "
-            "noscan and optimize."
-        ),
-    )
-    positions: Optional[Positions] = Field(
-        None,
-        description=(
-            "For step scans: the positions to visit, either as "
-            "{start, end, step} or as {values: [...]}."
+            "For step scans: what to sweep. One entry is a simple 1-D scan; "
+            "several entries form a grid visiting every combination, with "
+            "the first axis as the outermost (slowest) loop and the last as "
+            "the innermost (fastest). Leave empty for noscan and optimize."
         ),
     )
     shots_per_step: int = Field(
         1,
         ge=1,
         description=(
-            "How many shots to take at each scan position (or in total for a noscan)."
+            "How many shots to take at each scan position / grid point (or "
+            "in total for a noscan)."
         ),
     )
     acquisition: AcquisitionMode = Field(
@@ -451,19 +485,25 @@ class ScanRequest(VersionedSchemaModel):
             don't apply to the mode are set.
         """
         if self.mode is ScanRequestMode.STEP:
-            if self.variable is None:
-                raise ValueError("A 'step' scan needs 'variable' to say what to sweep.")
-            if self.positions is None:
+            if not self.axes:
                 raise ValueError(
-                    "A 'step' scan needs 'positions' (start/end/step or an "
-                    "explicit values list)."
+                    "A 'step' scan needs at least one entry in 'axes' to say "
+                    "what to sweep."
                 )
-        else:
-            if self.variable is not None or self.positions is not None:
-                raise ValueError(
-                    f"'variable' and 'positions' only apply to 'step' scans, "
-                    f"not {self.mode.value!r}."
-                )
+            seen: set[str] = set()
+            for axis in self.axes:
+                if axis.variable in seen:
+                    raise ValueError(
+                        f"Axis variable {axis.variable!r} appears more than "
+                        "once — each axis must sweep a different variable."
+                    )
+                seen.add(axis.variable)
+        elif self.axes:
+            raise ValueError(
+                f"'axes' only applies to 'step' scans, not "
+                f"{self.mode.value!r}. (An 'optimize' scan declares its "
+                "variables inside the 'optimization' block.)"
+            )
         if self.mode is ScanRequestMode.OPTIMIZE:
             if self.optimization is None:
                 raise ValueError(
@@ -475,3 +515,27 @@ class ScanRequest(VersionedSchemaModel):
         if self.trigger_variant is not None and self.trigger_profile is None:
             raise ValueError("'trigger_variant' needs 'trigger_profile' to be set too.")
         return self
+
+    def grid_shape(self) -> tuple[int, ...]:
+        """Return how many positions each axis visits, outermost first.
+
+        Returns
+        -------
+        tuple of int
+            One count per axis, in list order (empty for noscan/optimize).
+        """
+        return tuple(len(axis.positions.to_values()) for axis in self.axes)
+
+    def n_steps(self) -> int:
+        """Return the total number of grid points the scan visits.
+
+        Returns
+        -------
+        int
+            The product of the axis lengths; 1 when there are no axes (a
+            noscan is one motionless bin).
+        """
+        total = 1
+        for count in self.grid_shape():
+            total *= count
+        return total

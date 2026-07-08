@@ -13,7 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scanner config kind (vision doc §4):
   - `ScanRequest` — the one submission object (step / noscan / optimize,
     positions as range or explicit list, `actions.per_step` included, full
-    `optimization` block covering the legacy Xopt VOCS surface).
+    `optimization` block covering the legacy Xopt VOCS surface). Step scans
+    declare `axes: [ScanAxis]` — one axis is a 1-D scan, several form an
+    outer-product grid (first axis outermost/slowest); `grid_shape()` /
+    `n_steps()` derive the grid size. Schema-side only in this milestone;
+    grid execution lands later.
   - `SaveSet` — declarative what-to-record entries; `synchronous` / roles /
     `acq_timestamp` are derived, with the derivation rules documented.
   - `ScanVariables` — friendly-name catalog; `setpoint` / `motor` kinds plus

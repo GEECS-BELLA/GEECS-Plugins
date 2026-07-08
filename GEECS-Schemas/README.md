@@ -47,7 +47,9 @@ it yet — it lands first, consumers migrate to it converter-first.
 `SCHEMA_REGISTRY` in `geecs_schemas/__init__.py` maps the kind strings to the
 models for generic tooling.
 
-Supporting models: `PositionRange` / `PositionList`, `ActionBindings`
+Supporting models: `ScanAxis` (a step scan sweeps one axis or several — a
+multi-axis request is an outer-product grid, first axis outermost/slowest;
+schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
 (setup / **per_step** / closeout slots), `OptimizationSpec` (+
 `EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
 `SaveSetEntry` / `SaveRole`, `ScanVariable` / `PseudoScanVariable`,

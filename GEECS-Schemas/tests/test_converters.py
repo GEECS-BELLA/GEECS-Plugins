@@ -249,8 +249,11 @@ class TestPresets:
         conversion = convert_scan_preset(FIXTURES / "presets/00_focuscan.yaml")
         request = conversion.scan_request
         assert request.mode.value == "step"
-        assert request.variable == "Mode Imager Stage"
-        assert request.positions.start == -18.0
+        # legacy 1-D presets become a single-axis list
+        [axis] = request.axes
+        assert axis.variable == "Mode Imager Stage"
+        assert axis.positions.start == -18.0
+        assert request.grid_shape() == (17,)
         assert request.shots_per_step == 10
         assert conversion.element_names == ["LP-FocusDiagnostics"]
         assert_matches_golden(

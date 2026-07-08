@@ -31,8 +31,13 @@ EXAMPLES: dict[str, str] = {
     "scan_request": """\
 schema_version: 1
 mode: step
-variable: jet_z
-positions: {start: 4.0, end: 6.0, step: 0.5}
+axes:
+  - variable: jet_z
+    positions: {start: 4.0, end: 6.0, step: 0.5}
+  # add more axes to scan a grid — the first axis is the outermost
+  # (slowest) loop, the last the innermost (fastest), e.g.:
+  # - variable: gas_pressure
+  #   positions: {values: [1.5, 2.0, 2.5]}
 shots_per_step: 10
 acquisition: free_run
 save_set: undulator_baseline

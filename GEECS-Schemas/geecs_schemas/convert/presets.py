@@ -15,9 +15,11 @@ Legacy dialect (one file per preset under ``scan_presets/``)::
 
 Mapping:
 
-- ``1D Scan`` → ``mode: step`` with a :class:`PositionRange` (start→stop
-  direction preserved; legacy allowed a "descending" range with a positive
-  step size, which the new range keeps by ignoring the step's sign).
+- ``1D Scan`` → ``mode: step`` with a single-entry ``axes`` list whose
+  positions are a start/end/step range (start→stop direction preserved;
+  legacy allowed a "descending" range with a positive step size, which the
+  new range keeps by ignoring the step's sign).  Legacy presets are always
+  1-D; multi-axis grids are a new-schema capability.
 - ``No Scan`` → ``mode: noscan`` with ``shots_per_step = Num Shots`` (one
   motionless bin).
 - ``Background`` → ``mode: noscan`` + ``background: true`` — background was
@@ -201,12 +203,17 @@ def convert_scan_preset(
                 raise SchemaConversionError(
                     f"{context}: 1D Scan preset is missing {key!r}."
                 )
-        request["variable"] = document["Variable"]
-        request["positions"] = {
-            "start": document["Start"],
-            "end": document["Stop"],
-            "step": document["Step Size"],
-        }
+        # Legacy presets are always 1-D: one entry in the new axes list.
+        request["axes"] = [
+            {
+                "variable": document["Variable"],
+                "positions": {
+                    "start": document["Start"],
+                    "end": document["Stop"],
+                    "step": document["Step Size"],
+                },
+            }
+        ]
         request["shots_per_step"] = document["Shot per Step"]
     else:
         if "Num Shots" not in document:

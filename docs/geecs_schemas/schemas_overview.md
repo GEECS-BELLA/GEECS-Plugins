@@ -13,7 +13,9 @@ The one document you actually submit. It says whether you're sweeping a
 variable (`step`), standing still collecting shots (`noscan`), or letting an
 optimizer drive (`optimize`); which positions to visit and how many shots to
 take at each; and — by name — which save set, trigger profile, and action
-plans to use. A saved preset *is* a scan request.
+plans to use. A step scan can sweep one axis or several — several axes form
+a grid, with the first axis as the slowest loop and the last as the fastest.
+A saved preset *is* a scan request.
 
 **Save set — "what data gets recorded?"**
 The shopping list of devices to save: for each device, which scalar readings
@@ -51,7 +53,7 @@ flowchart LR
     AP["Action plans<br/><i>setup / per-step / closeout</i>"]
     SCAN(("the scan"))
 
-    SR -- "variable: jet_z" --> SV
+    SR -- "axes: jet_z, ..." --> SV
     SR -- "save_set: baseline" --> SS
     SR -- "trigger_profile: htu" --> TP
     SR -- "actions: [...]" --> AP
