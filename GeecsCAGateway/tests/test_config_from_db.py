@@ -6,7 +6,11 @@ Exercises the pure ``DeviceSpec.from_db_metadata`` core using rows shaped like
 
 from __future__ import annotations
 
+import pytest
+
+from geecs_ca_gateway.alarms import AlarmLimits
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
+from geecs_ca_gateway.db.geecs_db import GeecsDb
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -32,6 +36,58 @@ def test_from_db_metadata_maps_units_limits_settable() -> None:
 
     # units default to empty; missing limits stay None
     assert by_name["IPAddress"].lo is None and by_name["IPAddress"].hi is None
+
+
+def test_alarm_limits_validate_order_and_presence() -> None:
+    """Curated alarm limits must be explicit and monotonic."""
+    limits = AlarmLimits(low=1.0, high=5.0)
+    assert limits.low == 1.0
+    with pytest.raises(ValueError, match="at least one"):
+        AlarmLimits()
+    with pytest.raises(ValueError, match="increase"):
+        AlarmLimits(low=5.0, high=1.0)
+
+
+def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> None:
+    """DB alarm rows attach only to served numeric readback variables."""
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_experiment_devices",
+        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ("h", 1)}),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_experiment_device_variables",
+        classmethod(
+            lambda cls, experiment, enabled_only=True: {
+                "U_A": [
+                    {
+                        "name": "Current",
+                        "units": "A",
+                        "min": -5.0,
+                        "max": 5.0,
+                        "settable": True,
+                        "variabletype": "numeric",
+                    }
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_subscribed_variables",
+        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ["Current"]}),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_ca_alarm_limits",
+        classmethod(
+            lambda cls, experiment: {("U_A", "Current"): AlarmLimits(high=4.0)}
+        ),
+    )
+
+    cfg = GatewayConfig.from_geecs_experiment("Undulator")
+    assert cfg.devices[0].variables[0].alarm_limits == AlarmLimits(high=4.0)
 
 
 def test_include_filters_variables() -> None:

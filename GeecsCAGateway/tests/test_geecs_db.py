@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import types
 
-
+from geecs_ca_gateway.alarms import AlarmLimits, AlarmSeverityName
 from geecs_ca_gateway.db import geecs_db
 from geecs_ca_gateway.db.geecs_db import GeecsDb
 
@@ -180,3 +180,67 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False
+
+
+def test_get_ca_alarm_limits_returns_validated_rows(monkeypatch) -> None:
+    """Optional alarm-limit rows are keyed by device/variable."""
+    queries: list = []
+    _patch_rows(
+        monkeypatch,
+        [
+            (
+                "Undulator",
+                "U_A",
+                "Current",
+                None,
+                "1.0",
+                "4.0",
+                "5.0",
+                None,
+                "MINOR",
+                "MINOR",
+                "MAJOR",
+                "0.1",
+                "current alarm",
+            )
+        ],
+        queries,
+    )
+
+    result = GeecsDb.get_ca_alarm_limits("Undulator")
+    assert queries and "ca_alarm_limits" in queries[0][0]
+    assert result == {
+        ("U_A", "Current"): AlarmLimits(
+            low=1.0,
+            high=4.0,
+            hihi=5.0,
+            high_severity=AlarmSeverityName.MINOR,
+            hihi_severity=AlarmSeverityName.MAJOR,
+            hysteresis=0.1,
+            description="current alarm",
+        )
+    }
+
+
+def test_get_ca_alarm_limits_missing_table_is_fail_open(monkeypatch) -> None:
+    """The optional alarm table can be absent during rollout."""
+
+    class _Cursor:
+        def execute(self, _query: str, _params: tuple) -> None:
+            raise RuntimeError("table does not exist")
+
+    class _Connection:
+        def cursor(self) -> _Cursor:
+            return _Cursor()
+
+        def close(self) -> None:
+            pass
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(geecs_db, "_connect_mysql", lambda _connector: _Connection())
+
+    assert GeecsDb.get_ca_alarm_limits("Undulator") == {}

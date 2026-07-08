@@ -13,6 +13,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .alarms import AlarmLimits
 from .naming import normalize_pv_component
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ class VariableSpec(BaseModel):
     hi: float | None = None
     choices: list[str] = Field(default_factory=list)  # ordered options for enum
     deadband: float = 0.0  # float monitor deadband; only post when |Δ| > deadband
+    alarm_limits: AlarmLimits | None = None
 
     @property
     def pv_suffix(self) -> str:
@@ -357,6 +359,7 @@ class GatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
+        alarm_map = GeecsDb.get_ca_alarm_limits(experiment)
         sub_map: dict[str, list[str]] = {}
         if subscribed_only:
             sub_map = GeecsDb.get_subscribed_variables(
@@ -399,7 +402,29 @@ class GatewayConfig(BaseModel):
                     name,
                 )
                 continue
+            for var in spec.variables:
+                alarm_limits = alarm_map.get((name, var.geecs_var))
+                if alarm_limits is None:
+                    continue
+                if var.dtype not in ("float", "int"):
+                    logger.warning(
+                        "from_geecs_experiment: ignoring alarm limits for "
+                        "%s/%s because dtype=%s is not numeric",
+                        name,
+                        var.geecs_var,
+                        var.dtype,
+                    )
+                    continue
+                var.alarm_limits = alarm_limits
             devices.append(spec)
+        served = {(dev.name, var.geecs_var) for dev in devices for var in dev.variables}
+        for device, variable in sorted(set(alarm_map) - served):
+            logger.warning(
+                "from_geecs_experiment: ignoring alarm limits for %s/%s because "
+                "that variable is not served by the gateway",
+                device,
+                variable,
+            )
         logger.info(
             "from_geecs_experiment(%s): built %d/%d device spec(s)",
             experiment,

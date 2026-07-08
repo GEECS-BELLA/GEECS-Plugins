@@ -22,6 +22,9 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from pydantic import ValidationError
+
+from geecs_ca_gateway.alarms import AlarmLimits
 from geecs_ca_gateway.exceptions import GeecsDeviceNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -113,6 +116,26 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "choices": row[6],
         "tolerance": _num(row[7]),
     }
+
+
+def _alarm_row_to_limits(row: tuple) -> AlarmLimits:
+    """Map a ``ca_alarm_limits`` row onto an :class:`AlarmLimits` model.
+
+    Row order is the SELECT order in :meth:`GeecsDb.get_ca_alarm_limits`, after
+    experiment/device/variable.
+    """
+    return AlarmLimits(
+        lolo=_num(row[0]),
+        low=_num(row[1]),
+        high=_num(row[2]),
+        hihi=_num(row[3]),
+        lolo_severity=row[4] or "MAJOR",
+        low_severity=row[5] or "MINOR",
+        high_severity=row[6] or "MINOR",
+        hihi_severity=row[7] or "MAJOR",
+        hysteresis=_num(row[8]),
+        description=row[9] or "",
+    )
 
 
 class GeecsDb:
@@ -427,4 +450,78 @@ class GeecsDb:
         result: dict[str, list[dict]] = {}
         for row in rows:
             result.setdefault(row[0], []).append(_variable_row_to_meta(row[1:]))
+        return result
+
+    @classmethod
+    def get_ca_alarm_limits(cls, experiment: str) -> dict[tuple[str, str], AlarmLimits]:
+        """Return enabled curated CA alarm limits for *experiment*.
+
+        The ``ca_alarm_limits`` table is an optional overlay.  If the table is
+        absent during rollout, or if the lookup otherwise fails, the gateway
+        starts with no value alarms rather than failing the whole IOC.  Invalid
+        rows are skipped with a warning.
+
+        Parameters
+        ----------
+        experiment : str
+            GEECS experiment name.
+
+        Returns
+        -------
+        dict
+            ``(device, variable)`` → validated alarm limits.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        try:
+            conn = _connect_mysql(mysql.connector)
+        except Exception:
+            logger.info(
+                "ca_alarm_limits lookup failed before query; starting without "
+                "curated value alarms",
+                exc_info=True,
+            )
+            return {}
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(
+                    "SELECT experiment, device, `variable`, "
+                    "lolo, low, high, hihi, "
+                    "lolo_severity, low_severity, high_severity, hihi_severity, "
+                    "hysteresis, description "
+                    "FROM ca_alarm_limits "
+                    "WHERE experiment = %s AND enabled = TRUE "
+                    "ORDER BY device, variable",
+                    (experiment,),
+                )
+                rows = cur.fetchall()
+            except Exception:
+                logger.info(
+                    "ca_alarm_limits lookup failed or table is absent; "
+                    "starting without curated value alarms",
+                    exc_info=True,
+                )
+                return {}
+        finally:
+            conn.close()
+
+        result: dict[tuple[str, str], AlarmLimits] = {}
+        for row in rows:
+            _experiment, device, variable = row[:3]
+            try:
+                result[(device, variable)] = _alarm_row_to_limits(row[3:])
+            except ValidationError:
+                logger.warning(
+                    "skipping invalid ca_alarm_limits row for %s/%s in %s",
+                    device,
+                    variable,
+                    experiment,
+                    exc_info=True,
+                )
         return result

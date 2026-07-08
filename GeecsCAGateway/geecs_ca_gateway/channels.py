@@ -243,6 +243,16 @@ def _metadata_kwargs(spec: VariableSpec) -> dict[str, Any]:
             kwargs["lower_disp_limit"] = spec.lo
         if spec.hi is not None:
             kwargs["upper_disp_limit"] = spec.hi
+        if spec.alarm_limits is not None:
+            limits = spec.alarm_limits
+            if limits.lolo is not None:
+                kwargs["lower_alarm_limit"] = limits.lolo
+            if limits.low is not None:
+                kwargs["lower_warning_limit"] = limits.low
+            if limits.high is not None:
+                kwargs["upper_warning_limit"] = limits.high
+            if limits.hihi is not None:
+                kwargs["upper_alarm_limit"] = limits.hihi
     return kwargs
 
 
