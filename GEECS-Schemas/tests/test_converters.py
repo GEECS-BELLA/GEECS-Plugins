@@ -48,6 +48,12 @@ class TestSaveElements:
         # the element's ritual travels with the entry as a name reference
         assert entry.setup == ["UC_Aline1_setup"]
         assert entry.closeout == []
+        # converted legacy elements preserve exact legacy behavior: the
+        # converter emits an EXPLICIT db_scalars=False (the DB-first True
+        # default is for new configs only) and never populates the
+        # start/end override maps
+        assert entry.db_scalars is False
+        assert entry.at_scan_start == {} and entry.at_scan_end == {}
         assert_matches_golden(
             {
                 "save_set": result.save_set.model_dump(mode="json"),
@@ -136,6 +142,24 @@ class TestScanVariables:
         assert pseudo.targets[1].forward == "100 - composite_var"
         assert_matches_golden(
             catalog.model_dump(mode="json"), "thomson_scan_variables.json"
+        )
+
+    def test_undulator_pair_converts(self):
+        # Undulator is the primary experiment: 49 simple variables + 12
+        # composites at the time of copying.
+        catalog = convert_scan_variables(
+            FIXTURES / "scan_devices/scan_devices_undulator.yaml",
+            FIXTURES / "scan_devices/composite_variables_undulator.yaml",
+        )
+        assert catalog.variables["JetZ (mm)"].target == ("U_ESP_JetXYZ:Position.Axis 3")
+        pseudo = catalog.variables["R56_at_100MeV"]
+        assert pseudo.kind == "pseudo"
+        assert pseudo.mode.value == "absolute"
+        assert pseudo.targets[0].forward == (
+            "sqrt(100 ** 2 * composite_var / 560968.636)"
+        )
+        assert_matches_golden(
+            catalog.model_dump(mode="json"), "undulator_scan_variables.json"
         )
 
     def test_name_collision_fails_loudly(self):

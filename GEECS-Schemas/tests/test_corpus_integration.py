@@ -76,6 +76,14 @@ class TestFullCorpus:
             for path in sorted(experiment.glob("save_devices/*.yaml")):
                 result = convert_save_element(path)
                 assert result.save_set is not None or result.actions, path
+                # converted legacy elements preserve exact legacy behavior:
+                # explicit db_scalars=False on EVERY entry (the DB-first
+                # True default is for new configs only), start/end override
+                # maps untouched
+                for entry in result.save_set.entries if result.save_set else []:
+                    assert entry.db_scalars is False, path
+                    assert entry.at_scan_start == {}, path
+                    assert entry.at_scan_end == {}, path
                 converted += 1
         assert converted >= 70  # 71 files at the time of writing
 

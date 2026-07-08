@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from geecs_schemas import SaveRole, SaveSet
+from geecs_schemas import SaveRole, SaveSet, SaveSetEntry
 
 
 def make_save_set(**overrides):
@@ -81,4 +81,67 @@ class TestSaveSet:
                         "setup": [{"steps": [{"do": "wait", "seconds": 1}]}],
                     }
                 ]
+            )
+
+
+class TestDbScanDefaults:
+    def test_override_three_cases(self):
+        # value = replace the DB's write; null = suppress it; absent =
+        # inherit the DB behavior untouched.
+        save_set = make_save_set(
+            entries=[
+                {
+                    "device": "UC_ALineEbeam1",
+                    "at_scan_start": {"Analysis": "on", "exposure": None},
+                    "at_scan_end": {"Analysis": None},
+                }
+            ]
+        )
+        [entry] = save_set.entries
+        assert entry.at_scan_start["Analysis"] == "on"  # replace
+        assert entry.at_scan_start["exposure"] is None  # suppress
+        assert "trigger" not in entry.at_scan_start  # inherit (absent)
+        assert entry.at_scan_end == {"Analysis": None}
+
+    def test_null_suppression_round_trips_through_yaml(self):
+        yaml = pytest.importorskip("yaml")
+        document = yaml.safe_load(
+            """
+            device: UC_ALineEbeam1
+            at_scan_start:
+              Analysis: "on"
+              exposure: null
+            at_scan_end:
+              save: null
+            """
+        )
+        entry = SaveSetEntry.model_validate(document)
+        assert entry.at_scan_start == {"Analysis": "on", "exposure": None}
+        assert entry.at_scan_end == {"save": None}
+        # dump → YAML → reload keeps the explicit nulls distinct from absence
+        dumped = yaml.safe_load(yaml.safe_dump(entry.model_dump(mode="json")))
+        again = SaveSetEntry.model_validate(dumped)
+        assert again == entry
+        assert again.at_scan_start["exposure"] is None
+
+    def test_new_entry_defaults_are_db_first(self):
+        # New configs are DB-first: a required device records its standard
+        # telemetry (get='yes') by default; 'scalars' adds extras on top.
+        # Override maps start empty.
+        save_set = make_save_set()
+        for entry in save_set.entries:
+            assert entry.db_scalars is True
+            assert entry.at_scan_start == {}
+            assert entry.at_scan_end == {}
+
+    def test_db_scalars_opt_out(self):
+        # Explicit opt-out records only the listed scalars — exactly what
+        # the converter emits for every legacy element.
+        save_set = make_save_set(entries=[{"device": "X", "db_scalars": False}])
+        assert save_set.entries[0].db_scalars is False
+
+    def test_non_string_override_value_rejected(self):
+        with pytest.raises(ValidationError, match="at_scan_start"):
+            make_save_set(
+                entries=[{"device": "X", "at_scan_start": {"Analysis": ["on"]}}]
             )

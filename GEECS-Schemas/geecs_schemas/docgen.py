@@ -51,12 +51,16 @@ description: "jet z scan with probe"
     "save_set": """\
 schema_version: 1
 name: undulator_baseline
+# the REQUIRED devices — everything else is still logged in the background
 entries:
   - device: UC_Amp4_IR_input
-    images: true
-    scalars: [MaxCounts, centroidx]
+    images: true                     # images are always required-tier
+    scalars: [MaxCounts, centroidx]  # extras beyond the DB's standard telemetry
   - device: U_HP_Daq
+    db_scalars: false                # record ONLY the listed scalars, not the DB set
     scalars: [AnalogOutput.Channel 1]
+    at_scan_start: {Analysis: "on"}  # replace the DB's scan-start value
+    at_scan_end: {Analysis: null}    # suppress the DB's scan-end write
   - device: U_BCaveHallProbe
     scalars: [Field, Rawfield]
     role: snapshot
@@ -163,6 +167,7 @@ trigger_profile: htu_shot_control
 actions:
   setup: [pre_scan_checklist]
   closeout: [experiment_closeout]
+background_telemetry: true   # soft-log every live device not in the save set
 description: "HTU standing defaults"
 """,
 }
