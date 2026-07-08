@@ -28,7 +28,7 @@ at whatever is alive that day:
 ``GEECS_HW_EXPERIMENT``      experiment name (default ``Undulator``)
 ``GEECS_HW_CAMERA``          save-set name — a corpus save element /
                              save set file stem under ``save_devices/``
-                             (default ``UC_Amp4_IR_input``)
+                             (default ``Amp4In``)
 ``GEECS_HW_TRIGGER_PROFILE`` trigger profile / shot-control config file
                              stem (default ``HTU-LaserOFF`` — the
                              corpus laser-off config: internal
@@ -66,7 +66,7 @@ def test_scan_request_noscan_runs_on_hardware() -> None:
     from geecs_schemas import ScanRequest
 
     experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
-    camera_save_set = os.environ.get("GEECS_HW_CAMERA", "UC_Amp4_IR_input")
+    camera_save_set = os.environ.get("GEECS_HW_CAMERA", "Amp4In")
     trigger_profile = os.environ.get("GEECS_HW_TRIGGER_PROFILE", "HTU-LaserOFF")
     acquisition = os.environ.get("GEECS_HW_ACQUISITION", "strict")
     shots = int(os.environ.get("GEECS_HW_SHOTS", "5"))
