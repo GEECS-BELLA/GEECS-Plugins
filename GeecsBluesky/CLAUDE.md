@@ -51,13 +51,22 @@ geecs_bluesky/
   scan_request_runner.py    # run a geecs_schemas.ScanRequest: ConfigResolver
                             #   protocol + ConfigsRepoResolver (new-schema YAML
                             #   or legacy-convert), SaveSet→devices_config and
-                            #   TriggerProfile→ShotControlConfig adapters
+                            #   TriggerProfile→ShotControlWrites (ordered,
+                            #   multi-device) adapters, action slot assembly
+                            #   (§4.4b layers) + compile + signal prefetch,
+                            #   multi-axis grid execution
   scanner_bridge/
     bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible GUI bridge
                             #   (reinitialize also accepts a ScanRequest)
   plans/
-    orchestration.py        # build_step_scan_plan — THE one scan recipe (both front doors)
-    step_scan.py            # geecs_step_scan — step scan (motor optional; hooks)
+    orchestration.py        # build_step_scan_plan — THE one scan recipe (both front
+                            #   doors); setup/per_step/closeout action hooks +
+                            #   finalize nesting (save-off → disarm → closeout)
+    action_compiler.py      # compile_action_plan — ActionPlan → plan stubs
+                            #   (legacy ActionManager semantics pinned; signals
+                            #   from an injected SettableFactory)
+    step_scan.py            # geecs_step_scan — step scan (motor optional OR a
+                            #   motor list = multi-axis grid; per_step hook)
     free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
     optimize.py             # geecs_adaptive_scan — optimization as a scan (iteration = bin)
     single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
@@ -71,6 +80,9 @@ geecs_bluesky/
       snapshot.py           # CaSnapshotReadable — async readback
       settable.py           # CaSettable — put :SP, read streamed readback
       motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
+      action_signals.py     # CaActionSignalFactory — the production
+                            #   SettableFactory for compiled action plans
+                            #   (cached :SP settables + str readbacks)
     shot_id.py              # ShotIdTracker + ShotIdSupport mixin (schema-v1 columns)
     nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
     contributor.py          # FreeRunContributorSupport — reference-relative labeling
@@ -167,10 +179,19 @@ States are `ShotControlState`: `OFF`, `SCAN`, `STANDBY`, `SINGLESHOT`, `ARMED`.
 `values_for_state(state)` returns the `{var: value}` writes for a state, skipping
 empty-string no-ops (matching legacy `TriggerController`).
 
-`ShotController` (`shot_controller.py`) drives the shot-control device through
-its named states as plan stubs, via `CaPutSetter`s writing the gateway `:SP`
-PVs (put-completion rides GEECS's blocking set). Both `BlueskyScanner` and
-`GeecsSession` use it:
+`ShotController` (`shot_controller.py`) drives the shot-control device(s)
+through named states as plan stubs, via `CaPutSetter`s writing the gateway
+`:SP` PVs (put-completion rides GEECS's blocking set). Two construction
+paths: the legacy single-device `ShotControlConfig` + one setter per
+variable (state writes issued concurrently — byte-identical to the
+pre-M3b behavior, and untouched for the scanner path), and
+`ShotController.from_writes(ShotControlWrites)` — generalized per-state
+**ordered** `(device, variable, value)` lists, possibly spanning several
+devices (TriggerProfile semantics: writes replayed top to bottom, each
+completing before the next; one cached `CaPutSetter` per distinct target).
+`trigger_writes_from_profile` (scan_request_runner) adapts a TriggerProfile
+into that shape; `GeecsSession.shot_control` accepts either generation.
+Both `BlueskyScanner` and `GeecsSession` use it:
 
 - `arm()` → `SCAN`, `disarm()` → `STANDBY` (per-step bracketing on the
   free-running modes; jet on during shots, off during moves)
@@ -332,15 +353,29 @@ Operator interaction is one seam: `operator_channel.OperatorChannel`
 headless default-and-log).  Pre-flight is a pipeline
 (`preflight.run_preflight`); new checks are list entries.
 
-`ScanRequest` execution (`scan_request_runner` / `GeecsSession.run` /
-`reinitialize(ScanRequest)`) validates-then-refuses the documented v1 gaps:
-multi-axis grids, action bindings (names validated now — request-level and
-SaveSet entry-level alike; execution lands with the ActionPlan compiler
-milestone), pseudo scan variables, `all_scalars`, multi-device trigger
-profiles (single-device fast path only), optimize without an injected
-objective/suggester.  Experiment defaults (`experiment_defaults.yaml`) fill
-request fields left unset — never overriding explicit values — and every
-applied default is recorded into the run metadata for provenance.
+`ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
+the full schema surface as of 0.23.0 (M3b): **actions execute**
+(request-level setup/per_step/closeout, SaveSet entry rituals de-duplicated
+by name, ExperimentDefaults plans — assembled in §4.4b nesting order:
+defaults → entries → request on setup, exact mirror on closeout; the
+assembled order is recorded in run metadata as `action_plans`), **multi-axis
+grids execute** (outer product, first axis outermost; only changed axes
+re-moved; every axis readback in every event row; `scan_axes`/`grid_shape`
+metadata), and **multi-device trigger profiles execute** (ordered write
+lists via `ShotControlWrites`).  Action plans compile via
+`plans/action_compiler.py` against the session's `CaActionSignalFactory`;
+every signal is prefetched/connected pre-claim (a lazy connect inside the
+RE loop would deadlock).  Names still resolve fail-fast pre-claim.
+Remaining validated-then-refused v1 gaps: pseudo scan variables,
+`all_scalars`, optimize without an injected objective/suggester, and
+actions on optimize-mode requests (`GeecsSession.optimize` has no action
+hooks yet).  The GUI bridge's `reinitialize(ScanRequest)` still refuses
+actions/multi-axis with a pointer to `GeecsSession.run` — routing them
+through the bridge is the GUI submission milestone.  Experiment defaults
+(`experiment_defaults.yaml`) fill request fields left unset — never
+overriding explicit values — and every applied default is recorded into
+the run metadata for provenance (closeout defaults append *after* the
+scan's own since geecs-schemas 0.2.0 — mirrored teardown).
 
 ## Known Gaps (as of 0.21.0)
 
@@ -375,8 +410,12 @@ Remaining items are features/tuning, not architecture — see
   The evaluator seam is `EvaluatorDataSource` in
   `geecs_scanner.optimization.base_evaluator`; this package stays free of any
   geecs_scanner import (dependency direction).
-- **Pre/post-scan action sequences not implemented** (`setup_action` /
-  `closeout_action`); the legacy scanner runs these through `ActionManager`.
+- **Pre/post-scan action sequences run on the ScanRequest path only.**
+  `GeecsSession.run(request)` executes setup/per_step/closeout ActionPlans
+  (0.23.0); the legacy `exec_config` path and the GUI bridge still skip
+  `setup_action` / `closeout_action` (legacy elements' actions *are*
+  executed when the element is resolved as a save set through a
+  ScanRequest — the converter extracts them into entry rituals).
 - **Scan-folder creation invariant:** `claim_scan_number`
   (`plans/run_wrapper.py`) is the one place (outside the GUI's `ScanDataManager`)
   allowed to create a `scans/ScanNNN/` folder.  It logs a warning and returns

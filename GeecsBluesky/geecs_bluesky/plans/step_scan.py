@@ -52,7 +52,7 @@ Example::
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
@@ -61,15 +61,98 @@ from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.plans.single_shot import geecs_single_shot
 
 
+def normalize_motors(motor: Any | Sequence[Any] | None) -> list[Any]:
+    """Return the motor argument as a list (``None`` → ``[]``).
+
+    Step plans accept a single Movable (the classic 1-D scan), a sequence of
+    Movables (a multi-axis grid — one per axis, outermost first), or ``None``
+    (statistics collection).
+
+    Parameters
+    ----------
+    motor : Movable, sequence of Movable, or None
+        The scan axis (or axes).
+
+    Returns
+    -------
+    list
+        The motors, outermost axis first.
+    """
+    if motor is None:
+        return []
+    if isinstance(motor, (list, tuple)):
+        return list(motor)
+    return [motor]
+
+
+def motor_md(motors: list[Any]) -> Any:
+    """Start-document ``motor`` metadata: name, list of names, or ``None``."""
+    if not motors:
+        return None
+    names = [getattr(m, "name", str(m)) for m in motors]
+    return names[0] if len(names) == 1 else names
+
+
+def move_changed_axes(motors: list[Any], position: Any, previous: tuple | None):
+    """Plan stub: move only the axes whose target changed; return the targets.
+
+    A grid point is a tuple aligned with *motors* (a bare float is the 1-D
+    case).  With the outer product ordering (first axis outermost, last
+    innermost) the innermost axis changes at every grid point while outer
+    axes change rarely — moving only the changed axes avoids re-commanding
+    stationary hardware.  Changed axes are moved **concurrently** via
+    ``bps.mv`` (waits for all).
+
+    Parameters
+    ----------
+    motors : list
+        The scan axes, outermost first.
+    position : float or tuple
+        The grid point to move to (tuple aligned with *motors*).
+    previous : tuple or None
+        The previous grid point (``None`` on the first step — every axis is
+        moved).
+
+    Yields
+    ------
+    Msg
+        Bluesky messages for the move.
+
+    Returns
+    -------
+    tuple
+        The targets just commanded (pass back as *previous* next step).
+
+    Raises
+    ------
+    ValueError
+        If the grid point's length does not match the number of motors.
+    """
+    targets = tuple(position) if isinstance(position, (list, tuple)) else (position,)
+    if len(targets) != len(motors):
+        raise ValueError(
+            f"grid point {targets!r} has {len(targets)} value(s) for "
+            f"{len(motors)} motor(s) — positions must align with the axes"
+        )
+    args: list[Any] = []
+    for m, target, prev in zip(motors, targets, previous or (None,) * len(motors)):
+        if prev is None or target != prev:
+            args.extend([m, target])
+    if args:
+        yield from bps.mv(*args)
+    return targets
+
+
 def geecs_step_scan(
-    motor: Any | None,
-    positions: Iterable[float | None],
+    motor: Any | Sequence[Any] | None,
+    positions: Iterable[Any],
     detectors: list[Any],
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
     disarm_trigger: Callable | None = None,
     fire_shot: Callable | None = None,
     setup_trigger: Callable | None = None,
+    per_step: Callable | None = None,
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -82,12 +165,18 @@ def geecs_step_scan(
         pressure controller, etc. (anything with ``set() → status``, e.g.
         built on :class:`~geecs_bluesky.devices.settable.GeecsSettable`).
         The name follows the bluesky ``scan(detectors, motor, ...)``
-        convention.  ``None`` means no scan variable is moved — statistics
-        collection (the former "NOSCAN" mode); pass ``positions=[None]`` for a
-        single no-move bin.
+        convention.  A **sequence** of Movables is a multi-axis grid scan
+        (one motor per axis, outermost first; each position is then a tuple
+        aligned with the motors).  ``None`` means no scan variable is moved —
+        statistics collection (the former "NOSCAN" mode); pass
+        ``positions=[None]`` for a single no-move bin.
     positions:
-        Iterable of motor positions to visit.  A ``None`` entry is a bin with
-        no motor move (used with ``motor=None``).
+        Iterable of motor positions to visit — floats for a single motor,
+        tuples (one value per motor, outermost axis first) for a grid.  A
+        ``None`` entry is a bin with no motor move (used with
+        ``motor=None``).  At each grid point only the axes whose target
+        changed are re-moved (the innermost axis varies fastest under the
+        outer-product ordering).
     detectors:
         List of :class:`~bluesky.protocols.Readable` / Triggerable devices
         to read at each shot.  The motor is included
@@ -116,6 +205,13 @@ def geecs_step_scan(
         the free-run has stopped (``ARMED`` + quiescence check) — a one-time
         action, distinct from per-step ``arm_trigger``.  Teardown is the
         caller's outer finalize (e.g. disarm to STANDBY).
+    per_step:
+        Optional plan-stub callable run at **every** step boundary — after
+        the move to that step's position completes, before that step's
+        shots.  This is where a ScanRequest's ``actions.per_step`` plans
+        land (vision doc §4.5: per-step actions are a hook plus a named
+        plan, never a new plan type).  In strict mode every shot is
+        plan-owned, so the machine is quiescent while per-step actions run.
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -136,10 +232,9 @@ def geecs_step_scan(
       collected, not during motor moves.
     """
     _positions = list(positions)
+    _motors = normalize_motors(motor)
     scan_context = ScanContext()
-    _read_devices = (
-        list(detectors) + ([motor] if motor is not None else []) + [scan_context]
-    )
+    _read_devices = list(detectors) + _motors + [scan_context]
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_step_scan",
@@ -147,7 +242,7 @@ def geecs_step_scan(
         "geecs_event_schema": 1,
         # True when the plan fires each shot (strict single-shot).
         "fires_own_shots": fire_shot is not None,
-        "motor": getattr(motor, "name", None) if motor is not None else None,
+        "motor": motor_md(_motors),
         "detectors": [getattr(d, "name", str(d)) for d in detectors],
         "positions": _positions,
         "shots_per_step": shots_per_step,
@@ -160,9 +255,14 @@ def geecs_step_scan(
         if setup_trigger is not None:
             yield from setup_trigger()
         scan_event_index = 0
+        previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
-            if motor is not None and pos is not None:
-                yield from bps.mv(motor, pos)
+            if _motors and pos is not None:
+                previous = yield from move_changed_axes(_motors, pos, previous)
+            if per_step is not None:
+                # After the move, before this step's plan-owned shots — the
+                # machine is quiescent here (strict fires each shot itself).
+                yield from per_step()
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):

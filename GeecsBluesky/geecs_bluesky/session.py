@@ -38,17 +38,19 @@ from bluesky import RunEngine
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
+    CaActionSignalFactory,
     CaGenericDetector,
     CaMotor,
     CaSettable,
     CaSnapshotReadable,
     CaTimestampedReadable,
 )
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.optimize import BinData, Suggester
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
+from geecs_bluesky.plans.step_scan import normalize_motors
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -274,40 +276,70 @@ class GeecsSession:
             )
         )
 
+    def action_signal_factory(self) -> CaActionSignalFactory:
+        """Build the SettableFactory for compiled action plans (CA-backed).
+
+        Returns a fresh per-scan factory: ``get_settable`` puts wire strings
+        to the variable's gateway ``:SP`` (put-completion rides the GEECS
+        blocking set — the ``wait_for_execution`` semantics), ``get_readable``
+        reads the streamed readback as a string.  Signals are cached per
+        ``(device, variable)`` and connected in this session's RE loop at
+        creation; pre-connect everything a plan will touch **before** running
+        it (see ``scan_request_runner.prefetch_action_signals``) and pass the
+        factory to :meth:`disconnect` with the scan's other devices.
+        """
+        return CaActionSignalFactory(self.experiment, self._connect)
+
     # ------------------------------------------------------------------
     # Shot control
     # ------------------------------------------------------------------
 
     def shot_control(
-        self, config: str | dict | ShotControlConfig | None
+        self, config: str | dict | ShotControlConfig | ShotControlWrites | None
     ) -> ShotController | None:
-        """Attach shot control from a configs-repo name, dict, or config.
+        """Attach shot control from a configs-repo name, dict, config, or writes.
 
         A configs-repo *name* (e.g. ``"HTU-LaserOFF"``) is loaded and
         validated; ``None`` or an empty/blank config (e.g. ``{}``) detaches.
-        The controller drives the device through the gateway's ``:SP`` PVs;
-        their reachability is verified here (short CA connect) so a typo'd
-        device name fails now, not ~10 s per caput mid-plan.
+        A :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`
+        (generalized per-state ordered write lists, possibly multi-device —
+        the TriggerProfile shape) builds the ordered controller; anything
+        else takes the legacy single-device
+        :class:`~geecs_bluesky.models.shot_control.ShotControlConfig` path
+        unchanged.  Either way the controller drives the gateway's ``:SP``
+        PVs; their reachability is verified here (short CA connect) so a
+        typo'd device name fails now, not ~10 s per caput mid-plan.
         """
         import asyncio
 
-        if isinstance(config, str):
-            config = load_shot_control_config(config, self.experiment)
+        controller: ShotController | None = None
+        attached_to = ""
+        if isinstance(config, ShotControlWrites):
+            if config.states:
+                controller = ShotController.from_writes(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = controller.describe_target
         else:
-            config = ShotControlConfig.from_information(config)
-        if config is None:
+            if isinstance(config, str):
+                config = load_shot_control_config(config, self.experiment)
+            else:
+                config = ShotControlConfig.from_information(config)
+            if config is not None:
+                controller = ShotController.over_ca(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = config.device
+        if controller is None:
             self._shot_controller = None
             logger.info("Shot control detached")
             return None
-        controller = ShotController.over_ca(
-            config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
-        )
         if not self._mock:
             asyncio.run_coroutine_threadsafe(
                 controller.connect_setters(), self.RE._loop
             ).result(timeout=20.0)
         self._shot_controller = controller
-        logger.info("Shot control attached: %s", config.device)
+        logger.info("Shot control attached: %s", attached_to)
         return self._shot_controller
 
     # ------------------------------------------------------------------
@@ -340,11 +372,11 @@ class GeecsSession:
         self,
         *,
         detectors: Sequence[Any],
-        motor: Any | None = None,
+        motor: Any | Sequence[Any] | None = None,
         start: float | None = None,
         end: float | None = None,
         step: float | None = None,
-        positions: Sequence[float | None] | None = None,
+        positions: Sequence[Any] | None = None,
         shots_per_step: int = 1,
         mode: str = _FREE_RUN,
         description: str = "",
@@ -353,6 +385,9 @@ class GeecsSession:
         scan_number: int | None = None,
         scan_folder: str | None = None,
         scan_info: dict | None = None,
+        setup: Any | None = None,
+        per_step: Any | None = None,
+        closeout: Any | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -366,14 +401,33 @@ class GeecsSession:
         overrides individual ScanInfo ini fields (``scan_parameter``,
         ``start``, ``end``, ``step``, ``shots``, ``background``,
         ``scan_mode``) for legacy-format fidelity.
+
+        *motor* may be a **sequence** of movables for a multi-axis grid scan
+        (outermost axis first); *positions* is then the explicit list of
+        grid points as tuples aligned with the motors (one bin per grid
+        point; only changed axes are re-moved).  All motors' readbacks are
+        recorded in every event row, exactly like the single-motor case.
+
+        ``setup`` / ``per_step`` / ``closeout`` are optional plan-stub
+        callables (typically compiled ActionPlans): setup runs in the plan
+        preamble before the first step, per_step at every step boundary
+        (after the move, before the shots), closeout in a finalize wrapper
+        that runs even on abort, after the trigger disarm.  See
+        :func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         detectors = list(detectors)
         if not detectors:
             raise ValueError("scan() needs at least one detector")
+        motors = normalize_motors(motor)
         if positions is None:
-            if motor is not None:
+            if len(motors) > 1:
+                raise ValueError(
+                    "multi-axis scans need explicit positions (a list of "
+                    "grid-point tuples, outermost axis first)"
+                )
+            if motors:
                 if None in (start, end, step):
                     raise ValueError("motor scans need start/end/step or positions")
                 positions = _positions(float(start), float(end), float(step))
@@ -431,6 +485,9 @@ class GeecsSession:
             scan_folder=scan_folder,
             saving_detectors=saving_detectors,
             extra_md={"description": description, **(md or {})},
+            setup=setup,
+            per_step=per_step,
+            closeout=closeout,
         )
 
         self._last_run_uid = None
@@ -692,9 +749,11 @@ class GeecsSession:
         this session's experiment in the configs repository, which loads
         new-schema YAML when present and converts legacy files otherwise —
         and the request is mapped onto :meth:`scan` / :meth:`optimize` by
-        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
-        docstring for the documented v1 gaps: multi-axis, actions, pseudo
-        variables, optimize without an injected objective/suggester).
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` —
+        including multi-axis grids, setup/per-step/closeout action
+        execution, and multi-device trigger profiles (see its docstring for
+        the remaining documented v1 gaps: pseudo variables, ``all_scalars``,
+        optimize without an injected objective/suggester).
 
         Parameters
         ----------
@@ -801,10 +860,17 @@ class GeecsSession:
             )
             return
         real = [p for p in positions if p is not None]
+        if real and isinstance(real[0], (list, tuple)):
+            # Multi-axis grid: the legacy 1-D ini fields (Start/End/Step)
+            # describe the outermost (slowest) axis; the full grid lives in
+            # the run metadata (scan_axes / grid_shape).
+            real = [p[0] for p in real]
         o = overrides or {}
-        scan_var = (
-            o.get("scan_parameter") or getattr(motor, "name", None) or "Shotnumber"
+        motors = normalize_motors(motor)
+        default_var = (
+            ",".join(getattr(m, "name", str(m)) for m in motors) if motors else None
         )
+        scan_var = o.get("scan_parameter") or default_var or "Shotnumber"
         start = o.get("start", real[0] if real else 0)
         end = o.get("end", real[-1] if real else 0)
         step = o.get("step", (real[1] - real[0]) if len(real) > 1 else 0)

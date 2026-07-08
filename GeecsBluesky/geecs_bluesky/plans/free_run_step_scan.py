@@ -31,7 +31,7 @@ Run stages
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Sequence
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
@@ -39,18 +39,24 @@ from bluesky.protocols import Triggerable
 
 from geecs_bluesky.devices.scan_context import ScanContext
 from geecs_bluesky.devices.shot_id import ShotIdSupport
+from geecs_bluesky.plans.step_scan import (
+    motor_md,
+    move_changed_axes,
+    normalize_motors,
+)
 from geecs_bluesky.plans.t0_sync import geecs_t0_sync
 
 
 def geecs_free_run_step_scan(
-    motor: Any | None,
-    positions: Iterable[float | None],
+    motor: Any | Sequence[Any] | None,
+    positions: Iterable[Any],
     reference: Any,
     detectors: list[Any],
     shots_per_step: int = 5,
     arm_trigger: Callable | None = None,
     disarm_trigger: Callable | None = None,
     quiesce_trigger: Callable | None = None,
+    per_step: Callable | None = None,
     t0_sync_window_s: float = 0.2,
     tail_flush: bool = True,
     md: dict[str, Any] | None = None,
@@ -62,12 +68,16 @@ def geecs_free_run_step_scan(
     motor:
         Any Movable/settable device — a stage axis, power supply, pressure
         controller, etc. (anything with ``set() → status``, e.g. built on
-        :class:`~geecs_bluesky.devices.settable.GeecsSettable`).  ``None`` means
-        no scan variable is moved — statistics collection; pass
-        ``positions=[None]`` for a single no-move bin.  The name
+        :class:`~geecs_bluesky.devices.settable.GeecsSettable`).  A
+        **sequence** of Movables is a multi-axis grid scan (one motor per
+        axis, outermost first; each position is then a tuple aligned with
+        the motors, and only the axes whose target changed are re-moved).
+        ``None`` means no scan variable is moved — statistics collection;
+        pass ``positions=[None]`` for a single no-move bin.  The name
         follows the bluesky ``scan(detectors, motor, ...)`` convention.
     positions:
-        Iterable of motor positions to visit.
+        Iterable of motor positions to visit — floats for a single motor,
+        tuples for a grid.
     reference:
         The pacemaker — a Triggerable sync device
         (:class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`)
@@ -91,6 +101,13 @@ def geecs_free_run_step_scan(
         trigger, then read acq_timestamps" procedure — DG645 ``OFF`` state).
         ``SCAN``/``STANDBY`` keep the trigger free-running, so they cannot
         serve this role.  Falls back to ``disarm_trigger`` when not given.
+    per_step:
+        Optional plan-stub callable run at **every** step boundary — after
+        the move completes, before that step's ``arm_trigger``/shots.  This
+        is where a ScanRequest's ``actions.per_step`` plans land: the
+        arm/disarm bracketing means per-step actions always run with the
+        shot controller *disarmed* (data-taking output off), never inside
+        the acquisition window.
     t0_sync_window_s:
         Acceptance window for the t0-sync stage.
     tail_flush:
@@ -128,10 +145,10 @@ def geecs_free_run_step_scan(
         )
 
     _positions = list(positions)
+    _motors = normalize_motors(motor)
     scan_context = ScanContext()
     _read_devices = [reference, *detectors]
-    if motor is not None:
-        _read_devices.append(motor)
+    _read_devices.extend(_motors)
     _read_devices.append(scan_context)
     sync_devices = [
         d
@@ -150,7 +167,7 @@ def geecs_free_run_step_scan(
             reference, "_geecs_device_name", getattr(reference, "name", "")
         ),
         "t0_sync_window_s": t0_sync_window_s,
-        "motor": getattr(motor, "name", None) if motor is not None else None,
+        "motor": motor_md(_motors),
         "detectors": [getattr(d, "name", str(d)) for d in (reference, *detectors)],
         "positions": _positions,
         "shots_per_step": shots_per_step,
@@ -174,9 +191,14 @@ def geecs_free_run_step_scan(
     @bpp.run_decorator(md=_md)
     def _inner():
         scan_event_index = 0
+        previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
-            if motor is not None and pos is not None:
-                yield from bps.mv(motor, pos)
+            if _motors and pos is not None:
+                previous = yield from move_changed_axes(_motors, pos, previous)
+            if per_step is not None:
+                # After the move, before arming: per-step actions run with
+                # the shot controller disarmed (outside the SCAN window).
+                yield from per_step()
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):

@@ -156,9 +156,17 @@ pieces: it connects the save set's devices, puts the trigger device under
 the profile's control, creates the scan variable's mover, and hands
 everything to the scan plan, which sweeps the positions (or just collects
 shots, or lets the optimizer steer) and records the data with the same run
-discipline as any other scan. Anything the engine can't execute yet — a
-multi-axis grid, attached action plans — is refused up front with a clear
-"not yet" message rather than attempted halfway.
+discipline as any other scan. Action plans run at their slots automatically:
+setup plans (the experiment's defaults first, then each required device's
+ritual, then the scan's own) run once before the first step, per-step plans
+run at every position right after the move and before the shots, and
+closeout plans run once at the end — in the reverse order, and even if the
+scan was aborted partway. If the request lists several axes, the scan
+visits every combination as a grid — the first axis is the slow outer loop —
+taking the usual batch of shots at each grid point and recording every
+axis's position in every data row. Anything the engine can't execute yet —
+a pseudo (composite) scan variable, for example — is refused up front with
+a clear "not yet" message rather than attempted halfway.
 
 ## Two habits worth knowing
 

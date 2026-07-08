@@ -339,11 +339,13 @@ def test_scan_request_trigger_profile_becomes_shot_control(monkeypatch) -> None:
         }
     )
     scanner.reinitialize(request, resolver=_resolver(trigger_profiles={"HTU": profile}))
+    # Stored as generalized ordered writes (ShotControlWrites) — the shape
+    # GeecsSession.shot_control builds the ordered controller from.
     assert scanner._shot_control is not None
-    assert scanner._shot_control.device == "U_DG645_ShotControl"
-    assert scanner._shot_control.values_for_state("SCAN") == {
-        "Trigger.Source": "External rising edges"
-    }
+    assert scanner._shot_control.devices == ["U_DG645_ShotControl"]
+    assert scanner._shot_control.writes_for_state("SCAN") == [
+        ("U_DG645_ShotControl", "Trigger.Source", "External rising edges")
+    ]
 
 
 # ---------------------------------------------------------------------------

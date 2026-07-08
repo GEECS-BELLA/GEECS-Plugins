@@ -16,30 +16,35 @@ This module owns the mapping:
   ``schema_version`` key loads as the new schema directly; anything else is
   converted from its legacy dialect via :mod:`geecs_schemas.convert` — so the
   whole existing config corpus is usable immediately, no flag day.
-- Pure mapping helpers derive the legacy engine shapes from the schemas:
+- Pure mapping helpers derive the engine shapes from the schemas:
   :func:`save_set_to_devices_config` (SaveSet → the ``devices_config`` dict
   ``BlueskyScanner._build_session_devices`` / the session factories expect,
   applying the documented intent→mechanics derivation rules) and
-  :func:`shot_control_config_from_trigger_profile` (TriggerProfile →
-  :class:`~geecs_bluesky.models.shot_control.ShotControlConfig`).  The
-  adapter lives *here* — bluesky-side — because ``geecs_schemas`` must never
-  import ``geecs_bluesky`` (dependency direction).
+  :func:`trigger_writes_from_profile` (TriggerProfile →
+  :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`: per-state
+  **ordered** multi-device write lists — order preserved exactly as the
+  schema documents).  The adapters live *here* — bluesky-side — because
+  ``geecs_schemas`` must never import ``geecs_bluesky`` (dependency
+  direction).
+- **Actions execute.**  Request-level ``setup``/``per_step``/``closeout``
+  bindings, SaveSet entry rituals, and ExperimentDefaults plans are
+  assembled (:func:`assemble_action_slots`), compiled to plan stubs
+  (:func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) against
+  the session's CA signal factory, and handed to the orchestration hooks.
+  Names still resolve fail-fast **pre-claim** (an unknown plan name fails
+  before any hardware is touched or a scan number is used), and every
+  signal a plan will touch is pre-connected
+  (:func:`prefetch_action_signals`) before the RunEngine runs — a lazy
+  connect inside the RE loop would deadlock.
+- **Multi-axis step scans execute** as an outer-product grid (first axis
+  outermost/slowest — the schema's documented semantics): N movables, one
+  bin per grid point, per-step actions at every grid point, all axis
+  readbacks in the event rows.
 - :func:`run_scan_request` executes the request on a
   :class:`~geecs_bluesky.session.GeecsSession`.
 
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
 
-- **Multi-axis step scans** are accepted by the schema but raise
-  ``NotImplementedError`` here — grid execution lands with the actions
-  milestone.
-- **Actions** (``setup`` / ``per_step`` / ``closeout``, request-level and
-  SaveSet entry-level alike): the names are resolved and validated against
-  the action library *now*, then ``NotImplementedError`` is raised — the
-  ActionPlan→plan-stub compiler is being built in a parallel milestone.
-- **Multi-device trigger profiles**: the adapter takes the single-device
-  fast path (all writes in all states name one device — whether declared
-  top-level or per write); writes spanning devices raise
-  ``NotImplementedError`` — the engine's ShotController drives one device.
 - **Pseudo (composite) scan variables** raise ``NotImplementedError`` — the
   composite pseudo-positioner device is not built yet.
 - **``all_scalars``** on a save-set entry raises ``NotImplementedError`` —
@@ -51,7 +56,9 @@ Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
   (the config-driven Xopt/evaluator stack lives in
   ``geecs_scanner.optimization``, which geecs_bluesky must not import), so a
   ready-made ``objective`` and ``suggester`` must be injected; without them
-  optimize mode raises ``NotImplementedError``.
+  optimize mode raises ``NotImplementedError``.  Action bindings on an
+  optimize-mode request are likewise refused (``GeecsSession.optimize`` has
+  no action hooks yet).
 
 Scan variables in configs speak **GEECS device/variable names, never PVs**
 (maintainer-ratified convention): all PV derivation stays inside the device
@@ -60,14 +67,17 @@ factories via ``ca_pv``.
 
 from __future__ import annotations
 
+import itertools
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Callable, Protocol, runtime_checkable
 
 import yaml
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.models.shot_control import ShotControlWrites
+from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.scanner_configs import SHOT_CONTROL_FOLDER, scanner_configs_base
 from geecs_schemas import (
     ActionBindings,
@@ -86,6 +96,7 @@ from geecs_schemas import (
     TriggerProfile,
     TriggerState,
 )
+from geecs_schemas.action_plan import CheckStep, RunPlanStep, SetStep
 from geecs_schemas.convert import (
     convert_action_library,
     convert_save_element,
@@ -95,7 +106,14 @@ from geecs_schemas.convert import (
 
 logger = logging.getLogger(__name__)
 
-MULTI_AXIS_MESSAGE = "multi-axis execution lands with the actions milestone"
+#: GUI-bridge refusal (the *bridge* still stages requests through the legacy
+#: exec-config machinery; the engine itself executes grids — see
+#: ``run_scan_request``).
+MULTI_AXIS_MESSAGE = (
+    "the GUI bridge does not execute multi-axis grids yet — run the request "
+    "headless via GeecsSession.run, where grid execution landed with the "
+    "M3b milestone; GUI submission is a later milestone"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +399,27 @@ class ConfigsRepoResolver:
                 f"action library. Known plans: {sorted(library.plans)}"
             ) from None
 
+    def action_plan_registry(self) -> dict[str, ActionPlan]:
+        """Return every named plan visible to nested ``run`` steps.
+
+        The experiment's action library plus the plans the save-element
+        converter extracted (which win on a name collision, matching
+        :meth:`resolve_action_plan`'s lookup order).  An experiment without
+        an action library still gets its extracted element plans.
+
+        Returns
+        -------
+        dict
+            ``{plan_name: ActionPlan}``.
+        """
+        plans: dict[str, ActionPlan] = {}
+        try:
+            plans.update(self._action_library().plans)
+        except GeecsConfigurationError:
+            pass  # no actions.yaml — extracted element plans may still exist
+        plans.update(self._extracted_element_actions)
+        return plans
+
     DEFAULTS_FILE = "experiment_defaults.yaml"
 
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
@@ -408,11 +447,6 @@ class ConfigsRepoResolver:
 # ---------------------------------------------------------------------------
 
 
-MULTI_DEVICE_TRIGGER_MESSAGE = (
-    "multi-device trigger profiles land with a later milestone"
-)
-
-
 def _state_write_triples(
     profile: TriggerProfile, state: "TriggerState", variant: str | None
 ) -> list[tuple[str | None, str, str]]:
@@ -421,7 +455,8 @@ def _state_write_triples(
     Handles both TriggerProfile generations: the single-device shape
     (top-level ``device`` + per-state ``{variable: value}``) and the
     multi-device shape (per-state ordered write lists, each write carrying
-    its own ``device``).
+    its own ``device``).  Order is preserved exactly (schema-documented:
+    writes are applied top to bottom).
 
     Parameters
     ----------
@@ -450,72 +485,64 @@ def _state_write_triples(
     return triples
 
 
-def shot_control_config_from_trigger_profile(
+def trigger_writes_from_profile(
     profile: TriggerProfile, variant: str | None = None
-) -> ShotControlConfig:
-    """Pivot a TriggerProfile into the engine's ShotControlConfig shape.
+) -> ShotControlWrites:
+    """Adapt a TriggerProfile into the engine's generalized ShotControlWrites.
 
-    The two models share semantics (named states, verbatim wire values,
-    omission = no-op); only the layout differs — the profile is per-state,
-    the engine config is per-variable ``{variable: {state: value}}``.
-    ``defines_state`` / ``values_for_state`` answers are preserved exactly.
-    This adapter lives bluesky-side because ``geecs_schemas`` must not
-    import ``geecs_bluesky``.
-
-    **Single-device fast path only** (schema-accepts / engine-pending, the
-    same pattern as multi-axis): a profile whose writes all target one
-    device adapts exactly as before — whether it declares the device at the
-    top level (single-device shape) or per write (multi-device shape).  A
-    profile whose writes span several devices is accepted by the schema but
-    raises ``NotImplementedError`` here: the engine's ``ShotController``
-    drives one device today.
+    A state transition becomes the profile's **ordered** write list — order
+    preserved verbatim (schema-documented: writes are applied top to
+    bottom), spanning as many devices as the profile names.  A single-device
+    profile is simply the one-device case of the same structure; there is no
+    separate pivot any more (the engine's ``ShotController.from_writes``
+    replays these lists sequentially, each write completing before the
+    next).  This adapter lives bluesky-side because ``geecs_schemas`` must
+    not import ``geecs_bluesky``.
 
     Parameters
     ----------
     profile :
         The trigger profile to adapt.
     variant :
-        Optional profile variant overlaid before pivoting (e.g.
-        ``"laser_off"``).
+        Optional profile variant overlaid first (e.g. ``"laser_off"``).
 
     Returns
     -------
-    ShotControlConfig
-        The engine-facing shot-control configuration.
+    ShotControlWrites
+        Per-state ordered ``(device, variable, value)`` write lists.
 
     Raises
     ------
     GeecsConfigurationError
-        If *variant* is not defined on the profile, or no trigger device
-        can be determined at all.
-    NotImplementedError
-        If the profile's writes span more than one device.
+        If *variant* is not defined on the profile, or no state writes any
+        device at all (the profile cannot drive a scan's trigger).
     """
     if variant is not None and variant not in profile.variants:
         raise GeecsConfigurationError(
             f"trigger profile {profile.name!r} has no variant {variant!r}. "
             f"Known variants: {sorted(profile.variants)}"
         )
-    variables: dict[str, dict[str, str]] = {}
-    devices: list[str] = []
+    states: dict[str, list[tuple[str, str, str]]] = {}
+    any_device = False
     for state in TriggerState:
+        triples: list[tuple[str, str, str]] = []
         for device, variable, value in _state_write_triples(profile, state, variant):
-            if device is not None and device not in devices:
-                devices.append(device)
-            variables.setdefault(variable, {})[state.value] = value
-    if len(devices) > 1:
-        raise NotImplementedError(
-            f"{MULTI_DEVICE_TRIGGER_MESSAGE} — trigger profile "
-            f"{profile.name!r} writes to {devices}; the engine's shot "
-            "controller drives exactly one device today"
-        )
-    device = devices[0] if devices else getattr(profile, "device", None)
-    if not device:
+            if device is None:
+                raise GeecsConfigurationError(
+                    f"trigger profile {profile.name!r} has a write to "
+                    f"{variable!r} with no device — it cannot be sent"
+                )
+            triples.append((device, variable, value))
+            any_device = True
+        if triples:
+            states[state.value] = triples
+    if not any_device:
         raise GeecsConfigurationError(
             f"trigger profile {profile.name!r} names no trigger device — "
             "it cannot drive a scan's trigger"
         )
-    return ShotControlConfig(device=device, variables=variables)
+    name = getattr(profile, "name", "") or ""
+    return ShotControlWrites(name=name, states=states)
 
 
 def save_set_to_devices_config(save_set: SaveSet) -> dict[str, dict[str, Any]]:
@@ -592,9 +619,10 @@ def resolve_and_validate_actions(
 ) -> dict[str, list[str]]:
     """Resolve every action name in the bindings against the library.
 
-    Validation now, execution later: each name must exist (the resolver
-    raises otherwise); the caller refuses to *run* them until the
-    ActionPlan→plan-stub compiler lands.
+    Fail-fast, pre-claim: each name must exist (the resolver raises
+    otherwise) before any hardware is touched.  The engine then compiles
+    and executes the assembled slots (:func:`assemble_action_slots`); the
+    GUI bridge still refuses them (:func:`raise_if_actions_present`).
 
     Parameters
     ----------
@@ -618,15 +646,295 @@ def resolve_and_validate_actions(
 
 
 def raise_if_actions_present(resolved: dict[str, list[str]]) -> None:
-    """Refuse (loudly) to execute validated action bindings — v1 gap."""
+    """Refuse validated action bindings — **GUI-bridge path only**.
+
+    The engine executes actions (see :func:`run_scan_request`); the GUI
+    bridge still stages requests through the legacy exec-config machinery
+    and does not run them yet.  Names were already resolved and are valid.
+    """
     present = {slot: names for slot, names in resolved.items() if names}
     if present:
         raise NotImplementedError(
-            f"action execution lands with the actions milestone (the "
-            f"ActionPlan compiler is being built in a parallel milestone); "
-            f"the request's action names were resolved and are valid: "
-            f"{present}"
+            f"the GUI bridge does not execute action bindings yet — run the "
+            f"request headless via GeecsSession.run (action execution landed "
+            f"with the M3b milestone); the request's action names were "
+            f"resolved and are valid: {present}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Action assembly + compilation (the §4.4b layers, executed)
+# ---------------------------------------------------------------------------
+
+
+def collect_save_set_rituals(save_set: SaveSet) -> dict[str, list[str]]:
+    """Collect entry-level setup/closeout plan names, de-duplicated by name.
+
+    The SaveSet schema's contract: the plans named by all entries are
+    collected together (entry order preserved), de-duplicated by name, and
+    each runs **once** per scan — two cameras sharing a ``prep_visa_line``
+    ritual do not run it twice.  Older SaveSets without the fields
+    contribute nothing (duck-typed).
+
+    Parameters
+    ----------
+    save_set :
+        The save set to inspect.
+
+    Returns
+    -------
+    dict
+        ``{"setup": [names], "closeout": [names]}``, each list de-duplicated
+        in first-appearance order.
+    """
+    rituals: dict[str, list[str]] = {"setup": [], "closeout": []}
+    for slot, names in rituals.items():
+        seen: set[str] = set()
+        for entry in save_set.entries:
+            value = getattr(entry, slot, None)
+            if not value:
+                continue
+            for name in value if isinstance(value, (list, tuple)) else [value]:
+                if name not in seen:
+                    seen.add(name)
+                    names.append(name)
+    return rituals
+
+
+def resolve_save_set_and_rituals(
+    resolver: ConfigResolver, name: str
+) -> tuple[SaveSet, dict[str, list[str]]]:
+    """Resolve a save set and validate its entry-level ritual references.
+
+    Every referenced plan name is resolved against the action library now
+    (fail-fast, pre-claim); execution happens later through the assembled
+    slots (:func:`assemble_action_slots`).
+
+    Parameters
+    ----------
+    resolver :
+        Where names are looked up.
+    name :
+        The save set name.
+
+    Returns
+    -------
+    tuple
+        ``(save_set, rituals)`` — the resolved save set and its
+        de-duplicated ``{"setup": [...], "closeout": [...]}`` ritual names.
+    """
+    save_set = resolver.resolve_save_set(name)
+    rituals = collect_save_set_rituals(save_set)
+    for names in rituals.values():
+        for action_name in names:
+            resolver.resolve_action_plan(action_name)
+    return save_set, rituals
+
+
+def assemble_action_slots(
+    actions: ActionBindings,
+    applied_defaults: Mapping[str, Any],
+    rituals: Mapping[str, list[str]],
+) -> dict[str, list[str]]:
+    """Assemble the final ordered plan-name lists for the three action slots.
+
+    The §4.4b setup layers nest like context managers (mirrored teardown —
+    the ordering decision ratified with this milestone and documented in
+    the ``ExperimentDefaults`` schema):
+
+    - **setup**: experiment defaults → save-set entry rituals → the scan's
+      own ``actions.setup`` (defaults outermost, the specific scan
+      innermost).
+    - **per_step**: the scan's own ``actions.per_step`` only (neither
+      defaults nor entries have a per-step slot — deliberate).
+    - **closeout**: the exact reverse — the scan's own ``actions.closeout``
+      → entry rituals → experiment defaults.
+
+    *actions* is the post-defaults request bindings (defaults already merged
+    by :func:`apply_experiment_defaults`: prepended to setup, appended to
+    closeout); *applied_defaults* tells this function how many entries of
+    each list came from defaults, so entry rituals can be spliced between
+    the layers.  Within the entry layer, first-appearance entry order is
+    kept for both slots (the schema orders the layers, not the entries).
+
+    Parameters
+    ----------
+    actions :
+        The request's action bindings, after defaults were applied.
+    applied_defaults :
+        The provenance record from :func:`apply_experiment_defaults`.
+    rituals :
+        The save set's ``{"setup": [...], "closeout": [...]}`` names.
+
+    Returns
+    -------
+    dict
+        ``{"setup": [...], "per_step": [...], "closeout": [...]}`` in final
+        execution order.
+    """
+    n_setup_defaults = len(applied_defaults.get("actions.setup", []))
+    merged_setup = list(actions.setup)  # defaults first, then the scan's own
+    setup = (
+        merged_setup[:n_setup_defaults]
+        + list(rituals.get("setup", []))
+        + merged_setup[n_setup_defaults:]
+    )
+    n_closeout_defaults = len(applied_defaults.get("actions.closeout", []))
+    merged_closeout = list(actions.closeout)  # scan's own first, defaults last
+    cut = len(merged_closeout) - n_closeout_defaults
+    closeout = (
+        merged_closeout[:cut]
+        + list(rituals.get("closeout", []))
+        + merged_closeout[cut:]
+    )
+    return {
+        "setup": setup,
+        "per_step": list(actions.per_step),
+        "closeout": closeout,
+    }
+
+
+class _LazyResolverRegistry(Mapping):
+    """Mapping façade over ``resolver.resolve_action_plan`` (fallback only).
+
+    Used when a resolver does not expose ``action_plan_registry()``; nested
+    ``run`` steps then resolve lazily by name.  Iteration/len are empty (the
+    known-name list is the resolver's business), so a missing nested plan's
+    error message lists no candidates — resolvers wanting better messages
+    should implement ``action_plan_registry``.
+    """
+
+    def __init__(self, resolver: ConfigResolver) -> None:
+        self._resolver = resolver
+
+    def __getitem__(self, name: str) -> ActionPlan:
+        try:
+            return self._resolver.resolve_action_plan(name)
+        except Exception:
+            raise KeyError(name) from None
+
+    def get(self, name: str, default: Any = None) -> Any:
+        """Resolve *name*, returning *default* when the resolver refuses."""
+        try:
+            return self._resolver.resolve_action_plan(name)
+        except Exception:
+            return default
+
+    def __iter__(self):
+        return iter(())
+
+    def __len__(self) -> int:
+        return 0
+
+
+def build_action_registry(resolver: ConfigResolver) -> Mapping[str, ActionPlan]:
+    """Return the named-plan registry nested ``run`` steps resolve against.
+
+    Prefers the resolver's ``action_plan_registry()`` (duck-typed —
+    :class:`ConfigsRepoResolver` implements it: the experiment's action
+    library plus any plans extracted from converted save elements); falls
+    back to a lazy per-name façade.
+
+    Parameters
+    ----------
+    resolver :
+        The name resolver.
+
+    Returns
+    -------
+    Mapping
+        ``{plan_name: ActionPlan}`` (possibly lazy).
+    """
+    method = getattr(resolver, "action_plan_registry", None)
+    if callable(method):
+        return method()
+    return _LazyResolverRegistry(resolver)
+
+
+def prefetch_action_signals(
+    plans: list[ActionPlan],
+    registry: Mapping[str, ActionPlan],
+    settables: Any,
+) -> None:
+    """Create/connect every signal the compiled *plans* will touch, up front.
+
+    Compiled plan generators execute **inside** the RunEngine's event loop,
+    where a blocking signal connect would deadlock — so every
+    ``(device, variable)`` a ``set``/``check`` step names is touched here
+    first (the factory caches per target, so execution finds everything
+    connected).  Doubles as fail-fast validation: an unreachable target
+    fails now, before the scan claims a number.  Nested ``run`` steps are
+    walked recursively (visited-set bounded, so cycles terminate — the
+    compiler itself raises on them at execution).
+
+    Parameters
+    ----------
+    plans :
+        The resolved plans of every slot about to run.
+    registry :
+        Named plans for ``run``-step recursion.
+    settables :
+        The :class:`~geecs_bluesky.plans.action_compiler.SettableFactory`.
+    """
+    visited: set[str] = set()
+
+    def _walk(plan: ActionPlan) -> None:
+        for step in plan.steps:
+            if isinstance(step, SetStep):
+                settables.get_settable(step.device, step.variable)
+            elif isinstance(step, CheckStep):
+                settables.get_readable(step.device, step.variable)
+            elif isinstance(step, RunPlanStep):
+                if step.plan in visited:
+                    continue
+                visited.add(step.plan)
+                nested = registry.get(step.plan)
+                if nested is not None:
+                    _walk(nested)
+
+    for plan in plans:
+        _walk(plan)
+
+
+def compile_action_slot(
+    names: list[str],
+    resolver: ConfigResolver,
+    registry: Mapping[str, ActionPlan],
+    settables: Any,
+) -> tuple[Callable | None, list[ActionPlan]]:
+    """Compile one slot's plan names into a reusable plan-stub callable.
+
+    The returned callable yields the slot's plans in order, producing a
+    **fresh** message generator per call — required for ``per_step`` (run at
+    every step boundary) and for ``finalize_wrapper`` (which may instantiate
+    its closeout more than once).
+
+    Parameters
+    ----------
+    names :
+        The slot's plan names, in final execution order.
+    resolver :
+        Resolves each name to its :class:`ActionPlan`.
+    registry :
+        Named plans for nested ``run`` steps.
+    settables :
+        The signal factory the compiled steps draw from.
+
+    Returns
+    -------
+    tuple
+        ``(stub, plans)`` — the plan-stub callable (``None`` when the slot
+        is empty) and the resolved plans (for signal prefetching).
+    """
+    if not names:
+        return None, []
+    plans = [resolver.resolve_action_plan(name) for name in names]
+
+    def _slot_plan():
+        for plan in plans:
+            yield from compile_action_plan(plan, registry=registry, settables=settables)
+
+    return _slot_plan, plans
 
 
 def collect_save_set_action_names(save_set: SaveSet) -> list[str]:
@@ -657,12 +965,13 @@ def collect_save_set_action_names(save_set: SaveSet) -> list[str]:
 
 
 def resolve_save_set_checked(resolver: ConfigResolver, name: str) -> SaveSet:
-    """Resolve a save set and give its entry-level action refs the M3b treatment.
+    """Resolve a save set, refusing entry-level rituals — **GUI-bridge path only**.
 
-    Entry-level setup/closeout references are *validated* against the
-    action library now (unknown names fail loudly), then refused with
-    ``NotImplementedError`` — exactly like the request-level action
-    bindings, until the ActionPlan compiler lands.
+    The engine executes entry rituals (see
+    :func:`resolve_save_set_and_rituals` / :func:`run_scan_request`); the
+    GUI bridge stages requests through the legacy exec-config machinery and
+    does not run them yet.  References are *validated* first (unknown names
+    fail loudly), then refused.
 
     Parameters
     ----------
@@ -676,15 +985,15 @@ def resolve_save_set_checked(resolver: ConfigResolver, name: str) -> SaveSet:
     SaveSet
         The resolved save set (guaranteed free of entry-level actions).
     """
-    save_set = resolver.resolve_save_set(name)
-    entry_actions = collect_save_set_action_names(save_set)
-    for action_name in entry_actions:
-        resolver.resolve_action_plan(action_name)
+    save_set, rituals = resolve_save_set_and_rituals(resolver, name)
+    entry_actions = [n for names in rituals.values() for n in names]
     if entry_actions:
         raise NotImplementedError(
-            f"action execution lands with the actions milestone; save set "
-            f"{name!r} references entry-level setup/closeout plans, which "
-            f"were resolved and are valid: {entry_actions}"
+            f"the GUI bridge does not execute save-set entry rituals yet — "
+            f"run the request headless via GeecsSession.run (ritual "
+            f"execution landed with the M3b milestone); save set {name!r} "
+            f"references entry-level setup/closeout plans, which were "
+            f"resolved and are valid: {entry_actions}"
         )
     return save_set
 
@@ -695,11 +1004,13 @@ def apply_experiment_defaults(
     """Apply experiment defaults where the request is silent (with provenance).
 
     The merge rule is the :class:`~geecs_schemas.ExperimentDefaults` one —
-    **defaults run first, then the scan's own**: a default trigger profile
-    is used only when the request names none; default setup/closeout plans
-    are *prepended* to the request's own lists.  What was applied is
-    returned for provenance (recorded into the run metadata by
-    :func:`run_scan_request`) — a run's metadata must show the
+    **defaults run first on the way in and last on the way out**: a default
+    trigger profile is used only when the request names none; default setup
+    plans are *prepended* to the request's own setup list, and default
+    closeout plans are *appended* after the request's own closeout list
+    (teardown mirrors setup — the defaults are the outermost bracket).
+    What was applied is returned for provenance (recorded into the run
+    metadata by :func:`run_scan_request`) — a run's metadata must show the
     configuration it actually used, not require reconstructing which
     defaults file was in force.
 
@@ -744,8 +1055,10 @@ def apply_experiment_defaults(
         if not value:
             continue
         names = list(value) if isinstance(value, (list, tuple)) else [value]
-        # Defaults run first, then the scan's own plans.
-        slot_updates[slot] = names + list(getattr(request.actions, slot))
+        own = list(getattr(request.actions, slot))
+        # Mirrored bracket: default setup runs before the scan's own,
+        # default closeout runs after it (the ExperimentDefaults merge rule).
+        slot_updates[slot] = names + own if slot == "setup" else own + names
         applied[f"actions.{slot}"] = names
     if slot_updates:
         updates["actions"] = request.actions.model_copy(update=slot_updates)
@@ -878,10 +1191,21 @@ def run_scan_request(
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
-    Resolution order is fail-fast: action names and the multi-axis limit are
-    checked before any hardware is touched, then the trigger profile is
-    attached, then devices are built, then the scan runs.  Devices created
-    here are disconnected afterwards (the run owns what it creates).
+    Resolution order is fail-fast: every action name (request-level, entry
+    rituals, defaults) is resolved before any hardware is touched, the
+    trigger profile is attached (generalized multi-device ordered writes),
+    action plans are compiled and their signals pre-connected, devices are
+    built, then the scan runs — all of it before a scan number is claimed
+    (the claim happens inside ``session.scan``).  Devices *and* the action
+    signal factory created here are disconnected afterwards (the run owns
+    what it creates).
+
+    Multi-axis requests run as an outer-product grid (first axis
+    outermost/slowest): one movable per axis, one bin per grid point,
+    ``per_step`` actions at every grid point, all axis readbacks in the
+    event rows; the run metadata carries ``scan_axes`` / ``grid_shape`` /
+    ``num_grid_points`` and ScanInfo's 1-D fields describe the outermost
+    axis.
 
     Parameters
     ----------
@@ -904,22 +1228,19 @@ def run_scan_request(
     Raises
     ------
     NotImplementedError
-        Multi-axis requests, requests with action bindings, pseudo scan
-        variables, and optimize mode without an injected objective/suggester
-        (all documented v1 gaps — validated first, refused loudly).
+        Pseudo scan variables, and optimize mode without an injected
+        objective/suggester or with action bindings (the documented v1
+        gaps — validated first, refused loudly).
     GeecsConfigurationError
         Unresolvable names, or a step/noscan request without a save set.
     """
     request, applied_defaults = resolve_defaults_for(resolver, request)
     resolved_actions = resolve_and_validate_actions(request.actions, resolver)
-    raise_if_actions_present(resolved_actions)
-    if request.mode is ScanRequestMode.STEP and len(request.axes) > 1:
-        raise NotImplementedError(MULTI_AXIS_MESSAGE)
 
     if request.trigger_profile:
         profile = resolver.resolve_trigger_profile(request.trigger_profile)
         session.shot_control(
-            shot_control_config_from_trigger_profile(profile, request.trigger_variant)
+            trigger_writes_from_profile(profile, request.trigger_variant)
         )
     else:
         session.shot_control(None)
@@ -927,6 +1248,13 @@ def run_scan_request(
     mode = "strict" if request.acquisition is AcquisitionMode.STRICT else "free_run"
 
     if request.mode is ScanRequestMode.OPTIMIZE:
+        if any(resolved_actions.values()):
+            raise NotImplementedError(
+                "action bindings on an optimize-mode ScanRequest are not "
+                "executed yet (GeecsSession.optimize has no action hooks); "
+                f"the names were resolved and are valid: "
+                f"{ {k: v for k, v in resolved_actions.items() if v} }"
+            )
         return _run_optimize_request(
             session,
             request,
@@ -942,11 +1270,33 @@ def run_scan_request(
             f"a {request.mode.value!r} ScanRequest needs a save_set — "
             "without one the scan would record nothing"
         )
-    save_set = resolve_save_set_checked(resolver, request.save_set)
+    save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
     devices_config = save_set_to_devices_config(save_set)
+    slots = assemble_action_slots(request.actions, applied_defaults, rituals)
 
     created: list = []
     try:
+        # Compile the action slots first: signal prefetch fail-fasts on an
+        # unreachable action target before detectors are even built, and
+        # everything stays pre-claim.
+        setup = per_step = closeout = None
+        if any(slots.values()):
+            factory = session.action_signal_factory()
+            created.append(factory)
+            registry = build_action_registry(resolver)
+            setup, setup_plans = compile_action_slot(
+                slots["setup"], resolver, registry, factory
+            )
+            per_step, per_step_plans = compile_action_slot(
+                slots["per_step"], resolver, registry, factory
+            )
+            closeout, closeout_plans = compile_action_slot(
+                slots["closeout"], resolver, registry, factory
+            )
+            prefetch_action_signals(
+                setup_plans + per_step_plans + closeout_plans, registry, factory
+            )
+
         detectors = _build_request_detectors(
             session, devices_config, free_run=mode == "free_run"
         )
@@ -957,6 +1307,10 @@ def run_scan_request(
             # Provenance: the run records exactly which experiment defaults
             # filled in fields the submitter left unset.
             md["applied_defaults"] = applied_defaults
+        if any(slots.values()):
+            # Provenance: the assembled per-slot execution order (defaults +
+            # entry rituals + the request's own, mirrored on closeout).
+            md["action_plans"] = {k: v for k, v in slots.items() if v}
         scan_info: dict[str, Any] = {
             "shots": request.shots_per_step,
             "background": request.background,
@@ -973,30 +1327,60 @@ def run_scan_request(
                 description=request.description,
                 md=md,
                 scan_info=scan_info,
+                setup=setup,
+                per_step=per_step,
+                closeout=closeout,
             )
 
-        axis = request.axes[0]
-        spec = resolver.resolve_scan_variable(axis.variable)
-        device, variable, kind = resolve_movable_target(spec, axis.variable)
-        movable = (
-            session.motor(device, variable)
-            if kind == "motor"
-            else session.settable(device, variable)
-        )
-        created.append(movable)
-        positions = axis.positions.to_values()
+        movables: list = []
+        targets: list[str] = []
+        value_lists: list[list[float]] = []
+        for axis in request.axes:
+            spec = resolver.resolve_scan_variable(axis.variable)
+            device, variable, kind = resolve_movable_target(spec, axis.variable)
+            movable = (
+                session.motor(device, variable)
+                if kind == "motor"
+                else session.settable(device, variable)
+            )
+            created.append(movable)
+            movables.append(movable)
+            targets.append(f"{device}:{variable}")
+            value_lists.append(axis.positions.to_values())
+
         scan_info["scan_mode"] = "standard"
-        scan_info["scan_parameter"] = f"{device}:{variable}"
-        md["scan_variable"] = axis.variable
+        scan_info["scan_parameter"] = ",".join(targets)
+        if len(request.axes) == 1:
+            motor_arg: Any = movables[0]
+            positions: list[Any] = value_lists[0]
+            md["scan_variable"] = request.axes[0].variable
+        else:
+            # Outer product, first axis outermost/slowest (the schema's
+            # documented grid semantics); one bin per grid point.
+            motor_arg = movables
+            positions = [tuple(point) for point in itertools.product(*value_lists)]
+            md["scan_variable"] = ",".join(a.variable for a in request.axes)
+            md["scan_axes"] = [a.variable for a in request.axes]
+            md["grid_shape"] = list(request.grid_shape())
+            md["num_grid_points"] = request.n_steps()
+            # ScanInfo is a legacy 1-D format: Start/End/Step describe the
+            # outermost axis; the grid truth lives in the run metadata.
+            outer = value_lists[0]
+            scan_info["start"] = outer[0]
+            scan_info["end"] = outer[-1]
+            scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
         return session.scan(
             detectors=detectors,
-            motor=movable,
+            motor=motor_arg,
             positions=positions,
             shots_per_step=request.shots_per_step,
             mode=mode,
             description=request.description,
             md=md,
             scan_info=scan_info,
+            setup=setup,
+            per_step=per_step,
+            closeout=closeout,
         )
     finally:
         if created and hasattr(session, "disconnect"):
@@ -1057,7 +1441,15 @@ def _run_optimize_request(
     created: list = []
     try:
         if request.save_set:
-            save_set = resolve_save_set_checked(resolver, request.save_set)
+            save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
+            ritual_names = [n for names in rituals.values() for n in names]
+            if ritual_names:
+                raise NotImplementedError(
+                    "save-set entry rituals on an optimize-mode ScanRequest "
+                    "are not executed yet (GeecsSession.optimize has no "
+                    "action hooks); the names were resolved and are valid: "
+                    f"{ritual_names}"
+                )
             detectors = _build_request_detectors(
                 session,
                 save_set_to_devices_config(save_set),

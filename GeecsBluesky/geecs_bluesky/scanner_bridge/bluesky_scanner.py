@@ -67,7 +67,7 @@ from geecs_bluesky.events import (
     ScanState,
     ScanStepEvent,
 )
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.operator_channel import (
     EventStreamOperator,
     NullOperator,
@@ -92,7 +92,7 @@ from geecs_bluesky.scan_request_runner import (
     resolve_movable_target,
     resolve_save_set_checked,
     save_set_to_devices_config,
-    shot_control_config_from_trigger_profile,
+    trigger_writes_from_profile,
 )
 from geecs_bluesky.session import GeecsSession
 from geecs_bluesky.utils import safe_name
@@ -283,7 +283,9 @@ class BlueskyScanner:
         self._detectors: list = []
 
         # Shot control — validated from the shot_control_information YAML/dict
-        self._shot_control: ShotControlConfig | None = (
+        # (legacy path).  reinitialize(ScanRequest) stores generalized
+        # ShotControlWrites instead; GeecsSession.shot_control accepts both.
+        self._shot_control: ShotControlConfig | ShotControlWrites | None = (
             ShotControlConfig.from_information(shot_control_information)
         )
 
@@ -384,9 +386,11 @@ class BlueskyScanner:
           ``GEECS_BLUESKY_ACQUISITION_MODE`` env override: a request
           declares intent.
         - Action names are resolved and validated now, then refused
-          (``NotImplementedError``) until the ActionPlan compiler lands;
-          multi-axis and optimize-mode requests are likewise refused loudly
-          (documented v1 gaps).
+          (``NotImplementedError``) — the *engine* executes actions and
+          multi-axis grids (run the request headless via
+          ``GeecsSession.run``); routing them through this GUI bridge lands
+          with the GUI submission milestone.  Optimize-mode requests are
+          likewise refused loudly.
 
         Parameters
         ----------
@@ -445,7 +449,10 @@ class BlueskyScanner:
 
         if request.trigger_profile:
             profile = resolver.resolve_trigger_profile(request.trigger_profile)
-            self._shot_control = shot_control_config_from_trigger_profile(
+            # Generalized multi-device ordered writes (TriggerProfile
+            # semantics); GeecsSession.shot_control builds the ordered
+            # controller from these.
+            self._shot_control = trigger_writes_from_profile(
                 profile, request.trigger_variant
             )
         else:

@@ -4,6 +4,103 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.23.0] - 2026-07-07
+
+M3b — every engine-pending ScanRequest seam closes: actions execute inside
+scans, multi-axis grids run, and multi-device trigger profiles drive the
+shot controller. `GeecsSession.run(request)` now executes the full schema
+surface except the documented v1 gaps (pseudo variables, `all_scalars`,
+optimize-mode injection/actions). Also folds in the M3a action-compiler
+entry that PR #461/#464 intentionally shipped without.
+
+### Added
+
+- **ActionPlan → Bluesky plan-stub compiler** (M3a, PR #461/#464 —
+  `plans/action_compiler.py`): the successor of the legacy `ActionManager`
+  executor. `compile_action_plan` turns a validated
+  `geecs_schemas.ActionPlan` into a plain message generator — `set` becomes
+  `abs_set(wait=wait_for_execution)` (the legacy `sync=` semantics), `wait`
+  becomes an RE-interruptible `bps.sleep`, `check` reads and compares with
+  the exact legacy `interpret_value` + `==` rules (`values_match`, quirks
+  pinned verbatim), `run` recurses through a registry with a cycle guard
+  legacy never had. Purity contract: no CA, no PV strings — signals come
+  from an injected `SettableFactory`. Fidelity pinned end to end against
+  the converted legacy corpus (`Amp4_DUMP_HP`: nested plans, wait
+  durations, check-mismatch abort).
+- **Production `SettableFactory`** (`devices/ca/action_signals.py`,
+  `CaActionSignalFactory` via `session.action_signal_factory()`): `set`
+  steps put wire strings to the variable's gateway `:SP` PV — CA
+  put-completion rides GEECS's blocking set, so `wait_for_execution` keeps
+  its exact legacy meaning; `check` steps read the streamed readback as a
+  string (matching the legacy coercion pipeline). Signals are cached per
+  (device, variable), connected on the RE loop **before** the plan runs
+  (`prefetch_action_signals` — a lazy connect inside the RE loop would
+  deadlock; prefetching also fail-fasts unreachable targets pre-claim), and
+  ride the scan's device cleanup.
+- **Action execution wired into scans.** `build_step_scan_plan` /
+  `GeecsSession.scan` grew `setup` / `per_step` / `closeout` plan-stub
+  hooks with documented placement: *setup* runs first thing in the composed
+  plan (after device connect + pre-flight, before free-run quiesce/t0-sync
+  and the first step); *per_step* is yielded by both step plans at every
+  step boundary — after the move, before that step's shots (free-run
+  brackets steps with arm/disarm so per-step actions run disarmed; strict
+  is quiescent between plan-owned shots); *closeout* is the outermost
+  `finalize_wrapper`, so it runs even on mid-scan abort (legacy
+  ActionControl parity) and always after the trigger disarm.
+  `run_scan_request` assembles the §4.4b layers in nesting order — setup:
+  ExperimentDefaults → SaveSet entry rituals (collected across entries,
+  de-duplicated by name, each once) → the request's own; closeout: the
+  exact mirror (request → entries → defaults) — and records the assembled
+  order in the run metadata (`action_plans`) for provenance.
+  `apply_experiment_defaults` now appends default closeout plans after the
+  scan's own (the mirrored merge rule ratified in geecs-schemas 0.2.0).
+- **Multi-axis grid execution.** `len(axes) >= 2` runs an outer-product
+  grid (first axis outermost/slowest — the schema's documented semantics):
+  one movable per axis, explicit grid-point tuples, one bin per grid point,
+  per-step actions at every grid point. The step plans accept a motor
+  *sequence*; only the axes whose target changed are re-moved (innermost
+  varies fastest), changed axes move concurrently via `bps.mv`. Every
+  motor's readback lands in every event row (exactly like the single-motor
+  path); run metadata carries `scan_axes` / `grid_shape` /
+  `num_grid_points`, and the legacy 1-D ScanInfo fields describe the
+  outermost axis (`scan_parameter` = comma-joined targets).
+- **Multi-device trigger profiles.** `ShotControlWrites`
+  (`models/shot_control.py`) — per-state **ordered** `(device, variable,
+  value)` write lists — plus `ShotController.from_writes`: one `CaPutSetter`
+  per distinct target (cached across states), transitions replayed in
+  declared order with each write completing before the next
+  (schema-documented ordering). `trigger_writes_from_profile` replaces the
+  single-device `shot_control_config_from_trigger_profile` pivot for
+  request execution; `GeecsSession.shot_control` accepts `ShotControlWrites`
+  alongside the legacy shapes, and the GUI bridge's `reinitialize(ScanRequest)`
+  stores the generalized writes too. The legacy `ShotControlConfig` path
+  (concurrent per-state writes, single device) is untouched.
+- **Hardware verification test** (`tests/test_scan_request_hardware.py`,
+  integration-marked, skipped in CI): one noscan ScanRequest through
+  `session.run()` against the real gateway, corpus configs converted on the
+  fly; device/config names parameterizable via `GEECS_HW_*` env vars
+  (defaults: `UC_Amp4_IR_input` camera, `HTU-LaserOFF` trigger profile).
+
+### Changed
+
+- `scan_request_runner` no longer refuses actions, entry rituals,
+  multi-axis grids, or multi-device trigger profiles — the
+  validate-then-`NotImplementedError` treatment is gone from the engine
+  path (names still resolve fail-fast pre-claim). The GUI bridge's
+  `reinitialize(ScanRequest)` still refuses actions/multi-axis with a
+  pointer to `GeecsSession.run` (routing them through the bridge is the GUI
+  submission milestone). Optimize-mode requests with action bindings or
+  entry rituals are refused loudly (`GeecsSession.optimize` has no action
+  hooks yet — new documented gap).
+
+### Removed
+
+- `shot_control_config_from_trigger_profile` and its multi-device
+  `NotImplementedError` (superseded by `trigger_writes_from_profile` +
+  `ShotController.from_writes`); the engine-path multi-axis and
+  action-refusal raises in `run_scan_request` / `resolve_save_set_checked`'s
+  runner usage.
+
 ## [0.22.0] - 2026-07-07
 
 Engine consolidation (target-architecture vision §2): the engine owns its

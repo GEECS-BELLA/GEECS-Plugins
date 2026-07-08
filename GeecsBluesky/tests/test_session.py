@@ -104,6 +104,66 @@ def test_shot_control_attaches_ca_controller() -> None:
     assert s.shot_control(None) is None  # detaches
 
 
+def test_shot_control_accepts_generalized_writes() -> None:
+    """ShotControlWrites (multi-device ordered) builds the ordered controller."""
+    from geecs_bluesky.models.shot_control import ShotControlWrites
+
+    s = _session()
+    writes = ShotControlWrites(
+        name="spans",
+        states={
+            "SCAN": [
+                ("U_DG645_ShotControl", "Amplitude.Ch AB", "4.0"),
+                ("U_PLC", "DO.Ch9", "on"),
+            ]
+        },
+    )
+    controller = s.shot_control(writes)
+    assert isinstance(controller, ShotController)
+    assert controller.defines_state("SCAN")
+    # One CA setter per (device, variable), on each device's own :SP PV.
+    setters = controller._setters
+    assert {
+        setters[("U_DG645_ShotControl", "Amplitude.Ch AB")]._pv,
+        setters[("U_PLC", "DO.Ch9")]._pv,
+    } == {
+        "Undulator:U_DG645_ShotControl:Amplitude_Ch_AB:SP",
+        "Undulator:U_PLC:DO_Ch9:SP",
+    }
+    # Empty writes detach, like an empty legacy config.
+    assert s.shot_control(ShotControlWrites(name="empty", states={})) is None
+
+
+def test_action_signal_factory_builds_cached_connected_signals() -> None:
+    """The production SettableFactory: :SP settables, str readbacks, caching."""
+    import asyncio
+
+    s = _session()
+    factory = s.action_signal_factory()
+    settable = factory.get_settable("U_PLC", "DO.Ch9")
+    assert settable._signal.source.endswith("Undulator:U_PLC:DO_Ch9:SP")
+    # Cached per (device, variable): the same wrapper comes back.
+    assert factory.get_settable("U_PLC", "DO.Ch9") is settable
+    readable = factory.get_readable("U_PLC", "DI.Ch17")
+    assert readable.source.endswith("Undulator:U_PLC:DI_Ch17")
+    assert factory.get_readable("U_PLC", "DI.Ch17") is readable
+
+    # Values are coerced to wire strings on set (mock backend records it).
+    # set() is awaited inside the RE loop, as the RunEngine would.
+    async def _set_and_read() -> str:
+        await settable.set(4.0)
+        return await settable._signal.get_value()
+
+    value = asyncio.run_coroutine_threadsafe(_set_and_read(), s.RE._loop).result(
+        timeout=5.0
+    )
+    assert value == "4.0"
+
+    # The factory rides the scan cleanup path uniformly.
+    s.disconnect(factory)
+    assert factory._settables == {}
+
+
 def test_scan_validation() -> None:
     """Bad requests fail loudly before touching any hardware."""
     s = _session()
