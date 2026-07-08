@@ -13,6 +13,14 @@ already existed; the schema is untouched.
 
 ### Added
 
+- **`acq_timestamp` now appears in the legacy s-file for image/file-saving
+  devices.**  A device that saves non-scalar data (`save_nonscalar_data=True` —
+  `CaGenericDetector`, `CaTimestampedReadable`) surfaces its `acq_timestamp` as
+  a legacy scalar column (`<device> acq_timestamp`), so saved files tie back to
+  scan rows (the saved image filenames are stamped with it).  Previously an
+  images-only save produced an s-file with only `Bin # / scan / Shotnumber` and
+  no way to correlate rows to files from the s-file alone.  `acq_timestamp`
+  stays an excluded companion column for pure-scalar devices.
 - **db_scalars resolution (Tier 1).**  A save-set entry's recorded scalars are
   now its DB `get='yes'` variables (from `expt_device_variable`) unioned with
   its explicit `scalars` list (`db_scalars=True`, the default);

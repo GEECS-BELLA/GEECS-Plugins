@@ -668,3 +668,58 @@ async def test_all_ca_devices_define_disconnect() -> None:
         await dev.connect(mock=True)
         assert asyncio.iscoroutinefunction(dev.disconnect), type(dev).__name__
         await dev.disconnect()  # must not raise
+
+
+def test_saving_device_surfaces_acq_timestamp_in_sfile_headers() -> None:
+    """A file/image-saving device adds acq_timestamp as an s-file column.
+
+    Saved image filenames are stamped with acq_timestamp, so surfacing it as a
+    legacy scalar column lets saved files tie back to scan rows — an
+    images-only device otherwise contributes no scalar column at all. A
+    pure-scalar device keeps acq_timestamp as an excluded companion column.
+    """
+    saving = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp",
+        save_nonscalar_data=True,
+    )
+    assert saving._column_headers["amp-acq_timestamp"] == (
+        "UC_Amp2_IR_input acq_timestamp"
+    )
+    assert saving._column_headers["amp-centroidx"] == "UC_Amp2_IR_input centroidx"
+
+    scalar_only = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp2",
+        save_nonscalar_data=False,
+    )
+    assert "amp2-acq_timestamp" not in scalar_only._column_headers
+
+    # An images-only save (no other scalars) still yields the acq_timestamp
+    # column — the one column that ties the saved frames to the rows.
+    images_only = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        [],
+        experiment="Undulator",
+        name="cam",
+        save_nonscalar_data=True,
+    )
+    assert images_only._column_headers == {
+        "cam-acq_timestamp": "UC_Amp2_IR_input acq_timestamp"
+    }
+
+    # Same for the free-run contributor.
+    contributor = CaTimestampedReadable(
+        "UC_TopView",
+        ["centroidx"],
+        experiment="Undulator",
+        name="con",
+        save_nonscalar_data=True,
+    )
+    assert contributor._column_headers["con-acq_timestamp"] == (
+        "UC_TopView acq_timestamp"
+    )
