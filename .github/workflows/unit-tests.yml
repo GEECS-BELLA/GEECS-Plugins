@@ -33,6 +33,7 @@ jobs:
           poetry run pytest ImageAnalysis/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest ScanAnalysis/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
+          poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
 
       - name: Install GeecsBluesky dependencies
         working-directory: GeecsBluesky

@@ -1,0 +1,23 @@
+Devices: {}
+closeout_action:
+  steps:
+  - action: execute
+    action_name: close_gaia_internal_shutters
+  - action: set
+    device: U_PLC
+    value: 'off'
+    variable: DO.Ch3
+    wait_for_execution: true
+  - action: execute
+    action_name: open_gaia_internal_shutters
+setup_action:
+  steps:
+  - action: execute
+    action_name: close_gaia_internal_shutters
+  - action: set
+    device: U_PLC
+    value: 'on'
+    variable: DO.Ch3
+    wait_for_execution: true
+  - action: execute
+    action_name: open_gaia_internal_shutters

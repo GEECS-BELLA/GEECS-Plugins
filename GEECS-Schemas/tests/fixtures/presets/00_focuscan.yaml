@@ -1,0 +1,9 @@
+Devices:
+- LP-FocusDiagnostics
+Info: Focus Scan
+Scan Mode: 1D Scan
+Shot per Step: 10
+Start: -18.0
+Step Size: 0.5
+Stop: -26.0
+Variable: Mode Imager Stage

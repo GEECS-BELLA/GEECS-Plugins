@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "variables": {
+    "ASSERT-Stage_TestBench": {
+      "kind": "setpoint",
+      "target": "ASSERT-LensStage:Position.Ch1"
+    },
+    "Assert-Ctrl-BProfiler-LRes": {
+      "kind": "setpoint",
+      "target": "Assert-Ctrl_BProfiler-LRes:Position.Ch1"
+    },
+    "Blade-Z": {
+      "kind": "setpoint",
+      "target": "HTT-ESP02:Position.Axis 3"
+    },
+    "Compressor: Grating Separation": {
+      "kind": "setpoint",
+      "target": "HTT-Aerotech:Position.Axis1"
+    },
+    "Ghost Stage": {
+      "kind": "setpoint",
+      "target": "HTT-ESP06:Position.Axis 3"
+    },
+    "HP Mode Imager": {
+      "kind": "setpoint",
+      "target": "HTT-ESP06:Position.Axis 1"
+    },
+    "Jet x": {
+      "kind": "setpoint",
+      "target": "HTT-ESP01:Position.Axis 1"
+    },
+    "Jet z": {
+      "kind": "setpoint",
+      "target": "HTT-ESP01:Position.Axis 3"
+    },
+    "LP Mode Imager": {
+      "kind": "setpoint",
+      "target": "HTT-LPModeStage:position"
+    },
+    "Pressure Scan": {
+      "kind": "setpoint",
+      "target": "HTT-HighPressureDAQ:AnalogOutput.Channel 0"
+    },
+    "Probe Delay Short": {
+      "kind": "setpoint",
+      "target": "HTT-ESP04:Position.Axis 3"
+    },
+    "Probe Delay: Long": {
+      "kind": "setpoint",
+      "target": "HTT_ProbeLongDelay:position"
+    },
+    "QAtt-DS": {
+      "kind": "setpoint",
+      "target": "HTT-B-Zaber_Chain-B:Position.Ch3"
+    },
+    "QAtt-US": {
+      "kind": "setpoint",
+      "target": "HTT-B-Zaber_Chain-B:Position.Ch2"
+    },
+    "Quad-x": {
+      "kind": "setpoint",
+      "target": "HTT-B-Zaber_Chain-B:Position.Ch3"
+    },
+    "Quad-y": {
+      "kind": "setpoint",
+      "target": "HTT-B-Zaber_Chain-B:Position.Ch5"
+    },
+    "Quad-z": {
+      "kind": "setpoint",
+      "target": "HTT-B-Zaber_Chain-B:Position.Ch4"
+    },
+    "ebeam_profile_zScan": {
+      "inverse": null,
+      "kind": "pseudo",
+      "mode": "absolute",
+      "targets": [
+        {
+          "forward": "composite_var",
+          "target": "Assert-Ctrl_DUTStage:Position.Ch1"
+        },
+        {
+          "forward": "100 - composite_var",
+          "target": "HTT-TC_Zabers_II:Position.Ch1"
+        }
+      ]
+    }
+  }
+}

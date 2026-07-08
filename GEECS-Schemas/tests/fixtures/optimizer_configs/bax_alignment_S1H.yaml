@@ -1,0 +1,39 @@
+# TODO: ``UC_ALineEBeam3`` has no diagnostic YAML under
+# ``scan_analysis_configs/analyzers/HTU/`` (only UC_ALineEBeam2 exists today).
+# This config will fail to load via ``BaseOptimizer.from_config_file``
+# until either (a) a UC_ALineEBeam3 diagnostic is added, or (b) this
+# diagnostic reference is repointed at an existing alignment-beam diagnostic.
+#
+vocs:
+  variables:
+    U_S1H:Current: [-4.5, -1.5]
+    U_EMQTripletBipolar:Current_Limit.Ch1: [1.2, 1.7]
+  observables:
+    - x_CoM
+
+evaluator:
+  module: geecs_scanner.optimization.evaluators.beam_position_evaluator
+  class: BeamPositionEvaluator
+
+  kwargs:
+    observable_names: ["x_CoM"]
+
+    analyzers:
+      - diagnostic: UC_ALineEBeam3
+        scan:
+          mode: per_bin
+generator:
+  name: multipoint_bax_alignment_l2
+
+xopt_config_overrides:
+  multipoint_bax_alignment_l2:
+    control_names: ["U_S1H:Current"]
+    measurement_name: "U_EMQTripletBipolar:Current_Limit.Ch1"
+    observable_names: ["x_CoM"]
+    probe_nominal: 1.5
+    probe_grid_absolute: [-0.2, 0.0, 0.2]
+    n_control_mesh: 21
+    mesh_measurement: true
+    n_measurement_mesh: 5
+    n_monte_carlo_samples: 32
+    use_low_noise_prior: false

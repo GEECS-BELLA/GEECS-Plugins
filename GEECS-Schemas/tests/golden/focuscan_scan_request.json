@@ -1,0 +1,28 @@
+{
+  "acquisition": "strict",
+  "actions": {
+    "closeout": [],
+    "per_step": [],
+    "setup": []
+  },
+  "axes": [
+    {
+      "positions": {
+        "end": -26.0,
+        "start": -18.0,
+        "step": 0.5
+      },
+      "variable": "Mode Imager Stage"
+    }
+  ],
+  "background": false,
+  "background_telemetry": null,
+  "description": "Focus Scan",
+  "mode": "step",
+  "optimization": null,
+  "save_set": "00_focuscan",
+  "schema_version": 1,
+  "shots_per_step": 10,
+  "trigger_profile": null,
+  "trigger_variant": null
+}
