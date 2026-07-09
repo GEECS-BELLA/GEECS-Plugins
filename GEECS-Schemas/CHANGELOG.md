@@ -5,6 +5,29 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-09
+
+### Changed
+
+- **`PseudoTarget` renamed to `PseudoComponent`.** A `PseudoScanVariable`
+  *contains* a `list[PseudoComponent]`; the old name collided conceptually
+  with the element's own `target` field, and the legacy composite-variable
+  dialect already called these *components*. Field names (`targets`,
+  `forward`) and all serialized output are unchanged — this is a class rename
+  only. The export in `geecs_schemas.__all__` moves accordingly.
+
+### Added
+
+- **`ScanVariable.confirm`** — an optional `Device:Variable` naming the
+  variable that *measures* the result when it differs from the variable being
+  *set*. It documents the "topology C" split (e.g. the EMQ triplet, whose
+  catalog entry sets `Current_Limit.ChN` while the measured current is a
+  separate variable that GEECS's set-completion never checks). Additive,
+  defaults to `None` (⇒ prior behavior), validated as a `Device:Variable`.
+  **Declared but not yet enforced by the engine** — and deliberately carries
+  no tolerance field (the match tolerance is a device fact that stays below
+  the configs). See `Planning/scan_variable_metadata/00_overview.md`.
+
 ## [0.5.0] - 2026-07-08
 
 ### Added

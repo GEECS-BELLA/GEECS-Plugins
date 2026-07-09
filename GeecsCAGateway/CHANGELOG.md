@@ -3,6 +3,28 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.10.0] - 2026-07-09
+
+### Added
+
+- **Per-PV `.DESC` field, resolved from the DB and served over CA.** A
+  variable's DB `description` (per-instance `variable` table, resolved through
+  the capability inheritance chain like every other field into
+  `VariableSpec.description`) is served as the standard EPICS `.DESC` field —
+  a read-only `<pv>.DESC` string channel added to the pvdb, so
+  `caget …:Current.DESC` returns the text and Phoebus/the archiver pick it up.
+  Only non-empty descriptions get a `.DESC` entry. Clipped to the 40-char
+  DBR_STRING limit at both the DB column and the gateway. Verified end-to-end
+  against the live DB and with a live CA client. Applies to readbacks and
+  derived channels; `:SP` and status PVs carry no `.DESC`. `PV_CONTRACT.md` §4
+  documents it; pinned by `test_gateway.test_description_served_as_desc_field`.
+  Discipline: `.DESC` carries *stable identity only*, never time-varying
+  provenance (a `.DESC` edit leaves no history).
+- `deploy/variable_description.sql` — non-destructive DDL to narrow
+  `variable.description` to the 40-char EPICS `.DESC` limit (applied) and
+  (optionally, gated on a code coalesce) add a type-level
+  `devicetype_variable.description`.
+
 ## [0.9.0] - 2026-07-08
 
 ### Added

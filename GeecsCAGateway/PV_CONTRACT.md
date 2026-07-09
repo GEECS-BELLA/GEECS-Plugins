@@ -330,6 +330,22 @@ Resolution quirks (all DB-driven, all pinned by tests):
   online analysis, which the contract requires be *reported*, not clamped.
   GEECS remains the authority on valid set values (§2).
 
+### Description — the `.DESC` field
+
+A variable's DB `description` (from the per-instance `variable` table,
+resolved through the capability inheritance chain like every other field) is
+served as the standard EPICS `.DESC` field: a read-only `<pv>.DESC` string
+channel, so `caget Undulator:U_S1H:Current.DESC` returns the text and Phoebus
+/ the archiver pick it up automatically. Only variables with a non-empty
+description get a `.DESC` entry (no empty descriptions are served). The text
+is clipped to the EPICS **DBR_STRING 40-character** limit at both the DB
+column (`VARCHAR(40)`) and in the gateway.
+
+`.DESC` carries **stable identity only** — it is a mutable label with no
+history (an edit leaves no archived trace), so time-varying provenance (a
+recalibration, a filter swap) belongs in git-tracked config or the elog, not
+here. Setpoint (`:SP`) and status PVs do not carry `.DESC`.
+
 ### Enum resolution — readback (string → index), **(PR #452)** order
 
 GEECS speaks the option *string* on the wire; CA speaks the option *index*.

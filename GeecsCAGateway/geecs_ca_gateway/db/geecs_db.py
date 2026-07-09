@@ -102,12 +102,15 @@ def _num(value: object) -> Optional[float]:
 def _variable_row_to_meta(row: tuple) -> dict:
     """Map a ``devicetype_variable`` or ``variable`` (+ ``choice``) row onto the metadata dict.
 
-    Row order: name, units, min, max, set, variabletype, choices, tolerance —
-    the shared SELECT column order (after the leading id/link column) of
-    :meth:`GeecsDb.get_device_variables` and
+    Row order: name, units, min, max, set, variabletype, choices, tolerance,
+    description — the shared SELECT column order (after the leading id/link
+    column) of :meth:`GeecsDb.get_device_variables` and
     :meth:`GeecsDb.get_experiment_device_variables`.  Both the type-default
     table (``devicetype_variable``) and the per-instance table (``variable``)
-    carry the same columns, so one mapper serves both.
+    carry the same columns, so one mapper serves both.  ``description`` exists
+    only on ``variable`` — the type query selects ``NULL`` in that slot, so a
+    description is a purely per-instance fact (which the wholesale inheritance
+    already implies).
     """
     return {
         "name": row[0],
@@ -118,6 +121,7 @@ def _variable_row_to_meta(row: tuple) -> dict:
         "variabletype": (row[5] or "").strip().lower() or None,
         "choices": row[6],
         "tolerance": _num(row[7]),
+        "description": (row[8] or "").strip() if len(row) > 8 else "",
     }
 
 
@@ -558,7 +562,7 @@ class GeecsDb:
             cur = conn.cursor()
             cur.execute(
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
-                "dtv.variabletype, c.choices, dtv.tolerance "
+                "dtv.variabletype, c.choices, dtv.tolerance, NULL "
                 "FROM devicetype_variable dtv "
                 "JOIN device d ON d.devicetype = dtv.devicetype "
                 "LEFT JOIN choice c ON c.id = dtv.choice_id "
@@ -568,7 +572,7 @@ class GeecsDb:
             type_rows = cur.fetchall()
             cur.execute(
                 "SELECT v.devicetype_variable_id, v.name, v.units, v.min, v.max, "
-                "v.`set`, v.variabletype, c.choices, v.tolerance "
+                "v.`set`, v.variabletype, c.choices, v.tolerance, v.description "
                 "FROM variable v "
                 "LEFT JOIN choice c ON c.id = v.choice_id "
                 "WHERE v.device = %s ORDER BY v.name",
@@ -656,7 +660,7 @@ class GeecsDb:
             cur = conn.cursor()
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
-                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance "
+                "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN device d ON d.name = sel.device "
@@ -668,7 +672,8 @@ class GeecsDb:
             type_rows = cur.fetchall()
             instance_query = (
                 "SELECT v.device, v.devicetype_variable_id, v.name, v.units, "
-                "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance "
+                "v.min, v.max, v.`set`, v.variabletype, c.choices, v.tolerance, "
+                "v.description "
                 "FROM (SELECT DISTINCT ed.device FROM expt_device ed "
                 "      WHERE ed.expt = %s{enabled}) sel "
                 "JOIN variable v ON v.device = sel.device "

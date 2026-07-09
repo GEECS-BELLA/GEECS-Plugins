@@ -38,6 +38,38 @@ def test_from_db_metadata_maps_units_limits_settable() -> None:
     assert by_name["IPAddress"].lo is None and by_name["IPAddress"].hi is None
 
 
+def test_description_absent_defaults_to_empty() -> None:
+    """A metadata row with no 'description' key yields an empty DESC."""
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META)
+    by_name = {v.geecs_var: v for v in spec.variables}
+    assert by_name["Current"].description == ""
+
+
+def test_description_maps_from_metadata() -> None:
+    """A 'description' key on a metadata row maps onto VariableSpec.description."""
+    meta = [
+        {
+            "name": "Current",
+            "units": "A",
+            "min": -5.0,
+            "max": 5.0,
+            "settable": True,
+            "description": "S1H steering current",
+        }
+    ]
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, meta)
+    assert spec.variables[0].description == "S1H steering current"
+
+
+def test_description_clipped_to_epics_limit() -> None:
+    """An over-long description is clipped to 40 chars (EPICS .DESC limit)."""
+    from geecs_ca_gateway.config import VariableSpec
+
+    long_text = "x" * 60
+    spec = VariableSpec(geecs_var="V", description=long_text)
+    assert len(spec.description) == 40
+
+
 def test_alarm_limits_validate_order_and_presence() -> None:
     """Curated alarm limits must be explicit and monotonic."""
     limits = AlarmLimits(low=1.0, high=5.0)

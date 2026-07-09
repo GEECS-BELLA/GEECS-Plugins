@@ -37,6 +37,7 @@ from .alarms import AlarmLevel, AlarmSeverityName
 from .channels import (
     cast_value,
     enum_index,
+    make_description_channel,
     make_readback_channel,
     make_restart_channel,
     make_setpoint_channel,
@@ -192,6 +193,13 @@ class GeecsCaGateway:
                 readback = make_readback_channel(var)
                 self.pvdb[full] = readback
                 readback_map[var.geecs_var] = (readback, var)
+                if var.description:
+                    # Serve the description as the PV's .DESC field. A plain
+                    # '<pv>.DESC' string entry is resolved by the CA server's
+                    # first-line name lookup — no record machinery needed.
+                    self.pvdb[f"{full}.DESC"] = make_description_channel(
+                        var.description
+                    )
 
                 if var.settable:
                     sp_name = f"{full}:SP"
@@ -256,6 +264,7 @@ class GeecsCaGateway:
                 lo=spec.lo,
                 hi=spec.hi,
                 deadband=spec.deadband,
+                description=spec.description,
             )
             channel = make_readback_channel(
                 var_spec,
@@ -263,6 +272,10 @@ class GeecsCaGateway:
                 initial_status=AlarmStatus.UDF,
             )
             self.pvdb[full] = channel
+            if var_spec.description:
+                self.pvdb[f"{full}.DESC"] = make_description_channel(
+                    var_spec.description
+                )
             evaluator = ExpressionEvaluator(
                 spec.expression, {inp.symbol for inp in spec.inputs}
             )
