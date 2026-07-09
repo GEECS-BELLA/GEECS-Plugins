@@ -8,16 +8,34 @@ The site is organised into top-level tabs in `mkdocs.yml`'s `nav:`. The
 canonical ordering is:
 
 ```
-Home → Tutorials → <per-package tabs> → Skills
+Home → Tutorials → Acquisition → Analysis → Platform → Skills
 ```
+
+The middle three are **purpose groups**, not one-tab-per-package. Each
+groups the packages that serve a shared audience, and each opens on a
+short section-index landing page (`docs/<group>/index.md`, surfaced via the
+`navigation.indexes` theme feature) that orients the reader and links to the
+constituent packages:
+
+- **Acquisition** — running scans on the beamline. Currently the Scanner
+  GUI; future acquisition backends (e.g. a Bluesky-driven scanner) join here.
+- **Analysis** — turning acquired data into results: Image Analysis, Scan
+  Analysis, and the Data Utils path/loading layer they build on.
+- **Platform** — the access-and-contract layer everything sits on: the
+  Python API (device transport + DB), the GEECS Gateway (EPICS soft-IOC),
+  and GEECS Schemas (the typed scan-config contract).
+
+Inside a group, each package is its own nav **section** (`navigation.sections`)
+and follows roughly Diátaxis: Overview (explanation), Tutorial (when
+applicable), How-To pages, Examples (notebooks), API Reference
+(mkdocstrings-generated). To document a new package, add a section under the
+group that matches its audience rather than creating a new top-level tab —
+that one-tab-per-package sprawl is exactly what the purpose grouping replaced.
 
 The Tutorials tab is the cross-package, user-facing entry point — it holds
 the end-to-end walkthroughs (currently Analysis; Acquisition is stubbed
-and eventually replaces the existing `geecs_scanner/tutorial.md`). Each
-per-package tab is owned by the package it documents and follows roughly
-Diátaxis: Overview (explanation), Tutorial (when applicable), How-To
-pages, Examples (notebooks), API Reference (mkdocstrings-generated).
-Skills sits last because it's experimental tooling rather than core suite.
+and eventually replaces the existing `geecs_scanner/tutorial.md`). Skills
+sits last because it's experimental tooling rather than core suite.
 
 ## When to put what where
 
