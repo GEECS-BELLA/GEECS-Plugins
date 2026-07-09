@@ -2,13 +2,13 @@
 
 The typed event hierarchy emitted by the scan engine. Every state transition, every device command, every error, and every dialog request is delivered as an instance of one of these classes through the `on_event` callback registered with `ScanManager`.
 
-The narrative description of when each event fires and how to consume them lives at [Architecture — Event vocabulary](../architecture.md#event-vocabulary). This page is the formal API.
+The narrative description of when each event fires and how to consume them lives at [Architecture — Event vocabulary](../architecture.md#event-vocabulary). This page is the formal API. The vocabulary now lives in `geecs_bluesky.events`; `geecs_scanner.engine.scan_events` remains a re-export shim so existing imports keep working.
 
 ## ScanState
 
 The lifecycle states a scan can be in. Inherits `str` so values serialise naturally to JSON and log messages.
 
-::: geecs_scanner.engine.scan_events.ScanState
+::: geecs_bluesky.events.ScanState
     options:
       show_source: false
       show_root_heading: false
@@ -17,7 +17,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Base event
 
-::: geecs_scanner.engine.scan_events.ScanEvent
+::: geecs_bluesky.events.ScanEvent
     options:
       show_source: false
       show_root_heading: false
@@ -27,7 +27,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Lifecycle events
 
-::: geecs_scanner.engine.scan_events.ScanLifecycleEvent
+::: geecs_bluesky.events.ScanLifecycleEvent
     options:
       show_source: false
       show_root_heading: false
@@ -37,7 +37,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Step progress
 
-::: geecs_scanner.engine.scan_events.ScanStepEvent
+::: geecs_bluesky.events.ScanStepEvent
     options:
       show_source: false
       show_root_heading: false
@@ -47,7 +47,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Device command outcomes
 
-::: geecs_scanner.engine.scan_events.DeviceCommandEvent
+::: geecs_bluesky.events.DeviceCommandEvent
     options:
       show_source: false
       show_root_heading: false
@@ -57,7 +57,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Errors and restore failures
 
-::: geecs_scanner.engine.scan_events.ScanErrorEvent
+::: geecs_bluesky.events.ScanErrorEvent
     options:
       show_source: false
       show_root_heading: false
@@ -65,7 +65,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
       merge_init_into_class: true
       heading_level: 3
 
-::: geecs_scanner.engine.scan_events.ScanRestoreFailedEvent
+::: geecs_bluesky.events.ScanRestoreFailedEvent
     options:
       show_source: false
       show_root_heading: false
@@ -75,7 +75,7 @@ The lifecycle states a scan can be in. Inherits `str` so values serialise natura
 
 ## Dialog requests
 
-::: geecs_scanner.engine.scan_events.ScanDialogEvent
+::: geecs_bluesky.events.ScanDialogEvent
     options:
       show_source: false
       show_root_heading: false

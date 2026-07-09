@@ -45,7 +45,7 @@ files = [
 
 [[package]]
 name = "geecs-schemas"
-version = "0.4.0"
+version = "0.6.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"

@@ -105,6 +105,11 @@ nav:
 
   - GEECS Schemas:
       - Scanner Configs Overview: geecs_schemas/schemas_overview.md
+      - Running a Scan: geecs_schemas/running_a_scan.md
+      - Schema Reference: geecs_schemas/schema_reference.md
+
+  - GEECS Gateway:
+      - Client Overview: geecs_gateway/client_overview.md
 
   # Skills is intentionally last — experimental (agentic tooling), not core suite.
   - Skills:

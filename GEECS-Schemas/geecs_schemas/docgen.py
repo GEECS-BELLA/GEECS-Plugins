@@ -8,14 +8,22 @@ code.  GUI tooltips are expected to consume the same descriptions.
 Dependency-free by design (standard library + Pydantic introspection only) —
 no mkdocs plugins, no YAML library.  ``render_reference()`` emits one big
 Markdown string; the docs build decides where to put it.
+
+The published copy lives at ``docs/geecs_schemas/schema_reference.md`` and is
+regenerated with ``python -m geecs_schemas.docgen`` (or
+``tests/generate_schema_reference.py``).  ``tests/test_schema_reference.py`` is
+a no-drift guard: it fails CI if the committed page falls out of step with the
+schemas, so the reference can never silently rot.
 """
 
 from __future__ import annotations
 
+import argparse
 import inspect
 import types
 import typing
 from enum import Enum
+from pathlib import Path
 from typing import Any, Iterator, Mapping, Optional
 
 from pydantic import BaseModel
@@ -23,6 +31,21 @@ from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from geecs_schemas import SCHEMA_REGISTRY
+
+# Marker line that prefixes the committed Markdown page so a reader (or a stray
+# editor) knows not to hand-edit it.  The no-drift test compares the file with
+# this header line stripped, so wording changes here never break the guard.
+GENERATED_HEADER = (
+    "<!-- GENERATED FILE — do not edit by hand.\n"
+    "     Regenerate with:  python -m geecs_schemas.docgen\n"
+    "     (or GEECS-Schemas/tests/generate_schema_reference.py).\n"
+    "     A no-drift test (tests/test_schema_reference.py) fails CI if this\n"
+    "     file falls out of step with the schema field descriptions. -->"
+)
+
+# Path to the committed docs page, relative to the repo root.  Kept here so the
+# generator, the regenerator script, and the no-drift test all agree on it.
+REFERENCE_PAGE = Path("docs/geecs_schemas/schema_reference.md")
 
 # Hand-written example YAML per registry kind, shown under each top-level
 # model's reference section. Kept here (not in docstrings) so examples can
@@ -204,6 +227,13 @@ def _type_name(annotation: Any) -> str:
         return "None"
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
+    # Unwrap Annotated[T, ...] (Pydantic discriminated unions arrive as
+    # Annotated[Union[...], FieldInfo(discriminator=...)]) to the underlying
+    # type — the metadata is noise in an operator reference.
+    if origin is not None and getattr(origin, "__name__", "") == "Annotated":
+        return _type_name(args[0])
+    if hasattr(annotation, "__metadata__"):  # typing.Annotated instance
+        return _type_name(annotation.__origin__)
     if origin in (typing.Union, types.UnionType):
         parts = [_type_name(a) for a in args if a is not type(None)]
         rendered = " | ".join(parts)
@@ -296,6 +326,26 @@ def iter_nested_models(
         yield from _walk(field.annotation)
 
 
+def _escape_cell(text: str) -> str:
+    r"""Escape a Markdown table cell so pipes don't split columns.
+
+    A ``|`` inside a cell (common in union types like ``A | B`` and in
+    ``Literal`` renderings) must be escaped as ``\|`` or it is read as a
+    column separator and breaks the table.
+
+    Parameters
+    ----------
+    text : str
+        Raw cell text.
+
+    Returns
+    -------
+    str
+        Cell text safe to place between table pipes.
+    """
+    return text.replace("|", "\\|")
+
+
 def render_model_markdown(model: type[BaseModel], example: str | None = None) -> str:
     """Render one model as a Markdown reference section.
 
@@ -321,11 +371,12 @@ def render_model_markdown(model: type[BaseModel], example: str | None = None) ->
         "|---|---|---|---|---|",
     ]
     for name, field in model.model_fields.items():
-        description = " ".join((field.description or "").split())
+        description = _escape_cell(" ".join((field.description or "").split()))
         required = "yes" if field.is_required() else "no"
+        type_name = _escape_cell(_type_name(field.annotation))
+        default = _escape_cell(_default_repr(field))
         lines.append(
-            f"| `{name}` | `{_type_name(field.annotation)}` | {required} "
-            f"| {_default_repr(field)} | {description} |"
+            f"| `{name}` | `{type_name}` | {required} | {default} | {description} |"
         )
     lines.append("")
     if example:
@@ -363,3 +414,78 @@ def render_reference(
             out.append(render_model_markdown(nested))
         documented.add(model)
     return "\n".join(out)
+
+
+def render_page(
+    registry: Optional[Mapping[str, type[BaseModel]]] = None,
+) -> str:
+    """Render the committed docs page: the generated-header line plus reference.
+
+    Parameters
+    ----------
+    registry : mapping, optional
+        kind → model mapping; defaults to
+        :data:`geecs_schemas.SCHEMA_REGISTRY`.
+
+    Returns
+    -------
+    str
+        The full Markdown page (header comment + reference body), the exact
+        text written to :data:`REFERENCE_PAGE`.
+    """
+    return f"{GENERATED_HEADER}\n\n{render_reference(registry)}\n"
+
+
+def _repo_root() -> Path:
+    """Return the repository root (three levels above this module).
+
+    Returns
+    -------
+    pathlib.Path
+        ``<repo>/`` — the parent of ``GEECS-Schemas/``.
+    """
+    # docgen.py → geecs_schemas/ → GEECS-Schemas/ → <repo root>
+    return Path(__file__).resolve().parents[2]
+
+
+def write_page(path: Optional[Path] = None) -> Path:
+    """Write the reference page to disk and return where it was written.
+
+    Parameters
+    ----------
+    path : pathlib.Path, optional
+        Destination file; defaults to ``<repo>/`` + :data:`REFERENCE_PAGE`.
+
+    Returns
+    -------
+    pathlib.Path
+        The path written.
+    """
+    destination = path if path is not None else _repo_root() / REFERENCE_PAGE
+    destination.write_text(render_page(), encoding="utf-8")
+    return destination
+
+
+def main(argv: Optional[list[str]] = None) -> None:
+    """CLI entry point: regenerate the committed schema-reference page.
+
+    Parameters
+    ----------
+    argv : list of str, optional
+        Argument vector; defaults to ``sys.argv[1:]``.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Destination file (default: <repo>/docs/geecs_schemas/schema_reference.md).",
+    )
+    args = parser.parse_args(argv)
+    written = write_page(args.output)
+    print(f"wrote {written}")
+
+
+if __name__ == "__main__":
+    main()

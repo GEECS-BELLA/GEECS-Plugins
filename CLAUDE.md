@@ -12,6 +12,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
 | `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
+| `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
 | `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
 | `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
@@ -103,12 +104,13 @@ against each package's `[tool.poetry.dependencies]` (intra-repo path deps).
 ```
 GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
+GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
 
 ImageAnalysis        →  GEECS-Data-Utils
 GeecsCAGateway       →  GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays; otherwise the GEECS access layer:
                         wire protocol, DB, PV naming, CA server)
-GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway
+GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway, GEECS-Schemas
                         (+ ImageAnalysis, optional via the `analysis` extra —
                         post-run image analysis over archived Tiled runs)
 GEECS-PythonAPI      →  GEECS-Data-Utils
@@ -208,7 +210,7 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
-`GeecsBluesky/`, `GeecsCAGateway/`.
+`GeecsBluesky/`, `GeecsCAGateway/`, `GEECS-Schemas/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
