@@ -7,20 +7,26 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 
 ### Added
 
-- **`VariableSpec.description`** — a one-line human description destined for a
-  PV's `.DESC` field (Phoebus/archiver label). Clipped to 40 chars (EPICS
-  DBR_STRING) with a warning. `DeviceSpec.from_db_metadata` reads it from
-  `meta.get("description")`, which is simply absent today (⇒ `""`, inert), so
-  nothing changes for the live gateway until the DB SELECT exposes the column.
+- **Per-PV `description` resolved from the DB** — a one-line human description
+  destined for a PV's `.DESC` field (Phoebus/archiver label). Both metadata
+  queries (`get_device_variables`, `get_experiment_device_variables`) now
+  select `variable.description` on the instance side (and `NULL` on the type
+  side, since the column exists only on the per-instance `variable` table),
+  resolved through the existing capability inheritance chain into
+  `VariableSpec.description`. Clipped to 40 chars (EPICS DBR_STRING) with a
+  warning. Verified end-to-end against the live DB.
+- `deploy/variable_description.sql` — non-destructive DDL to narrow
+  `variable.description` to the 40-char EPICS `.DESC` limit and (optionally,
+  gated on a code coalesce) add a type-level `devicetype_variable.description`.
 
-  **Plumbing only — the gateway does not yet serve `.DESC` over CA.** caproto's
-  raw `ChannelData` pvdb (which this gateway uses) has no `doc`/DESC kwarg, so
-  serving the field needs explicit `<pv>.DESC` channels or the field-aware
-  record machinery — a `PV_CONTRACT.md` change requiring live CA-client
-  validation. Discipline for whoever wires it: `.DESC` carries *stable
-  identity only*, never time-varying provenance (a `.DESC` edit leaves no
-  history). See `Planning/scan_variable_metadata/00_overview.md` (Deferred #1,
-  #2).
+  **Not yet served over CA.** caproto's raw `ChannelData` pvdb (which this
+  gateway uses) has no `doc`/DESC kwarg, so serving the field needs explicit
+  `<pv>.DESC` channels or the field-aware record machinery — a `PV_CONTRACT.md`
+  change requiring live CA-client validation. `VariableSpec.description` is
+  resolved and ready; wiring it to a served field is the remaining step.
+  Discipline for whoever wires it: `.DESC` carries *stable identity only*,
+  never time-varying provenance (a `.DESC` edit leaves no history). See
+  `Planning/scan_variable_metadata/00_overview.md`.
 
 ## [0.9.0] - 2026-07-08
 

@@ -1,0 +1,48 @@
+-- Migration: PV .DESC support for GeecsCAGateway.
+--
+-- The gateway serves a per-PV one-line description (destined for the EPICS
+-- .DESC field: Phoebus/archiver label).  It reads `variable.description` —
+-- the per-instance override table — via the capability inheritance chain, and
+-- exposes it as `VariableSpec.description`.  This file makes two OPTIONAL,
+-- non-destructive schema adjustments; the gateway runs fine without either.
+--
+-- Apply from a host with access to the GEECS DB, for example:
+--
+--   mysql --host=<db-host> --user=<db-user> --password <db-name> \
+--     < deploy/variable_description.sql
+--
+-- ---------------------------------------------------------------------------
+-- 1. Match the columns to the EPICS .DESC limit (40 chars).
+--
+-- `variable.description` already exists as VARCHAR(1000).  EPICS DBR_STRING
+-- (the .DESC field) caps at 40 characters, and the gateway clips longer text
+-- with a warning (see VariableSpec._clip_description).  Narrowing the column
+-- makes the DB the constraint, so authoring tools reject an over-long
+-- description at write time instead of it silently truncating on the PV.
+--
+-- SAFETY: this truncates any EXISTING description longer than 40 chars.  As of
+-- this migration authoring, 0 of ~2641 rows are populated, so it is a no-op on
+-- data — but re-check before running if descriptions have since been added:
+--   SELECT id, device, name, CHAR_LENGTH(description) len FROM variable
+--     WHERE CHAR_LENGTH(description) > 40;
+ALTER TABLE variable MODIFY description VARCHAR(40) NULL;
+
+-- ---------------------------------------------------------------------------
+-- 2. (OPTIONAL) Add a type-level description default.
+--
+-- `description` currently exists only on the per-instance `variable` table, so
+-- a description requires a per-instance row.  Adding it to `devicetype_variable`
+-- lets one row describe every instance of a device type (e.g. all steering
+-- magnets' "Current").
+--
+-- NOTE: enabling this requires a matching CODE change.  The gateway's SELECTs
+-- currently take the type-side description as NULL and read only the instance
+-- column (see GeecsDb.get_device_variables / get_experiment_device_variables).
+-- Because the inheritance is WHOLESALE (an instance row overrides the type row
+-- in full), a type-level default would need a deliberate coalesce
+-- (instance.description, else type.description) rather than the standard
+-- whole-row replacement — otherwise an instance row with a NULL description
+-- would erase the type default.  Do not add this column until that coalesce is
+-- implemented and tested, or type descriptions will simply be ignored.
+--
+-- ALTER TABLE devicetype_variable ADD COLUMN description VARCHAR(40) NULL;

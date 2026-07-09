@@ -33,15 +33,35 @@ is an application of that one rule.
    Deliberately **no tolerance field**: the match tolerance is a device fact
    and stays below the configs (DB / gateway PV metadata), per §4.2.
 
-3. **`VariableSpec.description`** (`geecs_ca_gateway.config`) — the model +
-   DB-read plumbing for a PV `.DESC`, clipped to 40 chars (EPICS DBR_STRING)
-   with a warning. `from_db_metadata` reads `meta.get("description")`, which is
-   simply absent today (⇒ `""`, inert). **The live SQL SELECT and the actual
-   CA DESC-serving are NOT in this branch** — see Deferred #1/#2.
+3. **`VariableSpec.description` + the live SELECT** (`geecs_ca_gateway`) — the
+   model (40-char clip with warning) *and* the DB read. Both metadata queries
+   (`get_device_variables`, `get_experiment_device_variables`) now select
+   `variable.description` on the instance side and `NULL` on the type side,
+   coalesced through `_variable_row_to_meta` into `from_db_metadata` →
+   `VariableSpec.description`. **Verified end-to-end against the live DB
+   (2026-07-09):** the query runs, and a description written to
+   `U_S1H.Current`'s instance row surfaces as `VariableSpec.description`.
+   Still **not** served over CA — see Deferred #1 (that is the remaining
+   `.DESC` piece).
 
 4. **CaSettable / CaMotor docstring honesty** (`geecs_bluesky.devices.ca`).
    Corrected the misleading framing that `motor` is *the* way to declare a
    positioner and `CaSettable` is unsafe for stages.
+
+5. **Live DB + config changes done on-network (2026-07-09):**
+   - `U_EMQTripletBipolar:Current.Ch{1,2,3}` tolerance set `0 → 0.05` A on the
+     type rows (no instance rows exist; harmless today since those vars are
+     read-only, ready for a future confirm-device).
+   - `U_S1H:Current` instance row given a description ("S1H steering magnet
+     current") as the proof-of-concept — chosen because that row already
+     exists; **no new `variable` rows were created** (creating one makes it
+     wholesale ground truth, too risky for a cosmetic field).
+   - Undulator migrated to new-schema `scan_variables.yaml` (configs repo,
+     branch `codex/undulator-derived-channels`): 59 variables, exact set match
+     with the legacy pair, EMQ entries carry `confirm: …:Current.ChN`.
+   - `deploy/variable_description.sql` — reviewable DDL to narrow
+     `variable.description` to 40 chars and (optionally, gated on a code
+     coalesce) add a type-level `devicetype_variable.description`.
 
 ## The completion-semantics taxonomy (the substantive finding)
 
@@ -146,14 +166,14 @@ Two consequences that revise the earlier plan:
   40 with a warning, but the ≤40 "stable identity" discipline must be applied
   at *authoring* time too, or Phoebus shows half a sentence.
 
-1. **Populate + JOIN the description/alias columns.**
-   `GeecsDb.get_device_variables` / `get_experiment_device_variables` must
-   `LEFT JOIN variable` to pick up `description` (and prefer `variable.alias`
-   over the empty `devicetype_variable.alias`), coalescing per the inheritance
-   chain. Nothing is populated yet, so the payoff depends on someone writing
-   short (≤40 char) descriptions into `variable.description`. The
-   `VariableSpec.description` plumbing already consumes `meta["description"]`
-   the moment the SELECT provides it.
+1. **JOIN the description column — DONE (2026-07-09).** Both metadata queries
+   now select `variable.description` (instance side) / `NULL` (type side) and
+   coalesce through `_variable_row_to_meta`. Verified against the live DB.
+   **Remaining sub-items:** (a) populate `variable.description` with short
+   (≤40 char) text — only `U_S1H:Current` is populated so far; (b) `alias` is
+   *not* yet wired the same way — prefer `variable.alias` over the empty
+   `devicetype_variable.alias` when the name-defaults-to-alias resolution
+   (Deferred #4) is built.
 
 2. **Actual CA DESC-serving in the gateway.** The gateway serves a raw
    `dict[str, ChannelData]` pvdb; caproto's `ChannelData` has **no `doc`/DESC

@@ -216,6 +216,7 @@ def test_get_device_variables_type_only_inherits_type_defaults(monkeypatch) -> N
         "variabletype": "numeric",
         "choices": None,
         "tolerance": 0.05,
+        "description": "",
     }
     assert sorted(result[0]) == sorted(result[1]) == sorted(result[2])
     assert result[1]["choices"] == "on,off"
@@ -297,6 +298,49 @@ def test_instance_only_variable_is_served(monkeypatch) -> None:
     assert by_name["Voltage"]["min"] is None
 
 
+def test_instance_description_flows_through(monkeypatch) -> None:
+    """A per-instance ``variable.description`` reaches the meta dict.
+
+    ``description`` lives only on the instance table; the type query selects
+    ``NULL`` in that slot, so a description is inherently a per-instance fact.
+    Instance rows carry a 10th column (after the link id); type rows do not.
+    """
+    type_rows = [
+        # id, name, units, min, max, set, variabletype, choices, tol, NULL(desc)
+        (11, "Current", "A", "-5", "5", "yes", "numeric", None, "0.05", None),
+    ]
+    instance_rows = [
+        # link, name, units, min, max, set, variabletype, choices, tol, desc
+        (
+            11,
+            "Current",
+            "A",
+            "-5",
+            "5",
+            "yes",
+            "numeric",
+            None,
+            "0.05",
+            "S1H steering current",
+        ),
+    ]
+    _patch_query_sequence(monkeypatch, [type_rows, instance_rows], [])
+
+    result = GeecsDb.get_device_variables("U_S1H")
+    assert result[0]["description"] == "S1H steering current"
+
+
+def test_type_only_description_defaults_empty(monkeypatch) -> None:
+    """With no instance row, description is empty (type table has no such column)."""
+    type_rows = [
+        (11, "Current", "A", "-5", "5", "no", "numeric", None, "0.05", None),
+    ]
+    _patch_query_sequence(monkeypatch, [type_rows, []], [])
+
+    result = GeecsDb.get_device_variables("U_S1H")
+    assert result[0]["description"] == ""
+
+
 def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
     """Two batched queries return all devices' metadata, grouped and mapped."""
     queries: list = []
@@ -326,6 +370,7 @@ def test_get_experiment_device_variables_batches_metadata(monkeypatch) -> None:
         "variabletype": "numeric",
         "choices": None,
         "tolerance": 0.05,
+        "description": "",
     }
     assert result["U_A"][1]["choices"] == "on,off"
     assert result["U_B"][0]["settable"] is False
