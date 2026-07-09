@@ -180,6 +180,12 @@ a clear "not yet" message rather than attempted halfway.
   laser-off files: those are gone on purpose. The scanner derives them, and
   the old files convert automatically.
 
-*(The detailed per-field reference — every field, its type, default, and
-what it does — is generated from these same schemas; see the GEECS-Schemas
-package README for how to render it.)*
+## Where to next
+
+- **[Running a scan the new way](running_a_scan.md)** — the run itself: the
+  four-layer setup, the two-tier recording model in full, why the database
+  set-side is disabled, and where the data lands.
+- **[Schema reference](schema_reference.md)** — the detailed per-field
+  reference: every field, its type, default, and what it does. It is generated
+  straight from these same schemas (a no-drift test keeps it honest), so it can
+  never disagree with what the scanner actually accepts.

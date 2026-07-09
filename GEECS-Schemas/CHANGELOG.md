@@ -5,6 +5,29 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-08
+
+### Added
+
+- **Published schema reference + no-drift guard.** `geecs_schemas.docgen` now
+  emits the committed docs page directly: `render_page()` prepends a
+  do-not-edit header to `render_reference()`, `write_page()` writes it, and
+  `python -m geecs_schemas.docgen` (or
+  `tests/generate_schema_reference.py`) regenerates
+  `docs/geecs_schemas/schema_reference.md`. A new no-drift test
+  (`tests/test_schema_reference.py`) fails CI if the committed page falls out
+  of step with the schema field descriptions, so the published reference can
+  never silently drift from the code.
+
+### Fixed
+
+- **Markdown table rendering in the generated reference.** Table cells
+  containing `|` (union types like `PositionRange | PositionList`, `Literal`
+  renderings) are now escaped so they no longer split columns, and Pydantic
+  discriminated unions (`Annotated[Union[...], discriminator=...]`) render as
+  the clean underlying union (`list[SetStep | WaitStep | CheckStep |
+  RunPlanStep]`) instead of the raw `Annotated[...]` wrapper.
+
 ## [0.4.0] - 2026-07-08
 
 ### Changed
