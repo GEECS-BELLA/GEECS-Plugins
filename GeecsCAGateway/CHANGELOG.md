@@ -84,6 +84,29 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   `INVALID/COMM` until the next live frame, which then reports either
   `NO_ALARM` or the active value alarm.
 
+## [0.6.1] - 2026-07-07
+
+### Fixed
+
+- **Variable capability/metadata now resolves the full GEECS inheritance
+  chain** instead of reading `devicetype_variable` alone. Per the
+  maintainer-confirmed semantics, a per-instance row in the `variable` table
+  (linked via `variable.devicetype_variable_id`) replaces its type row
+  **wholesale** — settability, name, units, limits, tolerance, choices all
+  come from the instance row, with no field-level fallback (instance NULL
+  limits mean *no* limits). Live-DB evidence for the gap: 1032 instance rows
+  differed from their type defaults, including settability flips — instance-
+  settable variables were served without their `:SP` PVs, and instance
+  limits/tolerances were served wrong. Instance rows with a NULL or dangling
+  type link define instance-only variables and are now served as well (keyed
+  by name, so a same-named type row is replaced rather than colliding on one
+  PV name). Both `GeecsDb.get_device_variables` and the batched
+  `GeecsDb.get_experiment_device_variables` apply the same resolution.
+
+  **Operational note:** the gateway serves *more* PVs after this fix —
+  instance-settable variables gain their `:SP` setpoints — so a gateway
+  restart (e.g. via `CAGateway:RESTART`) is needed to pick them up.
+
 ## [0.6.0] - 2026-07-07
 
 ### Added
