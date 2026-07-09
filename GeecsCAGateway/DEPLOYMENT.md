@@ -81,8 +81,10 @@ derived_channels:
 ```
 
 Cross-device derived PVs use latest-value semantics and must declare
-`stale_after`. The gateway recomputes when any input updates and marks the
-output `INVALID/UDF` if any input is missing or stale:
+`stale_after`. The gateway recomputes when any input updates, and the status
+loop marks the output `INVALID/UDF` if any input is missing or stale even when
+all sources go quiet. These are advisory software-status PVs, not hard safety
+interlocks:
 
 ```yaml
 schema_version: 1
@@ -98,7 +100,7 @@ derived_channels:
         device: Amp4Shutter
         variable: Ready
     stale_after: 2.0
-    description: "Latest-value software permit for laser shots"
+    description: "Latest-value advisory status for laser shots"
 ```
 
 The configs repo root is resolved the same way as scanner configs:

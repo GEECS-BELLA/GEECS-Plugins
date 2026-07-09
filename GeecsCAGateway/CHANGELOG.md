@@ -11,10 +11,28 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   whose inputs span multiple source devices now recomputes when any input
   source updates, uses the latest cached numeric values from the other inputs,
   and requires `stale_after` to mark the output `INVALID/UDF` when any input is
-  missing or stale.
+  missing or stale. The gateway status loop also reevaluates freshness so
+  completely quiet input sources cannot leave the last computed value looking
+  live indefinitely.
 - Boolean/comparison expressions for derived status PVs. Expressions such as
   `pressure < 1e-5 and ready > 0` are accepted and publish as float values
   `1.0` or `0.0`.
+- Two `GeecsDb` query methods backing the GeecsBluesky M3c DB-integration
+  runtime (library-only; the gateway server is unchanged):
+  - `get_all_experiment_variables(experiment)` — every `expt_device_variable`
+    row per device (`{device: [variablename, ...]}`, deduped), the
+    `all_scalars` counterpart of `get_subscribed_variables` (`get='yes'`).
+  - `get_scan_boundary_writes(experiment)` — the `set='yes'` rows'
+    `startvalue` / `endvalue` per device
+    (`{device: [{"variable", "startvalue", "endvalue"}, ...]}`, values as raw
+    wire strings or `None`), i.e. the Master-Control scan start/end write
+    policy.  Row order is preserved so writes replay in a stable sequence.
+    **Reserved / currently unused:** the GeecsBluesky engine does not apply
+    these DB set-side boundary writes in the current version (the set-side is
+    intentionally disabled — triggering is owned by the trigger profile /
+    shot controller and camera saving by the scanner's save-windowing).  Kept
+    as a read-only library query for inspection and a possible future DB
+    scan-write feature.
 
 ## [0.8.0] - 2026-07-08
 

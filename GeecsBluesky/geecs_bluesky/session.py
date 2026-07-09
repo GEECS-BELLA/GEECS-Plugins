@@ -44,6 +44,7 @@ from geecs_bluesky.devices.ca import (
     CaMotor,
     CaSettable,
     CaSnapshotReadable,
+    CaTelemetryReadable,
     CaTimestampedReadable,
 )
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
@@ -241,6 +242,46 @@ class GeecsSession:
                 name=name or safe_name(device),
             )
         )
+
+    def telemetry(
+        self,
+        device: str,
+        variables: list[str],
+        *,
+        name: str | None = None,
+    ) -> CaTelemetryReadable | None:
+        """Soft Tier-2 telemetry readable; ``None`` if the device is unreachable.
+
+        Builds a :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryReadable`
+        (read-only, fault-tolerant read) and connects it.  A connect failure
+        means the device is dead/unreachable at scan start — the background
+        telemetry contract says such a device is **dropped with a log line,
+        never an error** — so this returns ``None`` after warning instead of
+        propagating (unlike the strict device factories, whose failures fail
+        loudly).
+
+        The telemetry readable infers each variable's dtype from its PV
+        (numeric stays float, enum/string is captured as a label), so a device
+        is dropped here only when it is genuinely unreachable — never for a
+        variable *type* mismatch.  A single non-numeric ``get='yes'`` variable
+        no longer takes the device's other columns down with it.
+        """
+        det = CaTelemetryReadable(
+            device,
+            variables,
+            experiment=self.experiment,
+            name=name,
+        )
+        try:
+            return self._connect(det)
+        except Exception:
+            logger.warning(
+                "Dropping background-telemetry device %s: unreachable at scan "
+                "start (soft tier — never aborts the scan)",
+                device,
+                exc_info=True,
+            )
+            return None
 
     def motor(
         self,

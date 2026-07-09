@@ -84,6 +84,14 @@ def test_expression_evaluator_supports_status_logic() -> None:
     assert evaluator.evaluate({"pressure": 1e-4, "ready": 1.0}) == pytest.approx(0.0)
 
 
+def test_expression_evaluator_bool_ops_publish_binary_floats() -> None:
+    """Bare numeric operands in boolean expressions still publish 1.0/0.0."""
+    evaluator = ExpressionEvaluator("ready and enabled", {"ready", "enabled"})
+
+    assert evaluator.evaluate({"ready": 2.0, "enabled": 5.0}) == pytest.approx(1.0)
+    assert evaluator.evaluate({"ready": 0.0, "enabled": 5.0}) == pytest.approx(0.0)
+
+
 def test_derived_channel_schema_requires_stale_after_for_cross_device() -> None:
     """Cross-device derived channels must declare freshness semantics."""
     with pytest.raises(ValidationError, match="stale_after is required"):
@@ -392,6 +400,60 @@ async def test_cross_device_derived_channel_marks_stale_input_invalid() -> None:
     await pressure_callback({"Pressure": 1e-6})
     await asyncio.sleep(0.02)
     await shutter_callback({"Ready": 1.0})
+
+    assert int(permit.severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(permit.status) == int(AlarmStatus.UDF)
+
+
+async def test_cross_device_quiet_sources_mark_stale_invalid() -> None:
+    """The gateway rechecks freshness even when all input devices go quiet."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="TargetChamberPressure",
+                host="127.0.0.1",
+                port=1,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Pressure", dtype="float")],
+            ),
+            DeviceSpec(
+                name="Amp4Shutter",
+                host="127.0.0.1",
+                port=2,
+                experiment="Undulator",
+                variables=[VariableSpec(geecs_var="Ready", dtype="float")],
+            ),
+        ],
+        derived_channels=[
+            DerivedChannelSpec(
+                device="LaserPermit",
+                variable="OK",
+                expression="pressure < 1e-5 and ready > 0",
+                inputs=[
+                    DerivedInputSpec(
+                        symbol="pressure",
+                        device="TargetChamberPressure",
+                        variable="Pressure",
+                    ),
+                    DerivedInputSpec(
+                        symbol="ready",
+                        device="Amp4Shutter",
+                        variable="Ready",
+                    ),
+                ],
+                stale_after=0.01,
+            )
+        ],
+    )
+    gw = GeecsCaGateway(cfg)
+    permit = gw.pvdb["Undulator:LaserPermit:OK"]
+
+    await gw._make_callback(cfg.devices[0])({"Pressure": 1e-6})
+    await gw._make_callback(cfg.devices[1])({"Ready": 1.0})
+    assert int(permit.severity) == int(AlarmSeverity.NO_ALARM)
+
+    await asyncio.sleep(0.02)
+    await gw._sweep_stale_derived_channels(asyncio.get_running_loop().time())
 
     assert int(permit.severity) == int(AlarmSeverity.INVALID_ALARM)
     assert int(permit.status) == int(AlarmStatus.UDF)

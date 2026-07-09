@@ -31,6 +31,16 @@ Resolvers MUST record the defaults they applied into the resolved request
 (provenance): a run's metadata has to show the trigger profile and action
 plans it *actually* used, not require the reader to reconstruct which
 defaults file was in force at the time.
+
+DB scan defaults — what is honored
+----------------------------------
+The get-side DB defaults (``background_telemetry``, and per-device
+``db_scalars`` on the save set) ARE honored.  The set-side
+(``apply_db_scan_defaults`` — the database's ``set='yes'`` scan start/end
+writes) is **reserved and not currently honored**: the engine sets up
+triggering via the trigger profile / shot controller and camera saving via
+its own save-windowing, so DB boundary writes are intentionally disabled in
+this version.  The field is kept for a possible future re-enable.
 """
 
 from __future__ import annotations
@@ -95,12 +105,16 @@ class ExperimentDefaults(VersionedSchemaModel):
     apply_db_scan_defaults: bool = Field(
         True,
         description=(
-            "Honor the GEECS experiment database's scan-start/end writes "
-            "(MySQL table expt_device_variable: rows with set='yes', "
-            "writing their startvalue/endvalue) for devices taking part in "
-            "a scan. On by default, matching how MC behaves; turn off to "
-            "run the experiment purely from config files, ignoring the "
-            "database's start/end writes everywhere."
+            "RESERVED AND NOT CURRENTLY HONORED. The DB set-side scan "
+            "start/end writes (MySQL table expt_device_variable: rows with "
+            "set='yes', writing their startvalue/endvalue) are disabled in "
+            "this version — triggering is set up via the trigger profile / "
+            "shot controller and camera saving via the scanner's own "
+            "save-windowing, so the database's boundary writes are not "
+            "applied regardless of this flag. Kept for a possible future "
+            "re-enable. Note this is the set-side only: the get-side "
+            "'db_scalars' (standard telemetry) and 'background_telemetry' "
+            "are honored as normal."
         ),
     )
     background_telemetry: bool = Field(

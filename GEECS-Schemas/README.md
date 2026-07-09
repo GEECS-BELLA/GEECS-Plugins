@@ -57,13 +57,15 @@ schema-side only in M1), `PositionRange` / `PositionList`, `ActionBindings`
 `EvaluatorSpec`, `GeneratorSpec` — covers the legacy Xopt VOCS surface),
 `SaveSetEntry` / `SaveRole` (entries carry optional `setup` / `closeout`
 action-plan name references — the device's ritual travels with it through
-composition — plus the DB scan-default surfaces: `at_scan_start` /
-`at_scan_end` per-variable overrides of the DB's start/end writes, where a
-value replaces the DB's, an explicit `null` suppresses the write, and
-absence inherits; and `db_scalars`, on by default for new configs, making
-the DB's scan-logging telemetry the standard scalar source with `scalars`
-as additive extras — converted legacy elements carry an explicit
-`db_scalars: false` to preserve their exact old behavior),
+composition — plus the DB scan-default surfaces: `db_scalars`, on by default
+for new configs, making the DB's scan-logging telemetry the standard scalar
+source with `scalars` as additive extras — converted legacy elements carry
+an explicit `db_scalars: false` to preserve their exact old behavior; and
+the reserved `at_scan_start` / `at_scan_end` fields, which would override
+the DB's set-side start/end writes but are **not honored in this version**
+— the set-side is disabled (triggering and camera saving are handled by the
+trigger profile / shot controller and the scanner's save-windowing), and the
+fields are kept for a possible future re-enable),
 `ScanVariable` / `PseudoScanVariable`, `TriggerWrite` /
 `TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
 step types.

@@ -142,6 +142,7 @@ class ExpressionEvaluator:
         except SyntaxError as exc:
             raise DerivedExpressionError(str(exc)) from exc
         self._validate_node(tree)
+        self._coerce_bool_result = self._is_boolean_expression(tree.body)
         self._code = compile(tree, "<derived-channel>", "eval")
 
     def evaluate(self, values: dict[str, float]) -> float:
@@ -158,7 +159,16 @@ class ExpressionEvaluator:
         namespace.update(_ALLOWED_CONSTS)
         namespace.update(values)
         result = eval(self._code, {"__builtins__": {}}, namespace)  # noqa: S307
+        if self._coerce_bool_result:
+            return float(bool(result))
         return float(result)
+
+    @staticmethod
+    def _is_boolean_expression(node: ast.AST) -> bool:
+        """Return whether the expression's top-level result is boolean intent."""
+        return isinstance(node, (ast.BoolOp, ast.Compare)) or (
+            isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+        )
 
     def _validate_node(self, node: ast.AST) -> None:
         if isinstance(node, ast.Expression):

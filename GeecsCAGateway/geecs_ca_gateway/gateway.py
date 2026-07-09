@@ -192,6 +192,7 @@ class GeecsCaGateway:
         self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
         # source device -> derived channel runtimes that depend on that source.
         self._derived_by_source: dict[str, list[_DerivedRuntime]] = {}
+        self._derived_runtimes: list[_DerivedRuntime] = []
         # (source device, source variable) -> latest numeric value + receive time.
         self._derived_input_cache: dict[_DerivedInputKey, _DerivedInputValue] = {}
         # full derived PV name -> last value written, for deadband suppression
@@ -289,6 +290,7 @@ class GeecsCaGateway:
                 spec.expression, {inp.symbol for inp in spec.inputs}
             )
             runtime = _DerivedRuntime(spec, channel, evaluator, full)
+            self._derived_runtimes.append(runtime)
             for source in sorted(spec.source_devices):
                 self._derived_by_source.setdefault(source, []).append(runtime)
 
@@ -481,11 +483,7 @@ class GeecsCaGateway:
             return
         now = asyncio.get_running_loop().time()
         self._update_derived_input_cache(device_name, update, runtimes, now)
-        evaluated: set[str] = set()
         for runtime in runtimes:
-            if runtime.pv in evaluated:
-                continue
-            evaluated.add(runtime.pv)
             values = self._derived_values(runtime, now)
             if values is None:
                 await self._mark_derived_invalid(
@@ -507,6 +505,16 @@ class GeecsCaGateway:
                 continue
             output_extra = extra if not runtime.spec.is_cross_device else {}
             await self._write_derived_value(runtime, value, output_extra)
+
+    async def _sweep_stale_derived_channels(self, now: float) -> None:
+        """Mark derived PVs invalid when cached inputs age out with no frames."""
+        for runtime in self._derived_runtimes:
+            if runtime.spec.stale_after is None:
+                continue
+            if self._derived_values(runtime, now) is None:
+                await self._mark_derived_invalid(
+                    runtime.channel, runtime.pv, AlarmStatus.UDF
+                )
 
     def _update_derived_input_cache(
         self,
@@ -830,6 +838,7 @@ class GeecsCaGateway:
                 if heartbeat is not None:
                     beats += 1
                     await heartbeat.write(beats)
+                await self._sweep_stale_derived_channels(loop.time())
             except Exception:
                 logger.debug("status loop write failed", exc_info=True)
             await asyncio.sleep(period_s)

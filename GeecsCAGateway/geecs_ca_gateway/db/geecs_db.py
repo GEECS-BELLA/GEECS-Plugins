@@ -332,6 +332,134 @@ class GeecsDb:
         return result
 
     @classmethod
+    def get_all_experiment_variables(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, list[str]]:
+        """Return ``{device: [variablename, ...]}`` for every ``expt_device_variable`` row.
+
+        The ``all_scalars`` counterpart of :meth:`get_subscribed_variables`:
+        every variable the experiment tracks for a device instance, not just
+        the ``get='yes'`` subset.  Order is stable (device, then variable)
+        and duplicates are collapsed.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+
+        Returns
+        -------
+        dict
+            Device name → ordered list of variable names.  Devices with no
+            rows are absent.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT DISTINCT ed.device, edv.variablename "
+                "FROM expt_device_variable edv "
+                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.expt = %s"
+            )
+            if enabled_only:
+                query += " AND LOWER(ed.enabled) = 'yes'"
+            query += " ORDER BY ed.device, edv.variablename"
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        result: dict[str, list[str]] = {}
+        for device, variablename in rows:
+            bucket = result.setdefault(device, [])
+            if variablename not in bucket:
+                bucket.append(variablename)
+        return result
+
+    @classmethod
+    def get_scan_boundary_writes(
+        cls, experiment: str, *, enabled_only: bool = True
+    ) -> dict[str, list[dict]]:
+        """Return the ``set='yes'`` scan start/end writes per device.
+
+        ``expt_device_variable`` rows with ``set='yes'`` name the variables
+        Master Control writes at scan boundaries — the row's ``startvalue`` at
+        scan start and ``endvalue`` at scan end.  The values are returned as
+        raw wire strings (or ``None`` when the DB column is null).  Row order
+        is preserved (the DB's ``id`` order) so writes replay in a stable
+        sequence.
+
+        .. note::
+
+           **Reserved / not currently consumed by the engine.**  This is a
+           read-only library query; the GeecsBluesky engine does *not* apply
+           these DB set-side boundary writes in the current version (the
+           set-side is intentionally disabled — triggering is owned by the
+           trigger profile / shot controller and camera saving by the
+           scanner's save-windowing).  The method is kept for inspection and
+           for a possible future DB scan-write feature.
+
+        Parameters
+        ----------
+        experiment:
+            GEECS experiment name.
+        enabled_only:
+            Restrict to devices enabled in the experiment (default true).
+
+        Returns
+        -------
+        dict
+            Device name → ordered list of
+            ``{"variable": str, "startvalue": str|None, "endvalue": str|None}``
+            dicts, one per ``set='yes'`` row.  Devices with no such rows are
+            absent.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            query = (
+                "SELECT ed.device, edv.variablename, edv.startvalue, edv.endvalue "
+                "FROM expt_device_variable edv "
+                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.expt = %s AND edv.`set` = 'yes'"
+            )
+            if enabled_only:
+                query += " AND LOWER(ed.enabled) = 'yes'"
+            query += " ORDER BY ed.device, edv.id"
+            cur.execute(query, (experiment,))
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        result: dict[str, list[dict]] = {}
+        for device, variablename, startvalue, endvalue in rows:
+            result.setdefault(device, []).append(
+                {
+                    "variable": variablename,
+                    "startvalue": None if startvalue is None else str(startvalue),
+                    "endvalue": None if endvalue is None else str(endvalue),
+                }
+            )
+        return result
+
+    @classmethod
     def get_device_variables(cls, device_name: str) -> list[dict]:
         """Return variable metadata for *device_name*.
 

@@ -32,11 +32,14 @@ import pandas as pd
 
 logger = logging.getLogger(__name__)
 
-# Derived companion columns (event-schema v1) that must not appear in the legacy
-# scalar file.  Any event-stream column not named in ``geecs_scalar_headers`` is
-# dropped anyway; this set documents the intent.
+# Derived companion columns (event-schema v1) normally kept out of the legacy
+# scalar file.  Emission is driven entirely by ``geecs_scalar_headers`` (any
+# event-stream column not named there is dropped), so this set only documents
+# the intent — it is not an active filter.  Exception: ``-acq_timestamp`` is
+# deliberately surfaced (added to a device's headers) for file/image-saving
+# devices so saved files tie back to scan rows; it stays out for pure-scalar
+# devices.
 _COMPANION_SUFFIXES = (
-    "-acq_timestamp",
     "-t0_acq_timestamp",
     "-shot_id",
     "-shot_offset",
