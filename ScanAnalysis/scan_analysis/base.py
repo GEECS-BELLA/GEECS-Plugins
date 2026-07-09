@@ -27,6 +27,8 @@ from geecs_data_utils import ScanData, ScanPaths
 
 logger = logging.getLogger(__name__)
 
+SCALAR_SIDECAR_FILENAME = "scalar_results.tsv"
+
 
 # error classes
 class DataLengthError(ValueError):
@@ -497,6 +499,38 @@ class ScanAnalyzer:
                 )
 
         self._merge_auxiliary_data(updates, key=key)
+
+    def scalar_sidecar_path(self) -> Optional[Path]:
+        """Return the per-analyzer generated-scalar sidecar path, if available."""
+        path_dict = getattr(self, "path_dict", None)
+        if not isinstance(path_dict, dict) or "save" not in path_dict:
+            logger.warning("No analyzer save path set; skipping scalar sidecar write.")
+            return None
+
+        return Path(path_dict["save"]) / SCALAR_SIDECAR_FILENAME
+
+    def write_scalar_sidecar(self, data: pd.DataFrame) -> Optional[Path]:
+        """Write generated scalar updates beside analyzer output artifacts.
+
+        The sidecar is intentionally independent of the mutable s-file. It
+        contains only analyzer-generated scalar columns, indexed by
+        ``Shotnumber``, so those values survive if the watched s-file copy is
+        deleted and regenerated.
+        """
+        updates = self._prepare_updates_dataframe(data)
+        if updates is None:
+            return None
+
+        sidecar_path = self.scalar_sidecar_path()
+        if sidecar_path is None:
+            return None
+
+        key = "Shotnumber"
+        updates = updates.drop_duplicates(subset=[key], keep="last").sort_values(by=key)
+        sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+        updates.set_index(key).to_csv(sidecar_path, sep="\t", index=True, header=True)
+        logger.info("Wrote scalar sidecar to %s", sidecar_path)
+        return sidecar_path
 
     def generate_limited_shotnumber_labels(self, max_labels: int = 20) -> np.ndarray:
         """Generate evenly spaced shot-number labels with an upper bound on count.

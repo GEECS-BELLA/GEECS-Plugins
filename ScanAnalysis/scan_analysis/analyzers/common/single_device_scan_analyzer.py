@@ -11,7 +11,7 @@ It provides:
   bin-averaged image (e.g. nonlinear measurements where image-then-mean
   differs from mean-then-image)
 - Turnkey post-processing outputs via renderer delegation
-- Saving outputs and updating the scan's auxiliary s-file
+- Saving outputs, generated scalar sidecars, and the scan's auxiliary s-file
 
 Subclasses must provide:
 - An ImageAnalyzer instance
@@ -217,7 +217,8 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         3. Post-process:
            - If ``noscan``: average + animation.
            - Else: per-bin averaging + summary figure.
-        4. Persist auxiliary s-file updates and return list of display artifacts.
+        4. Persist generated scalar sidecar and auxiliary s-file updates, then
+           return list of display artifacts.
 
         Returns
         -------
@@ -256,6 +257,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 if pending:
                     df_updates = pd.DataFrame(pending)
                     if not df_updates.empty:
+                        self.write_scalar_sidecar(df_updates)
                         self.append_to_sfile(df_updates)
                 self._pending_aux_updates = []
             return self.renderer.display_contents
