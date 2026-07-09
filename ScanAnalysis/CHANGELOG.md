@@ -8,8 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - `SingleDeviceScanAnalyzer` now writes analyzer-generated scalar updates to a
-  tab-separated `scalar_results.tsv` sidecar beside the analyzer's other
-  post-analysis artifacts. The sidecar is indexed by `Shotnumber` and is
+  tab-delimited `ScanNNN_scalar_results.txt` sidecar beside the analyzer's
+  other post-analysis artifacts. The sidecar is indexed by `Shotnumber` and is
   written from the same scalar update rows used for the legacy mutable
   `analysis/sNNN.txt` append, so generated scalar values remain recoverable if
   the watched s-file copy is deleted or regenerated.

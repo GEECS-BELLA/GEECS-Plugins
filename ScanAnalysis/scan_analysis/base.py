@@ -27,7 +27,7 @@ from geecs_data_utils import ScanData, ScanPaths
 
 logger = logging.getLogger(__name__)
 
-SCALAR_SIDECAR_FILENAME = "scalar_results.tsv"
+SCALAR_SIDECAR_BASENAME = "scalar_results.txt"
 
 
 # error classes
@@ -507,7 +507,14 @@ class ScanAnalyzer:
             logger.warning("No analyzer save path set; skipping scalar sidecar write.")
             return None
 
-        return Path(path_dict["save"]) / SCALAR_SIDECAR_FILENAME
+        scan_name = getattr(self.scan_directory, "name", None)
+        if not scan_name and self.scan_tag is not None:
+            scan_name = f"Scan{self.scan_tag.number:03d}"
+        if not scan_name:
+            logger.warning("No scan name set; skipping scalar sidecar write.")
+            return None
+
+        return Path(path_dict["save"]) / f"{scan_name}_{SCALAR_SIDECAR_BASENAME}"
 
     def write_scalar_sidecar(self, data: pd.DataFrame) -> Optional[Path]:
         """Write generated scalar updates beside analyzer output artifacts.

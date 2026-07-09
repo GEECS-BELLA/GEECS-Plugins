@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from scan_analysis.base import SCALAR_SIDECAR_FILENAME, ScanAnalyzer
+from scan_analysis.base import ScanAnalyzer
 
 
 class _StubAnalyzer(ScanAnalyzer):
@@ -22,6 +22,7 @@ class TestScalarSidecar:
 
     def test_writes_scalar_sidecar_indexed_by_shotnumber(self, tmp_path):
         analyzer = _StubAnalyzer()
+        analyzer.scan_directory = tmp_path / "scans" / "Scan001"
         analyzer.path_dict = {
             "save": tmp_path / "analysis" / "Scan001" / "UC_Test" / "Array2D"
         }
@@ -35,7 +36,7 @@ class TestScalarSidecar:
 
         sidecar_path = analyzer.write_scalar_sidecar(updates)
 
-        assert sidecar_path == analyzer.path_dict["save"] / SCALAR_SIDECAR_FILENAME
+        assert sidecar_path == analyzer.path_dict["save"] / "Scan001_scalar_results.txt"
         assert sidecar_path.exists()
 
         sidecar = pd.read_csv(sidecar_path, sep="\t", index_col="Shotnumber")
@@ -46,6 +47,7 @@ class TestScalarSidecar:
 
     def test_normalizes_case_insensitive_shotnumber_column(self, tmp_path):
         analyzer = _StubAnalyzer()
+        analyzer.scan_directory = tmp_path / "scans" / "Scan003"
         analyzer.path_dict = {"save": tmp_path}
         updates = pd.DataFrame({"shotnumber": [3], "UC_Test_x": [7.0]})
 
