@@ -295,6 +295,32 @@ def make_readback_channel(
     )
 
 
+# EPICS DBR_STRING (the .DESC field's native type) caps at 40 characters.
+_DESC_MAX_LENGTH = 40
+
+
+def make_description_channel(description: str) -> ChannelData:
+    """Build a read-only string channel serving a PV's ``.DESC`` field value.
+
+    The gateway serves ``.DESC`` the simple way: a plain ``<pv>.DESC`` entry in
+    the pvdb dict, which the CA server resolves via its first-line name lookup
+    (no record machinery needed).  The text is clipped to the EPICS DBR_STRING
+    limit; callers that source from ``VariableSpec.description`` are already
+    clipped, but derived-channel descriptions are not, so clip here too.
+
+    Parameters
+    ----------
+    description : str
+        The description text (``.DESC`` field value).
+
+    Returns
+    -------
+    ChannelData
+        A client-read-only ``ChannelString`` holding the description.
+    """
+    return read_only(ChannelString)(value=description[:_DESC_MAX_LENGTH])
+
+
 def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
     """Build a writable channel that forwards CA puts to GEECS.
 

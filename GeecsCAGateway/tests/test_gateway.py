@@ -148,6 +148,33 @@ def test_experiment_prefix_and_manifest() -> None:
     assert gw.manifest["Undulator:U_S1H:Current:SP"] == ("U_S1H", "Current", "setpoint")
 
 
+def test_description_served_as_desc_field() -> None:
+    """A variable description becomes a served '<pv>.DESC' string channel."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_S1H",
+                host="h",
+                port=1,
+                experiment="Undulator",
+                variables=[
+                    VariableSpec(
+                        geecs_var="Current",
+                        description="S1H steering magnet current",
+                    ),
+                    VariableSpec(geecs_var="Voltage"),  # no description
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    desc_pv = "Undulator:U_S1H:Current.DESC"
+    assert desc_pv in gw.pvdb
+    assert gw.pvdb[desc_pv].value == "S1H steering magnet current"
+    # A variable with no description gets no .DESC entry.
+    assert "Undulator:U_S1H:Voltage.DESC" not in gw.pvdb
+
+
 def test_pv_name_collision_raises() -> None:
     """Two GEECS variables mapping to one PV is a hard error, not silent clobber."""
     cfg = GatewayConfig(

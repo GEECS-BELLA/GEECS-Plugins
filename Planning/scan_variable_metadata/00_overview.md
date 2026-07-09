@@ -38,11 +38,13 @@ is an application of that one rule.
    (`get_device_variables`, `get_experiment_device_variables`) now select
    `variable.description` on the instance side and `NULL` on the type side,
    coalesced through `_variable_row_to_meta` into `from_db_metadata` →
-   `VariableSpec.description`. **Verified end-to-end against the live DB
-   (2026-07-09):** the query runs, and a description written to
-   `U_S1H.Current`'s instance row surfaces as `VariableSpec.description`.
-   Still **not** served over CA — see Deferred #1 (that is the remaining
-   `.DESC` piece).
+   `VariableSpec.description`, **and served over CA as the standard `.DESC`
+   field** — a read-only `<pv>.DESC` string channel in the pvdb (readbacks +
+   derived channels). **Verified end-to-end (2026-07-09):** a description
+   written to `U_S1H:Current`'s instance row surfaces through
+   `VariableSpec.description` and is readable by a live CA client as
+   `…:Current.DESC`. Documented in `PV_CONTRACT.md` §4, pinned by
+   `test_gateway.test_description_served_as_desc_field`.
 
 4. **CaSettable / CaMotor docstring honesty** (`geecs_bluesky.devices.ca`).
    Corrected the misleading framing that `motor` is *the* way to declare a
@@ -178,13 +180,14 @@ Two consequences that revise the earlier plan:
    `devicetype_variable.alias` when the name-defaults-to-alias resolution
    (Deferred #4) is built.
 
-2. **Actual CA DESC-serving in the gateway.** The gateway serves a raw
-   `dict[str, ChannelData]` pvdb; caproto's `ChannelData` has **no `doc`/DESC
-   kwarg** (verified, caproto 1.3.0). Serving `.DESC` needs either explicit
-   `<pv>.DESC` string channels in the pvdb or the field-aware record
-   machinery — a PV_CONTRACT change that needs live CA-client validation.
-   `VariableSpec.description` is plumbed and ready; wiring it to a served field
-   is a separate on-network PR (update `PV_CONTRACT.md` + a pinned test).
+2. **CA DESC-serving — DONE (2026-07-09).** The initial worry was that
+   caproto's `ChannelData` has no `doc`/DESC kwarg (true). But the CA server
+   resolves a `<pv>.FIELD` request via its first-line pvdb name lookup, so a
+   plain `<pv>.DESC` `ChannelString` entry in the pvdb *is* served with no
+   record machinery — confirmed by reading the server source and by a live CA
+   client `caget`. `make_description_channel` + a `.DESC` entry per described
+   readback/derived channel. `PV_CONTRACT.md` §4 + pinned test. (This was
+   nearly folded into a "separate PR"; it turned out to be ~15 lines.)
 
 3. **Per-run DESC / apparatus metadata stamp into Tiled.** The run-metadata
    dict (`md`) is already assembled and injected per run

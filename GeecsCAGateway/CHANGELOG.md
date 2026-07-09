@@ -7,26 +7,23 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 
 ### Added
 
-- **Per-PV `description` resolved from the DB** — a one-line human description
-  destined for a PV's `.DESC` field (Phoebus/archiver label). Both metadata
-  queries (`get_device_variables`, `get_experiment_device_variables`) now
-  select `variable.description` on the instance side (and `NULL` on the type
-  side, since the column exists only on the per-instance `variable` table),
-  resolved through the existing capability inheritance chain into
-  `VariableSpec.description`. Clipped to 40 chars (EPICS DBR_STRING) with a
-  warning. Verified end-to-end against the live DB.
+- **Per-PV `.DESC` field, resolved from the DB and served over CA.** A
+  variable's DB `description` (per-instance `variable` table, resolved through
+  the capability inheritance chain like every other field into
+  `VariableSpec.description`) is served as the standard EPICS `.DESC` field —
+  a read-only `<pv>.DESC` string channel added to the pvdb, so
+  `caget …:Current.DESC` returns the text and Phoebus/the archiver pick it up.
+  Only non-empty descriptions get a `.DESC` entry. Clipped to the 40-char
+  DBR_STRING limit at both the DB column and the gateway. Verified end-to-end
+  against the live DB and with a live CA client. Applies to readbacks and
+  derived channels; `:SP` and status PVs carry no `.DESC`. `PV_CONTRACT.md` §4
+  documents it; pinned by `test_gateway.test_description_served_as_desc_field`.
+  Discipline: `.DESC` carries *stable identity only*, never time-varying
+  provenance (a `.DESC` edit leaves no history).
 - `deploy/variable_description.sql` — non-destructive DDL to narrow
-  `variable.description` to the 40-char EPICS `.DESC` limit and (optionally,
-  gated on a code coalesce) add a type-level `devicetype_variable.description`.
-
-  **Not yet served over CA.** caproto's raw `ChannelData` pvdb (which this
-  gateway uses) has no `doc`/DESC kwarg, so serving the field needs explicit
-  `<pv>.DESC` channels or the field-aware record machinery — a `PV_CONTRACT.md`
-  change requiring live CA-client validation. `VariableSpec.description` is
-  resolved and ready; wiring it to a served field is the remaining step.
-  Discipline for whoever wires it: `.DESC` carries *stable identity only*,
-  never time-varying provenance (a `.DESC` edit leaves no history). See
-  `Planning/scan_variable_metadata/00_overview.md`.
+  `variable.description` to the 40-char EPICS `.DESC` limit (applied) and
+  (optionally, gated on a code coalesce) add a type-level
+  `devicetype_variable.description`.
 
 ## [0.9.0] - 2026-07-08
 
