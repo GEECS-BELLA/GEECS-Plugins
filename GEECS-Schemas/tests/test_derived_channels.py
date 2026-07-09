@@ -35,8 +35,8 @@ class TestDerivedChannels:
         again = DerivedChannels.model_validate(document.model_dump(mode="json"))
         assert again == document
 
-    def test_same_source_device_enforced(self):
-        with pytest.raises(ValidationError, match="one source device"):
+    def test_cross_device_requires_stale_after(self):
+        with pytest.raises(ValidationError, match="stale_after is required"):
             DerivedChannels.model_validate(
                 {
                     "derived_channels": [
@@ -60,6 +60,37 @@ class TestDerivedChannels:
                     ]
                 }
             )
+
+    def test_cross_device_with_stale_after_is_allowed(self):
+        document = DerivedChannels.model_validate(
+            {
+                "derived_channels": [
+                    {
+                        "device": "LaserPermit",
+                        "variable": "OK",
+                        "expression": "pressure < 1e-5 and ready > 0",
+                        "inputs": [
+                            {
+                                "symbol": "pressure",
+                                "device": "TargetChamberPressure",
+                                "variable": "Pressure",
+                            },
+                            {
+                                "symbol": "ready",
+                                "device": "Amp4Shutter",
+                                "variable": "Ready",
+                            },
+                        ],
+                        "stale_after": 2.0,
+                    }
+                ]
+            }
+        )
+
+        [channel] = document.derived_channels
+        assert channel.is_cross_device
+        assert channel.source_devices == {"TargetChamberPressure", "Amp4Shutter"}
+        assert channel.stale_after == 2.0
 
     def test_input_symbols_must_be_unique(self):
         with pytest.raises(ValidationError, match="symbols must be unique"):

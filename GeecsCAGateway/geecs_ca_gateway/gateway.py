@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from caproto import (
@@ -77,6 +78,26 @@ _ALARM_STATUS = {
     AlarmLevel.HIGH: AlarmStatus.HIGH,
     AlarmLevel.HIHI: AlarmStatus.HIHI,
 }
+
+_DerivedInputKey = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class _DerivedRuntime:
+    """Runtime state for one derived PV."""
+
+    spec: DerivedChannelSpec
+    channel: ChannelData
+    evaluator: ExpressionEvaluator
+    pv: str
+
+
+@dataclass(frozen=True)
+class _DerivedInputValue:
+    """Latest numeric value observed for one derived input."""
+
+    value: float
+    received_at: float
 
 
 def _extract_timestamp(update: dict[str, Any], ts_vars: list[str]) -> float | None:
@@ -169,10 +190,10 @@ class GeecsCaGateway:
         self._restart_requested = asyncio.Event()
         # device name -> {geecs_var -> (readback channel, variable spec)}
         self._readbacks: dict[str, dict[str, tuple[ChannelData, VariableSpec]]] = {}
-        # source device -> derived channel specs evaluated from that device's frame
-        self._derived_by_source: dict[
-            str, list[tuple[DerivedChannelSpec, ChannelData, ExpressionEvaluator, str]]
-        ] = {}
+        # source device -> derived channel runtimes that depend on that source.
+        self._derived_by_source: dict[str, list[_DerivedRuntime]] = {}
+        # (source device, source variable) -> latest numeric value + receive time.
+        self._derived_input_cache: dict[_DerivedInputKey, _DerivedInputValue] = {}
         # full derived PV name -> last value written, for deadband suppression
         self._derived_last_written: dict[str, Any] = {}
         self._build_pvdb()
@@ -239,10 +260,11 @@ class GeecsCaGateway:
         source_devices = {dev.name for dev in self.config.devices}
         default_experiment = self._default_experiment()
         for spec in self.config.derived_channels:
-            if spec.source_device not in source_devices:
+            unknown_sources = sorted(spec.source_devices - source_devices)
+            if unknown_sources:
                 raise ValueError(
                     f"Derived channel {spec.device}:{spec.variable} references "
-                    f"unknown source device {spec.source_device!r}"
+                    f"unknown source device(s) {unknown_sources!r}"
                 )
             full = derived_pv_name(spec, default_experiment)
             if not self._register(full, spec.source_device, spec.variable, "derived"):
@@ -266,9 +288,9 @@ class GeecsCaGateway:
             evaluator = ExpressionEvaluator(
                 spec.expression, {inp.symbol for inp in spec.inputs}
             )
-            self._derived_by_source.setdefault(spec.source_device, []).append(
-                (spec, channel, evaluator, full)
-            )
+            runtime = _DerivedRuntime(spec, channel, evaluator, full)
+            for source in sorted(spec.source_devices):
+                self._derived_by_source.setdefault(source, []).append(runtime)
 
     def _build_gateway_status_pvs(self) -> None:
         """Expose gateway self-diagnostics under ``[Experiment:]CAGateway:*``."""
@@ -453,62 +475,119 @@ class GeecsCaGateway:
     async def _write_derived_channels(
         self, device_name: str, update: dict[str, Any], extra: dict[str, Any]
     ) -> None:
-        """Evaluate derived PVs whose inputs are present in this source frame."""
-        for spec, channel, evaluator, pv in self._derived_by_source.get(
-            device_name, []
-        ):
-            values: dict[str, float] = {}
-            missing = False
-            for inp in spec.inputs:
-                raw = update.get(inp.variable, _UNSET)
-                if raw is _UNSET or (isinstance(raw, str) and not raw.strip()):
-                    missing = True
-                    break
-                try:
-                    values[inp.symbol] = float(raw)
-                except (TypeError, ValueError):
-                    self._warn_once(
-                        device_name,
-                        pv,
-                        f"{device_name}: derived PV {pv} input "
-                        f"{inp.variable}={raw!r} is not numeric; marking INVALID",
-                    )
-                    missing = True
-                    break
-            if missing:
-                await self._mark_derived_invalid(channel, pv, AlarmStatus.UDF)
+        """Evaluate derived PVs affected by this source frame."""
+        runtimes = self._derived_by_source.get(device_name, [])
+        if not runtimes:
+            return
+        now = asyncio.get_running_loop().time()
+        self._update_derived_input_cache(device_name, update, runtimes, now)
+        evaluated: set[str] = set()
+        for runtime in runtimes:
+            if runtime.pv in evaluated:
+                continue
+            evaluated.add(runtime.pv)
+            values = self._derived_values(runtime, now)
+            if values is None:
+                await self._mark_derived_invalid(
+                    runtime.channel, runtime.pv, AlarmStatus.UDF
+                )
                 continue
             try:
-                value = evaluator.evaluate(values)
+                value = runtime.evaluator.evaluate(values)
             except Exception:
                 self._warn_once(
                     device_name,
-                    pv,
-                    f"{device_name}: derived PV {pv} expression failed; "
+                    runtime.pv,
+                    f"{device_name}: derived PV {runtime.pv} expression failed; "
                     "marking INVALID",
                 )
-                await self._mark_derived_invalid(channel, pv, AlarmStatus.CALC)
+                await self._mark_derived_invalid(
+                    runtime.channel, runtime.pv, AlarmStatus.CALC
+                )
                 continue
-            prev = self._derived_last_written.get(pv, _UNSET)
-            if prev is not _UNSET:
-                both_nan = math.isnan(value) and math.isnan(prev)
-                if both_nan or abs(value - prev) <= spec.deadband:
-                    continue
-            self._derived_last_written[pv] = value
+            output_extra = extra if not runtime.spec.is_cross_device else {}
+            await self._write_derived_value(runtime, value, output_extra)
+
+    def _update_derived_input_cache(
+        self,
+        device_name: str,
+        update: dict[str, Any],
+        runtimes: list[_DerivedRuntime],
+        received_at: float,
+    ) -> None:
+        """Cache numeric inputs from one source frame for derived channels."""
+        seen_inputs = {
+            inp.variable
+            for runtime in runtimes
+            for inp in runtime.spec.inputs
+            if inp.device == device_name
+        }
+        for variable in seen_inputs:
+            key = (device_name, variable)
+            raw = update.get(variable, _UNSET)
+            if raw is _UNSET or (isinstance(raw, str) and not raw.strip()):
+                self._derived_input_cache.pop(key, None)
+                continue
             try:
-                await channel.write(
-                    value,
-                    **extra,
-                    severity=AlarmSeverity.NO_ALARM,
-                    status=AlarmStatus.NO_ALARM,
-                    verify_value=False,
-                )
-            except Exception:
-                self._warn_once(
-                    device_name,
-                    pv,
-                    f"{device_name}: failed to write derived PV {pv}={value!r}",
-                )
+                value = float(raw)
+            except (TypeError, ValueError):
+                self._derived_input_cache.pop(key, None)
+                for runtime in runtimes:
+                    if any(
+                        inp.device == device_name and inp.variable == variable
+                        for inp in runtime.spec.inputs
+                    ):
+                        self._warn_once(
+                            device_name,
+                            runtime.pv,
+                            f"{device_name}: derived PV {runtime.pv} input "
+                            f"{variable}={raw!r} is not numeric; marking INVALID",
+                        )
+                continue
+            self._derived_input_cache[key] = _DerivedInputValue(value, received_at)
+
+    def _derived_values(
+        self, runtime: _DerivedRuntime, now: float
+    ) -> dict[str, float] | None:
+        """Return expression values for a runtime, or None when invalid/stale."""
+        values: dict[str, float] = {}
+        for inp in runtime.spec.inputs:
+            cached = self._derived_input_cache.get((inp.device, inp.variable))
+            if cached is None:
+                return None
+            if (
+                runtime.spec.stale_after is not None
+                and now - cached.received_at > runtime.spec.stale_after
+            ):
+                return None
+            values[inp.symbol] = cached.value
+        return values
+
+    async def _write_derived_value(
+        self, runtime: _DerivedRuntime, value: float, extra: dict[str, Any]
+    ) -> None:
+        """Write one computed derived value, applying deadband suppression."""
+        prev = self._derived_last_written.get(runtime.pv, _UNSET)
+        if prev is not _UNSET:
+            both_nan = math.isnan(value) and math.isnan(prev)
+            if both_nan or abs(value - prev) <= runtime.spec.deadband:
+                return
+        self._derived_last_written[runtime.pv] = value
+        try:
+            await runtime.channel.write(
+                value,
+                **extra,
+                severity=AlarmSeverity.NO_ALARM,
+                status=AlarmStatus.NO_ALARM,
+                verify_value=False,
+            )
+        except Exception:
+            self._warn_once(
+                runtime.spec.source_device,
+                runtime.pv,
+                f"{runtime.spec.source_device}: failed to write derived PV "
+                f"{runtime.pv}={value!r}",
+            )
 
     async def _mark_derived_invalid(
         self, channel: ChannelData, pv: str, status: AlarmStatus
@@ -645,10 +724,9 @@ class GeecsCaGateway:
         data_vars = [v.geecs_var for v in dev.variables]
         derived_inputs = [
             inp.variable
-            for spec, _channel, _evaluator, _pv in self._derived_by_source.get(
-                dev.name, []
-            )
-            for inp in spec.inputs
+            for runtime in self._derived_by_source.get(dev.name, [])
+            for inp in runtime.spec.inputs
+            if inp.device == dev.name
         ]
         variables = list(dict.fromkeys(data_vars + derived_inputs + dev.timestamp_vars))
         # Text-typed variables must reach cast_value as the exact wire text —
@@ -669,10 +747,11 @@ class GeecsCaGateway:
                 # Clear the deadband cache so the first frame always posts (and
                 # clears any INVALID left from the drop), even if unchanged.
                 self._last_written[dev.name] = {}
-                for _spec, _channel, _evaluator, pv in self._derived_by_source.get(
-                    dev.name, []
-                ):
-                    self._derived_last_written.pop(pv, None)
+                for runtime in self._derived_by_source.get(dev.name, []):
+                    self._derived_last_written.pop(runtime.pv, None)
+                for key in list(self._derived_input_cache):
+                    if key[0] == dev.name:
+                        self._derived_input_cache.pop(key, None)
                 if dev.name in self._down_logged:
                     self._down_logged.discard(dev.name)
                     logger.info("%s: reconnected", dev.name)
@@ -770,11 +849,9 @@ class GeecsCaGateway:
         recovery is automatic — only the disconnect transition is set here.
         """
         for pv, (dev, _var, kind) in self.manifest.items():
-            if dev != device or kind not in ("readback", "derived"):
+            if dev != device or kind != "readback":
                 continue
             channel = self.pvdb[pv]
-            if kind == "derived":
-                self._derived_last_written.pop(pv, None)
             try:
                 await channel.write(
                     channel.value,
@@ -784,6 +861,13 @@ class GeecsCaGateway:
                 )
             except Exception:
                 logger.debug("failed to mark %s INVALID", pv, exc_info=True)
+        for key in list(self._derived_input_cache):
+            if key[0] == device:
+                self._derived_input_cache.pop(key, None)
+        for runtime in self._derived_by_source.get(device, []):
+            await self._mark_derived_invalid(
+                runtime.channel, runtime.pv, AlarmStatus.COMM
+            )
 
     def _request_restart(self) -> None:
         """Handle a CA put to ``CAGateway:RESTART``: initiate clean shutdown."""

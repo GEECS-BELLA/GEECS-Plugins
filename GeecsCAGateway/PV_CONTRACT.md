@@ -223,20 +223,28 @@ the configs repo convention
 `scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml` (or an
 explicit `--derived-channels PATH` override). That overlay exposes additional
 read-only float PVs computed from one source device's numeric push-frame
-values. The v1 schema is intentionally narrow:
+values, or from multiple source devices with explicit latest-value freshness
+semantics.
 
 - A derived channel has one output PV (`device`, `variable`, optional
   `experiment`/`pv` override) and one arithmetic expression.
-- Inputs bind expression symbols to `(device, variable)` sources, but **all
-  inputs must come from the same source device**. The gateway evaluates the
+- Inputs bind expression symbols to `(device, variable)` sources.
+- Same-device inputs are **frame-coherent**. The gateway evaluates the
   expression once per source frame, after raw data PVs are posted and before
   that frame's timestamp PVs are posted. Therefore a client latching on the
   source device's timestamp observes raw and derived values from the same
   completed frame.
+- Cross-device inputs use **latest-value semantics**. A cross-device derived
+  PV recomputes when any input source updates, using the latest cached numeric
+  values from the other sources. Such entries must declare `stale_after`
+  seconds; if any input is missing or older than that window, the output PV is
+  `INVALID_ALARM` / `UDF`.
 - The expression subset is numeric arithmetic only: literals, input symbols,
-  `+ - * / % **`, unary `+/-`, and a small whitelist of `math` functions such
-  as `sqrt`, `exp`, `log`, and `log10`. Arbitrary Python, attributes,
-  indexing, comparisons, and conditionals are rejected during gateway startup.
+  `+ - * / % **`, comparisons, boolean `and` / `or` / `not`, unary `+/-`, and
+  a small whitelist of `math` functions such as `sqrt`, `exp`, `log`, and
+  `log10`. Arbitrary Python, attributes, indexing, and conditionals are
+  rejected during gateway startup. Boolean/status expressions are stored as
+  `1.0` or `0.0` on the float PV.
 - Inputs may be subscribed solely for the calculation; they do not need to be
   exposed as their own readback PVs.
 
@@ -272,8 +280,9 @@ Repeated failures with the same INVALID status do not re-publish on every
 source frame; the gateway publishes the transition and keeps the PV invalid
 until a successful computation clears it.
 
-Cross-device latest-value expressions, staleness windows, enum/string bad-state
-expressions, and shot-synchronized analysis products are outside v1.
+Enum/string bad-state expressions and shot-synchronized analysis products are
+outside v1. If inputs need a shared shot id, compute the result in analysis,
+not as a gateway derived PV.
 
 ---
 
@@ -506,8 +515,9 @@ that branch and are part of this contract's target behavior.
 | `0.0` pre-acquisition placeholder | `test_pv_contract.py::test_float_readback_initializes_to_zero_placeholder` |
 | Frame ordering: data before timestamps *(PR #452)* | `test_gateway.py::test_callback_posts_timestamp_variables_last` |
 | Derived-channel manifest kind and numeric output PV metadata | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest` |
-| Derived-channel expression subset and same-source-device v1 rule | `test_derived_channels.py::test_expression_evaluator_supports_convectron_formula`, `::test_expression_evaluator_rejects_non_numeric_python`, `::test_derived_channel_schema_is_single_source_device_v1` |
+| Derived-channel expression subset and cross-device `stale_after` schema rule | `test_derived_channels.py::test_expression_evaluator_supports_convectron_formula`, `::test_expression_evaluator_supports_status_logic`, `::test_expression_evaluator_rejects_non_numeric_python`, `::test_derived_channel_schema_requires_stale_after_for_cross_device` |
 | Derived values evaluate from one source frame; derived-only inputs are subscribed without raw PVs | `test_derived_channels.py::test_derived_channel_updates_from_same_source_frame`, `::test_derived_only_input_is_subscribed_without_raw_pv` |
+| Cross-device derived values use latest fresh inputs and invalidate on stale input or source disconnect | `test_derived_channels.py::test_cross_device_derived_channel_uses_latest_values`, `::test_cross_device_derived_channel_marks_stale_input_invalid`, `::test_cross_device_source_disconnect_marks_dependent_derived_invalid` |
 | Derived alarm states: initial/missing input UDF, expression failure CALC, reconnect recovery with unchanged value, repeated INVALID transition-only | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest`, `::test_missing_derived_input_marks_invalid_udf`, `::test_derived_expression_failure_marks_invalid_calc`, `::test_derived_reconnect_clears_invalid_even_when_value_unchanged`, `::test_repeated_derived_failure_does_not_republish_invalid` |
 | DB type mapping, descriptors, enum degradation, blank-type inference | `test_config_from_db.py::test_from_db_metadata_maps_variable_types`, `::test_choice_pointing_at_type_descriptor_is_skipped`, `::test_blank_variabletype_inferred_from_choices`, `::test_choice_without_options_falls_back_to_string`, `::test_choice_exceeding_ca_enum_limits_falls_back_to_string` |
 | Long-string path PVs (>40 chars round-trip both directions) | `test_channels.py::test_cast_path_decodes_char_arrays`, `::test_path_readback_holds_long_string`, `::test_path_setpoint_forwards_full_text` |

@@ -62,7 +62,8 @@ GEECS-Plugins-Configs/
 ```
 
 The file is not a replacement for the DB; it only adds computed numeric PVs on
-top of the DB-backed raw device set:
+top of the DB-backed raw device set. Same-device inputs are computed from one
+coherent source frame:
 
 ```yaml
 schema_version: 1
@@ -77,6 +78,27 @@ derived_channels:
     egu: Torr
     precision: 6
     description: "Convectron pressure from U_VacuumGauge analog input 0"
+```
+
+Cross-device derived PVs use latest-value semantics and must declare
+`stale_after`. The gateway recomputes when any input updates and marks the
+output `INVALID/UDF` if any input is missing or stale:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: LaserPermit
+    variable: OK
+    expression: "pressure < 1e-5 and ready > 0"
+    inputs:
+      - symbol: pressure
+        device: TargetChamberPressure
+        variable: Pressure
+      - symbol: ready
+        device: Amp4Shutter
+        variable: Ready
+    stale_after: 2.0
+    description: "Latest-value software permit for laser shots"
 ```
 
 The configs repo root is resolved the same way as scanner configs:
