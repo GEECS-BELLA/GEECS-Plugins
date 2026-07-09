@@ -219,6 +219,7 @@ A friendly name for one device variable you can scan.
 |---|---|---|---|---|
 | `target` | `str` | yes | — | The device variable this name moves, written as 'Device:Variable', e.g. 'U_ESP_JetXYZ:Position.Axis 3'. |
 | `kind` | `'motor' \| 'setpoint'` | no | 'setpoint' | 'setpoint' = write the value and wait for the device to accept it (the default). 'motor' = additionally poll the readback until the device reports it arrived — use for real positioners. |
+| `confirm` | `str (optional)` | no | None | Optional 'Device:Variable' that *measures* the result when it differs from the variable being set — e.g. set a supply's current limit but confirm on its measured current. Leave unset when the set variable is also the readback (the common case). Declared but not yet enforced by the engine in v1. |
 
 ### PseudoScanVariable
 
@@ -227,11 +228,11 @@ A friendly name that moves several devices together from one number.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `kind` | `'pseudo'` | yes | — | Variable type. 'pseudo' moves several devices from one number. |
-| `targets` | `list[PseudoTarget]` | yes | — | The devices this variable moves, each with its own formula. |
+| `targets` | `list[PseudoComponent]` | yes | — | The devices this variable moves, each with its own formula. |
 | `mode` | `CompositeMode` | yes | — | 'absolute' = each device goes exactly where its formula says. 'relative' = each device is offset from where it was when the scan started. |
 | `inverse` | `str (optional)` | no | None | Optional formula recovering the scanned number from the first target's readback. Leave unset if you don't need a readback for this variable. |
 
-### PseudoTarget
+### PseudoComponent
 
 One device a pseudo variable moves, and the formula for its value.
 

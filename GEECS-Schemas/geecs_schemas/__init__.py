@@ -42,8 +42,8 @@ from geecs_schemas.scan_request import (
 )
 from geecs_schemas.scan_variables import (
     CompositeMode,
+    PseudoComponent,
     PseudoScanVariable,
-    PseudoTarget,
     ScanVariable,
     ScanVariables,
     ScanVariableSpec,
@@ -83,7 +83,7 @@ __all__ = [
     "ScanVariable",
     "ScanVariableSpec",
     "PseudoScanVariable",
-    "PseudoTarget",
+    "PseudoComponent",
     "CompositeMode",
     # trigger_profile
     "TriggerProfile",

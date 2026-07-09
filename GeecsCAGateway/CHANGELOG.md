@@ -3,6 +3,25 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.10.0] - 2026-07-09
+
+### Added
+
+- **`VariableSpec.description`** — a one-line human description destined for a
+  PV's `.DESC` field (Phoebus/archiver label). Clipped to 40 chars (EPICS
+  DBR_STRING) with a warning. `DeviceSpec.from_db_metadata` reads it from
+  `meta.get("description")`, which is simply absent today (⇒ `""`, inert), so
+  nothing changes for the live gateway until the DB SELECT exposes the column.
+
+  **Plumbing only — the gateway does not yet serve `.DESC` over CA.** caproto's
+  raw `ChannelData` pvdb (which this gateway uses) has no `doc`/DESC kwarg, so
+  serving the field needs explicit `<pv>.DESC` channels or the field-aware
+  record machinery — a `PV_CONTRACT.md` change requiring live CA-client
+  validation. Discipline for whoever wires it: `.DESC` carries *stable
+  identity only*, never time-varying provenance (a `.DESC` edit leaves no
+  history). See `Planning/scan_variable_metadata/00_overview.md` (Deferred #1,
+  #2).
+
 ## [0.9.0] - 2026-07-08
 
 ### Added

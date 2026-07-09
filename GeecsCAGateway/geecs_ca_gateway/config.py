@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .alarms import AlarmLimits
 from .derived import DerivedChannelSpec
@@ -20,6 +20,11 @@ from .naming import normalize_pv_component
 logger = logging.getLogger(__name__)
 
 DType = Literal["float", "int", "string", "path", "enum"]
+
+# EPICS DBR_STRING (the .DESC field's type) caps at 40 characters. A longer
+# description is truncated by CA clients, so we clip it at the source with a
+# warning rather than silently shipping something that displays wrong.
+_MAX_DESC_LENGTH = 40
 
 # GEECS `variabletype` → gateway dtype. Types absent here (image, 1darray) are
 # not scalar CA data and are skipped when building specs from the DB.
@@ -61,6 +66,24 @@ class VariableSpec(BaseModel):
     choices: list[str] = Field(default_factory=list)  # ordered options for enum
     deadband: float = 0.0  # float monitor deadband; only post when |Δ| > deadband
     alarm_limits: AlarmLimits | None = None
+    # One-line human description for the PV's .DESC field (Phoebus/archiver
+    # label). Stable *identity* only — not a change log; time-varying
+    # provenance belongs in git-tracked config or the elog, never here (a
+    # .DESC edit leaves no history). Clipped to 40 chars (EPICS DBR_STRING).
+    description: str = ""
+
+    @field_validator("description")
+    @classmethod
+    def _clip_description(cls, value: str) -> str:
+        """Clip an over-long description to the EPICS DBR_STRING limit."""
+        if len(value) > _MAX_DESC_LENGTH:
+            logger.warning(
+                "description %r exceeds %d chars (EPICS .DESC limit) — clipping",
+                value,
+                _MAX_DESC_LENGTH,
+            )
+            return value[:_MAX_DESC_LENGTH]
+        return value
 
     @property
     def pv_suffix(self) -> str:
@@ -227,6 +250,10 @@ class DeviceSpec(BaseModel):
                     lo=meta.get("min"),
                     hi=meta.get("max"),
                     choices=choices,
+                    # Present only once the DB SELECT exposes a description
+                    # column (see CHANGELOG / design note — a deliberate
+                    # on-network follow-up); absent today → "" and inert.
+                    description=meta.get("description") or "",
                     # NOT the DB "tolerance": that is a *set convergence*
                     # criterion (often coarse, e.g. 0.05 A on magnet PSUs) and
                     # using it as a monitor deadband hides real sub-tolerance

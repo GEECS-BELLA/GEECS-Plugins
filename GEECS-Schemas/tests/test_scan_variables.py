@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from geecs_schemas import (
     CompositeMode,
+    PseudoComponent,
     PseudoScanVariable,
     ScanVariable,
     ScanVariables,
@@ -49,7 +50,35 @@ class TestScanVariables:
         pseudo = make_catalog().variables["e_beam_angle_x"]
         assert isinstance(pseudo, PseudoScanVariable)
         assert pseudo.mode is CompositeMode.RELATIVE
+        assert isinstance(pseudo.targets[1], PseudoComponent)
         assert pseudo.targets[1].forward == "composite_var * -2"
+
+    def test_confirm_defaults_to_none(self):
+        simple = make_catalog().variables["gas_pressure"]
+        assert isinstance(simple, ScanVariable)
+        assert simple.confirm is None
+
+    def test_confirm_accepts_measured_variable(self):
+        # Topology C: set a software current limit, confirm on measured current.
+        catalog = ScanVariables.model_validate(
+            {
+                "variables": {
+                    "EMQ1 Current": {
+                        "target": "U_EMQTripletBipolar:Current_Limit.Ch1",
+                        "confirm": "U_EMQTripletBipolar:Current.Ch1",
+                    }
+                }
+            }
+        )
+        entry = catalog.variables["EMQ1 Current"]
+        assert isinstance(entry, ScanVariable)
+        assert entry.confirm == "U_EMQTripletBipolar:Current.Ch1"
+
+    def test_confirm_shape_enforced(self):
+        with pytest.raises(ValidationError, match="Device:Variable"):
+            ScanVariables.model_validate(
+                {"variables": {"bad": {"target": "A:B", "confirm": "no-colon-here"}}}
+            )
 
     def test_target_shape_enforced(self):
         with pytest.raises(ValidationError, match="Device:Variable"):
