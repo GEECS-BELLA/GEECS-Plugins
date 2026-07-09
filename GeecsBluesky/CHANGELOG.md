@@ -4,6 +4,86 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.0] - 2026-07-08
+
+M3c — the DB-integration runtime tier lands, wiring the two-tier recording
+model (`SaveSetEntry` runtime contract, `ExperimentDefaults`) into
+`GeecsSession.run`.  **Get-side only:** `db_scalars` (Tier 1 recorded
+scalars) and background telemetry (Tier 2) are honored; the DB **set-side**
+(scan start/end writes from the `set='yes'` rows) is intentionally
+**disabled** in this version.  Live DB inspection showed the boundary writes
+would race the shot controller / TriggerProfile on the DG645
+(`U_DG645_ShotControl`'s `set='yes'` rows are the `Trigger.Source` /
+`Amplitude.Ch AB` variables the shot controller already drives), and the
+remaining `set='yes'` rows are almost all `save` / `localsavingpath` (the
+scanner owns saving via its save-windowing).  The reserved schema fields
+(`SaveSetEntry.at_scan_start` / `at_scan_end`,
+`ExperimentDefaults.apply_db_scan_defaults`) are kept on record for a
+possible future re-enable but are not applied.
+
+### Added
+
+- **`acq_timestamp` now appears in the legacy s-file for image/file-saving
+  devices.**  A device that saves non-scalar data (`save_nonscalar_data=True` —
+  `CaGenericDetector`, `CaTimestampedReadable`) surfaces its `acq_timestamp` as
+  a legacy scalar column (`<device> acq_timestamp`), so saved files tie back to
+  scan rows (the saved image filenames are stamped with it).  Previously an
+  images-only save produced an s-file with only `Bin # / scan / Shotnumber` and
+  no way to correlate rows to files from the s-file alone.  `acq_timestamp`
+  stays an excluded companion column for pure-scalar devices.
+- **db_scalars resolution (Tier 1).**  A save-set entry's recorded scalars are
+  now its DB `get='yes'` variables (from `expt_device_variable`) unioned with
+  its explicit `scalars` list (`db_scalars=True`, the default);
+  `all_scalars=True` unions every DB variable instead; `db_scalars=False` (what
+  the legacy converter pins) records only the explicit list.  Resolution is a
+  pure function (`db_runtime.resolve_entry_scalars`) threaded through
+  `save_set_to_devices_config(save_set, scalar_policy)`.  With no DB policy
+  (the GUI-bridge path, or off the lab network) only the explicit list is
+  recorded — strictly additive over M3b.  `all_scalars` is no longer a blanket
+  `NotImplementedError`: it resolves when a policy is present, and only raises
+  on the no-policy path.
+- **Scan start/end DB writes — set-side, intentionally disabled.**  The DB
+  `set='yes'` boundary writes are **not** applied by the engine in this
+  version (see the version summary above for the DG645-conflict rationale).
+  A save-set entry that still carries `at_scan_start` / `at_scan_end` is not
+  an error — the engine logs one WARNING naming the device and records
+  nothing; the values are inert.  No `db_scan_writes` metadata is produced.
+- **Background telemetry tier (Tier 2).**  Every live experiment device with a
+  `get='yes'` variable not in the save set is recorded as best-effort snapshot
+  columns via the new soft `CaTelemetryReadable`: read-only, sampled once per
+  event row, never waited on — a signal read that fails degrades to a
+  dtype-appropriate null cell (NaN for a numeric column, `""` for a string
+  column) instead of aborting, and a device unreachable at scan start is dropped
+  with a log line (`GeecsSession.telemetry` returns `None`).  Telemetry is
+  **dtype-tolerant, per-variable**: each signal's type is inferred from its PV
+  (`epics_signal_r(datatype=None, …)`), so numeric variables stay numeric
+  (float) for downstream analysis while enum/string/path variables — e.g.
+  `U_VisaPlungers` `DigitalOutput.Channel N` — are logged as their string/label
+  value.  A single non-numeric `get='yes'` variable no longer fails to connect
+  and take the whole device (including its numeric columns) down with it: **no
+  telemetry variable or device is dropped for a type reason** — only a
+  genuinely unreachable device degrades to a dropped device.  If we `get` it,
+  we log it.  Telemetry columns carry the `telemetry_<device>-` name prefix so
+  they are distinguishable from Tier-1 save-set data (see `EVENT_SCHEMA.md`);
+  selection is recorded in run metadata under `background_telemetry`.  Gated on
+  `ScanRequest.background_telemetry` (else
+  `ExperimentDefaults.background_telemetry`, default true).
+- New `geecs_bluesky/db_runtime.py` — the pure resolution logic plus the
+  DB-backed `GeecsDbScalarPolicy` provider (the one place touching `GeecsDb`),
+  failure-tolerant: a DB lookup that fails degrades to empty policy with a
+  warning, so a scan never aborts because the DB was briefly unreachable.
+
+### Notes
+
+- Optimize mode resolves `db_scalars` (recorded-scalar consistency) but does
+  **not** run background telemetry yet (no scan-boundary hook on
+  `GeecsSession.optimize`) — skip-and-record; recorded in run metadata under
+  `db_scan_runtime`.  The set-side is disabled everywhere in this version.
+- Requires the gateway ≥ 0.9.0 (new `GeecsDb.get_all_experiment_variables`).
+  `GeecsDb.get_scan_boundary_writes` also lands in 0.9.0 as a reserved,
+  currently-unused query (the set-side is disabled) — not consumed by the
+  engine.
+
 ## [0.23.0] - 2026-07-07
 
 M3b — every engine-pending ScanRequest seam closes: actions execute inside

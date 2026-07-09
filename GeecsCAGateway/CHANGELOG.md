@@ -3,6 +3,27 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.9.0] - 2026-07-08
+
+### Added
+
+- Two `GeecsDb` query methods backing the GeecsBluesky M3c DB-integration
+  runtime (library-only; the gateway server is unchanged):
+  - `get_all_experiment_variables(experiment)` — every `expt_device_variable`
+    row per device (`{device: [variablename, ...]}`, deduped), the
+    `all_scalars` counterpart of `get_subscribed_variables` (`get='yes'`).
+  - `get_scan_boundary_writes(experiment)` — the `set='yes'` rows'
+    `startvalue` / `endvalue` per device
+    (`{device: [{"variable", "startvalue", "endvalue"}, ...]}`, values as raw
+    wire strings or `None`), i.e. the Master-Control scan start/end write
+    policy.  Row order is preserved so writes replay in a stable sequence.
+    **Reserved / currently unused:** the GeecsBluesky engine does not apply
+    these DB set-side boundary writes in the current version (the set-side is
+    intentionally disabled — triggering is owned by the trigger profile /
+    shot controller and camera saving by the scanner's save-windowing).  Kept
+    as a read-only library query for inspection and a possible future DB
+    scan-write feature.
+
 ## [0.8.0] - 2026-07-08
 
 ### Added

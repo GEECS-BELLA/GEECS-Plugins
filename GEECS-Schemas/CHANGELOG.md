@@ -5,6 +5,25 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-07-08
+
+### Changed
+
+- **Reserved the DB set-side scan-write fields — not honored; get-side
+  `db_scalars` / telemetry unchanged.**  `SaveSetEntry.at_scan_start` /
+  `at_scan_end` and `ExperimentDefaults.apply_db_scan_defaults` are kept in
+  the schema but their field descriptions and the surrounding docstrings now
+  state clearly that the DB **set-side** (scan start/end writes from the
+  `set='yes'` rows) is **not applied in this version**: the engine sets up
+  triggering via the TriggerProfile / shot controller and camera saving via
+  its own save-windowing, so DB boundary writes would race the shot
+  controller (on the DG645 the `set='yes'` rows are the very
+  trigger/amplitude variables it drives).  The fields are reserved for a
+  possible future re-enable.  No fields were removed, so existing configs
+  still validate.  The **get-side** — `SaveSetEntry.db_scalars` /
+  `all_scalars` (standard telemetry) and the `background_telemetry` defaults
+  — is unchanged and still honored.
+
 ## [0.3.0] - 2026-07-08
 
 ### Added
