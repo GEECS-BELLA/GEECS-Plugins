@@ -1306,8 +1306,10 @@ def build_telemetry_readables(
     Returns
     -------
     tuple
-        ``(readables, selected)`` — the connected telemetry devices and the
-        ``{device: [variables]}`` selection (recorded in run metadata).
+        ``(readables, recorded)`` — the connected telemetry devices and the
+        ``{device: [variables]}`` map of **only those that connected**
+        (recorded in run metadata; devices dropped as unreachable are excluded
+        so the metadata matches the columns that actually exist).
     """
     if scalar_policy is None:
         return [], {}
@@ -1315,11 +1317,17 @@ def build_telemetry_readables(
         save_set, scalar_policy.subscribed_by_device()
     )
     readables: list = []
+    recorded: dict[str, list[str]] = {}
     for device, variables in selected.items():
         readable = session.telemetry(device, variables)
         if readable is not None:
             readables.append(readable)
-    return readables, selected
+            recorded[device] = list(variables)
+    # Record only the devices that actually connected: a device dropped as
+    # unreachable at scan start contributes no columns, so the start-doc
+    # metadata must not advertise them (EVENT_SCHEMA.md contract — the key
+    # reflects what was recorded, not what was selected).
+    return readables, recorded
 
 
 def run_scan_request(
@@ -1629,6 +1637,9 @@ def _run_optimize_request(
         scalar_policy = make_scalar_policy(session)
         if request.save_set:
             save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
+            # Reserved DB set-side overrides are inert here too — warn once, as
+            # on the scan/noscan path, so the promise holds in every mode.
+            warn_if_reserved_boundary_overrides(save_set)
             ritual_names = [n for names in rituals.values() for n in names]
             if ritual_names:
                 # Save-set entry rituals can't run in optimize mode yet either;

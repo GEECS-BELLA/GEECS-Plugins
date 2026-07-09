@@ -131,9 +131,11 @@ class SaveSetEntry(SchemaModel):
 
     The soft tier (background telemetry, see the module docstring) never
     gets scan-start/end writes either — writing to a possibly-dead device
-    would block, and softness means never waiting.  Soft-tier columns carry
-    their own ``acq_timestamp`` plus a validity marker for downstream
-    alignment; strict-mode completeness applies to required devices only.
+    would block, and softness means never waiting.  Soft-tier columns are
+    plain per-row snapshot values (read once per event row, best-effort); they
+    do **not** carry the per-shot ``acq_timestamp``/validity labeling that
+    Tier-1 synchronous devices do, and strict-mode completeness applies to
+    required devices only.
     """
 
     device: str = Field(

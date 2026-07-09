@@ -1570,3 +1570,68 @@ def test_no_provider_leaves_m3b_behavior_unchanged(legacy_resolver) -> None:
     run_scan_request(session, _db_noscan_request(), legacy_resolver)
     assert "db_scan_writes" not in session.scan_kwargs["md"]
     assert "background_telemetry" not in session.scan_kwargs["md"]
+
+
+def test_telemetry_metadata_excludes_dropped_devices(
+    monkeypatch, legacy_resolver
+) -> None:
+    """md background_telemetry records only devices that connected (review P2).
+
+    A device dropped as unreachable at scan start contributes no columns, so
+    the start-doc must not advertise it (EVENT_SCHEMA.md contract).
+    """
+    policy = _M3cPolicy(
+        subscribed={
+            "U_Press": ["Pressure"],  # live → recorded
+            "U_Dead": ["X"],  # unreachable → dropped, must be absent from md
+        }
+    )
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    session.dead_devices = {"U_Dead"}
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
+    recorded = session.scan_kwargs["md"]["background_telemetry"]
+    assert recorded == {"U_Press": ["Pressure"]}
+    assert "U_Dead" not in recorded
+
+
+def test_optimize_warns_on_reserved_boundary_fields(
+    monkeypatch, legacy_resolver, caplog
+) -> None:
+    """Optimize mode also warns once on reserved at_scan_start/at_scan_end (P3).
+
+    The reserved-field warning must fire in every mode that resolves a save set,
+    not only scan/noscan — optimize ignores the set-side too.
+    """
+    _install_policy(monkeypatch, _M3cPolicy())
+    session = _M3cSession()
+    save_set = SaveSet(
+        name="ReservedSet",
+        entries=[
+            SaveSetEntry(
+                device="U_DG645_ShotControl",
+                scalars=["x"],
+                at_scan_start={"Trigger.Source": "External"},
+            )
+        ],
+    )
+    monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
+
+    def objective(bin_data) -> float:
+        return 1.0
+
+    with caplog.at_level(logging.WARNING):
+        run_scan_request(
+            session,
+            _optimize_request(save_set="X"),
+            legacy_resolver,
+            objective=objective,
+            suggester=object(),
+        )
+    reserved = [
+        r
+        for r in caplog.records
+        if "reserved DB scan start/end fields" in r.getMessage()
+    ]
+    assert len(reserved) == 1
+    assert "U_DG645_ShotControl" in reserved[0].getMessage()
