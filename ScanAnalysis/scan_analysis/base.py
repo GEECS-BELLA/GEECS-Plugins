@@ -27,7 +27,7 @@ from geecs_data_utils import ScanData, ScanPaths
 
 logger = logging.getLogger(__name__)
 
-SCALAR_SIDECAR_BASENAME = "scalar_results.txt"
+SCALAR_SIDECAR_EXTENSION = ".txt"
 
 
 # error classes
@@ -502,9 +502,9 @@ class ScanAnalyzer:
 
     def scalar_sidecar_path(self) -> Optional[Path]:
         """Return the per-analyzer generated-scalar sidecar path, if available."""
-        path_dict = getattr(self, "path_dict", None)
-        if not isinstance(path_dict, dict) or "save" not in path_dict:
-            logger.warning("No analyzer save path set; skipping scalar sidecar write.")
+        scan_path = getattr(self, "scan_path", None)
+        if scan_path is None:
+            logger.warning("No analysis scan path set; skipping scalar sidecar write.")
             return None
 
         scan_name = getattr(self.scan_directory, "name", None)
@@ -514,15 +514,27 @@ class ScanAnalyzer:
             logger.warning("No scan name set; skipping scalar sidecar write.")
             return None
 
-        return Path(path_dict["save"]) / f"{scan_name}_{SCALAR_SIDECAR_BASENAME}"
+        analyzer_name = (
+            getattr(self, "id", None)
+            or getattr(self, "_output_name", None)
+            or self.device_name
+        )
+        if not analyzer_name:
+            logger.warning("No analyzer id set; skipping scalar sidecar write.")
+            return None
+
+        return (
+            Path(scan_path) / f"{scan_name}_{analyzer_name}{SCALAR_SIDECAR_EXTENSION}"
+        )
 
     def write_scalar_sidecar(self, data: pd.DataFrame) -> Optional[Path]:
         """Write generated scalar updates beside analyzer output artifacts.
 
         The sidecar is intentionally independent of the mutable s-file. It
-        contains only analyzer-generated scalar columns, indexed by
-        ``Shotnumber``, so those values survive if the watched s-file copy is
-        deleted and regenerated.
+        lives directly under ``analysis/ScanNNN/`` and contains only
+        analyzer-generated scalar columns, indexed by ``Shotnumber``, so
+        those values survive if the watched s-file copy is deleted and
+        regenerated.
         """
         updates = self._prepare_updates_dataframe(data)
         if updates is None:

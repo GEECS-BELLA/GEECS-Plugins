@@ -22,10 +22,9 @@ class TestScalarSidecar:
 
     def test_writes_scalar_sidecar_indexed_by_shotnumber(self, tmp_path):
         analyzer = _StubAnalyzer()
+        analyzer.id = "amp2out"
         analyzer.scan_directory = tmp_path / "scans" / "Scan001"
-        analyzer.path_dict = {
-            "save": tmp_path / "analysis" / "Scan001" / "UC_Test" / "Array2D"
-        }
+        analyzer.scan_path = tmp_path / "analysis" / "Scan001"
         updates = pd.DataFrame(
             {
                 "Shotnumber": [2, 1, 1],
@@ -36,7 +35,7 @@ class TestScalarSidecar:
 
         sidecar_path = analyzer.write_scalar_sidecar(updates)
 
-        assert sidecar_path == analyzer.path_dict["save"] / "Scan001_scalar_results.txt"
+        assert sidecar_path == analyzer.scan_path / "Scan001_amp2out.txt"
         assert sidecar_path.exists()
 
         sidecar = pd.read_csv(sidecar_path, sep="\t", index_col="Shotnumber")
@@ -47,8 +46,9 @@ class TestScalarSidecar:
 
     def test_normalizes_case_insensitive_shotnumber_column(self, tmp_path):
         analyzer = _StubAnalyzer()
+        analyzer.id = "uc_test"
         analyzer.scan_directory = tmp_path / "scans" / "Scan003"
-        analyzer.path_dict = {"save": tmp_path}
+        analyzer.scan_path = tmp_path / "analysis" / "Scan003"
         updates = pd.DataFrame({"shotnumber": [3], "UC_Test_x": [7.0]})
 
         sidecar_path = analyzer.write_scalar_sidecar(updates)
@@ -56,3 +56,14 @@ class TestScalarSidecar:
         sidecar = pd.read_csv(sidecar_path, sep="\t", index_col="Shotnumber")
         assert list(sidecar.index) == [3]
         assert sidecar.loc[3, "UC_Test_x"] == 7.0
+
+    def test_falls_back_to_output_name_for_direct_construction(self, tmp_path):
+        analyzer = _StubAnalyzer(device_name="UC_Test")
+        analyzer._output_name = "UC_Test_left"
+        analyzer.scan_directory = tmp_path / "scans" / "Scan004"
+        analyzer.scan_path = tmp_path / "analysis" / "Scan004"
+        updates = pd.DataFrame({"Shotnumber": [4], "UC_Test_x": [8.0]})
+
+        sidecar_path = analyzer.write_scalar_sidecar(updates)
+
+        assert sidecar_path == analyzer.scan_path / "Scan004_UC_Test_left.txt"
