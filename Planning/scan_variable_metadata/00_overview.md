@@ -59,9 +59,12 @@ is an application of that one rule.
    - Undulator migrated to new-schema `scan_variables.yaml` (configs repo,
      branch `codex/undulator-derived-channels`): 59 variables, exact set match
      with the legacy pair, EMQ entries carry `confirm: …:Current.ChN`.
-   - `deploy/variable_description.sql` — reviewable DDL to narrow
-     `variable.description` to 40 chars and (optionally, gated on a code
-     coalesce) add a type-level `devicetype_variable.description`.
+   - `variable.description` narrowed `VARCHAR(1000) → VARCHAR(40)` to match the
+     EPICS `.DESC` limit (0 rows exceeded 40, so no data lost). The DB is now
+     the constraint, not just the gateway's clip.
+   - `deploy/variable_description.sql` — records that ALTER (applied) and holds
+     the still-optional type-level `devicetype_variable.description` column
+     (gated on a code coalesce; **Sam owns adding this**).
 
 ## The completion-semantics taxonomy (the substantive finding)
 

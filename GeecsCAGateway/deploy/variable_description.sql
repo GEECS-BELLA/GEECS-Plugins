@@ -12,19 +12,18 @@
 --     < deploy/variable_description.sql
 --
 -- ---------------------------------------------------------------------------
--- 1. Match the columns to the EPICS .DESC limit (40 chars).
+-- 1. Match the column to the EPICS .DESC limit (40 chars).  [APPLIED 2026-07-09]
 --
--- `variable.description` already exists as VARCHAR(1000).  EPICS DBR_STRING
--- (the .DESC field) caps at 40 characters, and the gateway clips longer text
--- with a warning (see VariableSpec._clip_description).  Narrowing the column
--- makes the DB the constraint, so authoring tools reject an over-long
--- description at write time instead of it silently truncating on the PV.
+-- `variable.description` existed as VARCHAR(1000).  EPICS DBR_STRING (the .DESC
+-- field) caps at 40 characters, and the gateway clips longer text with a
+-- warning (see VariableSpec._clip_description).  Narrowing the column makes the
+-- DB the constraint, so authoring tools reject an over-long description at
+-- write time instead of it silently truncating on the PV.
 --
--- SAFETY: this truncates any EXISTING description longer than 40 chars.  As of
--- this migration authoring, 0 of ~2641 rows are populated, so it is a no-op on
--- data — but re-check before running if descriptions have since been added:
+-- This was applied live on 2026-07-09 (0 rows exceeded 40 chars, so it was a
+-- no-op on data).  Kept here as the record; re-running is idempotent.
 --   SELECT id, device, name, CHAR_LENGTH(description) len FROM variable
---     WHERE CHAR_LENGTH(description) > 40;
+--     WHERE CHAR_LENGTH(description) > 40;   -- verify empty before re-running
 ALTER TABLE variable MODIFY description VARCHAR(40) NULL;
 
 -- ---------------------------------------------------------------------------
