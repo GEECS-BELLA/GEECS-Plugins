@@ -3,7 +3,7 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-## [0.9.0] - 2026-07-09
+## [0.11.0] - 2026-07-09
 
 ### Added
 
@@ -17,6 +17,33 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 - Boolean/comparison expressions for derived status PVs. Expressions such as
   `pressure < 1e-5 and ready > 0` are accepted and publish as float values
   `1.0` or `0.0`.
+
+## [0.10.0] - 2026-07-09
+
+### Added
+
+- **Per-PV `.DESC` field, resolved from the DB and served over CA.** A
+  variable's DB `description` (per-instance `variable` table, resolved through
+  the capability inheritance chain like every other field into
+  `VariableSpec.description`) is served as the standard EPICS `.DESC` field —
+  a read-only `<pv>.DESC` string channel added to the pvdb, so
+  `caget …:Current.DESC` returns the text and Phoebus/the archiver pick it up.
+  Only non-empty descriptions get a `.DESC` entry. Clipped to the 40-char
+  DBR_STRING limit at both the DB column and the gateway. Verified end-to-end
+  against the live DB and with a live CA client. Applies to readbacks and
+  derived channels; `:SP` and status PVs carry no `.DESC`. `PV_CONTRACT.md` §4
+  documents it; pinned by `test_gateway.test_description_served_as_desc_field`.
+  Discipline: `.DESC` carries *stable identity only*, never time-varying
+  provenance (a `.DESC` edit leaves no history).
+- `deploy/variable_description.sql` — non-destructive DDL to narrow
+  `variable.description` to the 40-char EPICS `.DESC` limit (applied) and
+  (optionally, gated on a code coalesce) add a type-level
+  `devicetype_variable.description`.
+
+## [0.9.0] - 2026-07-08
+
+### Added
+
 - Two `GeecsDb` query methods backing the GeecsBluesky M3c DB-integration
   runtime (library-only; the gateway server is unchanged):
   - `get_all_experiment_variables(experiment)` — every `expt_device_variable`
@@ -74,6 +101,29 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   Device disconnects still take precedence: stale readbacks remain
   `INVALID/COMM` until the next live frame, which then reports either
   `NO_ALARM` or the active value alarm.
+
+## [0.6.1] - 2026-07-07
+
+### Fixed
+
+- **Variable capability/metadata now resolves the full GEECS inheritance
+  chain** instead of reading `devicetype_variable` alone. Per the
+  maintainer-confirmed semantics, a per-instance row in the `variable` table
+  (linked via `variable.devicetype_variable_id`) replaces its type row
+  **wholesale** — settability, name, units, limits, tolerance, choices all
+  come from the instance row, with no field-level fallback (instance NULL
+  limits mean *no* limits). Live-DB evidence for the gap: 1032 instance rows
+  differed from their type defaults, including settability flips — instance-
+  settable variables were served without their `:SP` PVs, and instance
+  limits/tolerances were served wrong. Instance rows with a NULL or dangling
+  type link define instance-only variables and are now served as well (keyed
+  by name, so a same-named type row is replaced rather than colliding on one
+  PV name). Both `GeecsDb.get_device_variables` and the batched
+  `GeecsDb.get_experiment_device_variables` apply the same resolution.
+
+  **Operational note:** the gateway serves *more* PVs after this fix —
+  instance-settable variables gain their `:SP` setpoints — so a gateway
+  restart (e.g. via `CAGateway:RESTART`) is needed to pick them up.
 
 ## [0.6.0] - 2026-07-07
 

@@ -2,70 +2,87 @@
   "schema_version": 1,
   "variables": {
     "ASSERT-Stage_TestBench": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "ASSERT-LensStage:Position.Ch1"
     },
     "Assert-Ctrl-BProfiler-LRes": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "Assert-Ctrl_BProfiler-LRes:Position.Ch1"
     },
     "Blade-Z": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP02:Position.Axis 3"
     },
     "Compressor: Grating Separation": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-Aerotech:Position.Axis1"
     },
     "Ghost Stage": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP06:Position.Axis 3"
     },
     "HP Mode Imager": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP06:Position.Axis 1"
     },
     "Jet x": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP01:Position.Axis 1"
     },
     "Jet z": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP01:Position.Axis 3"
     },
     "LP Mode Imager": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-LPModeStage:position"
     },
     "Pressure Scan": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-HighPressureDAQ:AnalogOutput.Channel 0"
     },
     "Probe Delay Short": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-ESP04:Position.Axis 3"
     },
     "Probe Delay: Long": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT_ProbeLongDelay:position"
     },
     "QAtt-DS": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-B-Zaber_Chain-B:Position.Ch3"
     },
     "QAtt-US": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-B-Zaber_Chain-B:Position.Ch2"
     },
     "Quad-x": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-B-Zaber_Chain-B:Position.Ch3"
     },
     "Quad-y": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-B-Zaber_Chain-B:Position.Ch5"
     },
     "Quad-z": {
+      "confirm": null,
       "kind": "setpoint",
       "target": "HTT-B-Zaber_Chain-B:Position.Ch4"
     },

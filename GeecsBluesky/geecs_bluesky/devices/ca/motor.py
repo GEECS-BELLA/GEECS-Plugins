@@ -12,6 +12,16 @@ layers of convergence:
    ``tolerance`` of the target — belt-and-suspenders for the fringe cases where
    the UDP set's own timeout semantics are ambiguous (devices that go quiet
    during a move vs. genuinely stuck axes).
+
+Layer 1 alone (i.e. a plain :class:`~geecs_bluesky.devices.ca.settable.CaSettable`)
+already waits for GEECS convergence, so CaMotor is *not* "the way to make a
+set block."  Its Layer 2 poll only adds information when the readback is an
+independent measurement of the same variable that was set — a stage encoder,
+not a value that merely echoes the command.  It does **not** cover the case
+where the measured quantity is a *different* variable from the one set (the
+EMQ triplet's ``Current_Limit`` vs its measured current): the poll reads the
+readback of ``variable``, the variable it wrote.  ``ScanVariable.confirm``
+names that decoupled case in the schema; acting on it is a later milestone.
 """
 
 from __future__ import annotations

@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.24.1] - 2026-07-09
+
+### Documentation
+
+- **CaSettable / CaMotor docstring honesty.** Corrected the framing that
+  `motor` is *the* way to declare a positioner and `CaSettable` is unsafe for
+  stages. A plain `CaSettable` already waits for GEECS's native blocking
+  set-completion; `CaMotor`'s readback poll only adds information when the
+  readback is an *independent* measurement of the same variable (a stage
+  encoder), and is near-cosmetic when the readback merely echoes the command.
+  Both docstrings now also note the topology neither class covers — a device
+  whose measured variable differs from the one set (the EMQ triplet) — which
+  the schema names via `ScanVariable.confirm`. No code change.
+
 ## [0.24.0] - 2026-07-08
 
 M3c — the DB-integration runtime tier lands, wiring the two-tier recording

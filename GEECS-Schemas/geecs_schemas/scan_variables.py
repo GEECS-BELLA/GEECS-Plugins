@@ -18,14 +18,20 @@ an ``absolute``/``relative`` mode).
 - ``kind: motor`` — blocking move *plus* readback-tolerance polling; an
   explicit opt-in for real positioners (renders to ``CaMotor``).
 - ``kind: pseudo`` — a pseudo-positioner: one scanned number fanned out to
-  several targets through ``forward`` expressions.  v1 keeps the legacy
+  several components through ``forward`` expressions.  v1 keeps the legacy
   numexpr semantics **verbatim**: each expression is written in terms of
   ``composite_var`` (the scanned value), and ``mode`` keeps the legacy
-  meaning — ``absolute`` sets each target to its expression's value,
-  ``relative`` offsets each target from its position at scan start.
+  meaning — ``absolute`` sets each component to its expression's value,
+  ``relative`` offsets each component from its position at scan start.
 
 Limits, units, and tolerances deliberately do **not** live here — device
 facts belong below the configs (gateway PV metadata; vision doc §4.3).
+
+The optional ``confirm`` field on a simple :class:`ScanVariable` is the one
+place a scan variable names a *second* device variable: it covers the case
+where the variable you *set* is not the variable that *measures* the result
+(the "topology C" gap — see :class:`ScanVariable`).  It is declared but not
+yet enforced by the engine in v1.
 """
 
 from __future__ import annotations
@@ -65,6 +71,22 @@ def _validate_target(value: str) -> str:
     return value
 
 
+def _validate_optional_target(value: Optional[str]) -> Optional[str]:
+    """Validate an optional ``Device:Variable`` string, passing ``None`` through.
+
+    Parameters
+    ----------
+    value : str or None
+        Candidate target string, or ``None`` when the field is unset.
+
+    Returns
+    -------
+    str or None
+        The validated string, or ``None`` unchanged.
+    """
+    return value if value is None else _validate_target(value)
+
+
 class CompositeMode(str, Enum):
     """How a pseudo variable's targets interpret the scanned value.
 
@@ -86,6 +108,26 @@ class ScanVariable(SchemaModel):
 
     Points a human-readable name at the ``Device:Variable`` it moves, and
     says whether it is a plain setpoint or a motor with position readback.
+
+    Notes
+    -----
+    Most scan variables are the simple case: the variable you *set* is also
+    the variable that *measures* the result (a stage's ``Position.Axis N``, a
+    steering-magnet ``Current``), so completion can be judged on the same
+    name.  For those, leave ``confirm`` unset.
+
+    Some devices split the two — you set one variable but a *different*
+    variable reports the physical truth.  The production example is the EMQ
+    triplet: the catalog's "EMQ1 Current" writes
+    ``U_EMQTripletBipolar:Current_Limit.Ch1`` (a software limit), while the
+    measured current is a separate variable.  GEECS binds its set-completion
+    tolerance to the *written* variable, so such a set "confirms" against a
+    value that is trivially correct and the real current is never checked.
+    ``confirm`` names the measured variable so this split is at least
+    **visible** in the config; enforcing it (a device whose ``set()``
+    completes on the confirming variable) is a later engine milestone.  The
+    match *tolerance* is a device fact and stays below the configs (the DB /
+    gateway PV metadata), not here.
     """
 
     target: str = Field(
@@ -102,15 +144,26 @@ class ScanVariable(SchemaModel):
             "the device reports it arrived — use for real positioners."
         ),
     )
+    confirm: Optional[str] = Field(
+        None,
+        description=(
+            "Optional 'Device:Variable' that *measures* the result when it "
+            "differs from the variable being set — e.g. set a supply's "
+            "current limit but confirm on its measured current. Leave unset "
+            "when the set variable is also the readback (the common case). "
+            "Declared but not yet enforced by the engine in v1."
+        ),
+    )
 
     _check_target = field_validator("target")(_validate_target)
+    _check_confirm = field_validator("confirm")(_validate_optional_target)
 
 
-class PseudoTarget(SchemaModel):
+class PseudoComponent(SchemaModel):
     """One device a pseudo variable moves, and the formula for its value.
 
-    The ``forward`` expression computes this target's setting from the single
-    scanned number, which appears in the formula as ``composite_var``.
+    The ``forward`` expression computes this component's setting from the
+    single scanned number, which appears in the formula as ``composite_var``.
     """
 
     target: str = Field(
@@ -149,7 +202,7 @@ class PseudoScanVariable(SchemaModel):
     kind: Literal["pseudo"] = Field(
         description="Variable type. 'pseudo' moves several devices from one number."
     )
-    targets: list[PseudoTarget] = Field(
+    targets: list[PseudoComponent] = Field(
         min_length=1,
         description="The devices this variable moves, each with its own formula.",
     )

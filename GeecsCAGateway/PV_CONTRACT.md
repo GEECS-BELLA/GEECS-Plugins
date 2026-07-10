@@ -78,9 +78,29 @@ source GEECS device whose frame drives the calculation.
 
 ### Setpoint PVs — `:SP`
 
-A variable whose DB `set` flag is `yes` gets a companion setpoint PV at the
-literal suffix `:SP` appended to the full readback name. Non-settable variables
-(including the intrinsic timestamp variables) have **no** `:SP` PV.
+A variable whose **`devicetype_variable.set`** flag is `yes` gets a companion
+setpoint PV at the literal suffix `:SP` appended to the full readback name.
+Non-settable variables (including the intrinsic timestamp variables) have
+**no** `:SP` PV.
+
+Table precision (three DB tables carry a `set` flag with different meanings):
+**capability is an inheritance chain** — `devicetype_variable` defines the
+type default (settability, min/max/units/tolerance/choices) which every
+device instance inherits **unless overridden by a row in `variable`** (the
+per-instance definition table). `expt_device_variable.set` is a
+per-experiment *scan-write policy* flag (Master Control's scan start/end
+machinery) and plays no role in `:SP` creation; `expt_device_variable.get`
+selects the monitored/readback subscription set.
+
+The gateway resolves this chain **whole-row** (maintainer-confirmed
+semantics, 2026-07-07): when a `variable` row exists for a device+variable
+(linked via `variable.devicetype_variable_id`), *every* served field —
+settability, name, units, limits, tolerance, choices — comes from that
+instance row, with no field-level fallback to the type defaults (an instance
+row with NULL limits means that instance has no limits). Instance rows are
+ground truth; an instance row with no surviving type link (NULL or dangling
+`devicetype_variable_id`) defines an instance-only variable and is served
+too. Pinned by the inheritance-chain tests in `tests/test_geecs_db.py`.
 
 ### Per-device status PV — `CONNECTED`
 
@@ -320,6 +340,22 @@ Resolution quirks (all DB-driven, all pinned by tests):
   reject faithful-but-out-of-range readbacks — notably `NaN` from a failed
   online analysis, which the contract requires be *reported*, not clamped.
   GEECS remains the authority on valid set values (§2).
+
+### Description — the `.DESC` field
+
+A variable's DB `description` (from the per-instance `variable` table,
+resolved through the capability inheritance chain like every other field) is
+served as the standard EPICS `.DESC` field: a read-only `<pv>.DESC` string
+channel, so `caget Undulator:U_S1H:Current.DESC` returns the text and Phoebus
+/ the archiver pick it up automatically. Only variables with a non-empty
+description get a `.DESC` entry (no empty descriptions are served). The text
+is clipped to the EPICS **DBR_STRING 40-character** limit at both the DB
+column (`VARCHAR(40)`) and in the gateway.
+
+`.DESC` carries **stable identity only** — it is a mutable label with no
+history (an edit leaves no archived trace), so time-varying provenance (a
+recalibration, a filter swap) belongs in git-tracked config or the elog, not
+here. Setpoint (`:SP`) and status PVs do not carry `.DESC`.
 
 ### Enum resolution — readback (string → index), **(PR #452)** order
 
