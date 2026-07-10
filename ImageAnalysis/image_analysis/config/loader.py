@@ -338,7 +338,9 @@ def load_diagnostic(
         data = _deep_merge(data, overrides)
 
     try:
-        return DiagnosticAnalysisConfig.model_validate(data)
+        diagnostic = DiagnosticAnalysisConfig.model_validate(data)
+        diagnostic._source_id = diag_path.stem
+        return diagnostic
     except ValidationError as exc:
         raise ValueError(f"Invalid diagnostic config at {diag_path}: {exc}") from exc
 

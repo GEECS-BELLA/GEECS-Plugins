@@ -16,6 +16,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   generated scalar values remain recoverable if the watched s-file copy is
   deleted or regenerated.
 
+### Changed
+
+- `create_scan_analyzer()` now defaults analyzer ids to a loaded diagnostic's
+  filename-derived `source_id` when available, before falling back to
+  `diag.name`. Direct single-diagnostic runs now match group-loaded LiveWatch
+  runs for sidecar/status naming when the YAML filename differs from the
+  diagnostic `name`.
+
 ## [1.14.1] — 2026-07-06
 
 ### Changed

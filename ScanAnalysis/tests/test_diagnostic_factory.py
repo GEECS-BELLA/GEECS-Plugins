@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import yaml
 
-from image_analysis.config import DiagnosticAnalysisConfig
+
+from image_analysis.config import DiagnosticAnalysisConfig, load_diagnostic
 from image_analysis.config.array1d_processing import Line1DConfig
 from image_analysis.config.array2d_processing import CameraConfig
 from scan_analysis.analyzers.common.array1d_scan_analysis import Array1DScanAnalyzer
@@ -117,6 +119,28 @@ class TestScanRuntimeAttachment:
     def test_id_kwarg_overrides_name(self):
         analyzer = create_scan_analyzer(_diag(name="UC_Foo"), id="MyDiag")
         assert analyzer.id == "MyDiag"
+
+    def test_id_defaults_to_loaded_diagnostic_source_id(self, tmp_path):
+        path = tmp_path / "PW-MagSpectStitcher.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "CAM-TEA-MagSpecA-interpSpec",
+                    "image_analyzer": _STANDARD_1D,
+                    "image": {
+                        "type": "line",
+                        "description": "test",
+                        "data_loading": {"data_type": "csv"},
+                    },
+                    "scan": {"priority": 7},
+                }
+            )
+        )
+
+        analyzer = create_scan_analyzer(load_diagnostic(path))
+
+        assert analyzer.id == "PW-MagSpectStitcher"
+        assert analyzer.device_name == "CAM-TEA-MagSpecA-interpSpec"
 
     def test_priority_defaults_to_scan_priority(self):
         analyzer = create_scan_analyzer(_diag(scan={"priority": 7}))
