@@ -58,14 +58,24 @@ IP → the ECS-dump decision.
 - The Google-Docs scanlog menu item is hardcoded to HTU/Undulator
   (`HTUparameters.ini` logid).
 
-## Maintainer decisions needed
+## Maintainer decisions (DECIDED 2026-07-10)
 
-1. **ECS dump / Master Control IP** — legacy Master Control integration;
-   keep (re-home) or drop with the Master Control retirement?
-2. **MultiScanner** — queueserver replacement vs plain drop (either way it
-   does not carry as-is).
-3. **`get-only` composite mode** — editor can author it, runtime support
-   never landed; drop from the editor or implement?
-4. Dead features (log box, `run` action type, `add_all_variables`,
-   unwired refresh button) — default plan is drop-with-the-rebuild unless
-   flagged.
+1. **ECS dump / Master Control IP — DROP.** The dump was a bespoke
+   full-PV-space snapshot at scan start, requested over IP from the
+   MasterControl client (buggy anyway). Its standard successor already
+   exists in the stack: the **Bluesky baseline stream**
+   (`SupplementalData.baseline` — declared devices read once at run start
+   and once at run end, into the run's own document stream, queryable from
+   Tiled). If/when a full-space snapshot is wanted, wire gateway PVs as
+   baseline readables — no client commands, no separate dump file. The
+   future archiver makes even that largely moot (snapshot = timestamp
+   query). Not scheduled; recorded as the pattern to use.
+2. **MultiScanner — plain DROP for now.** Queueserver remains the noted
+   replacement pattern if batch sequencing is wanted later.
+3. **`get-only` composite mode — DROP** (editor authors it, no runtime
+   ever supported it, and it didn't make sense).
+4. **Dead features — DROP** (in-GUI log box, `run` action type,
+   `add_all_variables`, unwired refresh button).
+
+Still open: ActionControl re-homing (rec: bluesky-native execution of named
+ActionPlans via the engine compiler) — G-actions in `00_overview.md`.
