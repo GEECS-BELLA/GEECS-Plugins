@@ -3,6 +3,16 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.12.2] - 2026-07-10
+
+### Fixed
+
+- `transport/_coerce.coerce_scalar` no longer crashes with an uncaught
+  `OverflowError` on infinite numeric wire values (`"inf"`, `"1e400"`, ...):
+  non-finite numerics now pass through as the raw string, matching the
+  existing `"nan"` behavior. Latent since the original inline copies;
+  found in the PR #481 adversarial review.
+
 ## [0.12.1] - 2026-07-10
 
 Cleanup pass 2 (docstrings/comments only; AST-verified no code change).
