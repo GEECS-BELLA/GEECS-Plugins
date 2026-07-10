@@ -741,6 +741,17 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
         """
         return result.processed_image is not None or result.line_data is not None
 
+    def _log_result_warnings(self, unit_key, result: ImageAnalyzerResult) -> None:
+        """Log analyzer-supplied warnings in the parent LiveWatch process."""
+        metadata = result.metadata or {}
+        warnings = metadata.get("warnings") or metadata.get("analysis_warnings")
+        if not warnings:
+            return
+        if isinstance(warnings, str):
+            warnings = [warnings]
+        for warning in warnings:
+            logger.warning("Unit %s: %s", unit_key, warning)
+
     def _analyze_per_shot(self) -> None:
         """Fused per-shot pipeline using ``analyze_image_file``.
 
@@ -785,6 +796,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                 shot_num = futures[future]
                 try:
                     result: ImageAnalyzerResult = future.result()
+                    self._log_result_warnings(shot_num, result)
                     self._consume_result(shot_num, [shot_num], result)
                 except Exception as e:
                     logger.error(f"Analysis failed for shot {shot_num}: {e}")
@@ -845,6 +857,7 @@ class SingleDeviceScanAnalyzer(ScanAnalyzer, ABC):
                     result: ImageAnalyzerResult = self.image_analyzer.analyze_image(
                         averaged, aux
                     )
+                    self._log_result_warnings(bin_key, result)
                     self._consume_result(bin_key, bin_shots, result)
                 except Exception as e:
                     logger.error(f"Analysis failed for bin {bin_key}: {e}")
