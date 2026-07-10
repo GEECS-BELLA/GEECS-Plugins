@@ -126,18 +126,67 @@ verification lives), soak, then facility #2 as the first true test of the
 recipe. Pre-work: one sanity pass that nothing assumes a single global
 gateway host.
 
-## M6 gate list (draft — to finalize with the maintainer)
+## Greenfield GUI — settled parameters (2026-07-10)
 
-- N consecutive ops days on the request path at facility #1: strict +
-  free-run + DG645, at least one action-bearing scan, zero master
-  fallbacks.
-- Optimization verified once end-to-end (after G-actions/step-(iii)
-  equivalent wiring).
-- s-file outputs confirmed for every mode ScanAnalysis consumes; TDMS
-  reliance explicitly confirmed dead or replaced.
+- **Toolkit: PySide6** (LGPL — this repo is public; Qt-official; Qt
+  Designer `.ui` files keep the human-layout capability, and `.ui` XML is
+  agent-editable).
+- **New top-level package** (clean separation; the old GUI package dies
+  whole at cutover). Name TBD — shortlist: `geecs-console` (recommended:
+  the control-room word for the operator front-end, distinct from the
+  `geecs-bluesky` library), `scan-console`, `beamline-console`.
+  `geecs-bluesky-scanner` rejected (too close to `geecs-bluesky`).
+- Day-1 dependency target: PySide6 + geecs-bluesky + geecs-schemas —
+  decide whether the manual set/readback panel goes through the gateway
+  (no `geecs_python_api` dependency from birth) or carries ScanDevice
+  temporarily.
+
+## TDMS (decided 2026-07-10)
+
+- **On-shot TDMS: dropped.** It was a poorly-implemented Master Control
+  preservation and was not in use.
+- **End-of-scan TDMS conversion: possible future exporter** for LabVIEW
+  tooling — naturally a post-scan Tiled→TDMS converter alongside the
+  existing s-file exporter (analysis-side, needs no scanner integration).
+  Not scheduled, not a gate.
+
+## M6 gate: the validation scenario matrix
+
+Decided: the soak criterion is **a scenario checklist, not N days** — a
+list of scans to run at facility #1 under breaking conditions, each
+checked off once. Draft matrix (maintainer edits):
+
+*Modes ×* *trigger regimes*:
+- noscan / 1-D step / multi-axis grid / background — each in strict
+  (DG645 ARMED/SINGLESHOT) and free-run (jet bracketing) where applicable
+- optimization run end-to-end (after G-actions / optimize wiring)
+- a save-set-union scan (two named sets) and a composite-variable scan
+
+*Actions*: request setup/closeout · save-set rituals · experiment-defaults
+bracket · per-step actions at grid points
+
+*Failure drills*:
+- device off at preflight → operator drop + reference promotion
+- device dies mid-scan → error dialog path, clean abort
+- free-run trigger off → staleness dialog wording
+- DB unreachable → scan proceeds with explicit-only scalars (no abort)
+- Tiled down → scan proceeds (soft-fail), s-files still written
+- NetApp unmounted → claim refuses gracefully, no empty folder planted
+- operator abort mid-scan → STANDBY restore, save-off before trigger can
+  pass edges, no orphan images
+- config errors (unknown names, conflicting save-set roles, bad trigger
+  variant) → fail at submit, no scan number burned
+
+*Data integrity per mode*: s-file complete · images join event rows ·
+telemetry columns present · scan.log written · ScanInfo fields correct.
+
+## Other M6 gates
+
 - Deployment recipe executed clean on facility #2's machine.
-- Config corpus migration decided (recommendation: opportunistic — a file
-  migrates to new schema when first edited — plus a one-shot conversion
-  script held in reserve).
+- **Config corpus migration: on a named branch of the configs repo**
+  (GEECS-Plugins-Configs — the corpus lives there, not here), e.g.
+  `schema-v1-migration`, coordinated with the cutover. Opportunistic
+  migration (file converts when first edited) + a one-shot conversion
+  script, landing on that branch.
 - Explicitly non-blocking unless ops says otherwise: pseudo scan
-  variables, `all_scalars`, legacy TDMS scan-summary output.
+  variables, `all_scalars`, TDMS outputs (see above).
