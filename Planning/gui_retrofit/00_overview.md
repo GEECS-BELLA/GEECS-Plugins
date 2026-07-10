@@ -89,7 +89,7 @@ current build path
 | Shots/step & num-shots spinners | `wait_time = (shots + 0.5) / rep_rate` (derivation) | `shots_per_step: int` (declared intent) | Schema declares shots directly; drops the rep-rate×wait derivation (schema docstring). Cleaner — GUI passes the integer straight through. |
 | Optimization config combo (`comboOptimizationConfig` → `optimizer_config_path`) | `scan_config.optimizer_config_path` + injected `optimization_loader` | `ScanRequest.optimization: OptimizationSpec` | See §3(c). The GUI's Xopt/evaluator stack can't be described *fully* by `OptimizationSpec` fields alone today — recommend keeping loader injection. |
 | Rep rate / time-sync / TDMS / beeps (`ScanOptions`) | `ScanOptions` | *(no direct home)* | `ScanRequest` has no rep-rate/TDMS/beeps fields. Rep rate is a session concern (`session.rep_rate_hz`); the rest are legacy-engine knobs. Flag: these stay out of the request (see §5). |
-| Acquisition mode (strict vs free-run) | **env var only** (`GEECS_BLUESKY_ACQUISITION_MODE`); no GUI widget (grep confirms none in `geecs_scanner/`) | `ScanRequest.acquisition: AcquisitionMode` | The request has a first-class field the GUI has no widget for. M4 can wire a toggle (small) or keep inheriting the env default. Recommend a toggle once ScanRequest is the default path (§4 step iv). |
+| Acquisition mode (strict vs free-run) | **env var only** (`GEECS_BLUESKY_ACQUISITION_MODE`); no GUI widget (grep confirms none in `geecs_scanner/`) | `ScanRequest.acquisition: AcquisitionMode` | **DECIDED: add a GUI strict/free-run toggle** (the schema field exists; the GUI just never had a widget). Small; lands with the ScanRequest submission path (step ii/iii). Closes a schema-ahead-of-GUI gap. |
 | Description text (`textEditScanInfo`) | `scan_information["description"]` | `ScanRequest.description` | 1:1. |
 
 **Direction of the gaps:** schema is *ahead* of the GUI on multi-axis
@@ -188,6 +188,13 @@ Each step leaves the GUI working and the legacy path fully intact. Each is
 independently verifiable: a hermetic test (schema build / bridge parity) plus
 a hardware smoke on the daily-driver mode.
 
+- **(0) Multi-save-set foundation (schema + resolver).** `ScanRequest`
+  references a *list* of named save sets; the resolver unions them (dedupe by
+  device, merge entries). Its own focused PR before the rest — schema +
+  `save_set_to_devices_config` + converter/goldens + docgen no-drift
+  reference. Verified hermetically (a request naming two save sets records the
+  union). This is the one schema evolution M4 needs; everything after it is
+  wiring. (§5 "Save-set naming".)
 - **(i) Bridge reaches ScanRequest parity (engine-side).** Remove the four
   refusals in `_reinitialize_from_scan_request` by delegating to
   `run_scan_request` (§3b). *No GUI change yet* — verified with the existing
@@ -234,16 +241,23 @@ engine-only. The two halves can proceed in parallel once (i) lands.
   met. Keep the deferred refactor deferred. *Watch item:* if the save-set
   naming decision (below) pulls in the save-element-list cluster too, re-check
   this call.
-- **Save-set naming — the one genuine model mismatch.** The GUI merges
-  *several* selected save elements into one `Devices` dict
+- **Save-set naming — DECIDED: (b), a list of named save sets.** The GUI
+  merges *several* selected save elements into one `Devices` dict
   (`combine_elements`, `_collect_ui_scan_config:1889-1901`); a `ScanRequest`
-  names *one* `save_set`. **Open question / decision needed:** (a) persist
-  the merged selection as a synthetic named save set at submit time and
-  reference it, (b) extend `ConfigResolver` to resolve a *list* of save-set
-  names and union them engine-side, or (c) constrain the ScanRequest path to
-  a single selected element initially and defer multi-element. Recommend (a)
-  for M4 (smallest engine change, keeps one-named-save_set invariant) but
-  flag (b) as the cleaner long-term shape for M5.
+  names *one* `save_set`. The maintainer's workflow is *named diagnostic
+  groups* (laser cams, aux diagnostics, e-beam profiles) mixed and matched
+  per scan — which is exactly a scan referencing a **list** of named save
+  sets, each group a reusable `SaveSet`, the engine unioning their devices
+  (deduped). Chosen over (a) a synthetic per-scan merged set (throws away the
+  named groups) and (c) single-element (too limiting).
+  **This is a schema evolution done as its own focused PR *before* M4 step
+  (i)**, so the GUI is built against the clean model from the start:
+  `ScanRequest.save_set: str` → `save_sets: list[str]` (or a plural field);
+  `save_set_to_devices_config` unions the resolved sets (dedupe by device,
+  merge entries; entry-level rituals/`db_scalars` per entry); converter,
+  goldens, and the docgen no-drift reference regenerate. Bounded, but it
+  touches the schema + resolver + runner, so it is **not** free — it is the
+  first M4-foundation task.
 - **Backward-compat with existing presets/configs.** Presets are saved
   `exec_config`-shaped scan configs today; the config corpus is legacy-YAML.
   The `ConfigsRepoResolver` already converts legacy save elements / shot
