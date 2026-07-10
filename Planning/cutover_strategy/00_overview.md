@@ -7,6 +7,25 @@ remains the foundation.
 
 ## The decision
 
+**The gut runs as a branch experiment with a clean abort.** A second
+integration branch (`feat/vision-v2` or similar) is cut from
+`feat/vision-v1`; the gut sequence and any greenfield-GUI work land THERE.
+`feat/vision-v1` stays the known-good, coexistence-capable fallback.
+
+Branch discipline (strict, or the experiment fails by sync cost):
+
+- Syncs flow one way: master → v1 → v2. After the branch point, **v1
+  receives only master syncs and critical engine fixes; all new
+  development lands on v2.**
+- Path-independent work stays on v1: the deployment recipe, the step-(i)
+  hardware smoke, the s-file coverage check — an abort must lose nothing
+  operational.
+- **Commit/abort checkpoint** (time-boxed — the abort option decays):
+  after (a) G1 lands on v2 with the suite green, (b) G2-retrofit runs one
+  real hardware scan, and (c) a greenfield screen-map + one working screen
+  exist, explicitly decide: commit (v1 freezes to pure fallback) or abort
+  (delete v2, resume the coexistence plan on v1).
+
 **`feat/vision-v1` is a fully parallel branch.** It is never tip-toed back
 into master; master merges *into* it regularly, and the final merge the
 other way is effectively "master becomes vision" at cutover. Consequence:
@@ -28,7 +47,7 @@ conscious yes/no on whether the new engine needs an equivalent. Master's
 active development is mostly ScanAnalysis/ImageAnalysis, which merge
 cleanly; delete/modify conflicts on gutted files resolve as "keep deleted."
 
-## The gut sequence (PRs to feat/vision-v1)
+## The gut sequence (PRs to the v2 experiment branch)
 
 Cut list verified by a full consumer audit 2026-07-10 (every importer of
 every legacy engine module mapped; see PR discussion).
