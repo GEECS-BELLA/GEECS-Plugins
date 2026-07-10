@@ -81,6 +81,8 @@ geecs_bluesky/
       snapshot.py           # CaSnapshotReadable — async readback
       settable.py           # CaSettable — put :SP, read streamed readback
       motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
+      confirm.py            # CaConfirmSettable — set X, confirm on a
+                            #   different variable Y (ScanVariable.confirm)
       action_signals.py     # CaActionSignalFactory — the production
                             #   SettableFactory for compiled action plans
                             #   (cached :SP settables + str readbacks)
@@ -299,6 +301,17 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
   inconsistently), so an RE abort cancels the wait but the hardware finishes
   its move. If a specific device's abort variable matters, an optional
   `stop_variable` hook on `CaMotor` is the intended future shape.
+- **`CaConfirmSettable`** — the topology-C device (`devices/ca/confirm.py`):
+  writes `variable` but confirms on a *different* variable's readback
+  (`ScanVariable.confirm`) — the EMQ triplet's `Current_Limit.ChN` (a
+  software limit) vs its measured `Current.ChN`. Analog match by tolerance
+  (default 0.05, sized from a live no-beam characterization — jitter 0.01 A,
+  <1 s lag, ~3-frame settle) or discrete match by exact equality (future
+  `CaShutter`). `GeecsSession.confirm_settable(...)` builds it;
+  `resolve_movable_target` returns the entry's `confirm` target alongside
+  `(device, variable, kind)`, and `build_movable` dispatches on it (confirm
+  wins over `kind`) in both the grid-axis and optimize-mode movable
+  construction paths of `scan_request_runner`.
 
 Shot IDs (`ShotIdTracker`): a device's `shot_id` is its physical
 trigger-opportunity number, derived **incrementally** from its own

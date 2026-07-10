@@ -104,6 +104,39 @@ class GeecsMotorTimeoutError(GeecsError):
         )
 
 
+class GeecsConfirmTimeoutError(GeecsError):
+    """A confirming variable did not match the set target within ``timeout``.
+
+    Raised by :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable` when
+    the polling loop on the *confirming* variable (a different variable from
+    the one written — the ``ScanVariable.confirm`` "topology C" case) expires.
+    Possible causes: the confirming variable's tolerance is too tight for its
+    real jitter, the two variables are not actually coupled the way the config
+    assumes, or the device is stuck. Do not auto-retry — this is the same
+    "needs operator attention" posture as :class:`GeecsMotorTimeoutError`.
+    """
+
+    def __init__(
+        self,
+        device_name: str,
+        variable: str,
+        confirm_variable: str,
+        target: float | str,
+        current: float | str,
+        timeout: float,
+    ) -> None:
+        self.device_name = device_name
+        self.variable = variable
+        self.confirm_variable = confirm_variable
+        self.target = target
+        self.current = current
+        self.timeout = timeout
+        super().__init__(
+            f"{device_name}/{variable}: confirming variable {confirm_variable} "
+            f"reads {current!r}, did not match {target!r} within {timeout:.1f}s"
+        )
+
+
 class GeecsT0SyncError(GeecsError):
     """Coordinated t0 capture could not establish a common physical shot.
 

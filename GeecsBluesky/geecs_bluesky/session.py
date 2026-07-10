@@ -40,6 +40,7 @@ from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_sa
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
     CaActionSignalFactory,
+    CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
     CaSettable,
@@ -316,6 +317,37 @@ class GeecsSession:
                 variable,
                 experiment=self.experiment,
                 name=name or safe_name(f"{device}_{variable}"),
+            )
+        )
+
+    def confirm_settable(
+        self,
+        device: str,
+        variable: str,
+        *,
+        confirm_device: str,
+        confirm_variable: str,
+        tolerance: float = 0.05,
+        timeout: float = 10.0,
+        name: str | None = None,
+    ) -> CaConfirmSettable:
+        """Settable that confirms completion on a *different* variable.
+
+        The topology-C case (``ScanVariable.confirm``): ``variable`` is
+        written, but ``confirm_variable`` (possibly on a different device) is
+        polled for the actual physical result. See
+        :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+        """
+        return self._connect(
+            CaConfirmSettable(
+                device,
+                variable,
+                confirm_device=confirm_device,
+                confirm_variable=confirm_variable,
+                experiment=self.experiment,
+                name=name or safe_name(f"{device}_{variable}"),
+                tolerance=tolerance,
+                timeout=timeout,
             )
         )
 
