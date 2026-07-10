@@ -15,6 +15,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   update rows used for the legacy mutable `analysis/sNNN.txt` append, so
   generated scalar values remain recoverable if the watched s-file copy is
   deleted or regenerated.
+- `SingleDeviceScanAnalyzer` now logs analyzer-supplied result warnings from
+  the parent process after per-shot/per-bin workers return. This lets LiveWatch
+  surface incomplete-but-usable results such as `LineStitcher` shots with
+  missing sibling device files, while keeping the successful analysis state and
+  saved outputs.
 
 ### Changed
 
