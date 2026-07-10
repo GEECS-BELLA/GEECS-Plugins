@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 
@@ -10,9 +11,12 @@ def coerce_scalar(s: str) -> Any:
 
     Lossy for text that merely *looks* numeric (``'007'`` → ``7``) — string-typed
     variables must bypass this (the subscriber's ``text_variables`` parameter).
+    Non-finite numerics (``inf``/``nan``) pass through as the raw string.
     """
     try:
         f = float(s)
-        return int(f) if f == int(f) and "." not in s else f
     except ValueError:
         return s
+    if not math.isfinite(f):
+        return s
+    return int(f) if f == int(f) and "." not in s else f
