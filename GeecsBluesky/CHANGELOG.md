@@ -4,6 +4,46 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.0] - 2026-07-10
+
+Cleanup pass 1 (audit: `Planning/cleanup_vision_v1/00_overview.md`) — no
+behavior change.
+
+### Changed
+
+- **`ConfigResolver` / `ConfigsRepoResolver` moved to
+  `geecs_bluesky/config_resolver.py`** (a pure relocation — the resolver
+  layer shared no private helpers with the execution code). Both names are
+  still importable from `scan_request_runner` (re-exported), so the existing
+  import surface is unchanged.
+- `BlueskyScanner._build_positions` now delegates to the session's
+  `_positions` (was a near-verbatim copy of the start/end/step → linspace
+  rule).
+
+### Removed
+
+- Dead GUI-compat shims on `BlueskyScanner`: `dialog_queue` and
+  `restore_failures` (the GUI stopped reading them when `ScanManager`
+  dropped them; `last_reinit_error` stays — the GUI reads it), plus the
+  unused `_ScanConfig` import shim and `_CONNECT_TIMEOUT` constant.
+- The singular `resolve_save_set_checked` / `resolve_save_set_and_rituals`
+  pair — superseded by the plural M4 step-0 forms
+  (`resolve_save_sets_checked` / `resolve_save_sets_and_rituals`); no
+  production caller remained. Their tests were ported to the plural forms.
+- `utils.build_signal_attrs` — its attr-collision disambiguation was never
+  wired into any detector (all call `safe_name` directly); test-only.
+
+### Fixed
+
+- **Stale-reference sweep (~20 sites):** docstring cross-references to the
+  deleted direct-backend device classes (`GeecsTriggerable`, `GeecsMotor`,
+  `GeecsSettable`, `GeecsGenericDetector`, `GeecsTimestampedReadable`,
+  `GeecsSnapshotReadable`) now point at the `Ca*` classes; the
+  `devices/ca/*` module headers describe what each device *is* instead of
+  comparing it to a deleted class; `step_scan.py`'s module example no longer
+  shows the deleted host/port constructor (rewritten against `GeecsSession`
+  factories); `CLAUDE.md` acquisition-mode dispatch names corrected.
+
 ## [0.26.0] - 2026-07-10
 
 ### Added

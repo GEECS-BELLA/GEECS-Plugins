@@ -27,6 +27,8 @@ import re
 import struct
 from typing import Any, Callable, Awaitable, Collection, Sequence
 
+from ._coerce import coerce_scalar
+
 logger = logging.getLogger(__name__)
 
 Callback = Callable[[dict[str, Any]], Awaitable[None] | None]
@@ -249,7 +251,7 @@ def _parse_subscription(
     and is tokenised by *pattern* — see :func:`_compile_frame_pattern`.
 
     Values of variables in ``text_variables`` are returned as the exact raw
-    text; all others are numerically coerced via :func:`_coerce`.
+    text; all others are numerically coerced via :func:`coerce_scalar`.
     """
     if pattern is None:
         return {}
@@ -262,18 +264,7 @@ def _parse_subscription(
     for match in pattern.finditer(payload):
         var = match.group("name")
         raw_val = match.group("value")
-        result[var] = raw_val if var in text_variables else _coerce(raw_val.strip())
+        result[var] = (
+            raw_val if var in text_variables else coerce_scalar(raw_val.strip())
+        )
     return result
-
-
-def _coerce(s: str) -> Any:
-    """Best-effort numeric conversion; non-numeric text passes through as-is.
-
-    Lossy for text that merely *looks* numeric (``'007'`` → ``7``) — string-typed
-    variables must bypass this via the ``text_variables`` parse parameter.
-    """
-    try:
-        f = float(s)
-        return int(f) if f == int(f) and "." not in s else f
-    except ValueError:
-        return s

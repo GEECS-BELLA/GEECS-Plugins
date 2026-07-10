@@ -3,8 +3,7 @@
 The gateway exposes a settable GEECS variable as two PVs: a readback
 (``[Experiment:]Device:Variable``, fed by the device stream) and a setpoint
 (``…:SP``, whose CA puts the gateway forwards to the device over UDP).  This
-device writes the setpoint and reads back the real value — the CA counterpart of
-:class:`~geecs_bluesky.devices.settable.GeecsSettable`.
+device writes the setpoint and reads back the real value.
 
 Completion semantics — CaSettable already waits
 -----------------------------------------------

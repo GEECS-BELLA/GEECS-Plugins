@@ -66,7 +66,7 @@ geecs_ca_gateway/
 
 Dependency direction: **GeecsBluesky depends on this package, never the other
 way around**. GeecsBluesky imports the *library* parts (`GeecsDb`, `pv_naming`,
-exceptions, `FakeGeecsServer`) and consumes the *service* (the PVs, via stock
+exceptions) and consumes the *service* (the PVs, via stock
 ophyd-async EPICS signals). The gateway also imports `geecs-schemas` for
 schema-validated derived-channel overlay files. The gateway env is deliberately
 slim: caproto + pydantic + geecs-schemas + mysql-connector + PyYAML — no
@@ -150,7 +150,8 @@ One asyncio event loop runs everything:
   in-process asyncio UDP+TCP server speaking the real wire protocol (5 Hz
   pushes, ACK/exe replies). The whole suite is offline: no hardware, no lab
   network, no CA client needed (tests drive channels directly via
-  `channel.write`). GeecsBluesky's tests import it from here too.
+  `channel.write`). GeecsBluesky no longer imports it — its hermetic tests
+  use ophyd-async mock backends instead.
 - `pytest` runs `asyncio_mode = "auto"` and deselects `integration` (lab-DB)
   tests by default; `fake_server` marks tests that open localhost sockets.
 - Test files map to layers: `test_naming` / `test_channels` /

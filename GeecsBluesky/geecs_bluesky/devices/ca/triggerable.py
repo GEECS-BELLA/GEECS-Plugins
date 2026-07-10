@@ -4,14 +4,12 @@ The GEECS shot signal is the device's ``acq_timestamp`` advancing once per
 shot.  Over the gateway that is a readback PV; a **persistent CA monitor** on
 it (started at ``connect()``) feeds a local cache and an event queue:
 
-* :class:`CaAcqTimestampReadable` — readable signals plus the monitor/cache.
-  ``_last_acq`` is the CA-side analogue of the direct backend's TCP shot
-  cache; free-run *contributors* build on this (no blocking trigger).
+* :class:`CaAcqTimestampReadable` — readable signals plus the monitor/cache
+  (``_last_acq``); free-run *contributors* build on this (no blocking trigger).
 * :class:`CaTriggerable` — adds ``trigger()``, which blocks until the queue
-  delivers a value different from the baseline — the CA-sourced analogue of
-  :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`.
+  delivers a value different from the baseline.
 
-Like ``GeecsTriggerable``, the stale-frame drain and baseline capture happen
+The stale-frame drain and baseline capture happen
 **synchronously inside** ``trigger()``, before the status is returned — so a
 shot fired immediately after ``bps.trigger`` (the strict single-shot pattern:
 trigger → fire → wait) can never land in a blind window between baselining and

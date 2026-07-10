@@ -41,13 +41,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import queue
 import threading
 from contextlib import contextmanager
 from typing import Any, Callable
-
-import numpy as np
-
 
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -94,20 +90,12 @@ from geecs_bluesky.scan_request_runner import (
     trigger_writes_from_profile,
 )
 from geecs_bluesky.scan_log import scan_log
-from geecs_bluesky.session import GeecsSession
+from geecs_bluesky.session import GeecsSession, _positions
 from geecs_bluesky.utils import safe_name
 from geecs_schemas import AcquisitionMode, ScanRequest, ScanRequestMode
 
-# ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
-# runtime so this module can be imported without geecs_data_utils installed.
-try:
-    from geecs_data_utils import ScanConfig as _ScanConfig  # noqa: F401
-except Exception:
-    _ScanConfig = None  # type: ignore[assignment,misc]
-
 logger = logging.getLogger(__name__)
 
-_CONNECT_TIMEOUT = 20.0
 _DISCONNECT_TIMEOUT = 10.0
 _THREAD_JOIN_TIMEOUT = 15.0
 
@@ -162,13 +150,9 @@ def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
 
 def _build_positions(scan_config: Any) -> list[float]:
     """Convert ScanConfig start/end/step to an explicit list of positions."""
-    start = float(scan_config.start)
-    end = float(scan_config.end)
-    step = float(scan_config.step)
-    if step == 0 or start == end:
-        return [start]
-    n = max(2, round(abs(end - start) / abs(step)) + 1)
-    return list(np.linspace(start, end, n))
+    return _positions(
+        float(scan_config.start), float(scan_config.end), float(scan_config.step)
+    )
 
 
 class BlueskyScanner:
@@ -226,11 +210,8 @@ class BlueskyScanner:
         self._RE = self._session.RE
         self._RE.subscribe(self._on_document)
 
-        # GUI compatibility shims
-        self.dialog_queue: queue.Queue = (
-            queue.Queue()
-        )  # always empty; RE uses bps.pause()
-        self.restore_failures: list = []  # no legacy device restore needed
+        # GUI compatibility: the GUI reads this defensively for both backends
+        # (never populated on the Bluesky path — reinitialize raises instead).
         self.last_reinit_error: str | None = None
         self._on_event = on_event
         self._current_state = self._scan_state("IDLE")

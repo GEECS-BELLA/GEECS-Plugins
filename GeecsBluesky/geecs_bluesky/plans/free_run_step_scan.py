@@ -9,7 +9,7 @@ How a row is built
 Only the reference is Triggerable, so :func:`bluesky.plan_stubs.trigger_and_read`
 waits exclusively on its ``acq_timestamp`` advance ("a physical shot
 happened — emit a row").  Contributors
-(:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`)
+(:class:`~geecs_bluesky.devices.ca.timestamped_readable.CaTimestampedReadable`)
 are then read without triggering: each labels its latest cached data with
 ``shot_id`` / ``shot_offset`` / ``valid`` relative to the reference's accepted
 shot.  Snapshot devices are sampled as-is.  Missing or slow devices never
@@ -82,7 +82,7 @@ def geecs_free_run_step_scan(
     motor:
         Any Movable/settable device — a stage axis, power supply, pressure
         controller, etc. (anything with ``set() → status``, e.g. built on
-        :class:`~geecs_bluesky.devices.settable.GeecsSettable`).  A
+        :class:`~geecs_bluesky.devices.ca.settable.CaSettable`).  A
         **sequence** of Movables is a multi-axis grid scan (one motor per
         axis, outermost first; each position is then a tuple aligned with
         the motors, and only the axes whose target changed are re-moved).
@@ -94,13 +94,13 @@ def geecs_free_run_step_scan(
         tuples for a grid.
     reference:
         The pacemaker — a Triggerable sync device
-        (:class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`)
+        (:class:`~geecs_bluesky.devices.ca.generic_detector.CaGenericDetector`)
         with shot IDs configured.  Its awaited ``acq_timestamp`` advance
         defines each event row.
     detectors:
         Non-triggerable contributors and snapshots
-        (:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`,
-        :class:`~geecs_bluesky.devices.snapshot.GeecsSnapshotReadable`).
+        (:class:`~geecs_bluesky.devices.ca.timestamped_readable.CaTimestampedReadable`,
+        :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`).
         Contributors are auto-anchored to *reference* (existing grace-wait
         settings are preserved).
     shots_per_step:

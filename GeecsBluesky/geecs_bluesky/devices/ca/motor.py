@@ -1,7 +1,6 @@
 """CaMotor — position-feedback motor driven through the CA gateway.
 
-The CA counterpart of :class:`~geecs_bluesky.devices.motor.GeecsMotor`.  Two
-layers of convergence:
+Two layers of convergence:
 
 1. The gateway's ``…:SP`` write forwards to the GEECS UDP set, which itself
    blocks until the device reports the set converged (per the DB tolerance) or

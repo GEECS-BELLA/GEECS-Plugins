@@ -9,7 +9,7 @@ initiation and the wait::
     bps.wait(group)                          # every detector saw the shot
     create / read / save                     # one complete event row
 
-Ordering is load-bearing: :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`
+Ordering is load-bearing: :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`
 baselines its ``acq_timestamp`` synchronously inside ``trigger()``, so a shot
 fired any time after the trigger messages are processed cannot be missed.
 A detector that does not respond to the fired shot raises
@@ -237,7 +237,7 @@ def geecs_confirm_quiescent(
 ):
     """Wait until no sync device's ``acq_timestamp`` advances for *quiet_s*.
 
-    The inverse of :meth:`~geecs_bluesky.devices.triggerable.GeecsTriggerable.trigger`
+    The inverse of :meth:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable.trigger`
     (which waits for an advance): this confirms the free-running trigger has
     *stopped* after the controller was put in single-shot (``ARMED``) mode, so
     plan-owned single-shot firing can begin without mistaking a residual
