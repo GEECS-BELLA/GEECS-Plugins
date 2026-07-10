@@ -4,6 +4,50 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.0] - 2026-07-10
+
+M4 step (i) — the GUI bridge reaches ScanRequest parity
+(`Planning/gui_retrofit/00_overview.md` §3–4).
+
+### Changed
+
+- **`BlueskyScanner` delegates ScanRequest execution to `run_scan_request`.**
+  `_reinitialize_from_scan_request` no longer synthesizes a legacy
+  scan-config namespace: it validates every referenced name fail-fast
+  (defaults, actions, save sets + rituals, trigger profile, scan variables)
+  and stores the **original pre-defaults** request; the scan thread then
+  runs it through the one engine definition — actions, entry rituals,
+  multi-axis grids, db_scalars, and telemetry now all run through the GUI
+  bridge. The legacy `exec_config` path is untouched.
+- **Two new optional runner hooks on `run_scan_request`** (headless callers
+  unchanged): `preflight(detectors, strict) -> list | None` — the
+  scanner-layer operator-dialog seam, called pre-claim with the fully
+  assembled detector list (`None` aborts; a reduced list is honored) — and
+  `on_scan_start(total_steps, total_shots)` — the GUI progress-totals seam.
+  Neither is called on the optimize path (an optimize preflight is a later
+  seam).
+- The bridge's preflight pipeline gained `disconnect_on_drop=False` for the
+  delegated path (the runner's `finally` owns disconnection there); the
+  exec_config path is byte-identical (default `True`).
+- The retired byte-parity pin (request noscan ≡ synthesized exec_config) is
+  replaced by the delegation-parity pin: a request through the bridge
+  produces `session.scan` kwargs identical to headless `run_scan_request`
+  (and the bridge never pre-claims — `session.scan` owns the claim and
+  self-attaches `scan.log`).
+
+### Removed
+
+- The now-orphaned GUI-refusal cluster: `raise_if_actions_present`,
+  `resolve_save_sets_checked`, and `MULTI_AXIS_MESSAGE` (their only callers
+  were the bridge refusals this release removes), plus the bridge's
+  `_request_step` machinery and `_run_request_step_scan`.
+
+### Retained
+
+- The optimize-mode refusal at `reinitialize(ScanRequest)` — wiring the
+  GUI's `optimization_loader` into the delegated path is GUI-submission
+  step (iii).
+
 ## [0.27.1] - 2026-07-10
 
 Cleanup pass 2 — the docstring condensation (audit:

@@ -74,15 +74,13 @@ from geecs_bluesky.preflight import (
     run_preflight,
 )
 from geecs_bluesky.scan_request_runner import (
-    MULTI_AXIS_MESSAGE,
     ConfigResolver,
     ConfigsRepoResolver,
-    raise_if_actions_present,
     resolve_and_validate_actions,
     resolve_defaults_for,
     resolve_movable_target,
-    resolve_save_sets_checked,
-    save_set_to_devices_config,
+    resolve_save_sets_and_rituals,
+    run_scan_request,
     trigger_writes_from_profile,
 )
 from geecs_bluesky.scan_log import scan_log
@@ -211,8 +209,9 @@ class BlueskyScanner:
         self._optimization_loader = optimization_loader
         # ScanRequest entry (the acceptance seam of the schema milestone):
         # set by reinitialize(ScanRequest); None on the exec_config path.
+        # The scan thread delegates a stored request to run_scan_request.
         self._scan_request: ScanRequest | None = None
-        self._request_step: dict[str, Any] | None = None
+        self._request_resolver: ConfigResolver | None = None
 
         # Catch a stale env loudly rather than silently changing behavior.
         legacy_backend = os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND")
@@ -277,7 +276,7 @@ class BlueskyScanner:
                 exec_config, resolver=_kwargs.get("resolver")
             )
         self._scan_request = None
-        self._request_step = None
+        self._request_resolver = None
         self._scan_config = exec_config.scan_config
 
         # Derive shots from rep_rate × wait_time (ScanOptions has no shots_per_step field)
@@ -315,113 +314,70 @@ class BlueskyScanner:
     def _reinitialize_from_scan_request(
         self, request: ScanRequest, resolver: ConfigResolver | None = None
     ) -> bool:
-        """Map a ScanRequest onto the scanner's internal exec-config shapes.
+        """Validate a ScanRequest fail-fast and store it for delegated execution.
 
-        Names are resolved **fail-fast here**, and a legacy-shaped
-        scan-config namespace is synthesized so the scan thread runs
-        byte-identically to the exec_config path (pinned by the noscan
-        parity test).  ``shots_per_step`` maps onto the legacy ``wait_time``
-        slot (ScanInfo quirk; identical metadata at the 1 Hz identity rep
-        rate); ``acquisition`` comes from the request — deliberately no env
-        override, a request declares intent.  Actions / multi-axis /
-        optimize are validated then refused (``NotImplementedError``) — run
-        those headless via ``GeecsSession.run`` until the GUI-submission
-        milestone routes them through this bridge.
+        The scan thread hands a stored request to
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see
+        :meth:`_run_delegated_request`), so the full schema surface —
+        actions, entry rituals, multi-axis grids, db_scalars, telemetry —
+        runs through the one engine definition.  This method only (a)
+        resolves every referenced name so the GUI gets an immediate error,
+        discarding the results, and (b) stores state.  The **original**
+        pre-defaults request is stored — ``run_scan_request`` applies
+        experiment defaults itself, so storing a post-defaults copy would
+        apply them twice.  ``acquisition`` comes from the request —
+        deliberately no env override, a request declares intent.  Optimize
+        mode is still refused: wiring the GUI's ``optimization_loader`` into
+        the delegated path is GUI-submission step (iii).
 
         Returns ``True`` (matching :meth:`reinitialize`).
         """
-        from types import SimpleNamespace
-
         if resolver is None:
             resolver = ConfigsRepoResolver(self._experiment_dir)
 
-        request, applied_defaults = resolve_defaults_for(resolver, request)
-        if applied_defaults:
-            # Provenance: which experiment defaults filled unset fields (the
-            # stored self._scan_request is the post-defaults request).
-            logger.info(
-                "ScanRequest: applied experiment defaults: %s", applied_defaults
-            )
-
-        raise_if_actions_present(
-            resolve_and_validate_actions(request.actions, resolver)
-        )
-        if request.mode is ScanRequestMode.STEP and len(request.axes) > 1:
-            raise NotImplementedError(MULTI_AXIS_MESSAGE)
         if request.mode is ScanRequestMode.OPTIMIZE:
             raise NotImplementedError(
                 "optimize-mode ScanRequest execution through BlueskyScanner "
-                "lands with the GUI submission milestone — the scanner's "
-                "optimization path is driven by the GUI-injected "
-                "optimization_loader; use GeecsSession.run(request, "
-                "resolver, objective=..., suggester=...) headless"
+                "lands with GUI-submission step (iii), which wires the "
+                "GUI-injected optimization_loader into the delegated path; "
+                "use GeecsSession.run(request, resolver, objective=..., "
+                "suggester=...) headless"
             )
 
+        # Fail-fast validation on a LOCAL post-defaults copy; every result
+        # is discarded — run_scan_request re-resolves at execution time.
+        validated, _applied = resolve_defaults_for(resolver, request)
+        resolve_and_validate_actions(validated.actions, resolver)
+        if not validated.save_sets:
+            raise GeecsConfigurationError(
+                f"a {request.mode.value!r} ScanRequest needs at least one "
+                "save set in save_sets — without one the scan would record "
+                "nothing"
+            )
+        resolve_save_sets_and_rituals(resolver, validated.save_sets)
+        if validated.trigger_profile:
+            # Adapt (and discard) the writes so an unknown trigger_variant
+            # fails here, not in the scan thread.
+            profile = resolver.resolve_trigger_profile(validated.trigger_profile)
+            trigger_writes_from_profile(profile, validated.trigger_variant)
+        if validated.mode is ScanRequestMode.STEP:
+            for axis in validated.axes:
+                # Resolve to an executable target so pseudo (composite)
+                # variables are refused here, not in the scan thread.
+                spec = resolver.resolve_scan_variable(axis.variable)
+                resolve_movable_target(spec, axis.variable)
+
+        # Store the ORIGINAL pre-defaults request (see docstring).
+        self._scan_request = request
+        self._request_resolver = resolver
+        self._scan_config = None
+        self._devices_config = {}
         self._acquisition_mode = (
             _FREE_RUN_MODE
             if request.acquisition is AcquisitionMode.FREE_RUN
             else _STRICT_MODE
         )
         self._shots_per_step = int(request.shots_per_step)
-
-        if not request.save_sets:
-            raise GeecsConfigurationError(
-                f"a {request.mode.value!r} ScanRequest needs at least one "
-                "save set in save_sets — without one the scan would record "
-                "nothing"
-            )
-        # Multiple named save sets union into one effective device set.
-        save_set = resolve_save_sets_checked(resolver, request.save_sets)
-        self._devices_config = save_set_to_devices_config(save_set)
-
-        if request.trigger_profile:
-            profile = resolver.resolve_trigger_profile(request.trigger_profile)
-            # Generalized multi-device ordered writes (TriggerProfile
-            # semantics); GeecsSession.shot_control builds the ordered
-            # controller from these.
-            self._shot_control = trigger_writes_from_profile(
-                profile, request.trigger_variant
-            )
-        else:
-            self._shot_control = None
-
-        if request.mode is ScanRequestMode.NOSCAN:
-            self._request_step = None
-            self._scan_config = SimpleNamespace(
-                scan_mode="noscan",
-                device_var=None,
-                start=0.0,
-                end=0.0,
-                step=0.0,
-                wait_time=request.shots_per_step,
-                additional_description=request.description,
-                background=request.background,
-            )
-        else:
-            axis = request.axes[0]
-            spec = resolver.resolve_scan_variable(axis.variable)
-            device, variable, kind, _confirm = resolve_movable_target(
-                spec, axis.variable
-            )
-            positions = axis.positions.to_values()
-            self._request_step = {
-                "device": device,
-                "variable": variable,
-                "kind": kind,
-                "positions": positions,
-            }
-            self._scan_config = SimpleNamespace(
-                scan_mode="standard",
-                device_var=f"{device}:{variable}",
-                start=positions[0],
-                end=positions[-1],
-                step=(positions[1] - positions[0]) if len(positions) > 1 else 0.0,
-                wait_time=request.shots_per_step,
-                additional_description=request.description,
-                background=request.background,
-            )
-
-        self._scan_request = request
         self._completed_shots = 0
         self._total_shots = 0
         self._total_steps = 0
@@ -432,11 +388,11 @@ class BlueskyScanner:
 
         logger.info(
             "BlueskyScanner reinitialised from ScanRequest — mode=%s, "
-            "acquisition=%s, shots_per_step=%d, devices=%s",
+            "acquisition=%s, shots_per_step=%d, save_sets=%s",
             request.mode.value,
             self._acquisition_mode,
             self._shots_per_step,
-            list(self._devices_config),
+            list(request.save_sets),
         )
         return True
 
@@ -790,23 +746,32 @@ class BlueskyScanner:
             )
         )
 
-    def _drop_devices(self, detectors: list, drop_ids: set[int]) -> list:
-        """Disconnect and remove the given devices (operator chose drop)."""
+    def _drop_devices(
+        self, detectors: list, drop_ids: set[int], *, disconnect: bool = True
+    ) -> list:
+        """Remove the given devices (operator chose drop), disconnecting by default.
+
+        ``disconnect=False`` is the delegated-request path: the runner's
+        ``finally`` owns disconnection of everything it created, so the drop
+        is logged but the device is left connected for that cleanup.
+        """
         for device in detectors:
             if id(device) in drop_ids:
                 logger.warning(
                     "Pre-flight: dropping device %s from this scan "
-                    "(operator chose drop-and-continue); disconnecting it",
+                    "(operator chose drop-and-continue)%s",
                     self._device_label(device),
+                    "; disconnecting it" if disconnect else "",
                 )
-                self._disconnect_device(device)
+                if disconnect:
+                    self._disconnect_device(device)
         remaining = [d for d in detectors if id(d) not in drop_ids]
         with self._device_lock:
             self._detectors = [d for d in self._detectors if id(d) not in drop_ids]
         return remaining
 
     def _preflight_check_sync_liveness(
-        self, detectors: list, *, strict: bool = False
+        self, detectors: list, *, strict: bool = False, disconnect_on_drop: bool = True
     ) -> list | None:
         """Pre-flight: catch dead sync devices before the claim (pipeline).
 
@@ -814,6 +779,8 @@ class BlueskyScanner:
         staleness), pre-claim so an abort burns no scan number.  Headless /
         no answer → proceed and fail loudly downstream.  The module-level
         knobs are read at call time — the hermetic tests monkeypatch them.
+        ``disconnect_on_drop=False`` (delegated-request path) keeps dropped
+        devices connected for the runner's own cleanup.
 
         Returns
         -------
@@ -824,7 +791,9 @@ class BlueskyScanner:
             detectors=detectors,
             strict=strict,
             read_liveness=self._read_gateway_liveness,
-            drop_devices=self._drop_devices,
+            drop_devices=lambda dets, ids: self._drop_devices(
+                dets, ids, disconnect=disconnect_on_drop
+            ),
             device_label=self._device_label,
             dialog_timeout=_PREFLIGHT_DIALOG_TIMEOUT_S,
         )
@@ -863,6 +832,11 @@ class BlueskyScanner:
         failed = False
         try:
             if self._abort_before_acquisition():
+                return
+            # ScanRequest path: delegate to the engine's request machinery
+            # (scan_config is None on this path — this guard runs first).
+            if getattr(self, "_scan_request", None) is not None:
+                self._run_delegated_request()
                 return
             mode = scan_config.scan_mode
             # Support both ScanMode enum and plain strings
@@ -904,50 +878,56 @@ class BlueskyScanner:
         with scan_log(scan_number, scan_folder):
             yield
 
-    def _run_request_step_scan(
-        self, scan_config: Any, request_step: dict[str, Any]
-    ) -> None:
-        """Step scan staged from a ScanRequest: kind-aware movable, explicit positions.
+    def _run_delegated_request(self) -> None:
+        """Run the stored ScanRequest through the engine's one definition.
 
-        Differs from :meth:`_run_standard_scan` only in what the request
-        already resolved: the movable honours the scan variable's ``kind``
-        (``motor`` → readback-polled :meth:`GeecsSession.motor`,
-        ``setpoint`` → :meth:`GeecsSession.settable`) and the positions come
-        from the axis (supporting explicit position lists, which the legacy
-        start/end/step shape cannot express).  Everything downstream is the
-        shared :meth:`_execute_scan` path.
+        Delegates to
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request`, so the
+        full schema surface (actions, entry rituals, multi-axis grids,
+        db_scalars, telemetry) executes identically to a headless
+        ``GeecsSession.run``.  The bridge contributes its two seams via the
+        runner hooks: the operator-dialog preflight
+        (:meth:`_delegated_preflight`) and the GUI progress totals
+        (:meth:`_on_delegated_scan_start`).  ``session.scan`` claims the
+        scan number itself on this path, and the session self-attaches
+        ``scan.log`` when *it* claimed — so the bridge must NOT pre-claim
+        here.  Exceptions propagate to :meth:`_run_scan`'s cleanup
+        (ABORTED state + disconnect).
         """
-        device = request_step["device"]
-        variable = request_step["variable"]
-        ophyd_name = safe_name(f"{device}_{variable}")
-        logger.info(
-            "Creating %s: %s / %s → name=%r",
-            request_step["kind"],
-            device,
-            variable,
-            ophyd_name,
+        request = self._scan_request
+        resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+        run_scan_request(
+            self._session,
+            request,
+            resolver,
+            preflight=self._delegated_preflight,
+            on_scan_start=self._on_delegated_scan_start,
         )
-        if request_step["kind"] == "motor":
-            movable = self._session.motor(device, variable, name=ophyd_name)
-        else:
-            movable = self._session.settable(device, variable, name=ophyd_name)
-        with self._device_lock:
-            self._motor = movable
 
-        extra_md: dict[str, Any] = {"device_var": scan_config.device_var}
-        if scan_config.additional_description:
-            extra_md["description"] = scan_config.additional_description
-        self._execute_scan(
-            scan_config, movable, list(request_step["positions"]), extra_md
+    def _delegated_preflight(self, detectors: list, strict: bool) -> list | None:
+        """Runner preflight hook: the operator-dialog pipeline, sans disconnect.
+
+        Same pipeline as the exec_config path, but dropped devices are not
+        disconnected here — on the delegated path the runner's ``finally``
+        owns disconnection of everything it created.  On abort (``None``)
+        the abort flag is set so the scan thread's cleanup reports ABORTED.
+        """
+        checked = self._preflight_check_sync_liveness(
+            detectors, strict=strict, disconnect_on_drop=False
         )
+        if checked is None:
+            self._abort_requested = True
+        return checked
+
+    def _on_delegated_scan_start(self, total_steps: int, total_shots: int) -> None:
+        """Runner totals hook: prime GUI progress and emit lifecycle states."""
+        self._total_steps = total_steps
+        self._total_shots = total_shots
+        self._set_state("INITIALIZING", total_shots=total_shots)
+        self._set_state("RUNNING")
 
     def _run_standard_scan(self, scan_config: Any) -> None:
         """Step scan: move a scan device through positions, collect shots each step."""
-        request_step = getattr(self, "_request_step", None)
-        if request_step is not None:
-            self._run_request_step_scan(scan_config, request_step)
-            return
-
         if not scan_config.device_var:
             logger.error("STANDARD scan requires device_var; got None")
             return

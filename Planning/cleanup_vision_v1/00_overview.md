@@ -115,20 +115,26 @@ Inventoried during the pass — these are NOT in CLAUDE.md and were kept:
   `supports_device_type`, `load_camera_image_from_tiled_run`,
   `build_external_asset_documents`) — documented public surface with tests.
 
-## Deferred until M4 bridge parity (touching now is wasted work)
+## Deferred until M4 bridge parity — status 2026-07-10: step (i) LANDED
 
-M4 makes `BlueskyScanner` delegate ScanRequest execution to
-`run_scan_request`; the following are scheduled to shrink or die then:
+M4 step (i) (`vision/m4-bridge-parity`, GeecsBluesky 0.28.0) made
+`BlueskyScanner` delegate ScanRequest execution to `run_scan_request`.
+Where each item landed:
 
-- `bluesky_scanner._reinitialize_from_scan_request` (~150 lines) and the
-  `_request_step` machinery — the biggest casualty.
-- The runner's action-refusal cluster: `raise_if_actions_present`,
-  `resolve_save_sets_checked`, `MULTI_AXIS_MESSAGE` — their only callers are
-  the bridge refusals M4 removes.
-- `resolve_defaults_for` — single production caller is the bridge.
-- Reconciling the device-build twins (above).
-- Optional bridge extractions (preflight/event-translation clusters) — clean
-  seams, but not the bottleneck; avoid colliding with M4.
+- **DONE** — the runner's refusal cluster (`raise_if_actions_present`,
+  `resolve_save_sets_checked`, `MULTI_AXIS_MESSAGE`) is deleted, along with
+  the bridge's `_request_step` machinery and `_run_request_step_scan`.
+- **PARTIAL** — `_reinitialize_from_scan_request` shrank from ~150 lines of
+  namespace synthesis to ~60 lines of fail-fast validation + state storage;
+  it still exists (that is now its durable job, not debt).
+- **KEPT** — `resolve_defaults_for`: the bridge still calls it for fail-fast
+  validation (alongside `resolve_and_validate_actions` and
+  `resolve_save_sets_and_rituals`), so it is no longer a deletion candidate.
+- **STILL OPEN** — reconciling the device-build twins (above): both remain
+  live because the legacy `exec_config` path keeps
+  `_build_session_devices`; they merge when that path dies (M6).
+- **STILL OPEN** — optional bridge extractions (preflight/event-translation
+  clusters) — clean seams, but not the bottleneck.
 
 ## Deferred: analysis/ + assets/ (WIP zone — owner decision 2026-07-10)
 

@@ -203,6 +203,8 @@ a hardware smoke on the daily-driver mode.
   `session.run`. Hardware smoke: a headless multi-axis + action request via
   the bridge. **This is the biggest engine step and unblocks everything
   after it.**
+  **LANDED 2026-07-10** (`vision/m4-bridge-parity`, GeecsBluesky 0.28.0 —
+  optimize refusal retained pending step (iii); hardware smoke still owed).
 - **(ii) Behind-a-flag "submit as ScanRequest" for a simple scan.** Add
   `_build_scan_request()` to the GUI and a submission flag
   (`GEECS_USE_SCAN_REQUEST`, mirroring `GEECS_USE_BLUESKY`, resolved next to
