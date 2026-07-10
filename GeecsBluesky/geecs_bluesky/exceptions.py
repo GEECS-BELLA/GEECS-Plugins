@@ -171,15 +171,13 @@ class GeecsConfigurationError(GeecsError):
 class GeecsDeviceDownError(GeecsError):
     """A device's gateway ``CONNECTED`` PV reports ``Disconnected``.
 
-    The gateway serves every DB device's PVs whether or not the device's TCP
-    stream is up, so CA-connect success never implied device liveness; the
-    per-device ``[Experiment:]Device:CONNECTED`` status PV is the
-    authoritative signal (PV_CONTRACT.md §1/§5).  Raised (or carried inside
-    the pre-claim operator dialog) when that PV says a device is down:
-    by ``BlueskyScanner._preflight_check_sync_liveness`` before a scan, and
-    by :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
-    no-frame device turns out to be disconnected mid-scan (re-firing cannot
-    help a dead device).  The message is operator-facing.
+    ``CONNECTED`` is the authoritative liveness signal — CA-connect success
+    never implies device liveness (PV_CONTRACT.md §1/§5; rationale in
+    ``GeecsBluesky/CLAUDE.md``).  Raised, or carried inside the pre-claim
+    operator dialog, by the pre-flight liveness check and by
+    :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
+    no-frame device turns out to be disconnected mid-scan.  The message is
+    operator-facing.
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
@@ -190,15 +188,11 @@ class GeecsDeviceDownError(GeecsError):
 class GeecsStaleDevicesError(GeecsError):
     """Free-run sync device(s) are CONNECTED but have no fresh frames.
 
-    Carried inside the pre-claim operator dialog raised by
-    ``BlueskyScanner._preflight_check_sync_liveness`` (free-run mode only,
-    after the gateway-liveness stage passed) when cached ``acq_timestamp``
-    frames are missing or too old — all-stale means the trigger is probably
-    off / not free-running; a stale subset is a per-device acquisition
-    problem.  Genuinely *dead* devices are :class:`GeecsDeviceDownError`
-    territory (the ``CONNECTED`` PV), not this.  The message is
-    operator-facing: it names the stale device(s), how stale they are, and
-    what the dialog's options mean.
+    Carried inside the pre-claim operator dialog raised by the free-run
+    staleness check: all-stale means the trigger is probably off / not
+    free-running; a stale subset is a per-device acquisition problem.
+    Genuinely *dead* devices are :class:`GeecsDeviceDownError` territory.
+    The message is operator-facing.
     """
 
 
@@ -212,12 +206,9 @@ class ActionCheckFailedError(GeecsError):
 
     Raised by the compiled action plan (see
     :func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) when a
-    ``check`` step's readback differs from its ``expected`` value.  This is
-    the strict-mode counterpart of the legacy ActionManager mismatch, which
-    prompted the operator and auto-aborted when headless — here the plan
-    always stops, so the mismatch is never papered over.  The message is
-    operator-facing: it names the device, the variable, what was expected,
-    and what actually came back.
+    ``check`` step's readback differs from its ``expected`` value.  The plan
+    always stops here — a mismatch is never papered over.  The message is
+    operator-facing.
     """
 
     def __init__(
@@ -243,9 +234,7 @@ class ActionPlanNotFoundError(GeecsError):
 
     Raised while a compiled action plan executes a nested ``run`` step whose
     ``plan`` name has no entry in the plan registry — typically a renamed or
-    deleted plan that something still points at.  The legacy ActionManager
-    raised ``ActionError("Action '<name>' is not defined.")`` for the same
-    situation.
+    deleted plan that something still points at.
     """
 
     def __init__(self, plan_name: str, known_plans: list[str] | None = None) -> None:
@@ -266,10 +255,8 @@ class ActionPlanCycleError(GeecsError):
     """Nested ``run`` steps form a loop, so the plan would never finish.
 
     Raised before recursing into a nested plan whose name is already on the
-    execution stack (for example plan A runs B, and B runs A again).  The
-    legacy ActionManager had no such guard — a cyclic library recursed until
-    Python's recursion limit; here the cycle is reported up front with the
-    chain of plan names that closes the loop.
+    execution stack (for example plan A runs B, and B runs A again); the
+    message shows the chain of plan names that closes the loop.
     """
 
     def __init__(self, chain: list[str]) -> None:

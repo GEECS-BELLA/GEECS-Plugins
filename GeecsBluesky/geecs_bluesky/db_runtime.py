@@ -1,48 +1,22 @@
 """DB-integration runtime (M3c): the get-side two-tier recording model, wired.
 
-This module turns the GEECS experiment database's per-experiment
-device-variable policy (MySQL table ``expt_device_variable``) into the two
-**get-side** runtime capabilities the schema describes (see the
-``SaveSetEntry`` runtime contract in :mod:`geecs_schemas.save_set`, and
-:class:`~geecs_schemas.experiment_defaults.ExperimentDefaults`):
+Turns the GEECS experiment DB's per-experiment variable policy
+(``expt_device_variable``) into the two **get-side** runtime capabilities the
+schema describes (the ``SaveSetEntry`` runtime contract in
+:mod:`geecs_schemas.save_set`):
 
-1. **db_scalars resolution** (Tier 1 recorded scalars).  For a save-set entry
-   with ``db_scalars=True`` (the default), the scalars recorded for the device
-   are its DB ``get='yes'`` variables **unioned** with the entry's explicit
-   ``scalars`` list; ``all_scalars=True`` unions *every* DB variable for the
-   device instead of just the ``get='yes'`` subset; ``db_scalars=False`` (what
-   the legacy converter pins) records only the explicit ``scalars``.
-
-2. **Background telemetry tier** (Tier 2).  Every live experiment device with
-   a ``get='yes'`` variable that is *not* in the save set is recorded as
-   best-effort snapshot columns — read-only, never waited on, a dead device
-   dropped with a log line.  Selection of which ``(device, variables)`` become
-   telemetry is pure here; the soft read lives in
+1. **db_scalars resolution** (Tier 1 recorded scalars) —
+   :func:`resolve_entry_scalars`.
+2. **Background telemetry selection** (Tier 2) —
+   :func:`select_telemetry_variables`; the soft read lives in
    :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryReadable`.
 
-The **set-side** (DB scan start/end writes, from the ``set='yes'`` rows'
-``startvalue``/``endvalue``) is **intentionally disabled** in this version.
-Live DB inspection showed the boundary writes would race the shot
-controller / TriggerProfile on the DG645 (``U_DG645_ShotControl`` has
-``set='yes'`` rows for ``Trigger.Source`` and ``Amplitude.Ch AB`` — the very
-variables the shot controller already drives), and the remaining ``set='yes'``
-rows are almost all ``save`` / ``localsavingpath`` (which the scanner owns
-through its save-windowing).  The engine sets up triggering via the
-TriggerProfile/shot controller and camera saving via its own save-windowing,
-so DB set-side writes are not honored.  The reserved-but-not-honored
-schema fields (``SaveSetEntry.at_scan_start`` / ``at_scan_end`` and
-``ExperimentDefaults.apply_db_scan_defaults``) are kept on record for a
-possible future re-enable, and the gateway's
-:meth:`~geecs_ca_gateway.db.geecs_db.GeecsDb.get_scan_boundary_writes` query
-remains a reserved read-only library method (not consumed by the engine).
-
-Everything in this module is a **pure function** except the thin
-:class:`GeecsDbScalarPolicy` provider, which is the one place that touches
-:class:`~geecs_ca_gateway.db.geecs_db.GeecsDb`.  The provider caches its two
-get-side queries per experiment and **tolerates a missing/incompletely-curated
-DB** (the maintainer's known curation caveat): a lookup failure logs and yields
-empty policy rather than aborting the scan.  Keeping the policy separable is
-what makes the resolution logic testable with no MySQL access.
+The **set-side** (DB scan start/end writes) is intentionally disabled: the
+boundary writes would race the shot controller / TriggerProfile on the DG645,
+so the reserved schema fields stay inert.  Everything here is a pure function
+except :class:`GeecsDbScalarPolicy`, the one failure-tolerant place touching
+``GeecsDb`` — a scan must never abort because the DB blipped.  Design
+rationale: ``GeecsBluesky/CLAUDE.md`` (M3c).
 """
 
 from __future__ import annotations
@@ -168,20 +142,12 @@ def resolve_entry_scalars(
 ) -> list[str]:
     """Resolve the recorded scalar list for one save-set entry.
 
-    The rules (from the ``SaveSetEntry`` docstring):
-
-    - ``db_scalars=False`` → only the explicit list (the legacy converter pins
-      this, preserving each converted element's exact behavior).
-    - ``db_scalars=True``, ``all_scalars=False`` → the DB ``get='yes'``
-      variables ∪ the explicit list.
-    - ``db_scalars=True``, ``all_scalars=True`` → every DB variable for the
-      device ∪ the explicit list.
-
-    The union preserves order: the DB variables first (in DB order), then any
-    explicit variable not already present.  When no *provider* is available (no
-    DB access, the GUI-bridge path) the DB contribution is empty and only the
-    explicit list is recorded — the same shape M3b produced, so the DB tier is
-    strictly additive.
+    ``db_scalars=False`` → only the explicit list; ``db_scalars=True`` → the
+    DB ``get='yes'`` variables ∪ the explicit list (``all_scalars=True``
+    widens the DB side to every DB variable).  Order is stable: DB variables
+    first, then any explicit variable not already present.  With no
+    *provider* (no DB access) only the explicit list is recorded — the DB
+    tier is strictly additive.
 
     Parameters
     ----------

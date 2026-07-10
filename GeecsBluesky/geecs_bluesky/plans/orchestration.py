@@ -9,32 +9,23 @@ devices from factories, the scanner builds either backend from
 ``exec_config`` — but the *recipe* lives only here, so the two front doors
 cannot drift.
 
-Action placement (the §4.4b/§4.5 seams, decided here):
+Action placement (the §4.4b/§4.5 slots, decided here):
 
-- **setup** runs first thing inside the composed plan — after every device
-  is connected (construction-time) and the pre-flight has passed (both
-  happen before the RunEngine ever sees this plan), and *before* the
-  free-run quiesce/t0-sync stage and the first step — so setup actions
-  settle device state before timing synchronization, and a failing setup
-  still triggers the finalize chain (saving off → disarm → closeout).
-- **per_step** is yielded by the step plans at every step boundary: after
-  the move completes, before that step's shots (free-run brackets each step
-  with arm/disarm, so per-step actions run *disarmed*; strict fires each
-  shot itself, so the machine is quiescent between plan-owned shots).
-- **closeout** is the outermost ``finalize_wrapper`` — it runs even on
-  mid-scan abort (legacy ActionControl parity), and because it wraps the
-  disarm finalize it always executes *after* the trigger has returned to
-  STANDBY (data-taking output off, trigger free-running).
+- **setup** — first thing inside the composed plan, before the free-run
+  quiesce/t0-sync stage and the first step; a failing setup still triggers
+  the finalize chain (save-off → disarm → closeout).
+- **per_step** — yielded by the step plans at every step boundary, after
+  the move and before that step's shots (always with the shot controller
+  disarmed / the machine quiescent).
+- **closeout** — the outermost ``finalize_wrapper``; runs even on mid-scan
+  abort, always after the disarm finalize has restored STANDBY.
 
-Native-save windowing (Gate-2 hardware finding, 2026-07-07): saving is
-enabled only while the trigger cannot free-run.  The run wrapper defers its
-save-on (``defer_save_on=True``); the step plans yield
+Native-save windowing (Gate-2): saving is enabled only while the trigger
+cannot free-run — the run wrapper defers save-on (``defer_save_on=True``)
+and the step plans yield
 :func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan` at the first
-orphan-free moment — strict: after ARMED + quiescence confirmation;
-free-run: immediately after quiesce[OFF], before t0-sync.  Setup actions run
-before that point by construction, so their duration can no longer produce
-saved orphan frames (Scan015 saved 6 images for 3 shots).  Save-off remains
-the innermost finalize, before the disarm.
+orphan-free moment; save-off remains the innermost finalize.  Design
+rationale: ``GeecsBluesky/CLAUDE.md`` (shot-control composition per mode).
 """
 
 from __future__ import annotations
@@ -140,12 +131,9 @@ def build_step_scan_plan(
                 "the reference (pacemaker)"
             )
         if controller is None and saving:
-            # Native-save windowing relies on the controller's quiesce to stop
-            # the free-running trigger before saving turns on.  With no shot
-            # control there is no such point, so frames captured during t0-sync
-            # (and any moves) are saved as orphans joining no event row.  This
-            # is inherent to a controllerless free-run scan — surface it loudly
-            # rather than silently save orphans or refuse the (supported) config.
+            # No shot control means no quiesce point to window saving on, so
+            # orphan frames are inherent to a controllerless free-run scan —
+            # surface it loudly rather than refuse the (supported) config.
             logger.warning(
                 "free-run scan has native-saving detectors but no shot "
                 "control: saving cannot be windowed to the trigger-stopped "
@@ -169,9 +157,8 @@ def build_step_scan_plan(
         )
 
     if setup is not None:
-        # Setup runs before the free-run quiesce/t0-sync and before the
-        # first step (module docstring); inside the run wrapper so a failed
-        # setup still fires the save-off/disarm/closeout finalizes.
+        # Inside the run wrapper so a failed setup still fires the
+        # save-off/disarm/closeout finalizes (module docstring).
         inner = _chain_setup(setup, inner)
 
     scalar_devices = detectors + normalize_motors(motor)
@@ -185,10 +172,8 @@ def build_step_scan_plan(
         extra_md=extra_md or {},
         defer_save_on=True,
     )
-    # Finalize nesting (innermost → outermost): save-off (inside the run
-    # wrapper) → disarm (→ STANDBY) → closeout actions.  Every layer runs
-    # even on mid-scan abort; closeout therefore always executes with the
-    # trigger already disarmed.
+    # Finalize nesting (innermost → outermost): save-off → disarm → closeout;
+    # every layer runs even on mid-scan abort.
     if controller is not None:
         plan = bpp.finalize_wrapper(plan, controller.disarm())
     if closeout is not None:

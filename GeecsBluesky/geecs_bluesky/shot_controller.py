@@ -1,22 +1,12 @@
 """ShotController — reusable trigger/shot-control bracketing as plan stubs.
 
-Extracted from ``BlueskyScanner`` so notebooks and :class:`~geecs_bluesky.session.GeecsSession`
-get the same arm/disarm/quiesce/single-shot discipline as GUI scans.  The
-controller is built either from a validated
-:class:`~geecs_bluesky.models.shot_control.ShotControlConfig` plus one Bluesky
-``Movable`` setter per shot-control variable (the legacy/scanner path), or —
-via :meth:`ShotController.from_writes` — from generalized
-:class:`~geecs_bluesky.models.shot_control.ShotControlWrites`: per-state
-**ordered** ``(device, variable, value)`` lists that may span several devices
-(the TriggerProfile semantics; writes applied top to bottom, each completing
-before the next).  :meth:`ShotController.over_ca` / :meth:`from_writes`'
-default setter factory put to the gateway's ``…:SP`` PVs, which ride GEECS's
-blocking UDP set server-side; string values from the YAML map naturally (enum
-PVs take labels, numeric PVs coerce numeric strings).
-
-All state-driving methods are Bluesky **plan stubs** (generators) — compose
-them into plans or pass them as the ``arm_trigger``/``fire_shot`` hooks of the
-step-scan plans.
+Drives the shot-control device(s) through named states via setters putting
+to the gateway ``…:SP`` PVs (which ride GEECS's blocking UDP set).  Two
+construction paths — legacy single-device config vs generalized ordered
+multi-device writes — are documented on :class:`ShotController` and
+:meth:`ShotController.from_writes`.  All state-driving methods are Bluesky
+**plan stubs** (generators).  Design rationale: ``GeecsBluesky/CLAUDE.md``
+(Shot control).
 """
 
 from __future__ import annotations
@@ -66,16 +56,11 @@ class CaPutSetter:
 class ShotController:
     """Drives the shot-control device(s) through named states, as plan stubs.
 
-    Two construction paths share every plan stub:
-
-    - **Legacy/scanner path** (this constructor / :meth:`over_ca`): a
-      single-device :class:`ShotControlConfig` plus one setter per variable.
-      State writes are issued concurrently then waited on — byte-identical
-      to the pre-generalization behavior.
-    - **Generalized path** (:meth:`from_writes`): per-state *ordered*
-      ``(device, variable, value)`` write lists (multi-device
-      TriggerProfile semantics).  Writes are applied strictly in order,
-      each completing before the next is sent.
+    Two construction paths share every plan stub: the legacy/scanner path
+    (this constructor / :meth:`over_ca` — a single-device
+    :class:`ShotControlConfig`, state writes issued concurrently, the
+    pre-generalization behavior) and the generalized multi-device path
+    (:meth:`from_writes`, which documents the ordered-write semantics).
 
     Parameters
     ----------
@@ -211,15 +196,11 @@ class ShotController:
         """Plan stub: drive the shot-control writes for *state*.
 
         Generalized (``from_writes``) controllers replay the state's ordered
-        write list top to bottom, **each write completing before the next**
-        (order is schema-documented: transitions may depend on it).
-
-        Legacy single-device controllers keep their exact historical
-        behavior: only variables with a non-empty value for *state* are
-        written (the rest are no-ops); they are set concurrently then waited
-        on.  Uses ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv``
-        because ``bps.mv`` inspects ``.parent`` for coupled-device handling —
-        an ophyd-specific attribute the minimal setters intentionally omit.
+        write list top to bottom, **each write completing before the next**.
+        Legacy single-device controllers write only the variables with a
+        non-empty value for *state*, concurrently, then wait.  Uses
+        ``bps.abs_set`` + ``bps.wait`` rather than ``bps.mv`` because
+        ``bps.mv`` inspects ``.parent``, which the minimal setters omit.
         """
         if self._transitions is not None:
             name = state.value if isinstance(state, ShotControlState) else str(state)

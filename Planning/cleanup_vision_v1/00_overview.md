@@ -51,26 +51,46 @@ semantics).
   runner; zero shared privates with execution code). Both names re-exported
   from `scan_request_runner` so the existing import surface is unchanged.
 
-## PR 2 (planned): the docstring pass
+## PR 2 (landed): the docstring pass
 
-The runner is a ~760-line module wearing an 844-line docstring coat; package
-wide ~1,000 doc lines are removable with zero contract loss. Rules:
+~880 net doc lines removed across 28 files (every file AST-verified
+code-identical). The rules that governed it — and still govern future doc
+edits in these packages:
 
 - Docstrings state the **contract** (what/args/returns/raises + non-obvious
   invariant), numpy style, concise.
 - Design **why**/history/verification anecdotes live in the package
-  `CLAUDE.md` or `Planning/` — most already do; the code copy shrinks to a
-  one-line pointer. Every load-bearing warning ("accepted window, do not
-  fix", "never gate a shot on telemetry", "do not regress to
-  datatype=float") is already in `GeecsBluesky/CLAUDE.md` — cut the code
-  copy, never the CLAUDE.md copy.
-- Known duplication hotspots: the save-set union rule (written out 4×),
-  db_runtime module docstring (≈ verbatim CLAUDE.md M3c), single_shot's
-  40-line RunEngine source quote, action_compiler legacy-equivalence told
-  3×, the Gate-2 orphan-frame essay in every plan file.
-- Gateway: light touch only — condense `udp_client`'s thrice-stated exe-reply
-  correlation rationale and `config.py`'s incident retellings; **do not cut**
-  the wire-protocol/DB-inheritance semantics (see "keep" below).
+  `CLAUDE.md` or `Planning/` — the code copy is a one-line pointer. A
+  warning was only condensed after **verifying** its canonical copy exists
+  in CLAUDE.md; cut the code copy, never the CLAUDE.md copy.
+- LOC is a symptom, not a goal. Deliberately NOT cut despite being
+  "redundant" by line count: `udp_client.py`'s three correlation passages
+  (each carries a different load-bearing angle where a reader needs it),
+  `run_scan_request`'s dense contract docstring, `_defaults_flag`,
+  session's eight parallel factories.
+
+### Load-bearing warnings whose ONLY copy is the code (do not cut)
+
+Inventoried during the pass — these are NOT in CLAUDE.md and were kept:
+
+- `devices/ca/triggerable.py::_wait_for_shot` — cold-cache path has
+  deliberately no CA-get baseline (a baseline get raced the shot itself).
+- `devices/ca/triggerable.py::_on_acq_timestamp` — drop-oldest preserves the
+  no-blind-window guarantee; callback/consumers share the RE loop so the
+  two-step replace is race-free.
+- `devices/ca/triggerable.py::disconnect` — unsubscribing removes the cache's
+  callback reference, else per-scan device objects leak.
+- `plans/single_shot.py` — a straggling completion inside the next attempt is
+  caught by the same try and consumes one refire; no cancellation machinery
+  is needed.
+- `plans/free_run_step_scan.py` — a non-Triggerable reference silently
+  corrupts data (the `TypeError` rationale).
+- `plans/t0_sync.py` — never proceed unseeded; shot IDs from unsynchronized
+  t0s are not comparable.
+- `shot_controller.py::set_state` — `bps.abs_set` not `bps.mv` (mv inspects
+  `.parent`, which the minimal setters omit).
+- `devices/contributor.py::set_reference` — a bare Device attribute would
+  re-parent the pacemaker and `separate_devices` would silently drop it.
 
 ## Deliberately KEPT (do not "clean up" later)
 

@@ -6,12 +6,7 @@ one of these types, delivered through an ``on_event`` callback injected by the
 consumer.  Front-ends (the Scanner GUI, headless scripts, tests) import these
 types *from the engine*; ``geecs_scanner.engine.scan_events`` and
 ``geecs_scanner.engine.dialog_request`` are re-export shims kept for
-compatibility.
-
-Historically these types lived in ``geecs_scanner`` (a front-end package),
-forcing the engine to import its own vocabulary defensively via try/except.
-They moved here verbatim — semantics unchanged — so the engine owns its
-vocabulary and front-ends import from below.
+compatibility (see ``GeecsBluesky/CLAUDE.md``, engine consolidation).
 
 The event sequence for a successful 1D scan looks like::
 

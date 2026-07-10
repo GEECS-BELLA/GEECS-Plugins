@@ -98,9 +98,8 @@ def save_enable_plan(saving_detectors: list[tuple]):
 
     The device puts (``:SP`` writes on connected devices) that start native
     file saving.  Callers that window saving to the trigger-stopped part of
-    the scan (Gate-2 hardware finding: frames from the still-free-running
-    trigger between save-on and arming were saved as orphans joining no
-    event row) pass this as the step plans' ``enable_saving`` hook and give
+    the scan (Gate-2 save windowing: ``GeecsBluesky/CLAUDE.md``) pass this
+    as the step plans' ``enable_saving`` hook and give
     :func:`geecs_run_wrapper` ``defer_save_on=True``; direct
     ``geecs_run_wrapper`` users keep the eager default.
 
@@ -176,12 +175,10 @@ def geecs_run_wrapper(
         ``save="off"`` in a finalize wrapper (runs even on abort).
     defer_save_on:
         When true, the wrapper does **not** enable saving itself — the inner
-        plan is expected to yield :func:`save_enable_plan` at the point where
-        the trigger can no longer free-run (strict: after ARMED + quiescence;
-        free-run: after quiesce[OFF]), so no orphan frames are saved during
-        setup actions or the pre-arm window (Gate-2 hardware finding).  The
-        finalize ``save="off"`` and the ``nonscalar_save_paths`` metadata are
-        emitted either way.
+        plan yields :func:`save_enable_plan` once the trigger can no longer
+        free-run (Gate-2 save windowing: ``GeecsBluesky/CLAUDE.md``).  The
+        finalize ``save="off"`` and the ``nonscalar_save_paths`` metadata
+        are emitted either way.
     devices:
         All devices contributing scalar columns (detectors + scan motor).
         Their ``_column_headers`` are merged into a ``geecs_scalar_headers``

@@ -1,19 +1,16 @@
 """geecs_t0_sync — coordinated t0 capture for cross-device shot matching.
 
-Formalizes the fast t0 procedure from the legacy DAQ: with the shot-control
-outputs disarmed (devices no longer firing), every sync device's TCP cache
-holds the frame from the last physical trigger.  The control machines are
-NTP-synced far better than the trigger period, so if the cached
-``acq_timestamp`` values all fall within a small acceptance window they were
-produced by the **same physical trigger** — each device's value becomes its
-own t0 (physical shot 1), and shot IDs derived from those t0s are directly
-comparable across devices (see
+With the shot-control outputs disarmed, every sync device's cache holds the
+frame from the last physical trigger.  The control machines are NTP-synced
+far better than the trigger period, so cached ``acq_timestamp`` values
+within a small acceptance window came from the **same physical trigger** —
+each device's value becomes its own t0 (physical shot 1), making derived
+shot IDs directly comparable across devices (see
 :class:`~geecs_bluesky.devices.shot_id.ShotIdTracker`).
 
-Run this stage once per free-run scan, after ``open_run`` is prepared but
-before the first trigger arm.  Strict-mode scans may run it too so their rows
-carry comparable shot IDs; if skipped there, devices self-seed on their first
-awaited shot.
+Run once per free-run scan, before the first trigger arm.  Strict-mode scans
+may run it too; if skipped there, devices self-seed on their first awaited
+shot.
 """
 
 from __future__ import annotations

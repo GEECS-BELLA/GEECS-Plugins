@@ -1,30 +1,19 @@
 """CA acq_timestamp-monitored readables: the shot-aware CA device bases.
 
 The GEECS shot signal is the device's ``acq_timestamp`` advancing once per
-shot.  Over the gateway that is a readback PV; a **persistent CA monitor** on
-it (started at ``connect()``) feeds a local cache and an event queue:
+shot.  A **persistent CA monitor** on that PV (started at ``connect()``,
+stopped by ``disconnect()``) feeds a local cache and a bounded drop-oldest
+event queue:
 
 * :class:`CaAcqTimestampReadable` — readable signals plus the monitor/cache
   (``_last_acq``); free-run *contributors* build on this (no blocking trigger).
 * :class:`CaTriggerable` — adds ``trigger()``, which blocks until the queue
   delivers a value different from the baseline.
 
-The stale-frame drain and baseline capture happen
-**synchronously inside** ``trigger()``, before the status is returned — so a
-shot fired immediately after ``bps.trigger`` (the strict single-shot pattern:
-trigger → fire → wait) can never land in a blind window between baselining and
-waiting and be missed.  Free-run behavior is hardware-verified (one Bluesky row
-per real shot, no coalescing).
-
-The event queue is **bounded** (drop-oldest ring, ``_shot_queue_maxsize``):
-only ``trigger()`` ever drains it, so contributors and idle detectors would
-otherwise accumulate one float per machine shot for as long as the persistent
-monitor lives.  Dropping the oldest entry preserves the no-blind-window
-guarantee — see :meth:`CaAcqTimestampReadable._on_acq_timestamp`.
-
-Instances are torn down with :meth:`CaAcqTimestampReadable.disconnect`, which
-unsubscribes the persistent monitor so per-scan device objects do not stay
-reachable (and firing) through the signal cache's callback reference.
+The stale-frame drain and baseline capture happen **synchronously inside**
+``trigger()`` so an immediately-fired shot cannot be missed — see
+:meth:`CaTriggerable.trigger`.  Design rationale: ``GeecsBluesky/CLAUDE.md``
+(Device Layer).
 """
 
 from __future__ import annotations
@@ -79,13 +68,10 @@ class CaAcqTimestampReadable(StandardReadable):
     _acq_timestamp_variable : str
         GEECS variable that advances per shot.  Default ``"acq_timestamp"``.
     _shot_queue_maxsize : int
-        Bound on the shot-update queue (default 32).  Only ``trigger()``
-        drains the queue, so without a bound an idle device (a free-run
-        contributor, or a detector between scans) accumulates one float per
-        machine shot for as long as the monitor lives — tens of thousands
-        per hour at typical rep rates.  32 comfortably covers the real need
-        (updates arriving between ``trigger()``'s baseline capture and the
-        awaited get: at most rep-rate × trigger-timeout, ~15 at 5 Hz / 3 s).
+        Bound on the shot-update queue (default 32 — comfortably above the
+        worst case of rep-rate × trigger-timeout updates between baseline
+        and the awaited get).  Only ``trigger()`` drains the queue, so an
+        unbounded queue would grow one float per machine shot on idle devices.
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"
@@ -115,18 +101,12 @@ class CaAcqTimestampReadable(StandardReadable):
             self.acq_timestamp = epics_signal_r(
                 float, ca_pv(experiment, device, self._acq_timestamp_variable)
             )
-        # Liveness signal — the gateway's per-device status PV
-        # ``[Experiment:]Device:CONNECTED`` (PV_CONTRACT.md §1: enum with
-        # choices ["Disconnected", "Connected"], MAJOR severity + status COMM
-        # while the device's TCP stream is down; composed like any variable —
-        # no ``:SP``, no variable suffix beyond the literal ``CONNECTED``).
-        # Deliberately created OUTSIDE ``add_children_as_readables()`` so it
-        # never appears in event rows or ``describe()``: gateway liveness is
-        # pre-flight / plan metadata, not shot data.  Read as ``str`` (CA
-        # serves the enum *choice string* for a string read); only the exact
-        # :data:`~geecs_bluesky.devices.ca._pv.GATEWAY_DISCONNECTED` value
-        # means down, so a mock backend's ``""`` default — and any gateway
-        # old enough to lack status PVs — reads as live (fail-open).
+        # Liveness signal — the gateway's per-device ``CONNECTED`` status PV
+        # (PV_CONTRACT.md §1).  Created OUTSIDE add_children_as_readables()
+        # so it never appears in event rows or describe(): liveness is
+        # pre-flight / plan metadata, not shot data.  Read as str; only the
+        # exact "Disconnected" value means down (fail-open — a mock backend's
+        # "" default and a status-PV-less old gateway both read as live).
         self.connected_status = epics_signal_r(
             str, ca_pv(experiment, device, "CONNECTED")
         )
@@ -156,13 +136,10 @@ class CaAcqTimestampReadable(StandardReadable):
     async def disconnect(self) -> None:
         """Stop the persistent ``acq_timestamp`` monitor and drop shot state.
 
-        The per-scan teardown hook: the scanner bridge's
-        ``_disconnect_devices_sync`` runs ``device.disconnect()`` as a
-        coroutine on the RunEngine loop after every scan.  Unsubscribing
-        removes the signal cache's reference back to this instance (its
-        ``_on_acq_timestamp`` bound method) — without it, every per-scan
-        device object stays alive and keeps enqueuing monitor updates for
-        the rest of the process.
+        Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+        Unsubscribing removes the signal cache's reference to this instance's
+        bound callback — without it every per-scan device object stays alive
+        and keeps enqueuing monitor updates for the rest of the process.
 
         Idempotent; ``connect()`` may be called again to resubscribe.
         """
@@ -179,24 +156,14 @@ class CaAcqTimestampReadable(StandardReadable):
     def _on_acq_timestamp(self, reading: dict[str, Any]) -> None:
         """Monitor callback: cache the latest value and queue the update.
 
-        Non-positive values are ignored: a real GEECS ``acq_timestamp`` is a
-        LabVIEW-epoch time (~3.9e9), while ``0.0`` is the gateway channel's
-        initial placeholder before the device's first acquisition — treating it
-        as data would fake a t0 and make the placeholder→first-frame jump look
-        like a shot.  "Never acquired" therefore reads as ``_last_acq is None``
-        on both backends.
-
-        The queue is a **drop-oldest ring** bounded at ``_shot_queue_maxsize``:
-        when full, the oldest entry is discarded to admit the newest, so an
-        idle device (nothing draining the queue) holds a fixed handful of
-        floats instead of one per machine shot.  This preserves ``trigger()``'s
+        Non-positive values are ignored — ``0.0`` is the gateway channel's
+        pre-acquisition placeholder, so "never acquired" reads as ``None``.
+        The queue is a drop-oldest ring; this preserves ``trigger()``'s
         no-blind-window guarantee: the queue is drained empty at baseline
-        capture, so anything dropped afterwards is *older* than an update
-        still enqueued — and every post-baseline update satisfies the
-        ``!= t0`` shot test, so a newer survivor detects the shot just as
-        well.  Callback and consumers share the RE event loop (no awaits
-        between the full-check and the put), so the two-step replace is
-        race-free.
+        capture, so anything dropped afterwards is older than a surviving
+        update, and every post-baseline update passes the ``!= t0`` shot
+        test.  Callback and consumers share the RE event loop, so the
+        two-step replace is race-free.
         """
         value = reading[self.acq_timestamp.name]["value"]
         if value is None or value <= 0:
@@ -228,15 +195,10 @@ class CaTriggerable(CaAcqTimestampReadable):
 
         The stale-update drain and baseline capture happen synchronously
         *here*, not in the returned coroutine — so a shot fired immediately
-        after this call (the strict single-shot pattern) can never be missed.
-
-        The drain runs on the cold path too (``_last_acq is None``): the only
-        thing it can discard there is a stale CA *subscribe replay* (the
-        monitor's initial current-value update after a (re)connect, which can
-        carry an old positive timestamp) that arrived between connect and this
-        call.  It can never discard a real requested shot — nothing fires
-        before ``trigger()`` returns — and in free-run mode pre-trigger frames
-        are exactly what "wait for the *next* shot" must ignore.
+        after this call (the strict single-shot pattern) can never land in a
+        blind window and be missed (pinned by a mock race test).  The drain
+        can never discard a real requested shot: nothing fires before
+        ``trigger()`` returns.
         """
         t0 = self._last_acq
         while not self._shot_queue.empty():
@@ -246,16 +208,11 @@ class CaTriggerable(CaAcqTimestampReadable):
     async def _wait_for_shot(self, t0: float | None) -> None:
         """Wait for the next monitor update carrying a new ``acq_timestamp``.
 
-        Cold-cache path (``t0 is None``): there is deliberately **no CA-get
-        baseline** here.  A baseline get raced the shot itself — a first
-        acquisition landing inside the get's round-trip became the baseline,
-        the queued equal value failed the ``!= t0`` test, and the strict
-        single shot timed out.  It is also unnecessary: ``trigger()`` drained
-        everything older (including any stale subscribe replay, which arrives
-        at connect time — seconds before any trigger), and on an established
-        monitor every subsequent update is a genuinely new frame.  So on a
-        cold cache the first positive arrival after ``trigger()`` *is* the
-        shot, with no baseline to mistake it for.
+        Cold-cache path (``t0 is None``): deliberately **no CA-get baseline**
+        — a baseline get raced the shot itself (a first acquisition landing
+        inside the get's round-trip became the baseline and the strict single
+        shot timed out).  ``trigger()`` already drained anything older, so on
+        a cold cache the first positive arrival *is* the shot.
         """
         logger.debug(
             "%s: waiting for %s to advance past %s (timeout=%.1fs)",

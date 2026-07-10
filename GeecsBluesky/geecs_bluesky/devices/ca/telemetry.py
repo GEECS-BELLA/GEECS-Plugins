@@ -1,28 +1,18 @@
 """CaTelemetryReadable — the soft Tier-2 background-telemetry device (M3c).
 
-Tier 2 of the two-tier recording model (see the ``SaveSetEntry`` module
-docstring in :mod:`geecs_schemas.save_set`): every live experiment device with
-a ``get='yes'`` variable that is *not* in the scan's save set is recorded as
-best-effort snapshot columns, read from the gateway's always-on monitor cache.
+Tier 2 of the two-tier recording model: every live experiment device with a
+``get='yes'`` variable *not* in the scan's save set is recorded as
+best-effort, read-only snapshot columns.  Two load-bearing rules:
 
-The non-negotiable contract, enforced here:
+- **Telemetry must never gate a shot** — never waited on; a failed read
+  degrades a single cell to a dtype-appropriate null, never an abort.
+- **No telemetry variable or device is dropped for a *type* reason** —
+  dtype is inferred per PV; a device is dropped (with a log line, by the
+  caller) only when genuinely unreachable.
 
-- **read-only** — no ``:SP`` signals, no ``trigger()``; the device is a plain
-  :class:`~bluesky.protocols.Readable` sampled once per event row;
-- **never waited on / never blocks or aborts a scan** — :meth:`read` catches
-  every per-signal failure and substitutes NaN, so a value that cannot be read
-  (a device that went dead mid-scan) degrades a single cell to NaN rather than
-  raising into the plan;
-- **dead device dropped with a log line, not an error** — a device that fails
-  to connect at scan start is dropped by the caller
-  (:func:`~geecs_bluesky.scan_request_runner.build_telemetry_readables`) with a
-  warning; it never becomes a dialog or an abort.
-
-Telemetry columns are **prefixed to distinguish them from Tier-1 save-set
-data** in the event schema: the ophyd device name is ``telemetry_<device>`` and
-every column therefore begins ``telemetry_<device>-`` (``EVENT_SCHEMA.md`` §
-"Background telemetry columns").  This is a device-name convention, not a new
-schema field — additive, so it does not bump the schema version.
+Columns are prefixed ``telemetry_<device>-`` (``EVENT_SCHEMA.md`` §
+"Background telemetry columns").  Design rationale:
+``GeecsBluesky/CLAUDE.md`` (M3c background telemetry).
 """
 
 from __future__ import annotations
@@ -46,20 +36,12 @@ TELEMETRY_NAME_PREFIX = "telemetry_"
 class CaTelemetryReadable(StandardReadable):
     """Soft, read-only GEECS readable for background telemetry over gateway PVs.
 
-    Structurally a :class:`~geecs_bluesky.devices.ca.snapshot.CaSnapshotReadable`
-    (float readback signals sampled per row) but with a **fault-tolerant**
-    :meth:`read` that never propagates an exception: a signal that fails to
-    read yields NaN for its value instead of aborting the plan.  This is the
-    softness half of the two-tier model — telemetry can never gate a shot.
-
-    Signal datatype is **inferred per-variable** from the PV's native CA type
-    (``epics_signal_r(datatype=None, …)``): numeric PVs stay ``float`` so
-    downstream telemetry analysis keeps working, while enum/string PVs (e.g.
-    ``U_VisaPlungers`` ``DigitalOutput.Channel N``) are captured as their
-    string/label value instead of failing to connect.  This is what keeps the
-    tier's rule honest — *if we ``get`` it, we log it*: a non-numeric
-    ``get='yes'`` variable no longer drops the whole device on a type mismatch.
-    Type tolerance is per-variable, never whole-device.
+    A fault-tolerant :meth:`read` never propagates an exception: a signal
+    that fails to read yields a null cell instead of aborting the plan —
+    telemetry can never gate a shot.  Signal datatype is inferred
+    per-variable from the PV's native CA type: numeric PVs stay ``float``,
+    enum/string PVs are captured as their label string.  Type tolerance is
+    per-variable, never whole-device.
 
     Parameters
     ----------
@@ -70,15 +52,13 @@ class CaTelemetryReadable(StandardReadable):
     experiment : str, optional
         Experiment PV-namespace prefix (e.g. ``"Undulator"``).
     name : str, optional
-        Ophyd-async device name; defaults to ``telemetry_<device>`` so the
-        columns are self-identifying.  A caller-supplied name must keep the
-        :data:`TELEMETRY_NAME_PREFIX` for the schema marking to hold.
+        Ophyd-async device name; defaults to ``telemetry_<device>``.  A
+        caller-supplied name must keep the :data:`TELEMETRY_NAME_PREFIX`
+        for the schema marking to hold.
     datatype : type, optional
-        Scalar CA datatype for the variables.  Defaults to ``None`` — let
-        ophyd-async infer each PV's native type (float for numeric, str for
-        enum/string).  A caller may pin an explicit type, but the default
-        inference is what makes telemetry dtype-tolerant; forcing ``float``
-        here reintroduces the connect-time drop for non-numeric variables.
+        Scalar CA datatype.  Default ``None`` — infer each PV's native type.
+        Do not force ``float`` here: that reintroduces the connect-time drop
+        for non-numeric variables.
     """
 
     def __init__(
@@ -109,19 +89,15 @@ class CaTelemetryReadable(StandardReadable):
     async def read(self) -> dict[str, Any]:
         """Read all telemetry signals, substituting a null cell for any that fail.
 
-        Overrides :meth:`StandardReadable.read` so one unreadable signal (a
-        device that went dead mid-scan) degrades to a null cell rather than
-        raising into ``trigger_and_read`` and aborting the scan — the soft-tier
-        guarantee.  The substituted value is dtype-appropriate: ``NaN`` for a
-        numeric signal, ``""`` for a string/enum signal (so a failed read never
-        forces a string column to hold a float).  Reads are issued
+        The soft-tier guarantee: one unreadable signal degrades to a
+        dtype-appropriate null (``NaN`` for numeric, ``""`` for string/enum)
+        rather than raising into ``trigger_and_read``.  Reads are issued
         concurrently; the row's timestamp is best effort.
 
         Returns
         -------
         dict
-            The ophyd reading dict, with failed signals reported as a
-            dtype-appropriate null (NaN for numeric, ``""`` for string).
+            The ophyd reading dict, with failed signals reported as nulls.
         """
         import asyncio
         import time

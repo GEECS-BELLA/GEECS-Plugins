@@ -3,6 +3,19 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.12.1] - 2026-07-10
+
+Cleanup pass 2 (docstrings/comments only; AST-verified no code change).
+
+### Changed
+
+- `config.py`: the deadband-vs-tolerance incident retelling condensed to the
+  rule + a CLAUDE.md-quirks pointer (the rule itself — deadband stays 0.0,
+  DB `tolerance` is a set-convergence criterion — is unchanged). The
+  wire-protocol and DB-inheritance commentary in `transport/`, `channels.py`,
+  `db/geecs_db.py`, and `gateway.py` was deliberately left intact (audit:
+  load-bearing, canonical only in code).
+
 ## [0.12.0] - 2026-07-10
 
 Cleanup pass 1 (audit: `Planning/cleanup_vision_v1/00_overview.md`) — no

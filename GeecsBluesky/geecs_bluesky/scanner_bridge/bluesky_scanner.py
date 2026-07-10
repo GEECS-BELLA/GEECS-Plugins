@@ -48,12 +48,8 @@ from typing import Any, Callable
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import GeecsConfigurationError
 
-# The event vocabulary lives in this package now (geecs_bluesky.events);
-# geecs_scanner.engine.scan_events / dialog_request are re-export shims of
-# these same classes, so isinstance checks agree across both import paths.
-# The names are bound at module level (not referenced via the events module)
-# because hermetic tests monkeypatch them to simulate a consumer-less
-# environment — the `is None` guards downstream are that test seam.
+# Bound at module level (not via the events module) because hermetic tests
+# monkeypatch these names — the `is None` guards downstream are that seam.
 from geecs_bluesky.events import (
     DialogRequest,
     ScanDialogEvent,
@@ -99,36 +95,25 @@ logger = logging.getLogger(__name__)
 _DISCONNECT_TIMEOUT = 10.0
 _THREAD_JOIN_TIMEOUT = 15.0
 
-# Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch
-# (1970-01-01).  Device ``acq_timestamp`` values are LabVIEW-epoch.  Defined
-# in geecs_bluesky.preflight (which owns the staleness math now); the alias
-# stays because tests and external callers reference it here.
+# LabVIEW→Unix epoch offset; owned by geecs_bluesky.preflight, aliased here
+# because tests and external callers reference it at this path.
 _LABVIEW_EPOCH_OFFSET = LABVIEW_EPOCH_OFFSET
 
-# Pre-flight read budget for a device's gateway ``CONNECTED`` PV.  Read from
-# the scan thread via run_coroutine_threadsafe on the RE loop; on timeout or
-# error the device is treated as live (fail-open) — an old gateway without
-# status PVs must never block a scan.
+# CONNECTED-PV read budget; on timeout/error the device counts as live
+# (fail-open — an old gateway without status PVs must never block a scan).
 _LIVENESS_READ_TIMEOUT_S = 2.0
 
-# Free-run pre-flight freshness (free-run mode ONLY — liveness itself comes
-# from the gateway ``CONNECTED`` PV): a synchronous device whose cached
-# ``acq_timestamp`` is older than this (wall-clock seconds; control machines
-# are NTP-synced) — or that has no cached frame at all — is considered stale.
-# The trigger free-runs before a free-run scan, so live devices have frames
-# no older than one trigger period; all-CONNECTED-but-all-stale therefore
-# means the trigger is off / not free-running.
+# Free-run pre-flight freshness (free-run ONLY): a sync device with no cached
+# frame newer than this is stale; all-CONNECTED-but-all-stale means the
+# trigger is off / not free-running.
 _STALE_SYNC_THRESHOLD_S = 10.0
 
-# Grace period before re-checking: a just-connected persistent monitor may not
-# have delivered its first frame yet, so one stale verdict gets a second look
-# after roughly one trigger period.
+# One stale verdict gets a second look after ~one trigger period (a fresh
+# monitor may not have delivered its first frame yet).
 _STALE_RECHECK_WAIT_S = 2.0
 
-# How long the scan thread waits for the operator to answer a pre-flight
-# dialog.  On timeout the scan proceeds with today's default behavior
-# (fail-loud at t0 sync) — a headless or unattended scan must never hang on a
-# dialog nobody will answer.
+# Pre-flight dialog wait; on timeout the scan proceeds (fail-loud at t0
+# sync) — an unattended scan must never hang on an unanswered dialog.
 _PREFLIGHT_DIALOG_TIMEOUT_S = 30.0
 
 _STRICT_MODE = "strict_shot_control"
@@ -229,10 +214,7 @@ class BlueskyScanner:
         self._scan_request: ScanRequest | None = None
         self._request_step: dict[str, Any] | None = None
 
-        # Devices are CA-backed only (the direct UDP/TCP backend was removed
-        # once the CA backend reached verified parity; the GeecsCAGateway is
-        # the one component that speaks GEECS wire protocol). Catch a stale
-        # environment loudly rather than silently changing behavior.
+        # Catch a stale env loudly rather than silently changing behavior.
         legacy_backend = os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND")
         if legacy_backend and legacy_backend.strip().lower() != "ca":
             raise ValueError(
@@ -335,44 +317,18 @@ class BlueskyScanner:
     ) -> bool:
         """Map a ScanRequest onto the scanner's internal exec-config shapes.
 
-        The acceptance seam of the schema milestone: the request's names are
-        resolved (save set → ``devices_config``, trigger profile →
-        :class:`~geecs_bluesky.models.shot_control.ShotControlConfig`, axis
-        variable → device/variable/kind) **here, fail-fast**, and a
-        legacy-shaped scan-config namespace is synthesized so the scan
-        thread (``_run_scan`` → ``_execute_scan``) runs byte-identically to
-        the exec_config path — pinned by the noscan parity test.
+        Names are resolved **fail-fast here**, and a legacy-shaped
+        scan-config namespace is synthesized so the scan thread runs
+        byte-identically to the exec_config path (pinned by the noscan
+        parity test).  ``shots_per_step`` maps onto the legacy ``wait_time``
+        slot (ScanInfo quirk; identical metadata at the 1 Hz identity rep
+        rate); ``acquisition`` comes from the request — deliberately no env
+        override, a request declares intent.  Actions / multi-axis /
+        optimize are validated then refused (``NotImplementedError``) — run
+        those headless via ``GeecsSession.run`` until the GUI-submission
+        milestone routes them through this bridge.
 
-        Mapping notes:
-
-        - ``shots_per_step`` is declared directly by the request (no
-          rep-rate × wait-time derivation).  The synthesized namespace maps
-          it back onto the legacy ``wait_time`` slot, preserving the
-          legacy-format ScanInfo quirk (the ini records wait_time under
-          "Shots per step"); at the legacy identity rep rate of 1 Hz the two
-          paths produce identical metadata.
-        - ``acquisition`` comes from the request — deliberately **no**
-          ``GEECS_BLUESKY_ACQUISITION_MODE`` env override: a request
-          declares intent.
-        - Action names are resolved and validated now, then refused
-          (``NotImplementedError``) — the *engine* executes actions and
-          multi-axis grids (run the request headless via
-          ``GeecsSession.run``); routing them through this GUI bridge lands
-          with the GUI submission milestone.  Optimize-mode requests are
-          likewise refused loudly.
-
-        Parameters
-        ----------
-        request :
-            The scan request to stage.
-        resolver :
-            Name resolver; defaults to the configs-repo resolver for this
-            scanner's experiment.
-
-        Returns
-        -------
-        bool
-            ``True`` (matching :meth:`reinitialize`).
+        Returns ``True`` (matching :meth:`reinitialize`).
         """
         from types import SimpleNamespace
 
@@ -854,32 +810,15 @@ class BlueskyScanner:
     ) -> list | None:
         """Pre-flight: catch dead sync devices before the claim (pipeline).
 
-        A thin call into the declarative pipeline in
-        :mod:`geecs_bluesky.preflight` — two checks, both *before* the scan
-        folder is claimed (so an abort here burns no scan number), asking
-        the operator through the injected channel when something is wrong:
-
-        - :class:`~geecs_bluesky.preflight.GatewayLivenessCheck` — each sync
-          device's gateway ``CONNECTED`` PV, both modes (fail-open on an
-          unreadable PV; abort-only for a dead free-run reference;
-          drop-and-continue otherwise).
-        - :class:`~geecs_bluesky.preflight.FreeRunStalenessCheck` — free-run
-          only: is the trigger free-running? (all-stale → trigger-off
-          wording; stale reference → abort-only v1; stale contributor →
-          drop offer).
-
-        Headless / no consumer / no answer → today's behavior is preserved:
-        proceed and fail loudly downstream (t0 sync in free-run, the
-        liveness-gated refire path in strict).  The module-level knobs
-        (``_STALE_SYNC_THRESHOLD_S``, ``_STALE_RECHECK_WAIT_S``,
-        ``_PREFLIGHT_DIALOG_TIMEOUT_S``) are read here at call time — the
-        hermetic tests monkeypatch them.
+        Thin call into :mod:`geecs_bluesky.preflight` (liveness + free-run
+        staleness), pre-claim so an abort burns no scan number.  Headless /
+        no answer → proceed and fail loudly downstream.  The module-level
+        knobs are read at call time — the hermetic tests monkeypatch them.
 
         Returns
         -------
         list or None
-            The (possibly reduced) detector list to proceed with, or ``None``
-            when the operator chose to abort.
+            The (possibly reduced) detector list, or ``None`` on abort.
         """
         ctx = PreflightContext(
             detectors=detectors,
@@ -1051,37 +990,21 @@ class BlueskyScanner:
     def _merge_optimization_device_requirements(self, requirements: Any) -> None:
         """Merge optimizer ``device_requirements`` into the save-device set.
 
-        Legacy parity: ``ScanManager`` feeds ``optimizer.device_requirements``
-        (shape ``{"Devices": {name: cfg}}``, auto-generated by the optimizer
-        config from the evaluator's analyzers with a synchronous +
-        ``save_nonscalar_data=True`` + ``acq_timestamp`` template) through
-        ``device_manager.load_from_dictionary``, so every device the
-        objective needs is acquired and natively saved without being on the
-        GUI save list.  Mirrored here on ``self._devices_config`` before
-        :meth:`_build_session_devices` runs:
+        Legacy parity (``ScanManager`` → ``load_from_dictionary``): every
+        device the objective needs is acquired and natively saved without
+        being on the GUI save list.  A required device absent from the GUI
+        list is appended after the GUI devices (the pacemaker choice is
+        unchanged); one already listed keeps its GUI config and only gains
+        missing variables.
 
-        - a required device absent from the GUI list is added with the
-          requirement's own config (flags default to the legacy
-          ``DeviceConfig`` defaults when the requirement omits them); it is
-          appended after the GUI devices, so the free-run reference
-          (pacemaker) choice is unchanged;
-        - a device already on the GUI list keeps its GUI config and only
-          gains required variables it was missing (the legacy
-          ``subscribe_var_values`` extension).
+        Device names match **case-insensitively** (``str.casefold``) —
+        GEECS itself is case-inconsistent about device-name spelling, and a
+        wrong-case duplicate entry fails every CA PV connect (CA names are
+        case-sensitive; live-observed).  On a hit the requirement merges
+        under the GUI's spelling, logged at INFO.
 
-        Device names are matched **case-insensitively** (``str.casefold``):
-        GEECS itself is case-inconsistent about device-name spelling (the DB
-        may say ``UC_Amp4_IR_input`` while native files say
-        ``UC_Amp4_IR_Input``), so optimizer configs drift.  On a
-        case-insensitive hit the requirement merges into the *existing*
-        entry under the GUI's spelling — the GUI/DB spelling is the one
-        whose CA PVs actually connect (CA names are case-sensitive) — and
-        the difference is logged at INFO.  Live-observed 2026-07-06: a
-        wrong-case duplicate entry NotConnectedError'd on every PV.
-
-        *requirements* is duck-typed off the bridge object (``Any``): a
-        ``{"Devices": ...}`` mapping, or ``None``/empty when the bridge
-        exposes no requirements (unchanged behavior).
+        *requirements* is duck-typed: a ``{"Devices": ...}`` mapping, or
+        ``None``/empty (unchanged behavior).
         """
         devices = (
             requirements.get("Devices") if isinstance(requirements, dict) else None

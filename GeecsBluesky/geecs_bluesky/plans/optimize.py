@@ -63,10 +63,8 @@ def geecs_adaptive_scan(
         ``propose(iteration) -> {variable_name: value} | None``.  Called before
         each bin; ``None`` ends the run early (generator converged / budget
         spent).  Evaluating the previous bin and telling the generator happen
-        inside this callable, on the caller's side.  The plan invokes it on a
-        worker thread (it may block on filesystem/analysis work) and idles
-        with ``bps.sleep`` polls until it returns, so the RunEngine event
-        loop is never blocked by the evaluation.
+        inside this callable, on the caller's side; it may block (see the
+        module docstring's threading contract).
     detectors:
         Devices read every shot.  With *reference* set (free-run) the first
         trigger belongs to the reference; otherwise strict semantics apply.
@@ -134,12 +132,9 @@ def geecs_adaptive_scan(
     def _inner():
         if not free_run and setup_trigger is not None:
             yield from setup_trigger()
-        # propose() chains into the objective evaluation — bounded native-file
-        # waits, ScanAnalysis analyzers, generator ask/tell — which can block
-        # for seconds.  This generator is iterated by the RunEngine *on its
-        # event-loop thread*, so calling propose inline would freeze the loop
-        # (pause/abort, subscriptions, everything scheduled on it).  Run it on
-        # a worker thread instead and idle with RE-friendly sleeps.
+        # propose() can block for seconds; run it on a worker thread and idle
+        # with RE-friendly sleeps so the RE loop stays responsive (module
+        # docstring).
         propose_pool = ThreadPoolExecutor(
             max_workers=1, thread_name_prefix="geecs-propose"
         )

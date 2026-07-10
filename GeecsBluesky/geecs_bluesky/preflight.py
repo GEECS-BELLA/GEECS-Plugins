@@ -1,27 +1,15 @@
 """Pre-flight checks as a pipeline (vision doc §2).
 
-A pre-flight check is an object with one job: look at the scan about to start
-and return one of three outcomes — *pass*, *ask the operator a question*, or
-*abort*.  The runner (:func:`run_preflight`) executes a list of checks in
-order, routing every question through the injected
+A check inspects the scan about to start and returns *pass*, *ask the
+operator a question*, or *abort*; :func:`run_preflight` executes a list of
+checks in order, routing questions through the injected
 :class:`~geecs_bluesky.operator_channel.OperatorChannel`.  New checks are
-additions to the list, not new branches in the scanner class.
+additions to the list, not new branches in the scanner class.  All checks run
+**before the scan folder is claimed**, so an abort here burns no scan number.
 
-All checks run **before the scan folder is claimed**, so an abort here burns
-no scan number.  The two checks below carry today's exact semantics, moved
-verbatim from ``BlueskyScanner._preflight_check_sync_liveness``:
-
-- :class:`GatewayLivenessCheck` — reads each synchronous device's gateway
-  ``CONNECTED`` PV (both acquisition modes; fail-open on an unreadable PV).
-- :class:`FreeRunStalenessCheck` — free-run mode only: with every device
-  CONNECTED, cached ``acq_timestamp`` freshness answers "is the trigger
-  free-running?" (all-stale → trigger-off wording; a stale contributor while
-  the reference frames → per-device drop offer; stale reference →
-  abort-only v1).
-
-Headless / no consumer / no answer → today's behavior is preserved: the check
-passes unchanged and the scan fails loudly downstream (t0 sync in free-run,
-the liveness-gated refire path in strict).
+Today's checks: :class:`GatewayLivenessCheck` (both modes) and
+:class:`FreeRunStalenessCheck` (free-run only).  Headless / no answer → the
+check passes unchanged and the scan fails loudly downstream.
 """
 
 from __future__ import annotations
@@ -58,20 +46,17 @@ class PreflightContext:
     Parameters
     ----------
     detectors :
-        The detector list the scan will run with.  Checks may replace it
-        (e.g. after an operator chose drop-and-continue).
+        The detector list the scan will run with; checks may replace it.
     strict :
-        ``True`` for ``strict_shot_control`` acquisition, ``False`` for
-        free-run.
+        ``True`` for ``strict_shot_control``, ``False`` for free-run.
     read_liveness :
-        ``read_liveness(device) -> bool`` — reads the device's gateway
-        ``CONNECTED`` PV; must be fail-open (unreadable → ``True``).
+        ``read_liveness(device) -> bool`` — gateway ``CONNECTED`` read; must
+        be fail-open (unreadable → ``True``).
     drop_devices :
         ``drop_devices(detectors, drop_ids) -> remaining`` — disconnects and
-        removes the given devices (by ``id()``), returning the survivors.
+        removes the given devices (by ``id()``).
     device_label :
-        ``device_label(device) -> str`` — the GEECS device name for
-        operator-facing messages.
+        ``device_label(device) -> str`` — GEECS device name for messages.
     dialog_timeout :
         Per-question wait budget, in seconds (``None`` → channel default).
     """
@@ -238,22 +223,12 @@ def run_preflight(
 class GatewayLivenessCheck:
     """Catch dead sync devices via the gateway ``CONNECTED`` PV (both modes).
 
-    Each synchronous device's ``connected_status`` (the gateway's per-device
-    ``CONNECTED`` PV) is read; a device reporting ``Disconnected`` is
-    genuinely down — its TCP stream to the gateway is dead.  This is the
-    authoritative signal: the gateway serves every DB device's data PVs
-    regardless of device state, so CA-connect success never implied liveness
-    (an OFF camera's PVs connect fine).  Outcomes:
-
-    - a disconnected *reference* (free-run pacemaker) → abort-only v1
-      (the second button is a clearly-labeled "Try Anyway" because the
-      dialog channel always offers two options; promotion is deferred) —
-      and, on opt-in, later checks are skipped rather than stacking a
-      staleness dialog on top;
-    - any other disconnected device(s), either mode → drop-and-continue
-      (disconnected devices removed from the list) vs abort;
-    - an unreadable ``CONNECTED`` PV (old gateway, timeout) → fail-open:
-      the injected ``read_liveness`` treats it as live.
+    ``CONNECTED`` is the authoritative liveness signal — CA-connect success
+    never implied device liveness (see ``GeecsBluesky/CLAUDE.md``).  Outcomes:
+    a disconnected free-run *reference* → abort-recommended dialog ("Try
+    Anyway" opt-in skips later checks); any other disconnected device(s) →
+    drop-and-continue vs abort; an unreadable ``CONNECTED`` PV → fail-open
+    (the injected ``read_liveness`` treats it as live).
     """
 
     def __call__(self, ctx: PreflightContext) -> CheckResult:
@@ -396,30 +371,20 @@ class FreeRunStalenessCheck:
     """Free-run only: is the trigger free-running? (staleness heuristics).
 
     With every device CONNECTED (the liveness check ran first), cached
-    ``acq_timestamp`` freshness answers one remaining question: *is the
-    trigger free-running?* (a free-run scan requires it).  All devices
-    CONNECTED but all frames stale → the "trigger may be off" dialog (Start
-    Anyway / Abort).  The residual case — a CONNECTED-but-stale contributor
-    while the reference frames — keeps the drop-or-abort dialog: the fresh
-    reference proves the trigger is running, so this is a per-device
-    acquisition problem (e.g. camera acquisition stopped while its TCP
-    stream stays up), for which drop is the right offer and trigger-off
-    wording would be wrong.  A CONNECTED-but-stale *reference* keeps the
-    abort-only dialog.
-
+    ``acq_timestamp`` freshness answers whether the trigger is free-running.
+    All frames stale → the "trigger may be off" dialog; a stale contributor
+    while the reference frames → per-device drop offer (the fresh reference
+    proves the trigger is running); a stale *reference* → abort-only (v1).
     Strict mode passes immediately: frames are not needed before a strict
-    scan (the trigger may legitimately sit OFF; ``ARMED`` starts it), and
-    with ``CONNECTED`` authoritative there is no differential-staleness
-    inference left to make.
+    scan (the trigger may legitimately sit OFF; ``ARMED`` starts it).
 
     Parameters
     ----------
     threshold_s :
         Frame age beyond which a device counts as stale.
     recheck_wait_s :
-        Grace period before re-checking: a just-connected persistent monitor
-        may not have delivered its first frame yet, so one stale verdict
-        gets a second look after roughly one trigger period.
+        Grace period before one re-check (a just-connected monitor may not
+        have delivered its first frame yet).
     """
 
     threshold_s: float

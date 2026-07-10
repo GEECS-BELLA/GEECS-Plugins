@@ -4,6 +4,34 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.27.1] - 2026-07-10
+
+Cleanup pass 2 — the docstring condensation (audit:
+`Planning/cleanup_vision_v1/00_overview.md`). Docstrings/comments only;
+every modified file verified AST-identical to the previous version with
+docstrings stripped (zero code change), full suite green.
+
+### Changed
+
+- **~880 net lines of documentation redundancy removed across 27 files.**
+  Docstrings now state the contract (what/args/raises + non-obvious
+  invariants); design rationale, history narration, and verification
+  anecdotes whose canonical copy lives in `CLAUDE.md` are cut to one-line
+  pointers. Highlights: the save-set union rule is stated once (on
+  `merge_save_sets`) instead of four times; `db_runtime`'s module docstring
+  no longer duplicates the CLAUDE.md M3c section; `single_shot`'s 40-line
+  RunEngine source quote is an 8-line conclusion; `action_compiler`'s
+  legacy-equivalence story is told once instead of three times;
+  `shot_controller`'s ordered-writes semantics live once, on `from_writes`.
+- Load-bearing warnings whose only copy is the code were kept verbatim and
+  are now inventoried in the audit doc (e.g. the cold-cache baseline-get
+  race in `CaTriggerable._wait_for_shot`, the refire no-cancellation
+  conclusion in `single_shot`, the `Reference()` re-parenting note in
+  `contributor`).
+- Stale claims fixed in passing: `settable.py`/`motor.py` no longer describe
+  the shipped `CaConfirmSettable` as a future milestone; `shot_id.py` no
+  longer references the deleted `geecs_device.GeecsDevice`.
+
 ## [0.27.0] - 2026-07-10
 
 Cleanup pass 1 (audit: `Planning/cleanup_vision_v1/00_overview.md`) — no
