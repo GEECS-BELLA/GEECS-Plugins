@@ -1716,6 +1716,26 @@ def test_merge_save_sets_single_element_is_identity() -> None:
     assert merge_save_sets([only]) is only
 
 
+def test_merge_save_sets_conflicting_roles_raise() -> None:
+    """Same device with different explicit roles across sets is an error.
+
+    Role wires the reference/contributor/snapshot semantics, so resolving it by
+    save_sets list order would silently give the scan the wrong synchronization
+    for a required device — refuse instead (review finding on #479).
+    """
+    a = SaveSet(name="A", entries=[SaveSetEntry(device="U_Cam", role="reference")])
+    b = SaveSet(name="B", entries=[SaveSetEntry(device="U_Cam", role="snapshot")])
+    with pytest.raises(GeecsConfigurationError, match="conflicting"):
+        merge_save_sets([a, b])
+    # Order must not change the outcome: the reverse also raises.
+    with pytest.raises(GeecsConfigurationError, match="conflicting"):
+        merge_save_sets([b, a])
+    # Same role, or one side unset, is fine — no raise, the role survives.
+    unset = SaveSet(name="C", entries=[SaveSetEntry(device="U_Cam")])
+    merged = merge_save_sets([a, unset])
+    assert merged.entries[0].role.value == "reference"
+
+
 def test_two_save_sets_record_union_of_devices(legacy_resolver) -> None:
     session = _FakeSession()
     request = _noscan_request(save_sets=["UC_Test", "UC_Aux"])

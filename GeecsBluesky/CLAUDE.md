@@ -409,7 +409,9 @@ recorded device set, so operators mix and match named diagnostic groups per
 scan.  Per-device union rule (documented on `merge_save_sets` and in the
 `scan_request_runner` module docstring): `scalars` union
 order-preserving/deduped, `images`/`db_scalars`/`all_scalars` OR together (True
-wins), first non-`None` `role` kept, entry-level `setup`/`closeout` ritual name
+wins), the single non-`None` `role` used — **conflicting explicit roles across
+the sets raise** (role sets the pacemaker/contributor/snapshot semantics, so
+overlapping sets must not disagree) — entry-level `setup`/`closeout` ritual name
 lists union (deduped).  Entry rituals are collected across *all* named sets,
 deduped by plan name so a shared ritual runs once
 (`resolve_save_sets_and_rituals`).  Everything downstream operates on the

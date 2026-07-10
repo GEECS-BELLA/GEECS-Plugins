@@ -16,7 +16,8 @@ This module owns the mapping:
   (:func:`merge_save_sets`) so operators mix and match named diagnostic
   groups per scan.  The per-device union rule: ``scalars`` union
   (order-preserving, deduped), ``images`` / ``db_scalars`` / ``all_scalars``
-  OR together (True wins), the first non-``None`` ``role`` is kept, and the
+  OR together (True wins), the single non-``None`` ``role`` is used (a device
+  the sets require with *conflicting* explicit roles is an error), and the
   entry-level ``setup`` / ``closeout`` ritual name lists union (deduped).
   Entry-level rituals are collected across *all* named sets, deduped by plan
   name so a shared ritual runs once (:func:`resolve_save_sets_and_rituals`).
@@ -780,11 +781,18 @@ def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSe
     The documented per-device union rule (see :func:`merge_save_sets`):
     ``scalars`` union order-preserving and deduped, the boolean flags
     (``images`` / ``db_scalars`` / ``all_scalars``) OR together (True wins),
-    the first non-``None`` ``role`` is kept, and the entry-level
-    ``setup`` / ``closeout`` ritual name lists union (deduped, first
-    appearance). Reserved ``at_scan_start`` / ``at_scan_end`` maps merge
+    the single non-``None`` ``role`` is used — **conflicting explicit roles
+    across the sets raise** (:class:`GeecsConfigurationError`) rather than
+    resolving by list order, since role sets the acquisition semantics — and
+    the entry-level ``setup`` / ``closeout`` ritual name lists union (deduped,
+    first appearance). Reserved ``at_scan_start`` / ``at_scan_end`` maps merge
     key-wise (existing wins on a key clash) — they are inert in this version,
     so the choice only affects the one warning they draw.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        If the two entries give the same device different explicit roles.
     """
 
     def _union(first: list[str], second: list[str]) -> list[str]:
@@ -793,6 +801,26 @@ def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSe
             if item not in merged:
                 merged.append(item)
         return merged
+
+    # Role sets the acquisition guarantees (reference / contributor / snapshot
+    # pacemaker wiring in save_set_to_devices_config). Two named sets that
+    # both require the same device but disagree on its explicit role would
+    # otherwise be resolved by save_sets list order — silently giving the scan
+    # the wrong synchronization semantics. Refuse it (matching the legacy
+    # preset composer), rather than pick by order.
+    if (
+        existing.role is not None
+        and addition.role is not None
+        and existing.role != addition.role
+    ):
+        raise GeecsConfigurationError(
+            f"save-set union: device {existing.device!r} has conflicting "
+            f"explicit roles across the named save sets "
+            f"({existing.role.value!r} vs {addition.role.value!r}). Role sets "
+            f"the acquisition semantics, so a device required by more than one "
+            f"set must not disagree on it — give it the same role, or leave it "
+            f"unset, in the overlapping sets."
+        )
 
     return SaveSetEntry(
         device=existing.device,
@@ -819,9 +847,10 @@ def merge_save_sets(save_sets: list[SaveSet], name: str = "merged") -> SaveSet:
     - a device in only one set is carried over unchanged;
     - a device in more than one set is **merged** — ``scalars`` union
       (order-preserving, deduped), ``images`` / ``db_scalars`` /
-      ``all_scalars`` OR together (True wins), the first non-``None`` ``role``
-      is kept, and the entry-level ``setup`` / ``closeout`` ritual name lists
-      union (deduped).
+      ``all_scalars`` OR together (True wins), the single non-``None`` ``role``
+      is used (**conflicting explicit roles raise** — role sets the
+      acquisition semantics, so overlapping sets must not disagree), and the
+      entry-level ``setup`` / ``closeout`` ritual name lists union (deduped).
 
     A single-element list resolves to that set unchanged (cheap identity for
     the common single-set case).

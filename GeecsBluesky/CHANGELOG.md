@@ -14,8 +14,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   effective `SaveSet` before deriving the recorded device set. Per-device
   union rule (documented in the `scan_request_runner` module docstring and
   `merge_save_sets`): `scalars` union order-preserving/deduped, `images` /
-  `db_scalars` / `all_scalars` OR together (True wins), the first non-`None`
-  `role` is kept, and entry-level `setup`/`closeout` ritual name lists union
+  `db_scalars` / `all_scalars` OR together (True wins), the single non-`None`
+  `role` is used — **conflicting explicit roles across the sets raise** (role
+  sets the pacemaker/contributor/snapshot semantics, so a device required by
+  more than one set must not disagree on it) — and entry-level
+  `setup`/`closeout` ritual name lists union
   (deduped). Entry-level rituals are collected across *all* named sets,
   deduped by plan name so a shared ritual runs once
   (`resolve_save_sets_and_rituals`). `save_set_to_devices_config`, the
