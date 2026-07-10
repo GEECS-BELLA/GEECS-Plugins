@@ -69,15 +69,6 @@ from geecs_schemas.action_plan import CheckStep, RunPlanStep, SetStep
 
 logger = logging.getLogger(__name__)
 
-#: GUI-bridge refusal (the *bridge* still stages requests through the legacy
-#: exec-config machinery; the engine itself executes grids — see
-#: ``run_scan_request``).
-MULTI_AXIS_MESSAGE = (
-    "the GUI bridge does not execute multi-axis grids yet — run the request "
-    "headless via GeecsSession.run, where grid execution landed with the "
-    "M3b milestone; GUI submission is a later milestone"
-)
-
 
 # The resolver layer (ConfigResolver protocol + the production
 # ConfigsRepoResolver) lives in geecs_bluesky.config_resolver; the names
@@ -238,8 +229,7 @@ def resolve_and_validate_actions(
 
     Fail-fast, pre-claim: each name must exist (the resolver raises
     otherwise) before any hardware is touched.  The engine then compiles
-    and executes the assembled slots (:func:`assemble_action_slots`); the
-    GUI bridge still refuses them (:func:`raise_if_actions_present`).
+    and executes the assembled slots (:func:`assemble_action_slots`).
 
     Parameters
     ----------
@@ -260,23 +250,6 @@ def resolve_and_validate_actions(
             resolver.resolve_action_plan(name)
         resolved[slot] = names
     return resolved
-
-
-def raise_if_actions_present(resolved: dict[str, list[str]]) -> None:
-    """Refuse validated action bindings — **GUI-bridge path only**.
-
-    The engine executes actions (see :func:`run_scan_request`); the GUI
-    bridge still stages requests through the legacy exec-config machinery
-    and does not run them yet.  Names were already resolved and are valid.
-    """
-    present = {slot: names for slot, names in resolved.items() if names}
-    if present:
-        raise NotImplementedError(
-            f"the GUI bridge does not execute action bindings yet — run the "
-            f"request headless via GeecsSession.run (action execution landed "
-            f"with the M3b milestone); the request's action names were "
-            f"resolved and are valid: {present}"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -588,26 +561,6 @@ def compile_action_slot(
     return _slot_plan, plans
 
 
-def resolve_save_sets_checked(resolver: ConfigResolver, names: list[str]) -> SaveSet:
-    """Resolve and union several save sets, refusing rituals — **GUI-bridge only**.
-
-    Rituals are *validated* first (unknown names fail loudly), then refused —
-    the bridge does not execute them yet.  Returns the unioned save set
-    (guaranteed free of entry-level actions).
-    """
-    save_set, rituals = resolve_save_sets_and_rituals(resolver, names)
-    entry_actions = [n for slot in rituals.values() for n in slot]
-    if entry_actions:
-        raise NotImplementedError(
-            f"the GUI bridge does not execute save-set entry rituals yet — "
-            f"run the request headless via GeecsSession.run (ritual "
-            f"execution landed with the M3b milestone); save sets {names!r} "
-            f"reference entry-level setup/closeout plans, which were "
-            f"resolved and are valid: {entry_actions}"
-        )
-    return save_set
-
-
 def apply_experiment_defaults(
     request: ScanRequest, defaults: Any | None
 ) -> tuple[ScanRequest, dict[str, Any]]:
@@ -892,6 +845,8 @@ def run_scan_request(
     *,
     objective: Any | None = None,
     suggester: Any | None = None,
+    preflight: Callable[[list, bool], list | None] | None = None,
+    on_scan_start: Callable[[int, int], None] | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -923,6 +878,18 @@ def run_scan_request(
         Required for ``optimize`` mode (see the module docstring's gap
         list): the evaluator/generator specs cannot be instantiated in this
         package.
+    preflight :
+        Optional scanner-layer hook (the GUI bridge's operator-dialog
+        seam), called pre-claim with the fully assembled detector list and
+        a strict flag: ``preflight(detectors, strict) -> list | None``.
+        The returned (possibly reduced) list becomes the scan's detectors;
+        ``None`` aborts the run (created devices are still disconnected).
+        Not called on the optimize path — an optimize preflight is a later
+        seam.  Headless callers omit it (behavior unchanged when ``None``).
+    on_scan_start :
+        Optional progress-totals hook (the GUI bridge's progress seam),
+        called with ``(total_steps, total_shots)`` immediately before the
+        session scan starts.  Not called on the optimize path.
 
     Returns
     -------
@@ -1038,6 +1005,18 @@ def run_scan_request(
             detectors = list(detectors) + telemetry_readables
             created.extend(telemetry_readables)
 
+        if preflight is not None:
+            # Scanner-layer seam (operator dialogs): runs pre-claim by
+            # construction — the claim happens inside session.scan below.
+            checked = preflight(detectors, mode == "strict")
+            if checked is None:
+                logger.warning(
+                    "ScanRequest preflight aborted the scan (pre-claim; no "
+                    "scan number was burned)"
+                )
+                return None
+            detectors = list(checked)
+
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         # Provenance: which named save sets were unioned for this scan.
         md["save_sets"] = list(request.save_sets)
@@ -1060,6 +1039,8 @@ def run_scan_request(
 
         if request.mode is ScanRequestMode.NOSCAN:
             scan_info["scan_mode"] = "noscan"
+            if on_scan_start is not None:
+                on_scan_start(1, request.shots_per_step)
             return session.scan(
                 detectors=detectors,
                 motor=None,
@@ -1105,6 +1086,8 @@ def run_scan_request(
             scan_info["start"] = outer[0]
             scan_info["end"] = outer[-1]
             scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+        if on_scan_start is not None:
+            on_scan_start(len(positions), len(positions) * request.shots_per_step)
         return session.scan(
             detectors=detectors,
             motor=motor_arg,

@@ -29,7 +29,6 @@ from geecs_bluesky.scan_request_runner import (
     collect_save_set_rituals,
     merge_save_sets,
     resolve_save_sets_and_rituals,
-    resolve_save_sets_checked,
     run_scan_request,
     save_set_to_devices_config,
     trigger_writes_from_profile,
@@ -318,19 +317,6 @@ entries:
     setup: [cam_ritual]
 """
 
-# Ritual-free counterpart of UC_Aux for the GUI-bridge union test (the bridge
-# path still refuses entry rituals — a set with one would raise there).
-AUX_SAVE_SET_PLAIN = """\
-schema_version: 1
-name: UC_AuxPlain
-entries:
-  - device: U_Aux
-    scalars: [Aux1]
-  - device: U_Cam
-    scalars: [Extra]
-    images: true
-"""
-
 # New-schema save set whose entries carry setup/closeout rituals (shared
 # ritual named by both entries — must run once).
 RITUAL_SAVE_SET = """\
@@ -366,7 +352,6 @@ def configs_root(tmp_path):
     (legacy / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
     (legacy / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
     (legacy / "save_devices" / "UC_Aux.yaml").write_text(AUX_SAVE_SET)
-    (legacy / "save_devices" / "UC_AuxPlain.yaml").write_text(AUX_SAVE_SET_PLAIN)
 
     modern = tmp_path / "ModernExp"
     (modern / "save_devices").mkdir(parents=True)
@@ -1218,13 +1203,6 @@ def test_entry_level_unknown_action_fails_validation_first() -> None:
         resolve_save_sets_and_rituals(resolver, ["s"])
 
 
-def test_bridge_path_still_refuses_entry_rituals() -> None:
-    """resolve_save_sets_checked (GUI-bridge helper) refuses with a pointer."""
-    resolver = _SaveSetResolver(_entry_action_save_set(setup=["prep_cam"]))
-    with pytest.raises(NotImplementedError, match="GeecsSession.run"):
-        resolve_save_sets_checked(resolver, ["s"])
-
-
 def test_entry_rituals_execute_between_defaults_and_request(
     legacy_resolver,
 ) -> None:
@@ -1835,12 +1813,87 @@ def test_telemetry_excludes_devices_from_all_named_sets(
     }
 
 
-def test_bridge_unions_save_sets(configs_root) -> None:
-    # The GUI-bridge path resolves the list and unions devices (still refusing
-    # rituals/actions/multi-axis elsewhere — out of scope here).
-    save_set = resolve_save_sets_checked(
-        ConfigsRepoResolver("LegacyExp", experiments_root=configs_root),
-        ["UC_Test", "UC_AuxPlain"],
+# ---------------------------------------------------------------------------
+# Runner hooks (the GUI-bridge seams): preflight + on_scan_start
+# ---------------------------------------------------------------------------
+
+
+def test_preflight_receives_assembled_detectors_and_strict(legacy_resolver) -> None:
+    """The hook sees the fully assembled detector list and the strict flag,
+    and its (possibly reduced) return is what session.scan runs with."""
+    session = _FakeSession()
+    seen: dict = {}
+
+    def preflight(detectors: list, strict: bool):
+        seen["devices"] = [d._geecs_device_name for d in detectors]
+        seen["strict"] = strict
+        return detectors[:2]  # drop the snapshot device
+
+    uid = run_scan_request(
+        session,
+        _noscan_request(acquisition="strict"),
+        legacy_resolver,
+        preflight=preflight,
     )
-    devices = {e.device for e in save_set.entries}
-    assert devices == {"U_Cam", "U_Cam2", "U_Slow", "U_Aux"}
+    assert uid == "uid-scan"
+    assert seen["strict"] is True
+    assert seen["devices"] == ["U_Cam", "U_Cam2", "U_Slow"]
+    assert [d._geecs_device_name for d in session.scan_kwargs["detectors"]] == [
+        "U_Cam",
+        "U_Cam2",
+    ]
+
+
+def test_preflight_none_aborts_without_scanning(legacy_resolver) -> None:
+    """A None return aborts pre-claim; created devices are still disconnected."""
+    session = _FakeSession()
+    result = run_scan_request(
+        session, _noscan_request(), legacy_resolver, preflight=lambda d, s: None
+    )
+    assert result is None
+    assert session.scan_kwargs is None
+    assert len(session.disconnected) == 3  # the runner's finally cleaned up
+
+
+def test_preflight_strict_flag_false_for_free_run(legacy_resolver) -> None:
+    session = _FakeSession()
+    flags: list[bool] = []
+    run_scan_request(
+        session,
+        _noscan_request(acquisition="free_run"),
+        legacy_resolver,
+        preflight=lambda detectors, strict: flags.append(strict) or detectors,
+    )
+    assert flags == [False]
+
+
+def test_on_scan_start_totals_for_noscan(legacy_resolver) -> None:
+    session = _FakeSession()
+    calls: list[tuple[int, int]] = []
+    run_scan_request(
+        session,
+        _noscan_request(),  # shots_per_step=3
+        legacy_resolver,
+        on_scan_start=lambda steps, shots: calls.append((steps, shots)),
+    )
+    assert calls == [(1, 3)]
+
+
+def test_on_scan_start_totals_for_grid(legacy_resolver) -> None:
+    """A 2×3 grid is 6 steps; totals reflect the flat outer-product length."""
+    session = _FakeSession()
+    calls: list[tuple[int, int]] = []
+    request = _noscan_request(
+        mode="step",
+        axes=[
+            {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 1}},
+            {"variable": "jet_x", "positions": {"values": [4.0, 5.0, 6.0]}},
+        ],
+    )
+    run_scan_request(
+        session,
+        request,
+        legacy_resolver,
+        on_scan_start=lambda steps, shots: calls.append((steps, shots)),
+    )
+    assert calls == [(6, 18)]  # shots_per_step=3

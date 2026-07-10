@@ -151,8 +151,10 @@ adds a staleness stage for the trigger-must-be-free-running requirement)
 (all defensive imports — headless
 installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
 translation is deliberately skipped (no consumer).  Still not done in
-Bluesky mode: `ActionControl` / setup-closeout actions (see
-`Planning/gui_stewardship/00_overview.md`).  Acquisition mode is chosen by
+Bluesky mode: `ActionControl` / setup-closeout actions on the legacy
+`exec_config` path (ScanRequest submissions execute actions via the
+delegated runner — see the engine-consolidation section).  Acquisition
+mode is chosen by
 the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
 (intentional; bluesky is still being derisked).
 
@@ -415,9 +417,20 @@ action hooks yet, so the actions (request, experiment defaults, and
 save-set rituals) are skipped, logged (WARNING), and recorded in run
 metadata under `skipped_action_plans` (refusing would block every
 optimization the moment an experiment defines default bracket actions;
-unknown names still fail fast).  The GUI bridge's `reinitialize(ScanRequest)` still refuses
-actions/multi-axis with a pointer to `GeecsSession.run` — routing them
-through the bridge is the GUI submission milestone.  Experiment defaults
+unknown names still fail fast).  **As of 0.28.0 (M4 step i) the GUI bridge
+delegates ScanRequest execution to `run_scan_request`**:
+`reinitialize(ScanRequest)` validates every name fail-fast (discarding the
+results) and stores the **original pre-defaults** request; the scan thread
+runs it through the one engine definition, so actions, entry rituals,
+multi-axis grids, db_scalars, and telemetry all execute through the bridge
+too.  The bridge contributes its two seams via runner hooks:
+`preflight(detectors, strict)` (operator-dialog pipeline, pre-claim,
+`None` aborts; dropped devices are left connected — the runner's `finally`
+owns disconnection) and `on_scan_start(total_steps, total_shots)` (GUI
+progress totals).  The bridge never pre-claims on this path —
+`session.scan` claims and self-attaches `scan.log`.  Optimize-mode
+requests are still refused at reinitialize until GUI-submission step (iii)
+wires the `optimization_loader` into the delegated path.  Experiment defaults
 (`experiment_defaults.yaml`) fill request fields left unset — never
 overriding explicit values — and every applied default is recorded into
 the run metadata for provenance (closeout defaults append *after* the
@@ -441,9 +454,9 @@ deduped by plan name so a shared ritual runs once
 merged set: `save_set_to_devices_config`, the reserved-boundary warning, and —
 crucially — **telemetry exclusion** (`select_telemetry_variables` gets the
 merged set, so Tier-2 telemetry excludes devices in *any* named set).  Run
-metadata records the list under `save_sets`.  The GUI bridge is list-aware via
-`resolve_save_sets_checked` (unions devices; still refuses entry rituals /
-actions / multi-axis — those remain a later GUI-submission milestone).
+metadata records the list under `save_sets`.  The GUI bridge delegates to
+`run_scan_request` (0.28.0), so the union — entry rituals included —
+applies identically through the bridge.
 
 **M3c (0.24.0) — the DB-integration runtime tier, GET-SIDE ONLY.**  Two
 get-side capabilities are live, all gated by schema flags that already
@@ -538,7 +551,8 @@ Remaining items are features/tuning, not architecture — see
   geecs_scanner import (dependency direction).
 - **Pre/post-scan action sequences run on the ScanRequest path only.**
   `GeecsSession.run(request)` executes setup/per_step/closeout ActionPlans
-  (0.23.0); the legacy `exec_config` path and the GUI bridge still skip
+  (0.23.0), and since 0.28.0 the GUI bridge's delegated ScanRequest path
+  does too; the legacy `exec_config` path still skips
   `setup_action` / `closeout_action` (legacy elements' actions *are*
   executed when the element is resolved as a save set through a
   ScanRequest — the converter extracts them into entry rituals).
