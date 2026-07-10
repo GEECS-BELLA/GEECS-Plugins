@@ -237,3 +237,24 @@ Two consequences that revise the earlier plan:
    `Current.ChN` in the DB** — otherwise an exact-float confirm-poll never
    settles. This is the same "how much PV metadata can the DB serve" thread as
    Deferred #1.
+
+   **Live characterization of `U_EMQTripletBipolar:Current.ChN` (2026-07-09,
+   no beam):** jitter **0.01 A**, response lag **<1 s** after the
+   `Current_Limit.ChN` set, settles within **~3 frames** of the readback. The
+   supply responds with no beam present, so this is the actual electronics
+   settling behavior, not a beam-dependent artifact. These numbers say a
+   confirm-poll tolerance of **0.05 A** (5× the observed jitter) and a global
+   poll timeout of **~10 s** (comfortably past the ~3-frame settle) are the
+   right defaults for the topology-C device — recorded here so the build
+   doesn't need to re-characterize.
+
+   **Build spec for the topology-C device**, on a new branch
+   `feat/scanvar-confirm-device` off `feat/vision-v1`: a device that writes
+   `target` and polls `confirm` for convergence, analog match by tolerance
+   (default 0.05, overridable) / discrete match by equality, global poll
+   timeout ~10 s. Wire it into the scan-request resolver's movable-construction
+   path (`scan_request_runner`) so a `ScanVariable` with `confirm` set builds
+   this device instead of the plain setpoint/motor path. Add the three EMQ
+   `confirm:` entries (`Current_Limit.ChN → Current.ChN`) to the Undulator
+   scan-variable catalog once the device lands. Unifies with the future
+   `CaShutter` (discrete confirm) as one abstraction.
