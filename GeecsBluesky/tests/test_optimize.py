@@ -7,6 +7,8 @@ tell loop runs end to end with deterministic values.
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pytest
 
@@ -14,6 +16,7 @@ pytest.importorskip("aioca")
 
 from ophyd_async.core import callback_on_mock_put, set_mock_value  # noqa: E402
 
+from geecs_bluesky.exceptions import GeecsConfirmTimeoutError  # noqa: E402
 from geecs_bluesky.optimize import BinData, RandomSuggester  # noqa: E402
 from geecs_bluesky.session import GeecsSession  # noqa: E402
 from tests.ca_mock_helpers import start_pacer  # noqa: E402
@@ -179,3 +182,60 @@ def test_optimize_on_finish_initial_restores() -> None:
         pacer.cancel()
 
     assert s._read_movable(knob) == pytest.approx(0.07)
+
+
+def test_move_movables_uses_movable_set_not_raw_setpoint(caplog) -> None:
+    """_move_movables drives the movable's own set() — confirm semantics apply.
+
+    Review finding (PR #477): ``_move_movables`` (used for optimize
+    ``on_finish``) used to put directly to ``m._setpoint``, bypassing a
+    movable's own completion semantics entirely — for a
+    ``CaConfirmSettable``, that's the exact "the limit register converged
+    but nothing physically moved" failure this device exists to catch. A
+    fake movable whose ``set()`` always raises but whose ``_setpoint`` put
+    always "succeeds" pins that ``_move_movables`` goes through ``set()``:
+    with the old raw-signal bypass this test's move would succeed silently;
+    with the fix it must log the failure.
+    """
+    from ophyd_async.core import AsyncStatus
+
+    s = GeecsSession("Test", tiled=False, mock=True)
+
+    class _RawPutOnly:
+        """Bare signal stand-in: its own put always 'succeeds'."""
+
+        async def set(self, value):
+            return None
+
+    class _NeverConfirmingMovable:
+        """A CaConfirmSettable-shaped fake: set() always fails to confirm."""
+
+        def __init__(self):
+            self._setpoint = _RawPutOnly()
+            self.set_called_with: list[float] = []
+
+        def set(self, value: float) -> AsyncStatus:
+            self.set_called_with.append(value)
+
+            async def _fail():
+                raise GeecsConfirmTimeoutError(
+                    "U_EMQTripletBipolar",
+                    "Current_Limit.Ch1",
+                    "U_EMQTripletBipolar:Current.Ch1",
+                    target=value,
+                    current=0.0,
+                    timeout=0.3,
+                )
+
+            return AsyncStatus(_fail())
+
+    movable = _NeverConfirmingMovable()
+    with caplog.at_level(logging.WARNING):
+        s._move_movables({"emq1": movable}, {"emq1": 0.5})
+
+    # The movable protocol was used (not a bypass straight to _setpoint) —
+    # set() was actually called, and its confirm failure was surfaced.
+    assert movable.set_called_with == [0.5]
+    warnings = [r for r in caplog.records if "could not move" in r.getMessage()]
+    assert len(warnings) == 1
+    assert warnings[0].exc_info is not None

@@ -1331,8 +1331,10 @@ def _defaults_flag(defaults: Any | None, name: str, fallback: bool) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def resolve_movable_target(spec: ScanVariableSpec, name: str) -> tuple[str, str, str]:
-    """Return ``(device, variable, kind)`` for a plain scan variable.
+def resolve_movable_target(
+    spec: ScanVariableSpec, name: str
+) -> tuple[str, str, str, str | None]:
+    """Return ``(device, variable, kind, confirm)`` for a plain scan variable.
 
     Parameters
     ----------
@@ -1344,7 +1346,9 @@ def resolve_movable_target(spec: ScanVariableSpec, name: str) -> tuple[str, str,
     Returns
     -------
     tuple
-        Device name, variable name, and the entry's kind.
+        Device name, variable name, the entry's kind, and its optional
+        ``confirm`` target (``"Device:Variable"``, or ``None`` when the set
+        variable is also the readback — the common case).
 
     Raises
     ------
@@ -1360,7 +1364,33 @@ def resolve_movable_target(spec: ScanVariableSpec, name: str) -> tuple[str, str,
         )
     assert isinstance(spec, ScanVariable)
     device, _, variable = spec.target.partition(":")
-    return device, variable, spec.kind
+    return device, variable, spec.kind, spec.confirm
+
+
+def build_movable(
+    session: Any, device: str, variable: str, kind: str, confirm: str | None
+) -> Any:
+    """Build the right movable for one resolved scan-variable target.
+
+    ``confirm`` (a ``"Device:Variable"`` string) takes precedence over
+    ``kind``: a variable with a confirming target is the topology-C case
+    (:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`) regardless
+    of whether it is also declared ``kind: motor`` — the confirming poll is
+    the more specific completion check.  Otherwise dispatches on ``kind`` as
+    before: ``"motor"`` → :meth:`GeecsSession.motor`, else
+    :meth:`GeecsSession.settable`.
+    """
+    if confirm is not None:
+        confirm_device, _, confirm_variable = confirm.partition(":")
+        return session.confirm_settable(
+            device,
+            variable,
+            confirm_device=confirm_device,
+            confirm_variable=confirm_variable,
+        )
+    if kind == "motor":
+        return session.motor(device, variable)
+    return session.settable(device, variable)
 
 
 def _build_request_detectors(
@@ -1641,13 +1671,13 @@ def run_scan_request(
     warn_if_reserved_boundary_overrides(save_set)
 
     # Resolve the scan-variable movable targets up front (full movable
-    # construction happens later; only the (device, variable, kind) triples
-    # are needed here for the standard-scan build below).
-    axis_resolved: list[tuple[str, str, str]] = []
+    # construction happens later; only the (device, variable, kind, confirm)
+    # quadruples are needed here for the standard-scan build below).
+    axis_resolved: list[tuple[str, str, str, str | None]] = []
     for axis in request.axes:
         spec = resolver.resolve_scan_variable(axis.variable)
-        device, variable, kind = resolve_movable_target(spec, axis.variable)
-        axis_resolved.append((device, variable, kind))
+        device, variable, kind, confirm = resolve_movable_target(spec, axis.variable)
+        axis_resolved.append((device, variable, kind, confirm))
 
     telemetry_enabled = (
         request.background_telemetry
@@ -1732,12 +1762,8 @@ def run_scan_request(
         movables: list = []
         targets: list[str] = []
         value_lists: list[list[float]] = []
-        for (device, variable, kind), axis in zip(axis_resolved, request.axes):
-            movable = (
-                session.motor(device, variable)
-                if kind == "motor"
-                else session.settable(device, variable)
-            )
+        for (device, variable, kind, confirm), axis in zip(axis_resolved, request.axes):
+            movable = build_movable(session, device, variable, kind, confirm)
             created.append(movable)
             movables.append(movable)
             targets.append(f"{device}:{variable}")
@@ -1865,10 +1891,11 @@ def _run_optimize_request(
         for name in spec.variables:
             if ":" in name:
                 device, _, variable = name.partition(":")
+                movable = session.settable(device, variable)
             else:
                 var_spec = resolver.resolve_scan_variable(name)
-                device, variable, _kind = resolve_movable_target(var_spec, name)
-            movable = session.settable(device, variable)
+                device, variable, kind, confirm = resolve_movable_target(var_spec, name)
+                movable = build_movable(session, device, variable, kind, confirm)
             variables[name] = movable
             created.append(movable)
 

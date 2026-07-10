@@ -40,6 +40,7 @@ from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_sa
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
     CaActionSignalFactory,
+    CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
     CaSettable,
@@ -160,7 +161,15 @@ class GeecsSession:
         )
 
     def _move_movables(self, variables: dict[str, Any], targets: dict) -> None:
-        """Drive movables to *targets* outside a plan (best-effort)."""
+        """Drive movables to *targets* outside a plan (best-effort).
+
+        Goes through each movable's own ``set()`` (the Bluesky ``Movable``
+        protocol), not the raw ``:SP`` signal directly — a bypass here would
+        skip ``CaMotor``'s readback poll and, worse, ``CaConfirmSettable``'s
+        confirming-variable poll: the exact "the limit register converged but
+        nothing physically moved" failure this device exists to catch would
+        go silently unconfirmed on every optimize on_finish move.
+        """
         import asyncio
 
         for name, value in targets.items():
@@ -169,7 +178,7 @@ class GeecsSession:
                 continue
 
             async def _move(m=movable, v=float(value)) -> None:
-                await m._setpoint.set(v)
+                await m.set(v)
 
             try:
                 asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(
@@ -316,6 +325,37 @@ class GeecsSession:
                 variable,
                 experiment=self.experiment,
                 name=name or safe_name(f"{device}_{variable}"),
+            )
+        )
+
+    def confirm_settable(
+        self,
+        device: str,
+        variable: str,
+        *,
+        confirm_device: str,
+        confirm_variable: str,
+        tolerance: float = 0.05,
+        timeout: float = 10.0,
+        name: str | None = None,
+    ) -> CaConfirmSettable:
+        """Settable that confirms completion on a *different* variable.
+
+        The topology-C case (``ScanVariable.confirm``): ``variable`` is
+        written, but ``confirm_variable`` (possibly on a different device) is
+        polled for the actual physical result. See
+        :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+        """
+        return self._connect(
+            CaConfirmSettable(
+                device,
+                variable,
+                confirm_device=confirm_device,
+                confirm_variable=confirm_variable,
+                experiment=self.experiment,
+                name=name or safe_name(f"{device}_{variable}"),
+                tolerance=tolerance,
+                timeout=timeout,
             )
         )
 

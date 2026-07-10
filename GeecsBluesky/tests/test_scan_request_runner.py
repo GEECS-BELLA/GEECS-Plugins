@@ -95,6 +95,7 @@ class _FakeSession:
         self.optimize_kwargs: dict | None = None
         self.disconnected: list = []
         self.action_factories: list[_FakeActionFactory] = []
+        self.confirm_settable_calls: list = []
 
     def _make(self, device: str, kind: str) -> _FakeDevice:
         self.devices.append((device, kind))
@@ -114,6 +115,14 @@ class _FakeSession:
 
     def settable(self, device, variable, *, name=None):
         return self._make(f"{device}:{variable}", "settable")
+
+    def confirm_settable(
+        self, device, variable, *, confirm_device, confirm_variable, **kwargs
+    ):
+        self.confirm_settable_calls.append(
+            (device, variable, confirm_device, confirm_variable)
+        )
+        return self._make(f"{device}:{variable}", "confirm_settable")
 
     def action_signal_factory(self):
         factory = _FakeActionFactory()
@@ -233,6 +242,9 @@ schema_version: 1
 variables:
   jet_z: {target: "U_ESP_JetXYZ:Position.Axis 3", kind: motor}
   hexapod_y: {target: "U_Hexapod:ypos"}
+  emq1_current:
+    target: "U_EMQTripletBipolar:Current_Limit.Ch1"
+    confirm: "U_EMQTripletBipolar:Current.Ch1"
   combo:
     kind: pseudo
     mode: absolute
@@ -658,6 +670,32 @@ def test_step_request_motor_kind_and_position_list(modern_resolver) -> None:
     kwargs = session.scan_kwargs
     assert kwargs["motor"].kind == "motor"
     assert kwargs["positions"] == [4.0, 4.5, 6.0]
+
+
+def test_step_request_confirm_variable_uses_confirm_settable(modern_resolver) -> None:
+    """A scan variable with ``confirm`` set builds a confirm-settable movable.
+
+    ``confirm`` takes precedence over ``kind`` (topology-C, session.confirm_
+    device.md #5): the request-facing behavior of resolve_movable_target +
+    build_movable.
+    """
+    session = _FakeSession()
+    request = _noscan_request(
+        mode="step",
+        save_sets=["NewSet"],
+        axes=[{"variable": "emq1_current", "positions": {"values": [2.0, 2.5]}}],
+    )
+    run_scan_request(session, request, modern_resolver)
+    kwargs = session.scan_kwargs
+    assert kwargs["motor"].kind == "confirm_settable"
+    assert session.confirm_settable_calls == [
+        (
+            "U_EMQTripletBipolar",
+            "Current_Limit.Ch1",
+            "U_EMQTripletBipolar",
+            "Current.Ch1",
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------

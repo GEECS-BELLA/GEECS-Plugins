@@ -18,6 +18,7 @@ pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import (  # noqa: E402
+    CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
     CaSettable,
@@ -27,6 +28,7 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
 )
 from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsConfirmTimeoutError,
     GeecsMotorTimeoutError,
     GeecsTriggerTimeoutError,
 )
@@ -214,6 +216,101 @@ async def test_motor_set_times_out_when_stuck() -> None:
     set_mock_value(motor.position, 0.0)  # stuck far from target
     with pytest.raises(GeecsMotorTimeoutError):
         await motor.set(4.5)
+
+
+# --------------------------------------------------------------------------
+# CaConfirmSettable — topology-C: set X, confirm on Y
+# --------------------------------------------------------------------------
+
+
+def _emq_confirm_device(**overrides) -> CaConfirmSettable:
+    kwargs = dict(
+        device="U_EMQTripletBipolar",
+        variable="Current_Limit.Ch1",
+        confirm_device="U_EMQTripletBipolar",
+        confirm_variable="Current.Ch1",
+        experiment="Undulator",
+        name="emq1",
+        timeout=0.3,
+    )
+    kwargs.update(overrides)
+    return CaConfirmSettable(**kwargs)
+
+
+async def test_confirm_writes_target_variable_reads_confirm_variable() -> None:
+    """set() puts the SETPOINT variable but polls the CONFIRM variable's PV."""
+    device = _emq_confirm_device()
+    await device.connect(mock=True)
+    assert device._setpoint.source.endswith(
+        "Undulator:U_EMQTripletBipolar:Current_Limit_Ch1:SP"
+    )
+    assert device._confirm_readback.source.endswith(
+        "Undulator:U_EMQTripletBipolar:Current_Ch1"
+    )
+
+
+async def test_confirm_completes_when_confirm_variable_within_tolerance() -> None:
+    """set() resolves once the CONFIRM readback (not the target var) matches."""
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 2.51)  # within 0.05 of target
+    await asyncio.wait_for(device.set(2.5), timeout=1.0)
+    put = get_mock_put(device._setpoint)
+    put.assert_called_once()
+    assert put.call_args.args[0] == 2.5
+
+
+async def test_confirm_times_out_when_confirm_variable_never_matches() -> None:
+    """The setpoint variable converging is not enough — confirm must too."""
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 0.0)  # never converges
+    with pytest.raises(GeecsConfirmTimeoutError) as excinfo:
+        await device.set(2.5)
+    assert excinfo.value.confirm_variable == "U_EMQTripletBipolar:Current.Ch1"
+
+
+async def test_confirm_discrete_match_is_exact_equality() -> None:
+    """A string/enum confirm target (e.g. a future shutter) matches exactly."""
+    device = CaConfirmSettable(
+        "U_Shutter",
+        "Command",
+        confirm_device="U_Shutter",
+        confirm_variable="LimitSwitch",
+        experiment="Undulator",
+        name="shutter",
+        timeout=0.3,
+        datatype=str,
+    )
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, "inserted")
+    await asyncio.wait_for(device.set("inserted"), timeout=1.0)
+
+
+async def test_confirm_discrete_match_rejects_numeric_looking_near_miss() -> None:
+    """A str confirm target does not tolerance-match numeric-looking labels.
+
+    Review finding (PR #477): the old ``_matches`` tried ``float()`` on both
+    sides before falling back to equality, so a ``datatype=str`` confirm
+    target could accept "1.04" as matching "1.0" under the default
+    tolerance — silently reintroducing analog matching for a discrete
+    variable. Dispatch must be on the declared ``datatype``, not on whether
+    the strings happen to be parseable as numbers.
+    """
+    device = CaConfirmSettable(
+        "U_Shutter",
+        "Command",
+        confirm_device="U_Shutter",
+        confirm_variable="LimitSwitch",
+        experiment="Undulator",
+        name="shutter",
+        timeout=0.3,
+        datatype=str,
+    )
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, "1.04")
+    with pytest.raises(GeecsConfirmTimeoutError):
+        await device.set("1.0")
 
 
 # --------------------------------------------------------------------------

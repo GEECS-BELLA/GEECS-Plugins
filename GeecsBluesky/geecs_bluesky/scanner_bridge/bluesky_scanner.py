@@ -463,7 +463,9 @@ class BlueskyScanner:
         else:
             axis = request.axes[0]
             spec = resolver.resolve_scan_variable(axis.variable)
-            device, variable, kind = resolve_movable_target(spec, axis.variable)
+            device, variable, kind, _confirm = resolve_movable_target(
+                spec, axis.variable
+            )
             positions = axis.positions.to_values()
             self._request_step = {
                 "device": device,

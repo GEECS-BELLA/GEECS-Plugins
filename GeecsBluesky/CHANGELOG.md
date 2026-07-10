@@ -4,6 +4,47 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.26.0] - 2026-07-10
+
+### Added
+
+- **`CaConfirmSettable` — the topology-C device: set X, confirm on Y**
+  (`devices/ca/confirm.py`). Acts on `ScanVariable.confirm` (declared in the
+  schema since M1, unenforced until now): writes one variable but polls a
+  *different* variable's streamed readback for the physical result — the EMQ
+  triplet's `Current_Limit.ChN` (a software limit GEECS's own blocking set
+  trivially confirms) vs its measured `Current.ChN`. Analog (float) match by
+  tolerance, discrete (string/enum) match by exact equality — unifies with a
+  future `CaShutter`. Defaults (`tolerance=0.05`, `timeout=10.0`) come from a
+  live characterization of `U_EMQTripletBipolar:Current.ChN` (no beam,
+  2026-07-09: jitter 0.01 A, response lag <1 s, settles within ~3 frames —
+  see `Planning/scan_variable_metadata/00_overview.md` Deferred #5).
+  `GeecsSession.confirm_settable(...)` constructs it; `resolve_movable_target`
+  now returns the entry's `confirm` alongside `(device, variable, kind)`, and
+  a new `build_movable` helper dispatches on it (confirm takes precedence over
+  `kind`) for both `run_scan_request`'s grid-axis and optimize-mode movable
+  construction. New `GeecsConfirmTimeoutError`.
+
+### Fixed
+
+Review pass on `CaConfirmSettable` (PR #477):
+
+- **Optimize `on_finish` now goes through the movable's `set()`.**
+  `GeecsSession._move_movables` (used for `on_finish="initial"`/`"best"`)
+  used to put directly to `m._setpoint`, bypassing every movable's own
+  completion semantics — for `CaConfirmSettable` that meant the exact "the
+  limit register converged but nothing physically moved" failure this device
+  exists to catch would go silently unconfirmed (only a warning if the raw
+  put itself failed) on the final optimize move.
+- **Discrete confirm matching no longer coerces numeric-looking strings.**
+  `_matches` tried `float()` on both sides before falling back to equality,
+  so a `datatype=str` confirm target could tolerance-match `"1.04"` against
+  `"1.0"` — silently reintroducing analog matching for a discrete variable.
+  Dispatch is now on the device's declared `datatype`, never on whether the
+  values happen to be parseable as numbers.
+- **`GeecsConfirmTimeoutError` added to `exceptions.__all__`** (it was
+  defined but omitted from the exported exception surface).
+
 ## [0.25.0] - 2026-07-10
 
 ### Changed
