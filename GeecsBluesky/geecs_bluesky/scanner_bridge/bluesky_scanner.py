@@ -89,7 +89,7 @@ from geecs_bluesky.scan_request_runner import (
     resolve_and_validate_actions,
     resolve_defaults_for,
     resolve_movable_target,
-    resolve_save_set_checked,
+    resolve_save_sets_checked,
     save_set_to_devices_config,
     trigger_writes_from_profile,
 )
@@ -427,12 +427,14 @@ class BlueskyScanner:
         )
         self._shots_per_step = int(request.shots_per_step)
 
-        if not request.save_set:
+        if not request.save_sets:
             raise GeecsConfigurationError(
-                f"a {request.mode.value!r} ScanRequest needs a save_set — "
-                "without one the scan would record nothing"
+                f"a {request.mode.value!r} ScanRequest needs at least one "
+                "save set in save_sets — without one the scan would record "
+                "nothing"
             )
-        save_set = resolve_save_set_checked(resolver, request.save_set)
+        # Multiple named save sets union into one effective device set.
+        save_set = resolve_save_sets_checked(resolver, request.save_sets)
         self._devices_config = save_set_to_devices_config(save_set)
 
         if request.trigger_profile:

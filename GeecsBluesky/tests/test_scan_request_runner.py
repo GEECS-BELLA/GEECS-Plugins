@@ -27,8 +27,11 @@ from geecs_bluesky.scan_request_runner import (
     assemble_action_slots,
     build_action_registry,
     collect_save_set_rituals,
+    merge_save_sets,
     resolve_save_set_and_rituals,
     resolve_save_set_checked,
+    resolve_save_sets_and_rituals,
+    resolve_save_sets_checked,
     run_scan_request,
     save_set_to_devices_config,
     trigger_writes_from_profile,
@@ -289,6 +292,35 @@ actions:
         value: 'off'
 """
 
+# Second save set in the LegacyExp experiment for the multi-save-set (M4)
+# union tests: a fresh device (U_Aux) plus one device (U_Cam) that overlaps
+# UC_Test — merged per the documented union rule (scalars unioned, images
+# OR'd True, entry ritual unioned once).
+AUX_SAVE_SET = """\
+schema_version: 1
+name: UC_Aux
+entries:
+  - device: U_Aux
+    scalars: [Aux1]
+  - device: U_Cam
+    scalars: [Extra]
+    images: true
+    setup: [cam_ritual]
+"""
+
+# Ritual-free counterpart of UC_Aux for the GUI-bridge union test (the bridge
+# path still refuses entry rituals — a set with one would raise there).
+AUX_SAVE_SET_PLAIN = """\
+schema_version: 1
+name: UC_AuxPlain
+entries:
+  - device: U_Aux
+    scalars: [Aux1]
+  - device: U_Cam
+    scalars: [Extra]
+    images: true
+"""
+
 # New-schema save set whose entries carry setup/closeout rituals (shared
 # ritual named by both entries — must run once).
 RITUAL_SAVE_SET = """\
@@ -323,6 +355,8 @@ def configs_root(tmp_path):
     (legacy / "action_library").mkdir()
     (legacy / "action_library" / "actions.yaml").write_text(LEGACY_ACTIONS)
     (legacy / "save_devices" / "RitualSet.yaml").write_text(RITUAL_SAVE_SET)
+    (legacy / "save_devices" / "UC_Aux.yaml").write_text(AUX_SAVE_SET)
+    (legacy / "save_devices" / "UC_AuxPlain.yaml").write_text(AUX_SAVE_SET_PLAIN)
 
     modern = tmp_path / "ModernExp"
     (modern / "save_devices").mkdir(parents=True)
@@ -545,7 +579,7 @@ def _noscan_request(**overrides) -> ScanRequest:
         mode="noscan",
         shots_per_step=3,
         acquisition="free_run",
-        save_set="UC_Test",
+        save_sets=["UC_Test"],
         description="stats",
     )
     base.update(overrides)
@@ -617,7 +651,7 @@ def test_step_request_motor_kind_and_position_list(modern_resolver) -> None:
     session = _FakeSession()
     request = _noscan_request(
         mode="step",
-        save_set="NewSet",
+        save_sets=["NewSet"],
         axes=[{"variable": "jet_z", "positions": {"values": [4.0, 4.5, 6.0]}}],
     )
     run_scan_request(session, request, modern_resolver)
@@ -751,7 +785,7 @@ def test_unknown_action_name_fails_validation_first(legacy_resolver) -> None:
 def test_pseudo_variable_raises_not_implemented(modern_resolver) -> None:
     request = _noscan_request(
         mode="step",
-        save_set="NewSet",
+        save_sets=["NewSet"],
         axes=[{"variable": "combo", "positions": {"start": 0, "end": 1, "step": 1}}],
     )
     with pytest.raises(NotImplementedError, match="pseudo"):
@@ -759,10 +793,8 @@ def test_pseudo_variable_raises_not_implemented(modern_resolver) -> None:
 
 
 def test_noscan_without_save_set_is_rejected(legacy_resolver) -> None:
-    with pytest.raises(GeecsConfigurationError, match="save_set"):
-        run_scan_request(
-            _FakeSession(), _noscan_request(save_set=None), legacy_resolver
-        )
+    with pytest.raises(GeecsConfigurationError, match="save set"):
+        run_scan_request(_FakeSession(), _noscan_request(save_sets=[]), legacy_resolver)
 
 
 def _optimize_request(**overrides) -> ScanRequest:
@@ -770,7 +802,7 @@ def _optimize_request(**overrides) -> ScanRequest:
         mode="optimize",
         shots_per_step=5,
         acquisition="free_run",
-        save_set="UC_Test",
+        save_sets=["UC_Test"],
         optimization={
             "variables": {"jet_z": [0.0, 1.0], "U_S1H:Current": [-2.0, 2.0]},
             "objectives": {"counts": "MAXIMIZE"},
@@ -1165,7 +1197,7 @@ def test_entry_rituals_execute_between_defaults_and_request(
     de-duplicated (both entries name cam_ritual; it runs once)."""
     session = _FakeSession()
     request = _noscan_request(
-        save_set="RitualSet",
+        save_sets=["RitualSet"],
         actions={"setup": ["scan_prep"], "closeout": ["scan_cleanup"]},
     )
     run_scan_request(session, request, legacy_resolver)
@@ -1189,7 +1221,7 @@ def test_converted_element_actions_execute(legacy_resolver) -> None:
     """A legacy element's setup_action converts to an entry ritual that the
     runner compiles and executes (the extracted plan resolves by name)."""
     session = _FakeSession()
-    request = _noscan_request(save_set="UC_WithActions")
+    request = _noscan_request(save_sets=["UC_WithActions"])
     run_scan_request(session, request, legacy_resolver)
 
     kwargs = session.scan_kwargs
@@ -1234,7 +1266,7 @@ def test_full_fake_session_flow_axes_actions_multi_device_trigger(
             "mode": "step",
             "shots_per_step": 2,
             "acquisition": "free_run",
-            "save_set": "RitualSet",
+            "save_sets": ["RitualSet"],
             "trigger_profile": "Spans",
             "axes": [
                 {"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 1}},
@@ -1321,7 +1353,7 @@ def test_optimize_skips_actions_and_records_them(legacy_resolver, caplog) -> Non
 def test_optimize_skips_entry_rituals_and_records_them(legacy_resolver) -> None:
     """Save-set entry rituals are skipped and recorded, not refused."""
     session = _FakeSession()
-    request = _optimize_request(save_set="RitualSet")
+    request = _optimize_request(save_sets=["RitualSet"])
 
     def objective(bin_data) -> float:
         return 1.0
@@ -1420,7 +1452,7 @@ def _db_noscan_request(**overrides):
         mode="noscan",
         shots_per_step=2,
         acquisition="strict",
-        save_set="UC_Test",
+        save_sets=["UC_Test"],
     )
     base.update(overrides)
     return ScanRequest.model_validate(base)
@@ -1477,7 +1509,7 @@ def test_reserved_boundary_fields_warn_and_are_not_applied(
     monkeypatch.setattr(legacy_resolver, "resolve_save_set", lambda name: save_set)
 
     with caplog.at_level(logging.WARNING):
-        run_scan_request(session, _db_noscan_request(save_set="X"), legacy_resolver)
+        run_scan_request(session, _db_noscan_request(save_sets=["X"]), legacy_resolver)
 
     # Exactly one reserved-not-honored warning, naming the device.
     reserved = [
@@ -1623,7 +1655,7 @@ def test_optimize_warns_on_reserved_boundary_fields(
     with caplog.at_level(logging.WARNING):
         run_scan_request(
             session,
-            _optimize_request(save_set="X"),
+            _optimize_request(save_sets=["X"]),
             legacy_resolver,
             objective=objective,
             suggester=object(),
@@ -1635,3 +1667,124 @@ def test_optimize_warns_on_reserved_boundary_fields(
     ]
     assert len(reserved) == 1
     assert "U_DG645_ShotControl" in reserved[0].getMessage()
+
+
+# ---------------------------------------------------------------------------
+# M4: multiple save sets union into one effective device set
+# ---------------------------------------------------------------------------
+
+
+def test_merge_save_sets_unions_devices_and_merges_overlap() -> None:
+    a = SaveSet(
+        name="A",
+        entries=[
+            SaveSetEntry(device="U_Cam", scalars=["MaxCounts"], setup=["r1"]),
+            SaveSetEntry(device="U_Slow", role="snapshot"),
+        ],
+    )
+    b = SaveSet(
+        name="B",
+        entries=[
+            SaveSetEntry(
+                device="U_Cam",
+                scalars=["Extra"],
+                images=True,
+                all_scalars=True,
+                setup=["r1", "r2"],
+            ),
+            SaveSetEntry(device="U_Aux", scalars=["Aux1"]),
+        ],
+    )
+    merged = merge_save_sets([a, b], name="merged")
+    by_device = {e.device: e for e in merged.entries}
+    # union of devices, first-appearance order across the list
+    assert [e.device for e in merged.entries] == ["U_Cam", "U_Slow", "U_Aux"]
+    cam = by_device["U_Cam"]
+    # scalars union order-preserving/deduped, images + all_scalars OR True,
+    # entry rituals unioned once (deduped)
+    assert cam.scalars == ["MaxCounts", "Extra"]
+    assert cam.images is True
+    assert cam.all_scalars is True
+    assert cam.setup == ["r1", "r2"]
+    # role: first non-None kept (U_Slow's snapshot survives; U_Cam has none)
+    assert cam.role is None
+    assert by_device["U_Slow"].role.value == "snapshot"
+
+
+def test_merge_save_sets_single_element_is_identity() -> None:
+    only = SaveSet(name="s", entries=[SaveSetEntry(device="U_A", scalars=["x"])])
+    assert merge_save_sets([only]) is only
+
+
+def test_two_save_sets_record_union_of_devices(legacy_resolver) -> None:
+    session = _FakeSession()
+    request = _noscan_request(save_sets=["UC_Test", "UC_Aux"])
+    run_scan_request(session, request, legacy_resolver)
+    # UC_Test = {U_Cam(sync), U_Cam2(sync), U_Slow(async)}, UC_Aux adds U_Aux
+    # (sync) and overlaps U_Cam (merged).  Free-run roles by position: first
+    # sync = reference detector, later sync = contributor, async = snapshot.
+    assert session.devices == [
+        ("U_Cam", "detector"),
+        ("U_Cam2", "contributor"),
+        ("U_Aux", "contributor"),
+        ("U_Slow", "snapshot"),
+    ]
+    # provenance: both named sets recorded
+    assert session.scan_kwargs["md"]["save_sets"] == ["UC_Test", "UC_Aux"]
+
+
+def test_two_save_sets_merge_overlapping_device_config(legacy_resolver) -> None:
+    # U_Cam is in both UC_Test (MaxCounts, images) and UC_Aux (Extra, images):
+    # the merged devices_config unions its scalars and keeps images on.
+    merged, _rituals = resolve_save_sets_and_rituals(
+        legacy_resolver, ["UC_Test", "UC_Aux"]
+    )
+    config = save_set_to_devices_config(merged)
+    assert config["U_Cam"]["variable_list"] == ["MaxCounts", "Extra"]
+    assert config["U_Cam"]["save_nonscalar_data"] is True
+    assert "U_Aux" in config
+
+
+def test_two_save_sets_ritual_deduped_once(legacy_resolver) -> None:
+    # UC_Aux's U_Cam entry names cam_ritual; RitualSet also names it.  Across
+    # the two named sets the ritual is collected once (deduped by plan name).
+    _merged, rituals = resolve_save_sets_and_rituals(
+        legacy_resolver, ["RitualSet", "UC_Aux"]
+    )
+    assert rituals["setup"].count("cam_ritual") == 1
+
+
+def test_telemetry_excludes_devices_from_all_named_sets(
+    monkeypatch, legacy_resolver
+) -> None:
+    # A device in ANY named set must be excluded from Tier-2 telemetry: pass
+    # the merged save set (all devices across all sets) to the selector.
+    policy = _M3cPolicy(
+        subscribed={
+            "U_Cam": ["MaxCounts"],  # in UC_Test → excluded
+            "U_Aux": ["Aux1"],  # in UC_Aux → excluded
+            "U_Press": ["Pressure"],  # in neither → telemetry
+        }
+    )
+    _install_policy(monkeypatch, policy)
+    session = _M3cSession()
+    run_scan_request(
+        session,
+        _db_noscan_request(save_sets=["UC_Test", "UC_Aux"]),
+        legacy_resolver,
+    )
+    assert session.telemetry_calls == [("U_Press", ["Pressure"])]
+    assert session.scan_kwargs["md"]["background_telemetry"] == {
+        "U_Press": ["Pressure"]
+    }
+
+
+def test_bridge_unions_save_sets(configs_root) -> None:
+    # The GUI-bridge path resolves the list and unions devices (still refusing
+    # rituals/actions/multi-axis elsewhere — out of scope here).
+    save_set = resolve_save_sets_checked(
+        ConfigsRepoResolver("LegacyExp", experiments_root=configs_root),
+        ["UC_Test", "UC_AuxPlain"],
+    )
+    devices = {e.device for e in save_set.entries}
+    assert devices == {"U_Cam", "U_Cam2", "U_Slow", "U_Aux"}

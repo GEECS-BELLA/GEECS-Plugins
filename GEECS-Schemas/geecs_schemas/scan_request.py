@@ -39,7 +39,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional, Union
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from geecs_schemas._base import SchemaModel, VersionedSchemaModel
 
@@ -364,7 +364,7 @@ class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
     Fill in the mode (sweep / stand still / optimize), the axis (or axes) to
-    sweep, how many shots per position, and the names of the save set,
+    sweep, how many shots per position, and the names of the save sets,
     trigger profile, and action plans to use.  Saving a request you like
     *is* a preset.
 
@@ -376,10 +376,14 @@ class ScanRequest(VersionedSchemaModel):
 
     Notes
     -----
-    Name-valued fields (``save_set``, ``trigger_profile``, entries in
+    Name-valued fields (``save_sets``, ``trigger_profile``, entries in
     ``actions``) are resolved against the experiment's config library at
     submission time; this model checks shape and mode consistency, not name
-    existence.
+    existence.  ``save_sets`` is a list — the engine resolves each named set
+    and **unions** their devices into the recorded device set (a device in
+    more than one set is merged), so operators mix and match named
+    diagnostic groups per scan.  A bare string is accepted for the
+    single-set case and stored as a one-element list.
 
     v1 grid semantics are a plain outer product in list order.  Traversal
     ordering options (snake/raster, per-axis direction) are deliberately not
@@ -419,12 +423,14 @@ class ScanRequest(VersionedSchemaModel):
             "and matches devices up by timestamp."
         ),
     )
-    save_set: Optional[str] = Field(
-        None,
+    save_sets: list[str] = Field(
+        default_factory=list,
         description=(
-            "Name of the save set listing the devices this scan REQUIRES — "
-            "the ones that get guarantees (completeness, dialogs, images, "
-            "rituals). Unset means no required devices beyond scan "
+            "Names of the save sets — reusable named device groups — "
+            "recorded for this scan; devices are unioned across them. Each "
+            "names the devices that get guarantees (completeness, dialogs, "
+            "images, rituals). A bare string is accepted and stored as a "
+            "one-element list. Empty means no required devices beyond scan "
             "bookkeeping."
         ),
     )
@@ -483,6 +489,30 @@ class ScanRequest(VersionedSchemaModel):
             "allowed with) mode 'optimize'."
         ),
     )
+
+    @field_validator("save_sets", mode="before")
+    @classmethod
+    def _coerce_save_sets(cls, value: object) -> object:
+        """Coerce a bare save-set name to a single-element list.
+
+        ``save_sets="Amp4In"`` and ``save_sets=["Amp4In"]`` both validate;
+        the canonical stored form is always the list. Anything else (a real
+        list, or a value of the wrong type) is passed through unchanged for
+        the normal list validation to accept or reject.
+
+        Parameters
+        ----------
+        value : object
+            The raw ``save_sets`` value before validation.
+
+        Returns
+        -------
+        object
+            ``[value]`` when *value* is a string, otherwise *value* unchanged.
+        """
+        if isinstance(value, str):
+            return [value]
+        return value
 
     @model_validator(mode="after")
     def _check_mode_consistency(self) -> "ScanRequest":

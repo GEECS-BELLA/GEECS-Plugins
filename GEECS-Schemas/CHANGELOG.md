@@ -5,6 +5,29 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-10
+
+### Changed
+
+- **`ScanRequest.save_set` renamed to `save_sets: list[str]`** (breaking-ish
+  field rename). A scan request now references a **list** of named save sets
+  instead of one, so operators mix and match named diagnostic groups (laser
+  cams, aux diagnostics, e-beam profiles) per scan; the engine resolves each
+  named set and unions their devices. A before-validator coerces a bare
+  string to a single-element list, so `save_sets="Amp4In"` and
+  `save_sets=["Amp4In"]` both validate (canonical stored form is the list) —
+  single-set ergonomics are preserved. The "a step/noscan request needs a
+  save set" rule is unchanged (still a runtime check in `run_scan_request`,
+  now adapted to the empty-list case). No serialized alias is kept.
+- **`convert_scan_preset` emits `save_sets = <referenced element names>`**
+  instead of a single synthetic per-preset save set. The legacy preset's
+  `Devices` list maps to `save_sets` verbatim and the engine unions them at
+  run time — the synthetic merged set is no longer needed. `PresetConversion`
+  still offers `composed_save_set` as a convenience for callers that want the
+  pre-merged set as one object; the converted request no longer depends on it.
+- Regenerated `docs/geecs_schemas/schema_reference.md` and the
+  `focuscan_scan_request.json` golden for the renamed field.
+
 ## [0.7.0] - 2026-07-09
 
 ### Changed

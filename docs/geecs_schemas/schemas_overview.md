@@ -127,7 +127,7 @@ flowchart LR
     SCAN(("the scan"))
 
     SR -- "axes: jet_z, ..." --> SV
-    SR -- "save_set: baseline" --> SS
+    SR -- "save_sets: [baseline, ...]" --> SS
     SR -- "trigger_profile: htu" --> TP
     SR -- "actions: [...]" --> AP
     SV --> SCAN
