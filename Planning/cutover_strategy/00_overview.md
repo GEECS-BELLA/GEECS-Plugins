@@ -91,11 +91,22 @@ every legacy engine module mapped; see PR discussion).
   the keep-list to the cut-list** (sequence G-actions before or with the
   PR that deletes them).
 
-Known follow-ups that do NOT block the gut: `geecs_python_api` remains a
-GUI dependency (ScanDevice live readback/manual-set in the main window, DB
-lookups, error types) — it drops at M5 at the earliest, not here. Verify
-GeecsBluesky's s-file export covers every scan mode relied on
-(noscan/1-D/optimization/background) before G1 removes the legacy producer.
+Known follow-ups that do NOT block the gut:
+
+- **`geecs_python_api` in the OLD GUI is left untouched and dies with it
+  at cutover** — its usages (ScanDevice live readback/manual-set, DB
+  autocompletes, error types) are not worth replacing in code that is
+  being retired. **GEECS-Console never acquires the dependency**
+  (decided 2026-07-10): manual set/readback goes through gateway PVs
+  (CA monitor on the readback, put to ``:SP`` riding GEECS's native
+  blocking set), DB autocompletes through **`GeecsDb`** (the clean
+  interface), error types from the geecs-bluesky/gateway exception tree.
+  One capability note: the ScanDevice path also handled *composite*
+  manual-set; GEECS-Console's manual panel is scalar-only at birth
+  (composites arrive with the pseudo-variable runtime, if ever).
+- Verify GeecsBluesky's s-file export covers every scan mode relied on
+  (noscan/1-D/optimization/background) before G1 removes the legacy
+  producer.
 
 ## M6 = a per-experiment deployment event, not a code event
 
@@ -135,10 +146,9 @@ gateway host.
   2026-07-10. The control-room word for the operator front-end, distinct
   from the `geecs-bluesky` library. (`geecs-bluesky-scanner` rejected as
   too close to `geecs-bluesky`.)
-- Day-1 dependency target: PySide6 + geecs-bluesky + geecs-schemas —
-  decide whether the manual set/readback panel goes through the gateway
-  (no `geecs_python_api` dependency from birth) or carries ScanDevice
-  temporarily.
+- **Day-1 dependencies: PySide6 + geecs-bluesky + geecs-schemas.
+  No `geecs_python_api`, ever** (decided 2026-07-10) — manual
+  set/readback via gateway PVs, DB autocompletes via `GeecsDb`.
 
 ## TDMS (decided 2026-07-10)
 
