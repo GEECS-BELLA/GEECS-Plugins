@@ -27,6 +27,7 @@ from geecs_schemas import (
     SaveSet,
     SaveSetEntry,
     ScanRequest,
+    PseudoScanVariable,
     ScanVariable,
     TriggerProfile,
 )
@@ -453,6 +454,44 @@ def test_unknown_action_name_still_fails_at_reinitialize() -> None:
     request = _noscan_request(actions={"setup": ["prep"]})
     with pytest.raises(GeecsConfigurationError, match="prep"):
         scanner.reinitialize(request, resolver=_resolver())  # name unknown
+
+
+def test_unknown_trigger_variant_fails_at_reinitialize() -> None:
+    """An unknown trigger_variant fails at reinitialize, not in the scan thread."""
+    profile = TriggerProfile(
+        name="HTU",
+        states={
+            "SCAN": [
+                {
+                    "device": "U_DG645_ShotControl",
+                    "variable": "Trigger.Source",
+                    "value": "External rising edges",
+                }
+            ]
+        },
+    )
+    scanner = _make_scanner(_FakeSession())
+    request = _noscan_request(trigger_profile="HTU", trigger_variant="typo")
+    with pytest.raises(GeecsConfigurationError, match="typo"):
+        scanner.reinitialize(
+            request, resolver=_resolver(trigger_profiles={"HTU": profile})
+        )
+
+
+def test_pseudo_scan_variable_fails_at_reinitialize() -> None:
+    """A pseudo (composite) variable is refused at reinitialize, not in the thread."""
+    pseudo = PseudoScanVariable(
+        kind="pseudo",
+        targets=[{"target": "U_X:Pos", "forward": "composite_var"}],
+        mode="absolute",
+    )
+    scanner = _make_scanner(_FakeSession())
+    request = _noscan_request(
+        mode="step",
+        axes=[{"variable": "combo", "positions": {"values": [0.0, 1.0]}}],
+    )
+    with pytest.raises(NotImplementedError, match="pseudo"):
+        scanner.reinitialize(request, resolver=_resolver(variables={"combo": pseudo}))
 
 
 def test_defaults_not_applied_twice(monkeypatch) -> None:

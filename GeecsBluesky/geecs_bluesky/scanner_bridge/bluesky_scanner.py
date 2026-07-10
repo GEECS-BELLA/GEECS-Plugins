@@ -78,8 +78,10 @@ from geecs_bluesky.scan_request_runner import (
     ConfigsRepoResolver,
     resolve_and_validate_actions,
     resolve_defaults_for,
+    resolve_movable_target,
     resolve_save_sets_and_rituals,
     run_scan_request,
+    trigger_writes_from_profile,
 )
 from geecs_bluesky.scan_log import scan_log
 from geecs_bluesky.session import GeecsSession, _positions
@@ -354,10 +356,16 @@ class BlueskyScanner:
             )
         resolve_save_sets_and_rituals(resolver, validated.save_sets)
         if validated.trigger_profile:
-            resolver.resolve_trigger_profile(validated.trigger_profile)
+            # Adapt (and discard) the writes so an unknown trigger_variant
+            # fails here, not in the scan thread.
+            profile = resolver.resolve_trigger_profile(validated.trigger_profile)
+            trigger_writes_from_profile(profile, validated.trigger_variant)
         if validated.mode is ScanRequestMode.STEP:
             for axis in validated.axes:
-                resolver.resolve_scan_variable(axis.variable)
+                # Resolve to an executable target so pseudo (composite)
+                # variables are refused here, not in the scan thread.
+                spec = resolver.resolve_scan_variable(axis.variable)
+                resolve_movable_target(spec, axis.variable)
 
         # Store the ORIGINAL pre-defaults request (see docstring).
         self._scan_request = request
