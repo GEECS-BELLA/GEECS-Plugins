@@ -28,6 +28,7 @@ __all__ = [
     "GeecsTriggerTimeoutError",
     "GeecsQuiescenceTimeoutError",
     "GeecsMotorTimeoutError",
+    "GeecsConfirmTimeoutError",
     "GeecsT0SyncError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",

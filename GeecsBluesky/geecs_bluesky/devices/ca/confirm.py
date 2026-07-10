@@ -28,6 +28,19 @@ Defaults come from a live characterization of
 0.01 A, response lag <1 s, settles within ~3 frames.  ``tolerance=0.05``
 (5x the observed jitter) and ``timeout=10.0`` (comfortably past the settle
 time) are sized from those numbers, not guessed.
+
+Recorded event-row column, deliberately
+----------------------------------------
+As a scan axis, this device's own readable data is the **written** variable's
+streamed value (``variable``, e.g. ``Current_Limit.Ch1``) — the same
+"motor column" shape as ``CaSettable``/``CaMotor``.  The **confirming**
+variable (``Current.Ch1``) is intentionally *not* a child readable here (see
+below) and so does not appear in the event row unless it is separately in the
+scan's save set.  For an operator-facing "EMQ current" scan this can be
+surprising — the recorded "motor" value is the commanded limit, not the
+measured current that was actually confirmed — so include the confirming
+variable in the save set when the measured value itself matters to the
+analysis, not just the pass/fail of confirmation.
 """
 
 from __future__ import annotations
@@ -123,6 +136,7 @@ class CaConfirmSettable(CaSettable):
         )
         self._confirm_device_name = confirm_device
         self._confirm_variable = confirm_variable
+        self._datatype = datatype
         self._tolerance = tolerance
         self._timeout = timeout
 
@@ -163,7 +177,7 @@ class CaConfirmSettable(CaSettable):
         deadline = loop.time() + self._timeout
         while True:
             current: ConfirmValue = await self._confirm_readback.get_value()
-            if _matches(current, value, self._tolerance):
+            if _matches(current, value, self._tolerance, self._datatype):
                 logger.debug(
                     "%s: confirmed %s/%s = %r (target=%r, tol=%.4g)",
                     self.name,
@@ -192,14 +206,18 @@ class CaConfirmSettable(CaSettable):
         """Per-scan teardown hook — no persistent subscription to release."""
 
 
-def _matches(current: ConfirmValue, target: ConfirmValue, tolerance: float) -> bool:
-    """Analog match by tolerance for numbers, exact equality otherwise.
+def _matches(
+    current: ConfirmValue, target: ConfirmValue, tolerance: float, datatype: type
+) -> bool:
+    """Analog match by tolerance for a numeric ``datatype``, exact equality otherwise.
 
-    A discrete (string/enum) confirming variable — e.g. a future
-    ``CaShutter``'s inserted/removed limit switch — matches by equality;
-    an analog (float) one matches within ``tolerance``.
+    Dispatches on the device's declared ``datatype``, not on whether *current*
+    happens to be parseable as a float: a discrete (``str``) confirming
+    variable — e.g. a future ``CaShutter``'s inserted/removed limit switch —
+    must match by exact equality even when its label looks numeric (``"1.0"``
+    vs ``"1.04"``), never by coercing both sides to float and comparing within
+    tolerance.
     """
-    try:
-        return abs(float(current) - float(target)) <= tolerance
-    except (TypeError, ValueError):
+    if datatype is str:
         return current == target
+    return abs(float(current) - float(target)) <= tolerance

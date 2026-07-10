@@ -161,7 +161,15 @@ class GeecsSession:
         )
 
     def _move_movables(self, variables: dict[str, Any], targets: dict) -> None:
-        """Drive movables to *targets* outside a plan (best-effort)."""
+        """Drive movables to *targets* outside a plan (best-effort).
+
+        Goes through each movable's own ``set()`` (the Bluesky ``Movable``
+        protocol), not the raw ``:SP`` signal directly — a bypass here would
+        skip ``CaMotor``'s readback poll and, worse, ``CaConfirmSettable``'s
+        confirming-variable poll: the exact "the limit register converged but
+        nothing physically moved" failure this device exists to catch would
+        go silently unconfirmed on every optimize on_finish move.
+        """
         import asyncio
 
         for name, value in targets.items():
@@ -170,7 +178,7 @@ class GeecsSession:
                 continue
 
             async def _move(m=movable, v=float(value)) -> None:
-                await m._setpoint.set(v)
+                await m.set(v)
 
             try:
                 asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(

@@ -287,6 +287,32 @@ async def test_confirm_discrete_match_is_exact_equality() -> None:
     await asyncio.wait_for(device.set("inserted"), timeout=1.0)
 
 
+async def test_confirm_discrete_match_rejects_numeric_looking_near_miss() -> None:
+    """A str confirm target does not tolerance-match numeric-looking labels.
+
+    Review finding (PR #477): the old ``_matches`` tried ``float()`` on both
+    sides before falling back to equality, so a ``datatype=str`` confirm
+    target could accept "1.04" as matching "1.0" under the default
+    tolerance — silently reintroducing analog matching for a discrete
+    variable. Dispatch must be on the declared ``datatype``, not on whether
+    the strings happen to be parseable as numbers.
+    """
+    device = CaConfirmSettable(
+        "U_Shutter",
+        "Command",
+        confirm_device="U_Shutter",
+        confirm_variable="LimitSwitch",
+        experiment="Undulator",
+        name="shutter",
+        timeout=0.3,
+        datatype=str,
+    )
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, "1.04")
+    with pytest.raises(GeecsConfirmTimeoutError):
+        await device.set("1.0")
+
+
 # --------------------------------------------------------------------------
 # CaTriggerable
 # --------------------------------------------------------------------------

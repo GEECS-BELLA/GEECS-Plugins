@@ -25,6 +25,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `kind`) for both `run_scan_request`'s grid-axis and optimize-mode movable
   construction. New `GeecsConfirmTimeoutError`.
 
+### Fixed
+
+Review pass on `CaConfirmSettable` (PR #477):
+
+- **Optimize `on_finish` now goes through the movable's `set()`.**
+  `GeecsSession._move_movables` (used for `on_finish="initial"`/`"best"`)
+  used to put directly to `m._setpoint`, bypassing every movable's own
+  completion semantics — for `CaConfirmSettable` that meant the exact "the
+  limit register converged but nothing physically moved" failure this device
+  exists to catch would go silently unconfirmed (only a warning if the raw
+  put itself failed) on the final optimize move.
+- **Discrete confirm matching no longer coerces numeric-looking strings.**
+  `_matches` tried `float()` on both sides before falling back to equality,
+  so a `datatype=str` confirm target could tolerance-match `"1.04"` against
+  `"1.0"` — silently reintroducing analog matching for a discrete variable.
+  Dispatch is now on the device's declared `datatype`, never on whether the
+  values happen to be parseable as numbers.
+- **`GeecsConfirmTimeoutError` added to `exceptions.__all__`** (it was
+  defined but omitted from the exported exception surface).
+
 ## [0.24.1] - 2026-07-09
 
 ### Documentation
