@@ -182,6 +182,12 @@ Keep the event/progress/dialog seam **as-is** — it is downstream of both
 
 ---
 
+> **2026-07-10 strategy update:** steps (ii)–(iv) below are superseded —
+> `feat/vision-v1` is now treated as a fully parallel branch and the legacy
+> engine is deleted on it directly (no coexistence flag). See
+> `Planning/cutover_strategy/00_overview.md` for the gut sequence (G1–G3)
+> and the per-facility deployment plan. Step (i) is unaffected.
+
 ## 4. Incremental sequence
 
 Each step leaves the GUI working and the legacy path fully intact. Each is
