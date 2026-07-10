@@ -20,7 +20,9 @@
   "description": "Focus Scan",
   "mode": "step",
   "optimization": null,
-  "save_set": "00_focuscan",
+  "save_sets": [
+    "LP-FocusDiagnostics"
+  ],
   "schema_version": 1,
   "shots_per_step": 10,
   "trigger_profile": null,

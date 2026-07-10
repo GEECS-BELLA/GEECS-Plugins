@@ -35,6 +35,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     field_validator,
 )
 
@@ -245,6 +246,12 @@ class DiagnosticAnalysisConfig(BaseModel):
     output_name: Optional[str] = None
     metric_suffix: Optional[str] = None
     scan: Optional[Dict[str, Any]] = None
+    _source_id: Optional[str] = PrivateAttr(default=None)
+
+    @property
+    def source_id(self) -> Optional[str]:
+        """Filename-derived diagnostic ID when loaded from disk, if known."""
+        return self._source_id
 
     @property
     def effective_output_name(self) -> str:

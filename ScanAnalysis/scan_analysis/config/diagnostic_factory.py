@@ -66,8 +66,10 @@ def create_scan_analyzer(
         is parsed into a :class:`ScanRuntimeConfig`.
     id : str, optional
         Task-queue ID for the analyzer instance. Defaults to
-        ``diag.name``. The group loader passes the filename stem here
-        (which may differ from ``diag.name``).
+        ``diag.source_id`` when the diagnostic was loaded from a YAML
+        file, otherwise ``diag.name``. The group loader passes the
+        filename stem here explicitly (which may differ from
+        ``diag.name``).
     priority : int, optional
         Effective execution priority. Defaults to the diagnostic's own
         ``scan.priority``. The group loader passes the
@@ -102,7 +104,8 @@ def create_scan_analyzer(
     # against the scan-side runtime model here.
     scan_cfg = ScanRuntimeConfig.model_validate(diag.scan or {})
 
-    effective_id = id if id is not None else diag.name
+    source_id = getattr(diag, "source_id", None)
+    effective_id = id if id is not None else source_id or diag.name
     effective_priority = priority if priority is not None else scan_cfg.priority
 
     return _wrap_in_scan_analyzer(

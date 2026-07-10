@@ -113,3 +113,45 @@ class TestLineStitcherMultiDeviceLoading:
         assert x.min() == pytest.approx(0.0)
         assert x.max() == pytest.approx(14.0)
         assert (np.diff(x) >= 0).all(), "stitched output not sorted by x"
+
+    def test_analyze_image_file_keeps_available_segments_when_sibling_missing(
+        self, tmp_path, caplog
+    ):
+        """A missing sibling is missing data, not a failed stitched product."""
+        scan_dir = tmp_path / "scans" / "Scan001"
+        master = scan_dir / "DevA" / "Scan001_DevA_001.tsv"
+        sib2 = scan_dir / "DevC" / "Scan001_DevC_001.tsv"
+
+        self._write_tsv(master, np.arange(0.0, 5.0, 1.0), np.full(5, 10.0))
+        self._write_tsv(sib2, np.arange(10.0, 15.0, 1.0), np.full(5, 30.0))
+
+        stitcher = LineStitcher(
+            line_config=self._make_line_config(),
+            sibling_devices=["DevB", "DevC"],
+            name="stitched",
+        )
+
+        with caplog.at_level("WARNING"):
+            result = stitcher.analyze_image_file(master)
+
+        assert result.line_data is not None
+        x = result.line_data[:, 0]
+        y = result.line_data[:, 1]
+        assert np.any(y == 10.0), "master segment dropped"
+        assert not np.any(y == 20.0), "missing DevB segment should not appear"
+        assert np.any(y == 30.0), "available DevC segment dropped"
+        assert x.min() == pytest.approx(0.0)
+        assert x.max() == pytest.approx(14.0)
+        assert (np.diff(x) >= 0).all(), "partial stitched output not sorted by x"
+
+        assert result.metadata["loaded_devices"] == ["DevA", "DevC"]
+        assert result.metadata["missing_sibling_devices"] == ["DevB"]
+        assert (
+            "Scan001/DevB/Scan001_DevB_001.tsv"
+            in result.metadata["missing_sibling_files"][0]
+        )
+        assert "Missing sibling data for DevB" in result.metadata["warnings"][0]
+        assert "Missing data file for device 'DevB'" in caplog.text
+
+        stitched_path = scan_dir / "stitched" / "Scan001_stitched_001.tsv"
+        assert stitched_path.exists()

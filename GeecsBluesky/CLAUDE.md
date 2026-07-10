@@ -421,6 +421,28 @@ overriding explicit values — and every applied default is recorded into
 the run metadata for provenance (closeout defaults append *after* the
 scan's own since geecs-schemas 0.2.0 — mirrored teardown).
 
+**M4 step 0 (0.25.0) — multiple save sets union.**  `ScanRequest` now carries
+`save_sets: list[str]` (was the single `save_set`); a bare string still
+validates (coerced to a one-element list by a schema before-validator).
+`run_scan_request` (and the optimize path) resolve **each** named save set and
+union them into one effective `SaveSet` (`merge_save_sets`) before deriving the
+recorded device set, so operators mix and match named diagnostic groups per
+scan.  Per-device union rule (documented on `merge_save_sets` and in the
+`scan_request_runner` module docstring): `scalars` union
+order-preserving/deduped, `images`/`db_scalars`/`all_scalars` OR together (True
+wins), the single non-`None` `role` used — **conflicting explicit roles across
+the sets raise** (role sets the pacemaker/contributor/snapshot semantics, so
+overlapping sets must not disagree) — entry-level `setup`/`closeout` ritual name
+lists union (deduped).  Entry rituals are collected across *all* named sets,
+deduped by plan name so a shared ritual runs once
+(`resolve_save_sets_and_rituals`).  Everything downstream operates on the
+merged set: `save_set_to_devices_config`, the reserved-boundary warning, and —
+crucially — **telemetry exclusion** (`select_telemetry_variables` gets the
+merged set, so Tier-2 telemetry excludes devices in *any* named set).  Run
+metadata records the list under `save_sets`.  The GUI bridge is list-aware via
+`resolve_save_sets_checked` (unions devices; still refuses entry rituals /
+actions / multi-axis — those remain a later GUI-submission milestone).
+
 **M3c (0.24.0) — the DB-integration runtime tier, GET-SIDE ONLY.**  Two
 get-side capabilities are live, all gated by schema flags that already
 existed (the schema fields are untouched — only descriptions changed); the
@@ -437,7 +459,8 @@ the DB blipped):
   policy (GUI bridge / off-network) only the explicit list is recorded — M3b
   behavior, strictly additive.
 - **Background telemetry (Tier 2).**  Every live device with a `get='yes'`
-  variable not in the save set → soft `CaTelemetryReadable` columns
+  variable not in *any* named save set (the merged set — see M4 above) → soft
+  `CaTelemetryReadable` columns
   (`telemetry_<device>-…`): read-only, never waited on (a failed read is a
   dtype-appropriate null cell — NaN for numeric, `""` for string — and a
   dead-at-start device is dropped with a log line via `session.telemetry`

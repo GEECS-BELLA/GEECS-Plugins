@@ -25,10 +25,13 @@ Mapping:
 - ``Background`` → ``mode: noscan`` + ``background: true`` — background was
   never a distinct acquisition behaviour, only a metadata flag.
 - ``Info`` → ``description``.
-- ``Devices`` names several save *elements*; a :class:`ScanRequest` names
-  one save *set*.  When the converted elements are supplied, they are
-  composed into a single save set named after the preset; otherwise the
-  referenced element names are returned for later composition.
+- ``Devices`` names several save *elements*; a :class:`ScanRequest` names a
+  **list** of save sets (``save_sets``) and the engine unions their devices
+  at run time.  The converted request's ``save_sets`` is therefore the list
+  of referenced element names verbatim — no synthetic per-preset merged set
+  is needed.  For callers that still want the pre-merged set as one object,
+  passing the converted elements composes ``composed_save_set`` as a
+  convenience (:func:`compose_save_sets`); the request does not depend on it.
 
 Not expressed by legacy presets (left at schema defaults): ``acquisition``,
 ``trigger_profile``, ``actions``.
@@ -71,12 +74,14 @@ class PresetConversion:
     Attributes
     ----------
     scan_request : ScanRequest
-        The converted request; its ``save_set`` names the composed set.
+        The converted request; its ``save_sets`` list names the referenced
+        save elements (the engine unions them at run time).
     element_names : list of str
         The legacy save-element names the preset referenced.
     composed_save_set : SaveSet or None
-        The union of those elements as one save set — only when the caller
-        supplied the converted elements.
+        The union of those elements as one save set — a convenience, only
+        when the caller supplied the converted elements; the request itself
+        does not depend on it.
     notes : list of str
         Non-fatal information recorded during conversion.
     """
@@ -212,11 +217,15 @@ def convert_scan_preset(
             "the legacy preset dialect.)"
         )
 
+    # ``Devices`` names the referenced save elements; the request's save_sets
+    # is that list verbatim (the engine unions them at run time — no synthetic
+    # per-preset merged set).
+    element_names = list(document.get("Devices") or [])
     request: dict = {
         "mode": _MODE_MAP[legacy_mode],
         "description": document.get("Info") or "",
         "background": legacy_mode == "Background",
-        "save_set": preset_name,
+        "save_sets": element_names,
     }
     if legacy_mode == "1D Scan":
         for key in ("Variable", "Start", "Stop", "Step Size", "Shot per Step"):
@@ -243,7 +252,6 @@ def convert_scan_preset(
             )
         request["shots_per_step"] = document["Num Shots"]
 
-    element_names = list(document.get("Devices") or [])
     notes: list[str] = []
     composed: Optional[SaveSet] = None
     if save_sets is not None:

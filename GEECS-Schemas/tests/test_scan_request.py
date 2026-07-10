@@ -23,7 +23,7 @@ def make_step_request(**overrides):
             }
         ],
         "shots_per_step": 10,
-        "save_set": "undulator_baseline",
+        "save_sets": ["undulator_baseline"],
         "trigger_profile": "htu_shot_control",
     }
     base.update(overrides)
@@ -67,13 +67,30 @@ class TestScanRequest:
                 ],
                 "shots_per_step": 10,
                 "acquisition": "free_run",
-                "save_set": "undulator_baseline",
+                "save_sets": ["undulator_baseline", "aux_diagnostics"],
                 "trigger_profile": "htu_laser_off",
                 "actions": {"setup": ["pre_scan_ebeam"], "closeout": []},
                 "description": "jet z scan with probe",
             }
         )
         assert request.actions.setup == ["pre_scan_ebeam"]
+        assert request.save_sets == ["undulator_baseline", "aux_diagnostics"]
+
+    def test_save_sets_bare_string_coerces_to_list(self):
+        # Single-set ergonomics: a bare string validates to a one-element list
+        # (canonical stored form is always the list).
+        request = make_step_request(save_sets="Amp4In")
+        assert request.save_sets == ["Amp4In"]
+
+    def test_save_sets_list_preserved(self):
+        request = make_step_request(save_sets=["laser_cams", "ebeam_profiles"])
+        assert request.save_sets == ["laser_cams", "ebeam_profiles"]
+
+    def test_save_sets_absent_defaults_empty(self):
+        # The schema does not require save_sets; the "needs a save set" rule
+        # for step/noscan is a runtime check in run_scan_request, not here.
+        request = ScanRequest.model_validate({"mode": "noscan", "shots_per_step": 5})
+        assert request.save_sets == []
 
     def test_two_axis_grid_round_trip(self):
         request = make_step_request(

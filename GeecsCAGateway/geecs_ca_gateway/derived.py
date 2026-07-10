@@ -37,7 +37,9 @@ _ALLOWED_FUNCS = {
 _ALLOWED_CONSTS = {"e": math.e, "pi": math.pi, "tau": math.tau}
 _RESERVED_NAMES = set(_ALLOWED_FUNCS) | set(_ALLOWED_CONSTS)
 _ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)
-_ALLOWED_UNARYOPS = (ast.UAdd, ast.USub)
+_ALLOWED_UNARYOPS = (ast.UAdd, ast.USub, ast.Not)
+_ALLOWED_BOOLOPS = (ast.And, ast.Or)
+_ALLOWED_CMPOPS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
 GATEWAY_CONFIG_FOLDER = "gateway"
 DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
 
@@ -130,7 +132,7 @@ def default_derived_channels_path(experiment: str) -> Path | None:
 
 
 class ExpressionEvaluator:
-    """Compile and evaluate a restricted numeric expression."""
+    """Compile and evaluate a restricted numeric/status expression."""
 
     def __init__(self, expression: str, symbols: set[str]) -> None:
         self.expression = expression
@@ -140,10 +142,15 @@ class ExpressionEvaluator:
         except SyntaxError as exc:
             raise DerivedExpressionError(str(exc)) from exc
         self._validate_node(tree)
+        self._coerce_bool_result = self._is_boolean_expression(tree.body)
         self._code = compile(tree, "<derived-channel>", "eval")
 
     def evaluate(self, values: dict[str, float]) -> float:
-        """Evaluate the expression with numeric input values."""
+        """Evaluate the expression with numeric input values.
+
+        Boolean/status expressions are accepted and stored as ``1.0``/``0.0``
+        on the derived float PV.
+        """
         missing = self.symbols - values.keys()
         if missing:
             raise KeyError(f"missing derived-channel input(s): {sorted(missing)}")
@@ -152,7 +159,16 @@ class ExpressionEvaluator:
         namespace.update(_ALLOWED_CONSTS)
         namespace.update(values)
         result = eval(self._code, {"__builtins__": {}}, namespace)  # noqa: S307
+        if self._coerce_bool_result:
+            return float(bool(result))
         return float(result)
+
+    @staticmethod
+    def _is_boolean_expression(node: ast.AST) -> bool:
+        """Return whether the expression's top-level result is boolean intent."""
+        return isinstance(node, (ast.BoolOp, ast.Compare)) or (
+            isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
+        )
 
     def _validate_node(self, node: ast.AST) -> None:
         if isinstance(node, ast.Expression):
@@ -171,6 +187,20 @@ class ExpressionEvaluator:
                 raise DerivedExpressionError("unsupported binary operator")
             self._validate_node(node.left)
             self._validate_node(node.right)
+            return
+        if isinstance(node, ast.BoolOp):
+            if not isinstance(node.op, _ALLOWED_BOOLOPS):
+                raise DerivedExpressionError("unsupported boolean operator")
+            for value in node.values:
+                self._validate_node(value)
+            return
+        if isinstance(node, ast.Compare):
+            self._validate_node(node.left)
+            for op in node.ops:
+                if not isinstance(op, _ALLOWED_CMPOPS):
+                    raise DerivedExpressionError("unsupported comparison operator")
+            for comparator in node.comparators:
+                self._validate_node(comparator)
             return
         if isinstance(node, ast.UnaryOp):
             if not isinstance(node.op, _ALLOWED_UNARYOPS):

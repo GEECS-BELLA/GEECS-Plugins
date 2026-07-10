@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.11.0] - 2026-07-09
+
+### Added
+
+- Cross-device derived channels with latest-value semantics. A derived channel
+  whose inputs span multiple source devices now recomputes when any input
+  source updates, uses the latest cached numeric values from the other inputs,
+  and requires `stale_after` to mark the output `INVALID/UDF` when any input is
+  missing or stale. The gateway status loop also reevaluates freshness so
+  completely quiet input sources cannot leave the last computed value looking
+  live indefinitely.
+- Boolean/comparison expressions for derived status PVs. Expressions such as
+  `pressure < 1e-5 and ready > 0` are accepted and publish as float values
+  `1.0` or `0.0`.
+
 ## [0.10.0] - 2026-07-09
 
 ### Added

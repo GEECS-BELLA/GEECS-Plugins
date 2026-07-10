@@ -66,7 +66,15 @@ def test_scan_request_noscan_runs_on_hardware() -> None:
     from geecs_schemas import ScanRequest
 
     experiment = os.environ.get("GEECS_HW_EXPERIMENT", "Undulator")
-    camera_save_set = os.environ.get("GEECS_HW_CAMERA", "Amp4In")
+    # One or more save sets, comma-separated — the engine unions their devices
+    # (M4 multi-save-set). Default is a single set, so single-set runs are
+    # unchanged; set e.g. GEECS_HW_CAMERA="Amp4In,AuxDiagnostics" to exercise
+    # the union on hardware.
+    save_sets = [
+        name.strip()
+        for name in os.environ.get("GEECS_HW_CAMERA", "Amp4In").split(",")
+        if name.strip()
+    ]
     trigger_profile = os.environ.get("GEECS_HW_TRIGGER_PROFILE", "HTU-LaserOFF")
     acquisition = os.environ.get("GEECS_HW_ACQUISITION", "strict")
     shots = int(os.environ.get("GEECS_HW_SHOTS", "5"))
@@ -77,9 +85,9 @@ def test_scan_request_noscan_runs_on_hardware() -> None:
             "mode": "noscan",
             "shots_per_step": shots,
             "acquisition": acquisition,
-            "save_set": camera_save_set,
+            "save_sets": save_sets,
             "trigger_profile": trigger_profile,
-            "description": "M3b hardware verification (test_scan_request_hardware)",
+            "description": "M4 hardware verification (test_scan_request_hardware)",
         }
     )
     resolver = ConfigsRepoResolver(experiment)

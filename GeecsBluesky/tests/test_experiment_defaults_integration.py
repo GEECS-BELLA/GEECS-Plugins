@@ -59,7 +59,7 @@ def test_experiment_defaults_fill_minimal_request_from_real_configs() -> None:
             "mode": "noscan",
             "shots_per_step": 3,
             "acquisition": "strict",
-            "save_set": os.environ.get("GEECS_HW_CAMERA", "Amp4In"),
+            "save_sets": [os.environ.get("GEECS_HW_CAMERA", "Amp4In")],
         }
     )
     assert minimal.trigger_profile is None

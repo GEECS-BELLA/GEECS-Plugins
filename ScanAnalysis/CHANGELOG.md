@@ -3,6 +3,32 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.0] — 2026-07-09
+
+### Added
+
+- `SingleDeviceScanAnalyzer` now writes analyzer-generated scalar updates to a
+  tab-delimited `ScanNNN_<analyzer_id>.txt` sidecar directly under
+  `analysis/ScanNNN/`. For configured analyzers, `<analyzer_id>` is the
+  diagnostic YAML filename stem used by the task queue status file. The
+  sidecar is indexed by `Shotnumber` and is written from the same scalar
+  update rows used for the legacy mutable `analysis/sNNN.txt` append, so
+  generated scalar values remain recoverable if the watched s-file copy is
+  deleted or regenerated.
+- `SingleDeviceScanAnalyzer` now logs analyzer-supplied result warnings from
+  the parent process after per-shot/per-bin workers return. This lets LiveWatch
+  surface incomplete-but-usable results such as `LineStitcher` shots with
+  missing sibling device files, while keeping the successful analysis state and
+  saved outputs.
+
+### Changed
+
+- `create_scan_analyzer()` now defaults analyzer ids to a loaded diagnostic's
+  filename-derived `source_id` when available, before falling back to
+  `diag.name`. Direct single-diagnostic runs now match group-loaded LiveWatch
+  runs for sidecar/status naming when the YAML filename differs from the
+  diagnostic `name`.
+
 ## [1.14.1] — 2026-07-06
 
 ### Changed
