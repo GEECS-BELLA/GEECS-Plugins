@@ -1,10 +1,9 @@
 """DerivedChannels — computed PV declarations for the CA gateway.
 
 This document declares operator-curated read-only PVs that the CA gateway
-computes from one source device's numeric push-frame values.  Use it for
-semantic quantities such as a Convectron pressure PV derived from a DAQ analog
-input voltage, where the result should be visible to Phoebus, archiving, and
-CA-backed clients like any other gateway readback.
+computes from numeric push-frame values.  Same-device inputs are evaluated from
+one coherent source frame.  Cross-device inputs use latest-value semantics and
+must declare a freshness window with ``stale_after``.
 """
 
 from __future__ import annotations
@@ -27,8 +26,8 @@ class DerivedInput(SchemaModel):
     device: str = Field(
         description=(
             "GEECS source device that provides this input variable, e.g. "
-            "'U_DaqPad1'. All inputs for one derived channel must come from "
-            "the same source device in schema version 1."
+            "'U_DaqPad1'. Inputs may span devices only when the derived "
+            "channel declares stale_after."
         )
     )
     variable: str = Field(
@@ -94,9 +93,18 @@ class DerivedChannel(SchemaModel):
     inputs: list[DerivedInput] = Field(
         min_length=1,
         description=(
-            "Input variables available to the expression. In schema version 1 "
-            "all inputs for a derived channel must come from one source device, "
-            "so the calculation is coherent within a single push frame."
+            "Input variables available to the expression. Inputs from one "
+            "source device are frame-coherent; inputs spanning devices use "
+            "latest-value semantics and require stale_after."
+        ),
+    )
+    stale_after: float | None = Field(
+        None,
+        gt=0,
+        description=(
+            "Maximum input age in seconds for latest-value derived channels. "
+            "Required when inputs span more than one source device. Leave unset "
+            "for same-device frame-coherent expressions."
         ),
     )
     experiment: str | None = Field(
@@ -154,18 +162,28 @@ class DerivedChannel(SchemaModel):
 
     @property
     def source_device(self) -> str:
-        """Return the single source device for this derived channel."""
+        """Return the first source device for backward-compatible consumers."""
         return self.inputs[0].device
+
+    @property
+    def source_devices(self) -> set[str]:
+        """Return the set of source devices for this derived channel."""
+        return {inp.device for inp in self.inputs}
+
+    @property
+    def is_cross_device(self) -> bool:
+        """Return whether this derived channel spans multiple source devices."""
+        return len(self.source_devices) > 1
 
     @model_validator(mode="after")
     def _validate_channel(self) -> "DerivedChannel":
         symbols = [inp.symbol for inp in self.inputs]
         if len(set(symbols)) != len(symbols):
             raise ValueError("derived-channel input symbols must be unique")
-        source_devices = {inp.device for inp in self.inputs}
-        if len(source_devices) != 1:
+        if self.is_cross_device and self.stale_after is None:
             raise ValueError(
-                "derived-channel inputs must come from one source device in v1"
+                "derived-channel stale_after is required when inputs span "
+                "multiple source devices"
             )
         return self
 
@@ -181,6 +199,7 @@ class DerivedChannels(VersionedSchemaModel):
         default_factory=list,
         description=(
             "Derived PVs to expose. Each entry computes one read-only float PV "
-            "from one source device's numeric push-frame values."
+            "from numeric push-frame values. Cross-device entries use "
+            "latest-value semantics with stale_after."
         ),
     )

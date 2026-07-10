@@ -464,7 +464,7 @@ A file of computed read-only PVs for the CA gateway.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `schema_version` | `int` | no | 1 | Format version of this config file. Leave at 1 — tools update this automatically when the file format changes. |
-| `derived_channels` | `list[DerivedChannel]` | no | empty | Derived PVs to expose. Each entry computes one read-only float PV from one source device's numeric push-frame values. |
+| `derived_channels` | `list[DerivedChannel]` | no | empty | Derived PVs to expose. Each entry computes one read-only float PV from numeric push-frame values. Cross-device entries use latest-value semantics with stale_after. |
 
 Example:
 
@@ -492,7 +492,8 @@ One read-only float PV computed from a numeric expression.
 | `device` | `str` | yes | — | Device component of the output PV, e.g. 'U_ChamberVac' for 'Undulator:U_ChamberVac:Pressure'. This may be semantic and does not need to be a real GEECS hardware device. |
 | `variable` | `str` | yes | — | Variable component of the output PV, e.g. 'Pressure'. The gateway normalizes it using the same rules as raw GEECS variables. |
 | `expression` | `str` | yes | — | Numeric formula for the output value, using input symbols and the gateway's restricted arithmetic subset. Example: '10**(v - 5)'. |
-| `inputs` | `list[DerivedInput]` | yes | — | Input variables available to the expression. In schema version 1 all inputs for a derived channel must come from one source device, so the calculation is coherent within a single push frame. |
+| `inputs` | `list[DerivedInput]` | yes | — | Input variables available to the expression. Inputs from one source device are frame-coherent; inputs spanning devices use latest-value semantics and require stale_after. |
+| `stale_after` | `float (optional)` | no | None | Maximum input age in seconds for latest-value derived channels. Required when inputs span more than one source device. Leave unset for same-device frame-coherent expressions. |
 | `experiment` | `str (optional)` | no | None | Optional experiment prefix override for the output PV. Leave unset to use the gateway's launched experiment. |
 | `pv` | `str (optional)` | no | None | Optional explicit output PV variable component. Leave unset to use the 'variable' field. |
 | `egu` | `str` | no | '' | Engineering units displayed by CA clients, e.g. 'Torr'. |
@@ -509,5 +510,5 @@ One source variable bound to a symbol in a derived-channel formula.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `symbol` | `str` | yes | — | Python-style symbol used in the expression, e.g. 'v' for a voltage input. Must be a valid identifier and must not shadow a reserved math function or constant. |
-| `device` | `str` | yes | — | GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. All inputs for one derived channel must come from the same source device in schema version 1. |
+| `device` | `str` | yes | — | GEECS source device that provides this input variable, e.g. 'U_DaqPad1'. Inputs may span devices only when the derived channel declares stale_after. |
 | `variable` | `str` | yes | — | GEECS source variable on the input device, e.g. 'Analog Input 10'. The gateway subscribes to it even if it is not exposed as its own raw readback PV. |

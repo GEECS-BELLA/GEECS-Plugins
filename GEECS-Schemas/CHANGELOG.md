@@ -5,6 +5,14 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-09
+
+### Changed
+
+- `DerivedChannels` now allows cross-device input sets when the derived channel
+  declares a positive `stale_after` freshness window. Same-device expressions
+  remain frame-coherent and do not require `stale_after`.
+
 ## [0.6.0] - 2026-07-09
 
 ### Changed
