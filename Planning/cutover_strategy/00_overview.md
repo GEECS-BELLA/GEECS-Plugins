@@ -131,11 +131,10 @@ gateway host.
 - **Toolkit: PySide6** (LGPL — this repo is public; Qt-official; Qt
   Designer `.ui` files keep the human-layout capability, and `.ui` XML is
   agent-editable).
-- **New top-level package** (clean separation; the old GUI package dies
-  whole at cutover). Name TBD — shortlist: `geecs-console` (recommended:
-  the control-room word for the operator front-end, distinct from the
-  `geecs-bluesky` library), `scan-console`, `beamline-console`.
-  `geecs-bluesky-scanner` rejected (too close to `geecs-bluesky`).
+- **New top-level package: `GEECS-Console` (`geecs_console`)** — decided
+  2026-07-10. The control-room word for the operator front-end, distinct
+  from the `geecs-bluesky` library. (`geecs-bluesky-scanner` rejected as
+  too close to `geecs-bluesky`.)
 - Day-1 dependency target: PySide6 + geecs-bluesky + geecs-schemas —
   decide whether the manual set/readback panel goes through the gateway
   (no `geecs_python_api` dependency from birth) or carries ScanDevice
