@@ -8,18 +8,21 @@ remains the foundation.
 ## The decision
 
 **The gut runs as a branch experiment with a clean abort.** A second
-integration branch (`feat/vision-v2` or similar) is cut from
-`feat/vision-v1`; the gut sequence and any greenfield-GUI work land THERE.
+integration branch — **`feat/greenfield-epics-bluesky-gui`** (named
+2026-07-10; carries the gut G1–G3 as well as the GUI work) — is cut from
+`feat/vision-v1`; the gut sequence and greenfield-GUI work land THERE.
 `feat/vision-v1` stays the known-good, coexistence-capable fallback.
 
 Branch discipline (strict, or the experiment fails by sync cost):
 
-- Syncs flow one way: master → v1 → v2. After the branch point, **v1
-  receives only master syncs and critical engine fixes; all new
-  development lands on v2.**
-- Path-independent work stays on v1: the deployment recipe, the step-(i)
-  hardware smoke, the s-file coverage check — an abort must lose nothing
-  operational.
+- Syncs flow one way: master → v1 → v2.
+- **The division is by path-dependence, not by date**: v1 continues to
+  receive everything BOTH futures need — gateway features (alarm limits,
+  derived channels, status PVs, …), schemas, GeecsBluesky engine fixes,
+  the deployment recipe, hardware smokes, the s-file coverage check. An
+  abort must strand nothing. Only work **exclusive to the gut/greenfield
+  direction** (GUI changes, legacy-engine deletion, anything touching
+  files the gut removes) lands on v2. v1→v2 merges flow routinely.
 - **Commit/abort checkpoint** (time-boxed — the abort option decays):
   after (a) G1 lands on v2 with the suite green, (b) G2-retrofit runs one
   real hardware scan, and (c) a greenfield screen-map + one working screen
@@ -76,13 +79,17 @@ every legacy engine module mapped; see PR discussion).
   `_build_session_devices` twin, exec_config duck-typing) once G2 lands.
   The bridge becomes a thin request adapter; the device-build twins
   reconcile here.
-- **G-actions — re-home manual actions** (decision pending, maintainer
-  leaning discussed): the ActionLibrary "perform action" feature is already
-  dark under Bluesky (`action_control = None`). Recommended: a
-  bluesky-native ActionControl running named `ActionPlan`s through the
-  engine's existing `compile_action_plan` + `CaActionSignalFactory` — turns
-  a feature regression into a schema consolidation. Until then the feature
-  stays dark, ActionManager stays alive for the dialog's condition checks.
+- **G-actions — re-home manual actions (DECIDED 2026-07-10: yes).**
+  Diagnosis confirmed: every piece already exists (ActionPlan schemas,
+  `compile_action_plan` plan stubs, `CaActionSignalFactory`, resolver-side
+  legacy-YAML conversion) — only the interactive entry point was never
+  wired. Scope: (1) `GeecsSession.run_action(name)` — resolve → compile →
+  prefetch signals → `RE(stub())`, outside any scan; (2) a bluesky-native
+  ActionControl adapter for the GUI, including `return_device_value`
+  re-homed onto a gateway PV read (condition checks + step-list live
+  gets). Once landed, **ActionManager + DeviceCommandExecutor move from
+  the keep-list to the cut-list** (sequence G-actions before or with the
+  PR that deletes them).
 
 Known follow-ups that do NOT block the gut: `geecs_python_api` remains a
 GUI dependency (ScanDevice live readback/manual-set in the main window, DB
