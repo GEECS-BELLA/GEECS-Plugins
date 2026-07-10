@@ -258,7 +258,7 @@ def test_scan_request_noscan_parity_with_exec_config(monkeypatch) -> None:
             "mode": "noscan",
             "shots_per_step": 3,
             "acquisition": "free_run",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "description": "stats run",
         }
     )
@@ -294,7 +294,7 @@ def test_scan_request_step_uses_resolved_variable_kind(monkeypatch) -> None:
             "mode": "step",
             "shots_per_step": 2,
             "acquisition": "free_run",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "axes": [{"variable": "jet_z", "positions": {"values": [4.0, 4.5, 6.0]}}],
         }
     )
@@ -334,7 +334,7 @@ def test_scan_request_trigger_profile_becomes_shot_control(monkeypatch) -> None:
             "mode": "noscan",
             "shots_per_step": 1,
             "acquisition": "free_run",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "trigger_profile": "HTU",
         }
     )
@@ -358,7 +358,7 @@ def test_multi_axis_request_refused_at_reinitialize() -> None:
     request = ScanRequest.model_validate(
         {
             "mode": "step",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "axes": [
                 {"variable": "a", "positions": {"start": 0, "end": 1, "step": 1}},
                 {"variable": "b", "positions": {"start": 0, "end": 1, "step": 1}},
@@ -375,7 +375,7 @@ def test_actions_validated_then_refused_at_reinitialize() -> None:
     request = ScanRequest.model_validate(
         {
             "mode": "noscan",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "actions": {"setup": ["prep"]},
         }
     )
@@ -390,7 +390,7 @@ def test_optimize_request_refused_at_reinitialize() -> None:
     request = ScanRequest.model_validate(
         {
             "mode": "optimize",
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "optimization": {
                 "variables": {"jet_z": [0.0, 1.0]},
                 "evaluator": {"module": "m", "class": "C"},
@@ -413,7 +413,7 @@ def test_exec_config_path_clears_request_state(monkeypatch) -> None:
         {
             "mode": "step",
             "shots_per_step": 1,
-            "save_set": "baseline",
+            "save_sets": ["baseline"],
             "axes": [{"variable": "v", "positions": {"start": 0, "end": 1, "step": 1}}],
         }
     )

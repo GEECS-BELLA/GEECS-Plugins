@@ -300,6 +300,9 @@ class TestPresets:
         assert request.grid_shape() == (17,)
         assert request.shots_per_step == 10
         assert conversion.element_names == ["LP-FocusDiagnostics"]
+        # save_sets names the referenced elements verbatim (the engine unions
+        # them at run time — no synthetic per-preset merged set).
+        assert request.save_sets == ["LP-FocusDiagnostics"]
         assert_matches_golden(
             request.model_dump(mode="json"), "focuscan_scan_request.json"
         )

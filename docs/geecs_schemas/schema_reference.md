@@ -19,7 +19,7 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `axes` | `list[ScanAxis]` | no | empty | For step scans: what to sweep. One entry is a simple 1-D scan; several entries form a grid visiting every combination, with the first axis as the outermost (slowest) loop and the last as the innermost (fastest). Leave empty for noscan and optimize. |
 | `shots_per_step` | `int` | no | 1 | How many shots to take at each scan position / grid point (or in total for a noscan). |
 | `acquisition` | `AcquisitionMode` | no | 'strict' | 'strict' fires shot by shot and guarantees every device is in every row; 'free_run' lets the trigger run at the machine rate and matches devices up by timestamp. |
-| `save_set` | `str (optional)` | no | None | Name of the save set listing the devices this scan REQUIRES — the ones that get guarantees (completeness, dialogs, images, rituals). Unset means no required devices beyond scan bookkeeping. |
+| `save_sets` | `list[str]` | no | empty | Names of the save sets — reusable named device groups — recorded for this scan; devices are unioned across them. Each names the devices that get guarantees (completeness, dialogs, images, rituals). A bare string is accepted and stored as a one-element list. Empty means no required devices beyond scan bookkeeping. |
 | `background_telemetry` | `bool (optional)` | no | None | Also log every other live experiment device as best-effort snapshot columns — the variables the GEECS experiment database marks for scan logging (MySQL table expt_device_variable, get='yes') — read from the gateway's always-on monitor cache: read-only and never waited on, so it cannot slow or stall the scan; dead devices are dropped with a log line, never a dialog or abort. Leave unset to inherit the experiment default; set true/false to override for this scan. |
 | `trigger_profile` | `str (optional)` | no | None | Name of the trigger profile that drives the shot trigger. Unset means the scan does not manage the trigger. |
 | `trigger_variant` | `str (optional)` | no | None | Optional variant of the trigger profile to use, e.g. 'laser_off'. Leave unset for the profile's base behaviour. |
@@ -42,7 +42,7 @@ axes:
   #   positions: {values: [1.5, 2.0, 2.5]}
 shots_per_step: 10
 acquisition: free_run
-save_set: undulator_baseline
+save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
 trigger_profile: htu_shot_control
 actions:
   setup: [pre_scan_ebeam]

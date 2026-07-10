@@ -7,10 +7,22 @@ the engine here: a client builds a
 This module owns the mapping:
 
 - A :class:`ConfigResolver` turns the request's *names* into schema models —
-  ``save_set`` → :class:`~geecs_schemas.save_set.SaveSet`,
+  each name in ``save_sets`` → a :class:`~geecs_schemas.save_set.SaveSet`,
   ``trigger_profile`` → :class:`~geecs_schemas.trigger_profile.TriggerProfile`,
   an axis variable → a :class:`~geecs_schemas.scan_variables.ScanVariable`,
   action names → :class:`~geecs_schemas.action_plan.ActionPlan`.
+- **Multiple save sets union.**  ``ScanRequest.save_sets`` is a list; the
+  engine resolves each named set and unions them into one effective SaveSet
+  (:func:`merge_save_sets`) so operators mix and match named diagnostic
+  groups per scan.  The per-device union rule: ``scalars`` union
+  (order-preserving, deduped), ``images`` / ``db_scalars`` / ``all_scalars``
+  OR together (True wins), the single non-``None`` ``role`` is used (a device
+  the sets require with *conflicting* explicit roles is an error), and the
+  entry-level ``setup`` / ``closeout`` ritual name lists union (deduped).
+  Entry-level rituals are collected across *all* named sets, deduped by plan
+  name so a shared ritual runs once (:func:`resolve_save_sets_and_rituals`).
+  Everything downstream — ``save_set_to_devices_config``, telemetry
+  exclusion, the reserved-boundary warning — operates on the merged set.
 - :class:`ConfigsRepoResolver` reads the real configs repository
   (``scanner_configs/experiments/<Experiment>/``): a YAML file carrying a
   ``schema_version`` key loads as the new schema directly; anything else is
@@ -94,6 +106,7 @@ from geecs_schemas import (
     PseudoScanVariable,
     SaveRole,
     SaveSet,
+    SaveSetEntry,
     ScanRequest,
     ScanRequestMode,
     ScanVariable,
@@ -762,6 +775,160 @@ def resolve_save_set_and_rituals(
     return save_set, rituals
 
 
+def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSetEntry:
+    """Merge a second entry for the same device into the first (union rule).
+
+    The documented per-device union rule (see :func:`merge_save_sets`):
+    ``scalars`` union order-preserving and deduped, the boolean flags
+    (``images`` / ``db_scalars`` / ``all_scalars``) OR together (True wins),
+    the single non-``None`` ``role`` is used — **conflicting explicit roles
+    across the sets raise** (:class:`GeecsConfigurationError`) rather than
+    resolving by list order, since role sets the acquisition semantics — and
+    the entry-level ``setup`` / ``closeout`` ritual name lists union (deduped,
+    first appearance). Reserved ``at_scan_start`` / ``at_scan_end`` maps merge
+    key-wise (existing wins on a key clash) — they are inert in this version,
+    so the choice only affects the one warning they draw.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        If the two entries give the same device different explicit roles.
+    """
+
+    def _union(first: list[str], second: list[str]) -> list[str]:
+        merged = list(first)
+        for item in second:
+            if item not in merged:
+                merged.append(item)
+        return merged
+
+    # Role sets the acquisition guarantees (reference / contributor / snapshot
+    # pacemaker wiring in save_set_to_devices_config). Two named sets that
+    # both require the same device but disagree on its explicit role would
+    # otherwise be resolved by save_sets list order — silently giving the scan
+    # the wrong synchronization semantics. Refuse it (matching the legacy
+    # preset composer), rather than pick by order.
+    if (
+        existing.role is not None
+        and addition.role is not None
+        and existing.role != addition.role
+    ):
+        raise GeecsConfigurationError(
+            f"save-set union: device {existing.device!r} has conflicting "
+            f"explicit roles across the named save sets "
+            f"({existing.role.value!r} vs {addition.role.value!r}). Role sets "
+            f"the acquisition semantics, so a device required by more than one "
+            f"set must not disagree on it — give it the same role, or leave it "
+            f"unset, in the overlapping sets."
+        )
+
+    return SaveSetEntry(
+        device=existing.device,
+        scalars=_union(list(existing.scalars), list(addition.scalars)),
+        all_scalars=existing.all_scalars or addition.all_scalars,
+        images=existing.images or addition.images,
+        role=existing.role if existing.role is not None else addition.role,
+        setup=_union(list(existing.setup), list(addition.setup)),
+        closeout=_union(list(existing.closeout), list(addition.closeout)),
+        db_scalars=existing.db_scalars or addition.db_scalars,
+        at_scan_start={**addition.at_scan_start, **existing.at_scan_start},
+        at_scan_end={**addition.at_scan_end, **existing.at_scan_end},
+    )
+
+
+def merge_save_sets(save_sets: list[SaveSet], name: str = "merged") -> SaveSet:
+    """Union several resolved save sets into one effective save set.
+
+    ``ScanRequest.save_sets`` names a list of save sets; the engine records
+    the **union** of their devices so operators mix and match named
+    diagnostic groups per scan. The union rule, applied device by device
+    (first appearance across the list order preserved):
+
+    - a device in only one set is carried over unchanged;
+    - a device in more than one set is **merged** — ``scalars`` union
+      (order-preserving, deduped), ``images`` / ``db_scalars`` /
+      ``all_scalars`` OR together (True wins), the single non-``None`` ``role``
+      is used (**conflicting explicit roles raise** — role sets the
+      acquisition semantics, so overlapping sets must not disagree), and the
+      entry-level ``setup`` / ``closeout`` ritual name lists union (deduped).
+
+    A single-element list resolves to that set unchanged (cheap identity for
+    the common single-set case).
+
+    Parameters
+    ----------
+    save_sets :
+        The resolved save sets to union, in ``ScanRequest.save_sets`` order.
+    name :
+        Name for the merged set (used in downstream error/warn messages).
+
+    Returns
+    -------
+    SaveSet
+        One save set whose entries are the deduped union of every input.
+    """
+    if len(save_sets) == 1:
+        return save_sets[0]
+    merged: dict[str, SaveSetEntry] = {}
+    for save_set in save_sets:
+        for entry in save_set.entries:
+            existing = merged.get(entry.device)
+            merged[entry.device] = (
+                entry.model_copy(deep=True)
+                if existing is None
+                else _merge_two_entries(existing, entry)
+            )
+    return SaveSet(name=name, entries=list(merged.values()))
+
+
+def resolve_save_sets_and_rituals(
+    resolver: ConfigResolver, names: list[str], *, merged_name: str = "merged"
+) -> tuple[SaveSet, dict[str, list[str]]]:
+    """Resolve every named save set, union them, and collect all rituals.
+
+    Resolves each name in *names* to a :class:`SaveSet`, merges them into one
+    effective save set (:func:`merge_save_sets`), and collects the entry-level
+    setup/closeout rituals across **all** sets, de-duplicated by plan name
+    (so a ritual shared by two sets still runs once). Every referenced ritual
+    plan name is validated against the action library now (fail-fast,
+    pre-claim), exactly as :func:`resolve_save_set_and_rituals` does for one
+    set.
+
+    Parameters
+    ----------
+    resolver :
+        Where names are looked up.
+    names :
+        The save-set names (``ScanRequest.save_sets``); must be non-empty.
+    merged_name :
+        Name for the merged set (used in downstream messages).
+
+    Returns
+    -------
+    tuple
+        ``(merged_save_set, rituals)`` — the unioned save set and its
+        de-duplicated ``{"setup": [...], "closeout": [...]}`` ritual names
+        collected across every named set.
+    """
+    resolved = [resolver.resolve_save_set(name) for name in names]
+    merged = merge_save_sets(resolved, name=merged_name)
+    # Collect rituals across ALL sets (not just the merged entries): a ritual
+    # is deduped by plan name across the whole selection so it runs once.
+    rituals: dict[str, list[str]] = {"setup": [], "closeout": []}
+    seen: dict[str, set[str]] = {"setup": set(), "closeout": set()}
+    for save_set in resolved:
+        per_set = collect_save_set_rituals(save_set)
+        for slot in ("setup", "closeout"):
+            for action_name in per_set[slot]:
+                if action_name not in seen[slot]:
+                    seen[slot].add(action_name)
+                    rituals[slot].append(action_name)
+    for slot_names in rituals.values():
+        for action_name in slot_names:
+            resolver.resolve_action_plan(action_name)
+    return merged, rituals
+
+
 def assemble_action_slots(
     actions: ActionBindings,
     applied_defaults: Mapping[str, Any],
@@ -1001,6 +1168,42 @@ def resolve_save_set_checked(resolver: ConfigResolver, name: str) -> SaveSet:
             f"run the request headless via GeecsSession.run (ritual "
             f"execution landed with the M3b milestone); save set {name!r} "
             f"references entry-level setup/closeout plans, which were "
+            f"resolved and are valid: {entry_actions}"
+        )
+    return save_set
+
+
+def resolve_save_sets_checked(resolver: ConfigResolver, names: list[str]) -> SaveSet:
+    """Resolve and union several save sets, refusing rituals — **GUI-bridge only**.
+
+    The multi-set counterpart of :func:`resolve_save_set_checked`: every name
+    in *names* is resolved, the sets are unioned into one effective SaveSet
+    (:func:`merge_save_sets`), and any entry-level ritual (collected across
+    all named sets) is *validated* then refused — the GUI bridge stages
+    requests through the legacy exec-config machinery and does not run rituals
+    yet. The bridge still refuses actions/multi-axis elsewhere; this only
+    makes the save-set resolution list-aware.
+
+    Parameters
+    ----------
+    resolver :
+        Where names are looked up.
+    names :
+        The save-set names (``ScanRequest.save_sets``).
+
+    Returns
+    -------
+    SaveSet
+        The unioned save set (guaranteed free of entry-level actions).
+    """
+    save_set, rituals = resolve_save_sets_and_rituals(resolver, names)
+    entry_actions = [n for slot in rituals.values() for n in slot]
+    if entry_actions:
+        raise NotImplementedError(
+            f"the GUI bridge does not execute save-set entry rituals yet — "
+            f"run the request headless via GeecsSession.run (ritual "
+            f"execution landed with the M3b milestone); save sets {names!r} "
+            f"reference entry-level setup/closeout plans, which were "
             f"resolved and are valid: {entry_actions}"
         )
     return save_set
@@ -1418,12 +1621,14 @@ def run_scan_request(
             skipped_actions=skipped_actions,
         )
 
-    if not request.save_set:
+    if not request.save_sets:
         raise GeecsConfigurationError(
-            f"a {request.mode.value!r} ScanRequest needs a save_set — "
-            "without one the scan would record nothing"
+            f"a {request.mode.value!r} ScanRequest needs at least one save "
+            "set in save_sets — without one the scan would record nothing"
         )
-    save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
+    # Multiple named save sets union into one effective save set (devices
+    # deduped/merged; rituals collected across all sets, deduped by name).
+    save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)
 
     # M3c DB-integration runtime tier — get-side only.  The policy provider is
     # failure-tolerant (empty policy on a missing/unreachable DB), so it never
@@ -1489,6 +1694,8 @@ def run_scan_request(
             created.extend(telemetry_readables)
 
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
+        # Provenance: which named save sets were unioned for this scan.
+        md["save_sets"] = list(request.save_sets)
         if applied_defaults:
             # Provenance: the run records exactly which experiment defaults
             # filled in fields the submitter left unset.
@@ -1635,8 +1842,10 @@ def _run_optimize_request(
         # (no scan-boundary hook on GeecsSession.optimize).  The DB set-side
         # (scan start/end writes) is disabled everywhere in this version.
         scalar_policy = make_scalar_policy(session)
-        if request.save_set:
-            save_set, rituals = resolve_save_set_and_rituals(resolver, request.save_set)
+        if request.save_sets:
+            save_set, rituals = resolve_save_sets_and_rituals(
+                resolver, request.save_sets
+            )
             # Reserved DB set-side overrides are inert here too — warn once, as
             # on the scan/noscan path, so the promise holds in every mode.
             warn_if_reserved_boundary_overrides(save_set)
@@ -1664,6 +1873,9 @@ def _run_optimize_request(
             created.append(movable)
 
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
+        if request.save_sets:
+            # Provenance: which named save sets were unioned for this scan.
+            md["save_sets"] = list(request.save_sets)
         if applied_defaults:
             md["applied_defaults"] = applied_defaults
         if skipped:

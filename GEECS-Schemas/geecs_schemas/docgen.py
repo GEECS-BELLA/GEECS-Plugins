@@ -63,7 +63,7 @@ axes:
   #   positions: {values: [1.5, 2.0, 2.5]}
 shots_per_step: 10
 acquisition: free_run
-save_set: undulator_baseline
+save_sets: [undulator_baseline, aux_diagnostics]  # unioned; a bare string also works
 trigger_profile: htu_shot_control
 actions:
   setup: [pre_scan_ebeam]
