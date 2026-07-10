@@ -2,18 +2,21 @@
 Engine package for GEECS-Scanner.
 
 This package re-exports common classes so callers can write:
-    from geecs_scanner.engine import ScanManager, DataLogger, ActionManager
+    from geecs_scanner.engine import ActionManager, DatabaseDictLookup
+
+The legacy scan engine (ScanManager, DataLogger, DeviceManager,
+ScanStepExecutor, ScanDataManager, TriggerController, FileMover,
+ScanLifecycleStateMachine) was deleted in G1 of the greenfield cutover —
+see ``Planning/cutover_strategy/00_overview.md``. BlueskyScanner
+(GeecsBluesky) is the only scan backend. What remains here is the
+non-scan-path surface: actions, the device-command policy point, the DB
+lookup, the event/dialog shims, and the GUI→backend config models.
 """
 
 __all__ = [
     "ActionManager",
     "DeviceCommandExecutor",
-    "DeviceManager",
-    "DataLogger",
-    "ScanStepExecutor",
     "DatabaseDictLookup",
-    "ScanDataManager",
-    "ScanManager",
     "ScanState",
     "ScanEvent",
     "ScanLifecycleEvent",
@@ -28,12 +31,7 @@ __all__ = [
 
 from .action_manager import ActionManager
 from .device_command_executor import DeviceCommandExecutor
-from .device_manager import DeviceManager
-from .data_logger import DataLogger
-from .scan_executor import ScanStepExecutor
 from .database_dict_lookup import DatabaseDictLookup
-from .scan_data_manager import ScanDataManager
-from .scan_manager import ScanManager
 from .scan_events import (
     ScanState,
     ScanEvent,

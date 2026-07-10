@@ -31,7 +31,6 @@ Examples
 
 See Also
 --------
-geecs_scanner.engine.device_manager : Device management system
 geecs_scanner.engine.models.actions : Action sequence definitions
 """
 
@@ -164,7 +163,6 @@ class SaveDeviceConfig(BaseModel):
     --------
     DeviceConfig : Individual device configuration
     ActionSequence : Define pre/post-scan action sequences
-    geecs_scanner.engine.device_manager : Device management system
     """
 
     Devices: Optional[Dict[str, DeviceConfig]] = Field(
