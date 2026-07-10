@@ -3,23 +3,9 @@
 Moves a motor through a sequence of positions, collects ``shots_per_step``
 shots from one or more detectors at each step, and emits Bluesky event
 documents for downstream consumers (live callbacks, Databroker, etc.).
-
-How it fits into Bluesky
-------------------------
-* :func:`bluesky.plan_stubs.mv` moves the motor by calling ``motor.set(pos)``
-  and waiting for the returned :class:`~ophyd_async.core.AsyncStatus`.
-* :func:`bluesky.plan_stubs.trigger_and_read` calls ``trigger()`` on every
-  :class:`~bluesky.protocols.Triggerable` detector, waits for all triggers
-  to complete, then reads all devices in the list (including the motor, so
-  motor position is recorded alongside detector data in each event document).
-
-Shot synchronisation
---------------------
-Detectors that inherit from
-:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable` complete their
-``trigger()`` call by waiting for the hardware ``acq_timestamp`` variable to
-advance — the real shot timestamp from the DG645 delay generator.  This is
-robust to device restarts (shot numbers drift; timestamps don't).
+:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable` detectors
+complete ``trigger()`` when their hardware ``acq_timestamp`` advances;
+shot-ID mechanics are covered in ``GeecsBluesky/CLAUDE.md`` (Device Layer).
 
 Example (devices built and connected through a
 :class:`~geecs_bluesky.session.GeecsSession`)::
@@ -191,46 +177,28 @@ def geecs_step_scan(
         (arm waiters → fire → await → read) instead of waiting on a
         free-running trigger.  This is the strict-shot-control contract.
     setup_trigger:
-        Optional plan-stub callable run *once* at the start of the run (after
-        ``open_run``, before the first step).  Used by plan-owned single-shot
-        strict mode to arm the controller into single-shot mode and confirm
-        the free-run has stopped (``ARMED`` + quiescence check) — a one-time
-        action, distinct from per-step ``arm_trigger``.  Teardown is the
-        caller's outer finalize (e.g. disarm to STANDBY).
+        Optional plan-stub callable run *once* at the start of the run
+        (after ``open_run``, before the first step).  Strict mode uses it to
+        arm single-shot and confirm the free-run has stopped (``ARMED`` +
+        quiescence check); teardown is the caller's outer finalize.
     per_step:
         Optional plan-stub callable run at **every** step boundary — after
-        the move to that step's position completes, before that step's
-        shots.  This is where a ScanRequest's ``actions.per_step`` plans
-        land (vision doc §4.5: per-step actions are a hook plus a named
-        plan, never a new plan type).  In strict mode every shot is
-        plan-owned, so the machine is quiescent while per-step actions run.
+        the move completes, before that step's shots.  A ScanRequest's
+        ``actions.per_step`` plans land here; in strict mode every shot is
+        plan-owned, so the machine is quiescent while they run.
     enable_saving:
         Optional plan-stub callable that turns native file saving on
         (typically :func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan`).
-        Run once, **after** ``setup_trigger`` — i.e. after ARMED +
-        quiescence confirmation in strict mode, when the trigger can no
-        longer free-run — so no orphan frames from a still-running trigger
-        are saved during the pre-arm window (Gate-2 hardware finding).
-        Save-*off* stays the run wrapper's innermost finalize, before the
-        caller's disarm.
+        Run once, **after** ``setup_trigger`` — when the trigger can no
+        longer free-run, so no orphan frames get saved (Gate-2 save
+        windowing: ``GeecsBluesky/CLAUDE.md``).  Save-*off* stays the run
+        wrapper's innermost finalize, before the caller's disarm.
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
     Yields
     ------
     Bluesky messages — pass this generator to a :class:`~bluesky.RunEngine`.
-
-    Notes
-    -----
-    * The motor is appended to the read list for every shot so that each
-      event document records the actual motor readback alongside detector
-      data.
-    * Non-Triggerable devices in *detectors* are read without calling
-      ``trigger()`` (standard :func:`bluesky.plan_stubs.trigger_and_read`
-      behaviour).
-    * ``arm_trigger`` / ``disarm_trigger`` bracket the per-step acquisition
-      window so the shot controller is only active while shots are being
-      collected, not during motor moves.
     """
     _positions = list(positions)
     _motors = normalize_motors(motor)
@@ -256,9 +224,7 @@ def geecs_step_scan(
         if setup_trigger is not None:
             yield from setup_trigger()
         if enable_saving is not None:
-            # Only after the trigger is stopped (ARMED + quiescence in
-            # strict) may native saving start — otherwise residual free-run
-            # frames get saved as orphans joining no event row.
+            # Saving starts only after the trigger is stopped (Gate-2).
             yield from enable_saving()
         scan_event_index = 0
         previous: tuple | None = None

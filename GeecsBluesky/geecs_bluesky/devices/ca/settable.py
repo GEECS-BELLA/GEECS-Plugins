@@ -2,38 +2,15 @@
 
 The gateway exposes a settable GEECS variable as two PVs: a readback
 (``[Experiment:]Device:Variable``, fed by the device stream) and a setpoint
-(``…:SP``, whose CA puts the gateway forwards to the device over UDP).  This
-device writes the setpoint and reads back the real value.
+(``…:SP``, forwarded to the device over UDP).  This device writes the
+setpoint and reads back the real value.
 
-Completion semantics — CaSettable already waits
------------------------------------------------
-The ``:SP`` put is **not** fire-and-forget: the gateway forwards it as a
-GEECS UDP set, which itself blocks until the device reports the value
-converged (per the DB tolerance) or failed.  So a plain CaSettable already
-carries GEECS's native set-completion — it is a legitimate choice for a real
-positioner, not a lesser one.
-
-:class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds *one* thing on top: a
-second poll of the streamed readback until it is within tolerance of the
-target.  That extra poll only carries information when the readback is an
-independent measurement that can lag or overshoot the commanded value (a
-stage encoder).  When the readback just echoes what was written, the poll is
-satisfied trivially and CaMotor is near-cosmetic.  Choose CaMotor when you do
-not fully trust GEECS's own set-completion for that axis — not because
-CaSettable "doesn't wait."
-
-The open question is empirical, not schema-shaped: how reliable is GEECS's
-blocking-set convergence for real stages?  If it is solid, CaMotor is nearly
-cosmetic; if it is not, CaSettable is the quietly-risky choice for anything
-mechanical.  That — not which ``kind`` a config declares — is where the real
-risk lives.
-
-Neither class covers the case where the variable you *set* differs from the
-variable that *measures* the result (the EMQ triplet's ``Current_Limit`` vs
-its measured current): CaMotor polls the readback of the *same* variable it
-set, so it cannot confirm a decoupled measurement.  The schema names that
-case via ``ScanVariable.confirm``; the device that would act on it is a later
-milestone.
+The ``:SP`` put is not fire-and-forget: it rides GEECS's native **blocking**
+set, which completes only when the device reports convergence (per the DB
+tolerance) or failure — a plain CaSettable already waits.
+:class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds an independent
+readback-tolerance poll on top; the decoupled set-X-confirm-Y case is
+:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
 """
 
 from __future__ import annotations

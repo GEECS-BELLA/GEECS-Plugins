@@ -1,24 +1,17 @@
 """ShotIdTracker — per-device physical trigger-opportunity numbering.
 
-A device's *shot ID* is the index of the external-trigger tick its acquisition
-belongs to.  It is derived from the device's own ``acq_timestamp`` history, so
-it is immune to clock skew between control machines: two devices saw the same
-physical trigger if and only if their shot IDs are equal (given t0s captured
-on the same physical shot — see :mod:`geecs_bluesky.plans.t0_sync`).
-
-The ID advances **incrementally**::
+A device's *shot ID* is the index of the external-trigger tick its
+acquisition belongs to, derived from the device's own ``acq_timestamp``
+history (immune to clock skew between control machines).  The ID advances
+**incrementally**::
 
     delta = round((acq_timestamp - last_acq_timestamp) * rep_rate_hz)
     shot_id = last_shot_id + max(delta, 1)
 
-rather than absolutely from t0.  Absolute derivation accumulates rep-rate
-error over a run (a 0.05% rate mismatch misquantizes after ~30 minutes at
-1 Hz); incremental derivation resets the error on every shot.
-
-Shot IDs are matching machinery and diagnostics, **not** a file-join key —
-files join to events by device ``acq_timestamp``.  Jumps greater than 1
-across stage-move dead time are expected; cross-device matching is equality,
-never consecutiveness.
+so rep-rate error resets on every shot instead of accumulating from t0.
+Cross-device matching is shot-ID **equality** (given t0s captured on the same
+physical shot — :mod:`geecs_bluesky.plans.t0_sync`), never consecutiveness;
+files join to events by device ``acq_timestamp``, not by ``shot_id``.
 """
 
 from __future__ import annotations
@@ -123,10 +116,10 @@ class ShotIdTracker:
 class ShotIdSupport:
     """Mixin for GEECS devices that derive shot IDs from their ``acq_timestamp``.
 
-    Cooperates with :class:`~geecs_bluesky.devices.geecs_device.GeecsDevice`
-    (uses its ``_shot_cache``).  Hosts gain ``configure_shot_id()`` /
-    ``seed_shot_id()`` and the ``last_acq_timestamp`` accessor used by the
-    coordinated t0-sync stage (:func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync`).
+    Hosts gain ``configure_shot_id()`` / ``seed_shot_id()`` and the
+    ``last_acq_timestamp`` accessor used by the coordinated t0-sync stage
+    (:func:`~geecs_bluesky.plans.t0_sync.geecs_t0_sync`).  CA hosts override
+    ``last_acq_timestamp`` with their persistent-monitor cache.
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"

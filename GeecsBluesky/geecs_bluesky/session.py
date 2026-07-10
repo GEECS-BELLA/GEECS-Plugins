@@ -838,19 +838,12 @@ class GeecsSession:
     ) -> str | None:
         """Run one :class:`~geecs_schemas.scan_request.ScanRequest`; return the uid.
 
-        The submission front door of the target architecture (vision doc
-        §4.1): the request's names (save set, trigger profile, scan
-        variables, action plans) are resolved through *resolver* — by
-        default a
-        :class:`~geecs_bluesky.scan_request_runner.ConfigsRepoResolver` over
-        this session's experiment in the configs repository, which loads
-        new-schema YAML when present and converts legacy files otherwise —
-        and the request is mapped onto :meth:`scan` / :meth:`optimize` by
-        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` —
-        including multi-axis grids, setup/per-step/closeout action
-        execution, and multi-device trigger profiles (see its docstring for
-        the remaining documented v1 gaps: pseudo variables, ``all_scalars``,
-        optimize without an injected objective/suggester).
+        The schema submission front door: names resolve through *resolver*
+        (default: :class:`~geecs_bluesky.config_resolver.ConfigsRepoResolver`
+        over this session's experiment) and the request is mapped onto
+        :meth:`scan` / :meth:`optimize` by
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
+        docstring for the documented v1 gaps).
 
         Parameters
         ----------

@@ -25,21 +25,16 @@ Run stages
    :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`:
    move → arm → ``shots_per_step`` rows → disarm.
 3. **End-of-scan quiesce + tail flush**: after the last step's disarm the
-   trigger is stopped again (quiesce → OFF — STANDBY keeps passing external
-   edges, and the tail machinery, close_run document writes, and the
-   caller's finalize save-off all take wall time; Gate-2 re-verify: Scan002
-   saved 7 images for 5 shots from exactly that window).  Then one extra
-   read of all devices is emitted to a separate ``flush`` event stream, so
-   a contributor lagging at ``shot_offset = -1`` still gets its final shot
-   recorded — the flush reads cached last values by design, so flushing
-   while OFF is safe.  The caller's outer finalize restores STANDBY
-   (free-running, output off — the legacy end state) afterwards.
+   trigger is stopped again (quiesce → OFF; STANDBY keeps passing external
+   edges, which saved orphan frames during the tail window — Gate-2).  Then
+   one extra read of all devices goes to a separate ``flush`` event stream,
+   so a contributor lagging at ``shot_offset = -1`` still gets its final
+   shot recorded (the flush reads cached last values, so flushing while OFF
+   is safe).  The caller's outer finalize restores STANDBY afterwards.
 
-Accepted, deliberately-not-fixed window: **between-step STANDBY frames in
-multi-step free-run scans**.  The per-step disarm to STANDBY during motor
-moves is legacy-parity behavior (jet off during moves, trigger free-running)
-— frames arriving there join by timestamp and orphans are ignorable.  Do
-not "fix" this into per-step save toggling.
+Between-step STANDBY frames in multi-step scans are an accepted window —
+do not "fix" into per-step save toggling.  Design rationale:
+``GeecsBluesky/CLAUDE.md`` (shot-control composition per mode).
 """
 
 from __future__ import annotations
@@ -110,32 +105,24 @@ def geecs_free_run_step_scan(
         window (e.g. DG645 SCAN / STANDBY), as in the strict plan.
     quiesce_trigger:
         Optional plan-stub callable that *stops* the free-running trigger
-        before t0 sync, so every device's cache settles to the same last
-        physical shot for a clean timestamp read (the legacy "disable the
-        trigger, then read acq_timestamps" procedure — DG645 ``OFF`` state).
-        ``SCAN``/``STANDBY`` keep the trigger free-running, so they cannot
-        serve this role.  Falls back to ``disarm_trigger`` when not given.
-        Also run at **end of scan** (after the last step, before the tail
-        flush) and — via an internal finalize — on abort, so native saving
-        is never left enabled while the trigger passes external edges (see
-        the module docstring's run stages).
+        (DG645 ``OFF``) before t0 sync, so every device's cache settles to
+        the same last physical shot.  ``SCAN``/``STANDBY`` keep the trigger
+        free-running, so they cannot serve this role.  Falls back to
+        ``disarm_trigger`` when not given.  Also run at **end of scan** and
+        — via an internal finalize — on abort, so native saving is never
+        left enabled while the trigger passes external edges.
     per_step:
         Optional plan-stub callable run at **every** step boundary — after
-        the move completes, before that step's ``arm_trigger``/shots.  This
-        is where a ScanRequest's ``actions.per_step`` plans land: the
-        arm/disarm bracketing means per-step actions always run with the
-        shot controller *disarmed* (data-taking output off), never inside
-        the acquisition window.
+        the move completes, before that step's ``arm_trigger``/shots.  A
+        ScanRequest's ``actions.per_step`` plans land here; the arm/disarm
+        bracketing means they always run *disarmed*.
     enable_saving:
         Optional plan-stub callable that turns native file saving on
         (typically :func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan`).
-        Run once, immediately **after** the quiesce (OFF — the trigger is
-        stopped) and before the t0-sync stage: no shots can occur from here
-        until the first per-step arm[SCAN], so no orphan frames from the
-        still-free-running trigger get saved during setup actions or the
-        pre-quiesce window (Gate-2 hardware finding).  Without a quiesce
-        hook (no shot control) it runs at the same point, unwindowed —
-        there is no trigger to stop.  Save-*off* stays the run wrapper's
+        Run once, immediately after the quiesce and before t0 sync — the
+        earliest orphan-free moment (Gate-2 save windowing:
+        ``GeecsBluesky/CLAUDE.md``).  Without a quiesce hook it runs at the
+        same point, unwindowed.  Save-*off* stays the run wrapper's
         innermost finalize, before the caller's disarm.
     t0_sync_window_s:
         Acceptance window for the t0-sync stage.
@@ -205,19 +192,14 @@ def geecs_free_run_step_scan(
     }
 
     # t0 sync runs before the run opens so the captured t0s can land in the
-    # start document.  Quiesce first — actually *stop* the free-running trigger
-    # (DG645 OFF / single-shot source) so every device's cache settles to the
-    # same last physical shot before the read (the legacy "disable trigger,
-    # then read acq_timestamps" procedure).  STANDBY keeps the trigger
-    # free-running on real hardware, so fall back to it only when no dedicated
-    # quiesce action was supplied.  No-op when there is no shot control.
+    # start document.  Quiesce first (stop the trigger) so every device's
+    # cache settles to the same last physical shot; no-op without shot control.
     _quiesce = quiesce_trigger or disarm_trigger
     if _quiesce is not None:
         yield from _quiesce()
     if enable_saving is not None:
-        # The trigger is now stopped (OFF) and stays stopped through t0 sync
-        # until the first per-step arm[SCAN] — the earliest orphan-free
-        # moment to start native saving (Gate-2 hardware finding).
+        # Trigger stopped through t0 sync until the first arm[SCAN] — the
+        # earliest orphan-free moment to start native saving (Gate-2).
         yield from enable_saving()
     t0s = yield from geecs_t0_sync(sync_devices, window_s=t0_sync_window_s)
     _md["device_t0s"] = t0s
@@ -245,11 +227,8 @@ def geecs_free_run_step_scan(
                 yield from bps.trigger_and_read(_read_devices)
             if disarm_trigger is not None:
                 yield from disarm_trigger()
-        # End of scan: stop the trigger BEFORE the tail machinery.  STANDBY
-        # keeps passing external edges, and the tail flush + close_run +
-        # document writes + the caller's finalize save-off all take wall
-        # time — with native saving still on, STANDBY frames landed as
-        # orphan images (Gate-2 re-verify: Scan002, 7 images for 5 shots).
+        # End of scan: stop the trigger BEFORE the tail machinery — STANDBY
+        # passes external edges, so orphan frames get saved otherwise (Gate-2).
         if _quiesce is not None:
             yield from _quiesce()
             _end_quiesced["done"] = True

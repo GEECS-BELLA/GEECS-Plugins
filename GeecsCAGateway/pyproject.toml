@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-ca-gateway"
-version = "0.12.0"
+version = "0.12.1"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

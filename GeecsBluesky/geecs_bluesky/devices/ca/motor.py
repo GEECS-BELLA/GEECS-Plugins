@@ -2,25 +2,19 @@
 
 Two layers of convergence:
 
-1. The gateway's ``…:SP`` write forwards to the GEECS UDP set, which itself
-   blocks until the device reports the set converged (per the DB tolerance) or
-   failed — so the CA put *already* carries GEECS's native convergence.  It is
-   given the full ``move_timeout`` budget rather than the short CA default,
-   since a slow axis is not a dead one.
+1. The gateway's ``…:SP`` write rides the blocking GEECS UDP set (given the
+   full ``move_timeout`` budget rather than the short CA default — a slow
+   axis is not a dead one), so the put already carries GEECS's native
+   convergence; a plain CaSettable is not "non-blocking."
 2. A readback polling loop then confirms the *streamed* position is within
-   ``tolerance`` of the target — belt-and-suspenders for the fringe cases where
-   the UDP set's own timeout semantics are ambiguous (devices that go quiet
-   during a move vs. genuinely stuck axes).
+   ``tolerance`` of the target — belt-and-suspenders for devices whose UDP
+   set-completion semantics are ambiguous.  It only adds information when
+   the readback is an independent measurement (a stage encoder), not an
+   echo of the command.
 
-Layer 1 alone (i.e. a plain :class:`~geecs_bluesky.devices.ca.settable.CaSettable`)
-already waits for GEECS convergence, so CaMotor is *not* "the way to make a
-set block."  Its Layer 2 poll only adds information when the readback is an
-independent measurement of the same variable that was set — a stage encoder,
-not a value that merely echoes the command.  It does **not** cover the case
-where the measured quantity is a *different* variable from the one set (the
-EMQ triplet's ``Current_Limit`` vs its measured current): the poll reads the
-readback of ``variable``, the variable it wrote.  ``ScanVariable.confirm``
-names that decoupled case in the schema; acting on it is a later milestone.
+The poll reads the readback of the *same* variable it set; the decoupled
+set-X-confirm-Y case is
+:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
 """
 
 from __future__ import annotations

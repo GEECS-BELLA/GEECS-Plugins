@@ -1,46 +1,20 @@
 """CaConfirmSettable — the topology-C device: set X, confirm on Y.
 
-``CaSettable``/``CaMotor`` both poll (or trust GEECS to converge) the
-readback of the **same** variable they wrote.  Some devices split the two:
-you set one variable, but a *different* variable measures the physical
-result.  The production example is the EMQ triplet: the catalog's "EMQ1
-Current" writes ``U_EMQTripletBipolar:Current_Limit.Ch1`` (a software limit
-GEECS's own blocking set trivially confirms — the limit register echoes what
-was written), while the real current is the separate ``Current.Ch1``
-variable, which the write never touches.
+Some devices split command and measurement: you set one variable, but a
+*different* variable measures the physical result (the EMQ triplet writes
+``Current_Limit.ChN``, a software limit, while the measured current is the
+separate ``Current.ChN``).  ``ScanVariable.confirm`` names this second
+variable in the schema (``geecs_schemas.scan_variables``); this device acts
+on it.
 
-``ScanVariable.confirm`` names this second variable in the schema
-(``geecs_schemas.scan_variables``); this device is what acts on it.
+Completion is two layers: (1) the gateway ``…:SP`` write rides GEECS's own
+blocking set on ``variable`` — which says nothing about the confirming
+variable — then (2) a poll on the confirming variable's streamed readback:
+analog (float) match by tolerance, discrete (string) match by exact equality.
 
-Completion semantics
----------------------
-1. The gateway's ``…:SP`` write on ``variable`` forwards to the GEECS UDP set,
-   which blocks until *that* variable's own convergence criterion is met (the
-   same Layer-1 wait every ``CaSettable`` gets) — this says nothing about the
-   confirming variable.
-2. A poll on the **confirming variable's** streamed readback then waits for it
-   to match the target: analog (float) match by tolerance, discrete
-   (string/enum, e.g. a future ``CaShutter``) match by exact equality.
-
-Defaults come from a live characterization of
-``U_EMQTripletBipolar:Current.ChN`` (no beam, 2026-07-09,
-``Planning/scan_variable_metadata/00_overview.md`` Deferred #5): jitter
-0.01 A, response lag <1 s, settles within ~3 frames.  ``tolerance=0.05``
-(5x the observed jitter) and ``timeout=10.0`` (comfortably past the settle
-time) are sized from those numbers, not guessed.
-
-Recorded event-row column, deliberately
-----------------------------------------
-As a scan axis, this device's own readable data is the **written** variable's
-streamed value (``variable``, e.g. ``Current_Limit.Ch1``) — the same
-"motor column" shape as ``CaSettable``/``CaMotor``.  The **confirming**
-variable (``Current.Ch1``) is intentionally *not* a child readable here (see
-below) and so does not appear in the event row unless it is separately in the
-scan's save set.  For an operator-facing "EMQ current" scan this can be
-surprising — the recorded "motor" value is the commanded limit, not the
-measured current that was actually confirmed — so include the confirming
-variable in the save set when the measured value itself matters to the
-analysis, not just the pass/fail of confirmation.
+Defaults (``tolerance=0.05``, ``timeout=10.0``) are sized from a live no-beam
+characterization of ``U_EMQTripletBipolar:Current.ChN`` (details in
+``GeecsBluesky/CLAUDE.md`` and ``Planning/scan_variable_metadata/``).
 """
 
 from __future__ import annotations
@@ -67,6 +41,12 @@ ConfirmValue = Union[float, str]
 class CaConfirmSettable(CaSettable):
     """Writes ``variable``, confirms completion on a *different* variable.
 
+    The recorded event-row column is the **written** variable's streamed
+    value — the same "motor column" shape as ``CaSettable``/``CaMotor``.
+    The confirming variable never appears in the event row unless it is
+    separately in the scan's save set; include it there when the measured
+    value itself matters, not just the pass/fail of confirmation.
+
     Parameters
     ----------
     device : str
@@ -85,11 +65,9 @@ class CaConfirmSettable(CaSettable):
     name : str
         ophyd-async device name (namespaces the event keys).
     tolerance : float
-        Analog (float) match tolerance for the confirming variable.
-        ``set()`` resolves when ``|confirm_readback - target| <= tolerance``.
-        Default ``0.05`` — see the module docstring for where this number
-        comes from.  Ignored for a discrete (string) target, which matches by
-        exact equality instead.
+        Analog (float) match tolerance: ``set()`` resolves when
+        ``|confirm_readback - target| <= tolerance``.  Ignored for a
+        discrete (string) target, which matches by exact equality.
     timeout : float
         Maximum seconds to wait for the confirming variable to match, after
         the ``:SP`` write's own convergence.  Default ``10.0``.
@@ -125,12 +103,9 @@ class CaConfirmSettable(CaSettable):
             datatype=datatype,
         )
         # A plain (non-child) readable: the confirming variable is not this
-        # device's own data (it may live on a different GEECS device
-        # entirely), so it must not appear as an event-row column here — the
-        # confirming device's own save set, if any, is the place that reads it.
-        # Same datatype as the target variable: for the common analog case
-        # (float in, float confirm) that's the natural default; a discrete
-        # confirm target (string/enum) passes datatype=str for both.
+        # device's own data (it may live on another GEECS device entirely),
+        # so it must not become an event-row column here.  Same datatype as
+        # the target variable (str for a discrete confirm target).
         self._confirm_readback = epics_signal_r(
             datatype, ca_pv(experiment, confirm_device, confirm_variable)
         )
@@ -211,12 +186,9 @@ def _matches(
 ) -> bool:
     """Analog match by tolerance for a numeric ``datatype``, exact equality otherwise.
 
-    Dispatches on the device's declared ``datatype``, not on whether *current*
-    happens to be parseable as a float: a discrete (``str``) confirming
-    variable — e.g. a future ``CaShutter``'s inserted/removed limit switch —
-    must match by exact equality even when its label looks numeric (``"1.0"``
-    vs ``"1.04"``), never by coercing both sides to float and comparing within
-    tolerance.
+    Dispatch is on the declared ``datatype``, never on whether *current*
+    parses as a float: a ``str`` confirm target must match by exact equality
+    even when its label looks numeric.
     """
     if datatype is str:
         return current == target

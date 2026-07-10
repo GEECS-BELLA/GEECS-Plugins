@@ -1,78 +1,31 @@
-"""Run a ScanRequest: resolve config names, map onto the existing machinery.
+"""Run a ScanRequest: resolve config names, map onto the session machinery.
 
-The one submission object of the target architecture (vision doc §4.1) meets
-the engine here: a client builds a
-:class:`~geecs_schemas.scan_request.ScanRequest` and calls
-``session.run(request)`` (or hands it to ``BlueskyScanner.reinitialize``).
-This module owns the mapping:
+``session.run(request)`` (or ``BlueskyScanner.reinitialize``) hands a
+:class:`~geecs_schemas.scan_request.ScanRequest` here.  :func:`run_scan_request`
 
-- A :class:`ConfigResolver` turns the request's *names* into schema models —
-  each name in ``save_sets`` → a :class:`~geecs_schemas.save_set.SaveSet`,
-  ``trigger_profile`` → :class:`~geecs_schemas.trigger_profile.TriggerProfile`,
-  an axis variable → a :class:`~geecs_schemas.scan_variables.ScanVariable`,
-  action names → :class:`~geecs_schemas.action_plan.ActionPlan`.
-- **Multiple save sets union.**  ``ScanRequest.save_sets`` is a list; the
-  engine resolves each named set and unions them into one effective SaveSet
-  (:func:`merge_save_sets`) so operators mix and match named diagnostic
-  groups per scan.  The per-device union rule: ``scalars`` union
-  (order-preserving, deduped), ``images`` / ``db_scalars`` / ``all_scalars``
-  OR together (True wins), the single non-``None`` ``role`` is used (a device
-  the sets require with *conflicting* explicit roles is an error), and the
-  entry-level ``setup`` / ``closeout`` ritual name lists union (deduped).
-  Entry-level rituals are collected across *all* named sets, deduped by plan
-  name so a shared ritual runs once (:func:`resolve_save_sets_and_rituals`).
-  Everything downstream — ``save_set_to_devices_config``, telemetry
-  exclusion, the reserved-boundary warning — operates on the merged set.
-- :class:`ConfigsRepoResolver` (in :mod:`geecs_bluesky.config_resolver`,
-  re-exported here) reads the real configs repository — new-schema YAML
-  directly, anything else through the legacy converters.
-- Pure mapping helpers derive the engine shapes from the schemas:
-  :func:`save_set_to_devices_config` (SaveSet → the ``devices_config`` dict
-  ``BlueskyScanner._build_session_devices`` / the session factories expect,
-  applying the documented intent→mechanics derivation rules) and
-  :func:`trigger_writes_from_profile` (TriggerProfile →
-  :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`: per-state
-  **ordered** multi-device write lists — order preserved exactly as the
-  schema documents).  The adapters live *here* — bluesky-side — because
-  ``geecs_schemas`` must never import ``geecs_bluesky`` (dependency
-  direction).
-- **Actions execute.**  Request-level ``setup``/``per_step``/``closeout``
-  bindings, SaveSet entry rituals, and ExperimentDefaults plans are
-  assembled (:func:`assemble_action_slots`), compiled to plan stubs
-  (:func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) against
-  the session's CA signal factory, and handed to the orchestration hooks.
-  Names still resolve fail-fast **pre-claim** (an unknown plan name fails
-  before any hardware is touched or a scan number is used), and every
-  signal a plan will touch is pre-connected
-  (:func:`prefetch_action_signals`) before the RunEngine runs — a lazy
-  connect inside the RE loop would deadlock.
-- **Multi-axis step scans execute** as an outer-product grid (first axis
-  outermost/slowest — the schema's documented semantics): N movables, one
-  bin per grid point, per-step actions at every grid point, all axis
-  readbacks in the event rows.
-- :func:`run_scan_request` executes the request on a
+- resolves every config *name* through a :class:`ConfigResolver`
+  (:mod:`geecs_bluesky.config_resolver`, re-exported here);
+- unions the named save sets into one effective SaveSet — the per-device
+  union rule is documented on :func:`merge_save_sets`; everything downstream
+  (devices config, telemetry exclusion, boundary warning) sees the merged set;
+- adapts schemas to engine shapes (:func:`save_set_to_devices_config`,
+  :func:`trigger_writes_from_profile`) — adapters live bluesky-side because
+  ``geecs_schemas`` must never import ``geecs_bluesky``;
+- assembles and compiles action slots in §4.4b nesting order
+  (:func:`assemble_action_slots`), with fail-fast pre-claim name resolution
+  and every plan signal pre-connected (:func:`prefetch_action_signals` — a
+  lazy connect inside the RE loop would deadlock);
+- executes noscan/step (multi-axis = outer-product grid, first axis
+  outermost) and optimize modes on a
   :class:`~geecs_bluesky.session.GeecsSession`.
 
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
+pseudo scan variables, ``all_scalars``, and optimize without an injected
+``objective``/``suggester`` (the Xopt stack lives in
+``geecs_scanner.optimization``, which this package must not import).
 
-- **Pseudo (composite) scan variables** raise ``NotImplementedError`` — the
-  composite pseudo-positioner device is not built yet.
-- **``all_scalars``** on a save-set entry raises ``NotImplementedError`` —
-  enumerating a device's scalar variables needs the DB-backed validation
-  pass.
-- **Optimize mode** maps onto :meth:`GeecsSession.optimize` as far as its
-  signature allows: variables, iteration/shot counts, ``on_finish``.  The
-  ``evaluator``/``generator`` specs cannot be instantiated in this package
-  (the config-driven Xopt/evaluator stack lives in
-  ``geecs_scanner.optimization``, which geecs_bluesky must not import), so a
-  ready-made ``objective`` and ``suggester`` must be injected; without them
-  optimize mode raises ``NotImplementedError``.  Action bindings on an
-  optimize-mode request are likewise refused (``GeecsSession.optimize`` has
-  no action hooks yet).
-
-Scan variables in configs speak **GEECS device/variable names, never PVs**
-(maintainer-ratified convention): all PV derivation stays inside the device
-factories via ``ca_pv``.
+Configs speak GEECS device/variable names, never PVs (ratified convention);
+PV derivation stays inside the device factories.
 """
 
 from __future__ import annotations
@@ -141,25 +94,9 @@ def _state_write_triples(
 ) -> list[tuple[str | None, str, str]]:
     """Normalize one state's writes to ``(device, variable, value)`` triples.
 
-    Handles both TriggerProfile generations: the single-device shape
-    (top-level ``device`` + per-state ``{variable: value}``) and the
-    multi-device shape (per-state ordered write lists, each write carrying
-    its own ``device``).  Order is preserved exactly (schema-documented:
-    writes are applied top to bottom).
-
-    Parameters
-    ----------
-    profile :
-        The trigger profile.
-    state :
-        The state whose writes to normalize.
-    variant :
-        Optional variant overlay.
-
-    Returns
-    -------
-    list of tuple
-        The state's writes as ``(device, variable, value)``.
+    Handles both TriggerProfile generations (single-device dict shape and
+    multi-device ordered write lists); order is preserved exactly
+    (schema-documented: writes apply top to bottom).
     """
     writes = profile.writes_for(state, variant)
     if isinstance(writes, dict):
@@ -177,16 +114,11 @@ def _state_write_triples(
 def trigger_writes_from_profile(
     profile: TriggerProfile, variant: str | None = None
 ) -> ShotControlWrites:
-    """Adapt a TriggerProfile into the engine's generalized ShotControlWrites.
+    """Adapt a TriggerProfile into the engine's ShotControlWrites.
 
-    A state transition becomes the profile's **ordered** write list — order
-    preserved verbatim (schema-documented: writes are applied top to
-    bottom), spanning as many devices as the profile names.  A single-device
-    profile is simply the one-device case of the same structure; there is no
-    separate pivot any more (the engine's ``ShotController.from_writes``
-    replays these lists sequentially, each write completing before the
-    next).  This adapter lives bluesky-side because ``geecs_schemas`` must
-    not import ``geecs_bluesky``.
+    Each state becomes the profile's **ordered** write list (possibly
+    spanning several devices); ``ShotController.from_writes`` replays them
+    sequentially, each write completing before the next.
 
     Parameters
     ----------
@@ -195,16 +127,10 @@ def trigger_writes_from_profile(
     variant :
         Optional profile variant overlaid first (e.g. ``"laser_off"``).
 
-    Returns
-    -------
-    ShotControlWrites
-        Per-state ordered ``(device, variable, value)`` write lists.
-
     Raises
     ------
     GeecsConfigurationError
-        If *variant* is not defined on the profile, or no state writes any
-        device at all (the profile cannot drive a scan's trigger).
+        Unknown *variant*, or the profile writes no device at all.
     """
     if variant is not None and variant not in profile.variants:
         raise GeecsConfigurationError(
@@ -240,52 +166,29 @@ def save_set_to_devices_config(
 ) -> dict[str, dict[str, Any]]:
     """Derive the legacy ``devices_config`` shape from a SaveSet.
 
-    Applies the documented intent→mechanics derivation rules
-    (``geecs_schemas.save_set`` module docstring):
-
-    - ``synchronous`` is derived from the entry's role: ``snapshot`` →
-      asynchronous, everything else → synchronous.
-    - ``images`` → ``save_nonscalar_data``; the recorded ``variable_list`` is
-      the entry's resolved scalar set (``acq_timestamp`` stays implicit — the
-      device layer always records it).
-    - Role overrides shape the **ordering** (the downstream classifier
-      assigns free-run roles by position): a ``reference``-flagged entry is
-      moved first; ``contributor``-flagged entries are placed after the
-      unmarked synchronous ones so they never inherit pacemaker duty.
-
-    The recorded ``variable_list`` follows the ``SaveSetEntry`` ``db_scalars``
-    contract (M3c), delegated to
-    :func:`~geecs_bluesky.db_runtime.resolve_entry_scalars`: with a
-    *scalar_policy* provider, ``db_scalars=True`` unions the device's DB
-    ``get='yes'`` variables (or every DB variable when ``all_scalars=True``)
-    with the explicit list; ``db_scalars=False`` records only the explicit
-    list (the legacy-converter pin).  Without a provider (the GUI-bridge path
-    or no DB access) only the explicit list is recorded — the M3b behavior,
-    with ``all_scalars`` still a documented gap.
-
-    Parameters
-    ----------
-    save_set :
-        The save set to translate.
-    scalar_policy :
-        Optional DB policy provider (M3c); ``None`` keeps the M3b
-        explicit-only behavior.
+    Applies the intent→mechanics rules documented in ``geecs_schemas.save_set``:
+    ``snapshot`` role → asynchronous, ``images`` → ``save_nonscalar_data``,
+    and role overrides shape the **ordering** (the downstream classifier
+    assigns free-run roles by position: reference first, contributors after
+    the unmarked synchronous entries).  Each recorded ``variable_list`` is
+    resolved per the ``db_scalars`` contract via
+    :func:`~geecs_bluesky.db_runtime.resolve_entry_scalars`; with
+    *scalar_policy* ``None`` (GUI bridge / off-network) only explicit scalars
+    are recorded.
 
     Returns
     -------
     dict
-        ``{device_name: {"synchronous": bool, "save_nonscalar_data": bool,
+        ``{device: {"synchronous": bool, "save_nonscalar_data": bool,
         "variable_list": [...]}}`` in role-derived order.
 
     Raises
     ------
     GeecsConfigurationError
-        If more than one entry claims the ``reference`` role, or if every
-        synchronous entry is ``contributor``-flagged (no pacemaker left).
+        More than one ``reference`` entry, or contributors with no possible
+        pacemaker.
     NotImplementedError
-        For ``all_scalars`` entries without an explicit ``scalars`` list when
-        no *scalar_policy* is available — enumerating a device's scalars needs
-        the DB (which the provider supplies).
+        ``all_scalars`` without an explicit list and no *scalar_policy*.
     """
     references = [e for e in save_set.entries if e.role is SaveRole.REFERENCE]
     if len(references) > 1:
@@ -384,22 +287,8 @@ def raise_if_actions_present(resolved: dict[str, list[str]]) -> None:
 def collect_save_set_rituals(save_set: SaveSet) -> dict[str, list[str]]:
     """Collect entry-level setup/closeout plan names, de-duplicated by name.
 
-    The SaveSet schema's contract: the plans named by all entries are
-    collected together (entry order preserved), de-duplicated by name, and
-    each runs **once** per scan — two cameras sharing a ``prep_visa_line``
-    ritual do not run it twice.  Older SaveSets without the fields
-    contribute nothing (duck-typed).
-
-    Parameters
-    ----------
-    save_set :
-        The save set to inspect.
-
-    Returns
-    -------
-    dict
-        ``{"setup": [names], "closeout": [names]}``, each list de-duplicated
-        in first-appearance order.
+    A ritual shared by several entries runs **once** per scan.  Returns
+    ``{"setup": [names], "closeout": [names]}`` in first-appearance order.
     """
     rituals: dict[str, list[str]] = {"setup": [], "closeout": []}
     for slot, names in rituals.items():
@@ -416,23 +305,16 @@ def collect_save_set_rituals(save_set: SaveSet) -> dict[str, list[str]]:
 
 
 def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSetEntry:
-    """Merge a second entry for the same device into the first (union rule).
+    """Merge a second entry for the same device into the first.
 
-    The documented per-device union rule (see :func:`merge_save_sets`):
-    ``scalars`` union order-preserving and deduped, the boolean flags
-    (``images`` / ``db_scalars`` / ``all_scalars``) OR together (True wins),
-    the single non-``None`` ``role`` is used — **conflicting explicit roles
-    across the sets raise** (:class:`GeecsConfigurationError`) rather than
-    resolving by list order, since role sets the acquisition semantics — and
-    the entry-level ``setup`` / ``closeout`` ritual name lists union (deduped,
-    first appearance). Reserved ``at_scan_start`` / ``at_scan_end`` maps merge
-    key-wise (existing wins on a key clash) — they are inert in this version,
-    so the choice only affects the one warning they draw.
+    Applies the per-device union rule documented on :func:`merge_save_sets`.
+    Reserved ``at_scan_start`` / ``at_scan_end`` maps merge key-wise
+    (existing wins; inert fields, so this only affects the reserved warning).
 
     Raises
     ------
     GeecsConfigurationError
-        If the two entries give the same device different explicit roles.
+        The two entries give the same device different explicit roles.
     """
 
     def _union(first: list[str], second: list[str]) -> list[str]:
@@ -442,12 +324,8 @@ def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSe
                 merged.append(item)
         return merged
 
-    # Role sets the acquisition guarantees (reference / contributor / snapshot
-    # pacemaker wiring in save_set_to_devices_config). Two named sets that
-    # both require the same device but disagree on its explicit role would
-    # otherwise be resolved by save_sets list order — silently giving the scan
-    # the wrong synchronization semantics. Refuse it (matching the legacy
-    # preset composer), rather than pick by order.
+    # Conflicting explicit roles must raise, never resolve by list order —
+    # role sets the scan's synchronization semantics (pacemaker wiring).
     if (
         existing.role is not None
         and addition.role is not None
@@ -526,28 +404,14 @@ def resolve_save_sets_and_rituals(
 ) -> tuple[SaveSet, dict[str, list[str]]]:
     """Resolve every named save set, union them, and collect all rituals.
 
-    Resolves each name in *names* to a :class:`SaveSet`, merges them into one
-    effective save set (:func:`merge_save_sets`), and collects the entry-level
-    setup/closeout rituals across **all** sets, de-duplicated by plan name
-    (so a ritual shared by two sets still runs once). Every referenced ritual
-    plan name is validated against the action library now (fail-fast,
-    pre-claim).
-
-    Parameters
-    ----------
-    resolver :
-        Where names are looked up.
-    names :
-        The save-set names (``ScanRequest.save_sets``); must be non-empty.
-    merged_name :
-        Name for the merged set (used in downstream messages).
+    Rituals are collected across **all** sets, deduped by plan name (a shared
+    ritual runs once), and every referenced plan name is validated fail-fast
+    pre-claim.
 
     Returns
     -------
     tuple
-        ``(merged_save_set, rituals)`` — the unioned save set and its
-        de-duplicated ``{"setup": [...], "closeout": [...]}`` ritual names
-        collected across every named set.
+        ``(merged_save_set, {"setup": [...], "closeout": [...]})``.
     """
     resolved = [resolver.resolve_save_set(name) for name in names]
     merged = merge_save_sets(resolved, name=merged_name)
@@ -575,33 +439,17 @@ def assemble_action_slots(
 ) -> dict[str, list[str]]:
     """Assemble the final ordered plan-name lists for the three action slots.
 
-    The §4.4b setup layers nest like context managers (mirrored teardown —
-    the ordering decision ratified with this milestone and documented in
-    the ``ExperimentDefaults`` schema):
+    The §4.4b layers nest like context managers (mirrored teardown, per the
+    ``ExperimentDefaults`` schema):
 
-    - **setup**: experiment defaults → save-set entry rituals → the scan's
-      own ``actions.setup`` (defaults outermost, the specific scan
-      innermost).
-    - **per_step**: the scan's own ``actions.per_step`` only (neither
-      defaults nor entries have a per-step slot — deliberate).
-    - **closeout**: the exact reverse — the scan's own ``actions.closeout``
-      → entry rituals → experiment defaults.
+    - **setup**: experiment defaults → save-set entry rituals → the scan's own
+    - **per_step**: the scan's own only (deliberate — no other layer has one)
+    - **closeout**: the exact reverse of setup
 
-    *actions* is the post-defaults request bindings (defaults already merged
-    by :func:`apply_experiment_defaults`: prepended to setup, appended to
-    closeout); *applied_defaults* tells this function how many entries of
-    each list came from defaults, so entry rituals can be spliced between
-    the layers.  Within the entry layer, first-appearance entry order is
-    kept for both slots (the schema orders the layers, not the entries).
-
-    Parameters
-    ----------
-    actions :
-        The request's action bindings, after defaults were applied.
-    applied_defaults :
-        The provenance record from :func:`apply_experiment_defaults`.
-    rituals :
-        The save set's ``{"setup": [...], "closeout": [...]}`` names.
+    *actions* is the post-defaults bindings (:func:`apply_experiment_defaults`
+    prepends defaults to setup, appends to closeout); *applied_defaults* says
+    how many entries came from defaults so *rituals* can be spliced between
+    the layers.
 
     Returns
     -------
@@ -671,20 +519,8 @@ class _LazyResolverRegistry(Mapping):
 def build_action_registry(resolver: ConfigResolver) -> Mapping[str, ActionPlan]:
     """Return the named-plan registry nested ``run`` steps resolve against.
 
-    Prefers the resolver's ``action_plan_registry()`` (duck-typed —
-    :class:`ConfigsRepoResolver` implements it: the experiment's action
-    library plus any plans extracted from converted save elements); falls
-    back to a lazy per-name façade.
-
-    Parameters
-    ----------
-    resolver :
-        The name resolver.
-
-    Returns
-    -------
-    Mapping
-        ``{plan_name: ActionPlan}`` (possibly lazy).
+    Prefers the resolver's duck-typed ``action_plan_registry()``; falls back
+    to a lazy per-name façade.
     """
     method = getattr(resolver, "action_plan_registry", None)
     if callable(method):
@@ -699,23 +535,10 @@ def prefetch_action_signals(
 ) -> None:
     """Create/connect every signal the compiled *plans* will touch, up front.
 
-    Compiled plan generators execute **inside** the RunEngine's event loop,
-    where a blocking signal connect would deadlock — so every
-    ``(device, variable)`` a ``set``/``check`` step names is touched here
-    first (the factory caches per target, so execution finds everything
-    connected).  Doubles as fail-fast validation: an unreachable target
-    fails now, before the scan claims a number.  Nested ``run`` steps are
-    walked recursively (visited-set bounded, so cycles terminate — the
-    compiler itself raises on them at execution).
-
-    Parameters
-    ----------
-    plans :
-        The resolved plans of every slot about to run.
-    registry :
-        Named plans for ``run``-step recursion.
-    settables :
-        The :class:`~geecs_bluesky.plans.action_compiler.SettableFactory`.
+    Plan generators execute **inside** the RunEngine loop, where a lazy
+    connect would deadlock — so every target is connected here, pre-claim
+    (doubling as fail-fast validation).  Nested ``run`` steps are walked
+    recursively (visited-set bounded).
     """
     visited: set[str] = set()
 
@@ -745,27 +568,14 @@ def compile_action_slot(
 ) -> tuple[Callable | None, list[ActionPlan]]:
     """Compile one slot's plan names into a reusable plan-stub callable.
 
-    The returned callable yields the slot's plans in order, producing a
-    **fresh** message generator per call — required for ``per_step`` (run at
-    every step boundary) and for ``finalize_wrapper`` (which may instantiate
-    its closeout more than once).
-
-    Parameters
-    ----------
-    names :
-        The slot's plan names, in final execution order.
-    resolver :
-        Resolves each name to its :class:`ActionPlan`.
-    registry :
-        Named plans for nested ``run`` steps.
-    settables :
-        The signal factory the compiled steps draw from.
+    The callable produces a **fresh** message generator per call — required
+    for ``per_step`` and for ``finalize_wrapper`` re-instantiation.
 
     Returns
     -------
     tuple
-        ``(stub, plans)`` — the plan-stub callable (``None`` when the slot
-        is empty) and the resolved plans (for signal prefetching).
+        ``(stub, plans)`` — stub is ``None`` when the slot is empty; plans
+        feed signal prefetching.
     """
     if not names:
         return None, []
@@ -781,24 +591,9 @@ def compile_action_slot(
 def resolve_save_sets_checked(resolver: ConfigResolver, names: list[str]) -> SaveSet:
     """Resolve and union several save sets, refusing rituals — **GUI-bridge only**.
 
-    Every name in *names* is resolved, the sets are unioned into one effective
-    SaveSet (:func:`merge_save_sets`), and any entry-level ritual (collected
-    across all named sets) is *validated* then refused — the GUI bridge stages
-    requests through the legacy exec-config machinery and does not run rituals
-    yet. The bridge still refuses actions/multi-axis elsewhere; this only
-    makes the save-set resolution list-aware.
-
-    Parameters
-    ----------
-    resolver :
-        Where names are looked up.
-    names :
-        The save-set names (``ScanRequest.save_sets``).
-
-    Returns
-    -------
-    SaveSet
-        The unioned save set (guaranteed free of entry-level actions).
+    Rituals are *validated* first (unknown names fail loudly), then refused —
+    the bridge does not execute them yet.  Returns the unioned save set
+    (guaranteed free of entry-level actions).
     """
     save_set, rituals = resolve_save_sets_and_rituals(resolver, names)
     entry_actions = [n for slot in rituals.values() for n in slot]
@@ -818,32 +613,16 @@ def apply_experiment_defaults(
 ) -> tuple[ScanRequest, dict[str, Any]]:
     """Apply experiment defaults where the request is silent (with provenance).
 
-    The merge rule is the :class:`~geecs_schemas.ExperimentDefaults` one —
-    **defaults run first on the way in and last on the way out**: a default
-    trigger profile is used only when the request names none; default setup
-    plans are *prepended* to the request's own setup list, and default
-    closeout plans are *appended* after the request's own closeout list
-    (teardown mirrors setup — the defaults are the outermost bracket).
-    What was applied is returned for provenance (recorded into the run
-    metadata by :func:`run_scan_request`) — a run's metadata must show the
-    configuration it actually used, not require reconstructing which
-    defaults file was in force.
-
-    Parameters
-    ----------
-    request :
-        The submitted request.
-    defaults :
-        The experiment defaults — an
-        :class:`~geecs_schemas.ExperimentDefaults` model or a plain mapping
-        of the same shape; ``None`` means no defaults.
+    :class:`~geecs_schemas.ExperimentDefaults` merge rule — defaults are the
+    outermost bracket: default setup *prepends*, default closeout *appends*,
+    a default trigger profile fills only an unset one.  Never overrides an
+    explicit request value.
 
     Returns
     -------
     tuple
-        ``(request, applied)`` — the (possibly copied and updated) request
-        and a ``{field: value}`` record of every default applied (empty
-        when nothing was).
+        ``(request, applied)`` — the updated request and a ``{field: value}``
+        provenance record of every default applied (goes into run metadata).
     """
 
     def _field(source: Any, name: str) -> Any:
@@ -899,19 +678,7 @@ def resolve_defaults_for(
     """Apply the resolver's experiment defaults to *request* (tolerantly).
 
     Resolvers without a ``resolve_experiment_defaults`` method are treated
-    as having no defaults.
-
-    Parameters
-    ----------
-    resolver :
-        The name resolver.
-    request :
-        The submitted request.
-
-    Returns
-    -------
-    tuple
-        As :func:`apply_experiment_defaults`.
+    as having no defaults.  Returns as :func:`apply_experiment_defaults`.
     """
     return apply_experiment_defaults(request, resolve_experiment_defaults(resolver))
 
@@ -940,25 +707,13 @@ def resolve_movable_target(
 ) -> tuple[str, str, str, str | None]:
     """Return ``(device, variable, kind, confirm)`` for a plain scan variable.
 
-    Parameters
-    ----------
-    spec :
-        The catalog entry.
-    name :
-        The friendly name (for error messages).
-
-    Returns
-    -------
-    tuple
-        Device name, variable name, the entry's kind, and its optional
-        ``confirm`` target (``"Device:Variable"``, or ``None`` when the set
-        variable is also the readback — the common case).
+    ``confirm`` is the entry's optional ``"Device:Variable"`` confirming
+    target (``None`` when the set variable is also the readback).
 
     Raises
     ------
     NotImplementedError
-        For pseudo (composite) variables — the composite pseudo-positioner
-        device is not built yet.
+        Pseudo (composite) variables — the pseudo-positioner is not built yet.
     """
     if isinstance(spec, PseudoScanVariable):
         raise NotImplementedError(
@@ -1002,27 +757,12 @@ def _build_request_detectors(
 ) -> list:
     """Create session devices from a derived devices_config, roles by order.
 
-    Mirrors the role rules of ``BlueskyScanner._classify_device_roles``:
-    free-run → first synchronous entry is the reference (built with
-    :meth:`GeecsSession.detector`), later synchronous entries are
-    contributors; strict → every synchronous entry is a triggered detector;
-    asynchronous entries are snapshots.  This is the *headless* build:
-    failures propagate (fail loudly) — operator drop/promote interaction is
-    the scanner layer's job.
-
-    Parameters
-    ----------
-    session :
-        The :class:`~geecs_bluesky.session.GeecsSession` (duck-typed).
-    devices_config :
-        Output of :func:`save_set_to_devices_config`.
-    free_run :
-        Whether the scan runs in free-run acquisition.
-
-    Returns
-    -------
-    list
-        Connected devices, reference first.
+    Mirrors ``BlueskyScanner._classify_device_roles``: free-run → first
+    synchronous entry is the reference, later ones contributors; strict →
+    all synchronous entries triggered; asynchronous → snapshots.  This is
+    the *headless* build — failures propagate (fail loudly); operator
+    drop/promote interaction is the scanner layer's job.  Returns connected
+    devices, reference first.
     """
     detectors: list = []
     reference_assigned = False
@@ -1082,19 +822,10 @@ def make_scalar_policy(session: Any) -> ScalarPolicyProvider | None:
 def warn_if_reserved_boundary_overrides(save_set: SaveSet | None) -> None:
     """Warn once if any entry sets the reserved (not-honored) set-side fields.
 
-    ``SaveSetEntry.at_scan_start`` / ``at_scan_end`` are **reserved and not
-    applied in this version**: the engine sets up triggering via the
-    TriggerProfile/shot controller and camera saving via its own
-    save-windowing, so DB set-side scan start/end writes are intentionally
-    disabled (they would race the shot controller on the DG645).  A config
-    that still sets them is not an error — it is honored by a future
-    re-enable — but the operator should know the values are inert now, so we
-    log one WARNING naming the device(s).
-
-    Parameters
-    ----------
-    save_set :
-        The scan's save set (``None`` = nothing to check).
+    ``at_scan_start`` / ``at_scan_end`` are reserved and inert — the DB
+    set-side is intentionally disabled (rationale:
+    ``GeecsBluesky/CLAUDE.md``, M3c set-side section).  One WARNING names
+    the offending device(s); not an error.
     """
     if save_set is None:
         return
@@ -1123,30 +854,17 @@ def build_telemetry_readables(
 ) -> tuple[list, dict[str, list[str]]]:
     """Build the Tier-2 background-telemetry readables (soft, dropped-if-dead).
 
-    Selects every experiment device with a ``get='yes'`` variable not in the
-    save set (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`),
-    then builds one soft telemetry readable per device via
-    ``session.telemetry`` — which returns ``None`` for a device unreachable at
-    scan start (dropped with a log line, never an abort).  Devices that connect
-    are appended to the scan's read set as extra columns; the softness (never
-    waited on) lives in the device's own tolerant ``read``.
-
-    Parameters
-    ----------
-    session :
-        The session (its ``telemetry`` factory connects each device softly).
-    save_set :
-        The scan's save set (its devices are excluded from telemetry).
-    scalar_policy :
-        Supplies ``get='yes'`` variables; ``None`` means no telemetry.
+    One soft readable per experiment device with a ``get='yes'`` variable not
+    in *save_set*; ``session.telemetry`` returns ``None`` for a device
+    unreachable at scan start (dropped with a log line, never an abort).
+    ``scalar_policy`` ``None`` means no telemetry.
 
     Returns
     -------
     tuple
-        ``(readables, recorded)`` — the connected telemetry devices and the
+        ``(readables, recorded)`` — connected devices and the
         ``{device: [variables]}`` map of **only those that connected**
-        (recorded in run metadata; devices dropped as unreachable are excluded
-        so the metadata matches the columns that actually exist).
+        (run-metadata key must match the columns that actually exist).
     """
     if scalar_policy is None:
         return [], {}
@@ -1235,14 +953,10 @@ def run_scan_request(
     mode = "strict" if request.acquisition is AcquisitionMode.STRICT else "free_run"
 
     if request.mode is ScanRequestMode.OPTIMIZE:
-        # Optimize mode has no action hooks yet (GeecsSession.optimize runs an
-        # adaptive scan with no setup/per_step/closeout seam).  Rather than
-        # refuse — which would block every optimization the moment an
-        # experiment defines default bracket actions — we run the optimization
-        # and skip the actions, logging loudly and recording the skip in run
-        # metadata so the omission is never silent.  Safety/setup actions are
-        # intentionally not run during optimization for now (a new capability,
-        # not present in the legacy scanner either).
+        # Optimize has no action hooks yet: skip actions (never refuse — that
+        # would block optimization wherever defaults define bracket actions),
+        # log loudly, and record the skip in run metadata (never silent).
+        # Rationale: GeecsBluesky/CLAUDE.md (engine consolidation).
         skipped_actions = {k: v for k, v in resolved_actions.items() if v}
         return _run_optimize_request(
             session,
@@ -1264,11 +978,8 @@ def run_scan_request(
     # deduped/merged; rituals collected across all sets, deduped by name).
     save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)
 
-    # M3c DB-integration runtime tier — get-side only.  The policy provider is
-    # failure-tolerant (empty policy on a missing/unreachable DB), so it never
-    # aborts a scan.  The DB set-side (scan start/end writes) is intentionally
-    # disabled in this version (see the module docstring); a config that still
-    # sets the reserved at_scan_start / at_scan_end fields gets one warning.
+    # M3c get-side runtime: failure-tolerant policy provider (a DB blip never
+    # aborts a scan); the DB set-side stays disabled (reserved fields warn).
     scalar_policy = make_scalar_policy(session)
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
@@ -1467,10 +1178,8 @@ def _run_optimize_request(
     created: list = []
     try:
         skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
-        # db_scalars resolution applies to optimize too (recorded-scalar
-        # consistency); background telemetry does not run in optimize mode yet
-        # (no scan-boundary hook on GeecsSession.optimize).  The DB set-side
-        # (scan start/end writes) is disabled everywhere in this version.
+        # db_scalars applies to optimize too; telemetry does not run here yet
+        # (no scan-boundary hook); the DB set-side stays disabled everywhere.
         scalar_policy = make_scalar_policy(session)
         if request.save_sets:
             save_set, rituals = resolve_save_sets_and_rituals(
@@ -1517,9 +1226,8 @@ def _run_optimize_request(
                 "and save-set rituals do not run during optimization): %s",
                 skipped,
             )
-        # Background telemetry is not wired into optimize mode yet
-        # (GeecsSession.optimize has no scan-boundary hook); db_scalars
-        # resolution above still applies.  The DB set-side is disabled
+        # Telemetry is not wired into optimize yet; db_scalars above applies.
+        # The DB set-side is disabled
         # everywhere in this version.  Recorded for provenance.
         md["db_scan_runtime"] = {
             "db_scalars": "applied",

@@ -102,34 +102,19 @@ def geecs_single_shot(
 
     If a triggered device produces no frame for a fire (the group wait fails
     with :exc:`~bluesky.utils.FailedStatus`), the shot is re-fired up to
-    *max_refires* times before the failure propagates.
+    *max_refires* times before the failure propagates.  Strict semantics
+    survive refire: a failed attempt records nothing, and the next attempt's
+    ``trigger()`` re-baselines and drains any orphan frame
+    (:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`), so every
+    recorded row is one physical shot.  Refire — not a longer timeout — is
+    the recovery because a missed pulse never yields a frame (live-verified;
+    numbers in ``GeecsBluesky/CHANGELOG.md`` 0.20.0).
 
-    **Why refire preserves strict semantics.**  A failed attempt records
-    nothing: ``create``/``read``/``save`` run only after the group wait
-    succeeds, so no event row exists for the failed fire.  A device that
-    *did* capture the failed fire holds an orphan frame, but the next
-    attempt's ``trigger()`` re-baselines against it and drains the shot queue
-    synchronously (:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`'s
-    warm-path drain), so its fresh status only completes on a frame from the
-    new fire.  Every recorded row therefore remains one physical shot across
-    all devices.
-
-    **Why refire (not a longer timeout).**  Live evidence, 2026-07-06
-    Undulator Scan011 (first GUI optimization campaign): 84 SINGLESHOT fires
-    produced 83 camera frames; fire→frame offset over the 83 good shots was
-    median 0.21 s (max 1.06 s) against the 3.0 s trigger timeout — ample
-    margin.  The one unmatched fire produced no frame *ever* (the Basler's
-    known ~1% frame-drop intermittency) and aborted the whole campaign.  At a
-    ~1.2% drop rate a 100-shot campaign aborts with ~70% probability without
-    refire; a missed pulse never yields a frame, so only re-firing recovers.
-
-    **Refire is gated on gateway liveness.**  Before re-firing, the frameless
-    device's ``connected_status`` (the gateway ``CONNECTED`` PV) is read: if
-    the device reports Disconnected, the timeout was not a frame drop — the
-    device went down mid-scan — and :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError`
-    is raised immediately instead of burning refires against dead hardware.
-    A live (or unreadable — fail-open) status keeps the bounded-refire
-    behavior.
+    Refire is gated on gateway liveness: a frameless device whose
+    ``CONNECTED`` PV reads Disconnected went down mid-scan, so
+    :exc:`~geecs_bluesky.exceptions.GeecsDeviceDownError` is raised instead
+    of burning refires; a live or unreadable status (fail-open) keeps the
+    bounded-refire behavior.
 
     Parameters
     ----------
@@ -163,46 +148,13 @@ def geecs_single_shot(
             if triggerables:
                 yield from bps.wait(group=grp)
         except FailedStatus as exc:
-            # The RunEngine (bluesky 1.15.1, run_engine.py) reports a failed
-            # status via _status_object_completed:
-            #
-            #     raise FailedStatus(ret) from exc
-            #   except Exception as e:
-            #       self._exception = e
-            #       fut.set_exception(e)
-            #       ...
-            #       fut.exception()   # squash "never retrieved" at teardown
-            #
-            # and the run loop throws that stashed exception into the plan at
-            # the next message boundary:
-            #
-            #     if self._exception is not None:
-            #         stashed_exception = self._exception
-            #         self._exception = None
-            #     ...
-            #     msg = self._plan_stack[-1].throw(stashed_exception or resp)
-            #
-            # Consequences for statuses abandoned by a failed attempt:
-            # - A pending status that later *succeeds* (its device did frame)
-            #   just resolves its uncollected future — completely inert.
-            # - A pending status that later *errors* (a second device also
-            #   missed) is NOT mere log noise: its FailedStatus lands in
-            #   RE._exception and is thrown at the plan's next yield.  In
-            #   practice all of an attempt's statuses share the same ~3 s
-            #   deadline (triggered within milliseconds of each other), so
-            #   co-missing devices error effectively together and the single
-            #   RE._exception slot is consumed right here at the wait (later
-            #   stashes overwrite earlier ones; the prefetched fut.exception()
-            #   keeps teardown quiet).  If a straggler does land inside the
-            #   next attempt, this try wraps the *whole* attempt (trigger +
-            #   fire + wait), so the stale FailedStatus is caught and merely
-            #   consumes one refire instead of aborting the scan — no
-            #   cancellation machinery needed.
-            #
-            # Refire is gated on gateway liveness: a no-frame timeout from a
-            # device whose CONNECTED PV reports Disconnected is not a frame
-            # drop — the device went down mid-scan, and re-firing burns
-            # attempts (~3 s each) against hardware that cannot answer.
+            # No cancellation of abandoned statuses is needed: the RunEngine
+            # stashes a late FailedStatus and throws it into the plan at the
+            # next yield, but co-missing devices share the same ~3 s deadline
+            # so the stash is consumed right here at the wait; a straggler
+            # that lands inside the next attempt is caught by this same try
+            # (it wraps the whole attempt: trigger + fire + wait) and merely
+            # consumes one refire instead of aborting the scan.
             device_name = _no_frame_device(exc)
             down = yield from _confirm_device_down(devices, device_name)
             if down:

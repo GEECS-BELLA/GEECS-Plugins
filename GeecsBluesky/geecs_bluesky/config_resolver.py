@@ -157,21 +157,10 @@ class ConfigsRepoResolver:
     def resolve_save_set(self, name: str) -> SaveSet:
         """Load the save set *name* (new schema, else converted save element).
 
-        Parameters
-        ----------
-        name :
-            File stem under ``save_devices/`` (``.yaml`` optional).
-
-        Returns
-        -------
-        SaveSet
-            The validated save set.
-
         Raises
         ------
         GeecsConfigurationError
-            If the file is missing or is an action-only legacy element
-            (nothing to record).
+            Missing file, or an action-only legacy element (nothing to record).
         """
         stem = self._strip_yaml_suffix(name)
         path = self._root / self.SAVE_SET_FOLDER / f"{stem}.yaml"
@@ -195,20 +184,10 @@ class ConfigsRepoResolver:
     def resolve_trigger_profile(self, name: str) -> TriggerProfile:
         """Load the trigger profile *name* (new schema, else converted).
 
-        Parameters
-        ----------
-        name :
-            File stem under ``shot_control_configurations/``.
-
-        Returns
-        -------
-        TriggerProfile
-            The validated profile.
-
         Raises
         ------
         GeecsConfigurationError
-            If the file is missing or names no trigger device.
+            Missing file, or a profile that names no trigger device.
         """
         stem = self._strip_yaml_suffix(name)
         path = self._root / self.TRIGGER_FOLDER / f"{stem}.yaml"
@@ -251,20 +230,10 @@ class ConfigsRepoResolver:
     def resolve_scan_variable(self, name: str) -> ScanVariableSpec:
         """Look up the scan variable *name* in the experiment catalog.
 
-        Parameters
-        ----------
-        name :
-            Friendly variable name (a key of the catalog).
-
-        Returns
-        -------
-        ScanVariable or PseudoScanVariable
-            The catalog entry.
-
         Raises
         ------
         GeecsConfigurationError
-            If the name is not in the catalog (known names are listed).
+            Unknown name (the error lists the known variables).
         """
         catalog = self._scan_variables_catalog()
         try:
@@ -292,20 +261,10 @@ class ConfigsRepoResolver:
     def resolve_action_plan(self, name: str) -> ActionPlan:
         """Look up the action plan *name* in the experiment library.
 
-        Parameters
-        ----------
-        name :
-            Plan name (a key of the action library).
-
-        Returns
-        -------
-        ActionPlan
-            The named plan.
-
         Raises
         ------
         GeecsConfigurationError
-            If the name is not in the library (known names are listed).
+            Unknown name (the error lists the known plans).
         """
         # Plans the save-element converter extracted resolve first: they
         # live beside their element (their `<element>_setup` names cannot
@@ -326,15 +285,8 @@ class ConfigsRepoResolver:
     def action_plan_registry(self) -> dict[str, ActionPlan]:
         """Return every named plan visible to nested ``run`` steps.
 
-        The experiment's action library plus the plans the save-element
-        converter extracted (which win on a name collision, matching
-        :meth:`resolve_action_plan`'s lookup order).  An experiment without
-        an action library still gets its extracted element plans.
-
-        Returns
-        -------
-        dict
-            ``{plan_name: ActionPlan}``.
+        The action library plus converter-extracted element plans (extracted
+        plans win on collision, matching :meth:`resolve_action_plan`).
         """
         plans: dict[str, ActionPlan] = {}
         try:
@@ -347,17 +299,10 @@ class ConfigsRepoResolver:
     DEFAULTS_FILE = "experiment_defaults.yaml"
 
     def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
-        """Load and validate the experiment's defaults file, if one exists.
+        """Load ``<experiment>/experiment_defaults.yaml``; ``None`` if absent.
 
-        Reads ``<experiment>/experiment_defaults.yaml`` into the
-        :class:`~geecs_schemas.ExperimentDefaults` model (there is no
-        legacy dialect behind it — the legacy scanner kept these choices in
-        GUI state).
-
-        Returns
-        -------
-        ExperimentDefaults or None
-            The validated defaults, or ``None`` when no file exists.
+        No legacy dialect exists behind it (the legacy scanner kept these
+        choices in GUI state).
         """
         path = self._root / self.DEFAULTS_FILE
         if not path.exists():

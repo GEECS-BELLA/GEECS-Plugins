@@ -2,13 +2,13 @@
 
 Read like a snapshot (no blocking ``trigger()``, so it never gates the event
 row) but carrying the sync-device companion columns labeled relative to the
-reference.  The labeling semantics — row shot-id peeking, bounded grace wait,
-offset/valid emission — are the shared
-:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin;
-this class supplies the CA transport underneath: ``acq_timestamp`` from the persistent gateway monitor
+reference — the shared
+:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin.
+This class supplies the CA transport underneath: ``acq_timestamp`` from the
+persistent gateway monitor
 (:class:`~geecs_bluesky.devices.ca.triggerable.CaAcqTimestampReadable`), and
-``localsavingpath`` / ``save`` controls as CA signals writing the gateway
-``…:SP`` setpoints.
+``localsavingpath`` / ``save`` controls writing the gateway ``…:SP``
+setpoints.
 """
 
 from __future__ import annotations

@@ -11,21 +11,16 @@ companion columns of the event schema contract:
 * ``<dev>-valid`` — ``shot_offset == 0``
 
 Data values are always the device's latest real data, truthfully labeled: a
-long-exposure camera whose frame for shot N arrives late lands at
-``shot_offset = -1`` with shot N−1's values, and downstream realignment is a
-per-device shift keyed on ``shot_id``.  An optional bounded **grace wait**
-(default one push period) raises the offset-0 fraction by giving the device's
-frame time to arrive after the reference accepts the shot.
+late frame lands at a negative ``shot_offset`` with the earlier shot's
+values, and downstream realignment is a per-device shift keyed on
+``shot_id``.  An optional bounded **grace wait** (default one push period)
+raises the offset-0 fraction.
 
-This mixin is the *shared* domain layer — transport-agnostic by construction.
-It requires the host to provide ``last_acq_timestamp`` (from the TCP shot cache
-on the direct backend, from the persistent CA monitor cache on the CA backend),
-plus the :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
-:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins whose
-helpers it emits through.  Both
-:class:`~geecs_bluesky.devices.ca.timestamped_readable.CaTimestampedReadable`
-(direct) and the CA contributor compose it, so the labeling semantics cannot
-diverge between backends.
+This mixin is the transport-agnostic domain layer: the host provides
+``last_acq_timestamp`` plus the
+:class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
+:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins
+whose helpers it emits through.
 """
 
 from __future__ import annotations
