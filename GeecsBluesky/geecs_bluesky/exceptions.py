@@ -47,7 +47,7 @@ __all__ = [
 class GeecsTriggerTimeoutError(GeecsError):
     """``acq_timestamp`` did not advance within the trigger timeout.
 
-    Raised by :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`
+    Raised by :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`
     when no new shot arrives within ``_trigger_timeout`` seconds.  Typical
     causes: DG645 not firing, camera not acquiring, or trigger cable fault.
     """
@@ -80,7 +80,7 @@ class GeecsQuiescenceTimeoutError(GeecsError):
 class GeecsMotorTimeoutError(GeecsError):
     """Motor did not reach the target position within ``move_timeout``.
 
-    Raised by :class:`~geecs_bluesky.devices.motor.GeecsMotor` when the
+    Raised by :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the
     position polling loop expires.  Possible causes: stage stall, mechanical
     obstruction, wrong tolerance, or very long move.  Do not auto-retry —
     a stalled stage may need operator intervention.

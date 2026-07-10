@@ -3,6 +3,29 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.12.0] - 2026-07-10
+
+Cleanup pass 1 (audit: `Planning/cleanup_vision_v1/00_overview.md`) — no
+behavior change.
+
+### Changed
+
+- The numeric wire-value coercion (`float` → int-if-whole → fallback str),
+  previously duplicated in `tcp_subscriber` and `udp_client`, is now the
+  shared `transport/_coerce.coerce_scalar`. The fake device server keeps its
+  own copy deliberately (test/prod decoupling).
+- `config.py` module docstring no longer describes the shipped DB-driven
+  config path (`from_geecs_experiment`) as future work; `naming.py`'s
+  docstring condensed to a pointer at `pv_naming` (the policy home).
+
+### Removed
+
+- `GeecsDb.list_devices()` — zero consumers anywhere in the workspace (the
+  config path uses the batched `get_experiment_devices`).
+- `FakeGeecsDevice.fire_shot()` — its only consumer was GeecsBluesky's
+  deleted direct-backend test suite (bluesky tests use ophyd-async mock
+  backends now); its docstring pointed at a deleted class path.
+
 ## [0.11.0] - 2026-07-09
 
 ### Added

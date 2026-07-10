@@ -1,21 +1,18 @@
 """CaGenericDetector — the scanner's triggered detector over the CA gateway.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`: one
+One
 readable signal per variable, ``trigger()`` gated on ``acq_timestamp`` (via
 :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`'s persistent CA
 monitor), the schema-v1 sync-device companion columns on every read, and native
 non-scalar file saving.
 
-The companion-column and asset logic is the *shared* domain layer — this class
-composes the same :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
-:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins the
-direct detector uses (same tracker, data keys, save-path column, and
-Resource/Datum documents).  Only the transport differs: ``acq_timestamp`` comes
-from the CA monitor cache instead of the TCP shot cache, and the
+The companion-column and asset logic is the *shared* domain layer
+(:class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
+:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins);
+``acq_timestamp`` comes from the CA monitor cache, and the
 ``localsavingpath`` / ``save`` controls are CA signals that read the gateway
 readback PV and write its ``…:SP`` setpoint (which forwards to the GEECS UDP
-set), instead of direct UDP signals.
+set).
 """
 
 from __future__ import annotations

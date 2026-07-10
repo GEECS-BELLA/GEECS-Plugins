@@ -40,7 +40,7 @@ def geecs_t0_sync(
     ----------
     devices:
         Sync devices exposing ``last_acq_timestamp`` and ``seed_shot_id()``
-        (e.g. :class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`).
+        (e.g. :class:`~geecs_bluesky.devices.ca.generic_detector.CaGenericDetector`).
     window_s:
         Acceptance window for the timestamp spread.  Default ``0.2`` —
         comfortably above NTP skew (~50 ms) and far below a 1 s trigger

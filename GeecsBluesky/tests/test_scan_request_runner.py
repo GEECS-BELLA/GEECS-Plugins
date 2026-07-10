@@ -28,8 +28,6 @@ from geecs_bluesky.scan_request_runner import (
     build_action_registry,
     collect_save_set_rituals,
     merge_save_sets,
-    resolve_save_set_and_rituals,
-    resolve_save_set_checked,
     resolve_save_sets_and_rituals,
     resolve_save_sets_checked,
     run_scan_request,
@@ -1208,23 +1206,23 @@ def _entry_action_save_set(**entry_overrides) -> SaveSet:
     return SaveSet.model_validate({"name": "s", "entries": [entry]})
 
 
-def test_resolve_save_set_and_rituals_validates_names() -> None:
+def test_resolve_save_sets_and_rituals_validates_names() -> None:
     resolver = _SaveSetResolver(_entry_action_save_set(setup=["prep_cam"]))
-    save_set, rituals = resolve_save_set_and_rituals(resolver, "s")
+    save_set, rituals = resolve_save_sets_and_rituals(resolver, ["s"])
     assert rituals == {"setup": ["prep_cam"], "closeout": []}
 
 
 def test_entry_level_unknown_action_fails_validation_first() -> None:
     resolver = _SaveSetResolver(_entry_action_save_set(setup=["nope"]))
     with pytest.raises(GeecsConfigurationError, match="nope"):
-        resolve_save_set_and_rituals(resolver, "s")
+        resolve_save_sets_and_rituals(resolver, ["s"])
 
 
 def test_bridge_path_still_refuses_entry_rituals() -> None:
-    """resolve_save_set_checked (GUI-bridge helper) refuses with a pointer."""
+    """resolve_save_sets_checked (GUI-bridge helper) refuses with a pointer."""
     resolver = _SaveSetResolver(_entry_action_save_set(setup=["prep_cam"]))
     with pytest.raises(NotImplementedError, match="GeecsSession.run"):
-        resolve_save_set_checked(resolver, "s")
+        resolve_save_sets_checked(resolver, ["s"])
 
 
 def test_entry_rituals_execute_between_defaults_and_request(

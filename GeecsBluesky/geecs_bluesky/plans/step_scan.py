@@ -16,37 +16,28 @@ How it fits into Bluesky
 Shot synchronisation
 --------------------
 Detectors that inherit from
-:class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable` complete their
+:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable` complete their
 ``trigger()`` call by waiting for the hardware ``acq_timestamp`` variable to
 advance — the real shot timestamp from the DG645 delay generator.  This is
 robust to device restarts (shot numbers drift; timestamps don't).
 
-Example::
+Example (devices built and connected through a
+:class:`~geecs_bluesky.session.GeecsSession`)::
 
     import numpy as np
-    from bluesky import RunEngine
-    from geecs_bluesky.devices.generic_detector import GeecsGenericDetector
-    from geecs_bluesky.devices.motor import GeecsMotor
+    from geecs_bluesky.session import GeecsSession
     from geecs_bluesky.plans.step_scan import geecs_step_scan
 
-    RE = RunEngine()
+    session = GeecsSession(experiment="Undulator")
+    motor = session.motor("U_ESP_JetXYZ", "Position.Axis 1", name="jet_x")
+    det = session.detector("U_ProbeCam", ["MeanCounts"], name="probe_cam")
 
-    motor = GeecsMotor("U_ESP_JetXYZ", "Position.Axis 1",
-                       "192.168.8.198", 65158,
-                       name="jet_x", units="mm")
-    det = GeecsGenericDetector("U_ProbeCam", ["MeanCounts"],
-                               "192.168.8.50", 64000,
-                               name="probe_cam")
-
-    await motor.connect()
-    await det.connect()
-
-    RE(geecs_step_scan(
+    session.RE(geecs_step_scan(
         motor=motor,
         positions=np.linspace(0, 5, 6),
         detectors=[det],
         shots_per_step=5,
-        md={"sample": "He jet", "operator": "jdoe"},
+        md={"sample": "He jet"},
     ))
 """
 
@@ -162,9 +153,9 @@ def geecs_step_scan(
     ----------
     motor:
         Any :class:`~bluesky.protocols.Movable` device — a stage axis
-        (:class:`~geecs_bluesky.devices.motor.GeecsMotor`), power supply,
+        (:class:`~geecs_bluesky.devices.ca.motor.CaMotor`), power supply,
         pressure controller, etc. (anything with ``set() → status``, e.g.
-        built on :class:`~geecs_bluesky.devices.settable.GeecsSettable`).
+        built on :class:`~geecs_bluesky.devices.ca.settable.CaSettable`).
         The name follows the bluesky ``scan(detectors, motor, ...)``
         convention.  A **sequence** of Movables is a multi-axis grid scan
         (one motor per axis, outermost first; each position is then a tuple

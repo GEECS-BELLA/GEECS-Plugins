@@ -23,7 +23,7 @@ on the direct backend, from the persistent CA monitor cache on the CA backend),
 plus the :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
 :class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins whose
 helpers it emits through.  Both
-:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`
+:class:`~geecs_bluesky.devices.ca.timestamped_readable.CaTimestampedReadable`
 (direct) and the CA contributor compose it, so the labeling semantics cannot
 diverge between backends.
 """

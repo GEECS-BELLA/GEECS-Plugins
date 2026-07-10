@@ -23,11 +23,9 @@ This module owns the mapping:
   name so a shared ritual runs once (:func:`resolve_save_sets_and_rituals`).
   Everything downstream — ``save_set_to_devices_config``, telemetry
   exclusion, the reserved-boundary warning — operates on the merged set.
-- :class:`ConfigsRepoResolver` reads the real configs repository
-  (``scanner_configs/experiments/<Experiment>/``): a YAML file carrying a
-  ``schema_version`` key loads as the new schema directly; anything else is
-  converted from its legacy dialect via :mod:`geecs_schemas.convert` — so the
-  whole existing config corpus is usable immediately, no flag day.
+- :class:`ConfigsRepoResolver` (in :mod:`geecs_bluesky.config_resolver`,
+  re-exported here) reads the real configs repository — new-schema YAML
+  directly, anything else through the legacy converters.
 - Pure mapping helpers derive the engine shapes from the schemas:
   :func:`save_set_to_devices_config` (SaveSet → the ``devices_config`` dict
   ``BlueskyScanner._build_session_devices`` / the session factories expect,
@@ -82,11 +80,14 @@ from __future__ import annotations
 import itertools
 import logging
 from collections.abc import Mapping
-from pathlib import Path
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Callable
 
-import yaml
-
+# ConfigsRepoResolver is re-exported: the existing import surface
+# (bridge, tests, notebooks) gets both names from this module.
+from geecs_bluesky.config_resolver import (  # noqa: F401
+    ConfigResolver,
+    ConfigsRepoResolver,
+)
 from geecs_bluesky.db_runtime import (
     GeecsDbScalarPolicy,
     ScalarPolicyProvider,
@@ -96,13 +97,10 @@ from geecs_bluesky.db_runtime import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
-from geecs_bluesky.scanner_configs import SHOT_CONTROL_FOLDER, scanner_configs_base
 from geecs_schemas import (
     ActionBindings,
     ActionPlan,
-    ActionPlanLibrary,
     AcquisitionMode,
-    ExperimentDefaults,
     PseudoScanVariable,
     SaveRole,
     SaveSet,
@@ -110,18 +108,11 @@ from geecs_schemas import (
     ScanRequest,
     ScanRequestMode,
     ScanVariable,
-    ScanVariables,
     ScanVariableSpec,
     TriggerProfile,
     TriggerState,
 )
 from geecs_schemas.action_plan import CheckStep, RunPlanStep, SetStep
-from geecs_schemas.convert import (
-    convert_action_library,
-    convert_save_element,
-    convert_scan_variables,
-    convert_shot_control,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -135,330 +126,9 @@ MULTI_AXIS_MESSAGE = (
 )
 
 
-# ---------------------------------------------------------------------------
-# ConfigResolver protocol
-# ---------------------------------------------------------------------------
-
-
-@runtime_checkable
-class ConfigResolver(Protocol):
-    """Resolves the names a ScanRequest carries into schema models."""
-
-    def resolve_save_set(self, name: str) -> SaveSet:
-        """Return the save set called *name*."""
-        ...
-
-    def resolve_trigger_profile(self, name: str) -> TriggerProfile:
-        """Return the trigger profile called *name*."""
-        ...
-
-    def resolve_scan_variable(self, name: str) -> ScanVariableSpec:
-        """Return the scan-variable entry called *name*."""
-        ...
-
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Return the action plan called *name*."""
-        ...
-
-    def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
-        """Return the experiment's defaults, or ``None`` if none are declared.
-
-        Defaults apply where the request is silent (default trigger
-        profile; default setup/closeout plans prepended); what was applied
-        is recorded for provenance (see
-        :func:`apply_experiment_defaults`).  Resolvers without this method
-        are tolerated (no defaults).
-        """
-        ...
-
-
-class ConfigsRepoResolver:
-    """Resolver over the real configs-repo layout, converter-backed.
-
-    Reads ``scanner_configs/experiments/<experiment>/`` (the same resolution
-    roots as :func:`geecs_bluesky.scanner_configs.scanner_configs_base`):
-
-    - ``save_devices/<name>.yaml`` — save sets (legacy save elements)
-    - ``shot_control_configurations/<name>.yaml`` — trigger profiles
-    - ``scan_devices/scan_variables.yaml`` (new schema) or the legacy
-      ``scan_devices/scan_devices.yaml`` + ``scan_devices/composite_variables.yaml``
-      pair — the scan-variable catalog
-    - ``action_library/actions.yaml`` — the action-plan library
-
-    A file whose top level carries ``schema_version`` is loaded as the new
-    schema; anything else goes through the matching legacy converter — so
-    the existing corpus works unchanged and files can migrate one at a time.
-
-    Parameters
-    ----------
-    experiment :
-        Experiment folder name under ``scanner_configs/experiments``.
-    experiments_root :
-        Override for the experiments root (tests); defaults to the
-        production resolution (``GEECS_SCANNER_CONFIG_DIR`` env var or
-        config.ini), resolved lazily on first use.
-    """
-
-    SAVE_SET_FOLDER = "save_devices"
-    TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
-    SCAN_VARIABLES_FOLDER = "scan_devices"
-    ACTION_FOLDER = "action_library"
-
-    def __init__(
-        self, experiment: str, experiments_root: str | Path | None = None
-    ) -> None:
-        self._experiment = experiment
-        self._experiments_root = (
-            Path(experiments_root) if experiments_root is not None else None
-        )
-        self._scan_variables_cache: ScanVariables | None = None
-        self._action_library_cache: ActionPlanLibrary | None = None
-        # Plans extracted by the save-element converter (legacy
-        # setup_action / closeout_action / scan_setup become named plans
-        # referenced from the entries) — they live beside the element, not
-        # in the experiment's action library, so name resolution falls back
-        # to them after the library.
-        self._extracted_element_actions: dict[str, ActionPlan] = {}
-
-    @property
-    def _root(self) -> Path:
-        root = self._experiments_root or scanner_configs_base()
-        return root / self._experiment
-
-    @staticmethod
-    def _strip_yaml_suffix(name: str) -> str:
-        for suffix in (".yaml", ".yml"):
-            if name.endswith(suffix):
-                return name[: -len(suffix)]
-        return name
-
-    def _load_yaml(self, path: Path, kind: str, name: str) -> dict:
-        """Load one YAML mapping, failing loudly with the config kind/name."""
-        if not path.exists():
-            raise GeecsConfigurationError(
-                f"{kind} {name!r} not found for experiment "
-                f"{self._experiment!r}: no file at {path}"
-            )
-        document = yaml.safe_load(path.read_text())
-        if document is None:
-            document = {}
-        if not isinstance(document, dict):
-            raise GeecsConfigurationError(
-                f"{kind} {name!r}: expected a YAML mapping at the top of "
-                f"{path}, got {type(document).__name__}"
-            )
-        return document
-
-    def resolve_save_set(self, name: str) -> SaveSet:
-        """Load the save set *name* (new schema, else converted save element).
-
-        Parameters
-        ----------
-        name :
-            File stem under ``save_devices/`` (``.yaml`` optional).
-
-        Returns
-        -------
-        SaveSet
-            The validated save set.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            If the file is missing or is an action-only legacy element
-            (nothing to record).
-        """
-        stem = self._strip_yaml_suffix(name)
-        path = self._root / self.SAVE_SET_FOLDER / f"{stem}.yaml"
-        document = self._load_yaml(path, "save set", name)
-        if "schema_version" in document:
-            return SaveSet.model_validate(document)
-        result = convert_save_element(document, name=stem)
-        for note in result.notes:
-            logger.info("save set %s (converted from legacy): %s", stem, note)
-        # The converter extracts element-level setup/closeout (and per-device
-        # scan_setup) into named plans referenced from the entries; remember
-        # them so resolve_action_plan can validate those references.
-        self._extracted_element_actions.update(result.actions)
-        if result.save_set is None:
-            raise GeecsConfigurationError(
-                f"save set {name!r} ({path}) is an action-only legacy element "
-                "— it lists no devices to record"
-            )
-        return result.save_set
-
-    def resolve_trigger_profile(self, name: str) -> TriggerProfile:
-        """Load the trigger profile *name* (new schema, else converted).
-
-        Parameters
-        ----------
-        name :
-            File stem under ``shot_control_configurations/``.
-
-        Returns
-        -------
-        TriggerProfile
-            The validated profile.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            If the file is missing or names no trigger device.
-        """
-        stem = self._strip_yaml_suffix(name)
-        path = self._root / self.TRIGGER_FOLDER / f"{stem}.yaml"
-        document = self._load_yaml(path, "trigger profile", name)
-        if "schema_version" in document:
-            return TriggerProfile.model_validate(document)
-        profile = convert_shot_control(document, name=stem)
-        if profile is None:
-            raise GeecsConfigurationError(
-                f"trigger profile {name!r} ({path}) is empty / names no "
-                "device — it cannot drive a scan's trigger"
-            )
-        return profile
-
-    def _scan_variables_catalog(self) -> ScanVariables:
-        """Load (and cache) the experiment's scan-variable catalog."""
-        if self._scan_variables_cache is not None:
-            return self._scan_variables_cache
-        folder = self._root / self.SCAN_VARIABLES_FOLDER
-        new_schema = folder / "scan_variables.yaml"
-        if new_schema.exists():
-            document = self._load_yaml(new_schema, "scan variables", "catalog")
-            catalog = ScanVariables.model_validate(document)
-        else:
-            scan_devices = folder / "scan_devices.yaml"
-            composites = folder / "composite_variables.yaml"
-            if not scan_devices.exists() and not composites.exists():
-                raise GeecsConfigurationError(
-                    f"no scan-variable catalog for experiment "
-                    f"{self._experiment!r}: expected {new_schema} or the "
-                    f"legacy pair in {folder}"
-                )
-            catalog = convert_scan_variables(
-                scan_devices if scan_devices.exists() else None,
-                composites if composites.exists() else None,
-            )
-        self._scan_variables_cache = catalog
-        return catalog
-
-    def resolve_scan_variable(self, name: str) -> ScanVariableSpec:
-        """Look up the scan variable *name* in the experiment catalog.
-
-        Parameters
-        ----------
-        name :
-            Friendly variable name (a key of the catalog).
-
-        Returns
-        -------
-        ScanVariable or PseudoScanVariable
-            The catalog entry.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            If the name is not in the catalog (known names are listed).
-        """
-        catalog = self._scan_variables_catalog()
-        try:
-            return catalog.variables[name]
-        except KeyError:
-            raise GeecsConfigurationError(
-                f"scan variable {name!r} is not in the "
-                f"{self._experiment!r} catalog. Known variables: "
-                f"{sorted(catalog.variables)}"
-            ) from None
-
-    def _action_library(self) -> ActionPlanLibrary:
-        """Load (and cache) the experiment's action-plan library."""
-        if self._action_library_cache is not None:
-            return self._action_library_cache
-        path = self._root / self.ACTION_FOLDER / "actions.yaml"
-        document = self._load_yaml(path, "action library", "actions")
-        if "schema_version" in document:
-            library = ActionPlanLibrary.model_validate(document)
-        else:
-            library = convert_action_library(document)
-        self._action_library_cache = library
-        return library
-
-    def resolve_action_plan(self, name: str) -> ActionPlan:
-        """Look up the action plan *name* in the experiment library.
-
-        Parameters
-        ----------
-        name :
-            Plan name (a key of the action library).
-
-        Returns
-        -------
-        ActionPlan
-            The named plan.
-
-        Raises
-        ------
-        GeecsConfigurationError
-            If the name is not in the library (known names are listed).
-        """
-        # Plans the save-element converter extracted resolve first: they
-        # live beside their element (their `<element>_setup` names cannot
-        # collide with library names in practice), and an experiment may
-        # have converted elements without having an action library at all.
-        plan = self._extracted_element_actions.get(name)
-        if plan is not None:
-            return plan
-        library = self._action_library()
-        try:
-            return library.plans[name]
-        except KeyError:
-            raise GeecsConfigurationError(
-                f"action plan {name!r} is not in the {self._experiment!r} "
-                f"action library. Known plans: {sorted(library.plans)}"
-            ) from None
-
-    def action_plan_registry(self) -> dict[str, ActionPlan]:
-        """Return every named plan visible to nested ``run`` steps.
-
-        The experiment's action library plus the plans the save-element
-        converter extracted (which win on a name collision, matching
-        :meth:`resolve_action_plan`'s lookup order).  An experiment without
-        an action library still gets its extracted element plans.
-
-        Returns
-        -------
-        dict
-            ``{plan_name: ActionPlan}``.
-        """
-        plans: dict[str, ActionPlan] = {}
-        try:
-            plans.update(self._action_library().plans)
-        except GeecsConfigurationError:
-            pass  # no actions.yaml — extracted element plans may still exist
-        plans.update(self._extracted_element_actions)
-        return plans
-
-    DEFAULTS_FILE = "experiment_defaults.yaml"
-
-    def resolve_experiment_defaults(self) -> ExperimentDefaults | None:
-        """Load and validate the experiment's defaults file, if one exists.
-
-        Reads ``<experiment>/experiment_defaults.yaml`` into the
-        :class:`~geecs_schemas.ExperimentDefaults` model (there is no
-        legacy dialect behind it — the legacy scanner kept these choices in
-        GUI state).
-
-        Returns
-        -------
-        ExperimentDefaults or None
-            The validated defaults, or ``None`` when no file exists.
-        """
-        path = self._root / self.DEFAULTS_FILE
-        if not path.exists():
-            return None
-        document = self._load_yaml(path, "experiment defaults", self.DEFAULTS_FILE)
-        return ExperimentDefaults.model_validate(document)
+# The resolver layer (ConfigResolver protocol + the production
+# ConfigsRepoResolver) lives in geecs_bluesky.config_resolver; the names
+# are re-exported here for the existing import surface.
 
 
 # ---------------------------------------------------------------------------
@@ -745,36 +415,6 @@ def collect_save_set_rituals(save_set: SaveSet) -> dict[str, list[str]]:
     return rituals
 
 
-def resolve_save_set_and_rituals(
-    resolver: ConfigResolver, name: str
-) -> tuple[SaveSet, dict[str, list[str]]]:
-    """Resolve a save set and validate its entry-level ritual references.
-
-    Every referenced plan name is resolved against the action library now
-    (fail-fast, pre-claim); execution happens later through the assembled
-    slots (:func:`assemble_action_slots`).
-
-    Parameters
-    ----------
-    resolver :
-        Where names are looked up.
-    name :
-        The save set name.
-
-    Returns
-    -------
-    tuple
-        ``(save_set, rituals)`` — the resolved save set and its
-        de-duplicated ``{"setup": [...], "closeout": [...]}`` ritual names.
-    """
-    save_set = resolver.resolve_save_set(name)
-    rituals = collect_save_set_rituals(save_set)
-    for names in rituals.values():
-        for action_name in names:
-            resolver.resolve_action_plan(action_name)
-    return save_set, rituals
-
-
 def _merge_two_entries(existing: SaveSetEntry, addition: SaveSetEntry) -> SaveSetEntry:
     """Merge a second entry for the same device into the first (union rule).
 
@@ -891,8 +531,7 @@ def resolve_save_sets_and_rituals(
     setup/closeout rituals across **all** sets, de-duplicated by plan name
     (so a ritual shared by two sets still runs once). Every referenced ritual
     plan name is validated against the action library now (fail-fast,
-    pre-claim), exactly as :func:`resolve_save_set_and_rituals` does for one
-    set.
+    pre-claim).
 
     Parameters
     ----------
@@ -1139,47 +778,12 @@ def compile_action_slot(
     return _slot_plan, plans
 
 
-def resolve_save_set_checked(resolver: ConfigResolver, name: str) -> SaveSet:
-    """Resolve a save set, refusing entry-level rituals — **GUI-bridge path only**.
-
-    The engine executes entry rituals (see
-    :func:`resolve_save_set_and_rituals` / :func:`run_scan_request`); the
-    GUI bridge stages requests through the legacy exec-config machinery and
-    does not run them yet.  References are *validated* first (unknown names
-    fail loudly), then refused.
-
-    Parameters
-    ----------
-    resolver :
-        Where names are looked up.
-    name :
-        The save set name.
-
-    Returns
-    -------
-    SaveSet
-        The resolved save set (guaranteed free of entry-level actions).
-    """
-    save_set, rituals = resolve_save_set_and_rituals(resolver, name)
-    entry_actions = [n for names in rituals.values() for n in names]
-    if entry_actions:
-        raise NotImplementedError(
-            f"the GUI bridge does not execute save-set entry rituals yet — "
-            f"run the request headless via GeecsSession.run (ritual "
-            f"execution landed with the M3b milestone); save set {name!r} "
-            f"references entry-level setup/closeout plans, which were "
-            f"resolved and are valid: {entry_actions}"
-        )
-    return save_set
-
-
 def resolve_save_sets_checked(resolver: ConfigResolver, names: list[str]) -> SaveSet:
     """Resolve and union several save sets, refusing rituals — **GUI-bridge only**.
 
-    The multi-set counterpart of :func:`resolve_save_set_checked`: every name
-    in *names* is resolved, the sets are unioned into one effective SaveSet
-    (:func:`merge_save_sets`), and any entry-level ritual (collected across
-    all named sets) is *validated* then refused — the GUI bridge stages
+    Every name in *names* is resolved, the sets are unioned into one effective
+    SaveSet (:func:`merge_save_sets`), and any entry-level ritual (collected
+    across all named sets) is *validated* then refused — the GUI bridge stages
     requests through the legacy exec-config machinery and does not run rituals
     yet. The bridge still refuses actions/multi-axis elsewhere; this only
     makes the save-set resolution list-aware.

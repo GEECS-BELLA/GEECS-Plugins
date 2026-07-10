@@ -49,13 +49,15 @@ geecs_bluesky/
   preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);
                             #   GatewayLivenessCheck + FreeRunStalenessCheck,
                             #   run pre-claim, questions via OperatorChannel
-  scan_request_runner.py    # run a geecs_schemas.ScanRequest: ConfigResolver
-                            #   protocol + ConfigsRepoResolver (new-schema YAML
-                            #   or legacy-convert), SaveSet→devices_config and
+  config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
+                            #   ScanRequest names → schema models (new-schema
+                            #   YAML directly, else legacy-convert)
+  scan_request_runner.py    # run a geecs_schemas.ScanRequest:
+                            #   SaveSet→devices_config and
                             #   TriggerProfile→ShotControlWrites (ordered,
-                            #   multi-device) adapters, action slot assembly
-                            #   (§4.4b layers) + compile + signal prefetch,
-                            #   multi-axis grid execution
+                            #   multi-device) adapters, save-set union,
+                            #   action slot assembly (§4.4b layers) + compile
+                            #   + signal prefetch, multi-axis grid execution
   scanner_bridge/
     bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible GUI bridge
                             #   (reinitialize also accepts a ScanRequest)
@@ -109,7 +111,7 @@ geecs_bluesky/
   models/
     shot_control.py         # ShotControlConfig / ShotControlState — validated YAML
   exceptions.py             # scan-level errors; wire-level ones re-exported from the gateway
-  utils.py                  # safe_name() / build_signal_attrs()
+  utils.py                  # safe_name()
 
 The GEECS access-layer core (``transport/``, ``db/``, ``pv_naming``,
 ``FakeGeecsServer``, wire-level exceptions) lives in **GeecsCAGateway** — this
@@ -241,8 +243,8 @@ difference lives entirely in the per-config YAML.
 a `GEECS_BLUESKY_ACQUISITION_MODE` env override (env wins), default strict.
 `_classify_device_roles` assigns each save device a role from the mode: free-run
 → first sync device is `reference`, later sync devices are `contributor`
-(`GeecsTimestampedReadable`), async are `snapshot`; strict → all sync are
-`triggered` (`GeecsGenericDetector`).  STANDARD and NOSCAN share one
+(`CaTimestampedReadable`), async are `snapshot`; strict → all sync are
+`triggered` (`CaGenericDetector`).  STANDARD and NOSCAN share one
 `_run_step_scan` body (NOSCAN = `motor=None`, one no-move bin).
 
 ### Tiled integration

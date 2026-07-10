@@ -1,16 +1,7 @@
-"""GEECS name → EPICS Channel Access PV name mapping.
+"""Gateway-local alias for the shared naming policy.
 
-The normalization policy is shared with the CA-backed ophyd-async devices that
-consume these PVs — it lives in :mod:`geecs_ca_gateway.pv_naming` (the one module
-both the gateway *producer* and the device *consumer* import) so the two can
-never drift.  This module re-exports it under the gateway's local name.
-
-Full PV names (``[Experiment:]Device:Variable``) are assembled by
-:meth:`geecs_ca_gateway.config.DeviceSpec.pv_name_for`; the shared policy only
-normalizes individual name components (runs of non-``[A-Za-z0-9_]`` → ``_`` — the
-dot is critical: EPICS reads ``.`` as the record/field separator, so
-``Trigger.Source`` → ``Trigger_Source``).  The mapping is deliberately lossy;
-the gateway keeps the authoritative ``geecs_var ↔ PV`` manifest.
+The normalization policy itself lives in :mod:`geecs_ca_gateway.pv_naming`
+(the one module both producer and consumers import — see its docstring).
 """
 
 from __future__ import annotations

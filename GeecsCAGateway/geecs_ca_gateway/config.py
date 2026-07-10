@@ -1,9 +1,9 @@
 """Declarative configuration for the GEECS → EPICS CA gateway.
 
-The gateway is driven entirely by a :class:`GatewayConfig`.  For the proof of
-concept these are constructed by hand (see ``demo.py``); the intended next step
-is to generate them from the GEECS experiment database dict, pulling per-variable
-units/precision/limits from the attributes database.
+The gateway is driven entirely by a :class:`GatewayConfig`.  Production
+configs are generated from the GEECS experiment database
+(:meth:`GatewayConfig.from_geecs_experiment`, pulling per-variable
+units/limits/dtype); hand-built configs remain possible (see ``demo.py``).
 """
 
 from __future__ import annotations

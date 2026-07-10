@@ -1,14 +1,11 @@
 """CaTimestampedReadable — free-run sync contributor over the CA gateway.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`:
-read like a snapshot (no blocking ``trigger()``, so it never gates the event
+Read like a snapshot (no blocking ``trigger()``, so it never gates the event
 row) but carrying the sync-device companion columns labeled relative to the
 reference.  The labeling semantics — row shot-id peeking, bounded grace wait,
-offset/valid emission — are the *shared*
-:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin
-(the same code the direct contributor runs); this class supplies the CA
-transport underneath: ``acq_timestamp`` from the persistent gateway monitor
+offset/valid emission — are the shared
+:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin;
+this class supplies the CA transport underneath: ``acq_timestamp`` from the persistent gateway monitor
 (:class:`~geecs_bluesky.devices.ca.triggerable.CaAcqTimestampReadable`), and
 ``localsavingpath`` / ``save`` controls as CA signals writing the gateway
 ``…:SP`` setpoints.

@@ -308,50 +308,6 @@ class GeecsDb:
         return str(row[0]).strip()
 
     @classmethod
-    def list_devices(
-        cls, experiment: Optional[str] = None, *, enabled_only: bool = False
-    ) -> list[str]:
-        """Return all device names, optionally filtered by experiment.
-
-        Parameters
-        ----------
-        experiment:
-            If given, only return devices belonging to this experiment
-            (e.g. ``"Undulator"``).
-        enabled_only:
-            If true (only meaningful with ``experiment``), return only devices
-            whose ``expt_device.enabled`` field is ``"yes"``.  A device may
-            belong to an experiment but be disabled.
-        """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            if experiment is not None:
-                query = (
-                    "SELECT DISTINCT ed.device FROM expt_device ed "
-                    "JOIN expt e ON e.name = ed.expt "
-                    "WHERE e.name = %s"
-                )
-                if enabled_only:
-                    query += " AND LOWER(ed.enabled) = 'yes'"
-                query += " ORDER BY ed.device"
-                cur.execute(query, (experiment,))
-            else:
-                cur.execute("SELECT name FROM device ORDER BY name")
-            rows = cur.fetchall()
-        finally:
-            conn.close()
-
-        return [r[0] for r in rows]
-
-    @classmethod
     def get_subscribed_variables(
         cls, experiment: str, *, enabled_only: bool = True
     ) -> dict:

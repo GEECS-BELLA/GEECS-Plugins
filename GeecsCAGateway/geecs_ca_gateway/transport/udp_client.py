@@ -33,6 +33,8 @@ from geecs_ca_gateway.exceptions import (
     GeecsConnectionError,
 )
 
+from ._coerce import coerce_scalar
+
 logger = logging.getLogger(__name__)
 
 _ACK_TIMEOUT = 1.5  # seconds
@@ -421,10 +423,4 @@ def _parse_exe_response(msg: str, device_name: str = "", variable: str = "") -> 
     if status_field.startswith("error"):
         detail = status_field.split(",", 1)[1].strip() if "," in status_field else ""
         raise GeecsCommandFailedError(device_name, variable, detail or status_field)
-    raw_value = parts[2]
-    # Try to coerce to numeric
-    try:
-        f = float(raw_value)
-        return int(f) if f == int(f) and "." not in raw_value else f
-    except ValueError:
-        return raw_value
+    return coerce_scalar(parts[2])

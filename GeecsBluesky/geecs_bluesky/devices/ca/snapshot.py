@@ -1,7 +1,6 @@
 """CaSnapshotReadable — asynchronous GEECS readback sampled per event row.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.snapshot.GeecsSnapshotReadable`: latest streamed
+Latest streamed
 values from the gateway readback PVs, read when a Bluesky event is recorded.
 No ``acq_timestamp`` gating and no shot-id companion columns — intended for
 asynchronous state/readback devices (stages, slow controls) snapshotted
