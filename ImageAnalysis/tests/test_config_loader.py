@@ -70,6 +70,31 @@ class TestUnwrapDiagnosticImageSection:
 class TestLoadCameraConfigFromDiagnosticPath:
     """End-to-end: ``load_camera_config`` reads a unified diagnostic YAML."""
 
+    def test_load_diagnostic_preserves_source_filename_stem(self, tmp_path):
+        path = tmp_path / "PW-MagSpectStitcher.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {
+                    "name": "CAM-TEA-MagSpecA-interpSpec",
+                    "image_analyzer": (
+                        "image_analysis.analyzers.standard_1d_analyzer"
+                        ".Standard1DAnalyzer"
+                    ),
+                    "image": {
+                        "type": "line",
+                        "description": "test line config",
+                        "data_loading": {"data_type": "csv"},
+                    },
+                    "scan": {"priority": 50},
+                }
+            )
+        )
+
+        diag = load_diagnostic(path)
+
+        assert diag.name == "CAM-TEA-MagSpecA-interpSpec"
+        assert diag.source_id == "PW-MagSpectStitcher"
+
     def test_load_camera_config_from_unified_yaml(self, tmp_path):
         path = tmp_path / "UC_Test.yaml"
         path.write_text(

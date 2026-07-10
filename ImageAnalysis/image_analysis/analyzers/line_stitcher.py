@@ -83,6 +83,10 @@ class LineStitcher(LineAnalyzer):
         base_dir = file_path.parent.parent
         data_config = self.line_config.data_loading
 
+        loaded_devices = [master_device]
+        missing_sibling_devices: list[str] = []
+        missing_sibling_files: list[str] = []
+
         # Master file — also sets self.data_metadata
         master_result = read_1d_data(file_path, data_config)
         self.data_metadata = {
@@ -118,14 +122,25 @@ class LineStitcher(LineAnalyzer):
             sibling_filename = filename.replace(device_in_filename, sibling_in_file, 1)
             sibling_path = base_dir / device / sibling_filename
             if not sibling_path.exists():
-                raise FileNotFoundError(
-                    f"Missing data file for device '{device}': {sibling_path}"
+                missing_sibling_devices.append(device)
+                missing_sibling_files.append(str(sibling_path))
+                logger.warning(
+                    "Missing data file for device %r; stitching available "
+                    "segments without %s",
+                    device,
+                    sibling_path,
                 )
+                continue
             segments.append(read_1d_data(sibling_path, data_config).data)
+            loaded_devices.append(device)
 
         # Concatenate and sort by x
         combined = np.concatenate(segments, axis=0)
         combined = combined[combined[:, 0].argsort()]
+
+        self._last_loaded_devices = loaded_devices
+        self._last_missing_sibling_devices = missing_sibling_devices
+        self._last_missing_sibling_files = missing_sibling_files
 
         logger.info(
             "Loaded %d segments (%d total points) from master '%s', shot '%s'",
@@ -163,7 +178,24 @@ class LineStitcher(LineAnalyzer):
         aux = dict(auxiliary_data or {})
         aux.setdefault("file_path", image_filepath)
 
-        return self.analyze_image(combined, aux)
+        result = self.analyze_image(combined, aux)
+        missing_devices = getattr(self, "_last_missing_sibling_devices", [])
+        if missing_devices:
+            missing_files = getattr(self, "_last_missing_sibling_files", [])
+            warnings = result.metadata.setdefault("warnings", [])
+            if isinstance(warnings, str):
+                warnings = [warnings]
+                result.metadata["warnings"] = warnings
+            warnings.append(
+                "Missing sibling data for "
+                f"{', '.join(missing_devices)}; stitched available segments only."
+            )
+            result.metadata["missing_sibling_devices"] = list(missing_devices)
+            result.metadata["missing_sibling_files"] = list(missing_files)
+        result.metadata["loaded_devices"] = list(
+            getattr(self, "_last_loaded_devices", [])
+        )
+        return result
 
     def analyze_image(
         self, image: Array1D, auxiliary_data: Optional[Dict] = None

@@ -3,6 +3,24 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.0] — 2026-07-09
+
+### Added
+
+- `load_diagnostic()` now preserves the diagnostic YAML filename stem as a
+  private `source_id` on `DiagnosticAnalysisConfig`. ScanAnalysis can use this
+  source id as the analyzer id for direct single-diagnostic runs, matching the
+  group-loader/LiveWatch naming contract without adding a YAML field.
+
+### Changed
+
+- `LineStitcher` now stitches and saves the available lineout segments when
+  one or more sibling device files are missing, instead of failing the whole
+  shot. Missing siblings are recorded in result metadata (`warnings`,
+  `missing_sibling_devices`, `missing_sibling_files`) so ScanAnalysis/LiveWatch
+  can surface the incomplete data product while preserving the useful stitched
+  TSV.
+
 ## [1.10.0] — 2026-06-30
 
 ### Added

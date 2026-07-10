@@ -82,7 +82,13 @@ own nested worktrees under `.claude/worktrees/`.
   main dev environment. Each subpackage can also be installed standalone.
 - **Linting:** `ruff` (replaces flake8/isort) + `pydocstyle` (numpy convention)
 - **Pre-commit hooks:** ruff, ruff-format, pydocstyle, check-yaml, check-json,
-  check-ast — run automatically on commit
+  check-ast — run automatically on commit. The auto-fixing hooks rewrite files
+  during the commit, which aborts that commit ("files were modified by this
+  hook") so you re-stage and retry — and on *merge* commits triggers a
+  stash/restore conflict that can silently abort. Use **`scripts/commit.sh -m
+  "..."`** (after `git add`): it applies the auto-fixes first, re-stages them,
+  then commits, so the commit succeeds on the first try. Any `git commit` args
+  pass through.
 - **Docs:** MkDocs (root `pyproject.toml`) — `mkdocs serve` from repo root
 
 ## Code Style Conventions
