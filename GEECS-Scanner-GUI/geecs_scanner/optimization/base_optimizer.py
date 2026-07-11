@@ -19,11 +19,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional, List, Any, Dict
-
-if TYPE_CHECKING:
-    from geecs_scanner.engine.scan_data_manager import ScanDataManager
-    from geecs_scanner.engine.data_logger import DataLogger
+from typing import Callable, Optional, List, Any, Dict
 
 import pandas as pd
 import yaml
@@ -148,8 +144,10 @@ class BaseOptimizer:
         xopt_config_overrides: Optional[dict] = None,
         evaluator: Optional[BaseEvaluator] = None,
         device_requirements: Optional[Dict[str, Any]] = None,
-        scan_data_manager: Optional["ScanDataManager"] = None,
-        data_logger: Optional["DataLogger"] = None,
+        # Any: duck-typed ScanDataManager / DataLogger stand-ins; the real
+        # classes were deleted with the legacy engine (G1).
+        scan_data_manager: Optional[Any] = None,
+        data_logger: Optional[Any] = None,
         seed_dump_files: Optional[List[Path]] = None,
         move_to_best_on_finish: bool = False,
     ):
@@ -474,8 +472,10 @@ class BaseOptimizer:
     def from_config_file(
         cls,
         config_path: str,
-        scan_data_manager: Optional["ScanDataManager"] = None,
-        data_logger: Optional["DataLogger"] = None,
+        # Any: duck-typed ScanDataManager / DataLogger stand-ins; the real
+        # classes were deleted with the legacy engine (G1).
+        scan_data_manager: Optional[Any] = None,
+        data_logger: Optional[Any] = None,
     ) -> "BaseOptimizer":
         """
         Create optimizer instance from YAML configuration file.

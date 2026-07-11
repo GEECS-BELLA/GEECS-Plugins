@@ -19,9 +19,6 @@ from scan_analysis.config import create_scan_analyzer
 if TYPE_CHECKING:
     import pandas as pd
 
-    from geecs_scanner.engine.data_logger import DataLogger
-    from geecs_scanner.engine.scan_data_manager import ScanDataManager
-
 logger = logging.getLogger(__name__)
 
 
@@ -53,7 +50,9 @@ class EvaluatorDataSource(Protocol):
 class DataLoggerSource:
     """Legacy source: the ScanManager path's in-memory ``DataLogger``."""
 
-    def __init__(self, data_logger: "DataLogger") -> None:
+    # Any: duck-typed DataLogger-shaped object (.log_entries, .bin_num);
+    # the real class was deleted with the legacy engine (G1).
+    def __init__(self, data_logger: Any) -> None:
         self.data_logger = data_logger
 
     def fetch(self) -> Tuple["pd.DataFrame", int]:
@@ -176,8 +175,10 @@ class BaseEvaluator:
         scalars: Optional[List[str]] = None,
         objective_tag: Optional[str] = None,
         device_requirements: Optional[Dict[str, Any]] = None,
-        scan_data_manager: Optional["ScanDataManager"] = None,
-        data_logger: Optional["DataLogger"] = None,
+        # Any: duck-typed ScanDataManager / DataLogger stand-ins; the real
+        # classes were deleted with the legacy engine (G1).
+        scan_data_manager: Optional[Any] = None,
+        data_logger: Optional[Any] = None,
         data_source: Optional[EvaluatorDataSource] = None,
         scan_tag: Optional[Any] = None,  # ScanTag; Any avoids a hard dep here
     ):

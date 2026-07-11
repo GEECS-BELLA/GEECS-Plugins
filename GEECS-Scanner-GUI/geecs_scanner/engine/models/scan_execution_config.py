@@ -61,7 +61,3 @@ class ScanExecutionConfig(BaseModel):
             options=effective_options,
             save_config=SaveDeviceConfig(**raw),
         )
-
-    def to_device_manager_dict(self) -> dict:
-        """Return the dict format DeviceManager.load_from_dictionary() expects."""
-        return self.save_config.model_dump(exclude_none=True)

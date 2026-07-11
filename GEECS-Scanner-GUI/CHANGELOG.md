@@ -3,6 +3,40 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] — 2026-07-10
+
+### Removed
+
+- **G1 of the greenfield cutover: the legacy scan engine is deleted**
+  (`Planning/cutover_strategy/00_overview.md`). On this branch
+  (`feat/greenfield-epics-bluesky-gui`), `BlueskyScanner` (GeecsBluesky)
+  is the only scan backend; the GUI keeps working bluesky-only via its
+  existing `ScanExecutionConfig` submission through `RunControl`.
+  Deleted modules: `engine/scan_manager.py`,
+  `engine/default_scan_manager.py`, `engine/data_logger.py`,
+  `engine/device_manager.py`, `engine/scan_executor.py`
+  (`ScanStepExecutor`), `engine/scan_data_manager.py`,
+  `engine/trigger_controller.py`, `engine/file_mover.py`,
+  `engine/lifecycle.py` — plus their dedicated tests and
+  `ScanExecutionConfig.to_device_manager_dict()` (only ScanManager
+  called it).
+- **`RunControl`'s legacy branch is gone** — no `use_bluesky` argument,
+  no `GEECS_USE_BLUESKY` env consultation; the Bluesky path is the only
+  path. `engine/backend_selection.py` collapses to an always-True stub
+  (`resolve_use_bluesky`) kept for import-surface compatibility.
+- The `TYPE_CHECKING`-only `DataLogger`/`ScanDataManager` imports in
+  `optimization/base_evaluator.py` and `optimization/base_optimizer.py`
+  are stripped; the injected-runtime hints are duck-typed `Any` now.
+
+### Kept (not legacy, despite living in `engine/`)
+
+- `ActionManager` + `DeviceCommandExecutor` (ActionLibrary GUI),
+  `DatabaseDictLookup`, the `scan_events`/`dialog_request` re-export
+  shims, all of `engine/models/` (GUI→backend contract, also used by
+  optimization), `utils/sound_player.py`, `app/multi_scanner.py`, and
+  `app/lib/action_control.py` — per the consumer audit in
+  `Planning/cutover_strategy/00_overview.md`.
+
 ## [0.32.1] — 2026-07-07
 
 ### Changed

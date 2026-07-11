@@ -1,15 +1,17 @@
-"""Tests for Block 6 event emission from DeviceCommandExecutor and ScanStepExecutor.
+"""Tests for event emission from DeviceCommandExecutor.
 
-Exercises the on_event callback wiring added in Block 6.  All tests are
-network-free: FakeScanDevice duck-types real hardware, and execute_step is
-patched out so the loop tests exercise only the event-emission scaffolding.
+Exercises the on_event callback wiring.  All tests are network-free:
+FakeScanDevice duck-types real hardware.
+
+The ScanStepExecutor / ScanManager / ScanLifecycleStateMachine emission
+tests that used to live here were deleted with the legacy scan engine (G1
+of the greenfield cutover); the event vocabulary itself is pinned in
+GeecsBluesky's suite and in ``tests/engine/test_event_shims.py``.
 """
 
 from __future__ import annotations
 
-import threading
 from typing import List
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -18,15 +20,10 @@ from geecs_python_api.controls.interface.geecs_errors import (
     GeecsDeviceCommandRejected,
     GeecsDeviceExeTimeout,
 )
-from geecs_data_utils import ScanConfig, ScanMode
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
-from geecs_scanner.engine.models.scan_options import ScanOptions
 from geecs_scanner.engine.scan_events import (
     DeviceCommandEvent,
     ScanEvent,
-    ScanLifecycleEvent,
-    ScanState,
-    ScanStepEvent,
 )
 from tests.engine.conftest import FakeScanDevice
 
@@ -72,10 +69,6 @@ class _HappyGetDevice(FakeScanDevice):
 
 def _cmd_events(events: List[ScanEvent]) -> List[DeviceCommandEvent]:
     return [e for e in events if isinstance(e, DeviceCommandEvent)]
-
-
-def _step_events(events: List[ScanEvent]) -> List[ScanStepEvent]:
-    return [e for e in events if isinstance(e, ScanStepEvent)]
 
 
 # ---------------------------------------------------------------------------
@@ -179,282 +172,3 @@ class TestDeviceCommandGetEvents:
 
         outcomes = {e.outcome for e in _cmd_events(events)}
         assert "failed" in outcomes
-
-
-# ---------------------------------------------------------------------------
-# ScanStepExecutor — execute_scan_loop event sequence
-# ---------------------------------------------------------------------------
-
-
-def _make_loop_executor(monkeypatch, n_steps: int = 2, shots_per_step: int = 5):
-    """Build a ScanStepExecutor with execute_step patched to a counter increment."""
-    from geecs_scanner.engine.scan_executor import ScanStepExecutor
-
-    stop_event = threading.Event()
-    pause_event = threading.Event()
-    pause_event.set()
-
-    shot_counter = [0]
-    data_logger = MagicMock()
-    data_logger.get_current_shot.side_effect = lambda: shot_counter[0]
-
-    executor = ScanStepExecutor(
-        device_manager=MagicMock(),
-        data_logger=data_logger,
-        scan_data_manager=MagicMock(),
-        options=ScanOptions(),
-        stop_scanning_thread_event=stop_event,
-        pause_scan_event=pause_event,
-    )
-    executor.cmd_executor = DeviceCommandExecutor()
-
-    events: List[ScanEvent] = []
-    executor.on_event = events.append
-
-    def _fake_step(step, index):
-        shot_counter[0] += shots_per_step
-
-    monkeypatch.setattr(executor, "execute_step", _fake_step)
-
-    steps = [{"variables": {}, "is_composite": False, "wait_time": 0.1}] * n_steps
-    executor.execute_scan_loop(steps)
-    return events
-
-
-class TestScanLoopEventSequence:
-    def test_two_events_per_step(self, monkeypatch):
-        events = _make_loop_executor(monkeypatch, n_steps=3)
-        assert len(_step_events(events)) == 6  # started + completed × 3 steps
-
-    def test_started_precedes_completed(self, monkeypatch):
-        events = _make_loop_executor(monkeypatch, n_steps=2)
-        phases = [e.phase for e in _step_events(events)]
-        assert phases == ["started", "completed", "started", "completed"]
-
-    def test_step_index_increments(self, monkeypatch):
-        events = _make_loop_executor(monkeypatch, n_steps=3)
-        started = [e for e in _step_events(events) if e.phase == "started"]
-        assert [e.step_index for e in started] == [0, 1, 2]
-
-    def test_total_steps_on_every_event(self, monkeypatch):
-        events = _make_loop_executor(monkeypatch, n_steps=4)
-        assert all(e.total_steps == 4 for e in _step_events(events))
-
-    def test_shots_completed_progresses(self, monkeypatch):
-        events = _make_loop_executor(monkeypatch, n_steps=2, shots_per_step=5)
-        phases_shots = [(e.phase, e.shots_completed) for e in _step_events(events)]
-        # started[0]=0, completed[0]=5, started[1]=5, completed[1]=10
-        assert phases_shots[0] == ("started", 0)
-        assert phases_shots[1] == ("completed", 5)
-        assert phases_shots[2] == ("started", 5)
-        assert phases_shots[3] == ("completed", 10)
-
-    def test_pre_set_stop_event_skips_all_steps(self):
-        """Loop should emit no step events when stop is already set on entry."""
-        from geecs_scanner.engine.scan_executor import ScanStepExecutor
-
-        stop_event = threading.Event()
-        stop_event.set()
-        pause_event = threading.Event()
-        pause_event.set()
-
-        data_logger = MagicMock()
-        data_logger.get_current_shot.return_value = 0
-
-        executor = ScanStepExecutor(
-            device_manager=MagicMock(),
-            data_logger=data_logger,
-            scan_data_manager=MagicMock(),
-            options=ScanOptions(),
-            stop_scanning_thread_event=stop_event,
-            pause_scan_event=pause_event,
-        )
-        executor.cmd_executor = DeviceCommandExecutor()
-
-        events: List[ScanEvent] = []
-        executor.on_event = events.append
-
-        steps = [{"variables": {}, "is_composite": False, "wait_time": 0.0}] * 3
-        executor.execute_scan_loop(steps)
-
-        assert _step_events(events) == []
-
-    def test_on_event_none_does_not_raise(self, monkeypatch):
-        """Executor with no on_event callback must complete without error."""
-        from geecs_scanner.engine.scan_executor import ScanStepExecutor
-
-        stop_event = threading.Event()
-        pause_event = threading.Event()
-        pause_event.set()
-
-        data_logger = MagicMock()
-        data_logger.get_current_shot.return_value = 0
-
-        executor = ScanStepExecutor(
-            device_manager=MagicMock(),
-            data_logger=data_logger,
-            scan_data_manager=MagicMock(),
-            options=ScanOptions(),
-            stop_scanning_thread_event=stop_event,
-            pause_scan_event=pause_event,
-        )
-        executor.cmd_executor = DeviceCommandExecutor()
-        # on_event deliberately left as None (the default)
-
-        monkeypatch.setattr(executor, "execute_step", lambda step, idx: None)
-
-        steps = [{"variables": {}, "is_composite": False, "wait_time": 0.0}]
-        executor.execute_scan_loop(steps)  # must not raise
-
-
-# ---------------------------------------------------------------------------
-# ScanManager — INITIALIZING event total_shots field
-# ---------------------------------------------------------------------------
-
-
-class TestScanManagerTotalShots:
-    """Verify total_shots on the INITIALIZING event accounts for rep rate.
-
-    Uses object.__new__ to bypass ScanManager.__init__ (which needs live
-    network access) and only exercises estimate_acquisition_time() + the
-    formula in the INITIALIZING emit path.
-    """
-
-    def _make_mgr(self, rep_rate_hz: float, start, end, step, wait_time):
-        from geecs_scanner.engine.scan_manager import ScanManager
-
-        mgr = object.__new__(ScanManager)
-        mgr.options = ScanOptions(rep_rate_hz=rep_rate_hz)
-        mgr.scan_config = ScanConfig(
-            scan_mode=ScanMode.STANDARD,
-            device_var="FakeDevice:FakeVar",
-            start=start,
-            end=end,
-            step=step,
-            wait_time=wait_time,
-        )
-        mgr.acquisition_time = 0
-        return mgr
-
-    def test_total_shots_at_1hz(self):
-        mgr = self._make_mgr(
-            rep_rate_hz=1.0, start=4.0, end=5.0, step=0.5, wait_time=2.5
-        )
-        mgr.estimate_acquisition_time()
-        total_shots = int(mgr.acquisition_time * mgr.options.rep_rate_hz)
-        assert total_shots > 0
-        # 3 steps × 2.5 s × 1 Hz ≈ 7
-        assert total_shots == pytest.approx(7, abs=1)
-
-    def test_total_shots_at_10hz_not_equal_duration(self):
-        # Regression: at 10 Hz, total_shots must NOT equal acquisition_time in seconds.
-        mgr = self._make_mgr(
-            rep_rate_hz=10.0, start=4.0, end=5.0, step=0.5, wait_time=2.5
-        )
-        mgr.estimate_acquisition_time()
-        total_shots = int(mgr.acquisition_time * mgr.options.rep_rate_hz)
-        # acquisition_time is ~7.5 s; at 10 Hz total shots should be ~75, not 7
-        assert total_shots > 50
-        assert total_shots != int(mgr.acquisition_time)
-
-
-# ---------------------------------------------------------------------------
-# ScanLifecycleStateMachine — D3 direct tests
-# ---------------------------------------------------------------------------
-
-
-class TestScanLifecycleStateMachine:
-    """Test ScanLifecycleStateMachine directly — no ScanManager scaffold needed."""
-
-    def test_initial_state_is_idle(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        sm = ScanLifecycleStateMachine()
-        assert sm.current_state == ScanState.IDLE
-
-    def test_set_state_updates_current_state(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        sm = ScanLifecycleStateMachine()
-        sm.set_state(ScanState.RUNNING)
-        assert sm.current_state == ScanState.RUNNING
-
-    def test_set_state_emits_lifecycle_event(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        events: List[ScanEvent] = []
-        sm = ScanLifecycleStateMachine(on_event=events.append)
-        sm.set_state(ScanState.INITIALIZING, total_shots=42)
-
-        assert len(events) == 1
-        assert isinstance(events[0], ScanLifecycleEvent)
-        assert events[0].state == ScanState.INITIALIZING
-        assert events[0].total_shots == 42
-
-    def test_paused_on_error_state_reachable(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        sm = ScanLifecycleStateMachine()
-        sm.set_state(ScanState.PAUSED_ON_ERROR)
-        assert sm.current_state == ScanState.PAUSED_ON_ERROR
-
-    def test_full_transition_sequence(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        events: List[ScanEvent] = []
-        sm = ScanLifecycleStateMachine(on_event=events.append)
-        for state in (
-            ScanState.INITIALIZING,
-            ScanState.RUNNING,
-            ScanState.PAUSED_ON_ERROR,
-            ScanState.RUNNING,
-            ScanState.DONE,
-            ScanState.IDLE,
-        ):
-            sm.set_state(state)
-
-        emitted = [e.state for e in events if isinstance(e, ScanLifecycleEvent)]
-        assert emitted == [
-            ScanState.INITIALIZING,
-            ScanState.RUNNING,
-            ScanState.PAUSED_ON_ERROR,
-            ScanState.RUNNING,
-            ScanState.DONE,
-            ScanState.IDLE,
-        ]
-
-    def test_on_event_none_does_not_raise(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        sm = ScanLifecycleStateMachine(on_event=None)
-        sm.set_state(ScanState.RUNNING)  # must not raise
-
-
-class TestScanManagerDelegatesToLifecycle:
-    """ScanManager._set_state and current_state delegate to ScanLifecycleStateMachine."""
-
-    def _make_mgr(self):
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-        from geecs_scanner.engine.scan_manager import ScanManager
-
-        mgr = object.__new__(ScanManager)
-        mgr._on_event = None
-        mgr._lifecycle = ScanLifecycleStateMachine()
-        return mgr
-
-    def test_set_state_delegates(self):
-        mgr = self._make_mgr()
-        mgr._set_state(ScanState.RUNNING)
-        assert mgr.current_state == ScanState.RUNNING
-
-    def test_set_state_emits_via_lifecycle(self):
-        events: List[ScanEvent] = []
-        from geecs_scanner.engine.lifecycle import ScanLifecycleStateMachine
-
-        mgr = self._make_mgr()
-        mgr._lifecycle = ScanLifecycleStateMachine(on_event=events.append)
-        mgr._set_state(ScanState.INITIALIZING, total_shots=10)
-
-        assert len(events) == 1
-        assert events[0].state == ScanState.INITIALIZING
-        assert events[0].total_shots == 10
