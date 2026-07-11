@@ -192,6 +192,17 @@ class TestSubmission:
         assert request.mode is ScanRequestMode.STEP
         assert request.save_sets == ["Amp4In"]
 
+    def test_refused_reinitialize_does_not_start(self, window):
+        """A False from reinitialize must not start the scan thread — starting
+        anyway would run the scanner on stale state (review P1 on the
+        scaffold PR)."""
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        window._submitter.reinitialize = lambda request: False
+        window._on_start_clicked()
+        assert window._submitter.started == 0
+        assert not window._submitter.active
+
     def test_start_disabled_while_submitter_active(self, window):
         select_save_set(window, "Amp4In")
         window._submitter.active = True

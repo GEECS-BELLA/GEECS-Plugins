@@ -560,7 +560,15 @@ class MainWindow(QMainWindow):
         if submitter is None:
             return
         try:
-            submitter.reinitialize(request)
+            accepted = submitter.reinitialize(request)
+            if not accepted:
+                # The Submitter protocol returns False on a refused request
+                # (e.g. unresolvable names) — starting anyway would run the
+                # scanner on stale state from a previous reinitialize.
+                message = "Submission refused: the scanner did not accept the request"
+                self.statusBar().showMessage(message, 10_000)
+                self.append_log(message)
+                return
             submitter.start_scan_thread()
         except Exception as exc:
             message = f"Submission failed: {exc}"
