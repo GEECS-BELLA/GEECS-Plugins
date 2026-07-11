@@ -407,3 +407,31 @@ def test_scan_info_stamps_bluesky_scanner(tmp_path: Path) -> None:
     content = (tmp_path / f"ScanInfo{tmp_path.name}.ini").read_text()
     assert 'Scanner = "bluesky"' in content
     assert "[Scan Info]" in content  # legacy section intact
+
+
+def test_live_devices_mock_returns_all() -> None:
+    """In mock mode the CONNECTED gate is a no-op (all devices live)."""
+    s = _session()  # mock=True
+    assert s.live_devices(["U_A", "U_B"]) == {"U_A", "U_B"}
+    assert s.live_devices([]) == set()
+
+
+def test_live_devices_gates_on_connected_pv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Real path: 'Disconnected' excludes; 'Connected' keeps; an unreadable
+    PV is fail-open (kept). Verified against a patched aioca.caget."""
+    import aioca
+
+    async def fake_caget(pv: str):
+        if "U_Dead" in pv:
+            return "Disconnected"
+        if "U_Slow" in pv:
+            raise TimeoutError("no reply")  # unreadable → fail-open
+        return "Connected"
+
+    monkeypatch.setattr(aioca, "caget", fake_caget)
+    s = GeecsSession("Undulator", tiled=False, mock=False)
+    try:
+        live = s.live_devices(["U_Live", "U_Dead", "U_Slow"], timeout=1.0)
+    finally:
+        s.RE.halt() if s.RE.state != "idle" else None
+    assert live == {"U_Live", "U_Slow"}  # dead excluded, slow kept (fail-open)

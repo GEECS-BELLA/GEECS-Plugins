@@ -4,6 +4,29 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-07-10
+
+### Changed
+
+- **Background telemetry now gates on the gateway `CONNECTED` PV before
+  full-connect (issue #494).** `build_telemetry_readables` first reads each
+  candidate device's `[Experiment:]Device:CONNECTED` status (one fast
+  concurrent read via the new `GeecsSession.live_devices` — the same
+  authoritative liveness source pre-flight uses) and skips the
+  `Disconnected` ones immediately, instead of paying a full ~20 s device
+  connect timeout per dead device (serially). A scan with several dead
+  telemetry devices — common when driving remotely over VPN — now reaches
+  pre-flight in ~one round-trip instead of 20 s × N-dead. Fail-open: an
+  unreadable status keeps the device (the soft tier still drops it if the
+  real connect then fails), so a gateway without status PVs never silently
+  drops telemetry.
+
+### Added
+
+- `GeecsSession.live_devices(devices, *, timeout=3.0)` — concurrent gateway
+  `CONNECTED` liveness probe returning the live/indeterminate subset
+  (fail-open; mock-mode returns all).
+
 ## [0.29.0] - 2026-07-10
 
 ### Changed

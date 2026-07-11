@@ -824,9 +824,22 @@ def build_telemetry_readables(
     selected = select_telemetry_variables(
         save_set, scalar_policy.subscribed_by_device()
     )
+    # Gate on the gateway CONNECTED PV first (one fast concurrent read per
+    # device — the same liveness source pre-flight uses) so a dead telemetry
+    # device is skipped immediately instead of burning a full connect
+    # timeout. Fail-open: an unreadable status keeps the device (session.
+    # telemetry still drops it softly if the real connect then fails).
+    live = session.live_devices(list(selected))
     readables: list = []
     recorded: dict[str, list[str]] = {}
     for device, variables in selected.items():
+        if device not in live:
+            logger.info(
+                "Skipping background-telemetry device %s: gateway reports it "
+                "Disconnected (soft tier — never aborts the scan)",
+                device,
+            )
+            continue
         readable = session.telemetry(device, variables)
         if readable is not None:
             readables.append(readable)

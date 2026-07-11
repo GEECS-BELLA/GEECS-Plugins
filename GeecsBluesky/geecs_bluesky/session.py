@@ -139,15 +139,67 @@ class GeecsSession:
     # Device factories (constructed connected; explicit names)
     # ------------------------------------------------------------------
 
-    def _connect(self, device: Any) -> Any:
+    def _connect(self, device: Any, *, timeout: float = 20.0) -> Any:
         """Connect a device in the RunEngine's persistent event loop."""
         import asyncio
 
         future = asyncio.run_coroutine_threadsafe(
             device.connect(mock=self._mock), self.RE._loop
         )
-        future.result(timeout=20.0)
+        future.result(timeout=timeout)
         return device
+
+    def live_devices(self, devices: list[str], *, timeout: float = 3.0) -> set[str]:
+        """Return the subset of *devices* the gateway reports as connected.
+
+        Reads each device's gateway ``CONNECTED`` PV
+        (``[Experiment:]Device:CONNECTED``) **concurrently** on the RE loop —
+        the same authoritative liveness source the pre-flight uses — so a
+        dead device is identified by one fast read instead of a full device
+        connect timeout.  **Fail-open**: only the exact ``"Disconnected"``
+        reading excludes a device; an unreadable PV, a mock backend, or a
+        gateway without status PVs keeps the device in the live set (a
+        missing status surface must never silently drop everything).  In
+        mock mode every device is returned live.
+
+        Parameters
+        ----------
+        devices :
+            GEECS device names to probe.
+        timeout :
+            Per-read CA budget (seconds); the reads run in parallel, so the
+            whole gate costs roughly one round-trip even for many devices.
+
+        Returns
+        -------
+        set of str
+            The device names to keep (live or indeterminate).
+        """
+        if self._mock or not devices:
+            return set(devices)
+
+        import asyncio
+
+        from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED, ca_pv
+        from geecs_bluesky.devices.ca.gateway_put import bare_pv
+
+        async def _probe(device: str) -> tuple[str, bool]:
+            from aioca import caget
+
+            pv = bare_pv(ca_pv(self.experiment, device, "CONNECTED"))
+            try:
+                value = await asyncio.wait_for(caget(pv), timeout=timeout)
+            except Exception:
+                return device, True  # fail-open: unreadable → keep
+            return device, str(value) != GATEWAY_DISCONNECTED
+
+        async def _gather() -> list[tuple[str, bool]]:
+            return await asyncio.gather(*(_probe(d) for d in devices))
+
+        results = asyncio.run_coroutine_threadsafe(_gather(), self.RE._loop).result(
+            timeout=timeout + 5.0
+        )
+        return {device for device, live in results if live}
 
     def _read_movable(self, movable: Any) -> float:
         """Current readback value of a session settable/motor."""

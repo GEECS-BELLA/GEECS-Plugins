@@ -1447,6 +1447,11 @@ class _M3cSession(_FakeSession):
         self.telemetry_calls: list = []
         self.dead_devices: set = set()
 
+    def live_devices(self, devices, *, timeout=3.0):
+        # Gateway CONNECTED gate: dead devices are excluded before any
+        # full-connect (fail-open otherwise).
+        return {d for d in devices if d not in self.dead_devices}
+
     def telemetry(self, device, variables, *, name=None):
         self.telemetry_calls.append((device, list(variables)))
         if device in self.dead_devices:
@@ -1560,16 +1565,37 @@ def test_telemetry_selects_non_saveset_devices(monkeypatch, legacy_resolver) -> 
     }
 
 
-def test_telemetry_dead_device_dropped_not_raised(
-    monkeypatch, legacy_resolver, caplog
+def test_telemetry_dead_device_gated_out_before_connect(
+    monkeypatch, legacy_resolver
 ) -> None:
+    """A gateway-Disconnected telemetry device is skipped by the CONNECTED
+    gate *before* the expensive full-connect — no telemetry() call, no
+    read-set column, no raise (issue #494)."""
     policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
     _install_policy(monkeypatch, policy)
     session = _M3cSession()
-    session.dead_devices = {"U_Press"}
-    # Must not raise even though the telemetry device is unreachable.
+    session.dead_devices = {"U_Press"}  # live_devices excludes it
     run_scan_request(session, _db_noscan_request(), legacy_resolver)
-    # Attempted, returned None → not in the read set.
+    # Gated out up front — telemetry() never even attempted.
+    assert session.telemetry_calls == []
+    assert not any(d[0].startswith("telemetry:") for d in session.devices)
+
+
+def test_telemetry_indeterminate_device_still_attempted(
+    monkeypatch, legacy_resolver
+) -> None:
+    """Fail-open: a device the gate keeps (live/indeterminate) is still
+    handed to telemetry(), which drops it softly if the real connect fails."""
+
+    class _FailOpenSession(_M3cSession):
+        def live_devices(self, devices, *, timeout=3.0):
+            return set(devices)  # gate can't tell — keep everything
+
+    policy = _M3cPolicy(subscribed={"U_Press": ["Pressure"]})
+    _install_policy(monkeypatch, policy)
+    session = _FailOpenSession()
+    session.dead_devices = {"U_Press"}  # gate keeps it; telemetry() drops it
+    run_scan_request(session, _db_noscan_request(), legacy_resolver)
     assert session.telemetry_calls == [("U_Press", ["Pressure"])]
     assert not any(d[0].startswith("telemetry:") for d in session.devices)
 
