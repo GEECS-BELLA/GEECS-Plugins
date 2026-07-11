@@ -33,6 +33,14 @@ class ScanEventsAdapter(QObject):
     log_line = Signal(str)
     """One human-readable line per event, for the compact log tail."""
 
+    dialog_requested = Signal(object)
+    """A ``DialogRequest`` (operator question) to render as a modal dialog.
+
+    Carried as a plain object over a queued connection: :meth:`handle` runs on
+    the engine/scan thread (blocked on the request's ``response_event``), so
+    the GUI slot answers on the main thread and sets that event to unblock it.
+    """
+
     def handle(self, event: Any) -> None:
         """Consume one engine event (the ``on_event`` callback).
 
@@ -69,10 +77,13 @@ class ScanEventsAdapter(QObject):
             message = getattr(event, "message", "")
             self.log_line.emit(f"restore failed: {device}: {message}")
         elif kind == "ScanDialogEvent":
-            # Not yet rendered as a modal dialog (stubbed seam — see
-            # CLAUDE.md); the engine's wait falls back to its default.
+            # The engine's scan thread is blocked on request.response_event;
+            # emit the request so the main-thread slot renders a modal and
+            # answers it (queued delivery keeps the modal off this thread).
             request = getattr(event, "request", None)
             exc = getattr(request, "exc", None)
-            self.log_line.emit(f"operator question (unanswered): {exc}")
+            self.log_line.emit(f"operator question: {exc}")
+            if request is not None:
+                self.dialog_requested.emit(request)
         else:
             self.log_line.emit(kind)

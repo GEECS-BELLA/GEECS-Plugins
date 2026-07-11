@@ -109,8 +109,74 @@ class TestConstruction:
             configs=FakeConfigs(), health=FakeHealth(), submitter=FakeSubmitter()
         )
         qtbot.addWidget(win)
-        # Chips are rich-text pills (colored dot + text) — check the text part.
-        assert "gateway: down" in win.gateway_chip.text()
+        # Chips now update from the background poller (queued to the GUI
+        # thread), so wait for the first report to land.  Chips are rich-text
+        # pills (colored dot + text) — check the text part.
+        qtbot.waitUntil(
+            lambda: "gateway: down" in win.gateway_chip.text(), timeout=3000
+        )
+
+    def test_apply_health_report_updates_chips_and_colors(self, window):
+        """The GUI-thread slot renders each chip's text and dot color."""
+        window._apply_health_report(
+            HealthReport(
+                gateway=HealthStatus.OK,
+                tiled=HealthStatus.WARN,
+                db=HealthStatus.DOWN,
+            )
+        )
+        assert "gateway: ok" in window.gateway_chip.text()
+        assert "tiled: warn" in window.tiled_chip.text()
+        assert "db: down" in window.db_chip.text()
+        # Dot colors come from the semantic palette (green / amber / red).
+        assert "#2f9e63" in window.gateway_chip.text()  # green OK
+        assert "#d9a21b" in window.tiled_chip.text()  # amber WARN
+        assert "#c4453a" in window.db_chip.text()  # red DOWN
+
+    def test_window_closes_cleanly_with_poller(self, qtbot):
+        """Real poller wiring: the interval timer starts, and close stops it.
+
+        Guards against the QThread 'destroyed while running' abort by asserting
+        the poll machinery is deterministically quiet after closeEvent.
+        """
+        win = MainWindow(configs=FakeConfigs(), submitter=FakeSubmitter())
+        qtbot.addWidget(win)
+        win.show()
+        assert win._health_timer.isActive()
+        assert win.close()
+        assert not win._health_timer.isActive()
+
+    def test_close_during_inflight_poll_returns_promptly(self, qtbot):
+        """A slow poll in flight must not block (or crash) window close."""
+        import time
+
+        class SlowHealth:
+            def poll(self):
+                time.sleep(0.4)
+                return HealthReport()
+
+        win = MainWindow(
+            configs=FakeConfigs(), health=SlowHealth(), submitter=FakeSubmitter()
+        )
+        qtbot.addWidget(win)
+        win.show()  # immediate poll dispatched to a daemon thread
+        started = time.monotonic()
+        win.close()  # must not join the 0.4 s daemon poll
+        assert time.monotonic() - started < 0.3
+        assert not win._health_timer.isActive()
+
+    def test_experiment_change_pushes_into_probe(self, qtbot):
+        class ProbeWithExperiment:
+            experiment = None
+
+            def poll(self):
+                return HealthReport()
+
+        probe = ProbeWithExperiment()
+        win = MainWindow(configs=FakeConfigs(), health=probe, submitter=FakeSubmitter())
+        qtbot.addWidget(win)
+        win._on_experiment_changed("Bella")
+        assert probe.experiment == "Bella"
 
     def test_stylesheet_loads_and_applies(self, qtbot, window):
         """The packaged QSS must load non-empty and apply application-wide."""
@@ -278,3 +344,66 @@ class TestNowAndDevicePanel:
         assert window.scan_number_label.text() == "Scan 042"
         window._expire_scan_number()
         assert window.scan_number_label.text() == "Scan 042 (previous)"
+
+
+def _auto_answer(monkeypatch, role):
+    """Make the next QMessageBox return non-blocking, choosing *role*'s button."""
+    from PySide6.QtWidgets import QMessageBox
+
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
+
+    def _clicked(self):
+        for button in self.buttons():
+            if self.buttonRole(button) == role:
+                return button
+        return None
+
+    monkeypatch.setattr(QMessageBox, "clickedButton", _clicked)
+
+
+class TestOperatorDialog:
+    """ScanDialogEvent -> modal QMessageBox -> unblock the engine thread."""
+
+    def test_continue_sets_response_event_without_aborting(self, window, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        from fake_events import ScanDialogEvent, _Request
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
+        request = _Request(
+            exc=RuntimeError("gateway down — proceed anyway?"),
+            title="Pre-flight",
+            continue_label="Drop && Continue",
+            abort_label="Abort scan",
+        )
+        # handle() runs on this (GUI) thread here, so the auto-connected signal
+        # delivers the slot synchronously; in production the engine thread's
+        # emit is queued to the GUI thread instead.
+        window.events.handle(ScanDialogEvent(request=request))
+
+        assert request.response_event.is_set()
+        assert request.abort == [False]
+        assert "operator: continue" in window.log_tail.toPlainText()
+
+    def test_abort_sets_flag_and_response_event(self, window, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        from fake_events import ScanDialogEvent, _Request
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
+        request = _Request(exc=RuntimeError("device missing"))
+        window.events.handle(ScanDialogEvent(request=request))
+
+        assert request.response_event.is_set()
+        assert request.abort == [True]
+        assert "operator: abort" in window.log_tail.toPlainText()
+
+    def test_adapter_has_gui_thread_affinity(self, window):
+        """The adapter lives on the GUI thread, so an engine-thread emit queues.
+
+        The dialog connection uses Qt's default AutoConnection (not a forced
+        DirectConnection): because the adapter's thread affinity is the GUI
+        thread, a ``dialog_requested`` emitted from the engine/scan thread is
+        delivered queued onto the GUI thread — the only place the modal may run.
+        """
+        assert window.events.thread() is window.thread()

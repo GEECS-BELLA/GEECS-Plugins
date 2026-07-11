@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
+import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QFile, QTimer
+from PySide6.QtCore import QFile, QObject, Qt, QTimer, Signal, Slot
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QApplication,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -47,13 +49,21 @@ from geecs_console.request_builder import (
     estimate_total_shots,
 )
 from geecs_console.services.configs import ConsoleConfigs
-from geecs_console.services.health import HealthProbe, HealthStatus, StubHealth
+from geecs_console.services.health import (
+    HealthProbe,
+    HealthReport,
+    HealthStatus,
+    StubHealth,
+)
 from geecs_console.submission import Submitter, make_bluesky_submitter
 
 _UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
 _QSS_PATH = Path(__file__).parent / "style.qss"
 
 _SCAN_NUMBER_EXPIRY_MS = 10_000
+
+#: How often the background poller re-checks the health probe.
+_HEALTH_POLL_INTERVAL_MS = 5_000
 
 #: Screen-map semantic colors (see style.qss header for the full palette).
 _COLOR_DIM = "#6b7681"
@@ -102,6 +112,57 @@ def load_stylesheet() -> str:
     qss = _QSS_PATH.read_text(encoding="utf-8")
     ui_dir = (Path(__file__).parent / "ui").as_posix()
     return qss.replace("@UI_DIR@", ui_dir)
+
+
+class HealthPoller(QObject):
+    """Runs ``probe.poll()`` off the GUI thread and reports the result.
+
+    The poller itself lives on the GUI thread; each :meth:`poll_async` call
+    spawns a short-lived daemon thread that runs the (possibly slow) blocking
+    ``poll()`` and emits :attr:`report_ready` with the result.  Qt marshals the
+    emit back to the GUI-thread slot as a queued delivery, so the chips update
+    without ever blocking the event loop — and there is no worker Qt event loop
+    or cross-thread QTimer to manage.
+
+    Parameters
+    ----------
+    probe : HealthProbe
+        The probe to poll; only its ``poll()`` method is used, so it works
+        with the real probe, the stub, or a test fake.
+    """
+
+    report_ready = Signal(object)
+    """Carries one :class:`HealthReport` per completed poll."""
+
+    def __init__(self, probe: HealthProbe) -> None:
+        super().__init__()
+        self._probe = probe
+        self._busy = False
+
+    @Slot()
+    def poll_async(self) -> None:
+        """Kick off one poll in a daemon thread (skipped if one is in flight).
+
+        Called on the GUI thread from the interval timer; returns immediately.
+        """
+        if self._busy:
+            return
+        self._busy = True
+        threading.Thread(
+            target=self._run, name="console-health-poll", daemon=True
+        ).start()
+
+    def _run(self) -> None:
+        """Poll the probe (on the daemon thread) and emit the report."""
+        report = None
+        try:
+            report = self._probe.poll()
+        except Exception:  # noqa: BLE001 — a probe fault must not kill the poller
+            report = None
+        finally:
+            self._busy = False
+        if report is not None:
+            self.report_ready.emit(report)
 
 
 class MainWindow(QMainWindow):
@@ -158,7 +219,11 @@ class MainWindow(QMainWindow):
         self._scan_number_timer.timeout.connect(self._expire_scan_number)
 
         self._populate_from_configs()
-        self._refresh_health()
+        # Chips read UNKNOWN until the first background poll returns; seed the
+        # markup synchronously (no probe call — never touches the network).
+        self._apply_health_report(HealthReport())
+        self._push_experiment_to_probe(self._configs.experiment)
+        self._start_health_poller()
         self._set_state_pill("idle")
         self._on_mode_changed()
 
@@ -325,6 +390,7 @@ class MainWindow(QMainWindow):
         self.events.progress.connect(self._on_progress)
         self.events.error.connect(self._on_scan_error)
         self.events.log_line.connect(self.append_log)
+        self.events.dialog_requested.connect(self._on_operator_dialog)
 
     # ------------------------------------------------------------------
     # Configs / health population
@@ -389,12 +455,78 @@ class MainWindow(QMainWindow):
         color = _HEALTH_DOT_COLORS.get(status, _COLOR_GREY)
         return f'<span style="color:{color};">●</span> {name}: {status.value}'
 
-    def _refresh_health(self) -> None:
-        """Poll the health probe into the R1 chips."""
-        report = self._health.poll()
+    @Slot(object)
+    def _apply_health_report(self, report: HealthReport) -> None:
+        """Render a health report into the R1 chips (GUI-thread slot).
+
+        Parameters
+        ----------
+        report : HealthReport
+            The polled chip states (delivered queued from the background
+            :class:`HealthPoller`, or passed directly to seed the initial
+            all-unknown markup).
+        """
         self.gateway_chip.setText(self._chip_markup("gateway", report.gateway))
         self.tiled_chip.setText(self._chip_markup("tiled", report.tiled))
         self.db_chip.setText(self._chip_markup("db", report.db))
+
+    def _start_health_poller(self) -> None:
+        """Start the background health poller and its GUI-thread interval timer.
+
+        A GUI-thread :class:`~PySide6.QtCore.QTimer` fires every
+        :data:`_HEALTH_POLL_INTERVAL_MS`; each tick dispatches the blocking
+        ``poll()`` to a daemon thread inside :class:`HealthPoller`, whose
+        ``report_ready`` signal is delivered queued back to
+        :meth:`_apply_health_report` on the GUI thread.  Works with any probe
+        (stub or real).  One immediate poll runs so the chips leave ``UNKNOWN``
+        as soon as the first result lands.
+        """
+        self._health_poller = HealthPoller(self._health)
+        # Force a queued connection so the chip update always runs on the GUI
+        # thread — an undecorated bound method can otherwise be wired direct,
+        # which would paint QLabels from the daemon thread (a hard crash).
+        self._health_poller.report_ready.connect(
+            self._apply_health_report, Qt.ConnectionType.QueuedConnection
+        )
+        self._health_timer = QTimer(self)
+        self._health_timer.setInterval(_HEALTH_POLL_INTERVAL_MS)
+        self._health_timer.timeout.connect(self._health_poller.poll_async)
+        self._health_timer.start()
+        self._health_poller.poll_async()
+
+    def _push_experiment_to_probe(self, experiment: str) -> None:
+        """Point the probe at *experiment*'s gateway PV, if it supports it.
+
+        StubHealth has no ``experiment`` attribute, so this is a guarded no-op
+        for the offline default; the real probe picks up the new prefix on its
+        next poll.
+
+        Parameters
+        ----------
+        experiment : str
+            The selected experiment name ("" for none).
+        """
+        if hasattr(self._health, "experiment"):
+            setattr(self._health, "experiment", experiment or None)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        """Stop the background health poller cleanly before closing.
+
+        Stops the GUI-thread interval timer (no further polls) and disconnects
+        the report signal so a still-running daemon poll can't paint a chip on
+        a window being torn down.  In-flight daemon threads are daemonic and
+        finish on their own without blocking shutdown.
+        """
+        timer = getattr(self, "_health_timer", None)
+        if timer is not None:
+            timer.stop()
+        poller = getattr(self, "_health_poller", None)
+        if poller is not None:
+            try:
+                poller.report_ready.disconnect(self._apply_health_report)
+            except (RuntimeError, TypeError):
+                pass
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Form state (the round-trip surface tests exercise)
@@ -586,6 +718,7 @@ class MainWindow(QMainWindow):
     def _on_experiment_changed(self, experiment: str) -> None:
         """Repopulate everything for the newly selected experiment."""
         self._configs.set_experiment(experiment)
+        self._push_experiment_to_probe(experiment)
         self._populate_from_configs()
 
     def _on_trigger_profile_changed(self, profile: str) -> None:
@@ -750,3 +883,49 @@ class MainWindow(QMainWindow):
     def _on_scan_error(self, message: str) -> None:
         """Show scan errors in the status bar."""
         self.statusBar().showMessage(message, 10_000)
+
+    # ------------------------------------------------------------------
+    # Operator / pre-flight dialogs
+    # ------------------------------------------------------------------
+
+    def _on_operator_dialog(self, request: object) -> None:
+        """Render an operator question modally and unblock the engine thread.
+
+        Delivered queued from :meth:`ScanEventsAdapter.handle` (which runs on
+        the engine/scan thread, blocked on ``request.response_event``), so this
+        slot runs on the GUI thread — where a modal must live.  The engine
+        resumes with the operator's choice: Abort sets ``request.abort[0]``
+        before the response event is set.
+
+        Parameters
+        ----------
+        request : object
+            A ``DialogRequest`` (duck-typed): ``exc``, optional ``title`` /
+            ``continue_label`` / ``abort_label``, a mutable one-element
+            ``abort`` list, and a ``response_event`` (:class:`threading.Event`).
+        """
+        exc = getattr(request, "exc", None)
+        title = getattr(request, "title", None) or "Operator confirmation"
+        continue_label = getattr(request, "continue_label", None) or "Continue"
+        abort_label = getattr(request, "abort_label", None) or "Abort"
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle(str(title))
+        box.setText(str(exc) if exc is not None else str(title))
+        continue_button = box.addButton(
+            str(continue_label), QMessageBox.ButtonRole.AcceptRole
+        )
+        box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(continue_button)
+        box.exec()
+
+        aborted = box.clickedButton() is not continue_button
+        abort_flag = getattr(request, "abort", None)
+        if aborted and isinstance(abort_flag, list) and abort_flag:
+            abort_flag[0] = True
+        self.append_log(f"operator: {'abort' if aborted else 'continue'}")
+
+        response_event = getattr(request, "response_event", None)
+        if response_event is not None and hasattr(response_event, "set"):
+            response_event.set()

@@ -4,6 +4,31 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.2.0] - 2026-07-11
+
+### Added
+
+- Live health chips (R1): `GatewayTiledDbHealth` replaces the all-unknown
+  stub — a CA read of `{experiment}:CAGateway:HEARTBEAT` (OK; WARN when
+  `DEVICES_CONNECTED == 0`; DOWN on failure; UNKNOWN with no experiment
+  selected), an HTTP GET of the configured `[tiled] uri` (2xx → OK), and a
+  cheap `GeecsDb` query (OK / DOWN).  Each check is guarded with a short
+  timeout; `poll()` never raises and lazily imports `aioca` / `httpx` /
+  `GeecsDb` so the module stays import-safe offline.  `main.py` injects the
+  real probe; `StubHealth` remains the offline/test default.
+- Background health polling: a GUI-thread `QTimer` dispatches each blocking
+  `poll()` to a short-lived daemon thread (`HealthPoller`); the result is
+  marshaled back to the R1 chips via a queued signal, so a slow probe (e.g.
+  over VPN) never blocks the event loop.  The experiment combo pushes the
+  selected experiment into the probe so the next poll targets the right
+  gateway PV.  `closeEvent` stops the timer for clean teardown.
+- Operator / pre-flight dialogs: `ScanDialogEvent` now renders a modal
+  `QMessageBox` (`ScanEventsAdapter.dialog_requested` → `_on_operator_dialog`)
+  with the request's continue/abort labels.  Abort sets `request.abort[0]`;
+  either choice sets `request.response_event`, unblocking the engine's scan
+  thread (which is waiting on it).  The signal is delivered queued so the
+  modal always runs on the GUI thread while the engine thread stays blocked.
+
 ## [0.1.1] - 2026-07-10
 
 ### Added

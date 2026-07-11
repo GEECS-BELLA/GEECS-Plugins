@@ -58,17 +58,42 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
 
+## Implemented seams
+
+- **Health chips (R1)** are live via `GatewayTiledDbHealth` (real probe) or
+  `StubHealth` (all-unknown offline/test default).  The real probe runs three
+  guarded checks — CA read of `{experiment}:CAGateway:HEARTBEAT` (OK; WARN
+  when `DEVICES_CONNECTED == 0`; DOWN on failure; UNKNOWN with no experiment),
+  HTTP GET of the `[tiled] uri`, and a cheap `GeecsDb` query — each with a
+  short timeout; `poll()` **never raises** and lazily imports
+  `aioca`/`httpx`/`GeecsDb` inside itself so the module is import-safe offline.
+  Polling is **background**: a GUI-thread `QTimer` dispatches each blocking
+  `poll()` to a short-lived daemon thread (`HealthPoller`), and the result is
+  marshaled back to the chips via a **queued** `report_ready(object)` signal
+  (`_apply_health_report` is `@Slot(object)` and connected `QueuedConnection`
+  — an undecorated bound method could otherwise wire *direct* and paint
+  QLabels off the GUI thread, a hard crash).  Deliberately **no** worker
+  QThread/event-loop or cross-thread QTimer — that pattern aborted under
+  offscreen pytest ("QThread destroyed while running").  The experiment combo
+  pushes the selection into the probe (guarded `hasattr`/`setattr`, since
+  StubHealth has no `experiment`); `closeEvent` stops the timer.  Inject the
+  real probe in `main.py`; keep `StubHealth` as the window's default.
+- **Operator / pre-flight dialogs**: a `ScanDialogEvent` is rendered as a
+  modal `QMessageBox`.  `ScanEventsAdapter.handle` (on the engine/scan thread)
+  emits `dialog_requested(request)`; the queued signal delivers
+  `_on_operator_dialog` on the GUI thread (where the modal must live) while the
+  engine thread blocks on `request.response_event.wait()`.  Abort sets
+  `request.abort[0] = True`; either choice calls `request.response_event.set()`
+  to unblock the engine.  Duck-typed on the `DialogRequest` attributes — no
+  `geecs_bluesky` import.
+
 ## Stubbed seams (intentional, wire later)
 
-- Health chips: `StubHealth` returns all-unknown.  Real probes: CA read
-  against the gateway, HTTP ping to Tiled, `GeecsDb` connection check.
 - Device panel backend (see R7 above).
 - Presets persistence (save/load ScanRequest YAML; a preset dir in the
   configs repo is the natural home).
 - Optimization mode: radio exists, submission refused with a clear error
   until an `OptimizationSpec` editor exists.
-- `ScanDialogEvent` is logged, not rendered as a modal dialog yet — the
-  engine's operator-question wait falls back to its default.
 - Scan-number source: `set_scan_number` + the 10 s expiry exist, but no
   event carries the claimed number yet (engine-side follow-up).
 - `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
