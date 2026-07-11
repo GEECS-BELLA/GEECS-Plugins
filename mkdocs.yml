@@ -42,74 +42,81 @@ nav:
       - Acquisition: tutorials/acquisition.md
       - Analysis: tutorials/analysis.md
 
-  - GEECS Scanner GUI:
-      - Overview: geecs_scanner/overview.md
-      - Installation & Setup: geecs_scanner/installation.md
-      - Tutorial — Your First Scan: geecs_scanner/tutorial.md
-      - Save Elements: geecs_scanner/save_elements.md
-      - Scan Output Structure: geecs_scanner/scan_output_structure.md
-      - Running Optimizations: geecs_scanner/optimization.md
-      - Troubleshooting: geecs_scanner/troubleshooting.md
-      - Extending the Scanner: geecs_scanner/extending.md
-      - Architecture: geecs_scanner/architecture.md
-      - API Reference:
-          - Engine Configuration Models: geecs_scanner/api/engine_models.md
-          - Scan Events: geecs_scanner/api/scan_events.md
-          - Optimization:
-              - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
-              - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
-              - Generators:
-                  - Generator Factory: geecs_scanner/api/optimization/generators/generator_factory.md
-                  - Cheetah Generator: geecs_scanner/api/optimization/generators/cheetah_generator.md
-      - Examples:
-          - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
-      - Notes and Discussions:
-          - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
+  # Purpose-grouped tabs. Each group opens on its section-index landing
+  # page (navigation.indexes) and holds one section per package, so the
+  # top-level nav is organised by what you're trying to do rather than
+  # one tab per package. To document a new package, add a section under
+  # the group that matches its audience.
+  - Acquisition:
+      - acquisition/index.md
+      - Scanner GUI:
+          - Overview: geecs_scanner/overview.md
+          - Installation & Setup: geecs_scanner/installation.md
+          - Tutorial — Your First Scan: geecs_scanner/tutorial.md
+          - Save Elements: geecs_scanner/save_elements.md
+          - Scan Output Structure: geecs_scanner/scan_output_structure.md
+          - Running Optimizations: geecs_scanner/optimization.md
+          - Troubleshooting: geecs_scanner/troubleshooting.md
+          - Extending the Scanner: geecs_scanner/extending.md
+          - Architecture: geecs_scanner/architecture.md
+          - API Reference:
+              - Engine Configuration Models: geecs_scanner/api/engine_models.md
+              - Scan Events: geecs_scanner/api/scan_events.md
+              - Optimization:
+                  - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
+                  - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
+                  - Generators:
+                      - Generator Factory: geecs_scanner/api/optimization/generators/generator_factory.md
+                      - Cheetah Generator: geecs_scanner/api/optimization/generators/cheetah_generator.md
+          - Examples:
+              - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
+          - Notes and Discussions:
+              - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
 
-  - Image Analysis:
-      - Overview: image_analysis/overview.md
-      - Analyzer Index: image_analysis/analyzer_index.md
-      - API Reference:
-          - Core Modules: image_analysis/api/core_modules.md
-      - Examples:
-          - Basic Offline Analysis: image_analysis/examples/basic_usage_image_analyzer.ipynb
-          - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
-          - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
-          - HasoLift Analysis: image_analysis/examples/HasoLift_analysis.ipynb
+  - Analysis:
+      - analysis/index.md
+      - Image Analysis:
+          - Overview: image_analysis/overview.md
+          - Analyzer Index: image_analysis/analyzer_index.md
+          - API Reference:
+              - Core Modules: image_analysis/api/core_modules.md
+          - Examples:
+              - Basic Offline Analysis: image_analysis/examples/basic_usage_image_analyzer.ipynb
+              - Basic Usage — 1D Analyzer: image_analysis/examples/basic_usage_1D_analyzer.ipynb
+              - Grenouille Analysis: image_analysis/examples/grenouille_analysis.ipynb
+              - HasoLift Analysis: image_analysis/examples/HasoLift_analysis.ipynb
+      - Scan Analysis:
+          - Overview: scan_analysis/overview.md
+          - API Reference:
+              - Core Modules: scan_analysis/api/base.md
+          - Examples:
+              - Basic Usage (2D): scan_analysis/examples/basic_usage.ipynb
+              - Basic Usage (1D): scan_analysis/examples/basic_usage_1D.ipynb
+              - Live Watch: scan_analysis/examples/live_watch.ipynb
+              - GDoc Upload: scan_analysis/examples/gdoc_upload.ipynb
+              - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
+      - Data Utils:
+          - Overview: geecs_data_utils/overview.md
+          - API Reference:
+              - Core Modules: geecs_data_utils/api/core_modules.md
+          - Examples:
+              - Basic Usage: geecs_data_utils/examples/basic_usage.ipynb
+              - Correlation Analysis: geecs_data_utils/examples/correlation_analysis.ipynb
+              - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
 
-  - Scan Analysis:
-      - Overview: scan_analysis/overview.md
-      - API Reference:
-          - Core Modules: scan_analysis/api/base.md
-      - Examples:
-          - Basic Usage (2D): scan_analysis/examples/basic_usage.ipynb
-          - Basic Usage (1D): scan_analysis/examples/basic_usage_1D.ipynb
-          - Live Watch: scan_analysis/examples/live_watch.ipynb
-          - GDoc Upload: scan_analysis/examples/gdoc_upload.ipynb
-          - Scatter Plot Analysis: scan_analysis/examples/scatter_plot_analysis.ipynb
-
-  - GEECS Python API:
-      - Overview: geecs_python_api/overview.md
-      - Scripting Guide: geecs_python_api/scripting_guide.md
-      - API Reference:
-          - Controls: geecs_python_api/api/controls.md
-
-  - Data Utils:
-      - Overview: geecs_data_utils/overview.md
-      - API Reference:
-          - Core Modules: geecs_data_utils/api/core_modules.md
-      - Examples:
-          - Basic Usage: geecs_data_utils/examples/basic_usage.ipynb
-          - Correlation Analysis: geecs_data_utils/examples/correlation_analysis.ipynb
-          - Scan Database Utils: geecs_data_utils/examples/scans_database_utils.ipynb
-
-  - GEECS Schemas:
-      - Scanner Configs Overview: geecs_schemas/schemas_overview.md
-      - Running a Scan: geecs_schemas/running_a_scan.md
-      - Schema Reference: geecs_schemas/schema_reference.md
-
-  - GEECS Gateway:
-      - Client Overview: geecs_gateway/client_overview.md
+  - Platform:
+      - platform/index.md
+      - Python API:
+          - Overview: geecs_python_api/overview.md
+          - Scripting Guide: geecs_python_api/scripting_guide.md
+          - API Reference:
+              - Controls: geecs_python_api/api/controls.md
+      - GEECS Gateway:
+          - Client Overview: geecs_gateway/client_overview.md
+      - GEECS Schemas:
+          - Scanner Configs Overview: geecs_schemas/schemas_overview.md
+          - Running a Scan: geecs_schemas/running_a_scan.md
+          - Schema Reference: geecs_schemas/schema_reference.md
 
   # Skills is intentionally last — experimental (agentic tooling), not core suite.
   - Skills:
