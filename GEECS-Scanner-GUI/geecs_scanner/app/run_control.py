@@ -57,6 +57,11 @@ class RunControl:
             on_event=on_event,
             optimization_loader=load_session_optimization,
         )
+        # Manual actions (ActionLibrary "perform action" / condition checks)
+        # ride ActionManager via ActionControl — backend-independent (kept in
+        # G1), constructed lazily in get_action_control for the current
+        # experiment. Re-homing onto the schema action compiler is G-actions
+        # (Planning/cutover_strategy/00_overview.md).
         self.action_control = None
         logging.info("RunControl: using Bluesky backend (BlueskyScanner)")
 
@@ -87,6 +92,11 @@ class RunControl:
         """
         if experiment_name_refresh:
             self.action_control = ActionControl(experiment_name=experiment_name_refresh)
+        elif self.action_control is None:
+            # Lazy default: the legacy backend built this at init; post-G1 it
+            # is created on first use so manual actions keep working
+            # (ActionControl/ActionManager are backend-independent).
+            self.action_control = ActionControl(experiment_name=self.experiment_name)
         return self.action_control
 
     def submit_run(self, exec_config: ScanExecutionConfig) -> bool:
