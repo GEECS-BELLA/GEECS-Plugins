@@ -47,6 +47,10 @@ geecs_ca_gateway/
                      #   from_db_metadata (pure) / from_geecs_db / from_geecs_experiment
   pv_naming.py       # THE shared naming policy (producer + consumers import it)
   naming.py          # thin re-export of pv_naming for gateway-local use
+  audit.py           # read-only DB-hygiene audit (#496): reports every get='yes'
+                     #   variable the gateway won't serve + FK-orphans. Pure
+                     #   classifier audit_subscribed_variables() (no DB) + CLI
+                     #   (python -m geecs_ca_gateway.audit / geecs-ca-gateway-audit)
   transport/
     udp_client.py    # GeecsUdpClient — cmd/ACK/exe protocol, exchange lock,
                      #   exe-reply correlation, local-IP detection (VPN/PPP)
@@ -189,3 +193,17 @@ ca_addr_list`, applied by geecs_bluesky at import) is documented in
 - Follow the repo-wide conventions (root `CLAUDE.md`): Pydantic v2, NumPy
   docstrings, type hints, `poetry version` + `CHANGELOG.md` on every
   code-changing PR.
+
+## DB-hygiene audit (`audit.py`, #496)
+
+`expt_device_variable` accumulates `get='yes'` rows that map to nothing real
+(the LabVIEW DB-editing GUIs don't cascade deletes), and each one makes the
+gateway/scanner try to connect a PV that never exists → per-device stalls. The
+audit reports them; run it on-network with `python -m geecs_ca_gateway.audit
+--experiment Undulator` (add `--full` for the per-device listing, `--sql` to
+*print* review-only DELETEs). It flags: **GHOST** (`get='yes'` name isn't a real
+device variable), **SKIP:<type>** (`get='yes'` var typed `image`/`1darray`, in
+`_SKIP_VARTYPES`, so no scalar PV), and **FK-orphan** (`expt_device_id` with no
+`expt_device`). The classifier `audit_subscribed_variables()` is a pure function
+over plain dicts (no DB — unit-tested in `test_audit.py`); DB access is lazy.
+**Read-only: it never DELETEs or modifies** — `--sql` only prints.
