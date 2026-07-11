@@ -6,9 +6,28 @@
    <string>GEECS Console</string>
   </property>
   <layout class="QVBoxLayout" name="root_layout">
-   <!-- R1: session bar -->
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <!-- R1: session bar (untitled group box = the screen map's session panel) -->
    <item>
-    <layout class="QHBoxLayout" name="r1_session_bar">
+    <widget class="QGroupBox" name="r1_group">
+     <layout class="QHBoxLayout" name="r1_session_bar">
+      <property name="spacing">
+       <number>8</number>
+      </property>
      <item>
       <widget class="QLabel" name="r1_experiment_label">
        <property name="text">
@@ -35,6 +54,12 @@
      </item>
      <item>
       <widget class="QDoubleSpinBox" name="r1_rep_rate">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>90</number>
+       </property>
        <property name="decimals">
         <number>2</number>
        </property>
@@ -100,100 +125,95 @@
        </property>
       </widget>
      </item>
-     <item>
-      <widget class="QLabel" name="r1_db_chip">
-       <property name="text">
-        <string>db: unknown</string>
-       </property>
-      </widget>
-     </item>
-    </layout>
+      <item>
+       <widget class="QLabel" name="r1_db_chip">
+        <property name="text">
+         <string>db: unknown</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
    </item>
    <!-- Three columns: R2 | R3+R4+R5 | R6+R7 -->
    <item>
-    <layout class="QHBoxLayout" name="columns_layout">
+    <layout class="QHBoxLayout" name="columns_layout" stretch="26,46,28">
+     <property name="spacing">
+      <number>10</number>
+     </property>
      <!-- R2: save sets -->
      <item>
       <widget class="QGroupBox" name="r2_group">
        <property name="title">
-        <string>Save sets</string>
+        <string>SAVE SETS</string>
        </property>
        <layout class="QVBoxLayout" name="r2_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
         <item>
-         <layout class="QHBoxLayout" name="r2_lists_layout">
+         <widget class="QLabel" name="r2_available_label">
+          <property name="text">
+           <string>available</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QListWidget" name="r2_available_list"/>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="r2_buttons_layout">
           <item>
-           <layout class="QVBoxLayout" name="r2_available_layout">
-            <item>
-             <widget class="QLabel" name="r2_available_label">
-              <property name="text">
-               <string>Available</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QListWidget" name="r2_available_list"/>
-            </item>
-           </layout>
+           <spacer name="r2_buttons_spacer_left">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>10</width>
+              <height>10</height>
+             </size>
+            </property>
+           </spacer>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="r2_buttons_layout">
-            <item>
-             <spacer name="r2_buttons_spacer_top">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>40</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-            <item>
-             <widget class="QPushButton" name="r2_add_button">
-              <property name="text">
-               <string>Add →</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QPushButton" name="r2_remove_button">
-              <property name="text">
-               <string>← Remove</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <spacer name="r2_buttons_spacer_bottom">
-              <property name="orientation">
-               <enum>Qt::Vertical</enum>
-              </property>
-              <property name="sizeHint" stdset="0">
-               <size>
-                <width>20</width>
-                <height>40</height>
-               </size>
-              </property>
-             </spacer>
-            </item>
-           </layout>
+           <widget class="QPushButton" name="r2_add_button">
+            <property name="text">
+             <string>↓ Add</string>
+            </property>
+           </widget>
           </item>
           <item>
-           <layout class="QVBoxLayout" name="r2_selected_layout">
-            <item>
-             <widget class="QLabel" name="r2_selected_label">
-              <property name="text">
-               <string>Selected</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QListWidget" name="r2_selected_list"/>
-            </item>
-           </layout>
+           <widget class="QPushButton" name="r2_remove_button">
+            <property name="text">
+             <string>↑ Remove</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="r2_buttons_spacer_right">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>10</width>
+              <height>10</height>
+             </size>
+            </property>
+           </spacer>
           </item>
          </layout>
+        </item>
+        <item>
+         <widget class="QLabel" name="r2_selected_label">
+          <property name="text">
+           <string>selected</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QListWidget" name="r2_selected_list"/>
         </item>
         <item>
          <widget class="QLabel" name="r2_union_label">
@@ -218,12 +238,18 @@
      <!-- Middle column: R3 scan form, R4 presets, R5 submit row -->
      <item>
       <layout class="QVBoxLayout" name="middle_column">
+        <property name="spacing">
+         <number>8</number>
+        </property>
        <item>
         <widget class="QGroupBox" name="r3_group">
          <property name="title">
-          <string>Scan</string>
+          <string>SCAN</string>
          </property>
          <layout class="QVBoxLayout" name="r3_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
           <item>
            <layout class="QHBoxLayout" name="r3_mode_layout">
             <item>
@@ -264,10 +290,36 @@
               </property>
              </widget>
             </item>
+            <item>
+             <spacer name="r3_mode_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>10</width>
+                <height>10</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
            </layout>
           </item>
           <item>
            <layout class="QGridLayout" name="r3_axes_layout">
+            <item row="0" column="8">
+             <spacer name="r3_axes_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>10</width>
+                <height>10</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
             <item row="0" column="0">
              <widget class="QLabel" name="r3_variable_label">
               <property name="text">
@@ -294,6 +346,12 @@
             </item>
             <item row="0" column="3">
              <widget class="QDoubleSpinBox" name="r3_start">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="decimals">
                <number>6</number>
               </property>
@@ -314,6 +372,12 @@
             </item>
             <item row="0" column="5">
              <widget class="QDoubleSpinBox" name="r3_stop">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="value">
                <double>1.000000000000000</double>
               </property>
@@ -337,6 +401,12 @@
             </item>
             <item row="0" column="7">
              <widget class="QDoubleSpinBox" name="r3_step">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="value">
                <double>1.000000000000000</double>
               </property>
@@ -377,6 +447,12 @@
             </item>
             <item row="1" column="3">
              <widget class="QDoubleSpinBox" name="r3_start2">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="decimals">
                <number>6</number>
               </property>
@@ -397,6 +473,12 @@
             </item>
             <item row="1" column="5">
              <widget class="QDoubleSpinBox" name="r3_stop2">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="value">
                <double>1.000000000000000</double>
               </property>
@@ -420,6 +502,12 @@
             </item>
             <item row="1" column="7">
              <widget class="QDoubleSpinBox" name="r3_step2">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>110</number>
+       </property>
               <property name="value">
                <double>1.000000000000000</double>
               </property>
@@ -447,6 +535,12 @@
             </item>
             <item>
              <widget class="QSpinBox" name="r3_shots_per_step">
+       <property name="buttonSymbols">
+        <enum>QAbstractSpinBox::NoButtons</enum>
+       </property>
+       <property name="maximumWidth">
+        <number>90</number>
+       </property>
               <property name="minimum">
                <number>1</number>
               </property>
@@ -510,9 +604,12 @@
        <item>
         <widget class="QGroupBox" name="r4_group">
          <property name="title">
-          <string>Presets</string>
+          <string>PRESETS</string>
          </property>
          <layout class="QHBoxLayout" name="r4_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
           <item>
            <widget class="QComboBox" name="r4_preset_combo">
             <property name="minimumWidth">
@@ -534,63 +631,104 @@
             </property>
            </widget>
           </item>
+          <item>
+           <spacer name="r4_spacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>10</width>
+              <height>10</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
          </layout>
         </widget>
        </item>
        <item>
-        <layout class="QHBoxLayout" name="r5_submit_row">
-         <item>
-          <widget class="QPushButton" name="r5_stop_button">
-           <property name="text">
-            <string>Stop</string>
-           </property>
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-           <property name="styleSheet">
-            <string>QPushButton:enabled { background-color: #b71c1c; color: white; }</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <spacer name="r5_spacer">
-           <property name="orientation">
-            <enum>Qt::Horizontal</enum>
-           </property>
-           <property name="sizeHint" stdset="0">
-            <size>
-             <width>40</width>
-             <height>20</height>
-            </size>
-           </property>
-          </spacer>
-         </item>
-         <item>
-          <widget class="QPushButton" name="r5_start_button">
-           <property name="text">
-            <string>Start</string>
-           </property>
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-           <property name="default">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-        </layout>
+        <widget class="QGroupBox" name="r5_group">
+         <layout class="QHBoxLayout" name="r5_submit_row">
+          <property name="spacing">
+           <number>8</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="r5_hint_label">
+            <property name="text">
+             <string>request → validate → submit</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="r5_spacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="r5_stop_button">
+            <property name="text">
+             <string>■ Stop</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="r5_start_button">
+            <property name="text">
+             <string>▶ Start scan</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+            <property name="default">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <spacer name="middle_column_spacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>10</width>
+           <height>10</height>
+          </size>
+         </property>
+        </spacer>
        </item>
       </layout>
      </item>
      <!-- Right column: R6 now panel, R7 device panel -->
      <item>
       <layout class="QVBoxLayout" name="right_column">
+        <property name="spacing">
+         <number>8</number>
+        </property>
        <item>
         <widget class="QGroupBox" name="r6_group">
          <property name="title">
-          <string>Now</string>
+          <string>NOW</string>
          </property>
          <layout class="QVBoxLayout" name="r6_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
           <item>
            <layout class="QHBoxLayout" name="r6_status_layout">
             <item>
@@ -645,9 +783,12 @@
        <item>
         <widget class="QGroupBox" name="r7_group">
          <property name="title">
-          <string>Device panel</string>
+          <string>DEVICE PANEL</string>
          </property>
          <layout class="QVBoxLayout" name="r7_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
           <item>
            <widget class="QComboBox" name="r7_device_combo">
             <property name="editable">

@@ -109,7 +109,21 @@ class TestConstruction:
             configs=FakeConfigs(), health=FakeHealth(), submitter=FakeSubmitter()
         )
         qtbot.addWidget(win)
-        assert win.gateway_chip.text() == "gateway: down"
+        # Chips are rich-text pills (colored dot + text) — check the text part.
+        assert "gateway: down" in win.gateway_chip.text()
+
+    def test_stylesheet_loads_and_applies(self, qtbot, window):
+        """The packaged QSS must load non-empty and apply application-wide."""
+        from PySide6.QtWidgets import QApplication
+
+        from geecs_console.app.main_window import load_stylesheet
+
+        qss = load_stylesheet()
+        assert qss.strip()
+        assert "@UI_DIR@" not in qss  # asset token resolved to a real path
+        assert "QGroupBox" in qss
+        # The window's constructor applied it to the running application.
+        assert QApplication.instance().styleSheet().strip()
 
 
 class TestModeRadios:
@@ -249,7 +263,8 @@ class TestNowAndDevicePanel:
         window.events.handle(
             ScanStepEvent(step_index=0, total_steps=2, shots_completed=10)
         )
-        assert window.state_pill.text() == "running"
+        # The pill is rich text (colored dot + uppercase word).
+        assert "RUNNING" in window.state_pill.text()
         assert window.progress_bar.maximum() == 20
         assert window.progress_bar.value() == 10
         assert "running" in window.log_tail.toPlainText()

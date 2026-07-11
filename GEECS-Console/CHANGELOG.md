@@ -4,6 +4,35 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.1.1] - 2026-07-10
+
+### Added
+
+- Visual treatment to match screen map v0.1: a packaged Qt stylesheet
+  (`geecs_console/app/style.qss`, applied application-wide at window
+  construction) implementing the approved screen-map palette and widget
+  treatments — panel group boxes with small uppercase dim legends, primary
+  blue Start / danger-outline Stop, white 1px-bordered inputs and lists,
+  accent radios, thin green progress bar, dim monospace status bar and
+  hints, dark monospace log tail.
+- Health chips render as rounded pills with a per-status colored dot
+  (grey unknown / green ok / amber warn / red down); `HealthStatus` gains
+  `WARN`.  The Now panel's state text renders as a pill (colored dot +
+  uppercase state word).
+- Screen-map layout parity in the `.ui`: session bar in its own panel,
+  save-set lists stacked vertically with Add/Remove between them, submit
+  row in a panel with the `request → validate → submit` hint, 26/46/28
+  column proportions, 10px outer margins with 8px gaps.
+
+### Changed
+
+- Spin boxes use `NoButtons` (plain fields per the screen map; the native
+  macOS button geometry drew outside the styled border).  Values adjust
+  by typing, arrow keys, or wheel.
+- The experiment combo shows a `select experiment…` placeholder when the
+  configs repo lists experiments but none is selected yet (it previously
+  rendered blank until the dropdown was opened).
+
 ## [0.1.0] - 2026-07-10
 
 ### Added
