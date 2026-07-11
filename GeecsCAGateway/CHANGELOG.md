@@ -3,6 +3,33 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.13.0] - 2026-07-11
+
+### Added
+
+- **DB-hygiene audit tool** (`geecs_ca_gateway/audit.py`; `#496`) — a read-only
+  report of every `get='yes'` variable the gateway will NOT serve, plus
+  FK-orphans. Ships as both a reusable pure function and a CLI
+  (`python -m geecs_ca_gateway.audit --experiment NAME`, console script
+  `geecs-ca-gateway-audit`). Flags three flavours of `expt_device_variable`
+  rot that the LabVIEW DB-editing GUIs leave behind (no cascade deletes):
+  - **GHOST** — a `get='yes'` row whose `variablename` is not a real variable
+    of the device (deleted / alias-derived name); names a PV never created.
+  - **SKIP:<type>** — a `get='yes'` variable whose `variabletype` is in the
+    gateway's `_SKIP_VARTYPES` (`image` / `1darray`); no scalar PV served.
+  - **FK-orphan** — an `expt_device_variable` row whose `expt_device_id` points
+    at an `expt_device.id` that no longer exists (whole experiment removed).
+
+  The classifier `audit_subscribed_variables(subscribed, device_variables,
+  skip_types)` is a **pure function over plain dicts** with zero DB imports
+  (fully unit-tested). The DB-facing wrapper and CLI import `GeecsDb` / `mysql`
+  lazily, so the module imports offline. **Strictly read-only** — it never
+  DELETEs or modifies; the optional `--sql` flag only *prints* (never executes)
+  the DELETE statements a human could review. `--full` prints the complete
+  per-device listing.
+- `GeecsDb.get_fk_orphan_variables()` — read-only LEFT-JOIN query returning the
+  count + a capped sample of FK-orphan `expt_device_variable` rows.
+
 ## [0.12.2] - 2026-07-10
 
 ### Fixed
