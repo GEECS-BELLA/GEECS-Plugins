@@ -19,6 +19,8 @@ class HealthStatus(str, Enum):
     ----------
     OK : str
         The service answered a probe.
+    WARN : str
+        The service answered but reported a degraded condition.
     DOWN : str
         The service failed a probe.
     UNKNOWN : str
@@ -26,6 +28,7 @@ class HealthStatus(str, Enum):
     """
 
     OK = "ok"
+    WARN = "warn"
     DOWN = "down"
     UNKNOWN = "unknown"
 

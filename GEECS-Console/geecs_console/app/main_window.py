@@ -20,6 +20,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QFile, QTimer
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
+    QApplication,
     QComboBox,
     QDoubleSpinBox,
     QLabel,
@@ -46,12 +47,39 @@ from geecs_console.request_builder import (
     estimate_total_shots,
 )
 from geecs_console.services.configs import ConsoleConfigs
-from geecs_console.services.health import HealthProbe, StubHealth
+from geecs_console.services.health import HealthProbe, HealthStatus, StubHealth
 from geecs_console.submission import Submitter, make_bluesky_submitter
 
 _UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
+_QSS_PATH = Path(__file__).parent / "style.qss"
 
 _SCAN_NUMBER_EXPIRY_MS = 10_000
+
+#: Screen-map semantic colors (see style.qss header for the full palette).
+_COLOR_DIM = "#6b7681"
+_COLOR_GREY = "#b9c0c7"
+_COLOR_GREEN = "#2f9e63"
+_COLOR_AMBER = "#d9a21b"
+_COLOR_RED = "#c4453a"
+
+_HEALTH_DOT_COLORS = {
+    HealthStatus.OK: _COLOR_GREEN,
+    HealthStatus.WARN: _COLOR_AMBER,
+    HealthStatus.DOWN: _COLOR_RED,
+    HealthStatus.UNKNOWN: _COLOR_GREY,
+}
+
+#: ScanState value → state-pill dot color (grey covers idle/unknown).
+_STATE_DOT_COLORS = {
+    "running": _COLOR_GREEN,
+    "done": _COLOR_GREEN,
+    "complete": _COLOR_GREEN,
+    "completed": _COLOR_GREEN,
+    "initializing": _COLOR_AMBER,
+    "aborted": _COLOR_RED,
+    "error": _COLOR_RED,
+    "failed": _COLOR_RED,
+}
 
 
 def _package_version() -> str:
@@ -60,6 +88,20 @@ def _package_version() -> str:
         return importlib.metadata.version("geecs-console")
     except importlib.metadata.PackageNotFoundError:
         return "dev"
+
+
+def load_stylesheet() -> str:
+    """Read the packaged QSS, resolving the ui-directory asset token.
+
+    Returns
+    -------
+    str
+        The stylesheet text with ``@UI_DIR@`` replaced by the absolute
+        path of the packaged ``ui/`` directory (combo/spin arrow SVGs).
+    """
+    qss = _QSS_PATH.read_text(encoding="utf-8")
+    ui_dir = (Path(__file__).parent / "ui").as_posix()
+    return qss.replace("@UI_DIR@", ui_dir)
 
 
 class MainWindow(QMainWindow):
@@ -102,6 +144,7 @@ class MainWindow(QMainWindow):
         self._total_shots = 0
         self._shot_count_valid = False
 
+        self._apply_stylesheet()
         self._load_ui()
         self._bind_widgets()
         self._build_menus()
@@ -116,11 +159,18 @@ class MainWindow(QMainWindow):
 
         self._populate_from_configs()
         self._refresh_health()
+        self._set_state_pill("idle")
         self._on_mode_changed()
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
+
+    def _apply_stylesheet(self) -> None:
+        """Apply the packaged QSS application-wide (once per process)."""
+        app = QApplication.instance()
+        if app is not None and not app.styleSheet():
+            app.setStyleSheet(load_stylesheet())
 
     def _load_ui(self) -> None:
         """Load the Designer .ui as the central widget."""
@@ -134,6 +184,14 @@ class MainWindow(QMainWindow):
         if self._ui is None:
             raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
         self.setCentralWidget(self._ui)
+        # Screen-map column proportions (R2 26% | center 46% | right 28%).
+        # QUiLoader ignores the .ui stretch attribute, so set it here.
+        from PySide6.QtWidgets import QHBoxLayout
+
+        columns = self._ui.findChild(QHBoxLayout, "columns_layout")
+        if columns is not None:
+            for index, stretch in enumerate((26, 46, 28)):
+                columns.setStretch(index, stretch)
 
     def _child(self, cls: type, name: str):
         """Return the named child widget, failing loudly when missing."""
@@ -281,7 +339,13 @@ class MainWindow(QMainWindow):
         if self._configs.experiment:
             self.experiment_combo.setCurrentText(self._configs.experiment)
         else:
+            # Populated but nothing selected: show a placeholder rather
+            # than rendering blank (the combo is editable, so its line
+            # edit carries the hint until the operator picks one).
             self.experiment_combo.setCurrentIndex(-1)
+            line_edit = self.experiment_combo.lineEdit()
+            if line_edit is not None:
+                line_edit.setPlaceholderText("select experiment…")
         self.experiment_combo.blockSignals(False)
 
         self.available_list.clear()
@@ -306,12 +370,31 @@ class MainWindow(QMainWindow):
         self._refresh_union_preview()
         self._refresh_shot_count()
 
+    @staticmethod
+    def _chip_markup(name: str, status: HealthStatus) -> str:
+        """Rich-text pill body for one R1 health chip: colored dot + text.
+
+        Parameters
+        ----------
+        name : str
+            The chip's service name (``gateway`` / ``tiled`` / ``db``).
+        status : HealthStatus
+            The polled status (drives the dot color).
+
+        Returns
+        -------
+        str
+            QLabel rich text — the pill border/background come from QSS.
+        """
+        color = _HEALTH_DOT_COLORS.get(status, _COLOR_GREY)
+        return f'<span style="color:{color};">●</span> {name}: {status.value}'
+
     def _refresh_health(self) -> None:
         """Poll the health probe into the R1 chips."""
         report = self._health.poll()
-        self.gateway_chip.setText(f"gateway: {report.gateway.value}")
-        self.tiled_chip.setText(f"tiled: {report.tiled.value}")
-        self.db_chip.setText(f"db: {report.db.value}")
+        self.gateway_chip.setText(self._chip_markup("gateway", report.gateway))
+        self.tiled_chip.setText(self._chip_markup("tiled", report.tiled))
+        self.db_chip.setText(self._chip_markup("db", report.db))
 
     # ------------------------------------------------------------------
     # Form state (the round-trip surface tests exercise)
@@ -629,9 +712,23 @@ class MainWindow(QMainWindow):
         if text.startswith("Scan "):
             self.scan_number_label.setText(f"{text} (previous)")
 
+    def _set_state_pill(self, state: str) -> None:
+        """Render the R6 state pill: colored dot + uppercase state word.
+
+        Parameters
+        ----------
+        state : str
+            A ``ScanState`` value (e.g. ``"running"``); dot color is green
+            for running/done, amber for initializing, red for aborted or
+            error, grey otherwise (idle).
+        """
+        word = (state or "idle").strip()
+        color = _STATE_DOT_COLORS.get(word.lower(), _COLOR_GREY)
+        self.state_pill.setText(f'<span style="color:{color};">●</span> {word.upper()}')
+
     def _on_scan_state(self, state: str) -> None:
         """Update the state pill and button gating on lifecycle events."""
-        self.state_pill.setText(state)
+        self._set_state_pill(state)
         self._refresh_submit_enabled()
 
     def _on_totals_known(self, total_shots: int) -> None:
