@@ -225,6 +225,9 @@ class BlueskyScanner:
         self._total_shots: int = 0
         self._total_steps: int = 0
         self._completed_shots: int = 0
+        # The claimed day-scoped scan number for the current scan (None until
+        # claimed); stamped onto every lifecycle event via _set_state.
+        self._scan_number: int | None = None
         # uid of the most recent run's start document (for the Tiled exporter)
         self._last_run_uid: str | None = None
 
@@ -298,6 +301,7 @@ class BlueskyScanner:
         self._completed_shots = 0
         self._total_shots = 0
         self._total_steps = 0
+        self._scan_number = None
         self._session.rep_rate_hz = self._rep_rate_hz
 
         # Disconnect any leftover devices from a previous scan
@@ -381,6 +385,7 @@ class BlueskyScanner:
         self._completed_shots = 0
         self._total_shots = 0
         self._total_steps = 0
+        self._scan_number = None
         self._session.rep_rate_hz = self._rep_rate_hz
 
         # Disconnect any leftover devices from a previous scan
@@ -461,6 +466,7 @@ class BlueskyScanner:
             return
 
         self._completed_shots = 0
+        self._scan_number = None
         self._abort_requested = False
         self._scan_thread = threading.Thread(
             target=self._run_scan,
@@ -541,9 +547,41 @@ class BlueskyScanner:
     def _on_document(self, name: str, doc: dict) -> None:
         if name == "start":
             self._last_run_uid = doc.get("uid")
+            self._note_claimed_scan_number(doc.get("scan_number"))
         elif name == "event":
             self._completed_shots += 1
             self._emit_step_progress(doc)
+
+    def _note_claimed_scan_number(self, scan_number: Any) -> None:
+        """Carry an engine-claimed scan number into the lifecycle stream.
+
+        On the delegated ScanRequest path the bridge never pre-claims —
+        ``session.scan`` claims the number inside the engine and stamps it
+        into the run start document (``geecs_run_wrapper`` metadata,
+        ``EVENT_SCHEMA.md``).  The INITIALIZING/RUNNING lifecycle events
+        were already emitted (pre-claim, ``scan_number=None``) by then, so
+        pick the number up here and re-emit RUNNING carrying it — consumers
+        get the number while the scan runs, not only on DONE/ABORTED.
+
+        The exec_config paths set ``_scan_number`` at their own claim sites
+        before any lifecycle emission, so this is a no-op there (the start
+        document repeats the same number).  The RUNNING guard keeps a
+        headless run on the shared RunEngine (not this scanner's scan) from
+        flipping the GUI state.
+        """
+        if scan_number is None or self._scan_number is not None:
+            return
+        if self._current_state != self._scan_state("RUNNING"):
+            return
+        try:
+            self._scan_number = int(scan_number)
+        except (TypeError, ValueError):
+            logger.debug(
+                "start document carried a non-integer scan_number %r; ignoring",
+                scan_number,
+            )
+            return
+        self._set_state("RUNNING")
 
     def _emit_step_progress(self, doc: dict) -> None:
         """Emit a :class:`ScanStepEvent` for one Bluesky event document.
@@ -597,13 +635,24 @@ class BlueskyScanner:
         return getattr(ScanState, state_name)
 
     def _set_state(self, state_name: str, total_shots: int = 0) -> None:
-        """Update lifecycle state and emit a GUI scan lifecycle event if possible."""
+        """Update lifecycle state and emit a GUI scan lifecycle event if possible.
+
+        Every emission carries the claimed scan number (``None`` until the
+        scan folder is claimed), so consumers can display "Scan NNN" from
+        the lifecycle stream alone.
+        """
         state = self._scan_state(state_name)
         self._current_state = state
         if self._on_event is None or ScanLifecycleEvent is None:
             return
         try:
-            self._on_event(ScanLifecycleEvent(state=state, total_shots=total_shots))
+            self._on_event(
+                ScanLifecycleEvent(
+                    state=state,
+                    total_shots=total_shots,
+                    scan_number=self._scan_number,
+                )
+            )
         except Exception:
             logger.debug("on_event callback raised; ignoring", exc_info=True)
 
@@ -1124,6 +1173,8 @@ class BlueskyScanner:
         # the whole run).
         scan_tag, scan_folder = claim_scan(self._experiment_dir)
         scan_number = scan_tag.number if scan_tag is not None else None
+        # Lifecycle events emitted from here on carry the claimed number.
+        self._scan_number = scan_number
 
         try:
             objective, suggester = bridge.bind(
@@ -1226,6 +1277,8 @@ class BlueskyScanner:
             return
 
         scan_number, scan_folder = claim_scan_number(self._experiment_dir)
+        # Lifecycle events emitted from here on carry the claimed number.
+        self._scan_number = scan_number
 
         n_shots = len(positions) * self._shots_per_step
         self._total_shots = n_shots
