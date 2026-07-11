@@ -5,12 +5,13 @@ transport-ignorant: it asks an injected factory for signals by GEECS
 ``(device, variable)`` name.  This module is the CA-backed production
 implementation:
 
-- ``get_settable(device, variable)`` → a Movable whose ``set()`` puts the
-  value's **wire string via raw CA** (the hardware-proven
-  :class:`~geecs_bluesky.shot_controller.CaPutSetter` convention: CA
-  converts the string to the PV's native type server-side, so the put works
-  on float, enum, and string ``:SP`` channels alike — a *typed* ophyd
-  signal connect-fails when the PV's inferred type disagrees).  The gateway
+- ``get_settable(device, variable)`` → a Movable putting the value's **wire
+  form via raw CA** — the shared put primitive
+  (:class:`~geecs_bluesky.devices.ca.gateway_put.GatewaySetpointPut` with the
+  :func:`~geecs_bluesky.devices.ca.gateway_put.wire_value` convention: native
+  numerics, strings CA-converted server-side, so the put works on float,
+  enum, and string ``:SP`` channels alike — a *typed* ophyd signal
+  connect-fails when the PV's inferred type disagrees).  The gateway
   forwards ``:SP`` puts to GEECS's blocking UDP set and only completes the
   CA put when GEECS accepts (or rejects) it — so put-completion *is* the
   legacy ``wait_for_execution`` semantics.  A dtype-inferred probe signal
@@ -40,57 +41,19 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from ophyd_async.core import AsyncStatus
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, wire_value
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["CaActionSignalFactory"]
 
-
-class _WireSettable:
-    """Movable: puts the wire string to the ``:SP`` PV via raw CA.
-
-    Action YAML values are ``str | float | int``; CA converts the string
-    form to the PV's native type (enum labels, numeric strings) — the same
-    convention as :class:`~geecs_bluesky.shot_controller.CaPutSetter`, and
-    the reason this is a raw ``caput`` rather than a typed ophyd signal
-    (which connect-fails on a float ``:SP``).  In mock mode the put is
-    recorded on ``last_mock_put`` and completes immediately.
-    """
-
-    def __init__(
-        self, pv: str, name: str, *, mock: bool = False, timeout: float = 30.0
-    ) -> None:
-        self._pv = pv
-        self.name = name
-        self._mock = mock
-        self._timeout = timeout
-        self.last_mock_put: str | None = None
-
-    def set(self, value: Any) -> AsyncStatus:
-        """Put the value; the returned status completes with the GEECS set."""
-        # Numbers go natively (DBR_DOUBLE — a string put-with-callback to a
-        # float gateway channel can hang; observed live 2026-07-10); strings
-        # (enum labels, 'on'/'off') go as the wire string, CA-converted.
-        wire = value if isinstance(value, (int, float)) else str(value)
-
-        if self._mock:
-
-            async def _record() -> None:
-                self.last_mock_put = str(wire)
-
-            return AsyncStatus(_record())
-
-        async def _do() -> None:
-            from aioca import caput  # deferred: needs the `ca` extra
-
-            await caput(self._pv, wire, wait=True, timeout=self._timeout)
-
-        return AsyncStatus(_do())
+#: Per-put budget for action set steps (a GEECS set that has not completed in
+#: 30 s is stuck, not slow).
+_ACTION_PUT_TIMEOUT = 30.0
 
 
 class CaActionSignalFactory:
@@ -116,11 +79,11 @@ class CaActionSignalFactory:
         self._experiment = experiment
         self._connect = connect
         self._mock = mock
-        self._settables: dict[tuple[str, str], _WireSettable] = {}
+        self._settables: dict[tuple[str, str], GatewaySetpointPut] = {}
         self._readables: dict[tuple[str, str], Any] = {}
         self._probes: dict[tuple[str, str], Any] = {}
 
-    def get_settable(self, device: str, variable: str) -> _WireSettable:
+    def get_settable(self, device: str, variable: str) -> GatewaySetpointPut:
         """Return the (cached) setpoint writer for ``(device, variable)``.
 
         Parameters
@@ -132,8 +95,8 @@ class CaActionSignalFactory:
 
         Returns
         -------
-        _WireSettable
-            A Movable putting wire strings to the variable's ``:SP`` PV;
+        GatewaySetpointPut
+            A Movable putting wire values to the variable's ``:SP`` PV;
             put-completion rides the GEECS blocking set.
         """
         key = (device, variable)
@@ -146,11 +109,16 @@ class CaActionSignalFactory:
             probe = epics_signal_r(None, pv, name=f"{name}_probe")
             self._connect(probe)
             self._probes[key] = probe
-            # ca_pv returns the ophyd signal-URI form ("ca://<name>"); ophyd
-            # strips the scheme, raw aioca does NOT — a schemed name searches
-            # for a PV that does not exist and hangs forever (live-found
-            # 2026-07-10, issue #490).
-            settable = _WireSettable(pv.removeprefix("ca://"), name, mock=self._mock)
+            # ca_pv returns the ophyd signal-URI form ("ca://<name>"); the
+            # primitive strips it for the raw put — a schemed name hangs
+            # forever under aioca (issue #490; rule lives in gateway_put).
+            settable = GatewaySetpointPut(
+                pv,
+                name=name,
+                coerce=wire_value,
+                timeout=_ACTION_PUT_TIMEOUT,
+                mock=self._mock,
+            )
             self._settables[key] = settable
             logger.debug("action settable created: %s -> %s", key, pv)
         return settable

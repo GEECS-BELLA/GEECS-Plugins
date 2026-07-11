@@ -22,6 +22,7 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,11 @@ class CaSettable(StandardReadable):
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
         self._setpoint = epics_signal_rw(datatype, f"{readback_pv}:SP")
+        # Layer-1 puts ride the shared gateway-put primitive (the one owner
+        # of addressing/coercion/timeout policy); the typed signal stays the
+        # transport — connect-time dtype check and the mock-backend seam.
+        # timeout=None defers to the signal's own default per put.
+        self._put = GatewaySetpointPut(signal=self._setpoint, timeout=None)
         with self.add_children_as_readables():
             setattr(self, _readback_attr, epics_signal_r(datatype, readback_pv))
         super().__init__(name=name)
@@ -96,6 +102,6 @@ class CaSettable(StandardReadable):
 
     async def _set_and_wait(self, value: float) -> None:
         """Write the setpoint and wait ``settle_time`` (subclasses may poll)."""
-        await self._setpoint.set(value)
+        await self._put.put(value)
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)

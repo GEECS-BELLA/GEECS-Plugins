@@ -15,8 +15,8 @@ import logging
 from typing import Any, Callable, Sequence
 
 import bluesky.plan_stubs as bps
-from ophyd_async.core import AsyncStatus
 
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import (
     ShotControlConfig,
@@ -29,28 +29,22 @@ from geecs_ca_gateway.pv_naming import pv_name
 logger = logging.getLogger(__name__)
 
 
-class CaPutSetter:
+class CaPutSetter(GatewaySetpointPut):
     """Minimal Bluesky Movable: puts one value to a gateway setpoint PV.
 
     The gateway's ``:SP`` write forwards to the GEECS UDP set and only
     completes when GEECS accepts (or rejects) it, so put-completion carries the
     same semantics as the direct UDP ACK.  Values are sent as strings (labels
     for enum PVs; numeric strings are coerced by the gateway's typed channel).
+
+    A thin pin of the shared put primitive
+    (:class:`~geecs_bluesky.devices.ca.gateway_put.GatewaySetpointPut`) to
+    the hardware-proven shot-control convention: raw CA, every value as its
+    wire string, 10 s default budget.
     """
 
     def __init__(self, setpoint_pv: str, timeout: float = 10.0) -> None:
-        self._pv = setpoint_pv
-        self._timeout = timeout
-
-    def set(self, value: Any) -> AsyncStatus:
-        """Put *value*; resolves when the gateway completes the GEECS set."""
-
-        async def _do() -> None:
-            from aioca import caput  # deferred: needs the `ca` extra
-
-            await caput(self._pv, str(value), wait=True, timeout=self._timeout)
-
-        return AsyncStatus(_do())
+        super().__init__(setpoint_pv, coerce=str, timeout=timeout)
 
 
 class ShotController:
@@ -102,9 +96,9 @@ class ShotController:
         put_timeout: float = 10.0,
     ) -> "ShotController":
         """Build with gateway ``:SP`` setters (no DB lookup, no connection dance)."""
-        # Bare PV names (no ca:// transport prefix): CaPutSetter talks to aioca
-        # directly, not through ophyd-async's transport-prefix parsing — aioca
-        # is the CA transport, and it treats the prefix as part of the PV name.
+        # Bare PV names: CaPutSetter talks to aioca directly, so the name must
+        # not carry the ophyd ca:// scheme — the addressing rule lives in
+        # gateway_put.bare_pv (issue #490).
         setters = {
             var: CaPutSetter(
                 f"{pv_name(experiment, config.device, var)}:SP", timeout=put_timeout
