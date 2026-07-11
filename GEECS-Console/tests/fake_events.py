@@ -5,7 +5,8 @@ events_adapter's module docstring), so these hermetic stand-ins exercise the
 exact production dispatch without importing the engine.
 """
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -37,7 +38,14 @@ class ScanRestoreFailedEvent:
 
 @dataclass
 class _Request:
+    """Duck-typed stand-in for geecs_bluesky.events.DialogRequest."""
+
     exc: Optional[Exception] = None
+    title: Optional[str] = None
+    continue_label: Optional[str] = None
+    abort_label: Optional[str] = None
+    response_event: threading.Event = field(default_factory=threading.Event)
+    abort: list = field(default_factory=lambda: [False])
 
 
 @dataclass
