@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.29.0] - 2026-07-10
+
+### Changed
+
+- **One blessed gateway `:SP` put primitive.** Three call sites implemented
+  "write a value to a gateway setpoint with GEECS-completion semantics"
+  independently — `CaMotor`'s Layer-1 ophyd signal put, `ShotController`'s
+  `CaPutSetter` raw caput, and the action factory's `_WireSettable` raw caput
+  — and each independently decided the PV addressing dialect (ophyd `ca://`
+  URI vs bare EPICS name), which tripled the suspect list during the
+  closeout-hang diagnosis and produced the actual bug (issue #490; see the
+  put-pathway discussion in PR #489). All three now delegate to
+  `devices/ca/gateway_put.GatewaySetpointPut`, the single owner of the
+  addressing rule (`bare_pv` strips `ca://`, rejects other schemes), the
+  wire-value conventions (`str` for shot control, `wire_value` for actions,
+  pass-through for typed motor signals), the timeout policy, `AsyncStatus`
+  wrapping, and mock support. Per-consumer semantics are preserved exactly:
+  `CaPutSetter` is now a thin pin of the primitive with byte-identical wire
+  behavior (always-string puts, 10 s budget), `CaSettable`/`CaMotor`/
+  `CaConfirmSettable` keep their typed setpoint signal as the transport and
+  mock seam (`CaMotor` keeps `move_timeout` as the put budget), and action
+  settables keep the wire-value convention and the issue-#490 bare-name
+  invariant. New `tests/test_gateway_put.py` pins the addressing rule
+  centrally, including that the primitive strips/rejects schemed names.
+
 ## [0.28.1] - 2026-07-10
 
 ### Fixed

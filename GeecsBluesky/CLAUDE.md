@@ -88,6 +88,10 @@ geecs_bluesky/
       action_signals.py     # CaActionSignalFactory — the production
                             #   SettableFactory for compiled action plans
                             #   (cached :SP settables + str readbacks)
+      gateway_put.py        # GatewaySetpointPut — THE one gateway :SP put
+                            #   primitive (addressing rule ca://-vs-bare,
+                            #   wire conventions, timeout, mock); every
+                            #   setpoint pathway delegates (issue #490)
     shot_id.py              # ShotIdTracker + ShotIdSupport mixin (schema-v1 columns)
     nonscalar_save.py       # NonScalarSaveSupport mixin — save-path column + asset docs
     contributor.py          # FreeRunContributorSupport — reference-relative labeling

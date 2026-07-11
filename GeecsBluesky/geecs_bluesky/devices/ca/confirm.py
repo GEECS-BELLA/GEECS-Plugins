@@ -145,8 +145,9 @@ class CaConfirmSettable(CaSettable):
         loop = asyncio.get_running_loop()
 
         # Layer 1: the gateway :SP put rides the blocking GEECS UDP set on
-        # `variable` — this only confirms *that* variable, not the target.
-        await self._setpoint.set(value)
+        # `variable` — this only confirms *that* variable, not the target —
+        # through the shared put primitive (inherited from CaSettable).
+        await self._put.put(value)
 
         # Layer 2: poll the confirming variable until it matches.
         deadline = loop.time() + self._timeout

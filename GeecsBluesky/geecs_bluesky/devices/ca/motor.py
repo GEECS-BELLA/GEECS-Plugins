@@ -101,8 +101,9 @@ class CaMotor(CaSettable):
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._move_timeout
 
-        # Layer 1: the gateway :SP put rides the blocking GEECS UDP set.
-        await self._setpoint.set(value, timeout=self._move_timeout)
+        # Layer 1: the gateway :SP put rides the blocking GEECS UDP set,
+        # through the shared put primitive with move_timeout as its budget.
+        await self._put.put(value, timeout=self._move_timeout)
 
         # Layer 2: confirm the streamed readback converged.
         position = getattr(self, self._readback_attr_name)
