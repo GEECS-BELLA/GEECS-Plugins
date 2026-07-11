@@ -1,0 +1,704 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ConsoleRoot</class>
+ <widget class="QWidget" name="ConsoleRoot">
+  <property name="windowTitle">
+   <string>GEECS Console</string>
+  </property>
+  <layout class="QVBoxLayout" name="root_layout">
+   <!-- R1: session bar -->
+   <item>
+    <layout class="QHBoxLayout" name="r1_session_bar">
+     <item>
+      <widget class="QLabel" name="r1_experiment_label">
+       <property name="text">
+        <string>Experiment</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="r1_experiment_combo">
+       <property name="editable">
+        <bool>true</bool>
+       </property>
+       <property name="minimumWidth">
+        <number>140</number>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="r1_rep_rate_label">
+       <property name="text">
+        <string>Rep rate (Hz)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDoubleSpinBox" name="r1_rep_rate">
+       <property name="decimals">
+        <number>2</number>
+       </property>
+       <property name="minimum">
+        <double>0.010000000000000</double>
+       </property>
+       <property name="maximum">
+        <double>10000.000000000000000</double>
+       </property>
+       <property name="value">
+        <double>1.000000000000000</double>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="r1_trigger_label">
+       <property name="text">
+        <string>Trigger profile</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="r1_trigger_profile_combo">
+       <property name="minimumWidth">
+        <number>140</number>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="r1_trigger_variant_combo">
+       <property name="minimumWidth">
+        <number>100</number>
+       </property>
+       <property name="toolTip">
+        <string>Trigger-profile variant (base behaviour when empty)</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="r1_spacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="r1_gateway_chip">
+       <property name="text">
+        <string>gateway: unknown</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="r1_tiled_chip">
+       <property name="text">
+        <string>tiled: unknown</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="r1_db_chip">
+       <property name="text">
+        <string>db: unknown</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <!-- Three columns: R2 | R3+R4+R5 | R6+R7 -->
+   <item>
+    <layout class="QHBoxLayout" name="columns_layout">
+     <!-- R2: save sets -->
+     <item>
+      <widget class="QGroupBox" name="r2_group">
+       <property name="title">
+        <string>Save sets</string>
+       </property>
+       <layout class="QVBoxLayout" name="r2_layout">
+        <item>
+         <layout class="QHBoxLayout" name="r2_lists_layout">
+          <item>
+           <layout class="QVBoxLayout" name="r2_available_layout">
+            <item>
+             <widget class="QLabel" name="r2_available_label">
+              <property name="text">
+               <string>Available</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="r2_available_list"/>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="r2_buttons_layout">
+            <item>
+             <spacer name="r2_buttons_spacer_top">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QPushButton" name="r2_add_button">
+              <property name="text">
+               <string>Add →</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="r2_remove_button">
+              <property name="text">
+               <string>← Remove</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="r2_buttons_spacer_bottom">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>40</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="r2_selected_layout">
+            <item>
+             <widget class="QLabel" name="r2_selected_label">
+              <property name="text">
+               <string>Selected</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="r2_selected_list"/>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QLabel" name="r2_union_label">
+          <property name="text">
+           <string>union: 0 devices</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="r2_hint_label">
+          <property name="text">
+           <string/>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <!-- Middle column: R3 scan form, R4 presets, R5 submit row -->
+     <item>
+      <layout class="QVBoxLayout" name="middle_column">
+       <item>
+        <widget class="QGroupBox" name="r3_group">
+         <property name="title">
+          <string>Scan</string>
+         </property>
+         <layout class="QVBoxLayout" name="r3_layout">
+          <item>
+           <layout class="QHBoxLayout" name="r3_mode_layout">
+            <item>
+             <widget class="QRadioButton" name="r3_radio_noscan">
+              <property name="text">
+               <string>No-scan</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="r3_radio_1d">
+              <property name="text">
+               <string>1D scan</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="r3_radio_grid">
+              <property name="text">
+               <string>Grid</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="r3_radio_optimization">
+              <property name="text">
+               <string>Optimization</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QRadioButton" name="r3_radio_background">
+              <property name="text">
+               <string>Background</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="r3_axes_layout">
+            <item row="0" column="0">
+             <widget class="QLabel" name="r3_variable_label">
+              <property name="text">
+               <string>Variable</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QComboBox" name="r3_variable_combo">
+              <property name="editable">
+               <bool>true</bool>
+              </property>
+              <property name="minimumWidth">
+               <number>160</number>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QLabel" name="r3_start_label">
+              <property name="text">
+               <string>Start</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="3">
+             <widget class="QDoubleSpinBox" name="r3_start">
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="4">
+             <widget class="QLabel" name="r3_stop_label">
+              <property name="text">
+               <string>Stop</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="5">
+             <widget class="QDoubleSpinBox" name="r3_stop">
+              <property name="value">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="6">
+             <widget class="QLabel" name="r3_step_label">
+              <property name="text">
+               <string>Step</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="7">
+             <widget class="QDoubleSpinBox" name="r3_step">
+              <property name="value">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="r3_variable2_label">
+              <property name="text">
+               <string>Variable 2</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QComboBox" name="r3_variable2_combo">
+              <property name="editable">
+               <bool>true</bool>
+              </property>
+              <property name="minimumWidth">
+               <number>160</number>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="2">
+             <widget class="QLabel" name="r3_start2_label">
+              <property name="text">
+               <string>Start</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="3">
+             <widget class="QDoubleSpinBox" name="r3_start2">
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="4">
+             <widget class="QLabel" name="r3_stop2_label">
+              <property name="text">
+               <string>Stop</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="5">
+             <widget class="QDoubleSpinBox" name="r3_stop2">
+              <property name="value">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="6">
+             <widget class="QLabel" name="r3_step2_label">
+              <property name="text">
+               <string>Step</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="7">
+             <widget class="QDoubleSpinBox" name="r3_step2">
+              <property name="value">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="decimals">
+               <number>6</number>
+              </property>
+              <property name="minimum">
+               <double>-1000000000.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>1000000000.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="r3_shots_layout">
+            <item>
+             <widget class="QLabel" name="r3_shots_label">
+              <property name="text">
+               <string>Shots per step</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="r3_shots_per_step">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="maximum">
+               <number>10000000</number>
+              </property>
+              <property name="value">
+               <number>10</number>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="r3_acquisition_label">
+              <property name="text">
+               <string>Acquisition</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="r3_acquisition_combo"/>
+            </item>
+            <item>
+             <spacer name="r3_shots_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QLabel" name="r3_shot_count_label">
+              <property name="text">
+               <string>total shots: —</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="r3_description_layout">
+            <item>
+             <widget class="QLabel" name="r3_description_label">
+              <property name="text">
+               <string>Description</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLineEdit" name="r3_description"/>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="r4_group">
+         <property name="title">
+          <string>Presets</string>
+         </property>
+         <layout class="QHBoxLayout" name="r4_layout">
+          <item>
+           <widget class="QComboBox" name="r4_preset_combo">
+            <property name="minimumWidth">
+             <number>160</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="r4_apply_button">
+            <property name="text">
+             <string>Apply</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="r4_save_as_button">
+            <property name="text">
+             <string>Save as…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="r5_submit_row">
+         <item>
+          <widget class="QPushButton" name="r5_stop_button">
+           <property name="text">
+            <string>Stop</string>
+           </property>
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="styleSheet">
+            <string>QPushButton:enabled { background-color: #b71c1c; color: white; }</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="r5_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="r5_start_button">
+           <property name="text">
+            <string>Start</string>
+           </property>
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="default">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+     <!-- Right column: R6 now panel, R7 device panel -->
+     <item>
+      <layout class="QVBoxLayout" name="right_column">
+       <item>
+        <widget class="QGroupBox" name="r6_group">
+         <property name="title">
+          <string>Now</string>
+         </property>
+         <layout class="QVBoxLayout" name="r6_layout">
+          <item>
+           <layout class="QHBoxLayout" name="r6_status_layout">
+            <item>
+             <widget class="QLabel" name="r6_state_pill">
+              <property name="text">
+               <string>idle</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="r6_status_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>20</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+            <item>
+             <widget class="QLabel" name="r6_scan_number_label">
+              <property name="text">
+               <string>No scans today</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QProgressBar" name="r6_progress">
+            <property name="value">
+             <number>0</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPlainTextEdit" name="r6_log_tail">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+            <property name="maximumBlockCount">
+             <number>200</number>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QGroupBox" name="r7_group">
+         <property name="title">
+          <string>Device panel</string>
+         </property>
+         <layout class="QVBoxLayout" name="r7_layout">
+          <item>
+           <widget class="QComboBox" name="r7_device_combo">
+            <property name="editable">
+             <bool>true</bool>
+            </property>
+            <property name="toolTip">
+             <string>device:variable</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="r7_readback_layout">
+            <item>
+             <widget class="QLabel" name="r7_readback_title">
+              <property name="text">
+               <string>Readback</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="r7_readback_label">
+              <property name="text">
+               <string>—</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="r7_set_layout">
+            <item>
+             <widget class="QLineEdit" name="r7_set_field"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="r7_set_button">
+              <property name="text">
+               <string>Set</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

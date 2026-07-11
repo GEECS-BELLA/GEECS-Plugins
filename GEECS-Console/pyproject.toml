@@ -1,0 +1,33 @@
+[tool.poetry]
+name = "geecs-console"
+version = "0.1.0"
+description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{ include = "geecs_console" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pyside6 = ">=6.7"
+
+# The scan engine: BlueskyScanner (the Submitter), the ScanEvent vocabulary,
+# configs-repo resolution.  Path-dep pattern mirrors GEECS-Scanner-GUI's.
+geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "ca"] }
+
+# The config vocabulary: ScanRequest is the one submission object this GUI
+# builds.  Pydantic-only — the request builder imports nothing heavier.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-qt = ">=4.4"
+ruff = ">=0.9"
+pydocstyle = ">=6.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"
