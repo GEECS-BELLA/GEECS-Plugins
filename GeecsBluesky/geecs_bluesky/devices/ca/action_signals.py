@@ -72,13 +72,16 @@ class _WireSettable:
         self.last_mock_put: str | None = None
 
     def set(self, value: Any) -> AsyncStatus:
-        """Put ``str(value)``; the returned status completes with the GEECS set."""
-        wire = str(value)
+        """Put the value; the returned status completes with the GEECS set."""
+        # Numbers go natively (DBR_DOUBLE — a string put-with-callback to a
+        # float gateway channel can hang; observed live 2026-07-10); strings
+        # (enum labels, 'on'/'off') go as the wire string, CA-converted.
+        wire = value if isinstance(value, (int, float)) else str(value)
 
         if self._mock:
 
             async def _record() -> None:
-                self.last_mock_put = wire
+                self.last_mock_put = str(wire)
 
             return AsyncStatus(_record())
 
@@ -143,7 +146,11 @@ class CaActionSignalFactory:
             probe = epics_signal_r(None, pv, name=f"{name}_probe")
             self._connect(probe)
             self._probes[key] = probe
-            settable = _WireSettable(pv, name, mock=self._mock)
+            # ca_pv returns the ophyd signal-URI form ("ca://<name>"); ophyd
+            # strips the scheme, raw aioca does NOT — a schemed name searches
+            # for a PV that does not exist and hangs forever (live-found
+            # 2026-07-10, issue #490).
+            settable = _WireSettable(pv.removeprefix("ca://"), name, mock=self._mock)
             self._settables[key] = settable
             logger.debug("action settable created: %s -> %s", key, pv)
         return settable

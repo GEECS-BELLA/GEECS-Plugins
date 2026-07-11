@@ -30,6 +30,16 @@ class _Recorder:
         self.connected.append(signal)
 
 
+def test_settable_pv_has_no_transport_scheme() -> None:
+    """The raw-CA put must use the bare PV name — ophyd strips ``ca://``,
+    aioca does not (a schemed name searches forever; issue #490)."""
+    factory = CaActionSignalFactory("Undulator", _Recorder(), mock=True)
+    settable = factory.get_settable("U_ESP_JetXYZ", "Position.Axis 1")
+    assert not settable._pv.startswith("ca://")
+    assert settable._pv == "Undulator:U_ESP_JetXYZ:Position_Axis_1:SP"
+    # the probe keeps the ophyd signal-URI form (ophyd handles the scheme)
+
+
 def test_settable_puts_wire_string_on_numeric_value() -> None:
     """A float action value is put as its wire string (works on float PVs)."""
     connect = _Recorder()

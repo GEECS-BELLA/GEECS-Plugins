@@ -16,9 +16,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   via raw CA (the hardware-proven `CaPutSetter` convention — CA converts to
   the PV's native type), with a dtype-inferred probe signal preserving the
   pre-claim fail-fast; readables are dtype-inferred (like telemetry).
-  `values_match` handles native numerics with the legacy quirks intact. New
-  `tests/test_action_signals.py` pins the factory (it previously had no
-  hermetic coverage — which is how this survived to hardware).
+  `values_match` handles native numerics with the legacy quirks intact.
+- **The raw put uses the bare PV name.** `ca_pv()` returns the ophyd
+  signal-URI form (`ca://<name>`); ophyd strips the scheme, raw aioca does
+  not — a schemed name CA-searches for a PV that does not exist and hangs
+  for the full timeout (live-found during the M4 step-(i) smoke as "the
+  closeout hang", issue #490; the smoke now passes end-to-end on hardware,
+  closeout set-steps included). New `tests/test_action_signals.py` pins the
+  factory, including the bare-name invariant (it previously had no hermetic
+  coverage — which is how both bugs survived to hardware).
 
 ## [0.28.0] - 2026-07-10
 
