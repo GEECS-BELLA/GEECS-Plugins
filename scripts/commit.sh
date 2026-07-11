@@ -32,7 +32,8 @@ set -euo pipefail
 # The files staged for this commit, recorded NUL-delimited in a temp file
 # (space-safe; bash variables cannot hold NUL, so a file — not a var).
 staged="$(mktemp)"
-trap 'rm -f "$staged"' EXIT
+existing="$(mktemp)"
+trap 'rm -f "$staged" "$existing"' EXIT
 git diff --cached --name-only -z >"$staged"
 if [ ! -s "$staged" ]; then
     echo "commit.sh: nothing staged — 'git add' your changes first." >&2
@@ -50,9 +51,23 @@ fi
 # It exits non-zero when it rewrites a file — expected here, so don't abort.
 pc run || true
 
-# Re-stage exactly the originally-staged files so the fixes are included.
+# Re-stage exactly the originally-staged files so the fixes are included —
+# but only those that still exist on disk. A staged *deletion* is in neither
+# the index nor the worktree, so `git add` (even with -A) rejects its pathspec
+# as fatal; and there is nothing to re-stage anyway, since no hook can have
+# rewritten a file that does not exist. The deletion stays staged as-is.
+while IFS= read -r -d '' path; do
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        printf '%s\0' "$path"
+    fi
+done <"$staged" >"$existing"
+
+# Skip when everything staged was a deletion (empty input would make GNU
+# xargs still run `git add --` once, and BSD xargs skip it — moot it).
 # `xargs -0 ... < file` is portable across BSD (macOS) and GNU xargs.
-xargs -0 git add -- <"$staged"
+if [ -s "$existing" ]; then
+    xargs -0 git add -- <"$existing"
+fi
 
 # Commit. The commit-time hook run is now clean, so this passes on the first try.
 git commit "$@"
