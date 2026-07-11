@@ -135,29 +135,27 @@ def test_shot_control_accepts_generalized_writes() -> None:
 
 
 def test_action_signal_factory_builds_cached_connected_signals() -> None:
-    """The production SettableFactory: :SP settables, str readbacks, caching."""
+    """The production SettableFactory: CA-native :SP puts, dtype-inferred reads."""
     import asyncio
 
     s = _session()
     factory = s.action_signal_factory()
     settable = factory.get_settable("U_PLC", "DO.Ch9")
-    assert settable._signal.source.endswith("Undulator:U_PLC:DO_Ch9:SP")
+    assert settable._pv.endswith("Undulator:U_PLC:DO_Ch9:SP")
     # Cached per (device, variable): the same wrapper comes back.
     assert factory.get_settable("U_PLC", "DO.Ch9") is settable
     readable = factory.get_readable("U_PLC", "DI.Ch17")
     assert readable.source.endswith("Undulator:U_PLC:DI_Ch17")
     assert factory.get_readable("U_PLC", "DI.Ch17") is readable
 
-    # Values are coerced to wire strings on set (mock backend records it).
-    # set() is awaited inside the RE loop, as the RunEngine would.
-    async def _set_and_read() -> str:
+    # Values are coerced to wire strings on set (mock session records the
+    # put — raw CA in production, per the CaPutSetter convention, so numeric
+    # :SP PVs accept the put).  set() is awaited inside the RE loop.
+    async def _set() -> None:
         await settable.set(4.0)
-        return await settable._signal.get_value()
 
-    value = asyncio.run_coroutine_threadsafe(_set_and_read(), s.RE._loop).result(
-        timeout=5.0
-    )
-    assert value == "4.0"
+    asyncio.run_coroutine_threadsafe(_set(), s.RE._loop).result(timeout=5.0)
+    assert settable.last_mock_put == "4.0"
 
     # The factory rides the scan cleanup path uniformly.
     s.disconnect(factory)

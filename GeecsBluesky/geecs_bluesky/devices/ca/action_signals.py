@@ -6,17 +6,20 @@ transport-ignorant: it asks an injected factory for signals by GEECS
 implementation:
 
 - ``get_settable(device, variable)`` → a Movable whose ``set()`` puts the
-  value (coerced to its wire string) to the variable's gateway setpoint PV
-  (``[Experiment:]Device:Variable:SP`` via :func:`~geecs_bluesky.devices.ca._pv.ca_pv`).
-  The gateway forwards ``:SP`` puts to GEECS's blocking UDP set and only
-  completes the CA put when GEECS accepts (or rejects) it — so CA
-  put-completion *is* the legacy ``wait_for_execution`` semantics: an
-  ``abs_set(..., wait=True)`` blocks exactly as ``device.set(var, value,
-  sync=True)`` did.
-- ``get_readable(device, variable)`` → a string-typed read signal on the
-  streamed readback PV.  Reading as a string matches the legacy check
-  pipeline (:func:`~geecs_bluesky.plans.action_compiler.values_match` floats
-  numeric-looking strings, exactly like ``GeecsDevice.interpret_value``).
+  value's **wire string via raw CA** (the hardware-proven
+  :class:`~geecs_bluesky.shot_controller.CaPutSetter` convention: CA
+  converts the string to the PV's native type server-side, so the put works
+  on float, enum, and string ``:SP`` channels alike — a *typed* ophyd
+  signal connect-fails when the PV's inferred type disagrees).  The gateway
+  forwards ``:SP`` puts to GEECS's blocking UDP set and only completes the
+  CA put when GEECS accepts (or rejects) it — so put-completion *is* the
+  legacy ``wait_for_execution`` semantics.  A dtype-inferred probe signal
+  is still connected at creation, preserving the pre-claim fail-fast (a
+  missing PV fails before any scan number is claimed).
+- ``get_readable(device, variable)`` → a **native-typed** read signal
+  (dtype inferred from the PV, like telemetry) on the streamed readback.
+  :func:`~geecs_bluesky.plans.action_compiler.values_match` handles both
+  string and numeric actuals, quirks preserved.
 
 Signals are created lazily, **cached per (device, variable)** so repeated
 steps and per-step plans reuse one CA channel, and connected through the
@@ -37,7 +40,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
+from ophyd_async.core import AsyncStatus
+from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
 from geecs_bluesky.utils import safe_name
@@ -48,26 +52,42 @@ __all__ = ["CaActionSignalFactory"]
 
 
 class _WireSettable:
-    """Movable adapter: coerces action values to wire strings before the put.
+    """Movable: puts the wire string to the ``:SP`` PV via raw CA.
 
-    Action YAML values are ``str | float | int``; the gateway's ``:SP``
-    channels accept the string form of any of them (enum PVs take labels,
-    numeric PVs coerce numeric strings — the same convention as
-    :class:`~geecs_bluesky.shot_controller.CaPutSetter`).  The underlying
-    signal is string-typed, so every value is stringified here, once.
+    Action YAML values are ``str | float | int``; CA converts the string
+    form to the PV's native type (enum labels, numeric strings) — the same
+    convention as :class:`~geecs_bluesky.shot_controller.CaPutSetter`, and
+    the reason this is a raw ``caput`` rather than a typed ophyd signal
+    (which connect-fails on a float ``:SP``).  In mock mode the put is
+    recorded on ``last_mock_put`` and completes immediately.
     """
 
-    def __init__(self, signal: Any) -> None:
-        self._signal = signal
+    def __init__(
+        self, pv: str, name: str, *, mock: bool = False, timeout: float = 30.0
+    ) -> None:
+        self._pv = pv
+        self.name = name
+        self._mock = mock
+        self._timeout = timeout
+        self.last_mock_put: str | None = None
 
-    @property
-    def name(self) -> str:
-        """Signal name (used by Bluesky logging/message repr)."""
-        return self._signal.name
-
-    def set(self, value: Any):
+    def set(self, value: Any) -> AsyncStatus:
         """Put ``str(value)``; the returned status completes with the GEECS set."""
-        return self._signal.set(str(value))
+        wire = str(value)
+
+        if self._mock:
+
+            async def _record() -> None:
+                self.last_mock_put = wire
+
+            return AsyncStatus(_record())
+
+        async def _do() -> None:
+            from aioca import caput  # deferred: needs the `ca` extra
+
+            await caput(self._pv, wire, wait=True, timeout=self._timeout)
+
+        return AsyncStatus(_do())
 
 
 class CaActionSignalFactory:
@@ -83,11 +103,19 @@ class CaActionSignalFactory:
         session's ``_connect``.  Called once per new signal, at creation.
     """
 
-    def __init__(self, experiment: str | None, connect: Callable[[Any], Any]) -> None:
+    def __init__(
+        self,
+        experiment: str | None,
+        connect: Callable[[Any], Any],
+        *,
+        mock: bool = False,
+    ) -> None:
         self._experiment = experiment
         self._connect = connect
+        self._mock = mock
         self._settables: dict[tuple[str, str], _WireSettable] = {}
         self._readables: dict[tuple[str, str], Any] = {}
+        self._probes: dict[tuple[str, str], Any] = {}
 
     def get_settable(self, device: str, variable: str) -> _WireSettable:
         """Return the (cached) setpoint writer for ``(device, variable)``.
@@ -109,9 +137,13 @@ class CaActionSignalFactory:
         settable = self._settables.get(key)
         if settable is None:
             pv = f"{ca_pv(self._experiment, device, variable)}:SP"
-            signal = epics_signal_rw(str, pv, name=safe_name(f"{device}_{variable}_sp"))
-            self._connect(signal)
-            settable = _WireSettable(signal)
+            name = safe_name(f"{device}_{variable}_sp")
+            # dtype-inferred probe: proves the PV exists/connects (pre-claim
+            # fail-fast) without imposing a type the PV may not have.
+            probe = epics_signal_r(None, pv, name=f"{name}_probe")
+            self._connect(probe)
+            self._probes[key] = probe
+            settable = _WireSettable(pv, name, mock=self._mock)
             self._settables[key] = settable
             logger.debug("action settable created: %s -> %s", key, pv)
         return settable
@@ -129,14 +161,14 @@ class CaActionSignalFactory:
         Returns
         -------
         SignalR
-            A string-typed read signal on the streamed readback PV,
-            accepted by ``bps.rd``.
+            A native-typed (dtype-inferred) read signal on the streamed
+            readback PV, accepted by ``bps.rd``.
         """
         key = (device, variable)
         signal = self._readables.get(key)
         if signal is None:
             pv = ca_pv(self._experiment, device, variable)
-            signal = epics_signal_r(str, pv, name=safe_name(f"{device}_{variable}"))
+            signal = epics_signal_r(None, pv, name=safe_name(f"{device}_{variable}"))
             self._connect(signal)
             self._readables[key] = signal
             logger.debug("action readable created: %s -> %s", key, pv)
@@ -151,3 +183,4 @@ class CaActionSignalFactory:
         """
         self._settables.clear()
         self._readables.clear()
+        self._probes.clear()

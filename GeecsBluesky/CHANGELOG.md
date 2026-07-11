@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.28.1] - 2026-07-10
+
+### Fixed
+
+- **Action set/check steps now work on numeric PVs.** `CaActionSignalFactory`
+  built `str`-typed ophyd signals for `:SP` settables and readbacks; a float
+  PV (e.g. `Position.Axis 1:SP`) then failed at connect ("inferred datatype
+  float cannot be coerced to str") — found by the first hardware set-step on
+  a numeric variable (M4 step-(i) smoke). Settables now put the wire string
+  via raw CA (the hardware-proven `CaPutSetter` convention — CA converts to
+  the PV's native type), with a dtype-inferred probe signal preserving the
+  pre-claim fail-fast; readables are dtype-inferred (like telemetry).
+  `values_match` handles native numerics with the legacy quirks intact. New
+  `tests/test_action_signals.py` pins the factory (it previously had no
+  hermetic coverage — which is how this survived to hardware).
+
 ## [0.28.0] - 2026-07-10
 
 M4 step (i) — the GUI bridge reaches ScanRequest parity

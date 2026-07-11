@@ -365,13 +365,13 @@ class GeecsSession:
         Returns a fresh per-scan factory: ``get_settable`` puts wire strings
         to the variable's gateway ``:SP`` (put-completion rides the GEECS
         blocking set — the ``wait_for_execution`` semantics), ``get_readable``
-        reads the streamed readback as a string.  Signals are cached per
+        reads the streamed readback natively typed.  Signals are cached per
         ``(device, variable)`` and connected in this session's RE loop at
         creation; pre-connect everything a plan will touch **before** running
         it (see ``scan_request_runner.prefetch_action_signals``) and pass the
         factory to :meth:`disconnect` with the scan's other devices.
         """
-        return CaActionSignalFactory(self.experiment, self._connect)
+        return CaActionSignalFactory(self.experiment, self._connect, mock=self._mock)
 
     # ------------------------------------------------------------------
     # Shot control
