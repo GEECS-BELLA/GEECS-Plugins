@@ -656,6 +656,67 @@ class GeecsDb:
         }
 
     @classmethod
+    def get_fk_orphan_variables(cls, *, sample_limit: int = 20) -> dict:
+        """Return ``expt_device_variable`` rows whose ``expt_device`` is gone.
+
+        The LabVIEW DB-editing GUIs do not cascade deletions (there are no
+        foreign-key constraints), so removing a whole experiment can leave
+        ``expt_device_variable`` rows whose ``expt_device_id`` points at an
+        ``expt_device.id`` that no longer exists.  A LEFT JOIN with
+        ``ed.id IS NULL`` finds them.  Read-only — this only reports.
+
+        These orphans are **not experiment-scoped** (their owning
+        ``expt_device`` row, which carried the experiment name, is gone), so the
+        query is global.
+
+        Parameters
+        ----------
+        sample_limit:
+            Maximum number of orphan rows to return in the ``sample`` list for
+            eyeballing (the ``count`` is always the full total).
+
+        Returns
+        -------
+        dict
+            ``{"count": int, "sample": [{"id", "expt_device_id",
+            "variablename"}, ...]}``.
+        """
+        try:
+            import mysql.connector
+        except ImportError as exc:
+            raise ImportError(
+                "mysql-connector-python is required for DB lookups."
+            ) from exc
+
+        conn = _connect_mysql(mysql.connector)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT COUNT(*) FROM expt_device_variable edv "
+                "LEFT JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.id IS NULL"
+            )
+            count_row = cur.fetchone()
+            count = int(count_row[0]) if count_row else 0
+            cur.execute(
+                "SELECT edv.id, edv.expt_device_id, edv.variablename "
+                "FROM expt_device_variable edv "
+                "LEFT JOIN expt_device ed ON ed.id = edv.expt_device_id "
+                "WHERE ed.id IS NULL "
+                "ORDER BY edv.id LIMIT %s",
+                (int(sample_limit),),
+            )
+            sample_rows = cur.fetchall()
+        finally:
+            conn.close()
+
+        sample = [
+            {"id": row[0], "expt_device_id": row[1], "variablename": row[2]}
+            for row in sample_rows
+        ]
+        return {"count": count, "sample": sample}
+
+    @classmethod
     def get_ca_alarm_limits(cls, experiment: str) -> dict[tuple[str, str], AlarmLimits]:
         """Return enabled curated CA alarm limits for *experiment*.
 
