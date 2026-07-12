@@ -4,6 +4,29 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.1] - 2026-07-12
+
+### Fixed
+
+- **Foreign RunEngine event documents no longer mutate GUI scan progress**
+  ([#511](https://github.com/GEECS-BELLA/GEECS-Plugins/issues/511)).
+  `BlueskyScanner._on_document` guarded foreign start documents (the
+  RUNNING-state guard on scan-number pickup, 0.30.0) but still counted
+  *every* event document into `_completed_shots` and emitted a
+  `ScanStepEvent` for it — a headless/foreign run driven directly on the
+  shared session RunEngine could advance an idle or completed scanner's
+  progress and contaminate `estimate_current_completion()`. The scanner
+  now tracks ownership: a start document is claimed only while this
+  scanner is RUNNING (every scan path sets RUNNING before its plan
+  reaches the serial RunEngine), the claimed run's descriptor uids are
+  collected from descriptor documents, and event documents are matched
+  back through their `descriptor` uid — unmatched events are ignored,
+  and the claim is cleared on the run's stop document. Residual
+  limitation (documented in `_on_document`): a foreign run squeezed in
+  after RUNNING is set but before this scanner's plan opens its run
+  would still be mis-claimed; the RunEngine executes plans serially, so
+  that window is only the bridge's pre-plan setup.
+
 ## [0.30.0] - 2026-07-11
 
 ### Added

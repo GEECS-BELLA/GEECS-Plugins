@@ -202,6 +202,9 @@ def _make_scanner(session: _FakeSession) -> BlueskyScanner:
     scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
+    scanner._last_run_uid = None
+    scanner._active_run_uid = None
+    scanner._active_descriptor_uids = set()
     scanner._scan_request = None
     scanner._request_resolver = None
     scanner._scan_config = None
@@ -625,6 +628,72 @@ def test_start_document_from_foreign_run_is_ignored(monkeypatch) -> None:
 
     assert scanner._scan_number is None
     assert events == []
+
+
+def test_foreign_run_events_while_idle_do_not_mutate_progress() -> None:
+    """A whole foreign run while idle leaves GUI progress untouched (#511).
+
+    The session's RunEngine is shared: a headless run driven directly on
+    ``scanner._session`` emits start, descriptor, and event documents
+    through the same ``_on_document`` subscription.  None of them may
+    mutate ``_completed_shots`` or emit a ``ScanStepEvent``.
+    """
+    from geecs_bluesky.events import ScanStepEvent
+
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._on_document("start", {"uid": "f1", "scan_number": 99})
+    scanner._on_document("descriptor", {"uid": "fd1", "run_start": "f1"})
+    scanner._on_document("event", {"descriptor": "fd1", "data": {"bin_number": 1}})
+    scanner._on_document("event", {"descriptor": "fd1", "data": {"bin_number": 2}})
+    scanner._on_document("stop", {"run_start": "f1"})
+
+    assert scanner._completed_shots == 0
+    assert scanner._scan_number is None
+    assert not any(isinstance(e, ScanStepEvent) for e in events)
+    assert events == []
+
+
+def test_foreign_run_events_after_completion_do_not_mutate_progress() -> None:
+    """Foreign events after this scanner's run completed are ignored (#511).
+
+    Simulates a full owned run (RUNNING → start/descriptor/event/stop →
+    DONE, as the scan thread does), then a foreign run on the shared
+    RunEngine: the completed counters must stay frozen and no further
+    ``ScanStepEvent`` may reach the GUI.
+    """
+    from geecs_bluesky.events import ScanStepEvent
+
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    events: list = []
+    scanner._on_event = events.append
+    scanner._total_shots = 1
+    scanner._total_steps = 1
+
+    # This scanner's own run: RUNNING is set before the plan reaches the RE.
+    scanner._current_state = scanner._scan_state("RUNNING")
+    scanner._on_document("start", {"uid": "own1", "scan_number": 12})
+    scanner._on_document("descriptor", {"uid": "own-d1", "run_start": "own1"})
+    scanner._on_document("event", {"descriptor": "own-d1", "data": {"bin_number": 1}})
+    scanner._on_document("stop", {"run_start": "own1"})
+    scanner._current_state = scanner._scan_state("DONE")
+    assert scanner._completed_shots == 1
+    own_step_events = [e for e in events if isinstance(e, ScanStepEvent)]
+    assert len(own_step_events) == 1
+
+    # Foreign run after completion: nothing may move.
+    scanner._on_document("start", {"uid": "f2", "scan_number": 99})
+    scanner._on_document("descriptor", {"uid": "fd2", "run_start": "f2"})
+    scanner._on_document("event", {"descriptor": "fd2", "data": {"bin_number": 1}})
+    scanner._on_document("stop", {"run_start": "f2"})
+
+    assert scanner._completed_shots == 1
+    assert scanner._scan_number == 12
+    assert [e for e in events if isinstance(e, ScanStepEvent)] == own_step_events
 
 
 def test_delegated_totals_hook(monkeypatch) -> None:
