@@ -1,1 +1,1 @@
-"""Editor dialogs for the console's config kinds (Editors menu)."""
+"""Editor dialogs for the configs the console submits by name (M5)."""

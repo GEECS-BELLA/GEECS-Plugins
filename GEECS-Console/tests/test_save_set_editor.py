@@ -6,15 +6,29 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox, QPushButton
 
 from geecs_console.editors import save_set_editor as sse
-from geecs_console.editors.save_set_editor import (
-    SaveSetEditor,
-    geecs_db_completions,
-    open_save_set_editor,
-)
+from geecs_console.editors.save_set_editor import SaveSetEditor, open_save_set_editor
+from geecs_console.services.device_completions import GeecsDbCompletions
 from geecs_console.services.save_set_store import SaveSetStore
 from geecs_schemas import SaveRole, SaveSet, SaveSetEntry
 
 SAVE_SET_FOLDER = "save_devices"
+
+
+class FakeCompletions:
+    """CompletionsProvider stand-in: a fixed device → variables mapping."""
+
+    def __init__(self, mapping):
+        self._mapping = dict(mapping)
+
+    def device_variables(self):
+        return self._mapping
+
+
+class ExplodingCompletions:
+    """CompletionsProvider stand-in whose fetch always fails."""
+
+    def device_variables(self):
+        raise RuntimeError("no database out here")
 
 
 def diag_set(name="diag", description="alignment diagnostics") -> SaveSet:
@@ -145,7 +159,7 @@ class TestOpening:
 
     def test_entry_point_returns_a_shown_dialog(self, qtbot, track, tmp_path):
         dialog = open_save_set_editor(
-            None, "HTU", configs_base=tmp_path, completions=lambda exp: {}
+            None, "HTU", configs_base=tmp_path, completions=FakeCompletions({})
         )
         track(dialog)
         assert dialog.isVisible()
@@ -156,7 +170,7 @@ class TestOpening:
     def test_db_completions_with_no_experiment_is_empty(self):
         # The production provider's no-experiment early-out — no imports,
         # no network.
-        assert geecs_db_completions("") == {}
+        assert GeecsDbCompletions("").device_variables() == {}
 
 
 class TestDirtySaveRevert:
@@ -323,7 +337,7 @@ class TestCompleters:
             SaveSetEditor(
                 experiment="HTU",
                 store=store,
-                completions=lambda exp: self.COMPLETIONS,
+                completions=FakeCompletions(self.COMPLETIONS),
             )
         )
         qtbot.waitUntil(
@@ -342,11 +356,10 @@ class TestCompleters:
         assert editor._variable_model.stringList() == []
 
     def test_failing_provider_degrades_to_empty(self, qtbot, track, store):
-        def explode(experiment):
-            raise RuntimeError("no database out here")
-
         editor = track(
-            SaveSetEditor(experiment="HTU", store=store, completions=explode)
+            SaveSetEditor(
+                experiment="HTU", store=store, completions=ExplodingCompletions()
+            )
         )
         qtbot.waitUntil(lambda: editor._completions_loaded, timeout=2000)
         assert editor._completions == {}

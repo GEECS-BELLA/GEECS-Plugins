@@ -8,13 +8,14 @@ error is rendered inline in the message label, never a crash.
 
 Offline-first: the dialog opens with zero network and zero configs (empty
 list, Save disabled until the document validates).  Device and variable name
-completions come from an injectable provider seam —
-``Callable[[str], dict[str, list[str]]]`` mapping experiment → device →
-variable names — fetched once on a daemon thread and delivered back through
-a queued signal (the no-QThread rule; see ``services/health.py``).  The
-production provider, :func:`geecs_db_completions`, imports ``GeecsDb``
-lazily and degrades to empty on any failure, so offline means an empty
-completer, not an exception.
+completions come from the shared
+:class:`~geecs_console.services.device_completions.CompletionsProvider` seam
+— one blocking ``device_variables()`` call returning ``{device: [variable,
+...]}`` — fetched once on a daemon thread and delivered back through a
+queued signal (the no-QThread rule; see ``services/health.py``).  The
+production provider, ``GeecsDbCompletions``, imports ``GeecsDb`` lazily and
+degrades to empty on any failure, so offline means an empty completer, not
+an exception; ``EmptyCompletions`` is the no-fetch default.
 
 The reserved ``at_scan_start`` / ``at_scan_end`` entry fields (not applied by
 the engine in this version) have no widgets; the editor carries them through
@@ -27,7 +28,7 @@ import copy
 import logging
 import threading
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 from PySide6.QtCore import QFile, QStringListModel, Qt, Signal, Slot
 from PySide6.QtUiTools import QUiLoader
@@ -48,6 +49,11 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
+from geecs_console.services.device_completions import (
+    CompletionsProvider,
+    EmptyCompletions,
+    GeecsDbCompletions,
+)
 from geecs_console.services.save_set_store import SaveSetStore, SaveSetStoreError
 from geecs_schemas import SaveRole, SaveSet, SaveSetEntry
 
@@ -61,42 +67,6 @@ _COLOR_RED = "#c4453a"
 
 #: The role combo's "let the scanner decide" row (stores ``None``).
 _ROLE_DERIVED_LABEL = "(derived)"
-
-#: The completions seam: experiment name -> {device: [variable, ...]}.
-CompletionsProvider = Callable[[str], dict[str, list[str]]]
-
-
-def geecs_db_completions(experiment: str) -> dict[str, list[str]]:
-    """Fetch device/variable completions from the GEECS experiment database.
-
-    The production :data:`CompletionsProvider` — imports ``GeecsDb`` lazily
-    (keeping this module import-safe offline) and returns empty on any
-    failure, so an unreachable database means an empty completer, never an
-    error.  Blocking; the editor always calls providers on a daemon thread.
-
-    Parameters
-    ----------
-    experiment : str
-        GEECS experiment name ("" returns empty immediately).
-
-    Returns
-    -------
-    dict of str to list of str
-        ``{device: sorted variable names}`` for the experiment's devices.
-    """
-    if not experiment:
-        return {}
-    try:
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
-
-        by_device = GeecsDb.get_experiment_device_variables(experiment)
-        return {
-            device: sorted({meta["name"] for meta in metas})
-            for device, metas in by_device.items()
-        }
-    except Exception as exc:  # noqa: BLE001 — completions are best-effort
-        logger.info("device/variable completions unavailable: %s", exc)
-        return {}
 
 
 def _split_names(text: str) -> list[str]:
@@ -136,10 +106,10 @@ class SaveSetEditor(QDialog):
         The persistence seam; tests inject one backed by a tmp dir.
     configs_base : Path, optional
         Experiments-root override forwarded to the default store.
-    completions : callable, optional
-        :data:`CompletionsProvider` for the device/variable completers.
-        ``None`` (the default) skips fetching entirely — offline/tests get
-        empty completers unless a provider is injected.
+    completions : CompletionsProvider, optional
+        Word-list source for the device/variable completers.  ``None`` (the
+        default) means :class:`EmptyCompletions` — no fetch at all, so
+        offline/tests get empty completers unless a provider is injected.
     """
 
     #: One completions mapping per finished provider call (emitted from the
@@ -161,7 +131,9 @@ class SaveSetEditor(QDialog):
             else SaveSetStore(experiment, experiments_root=configs_base)
         )
         self._experiment = experiment or self._store.experiment
-        self._completions_provider = completions
+        self._completions_provider: CompletionsProvider = (
+            completions if completions is not None else EmptyCompletions()
+        )
         self._completions: dict[str, list[str]] = {}
         #: True once a provider fetch has been applied (tests wait on this
         #: so the queued delivery cannot outlive the dialog).
@@ -346,8 +318,13 @@ class SaveSetEditor(QDialog):
     # ------------------------------------------------------------------
 
     def _start_completions_fetch(self) -> None:
-        """Fetch completions once on a daemon thread (skipped with no provider)."""
-        if self._completions_provider is None:
+        """Fetch completions once on a daemon thread.
+
+        The :class:`EmptyCompletions` default is answered inline (no thread
+        to spawn for a constant) — offline construction stays thread-free.
+        """
+        if isinstance(self._completions_provider, EmptyCompletions):
+            self._completions_loaded = True
             return
         threading.Thread(
             target=self._fetch_completions,
@@ -358,7 +335,7 @@ class SaveSetEditor(QDialog):
     def _fetch_completions(self) -> None:
         """Call the provider (on the daemon thread) and emit the mapping."""
         try:
-            mapping = self._completions_provider(self._experiment)
+            mapping = self._completions_provider.device_variables()
         except Exception as exc:  # noqa: BLE001 — completions are best-effort
             logger.info("completions provider failed: %s", exc)
             mapping = {}
@@ -1012,9 +989,10 @@ def open_save_set_editor(
     configs_base : Path, optional
         Experiments-root override (tests); defaults to the production
         configs-repo resolution.
-    completions : callable, optional
-        :data:`CompletionsProvider` override; defaults to
-        :func:`geecs_db_completions` (lazy, daemon-thread, empty offline).
+    completions : CompletionsProvider, optional
+        Completer word-list override; defaults to
+        :class:`~geecs_console.services.device_completions.GeecsDbCompletions`
+        (lazy ``GeecsDb`` import, daemon-thread fetch, empty offline).
 
     Returns
     -------
@@ -1025,7 +1003,9 @@ def open_save_set_editor(
         parent,
         experiment=experiment,
         configs_base=configs_base,
-        completions=completions if completions is not None else geecs_db_completions,
+        completions=(
+            completions if completions is not None else GeecsDbCompletions(experiment)
+        ),
     )
     editor.show()
     return editor
