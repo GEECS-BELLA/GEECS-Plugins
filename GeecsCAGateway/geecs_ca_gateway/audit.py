@@ -13,9 +13,13 @@ GHOST
     device (a deleted variable, or an alias-derived name).  The gateway serves
     PVs by *real* variablename, so a ghost names a PV that is never created.
 SKIP:<type>
-    A ``get='yes'`` variable whose ``variabletype`` is in the gateway's
+    A ``get='yes'`` variable whose *effective* type is in the gateway's
     ``_SKIP_VARTYPES`` (``image`` / ``1darray``).  These are not scalar CA data,
-    so no PV is served for them.
+    so no PV is served for them.  The effective type is resolved with the same
+    shared helper the gateway's config builder uses
+    (:func:`geecs_ca_gateway.config.effective_vartype`), so choice-descriptor
+    rows (``variabletype='choice'`` with ``choices='image'``/``'1darray'``) are
+    flagged exactly as the gateway skips them (#512).
 FK-orphan
     An ``expt_device_variable`` row whose ``expt_device_id`` points at an
     ``expt_device.id`` that no longer exists (a whole experiment removed).
@@ -35,6 +39,8 @@ from __future__ import annotations
 import argparse
 import logging
 from dataclasses import dataclass, field
+
+from .config import effective_vartype
 
 logger = logging.getLogger("geecs_ca_gateway.audit")
 
@@ -127,14 +133,18 @@ def audit_subscribed_variables(
         e.g. from :meth:`GeecsDb.get_subscribed_variables`.
     device_variables:
         ``{device: [metadata, ...]}`` where each metadata dict has at least a
-        ``name`` and a ``variabletype`` key (the shape of
-        :meth:`GeecsDb.get_device_variables` /
+        ``name`` and a ``variabletype`` key, plus ``choices`` when present (the
+        shape of :meth:`GeecsDb.get_device_variables` /
         :meth:`GeecsDb.get_experiment_device_variables`).  A device absent from
         this mapping has no known real variables, so every subscribed variable
         for it is reported as a GHOST rather than crashing.
     skip_types:
         Variable types the gateway does not serve (the gateway's
-        ``_SKIP_VARTYPES``, e.g. ``{"image", "1darray"}``).
+        ``_SKIP_VARTYPES``, e.g. ``{"image", "1darray"}``).  Matched against
+        the *effective* type resolved by
+        :func:`geecs_ca_gateway.config.effective_vartype` — the same rules the
+        gateway's config builder applies, so choice-descriptor rows
+        (``variabletype='choice'``, ``choices='image'``) are flagged too.
 
     Returns
     -------
@@ -152,7 +162,9 @@ def audit_subscribed_variables(
             for meta in real:
                 name = meta.get("name")
                 if name is not None:
-                    by_name[name] = (meta.get("variabletype") or "").strip().lower()
+                    by_name[name] = effective_vartype(
+                        meta.get("variabletype"), meta.get("choices")
+                    )
         for variable in subscribed[device]:
             if variable not in by_name:
                 findings.append(Finding(device, variable, GHOST))

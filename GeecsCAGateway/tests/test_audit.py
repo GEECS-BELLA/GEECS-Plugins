@@ -94,6 +94,41 @@ def test_mixed_devices_ordered_by_device_then_input_order() -> None:
     ]
 
 
+def test_choice_descriptor_rows_are_flagged_like_the_gateway_skips_them() -> None:
+    """variabletype='choice' with a bare image/1darray descriptor is SKIP:<type>.
+
+    The gateway's config builder resolves the effective type from ``choices``
+    first (a bare descriptor word is authoritative), so these rows are skipped
+    by the gateway and must be flagged by the audit too (#512).
+    """
+    subscribed = {"UC_Cam": ["frame", "trace", "mode"]}
+    device_variables = {
+        "UC_Cam": [
+            {"name": "frame", "variabletype": "choice", "choices": "image"},
+            {"name": "trace", "variabletype": "choice", "choices": "1darray"},
+            {"name": "mode", "variabletype": "choice", "choices": "on,off"},
+        ]
+    }
+    findings = audit_subscribed_variables(subscribed, device_variables, SKIP_TYPES)
+    assert findings == [
+        Finding("UC_Cam", "frame", "SKIP:image"),
+        Finding("UC_Cam", "trace", "SKIP:1darray"),
+    ]
+
+
+def test_scalar_choice_descriptors_are_not_flagged() -> None:
+    """Bare numeric/string/path descriptors resolve to served scalar types."""
+    subscribed = {"U_Dev": ["gain", "label", "savedir"]}
+    device_variables = {
+        "U_Dev": [
+            {"name": "gain", "variabletype": "choice", "choices": "numeric"},
+            {"name": "label", "variabletype": "choice", "choices": "string"},
+            {"name": "savedir", "variabletype": "choice", "choices": "path"},
+        ]
+    }
+    assert audit_subscribed_variables(subscribed, device_variables, SKIP_TYPES) == []
+
+
 def test_variabletype_case_is_normalized() -> None:
     """Skip matching is case-insensitive on the variabletype."""
     subscribed = {"U_Dev": ["frame"]}

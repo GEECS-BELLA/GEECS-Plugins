@@ -202,8 +202,12 @@ gateway/scanner try to connect a PV that never exists → per-device stalls. The
 audit reports them; run it on-network with `python -m geecs_ca_gateway.audit
 --experiment Undulator` (add `--full` for the per-device listing, `--sql` to
 *print* review-only DELETEs). It flags: **GHOST** (`get='yes'` name isn't a real
-device variable), **SKIP:<type>** (`get='yes'` var typed `image`/`1darray`, in
-`_SKIP_VARTYPES`, so no scalar PV), and **FK-orphan** (`expt_device_id` with no
-`expt_device`). The classifier `audit_subscribed_variables()` is a pure function
-over plain dicts (no DB — unit-tested in `test_audit.py`); DB access is lazy.
+device variable), **SKIP:<type>** (`get='yes'` var whose *effective* type is
+`image`/`1darray`, in `_SKIP_VARTYPES`, so no scalar PV), and **FK-orphan**
+(`expt_device_id` with no `expt_device`). Effective types come from the shared
+pure helper `config.effective_vartype()` — the same choice-descriptor rules the
+config builder applies (`variabletype='choice'` + `choices='image'` is an image;
+#512) — so the audit flags exactly what the gateway skips. The classifier
+`audit_subscribed_variables()` is a pure function over plain dicts (no DB —
+unit-tested in `test_audit.py`); DB access is lazy.
 **Read-only: it never DELETEs or modifies** — `--sql` only prints.
