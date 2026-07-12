@@ -1,5 +1,7 @@
 """MainWindow behavior, hermetic: fake configs, fake submitter, offscreen Qt."""
 
+from pathlib import Path
+
 import pytest
 from PySide6.QtCore import Qt
 
@@ -412,7 +414,12 @@ class TestNowAndDevicePanel:
 class TestOpsMenu:
     @pytest.fixture
     def opened(self, monkeypatch):
-        """Record every QDesktopServices.openUrl target as a string."""
+        """Record every QDesktopServices.openUrl target.
+
+        Assertions compare as ``Path``: ``QUrl.toLocalFile()`` always
+        returns forward slashes, while ``str(tmp_path)`` is backslashed
+        on Windows.
+        """
         from PySide6.QtGui import QDesktopServices
 
         urls = []
@@ -430,7 +437,7 @@ class TestOpsMenu:
             ops_paths, "experiment_configs_folder", lambda experiment: tmp_path
         )
         window._on_open_experiment_configs()
-        assert [url.toLocalFile() for url in opened] == [str(tmp_path)]
+        assert [Path(url.toLocalFile()) for url in opened] == [tmp_path]
 
     def test_open_experiment_configs_unresolvable_reports(
         self, window, opened, monkeypatch
@@ -451,7 +458,7 @@ class TestOpsMenu:
         config.write_text("[Paths]\n")
         monkeypatch.setattr(ops_paths, "user_config_target", lambda: config)
         window._on_open_user_config()
-        assert [url.toLocalFile() for url in opened] == [str(config)]
+        assert [Path(url.toLocalFile()) for url in opened] == [config]
 
     def test_open_user_config_missing_file_opens_folder_with_note(
         self, window, opened, monkeypatch, tmp_path
@@ -460,7 +467,7 @@ class TestOpsMenu:
 
         monkeypatch.setattr(ops_paths, "user_config_target", lambda: tmp_path)
         window._on_open_user_config()
-        assert [url.toLocalFile() for url in opened] == [str(tmp_path)]
+        assert [Path(url.toLocalFile()) for url in opened] == [tmp_path]
         assert "config.ini not found" in window.statusBar().currentMessage()
 
     def test_open_user_config_unresolvable_reports(self, window, opened, monkeypatch):
@@ -480,7 +487,7 @@ class TestOpsMenu:
         scans.mkdir()
         monkeypatch.setattr(ops_paths, "todays_scan_folder", lambda experiment: scans)
         window._on_open_todays_scans()
-        assert [url.toLocalFile() for url in opened] == [str(scans)]
+        assert [Path(url.toLocalFile()) for url in opened] == [scans]
 
     def test_open_todays_scans_missing_reports_and_never_creates(
         self, window, opened, monkeypatch, tmp_path
