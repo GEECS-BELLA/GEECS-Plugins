@@ -201,6 +201,7 @@ def _make_scanner(
     scanner._total_shots = 0
     scanner._total_steps = 0
     scanner._completed_shots = 0
+    scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
     scanner._RE = SimpleNamespace(
@@ -950,3 +951,62 @@ def test_recheck_clears_transiently_stale_device(monkeypatch) -> None:
     assert not any(isinstance(e, _FakeDialogEvent) for e in events)
     assert session.scan_kwargs is not None
     assert len(session.scan_kwargs["detectors"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Lifecycle events carry the claimed scan number (GUI "Scan NNN" label)
+# ---------------------------------------------------------------------------
+
+
+def test_lifecycle_events_carry_claimed_scan_number(monkeypatch) -> None:
+    """Every post-claim lifecycle emission carries the claimed number.
+
+    On the exec_config path the bridge claims before emitting INITIALIZING,
+    so INITIALIZING/RUNNING/DONE all carry the number — GUI consumers can
+    latch the first non-None value for a "Scan NNN" label.
+    """
+    from geecs_bluesky.events import ScanLifecycleEvent, ScanState
+
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims, result=(12, "/nonexistent/Scan012"))
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._run_scan(_noscan_config())
+
+    assert session.scan_kwargs is not None
+    assert session.scan_kwargs["scan_number"] == 12
+    lifecycle = [
+        (e.state, e.scan_number) for e in events if isinstance(e, ScanLifecycleEvent)
+    ]
+    assert lifecycle == [
+        (ScanState.INITIALIZING, 12),
+        (ScanState.RUNNING, 12),
+        (ScanState.DONE, 12),
+    ]
+
+
+def test_lifecycle_events_carry_none_when_claim_fails(monkeypatch) -> None:
+    """An unclaimed scan (NetApp down / claim failed) keeps emitting None."""
+    from geecs_bluesky.events import ScanLifecycleEvent
+
+    _patch_dialog_channel(monkeypatch)
+    claims: list = []
+    _patch_claim(monkeypatch, claims, result=(None, None))
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._run_scan(_noscan_config())
+
+    lifecycle = [e for e in events if isinstance(e, ScanLifecycleEvent)]
+    assert lifecycle, "the scan must still emit lifecycle events"
+    assert all(e.scan_number is None for e in lifecycle)

@@ -117,6 +117,7 @@ def _make_scanner(
     scanner._current_state = None
     scanner._total_shots = 0
     scanner._completed_shots = 0
+    scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
     scanner._RE = SimpleNamespace(

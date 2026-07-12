@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.30.0] - 2026-07-11
+
+### Added
+
+- **Lifecycle events carry the claimed scan number.** `ScanLifecycleEvent`
+  (`geecs_bluesky/events.py`) gains an optional `scan_number: int | None`
+  field (default `None` — additive, consumers dispatching on event class
+  names are unaffected) so GUIs can display "Scan NNN" from the event
+  stream alone. `BlueskyScanner` stamps it onto every lifecycle emission:
+  the exec_config paths (`_execute_scan`, `_run_optimization`) set it at
+  their claim sites, so INITIALIZING/RUNNING/DONE/ABORTED all carry the
+  number; the delegated ScanRequest path (where `session.scan` claims
+  inside the engine, after INITIALIZING/RUNNING were emitted) picks the
+  number up from the run start document (`geecs_run_wrapper` metadata) and
+  re-emits RUNNING carrying it, so consumers get the number mid-scan, not
+  only on DONE. Emissions before the claim — and every emission of a scan
+  whose claim failed (NetApp unreachable) — carry `None`. A guard ignores
+  start documents while the scanner is not RUNNING, so a headless run on
+  the shared RunEngine cannot flip an idle GUI or plant a stale number.
+
 ## [0.29.0] - 2026-07-10
 
 ### Changed
