@@ -1,0 +1,405 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ScanVariableEditorRoot</class>
+ <widget class="QWidget" name="ScanVariableEditorRoot">
+  <property name="windowTitle">
+   <string>Scan Variables</string>
+  </property>
+  <layout class="QVBoxLayout" name="sve_root_layout">
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="sve_columns_layout" stretch="30,70">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <!-- Left: the variable list -->
+     <item>
+      <widget class="QGroupBox" name="sve_list_group">
+       <property name="title">
+        <string>VARIABLES</string>
+       </property>
+       <layout class="QVBoxLayout" name="sve_list_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QListWidget" name="sve_variable_list"/>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="sve_new_buttons_layout">
+          <item>
+           <widget class="QPushButton" name="sve_new_simple_button">
+            <property name="text">
+             <string>New</string>
+            </property>
+            <property name="toolTip">
+             <string>Add a simple variable (one device variable)</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sve_new_pseudo_button">
+            <property name="text">
+             <string>New composite</string>
+            </property>
+            <property name="toolTip">
+             <string>Add a composite (pseudo) variable moving several devices from one number</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="sve_edit_buttons_layout">
+          <item>
+           <widget class="QPushButton" name="sve_duplicate_button">
+            <property name="text">
+             <string>Duplicate</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sve_rename_button">
+            <property name="text">
+             <string>Rename…</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sve_delete_button">
+            <property name="text">
+             <string>Delete</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <!-- Right: the form pane -->
+     <item>
+      <widget class="QGroupBox" name="sve_form_group">
+       <property name="title">
+        <string>DEFINITION</string>
+       </property>
+       <layout class="QVBoxLayout" name="sve_form_layout">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="sve_type_label">
+          <property name="text">
+           <string/>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QStackedWidget" name="sve_form_stack">
+          <widget class="QWidget" name="sve_empty_page">
+           <layout class="QVBoxLayout" name="sve_empty_layout">
+            <item>
+             <widget class="QLabel" name="sve_empty_label">
+              <property name="text">
+               <string>No variable selected — add one with New or New composite.</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignCenter</set>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="sve_simple_page">
+           <layout class="QGridLayout" name="sve_simple_grid">
+            <property name="verticalSpacing">
+             <number>8</number>
+            </property>
+            <item row="0" column="0">
+             <widget class="QLabel" name="sve_device_label">
+              <property name="text">
+               <string>Device</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLineEdit" name="sve_device_edit">
+              <property name="placeholderText">
+               <string>e.g. U_ESP_JetXYZ</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QLabel" name="sve_variable_label">
+              <property name="text">
+               <string>Variable</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="3">
+             <widget class="QLineEdit" name="sve_variable_edit">
+              <property name="placeholderText">
+               <string>e.g. Position.Axis 3</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="sve_kind_label">
+              <property name="text">
+               <string>Kind</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QComboBox" name="sve_kind_combo">
+              <property name="toolTip">
+               <string>setpoint = write and wait for the device to accept it; motor = additionally poll the readback until arrival (real positioners)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="sve_confirm_device_label">
+              <property name="text">
+               <string>Confirm device</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLineEdit" name="sve_confirm_device_edit">
+              <property name="placeholderText">
+               <string>optional</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="2">
+             <widget class="QLabel" name="sve_confirm_variable_label">
+              <property name="text">
+               <string>Confirm variable</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="3">
+             <widget class="QLineEdit" name="sve_confirm_variable_edit">
+              <property name="placeholderText">
+               <string>optional</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0" colspan="4">
+             <widget class="QLabel" name="sve_confirm_hint_label">
+              <property name="text">
+               <string>Confirm: the variable that measures the result when it differs from the one being set (e.g. set Current_Limit.Ch1, confirm Current.Ch1). Leave empty for the common case.</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0" colspan="4">
+             <spacer name="sve_simple_spacer">
+              <property name="orientation">
+               <enum>Qt::Vertical</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>10</width>
+                <height>10</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QWidget" name="sve_pseudo_page">
+           <layout class="QVBoxLayout" name="sve_pseudo_layout">
+            <property name="spacing">
+             <number>8</number>
+            </property>
+            <item>
+             <layout class="QHBoxLayout" name="sve_mode_layout">
+              <item>
+               <widget class="QLabel" name="sve_mode_label">
+                <property name="text">
+                 <string>Mode</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="sve_mode_combo"/>
+              </item>
+              <item>
+               <widget class="QLabel" name="sve_mode_hint_label">
+                <property name="text">
+                 <string/>
+                </property>
+                <property name="wordWrap">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTableWidget" name="sve_components_table">
+              <property name="columnCount">
+               <number>3</number>
+              </property>
+              <attribute name="horizontalHeaderStretchLastSection">
+               <bool>true</bool>
+              </attribute>
+              <column>
+               <property name="text">
+                <string>Device</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Variable</string>
+               </property>
+              </column>
+              <column>
+               <property name="text">
+                <string>Forward (of composite_var)</string>
+               </property>
+              </column>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="sve_component_buttons_layout">
+              <item>
+               <widget class="QPushButton" name="sve_add_component_button">
+                <property name="text">
+                 <string>Add component</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="sve_remove_component_button">
+                <property name="text">
+                 <string>Remove component</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <spacer name="sve_component_spacer">
+                <property name="orientation">
+                 <enum>Qt::Horizontal</enum>
+                </property>
+                <property name="sizeHint" stdset="0">
+                 <size>
+                  <width>10</width>
+                  <height>10</height>
+                 </size>
+                </property>
+               </spacer>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="sve_inverse_layout">
+              <item>
+               <widget class="QLabel" name="sve_inverse_label">
+                <property name="text">
+                 <string>Inverse</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLineEdit" name="sve_inverse_edit">
+                <property name="placeholderText">
+                 <string>optional — recover the scanned number from the first target's readback</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="sve_error_label">
+          <property name="text">
+           <string/>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <!-- Bottom: dirty indicator + Save / Revert / Close -->
+   <item>
+    <layout class="QHBoxLayout" name="sve_bottom_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="sve_dirty_label">
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="sve_bottom_spacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="sve_revert_button">
+       <property name="text">
+        <string>Revert</string>
+       </property>
+       <property name="toolTip">
+        <string>Discard edits and reload the catalog from disk</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="sve_save_button">
+       <property name="text">
+        <string>Save</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="sve_close_button">
+       <property name="text">
+        <string>Close</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
