@@ -29,7 +29,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   scanning, ≥1 selected save set, valid shot count within the guard, mode
   not Optimization.
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
-  to "(previous)", compact log tail.
+  to "(previous)" (**live**: driven by `ScanLifecycleEvent.scan_number`
+  through the adapter's `scan_number_known` signal), compact log tail.
 - **R7 device panel** — device:variable combo (editable free text),
   readback label, set field + button.  **Backend live** (see Implemented
   seams): gateway PVs — CA monitor on the readback, put to `:SP` riding
@@ -40,7 +41,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 ## Architecture rules
 
 - **Never import `geecs_python_api`** — pinned by
-  `tests/test_no_geecs_python_api.py` (source grep + sys.modules check).
+  `tests/test_no_geecs_python_api.py` (source grep + sys.modules check;
+  the grep blesses exactly one string, the
+  `~/.config/geecs_python_api/config.ini` path literal the Ops menu opens).
   DB autocompletes go through `GeecsDb` (`geecs_ca_gateway`, an allowed
   transitive of `geecs-bluesky`); errors from the bluesky/gateway tree.
 - **The one submission shape is `geecs_schemas.ScanRequest`.**
@@ -141,7 +144,39 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   still in the combo (restoring fires the normal experiment-changed path,
   so configs, presets, health probe, and device panel all follow).
   Constructor-injectable; `tests/conftest.py` isolates the user scope to a
-  per-test tmp path so no test touches real settings.
+  per-test tmp path so no test touches real settings.  Also carries the
+  Preferences beep options (`per_shot_beep`, `randomized_beeps`).
+- **Scan number (R6)**: the engine's `ScanLifecycleEvent.scan_number`
+  (`None` until the scan folder is claimed, then present on every lifecycle
+  emission) is read duck-typed by `ScanEventsAdapter` and emitted as
+  `scan_number_known(int)`; the window connects it to `set_scan_number`
+  (10 s expiry to "(previous)").
+- **Ops menu**: four items, handlers in `main_window.py`, path resolution
+  factored into `services/ops_paths.py` as small pure `-> Path | None`
+  functions (unit-tested against tmp trees, no Finder).  *Open experiment
+  config folder* (configs-repo dir for the current experiment); *Open user
+  config* — the shared `config.ini` **by path literal only** (the
+  no-geecs-python-api pin blesses exactly that one string; opens the folder
+  with a note when the file is absent); *Open today's scan folder* —
+  **strictly read-only**: builds the daily `scans/` path via
+  `geecs_data_utils.ScanPaths.get_daily_scan_folder` (lazy import, pure
+  path construction) and NEVER creates directories — a missing folder
+  reports "no scans today" (repo scan-folder invariant, pinned by
+  tree-unchanged tests in `tests/test_ops_paths.py`); *GEECS-Plugins on
+  GitHub*.  All open via `QDesktopServices.openUrl`.  Menus created in
+  `_build_menus` must be referenced on the window (`self._menus`) —
+  PySide6 garbage-collects the `addMenu` wrapper and tears down the C++
+  menu with it.
+- **Per-shot beeps (Preferences)**: two checkable actions persisted via
+  `ConsoleSettings`, both default off.  "Per-shot beep" sounds
+  `QApplication.beep()` (no sound assets, no multimedia dep) on every
+  `shots_completed` increment in the progress stream; "Randomized beeps"
+  thins that to a random ~1-in-4 subset.  The RNG is a constructor
+  parameter (`rng: random.Random`) so tests inject a seeded instance.
+- **File logging**: `main.py` has a `--log-level` flag (default INFO) and a
+  `RotatingFileHandler` at `~/.config/geecs_console/logs/console.log`
+  (2 MB × 3 backups) beside the stderr handler.  Creating that log dir with
+  `parents=True` is deliberate — a user config dir, not a scan folder.
 
 ## Stubbed seams (intentional, wire later)
 
@@ -151,8 +186,6 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   variables), populated the way the other combos are.
 - Optimization mode: radio exists, submission refused with a clear error
   until an `OptimizationSpec` editor exists.
-- Scan-number source: `set_scan_number` + the 10 s expiry exist, but no
-  event carries the claimed number yet (engine-side follow-up).
 - `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
   `_scan_variables_catalog()` — promote a public "list variable names"
   method on `ConfigsRepoResolver` when next touching geecs-bluesky.

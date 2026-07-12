@@ -24,6 +24,14 @@ class ScanEventsAdapter(QObject):
     totals_known = Signal(int)
     """Total shots for the scan (from the INITIALIZING lifecycle event)."""
 
+    scan_number_known = Signal(int)
+    """The claimed day-scoped scan number (``Scan NNN``), once known.
+
+    Emitted for every lifecycle event whose ``scan_number`` is present and
+    not ``None`` — the engine emits ``None`` until the scan folder is
+    claimed, then carries the number on every later lifecycle emission.
+    """
+
     progress = Signal(int, int, int)
     """``(step_index, total_steps, shots_completed)`` from step events."""
 
@@ -58,6 +66,9 @@ class ScanEventsAdapter(QObject):
             total_shots = getattr(event, "total_shots", 0)
             if total_shots:
                 self.totals_known.emit(int(total_shots))
+            scan_number = getattr(event, "scan_number", None)
+            if scan_number is not None:
+                self.scan_number_known.emit(int(scan_number))
             self.log_line.emit(f"scan {state_text}")
         elif kind == "ScanStepEvent":
             step_index = int(getattr(event, "step_index", 0))

@@ -14,6 +14,7 @@ from typing import Optional
 class ScanLifecycleEvent:
     state: str = "idle"
     total_shots: int = 0
+    scan_number: Optional[int] = None
 
 
 @dataclass

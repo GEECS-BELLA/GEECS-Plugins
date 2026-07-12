@@ -111,10 +111,12 @@ class FakePresetStore:
 
 
 class FakeSettings:
-    """ConsoleSettings stand-in: a plain attribute, no QSettings."""
+    """ConsoleSettings stand-in: plain attributes, no QSettings."""
 
-    def __init__(self, last_experiment=""):
+    def __init__(self, last_experiment="", per_shot_beep=False, randomized_beeps=False):
         self.last_experiment = last_experiment
+        self.per_shot_beep = per_shot_beep
+        self.randomized_beeps = randomized_beeps
 
 
 @pytest.fixture
@@ -395,6 +397,225 @@ class TestNowAndDevicePanel:
         assert window.scan_number_label.text() == "Scan 042"
         window._expire_scan_number()
         assert window.scan_number_label.text() == "Scan 042 (previous)"
+
+    def test_lifecycle_scan_number_drives_the_label(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        before = window.scan_number_label.text()
+        window.events.handle(ScanLifecycleEvent(state="initializing"))
+        assert window.scan_number_label.text() == before  # None -> untouched
+        window.events.handle(ScanLifecycleEvent(state="running", scan_number=7))
+        assert window.scan_number_label.text() == "Scan 007"
+        assert window._scan_number_timer.isActive()  # 10 s expiry armed
+
+
+class TestOpsMenu:
+    @pytest.fixture
+    def opened(self, monkeypatch):
+        """Record every QDesktopServices.openUrl target as a string."""
+        from PySide6.QtGui import QDesktopServices
+
+        urls = []
+        monkeypatch.setattr(
+            QDesktopServices, "openUrl", staticmethod(lambda url: urls.append(url))
+        )
+        return urls
+
+    def test_open_experiment_configs_opens_resolved_dir(
+        self, window, opened, monkeypatch, tmp_path
+    ):
+        from geecs_console.services import ops_paths
+
+        monkeypatch.setattr(
+            ops_paths, "experiment_configs_folder", lambda experiment: tmp_path
+        )
+        window._on_open_experiment_configs()
+        assert [url.toLocalFile() for url in opened] == [str(tmp_path)]
+
+    def test_open_experiment_configs_unresolvable_reports(
+        self, window, opened, monkeypatch
+    ):
+        from geecs_console.services import ops_paths
+
+        monkeypatch.setattr(
+            ops_paths, "experiment_configs_folder", lambda experiment: None
+        )
+        window._on_open_experiment_configs()
+        assert opened == []
+        assert "config folder not found" in window.statusBar().currentMessage()
+
+    def test_open_user_config_opens_file(self, window, opened, monkeypatch, tmp_path):
+        from geecs_console.services import ops_paths
+
+        config = tmp_path / "config.ini"
+        config.write_text("[Paths]\n")
+        monkeypatch.setattr(ops_paths, "user_config_target", lambda: config)
+        window._on_open_user_config()
+        assert [url.toLocalFile() for url in opened] == [str(config)]
+
+    def test_open_user_config_missing_file_opens_folder_with_note(
+        self, window, opened, monkeypatch, tmp_path
+    ):
+        from geecs_console.services import ops_paths
+
+        monkeypatch.setattr(ops_paths, "user_config_target", lambda: tmp_path)
+        window._on_open_user_config()
+        assert [url.toLocalFile() for url in opened] == [str(tmp_path)]
+        assert "config.ini not found" in window.statusBar().currentMessage()
+
+    def test_open_user_config_unresolvable_reports(self, window, opened, monkeypatch):
+        from geecs_console.services import ops_paths
+
+        monkeypatch.setattr(ops_paths, "user_config_target", lambda: None)
+        window._on_open_user_config()
+        assert opened == []
+        assert "User config not found" in window.statusBar().currentMessage()
+
+    def test_open_todays_scans_opens_existing_folder(
+        self, window, opened, monkeypatch, tmp_path
+    ):
+        from geecs_console.services import ops_paths
+
+        scans = tmp_path / "scans"
+        scans.mkdir()
+        monkeypatch.setattr(ops_paths, "todays_scan_folder", lambda experiment: scans)
+        window._on_open_todays_scans()
+        assert [url.toLocalFile() for url in opened] == [str(scans)]
+
+    def test_open_todays_scans_missing_reports_and_never_creates(
+        self, window, opened, monkeypatch, tmp_path
+    ):
+        """The invariant pin at the handler level: a missing daily folder is
+        reported ("no scans today"), never created — GUI code is a consumer
+        of scan folders, never a producer."""
+        from geecs_console.services import ops_paths
+
+        missing = tmp_path / "TestExp" / "Y2026" / "07-Jul" / "26_0711" / "scans"
+        monkeypatch.setattr(ops_paths, "todays_scan_folder", lambda experiment: missing)
+        window._on_open_todays_scans()
+        assert opened == []
+        assert "No scans today" in window.statusBar().currentMessage()
+        assert set(tmp_path.rglob("*")) == set()  # the tree is untouched
+
+    def test_open_todays_scans_unresolvable_reports(self, window, opened, monkeypatch):
+        from geecs_console.services import ops_paths
+
+        monkeypatch.setattr(ops_paths, "todays_scan_folder", lambda experiment: None)
+        window._on_open_todays_scans()
+        assert opened == []
+        assert "Cannot resolve" in window.statusBar().currentMessage()
+
+    def test_github_action_opens_repo_url(self, window, opened):
+        window._on_open_github()
+        assert [url.toString() for url in opened] == [
+            "https://github.com/GEECS-BELLA/GEECS-Plugins"
+        ]
+
+    def test_ops_menu_lists_the_four_items(self, window):
+        # Keep the QAction wrappers alive in a local: letting the temporary
+        # list from .actions() be garbage-collected tears down the QMenu
+        # underneath us (PySide6 wrapper-ownership hazard).
+        menu_actions = window.menuBar().actions()
+        (ops_menu,) = [a.menu() for a in menu_actions if a.text() == "Ops"]
+        texts = [action.text() for action in ops_menu.actions() if action.text()]
+        assert texts == [
+            "Open experiment config folder",
+            "Open user config (config.ini)",
+            "Open today's scan folder",
+            "GEECS-Plugins on GitHub",
+        ]
+
+
+class TestBeeps:
+    @pytest.fixture
+    def beeps(self, monkeypatch):
+        """Count QApplication.beep() calls."""
+        from PySide6.QtWidgets import QApplication
+
+        count = []
+        monkeypatch.setattr(QApplication, "beep", staticmethod(lambda: count.append(1)))
+        return count
+
+    def drive_shots(self, window, n):
+        from fake_events import ScanStepEvent
+
+        for shot in range(1, n + 1):
+            window.events.handle(
+                ScanStepEvent(
+                    step_index=shot - 1,
+                    total_steps=n,
+                    shots_completed=shot,
+                    phase="completed",
+                )
+            )
+
+    def test_default_off_never_beeps(self, window, beeps):
+        assert not window.beep_action.isChecked()
+        assert not window.random_beep_action.isChecked()
+        self.drive_shots(window, 10)
+        assert len(beeps) == 0
+
+    def test_enabled_beeps_once_per_shot_increment(self, window, beeps):
+        window.beep_action.setChecked(True)
+        self.drive_shots(window, 10)
+        assert len(beeps) == 10
+
+    def test_repeated_progress_without_increment_does_not_beep(self, window, beeps):
+        from fake_events import ScanStepEvent
+
+        window.beep_action.setChecked(True)
+        event = ScanStepEvent(step_index=0, total_steps=2, shots_completed=5)
+        window.events.handle(event)
+        window.events.handle(event)  # started + completed at the same count
+        assert len(beeps) == 1
+
+    def test_new_scan_rearms_the_counter(self, window, beeps):
+        from fake_events import ScanLifecycleEvent
+
+        window.beep_action.setChecked(True)
+        self.drive_shots(window, 3)
+        window.events.handle(ScanLifecycleEvent(state="initializing", total_shots=6))
+        self.drive_shots(window, 3)  # counts restart at 1
+        assert len(beeps) == 6
+
+    def test_randomized_beeps_thin_out_with_seeded_rng(self, qtbot, beeps):
+        import random
+
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(per_shot_beep=True, randomized_beeps=True),
+            submitter=FakeSubmitter(),
+            rng=random.Random(12345),
+        )
+        qtbot.addWidget(win)
+        assert win.beep_action.isChecked()
+        assert win.random_beep_action.isChecked()
+        self.drive_shots(win, 100)
+        # Same seed, same draw sequence: recompute the exact expected count.
+        rng = random.Random(12345)
+        expected = sum(1 for _ in range(100) if rng.random() < 0.25)
+        assert len(beeps) == expected
+        assert 0 < len(beeps) < 100  # thinned, not silent and not every shot
+
+    def test_toggles_persist_to_settings(self, window):
+        window.beep_action.setChecked(True)
+        assert window._settings.per_shot_beep is True
+        window.random_beep_action.setChecked(True)
+        assert window._settings.randomized_beeps is True
+        window.beep_action.setChecked(False)
+        assert window._settings.per_shot_beep is False
+
+    def test_checked_state_restored_from_settings(self, qtbot):
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(per_shot_beep=True, randomized_beeps=True),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert win.beep_action.isChecked()
+        assert win.random_beep_action.isChecked()
 
 
 class FakeDevicePanel:
