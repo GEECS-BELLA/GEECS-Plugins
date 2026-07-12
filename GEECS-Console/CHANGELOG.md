@@ -4,6 +4,38 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.3.0] - 2026-07-11
+
+### Added
+
+- Live device panel (R7): the stubbed backend is replaced by a
+  `DevicePanelBackend` seam (`services/device_panel.py`) with two
+  implementations — `StubDevicePanel` (the offline/test default: readback
+  never updates, sets report unwired) and `GatewayDevicePanel` (the real
+  one, injected by `main.py`).
+- Readback: a persistent `aioca.camonitor` on the gateway readback PV
+  (`{experiment}:{device}:{variable}`, names via the blessed
+  `ca_pv`/`bare_pv` helpers).  The backend owns ONE persistent asyncio
+  event loop in a single daemon thread (no QThread — the health-probe
+  teardown rule); monitor open/close are submitted via
+  `run_coroutine_threadsafe` and values are marshaled to the GUI through a
+  queued `device_value_ready(object)` signal.  Committing a new
+  `device:variable` selection (dropdown pick / Enter / focus leave) closes
+  the previous monitor first, and a generation guard drops straggler
+  callbacks from retired monitors.  Floats render with 6 significant
+  digits, strings as-is (scalar-only, per the package charter).
+- Set: `GatewaySetpointPut` (the one blessed gateway `:SP` put primitive,
+  `wire_value` coercion) on the `{...}:SP` PV — put-completion rides
+  GEECS's native blocking set.  The blocking put is dispatched to a
+  short-lived daemon thread (never the GUI thread); success/failure lands
+  in the status bar + log via a queued `device_set_finished(bool, str)`
+  signal, and the Set button is disabled while a put is in flight, when
+  the selection is not a valid `device:variable`, or when the field is
+  empty.
+- The experiment combo re-points the readback monitor (the PV is
+  experiment-prefixed); `closeEvent` unsubscribes the monitor and
+  disconnects both queued signals without joining any thread.
+
 ## [0.2.0] - 2026-07-11
 
 ### Added

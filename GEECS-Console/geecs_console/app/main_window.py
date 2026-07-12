@@ -49,6 +49,13 @@ from geecs_console.request_builder import (
     estimate_total_shots,
 )
 from geecs_console.services.configs import ConsoleConfigs
+from geecs_console.services.device_panel import (
+    DevicePanelBackend,
+    StubDevicePanel,
+    format_readback,
+    parse_device_variable,
+    parse_set_value,
+)
 from geecs_console.services.health import (
     HealthProbe,
     HealthReport,
@@ -176,6 +183,10 @@ class MainWindow(QMainWindow):
         Configs-repo service; tests inject a fake, default reads the repo.
     health : HealthProbe, optional
         Session-bar chip source; default is the all-unknown stub.
+    device_panel : DevicePanelBackend, optional
+        R7 readback/set backend; default is the no-op stub (readback never
+        updates, sets report unwired).  ``main.py`` injects the real
+        :class:`~geecs_console.services.device_panel.GatewayDevicePanel`.
     submitter : Submitter, optional
         Scan engine; tests inject a fake.  When ``None`` one is built
         lazily by *submitter_factory* on the first Start click.
@@ -184,17 +195,30 @@ class MainWindow(QMainWindow):
         :func:`~geecs_console.submission.make_bluesky_submitter`.
     """
 
+    #: One readback value from the device-panel backend (emitted from the CA
+    #: monitor thread; delivered queued to :meth:`_apply_device_value`).
+    device_value_ready = Signal(object)
+
+    #: ``(ok, message)`` for one completed device set (emitted from the
+    #: set-dispatch daemon thread; delivered queued).
+    device_set_finished = Signal(bool, str)
+
     def __init__(
         self,
         experiment: str = "",
         configs: Optional[ConsoleConfigs] = None,
         health: Optional[HealthProbe] = None,
+        device_panel: Optional[DevicePanelBackend] = None,
         submitter: Optional[Submitter] = None,
         submitter_factory: Optional[Callable[..., Submitter]] = None,
     ) -> None:
         super().__init__()
         self._configs = configs if configs is not None else ConsoleConfigs(experiment)
         self._health = health if health is not None else StubHealth()
+        self._device_panel = (
+            device_panel if device_panel is not None else StubDevicePanel()
+        )
+        self._device_set_in_flight = False
         self._submitter = submitter
         self._submitter_factory = (
             submitter_factory
@@ -226,6 +250,7 @@ class MainWindow(QMainWindow):
         self._start_health_poller()
         self._set_state_pill("idle")
         self._on_mode_changed()
+        self._refresh_device_set_enabled()
 
     # ------------------------------------------------------------------
     # Construction
@@ -327,6 +352,9 @@ class MainWindow(QMainWindow):
         self.readback_label: QLabel = self._child(QLabel, "r7_readback_label")
         self.set_field: QLineEdit = self._child(QLineEdit, "r7_set_field")
         self.set_button: QPushButton = self._child(QPushButton, "r7_set_button")
+        device_line_edit = self.device_combo.lineEdit()
+        if device_line_edit is not None:
+            device_line_edit.setPlaceholderText("device:variable")
 
         from geecs_schemas import AcquisitionMode
 
@@ -383,7 +411,27 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self._on_stop_clicked)
         self.apply_button.clicked.connect(self._on_preset_stub)
         self.save_as_button.clicked.connect(self._on_preset_stub)
-        self.set_button.clicked.connect(self._on_device_set_stub)
+
+        # R7 device panel.  Selection commits (dropdown pick / Enter / focus
+        # leave) resubscribe the readback; per-keystroke edits only regate the
+        # Set button — never churn CA monitors while the operator types.
+        self.set_button.clicked.connect(self._on_device_set_clicked)
+        self.set_field.textChanged.connect(self._refresh_device_set_enabled)
+        self.set_field.returnPressed.connect(self._on_device_set_clicked)
+        self.device_combo.editTextChanged.connect(self._refresh_device_set_enabled)
+        self.device_combo.activated.connect(self._resubscribe_device)
+        device_line_edit = self.device_combo.lineEdit()
+        if device_line_edit is not None:
+            device_line_edit.editingFinished.connect(self._resubscribe_device)
+        # Force queued connections: both signals are emitted off the GUI
+        # thread (CA monitor thread / set-dispatch daemon thread), and an
+        # undecorated direct delivery would paint widgets there (hard crash).
+        self.device_value_ready.connect(
+            self._apply_device_value, Qt.ConnectionType.QueuedConnection
+        )
+        self.device_set_finished.connect(
+            self._apply_device_set_result, Qt.ConnectionType.QueuedConnection
+        )
 
         self.events.state_changed.connect(self._on_scan_state)
         self.events.totals_known.connect(self._on_totals_known)
@@ -510,12 +558,14 @@ class MainWindow(QMainWindow):
             setattr(self._health, "experiment", experiment or None)
 
     def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
-        """Stop the background health poller cleanly before closing.
+        """Stop background I/O cleanly before closing — never joins a thread.
 
-        Stops the GUI-thread interval timer (no further polls) and disconnects
-        the report signal so a still-running daemon poll can't paint a chip on
-        a window being torn down.  In-flight daemon threads are daemonic and
-        finish on their own without blocking shutdown.
+        Stops the GUI-thread health interval timer (no further polls),
+        unsubscribes the device-panel readback monitor (non-blocking), and
+        disconnects every cross-thread signal so a still-running daemon
+        poll/put/monitor can't paint a widget on a window being torn down.
+        In-flight daemon threads finish on their own without blocking
+        shutdown.
         """
         timer = getattr(self, "_health_timer", None)
         if timer is not None:
@@ -524,6 +574,20 @@ class MainWindow(QMainWindow):
         if poller is not None:
             try:
                 poller.report_ready.disconnect(self._apply_health_report)
+            except (RuntimeError, TypeError):
+                pass
+        backend = getattr(self, "_device_panel", None)
+        if backend is not None:
+            try:
+                backend.unsubscribe()
+            except Exception:  # noqa: BLE001 — teardown must not raise
+                pass
+        for signal, slot in (
+            (self.device_value_ready, self._apply_device_value),
+            (self.device_set_finished, self._apply_device_set_result),
+        ):
+            try:
+                signal.disconnect(slot)
             except (RuntimeError, TypeError):
                 pass
         super().closeEvent(event)
@@ -720,6 +784,8 @@ class MainWindow(QMainWindow):
         self._configs.set_experiment(experiment)
         self._push_experiment_to_probe(experiment)
         self._populate_from_configs()
+        # The readback PV is experiment-prefixed — re-point the monitor.
+        self._resubscribe_device()
 
     def _on_trigger_profile_changed(self, profile: str) -> None:
         """Repopulate the variant combo for the selected trigger profile."""
@@ -799,7 +865,7 @@ class MainWindow(QMainWindow):
         self._refresh_submit_enabled()
 
     # ------------------------------------------------------------------
-    # R4 / R7 stubs
+    # R4 stub
     # ------------------------------------------------------------------
 
     def _on_preset_stub(self) -> None:
@@ -808,11 +874,107 @@ class MainWindow(QMainWindow):
             "Presets are not wired yet (a preset is a saved ScanRequest).", 10_000
         )
 
-    def _on_device_set_stub(self) -> None:
-        """R7 placeholder: gateway-PV set/readback backend arrives later."""
-        message = "Device panel backend not wired yet (gateway PV set/readback)."
+    # ------------------------------------------------------------------
+    # R7 device panel
+    # ------------------------------------------------------------------
+
+    def _refresh_device_set_enabled(self) -> None:
+        """Gate the Set button: valid ``device:variable``, a value, no put in flight."""
+        ready = (
+            not self._device_set_in_flight
+            and parse_device_variable(self.device_combo.currentText()) is not None
+            and bool(self.set_field.text().strip())
+        )
+        self.set_button.setEnabled(ready)
+
+    def _resubscribe_device(self, *_args: object) -> None:
+        """Re-point the readback monitor at the combo's current selection.
+
+        Closes the previous monitor first (the backend guarantees straggler
+        callbacks from it are dropped) and resets the label to the em-dash
+        until the new monitor's first value lands.  An unparsable selection
+        leaves the panel unsubscribed.
+        """
+        try:
+            self._device_panel.unsubscribe()
+        except Exception as exc:  # noqa: BLE001 — teardown must not break the GUI
+            self.append_log(f"Readback unsubscribe failed: {exc}")
+        self.readback_label.setText("—")
+        self._refresh_device_set_enabled()
+        parsed = parse_device_variable(self.device_combo.currentText())
+        if parsed is None:
+            return
+        device, variable = parsed
+        try:
+            self._device_panel.subscribe(
+                self.experiment_combo.currentText(),
+                device,
+                variable,
+                self.device_value_ready.emit,
+            )
+        except Exception as exc:  # noqa: BLE001 — surface, don't crash
+            message = f"Readback subscribe failed for {device}:{variable}: {exc}"
+            self.statusBar().showMessage(message, 10_000)
+            self.append_log(message)
+
+    @Slot(object)
+    def _apply_device_value(self, value: object) -> None:
+        """Render one readback value (GUI-thread slot, delivered queued).
+
+        Parameters
+        ----------
+        value : object
+            The monitor value (float / int / string) from the backend.
+        """
+        self.readback_label.setText(format_readback(value))
+
+    def _on_device_set_clicked(self) -> None:
+        """Dispatch the blocking backend set to a daemon thread."""
+        parsed = parse_device_variable(self.device_combo.currentText())
+        text = self.set_field.text().strip()
+        if parsed is None or not text or self._device_set_in_flight:
+            return
+        device, variable = parsed
+        value = parse_set_value(text)
+        experiment = self.experiment_combo.currentText()
+        self._device_set_in_flight = True
+        self._refresh_device_set_enabled()
+        threading.Thread(
+            target=self._run_device_set,
+            args=(experiment, device, variable, value),
+            name="console-device-set",
+            daemon=True,
+        ).start()
+
+    def _run_device_set(
+        self, experiment: str, device: str, variable: str, value: object
+    ) -> None:
+        """Run the blocking set (on the daemon thread) and emit the outcome."""
+        try:
+            self._device_panel.set(experiment, device, variable, value)
+        except Exception as exc:  # noqa: BLE001 — any failure is a status report
+            self.device_set_finished.emit(
+                False, f"Set {device}:{variable} failed: {exc}"
+            )
+        else:
+            self.device_set_finished.emit(True, f"Set {device}:{variable} = {value}")
+
+    @Slot(bool, str)
+    def _apply_device_set_result(self, ok: bool, message: str) -> None:
+        """Report one finished set and re-arm the button (GUI-thread slot).
+
+        Parameters
+        ----------
+        ok : bool
+            Whether the set completed (unused beyond the message — failures
+            already carry the exception text).
+        message : str
+            The status-bar / log line.
+        """
+        self._device_set_in_flight = False
         self.statusBar().showMessage(message, 10_000)
         self.append_log(message)
+        self._refresh_device_set_enabled()
 
     # ------------------------------------------------------------------
     # R6 now panel

@@ -29,11 +29,12 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   not Optimization.
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
   to "(previous)", compact log tail.
-- **R7 device panel** — device:variable combo, readback label, set field +
-  button.  **Backend stubbed** — the real one is gateway PVs (CA monitor on
-  the readback, put to `:SP` riding GEECS's native blocking set), never
-  `geecs_python_api`'s ScanDevice.  Scalar-only at birth (composites arrive
-  with the pseudo-variable runtime, if ever).
+- **R7 device panel** — device:variable combo (editable free text),
+  readback label, set field + button.  **Backend live** (see Implemented
+  seams): gateway PVs — CA monitor on the readback, put to `:SP` riding
+  GEECS's native blocking set — never `geecs_python_api`'s ScanDevice.
+  Scalar-only at birth (composites arrive with the pseudo-variable
+  runtime, if ever).
 
 ## Architecture rules
 
@@ -86,10 +87,36 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `request.abort[0] = True`; either choice calls `request.response_event.set()`
   to unblock the engine.  Duck-typed on the `DialogRequest` attributes — no
   `geecs_bluesky` import.
+- **Device panel (R7)** is live via `GatewayDevicePanel` (real backend) or
+  `StubDevicePanel` (no-op offline/test default), behind the
+  `DevicePanelBackend` protocol in `services/device_panel.py`.  Readback is
+  a persistent `aioca.camonitor` on the gateway readback PV; because aioca
+  is asyncio-based and the monitor is long-lived, the backend owns **one
+  persistent asyncio event loop in one daemon `threading.Thread`**
+  (`run_forever`; camonitor open/close submitted via
+  `run_coroutine_threadsafe`) — the same **no-QThread** rule as the health
+  poller (a worker QThread aborted under offscreen pytest: "QThread
+  destroyed while running").  Values reach the GUI through the window's
+  `device_value_ready(object)` signal, connected **queued** to a
+  `@Slot(object)` — never paint widgets off the GUI thread.  Selection
+  commits (dropdown pick / Enter / focus leave) resubscribe; per-keystroke
+  edits only regate the Set button (no CA-monitor churn while typing); a
+  generation counter drops straggler callbacks from retired monitors.  Set
+  goes through `GatewaySetpointPut` (the one blessed `:SP` put primitive,
+  `wire_value` coercion) on a short-lived daemon thread, reporting via the
+  queued `device_set_finished(bool, str)` signal; the button is disabled
+  while a put is in flight.  PV names come only from `ca_pv`/`bare_pv`
+  (never hand-built — the `ca://`-vs-bare addressing rule, issue #490).
+  All real imports are lazy (module import-safe offline); `closeEvent`
+  unsubscribes and disconnects, never joins.  Inject the real backend in
+  `main.py`; keep `StubDevicePanel` as the window's default.
 
 ## Stubbed seams (intentional, wire later)
 
-- Device panel backend (see R7 above).
+- R7 device:variable autocomplete: the combo is editable free text (with a
+  placeholder) — `ConsoleConfigs` has no device/variable listing yet.  The
+  natural source is a `GeecsDb` enumeration (device → `get='yes'`
+  variables), populated the way the other combos are.
 - Presets persistence (save/load ScanRequest YAML; a preset dir in the
   configs repo is the natural home).
 - Optimization mode: radio exists, submission refused with a clear error

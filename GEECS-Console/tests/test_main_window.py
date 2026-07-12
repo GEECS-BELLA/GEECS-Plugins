@@ -335,15 +335,196 @@ class TestNowAndDevicePanel:
         assert window.progress_bar.value() == 10
         assert "running" in window.log_tail.toPlainText()
 
-    def test_device_set_button_is_a_stub(self, window):
-        window._on_device_set_stub()
-        assert "not wired" in window.log_tail.toPlainText()
-
     def test_scan_number_expiry(self, window):
         window.set_scan_number(42)
         assert window.scan_number_label.text() == "Scan 042"
         window._expire_scan_number()
         assert window.scan_number_label.text() == "Scan 042 (previous)"
+
+
+class FakeDevicePanel:
+    """DevicePanelBackend stand-in recording every call; fires values on demand."""
+
+    def __init__(self):
+        self.subscriptions = []
+        self.unsubscribes = 0
+        self.set_calls = []
+        self.on_value = None
+
+    def subscribe(self, experiment, device, variable, on_value):
+        self.subscriptions.append((experiment, device, variable))
+        self.on_value = on_value
+
+    def unsubscribe(self):
+        self.unsubscribes += 1
+        self.on_value = None
+
+    def set(self, experiment, device, variable, value):
+        self.set_calls.append((experiment, device, variable, value))
+
+
+@pytest.fixture
+def device_window(qtbot):
+    backend = FakeDevicePanel()
+    win = MainWindow(
+        configs=FakeConfigs(), device_panel=backend, submitter=FakeSubmitter()
+    )
+    qtbot.addWidget(win)
+    return win, backend
+
+
+class TestDevicePanel:
+    def test_default_backend_is_the_stub(self, window):
+        from geecs_console.services.device_panel import StubDevicePanel
+
+        assert isinstance(window._device_panel, StubDevicePanel)
+
+    def test_set_button_disabled_until_selection_and_value(self, device_window):
+        win, _backend = device_window
+        assert not win.set_button.isEnabled()
+        win.device_combo.setCurrentText("U_Hexapod:ypos")
+        assert not win.set_button.isEnabled()  # no value yet
+        win.set_field.setText("2.5")
+        assert win.set_button.isEnabled()
+        win.set_field.setText("   ")
+        assert not win.set_button.isEnabled()
+        win.set_field.setText("2.5")
+        win.device_combo.setCurrentText("no-colon")
+        assert not win.set_button.isEnabled()
+
+    def test_selection_commit_subscribes_with_parsed_names(self, device_window):
+        win, backend = device_window
+        win.device_combo.setCurrentText("U_Hexapod:ypos")
+        win._resubscribe_device()  # editingFinished path
+        assert backend.subscriptions == [("TestExp", "U_Hexapod", "ypos")]
+        assert win.readback_label.text() == "—"
+
+    def test_readback_value_updates_label_via_queued_path(self, device_window, qtbot):
+        import threading
+
+        win, backend = device_window
+        win.device_combo.setCurrentText("Dev:Var")
+        win._resubscribe_device()
+        # Fire the value from a non-GUI thread, as the CA monitor loop would;
+        # the queued signal must marshal it onto the GUI-thread slot.
+        threading.Thread(
+            target=lambda: backend.on_value(3.141592653589793), daemon=True
+        ).start()
+        qtbot.waitUntil(lambda: win.readback_label.text() == "3.14159", timeout=3000)
+
+    def test_string_readback_renders_as_is(self, device_window, qtbot):
+        win, backend = device_window
+        win.device_combo.setCurrentText("Dev:Var")
+        win._resubscribe_device()
+        backend.on_value("Connected")
+        qtbot.waitUntil(lambda: win.readback_label.text() == "Connected", timeout=3000)
+
+    def test_switching_selection_unsubscribes_then_resubscribes(self, device_window):
+        win, backend = device_window
+        win.device_combo.setCurrentText("Dev:Var")
+        win._resubscribe_device()
+        unsubscribes_after_first = backend.unsubscribes
+        win.device_combo.setCurrentText("Dev2:Var2")
+        win._resubscribe_device()
+        assert backend.unsubscribes == unsubscribes_after_first + 1
+        assert backend.subscriptions[-1] == ("TestExp", "Dev2", "Var2")
+        assert win.readback_label.text() == "—"  # reset until the new value lands
+
+    def test_invalid_selection_leaves_panel_unsubscribed(self, device_window):
+        win, backend = device_window
+        win.device_combo.setCurrentText("not-a-pair")
+        win._resubscribe_device()
+        assert backend.subscriptions == []
+        assert win.readback_label.text() == "—"
+
+    def test_set_click_dispatches_parsed_value_to_backend(self, device_window, qtbot):
+        win, backend = device_window
+        win.device_combo.setCurrentText("U_Hexapod:ypos")
+        win.set_field.setText("2.5")
+        qtbot.mouseClick(win.set_button, Qt.MouseButton.LeftButton)
+        qtbot.waitUntil(
+            lambda: backend.set_calls == [("TestExp", "U_Hexapod", "ypos", 2.5)],
+            timeout=3000,
+        )
+        qtbot.waitUntil(
+            lambda: "Set U_Hexapod:ypos = 2.5" in win.log_tail.toPlainText(),
+            timeout=3000,
+        )
+        assert win.set_button.isEnabled()  # re-armed after completion
+
+    def test_set_with_string_value_passes_the_string(self, device_window, qtbot):
+        win, backend = device_window
+        win.device_combo.setCurrentText("Dev:Trigger.Source")
+        win.set_field.setText("Single shot")
+        win._on_device_set_clicked()
+        qtbot.waitUntil(
+            lambda: backend.set_calls
+            == [("TestExp", "Dev", "Trigger.Source", "Single shot")],
+            timeout=3000,
+        )
+
+    def test_backend_set_failure_reports_to_status_and_log(self, device_window, qtbot):
+        win, backend = device_window
+        backend.set = lambda *args: (_ for _ in ()).throw(
+            RuntimeError("gateway rejected")
+        )
+        win.device_combo.setCurrentText("Dev:Var")
+        win.set_field.setText("1.0")
+        win._on_device_set_clicked()
+        qtbot.waitUntil(
+            lambda: "Set Dev:Var failed: gateway rejected"
+            in win.log_tail.toPlainText(),
+            timeout=3000,
+        )
+        assert win.set_button.isEnabled()  # failure also re-arms
+
+    def test_stub_set_reports_unwired(self, window, qtbot):
+        window.device_combo.setCurrentText("Dev:Var")
+        window.set_field.setText("1.0")
+        window._on_device_set_clicked()
+        qtbot.waitUntil(
+            lambda: "not wired" in window.log_tail.toPlainText(), timeout=3000
+        )
+
+    def test_experiment_change_resubscribes_readback(self, device_window):
+        win, backend = device_window
+        win.device_combo.setCurrentText("Dev:Var")
+        win._resubscribe_device()
+        win._on_experiment_changed("Bella")
+        assert backend.subscriptions[-1] == ("Bella", "Dev", "Var")
+
+    def test_close_unsubscribes_backend(self, qtbot):
+        backend = FakeDevicePanel()
+        win = MainWindow(
+            configs=FakeConfigs(), device_panel=backend, submitter=FakeSubmitter()
+        )
+        qtbot.addWidget(win)
+        win.show()
+        assert win.close()
+        assert backend.unsubscribes >= 1
+
+    def test_close_during_inflight_set_returns_promptly(self, qtbot):
+        """A slow backend set on its daemon thread must not block window close."""
+        import time
+
+        class SlowSetPanel(FakeDevicePanel):
+            def set(self, experiment, device, variable, value):
+                time.sleep(0.4)
+                super().set(experiment, device, variable, value)
+
+        win = MainWindow(
+            configs=FakeConfigs(),
+            device_panel=SlowSetPanel(),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        win.show()
+        win.device_combo.setCurrentText("Dev:Var")
+        win.set_field.setText("1.0")
+        win._on_device_set_clicked()  # daemon thread now sleeping in set()
+        started = time.monotonic()
+        assert win.close()  # must not join the 0.4 s daemon set
+        assert time.monotonic() - started < 0.3
 
 
 def _auto_answer(monkeypatch, role):
