@@ -261,4 +261,6 @@ the window for anything in these families:
 `QT_QPA_PLATFORM=offscreen poetry run pytest -q` — hermetic, pytest-qt,
 `qt_api = "pyside6"` pinned in pyproject.  The request-builder tests are the
 important ones: they validate the exact `ScanRequest` shapes against the
-real schema.
+real schema.  CI also runs this suite on `windows-latest` (the
+`console-windows` job in `.github/workflows/unit-tests.yml`) — the console
+deploys to Windows control-room machines, so keep the suite green there too.
