@@ -147,10 +147,19 @@ class ScanLifecycleEvent(ScanEvent):
         Non-zero only on the ``INITIALIZING`` event; zero on all others.
         Consumers should cache this value on the ``INITIALIZING`` event and
         use it to compute progress from subsequent :class:`ScanStepEvent` s.
+    scan_number :
+        The claimed day-scoped GEECS scan number (``ScanNNN``), or ``None``
+        when it is not (yet) known.  Emissions before the scan folder is
+        claimed carry ``None``; every lifecycle emission after the claim
+        carries the number, so consumers (e.g. a "Scan NNN" GUI label) can
+        latch the first non-``None`` value.  A scan whose claim failed
+        (``geecs_data_utils`` unavailable, NetApp unreachable) keeps
+        emitting ``None``.
     """
 
     state: ScanState = ScanState.IDLE
     total_shots: int = 0
+    scan_number: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------

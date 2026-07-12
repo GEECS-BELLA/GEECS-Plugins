@@ -31,6 +31,7 @@ class _FakeLifecycleEvent:
 
     state: str
     total_shots: int = 0
+    scan_number: int | None = None
 
 
 def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
@@ -39,6 +40,7 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._on_event = events.append
     scanner._current_state = None
+    scanner._scan_number = None
 
     monkeypatch.setattr(
         bluesky_scanner,
@@ -54,7 +56,30 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
     scanner._set_state("DONE", total_shots=12)
 
     assert scanner.current_state == "done"
-    assert events == [_FakeLifecycleEvent(state="done", total_shots=12)]
+    assert events == [
+        _FakeLifecycleEvent(state="done", total_shots=12, scan_number=None)
+    ]
+
+
+def test_set_state_carries_claimed_scan_number(monkeypatch) -> None:
+    """Once a scan number is claimed, every lifecycle emission carries it."""
+    events: list[_FakeLifecycleEvent] = []
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._on_event = events.append
+    scanner._current_state = None
+    scanner._scan_number = 41
+
+    monkeypatch.setattr(
+        bluesky_scanner,
+        "ScanState",
+        SimpleNamespace(RUNNING="running", DONE="done"),
+    )
+    monkeypatch.setattr(bluesky_scanner, "ScanLifecycleEvent", _FakeLifecycleEvent)
+
+    scanner._set_state("RUNNING")
+    scanner._set_state("DONE")
+
+    assert [e.scan_number for e in events] == [41, 41]
 
 
 def test_prepare_descriptor_for_tiled_internalizes_geecs_assets() -> None:
@@ -324,6 +349,7 @@ def _make_optimization_scanner(session, bridge, monkeypatch, *, loader=True):
     scanner._on_event = None
     scanner._current_state = None
     scanner._total_shots = 0
+    scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = (lambda path: bridge) if loader else None
     monkeypatch.setattr(

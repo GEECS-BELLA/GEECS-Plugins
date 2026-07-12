@@ -146,8 +146,13 @@ session, the `GEECS_USE_BLUESKY` env var (resolved by
 `geecs_scanner.engine.backend_selection`; explicit argument wins, default
 legacy).  That path loads the selected shot-control YAML and passes it as
 `shot_control_information`, and passes the `on_event` callback:
-BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state`,
-shot-level `ScanStepEvent`s per event document via `_on_document` (so the
+BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state` —
+each carrying the claimed scan number (`scan_number=None` until the
+`ScanNNN` folder is claimed; the delegated ScanRequest path, where
+`session.scan` claims inside the engine, picks the number up from the run
+start document and re-emits RUNNING with it, so a "Scan NNN" GUI label
+works on every path) — shot-level `ScanStepEvent`s per event document via
+`_on_document` (so the
 GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
 from the gateway-liveness check (both modes: each sync device's
 `connected_status` — the gateway `CONNECTED` PV — is read pre-claim; free-run

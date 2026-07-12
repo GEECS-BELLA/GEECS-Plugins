@@ -199,6 +199,7 @@ def _make_scanner(session: _FakeSession) -> BlueskyScanner:
     scanner._total_shots = 0
     scanner._total_steps = 0
     scanner._completed_shots = 0
+    scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
     scanner._scan_request = None
@@ -558,6 +559,72 @@ def test_delegated_preflight_receives_assembled_detectors(monkeypatch) -> None:
     assert seen["strict"] is True
     assert seen["disconnect_on_drop"] is False
     assert session.scan_kwargs is not None
+
+
+def test_delegated_lifecycle_carries_engine_claimed_scan_number(monkeypatch) -> None:
+    """The delegated path picks the scan number up from the start document.
+
+    The bridge never pre-claims here — ``session.scan`` claims inside the
+    engine, after INITIALIZING/RUNNING were emitted — so those first
+    emissions carry ``None`` and the bridge re-emits RUNNING with the
+    number once the start document (which ``geecs_run_wrapper`` stamps
+    with ``scan_number``) flows through ``_on_document``.  DONE then
+    carries it too.
+    """
+    from geecs_bluesky.events import ScanLifecycleEvent, ScanState
+
+    _patch_claim(monkeypatch, [])
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    events: list = []
+    scanner._on_event = events.append
+    scanner.reinitialize(_noscan_request(), resolver=_resolver())
+    # Pass-through preflight: the operator-dialog pipeline is pinned
+    # elsewhere and would otherwise dialog on the frameless fakes.
+    scanner._preflight_check_sync_liveness = (
+        lambda detectors, strict=False, disconnect_on_drop=True: detectors
+    )
+
+    original_scan = session.scan
+
+    def scan_with_engine_claim(**kwargs):
+        # The engine claims inside session.scan and stamps the number into
+        # the run start document; the bridge sees it via _on_document.
+        scanner._on_document("start", {"uid": "u1", "scan_number": 33})
+        # A duplicate start-doc pickup must not re-emit.
+        scanner._on_document("start", {"uid": "u1", "scan_number": 33})
+        return original_scan(**kwargs)
+
+    session.scan = scan_with_engine_claim
+    scanner._run_scan(scanner._scan_config)
+
+    lifecycle = [
+        (e.state, e.scan_number) for e in events if isinstance(e, ScanLifecycleEvent)
+    ]
+    assert lifecycle == [
+        (ScanState.INITIALIZING, None),  # pre-claim: number not known yet
+        (ScanState.RUNNING, None),
+        (ScanState.RUNNING, 33),  # re-emitted once the engine claimed
+        (ScanState.DONE, 33),
+    ]
+
+
+def test_start_document_from_foreign_run_is_ignored(monkeypatch) -> None:
+    """A start document while this scanner is not RUNNING changes nothing.
+
+    The session's RunEngine is shared: a headless run driven directly on
+    ``scanner._session`` must not flip the idle GUI to RUNNING or plant a
+    stale scan number.
+    """
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    events: list = []
+    scanner._on_event = events.append
+
+    scanner._on_document("start", {"uid": "u1", "scan_number": 99})
+
+    assert scanner._scan_number is None
+    assert events == []
 
 
 def test_delegated_totals_hook(monkeypatch) -> None:
