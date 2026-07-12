@@ -1558,11 +1558,15 @@ class MainWindow(QMainWindow):
         try:
             self._device_panel.set(experiment, device, variable, value)
         except Exception as exc:  # noqa: BLE001 — any failure is a status report
-            self.device_set_finished.emit(
-                False, f"Set {device}:{variable} failed: {exc}"
-            )
+            ok, message = False, f"Set {device}:{variable} failed: {exc}"
         else:
-            self.device_set_finished.emit(True, f"Set {device}:{variable} = {value}")
+            ok, message = True, f"Set {device}:{variable} = {value}"
+        try:
+            self.device_set_finished.emit(ok, message)
+        except RuntimeError:
+            # The window was closed and C++-deleted while the set ran
+            # (closeEvent never joins this thread) — nothing left to report to.
+            pass
 
     @Slot(bool, str)
     def _apply_device_set_result(self, ok: bool, message: str) -> None:

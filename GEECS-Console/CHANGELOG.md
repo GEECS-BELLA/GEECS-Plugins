@@ -4,7 +4,7 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
-## [0.6.1] - 2026-07-12
+## [0.6.3] - 2026-07-12
 
 ### Fixed
 
@@ -24,6 +24,48 @@ semantic.
   variants, asserting the tmp configs tree stays untouched).  Making the
   experiment combo non-editable (the other half of the issue) is deliberately
   deferred as a main-window follow-up.
+
+## [0.6.2] - 2026-07-12
+
+### Fixed
+
+- Device-set completion no longer raises `RuntimeError: Signal source has
+  been deleted` on its daemon thread when the window is closed and
+  C++-deleted while the blocking set is still in flight (`closeEvent`
+  deliberately never joins that thread).  The single
+  `device_set_finished.emit` site in `_run_device_set` now swallows the
+  torn-down-window `RuntimeError` — harmless in production, but it was an
+  intermittent `PytestUnhandledThreadExceptionWarning` (~1 in 2 full
+  offscreen suite runs), surfacing under whichever unrelated test the
+  straggler thread finished during.  Pinned by a deterministic regression
+  test that blocks a fake backend's `set()` until after the window is
+  deleted.
+
+## [0.6.1] - 2026-07-12
+
+### Added
+
+- **Windows CI job** (`console-windows` in `.github/workflows/unit-tests.yml`):
+  the full GEECS-Console suite now runs on `windows-latest` (Python 3.11,
+  Poetry, `QT_QPA_PLATFORM=offscreen`) on every push/PR — the console is the
+  operator-facing GUI and control-room machines run Windows.  Console only;
+  the ubuntu job continues to cover the rest of the monorepo.
+
+### Fixed
+
+- **Windows test portability** (surfaced by the new CI job's first run):
+  the four `TestOpsMenu` open-URL assertions now compare as `Path` —
+  `QUrl.toLocalFile()` always returns forward slashes while `str(tmp_path)`
+  is backslashed on Windows — and the no-geecs-python-api source grep reads
+  files as UTF-8 explicitly (`read_text()` defaults to cp1252 on Windows,
+  which cannot decode the sources).
+
+### Notes
+
+- The monospace font stack in `app/style.qss` was audited for Windows: every
+  `font-family` already carries the cross-platform fallback chain
+  `"SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace`, so no
+  style change was needed.
 
 ## [0.6.0] - 2026-07-12
 

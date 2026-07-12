@@ -42,3 +42,42 @@ jobs:
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky
         run: poetry run pytest tests -m "not integration and not fake_server" --tb=short -q
+
+  console-windows:
+    # GEECS-Console is the operator-facing PySide6 GUI and control-room
+    # machines run Windows — this job pins that the console suite passes
+    # on windows-latest.  Console only; the rest of the monorepo is
+    # covered by the ubuntu job above.
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        working-directory: GEECS-Console
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        run: pip install poetry
+
+      - name: Cache Poetry package cache
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pypoetry\Cache
+          key: poetry-console-windows-py311-${{ hashFiles('GEECS-Console/poetry.lock') }}
+          restore-keys: poetry-console-windows-py311-
+
+      - name: Install GEECS-Console dependencies
+        # Path deps (geecs-bluesky -> geecs-ca-gateway/geecs-schemas/
+        # geecs-data-utils) resolve relative to GEECS-Console/ inside the
+        # checkout, same as on the ubuntu job.
+        run: poetry install --with dev
+
+      - name: Run GEECS-Console tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: poetry run pytest -q --tb=short
