@@ -36,6 +36,7 @@ from typing import Optional
 import yaml
 from pydantic import ValidationError
 
+from geecs_console.services._experiment_name import check_experiment_name
 from geecs_console.services.configs import _configs_base
 from geecs_schemas import ActionPlan, ActionPlanLibrary
 from geecs_schemas.convert import SchemaConversionError, convert_action_library
@@ -116,12 +117,20 @@ class ActionLibraryStore:
     # ------------------------------------------------------------------
 
     def _library_path(self) -> Optional[Path]:
-        """Return the library file path, or ``None`` offline/unselected."""
+        """Return the library file path, or ``None`` offline/unselected.
+
+        Raises
+        ------
+        ActionLibraryStoreError
+            When the experiment name would escape the experiments root
+            (issue #513) — checked before any path join.
+        """
         root = self._experiments_root
         if root is None:
             root = _configs_base()
         if root is None or not self._experiment:
             return None
+        check_experiment_name(self._experiment, ActionLibraryStoreError)
         return root / self._experiment / ACTION_FOLDER / LIBRARY_FILE
 
     def _library_path_or_raise(self) -> Path:
@@ -135,7 +144,8 @@ class ActionLibraryStore:
         Raises
         ------
         ActionLibraryStoreError
-            When the configs repo is not found or no experiment is selected.
+            When the configs repo is not found, no experiment is selected,
+            or the experiment name would escape the experiments root.
         """
         root = self._experiments_root
         if root is None:
@@ -147,6 +157,7 @@ class ActionLibraryStore:
             )
         if not self._experiment:
             raise ActionLibraryStoreError("No experiment selected.")
+        check_experiment_name(self._experiment, ActionLibraryStoreError)
         return root / self._experiment / ACTION_FOLDER / LIBRARY_FILE
 
     @staticmethod

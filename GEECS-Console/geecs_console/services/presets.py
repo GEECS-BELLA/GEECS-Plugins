@@ -26,6 +26,7 @@ from typing import Optional
 import yaml
 from pydantic import ValidationError
 
+from geecs_console.services._experiment_name import check_experiment_name
 from geecs_console.services.configs import _configs_base
 from geecs_schemas import ScanRequest
 
@@ -82,12 +83,20 @@ class PresetStore:
     # ------------------------------------------------------------------
 
     def _folder(self) -> Optional[Path]:
-        """Return the experiment's presets dir, or ``None`` offline/unselected."""
+        """Return the experiment's presets dir, or ``None`` offline/unselected.
+
+        Raises
+        ------
+        PresetStoreError
+            When the experiment name would escape the experiments root
+            (issue #513) — checked before any path join.
+        """
         root = self._experiments_root
         if root is None:
             root = _configs_base()
         if root is None or not self._experiment:
             return None
+        check_experiment_name(self._experiment, PresetStoreError)
         return root / self._experiment / PRESET_FOLDER
 
     def _folder_or_raise(self) -> Path:
@@ -101,7 +110,8 @@ class PresetStore:
         Raises
         ------
         PresetStoreError
-            When the configs repo is not found or no experiment is selected.
+            When the configs repo is not found, no experiment is selected,
+            or the experiment name would escape the experiments root.
         """
         root = self._experiments_root
         if root is None:
@@ -113,6 +123,7 @@ class PresetStore:
             )
         if not self._experiment:
             raise PresetStoreError("No experiment selected.")
+        check_experiment_name(self._experiment, PresetStoreError)
         return root / self._experiment / PRESET_FOLDER
 
     def _path(self, name: str) -> Path:
@@ -154,13 +165,19 @@ class PresetStore:
     # ------------------------------------------------------------------
 
     def list_names(self) -> list[str]:
-        """List the saved preset names, sorted; never raises.
+        """List the saved preset names, sorted.
 
         Returns
         -------
         list of str
             YAML file stems in the presets dir — empty when the configs
             repo, experiment folder, or presets dir is missing.
+
+        Raises
+        ------
+        PresetStoreError
+            When the experiment name would escape the experiments root
+            (issue #513); a merely *missing* folder is not an error.
         """
         folder = self._folder()
         if folder is None or not folder.is_dir():

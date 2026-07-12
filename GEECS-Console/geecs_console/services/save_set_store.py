@@ -35,6 +35,7 @@ from typing import Optional
 import yaml
 from pydantic import ValidationError
 
+from geecs_console.services._experiment_name import check_experiment_name
 from geecs_console.services.configs import SAVE_SET_FOLDER, _configs_base
 from geecs_schemas import SaveSet
 
@@ -95,10 +96,18 @@ class SaveSetStore:
         return _configs_base()
 
     def _folder(self) -> Optional[Path]:
-        """Return the experiment's save-set dir, or ``None`` offline/unselected."""
+        """Return the experiment's save-set dir, or ``None`` offline/unselected.
+
+        Raises
+        ------
+        SaveSetStoreError
+            When the experiment name would escape the experiments root
+            (issue #513) — checked before any path join.
+        """
         root = self._root()
         if root is None or not self._experiment:
             return None
+        check_experiment_name(self._experiment, SaveSetStoreError)
         return root / self._experiment / SAVE_SET_FOLDER
 
     def _folder_or_raise(self) -> Path:
@@ -112,7 +121,8 @@ class SaveSetStore:
         Raises
         ------
         SaveSetStoreError
-            When the configs repo is not found or no experiment is selected.
+            When the configs repo is not found, no experiment is selected,
+            or the experiment name would escape the experiments root.
         """
         root = self._root()
         if root is None:
@@ -122,6 +132,7 @@ class SaveSetStore:
             )
         if not self._experiment:
             raise SaveSetStoreError("No experiment selected.")
+        check_experiment_name(self._experiment, SaveSetStoreError)
         return root / self._experiment / SAVE_SET_FOLDER
 
     def _path(self, name: str) -> Path:
@@ -164,13 +175,19 @@ class SaveSetStore:
     # ------------------------------------------------------------------
 
     def list_names(self) -> list[str]:
-        """List the saved save-set names, sorted; never raises.
+        """List the saved save-set names, sorted.
 
         Returns
         -------
         list of str
             YAML file stems in the ``save_devices`` dir — empty when the
             configs repo, experiment folder, or save-set dir is missing.
+
+        Raises
+        ------
+        SaveSetStoreError
+            When the experiment name would escape the experiments root
+            (issue #513); a merely *missing* folder is not an error.
         """
         folder = self._folder()
         if folder is None or not folder.is_dir():
