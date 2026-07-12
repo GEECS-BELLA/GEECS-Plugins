@@ -4,6 +4,49 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.5.0] - 2026-07-11
+
+### Added
+
+- Ops menu (replaces the placeholder): **Open experiment config folder**
+  (the current experiment's configs-repo dir), **Open user config**
+  (the shared `~/.config/…/config.ini`, path only — the no-import pin now
+  blesses exactly that one path literal; opens its folder with a note when
+  the file is absent), **Open today's scan folder**, and
+  **GEECS-Plugins on GitHub**.  All open via `QDesktopServices.openUrl`;
+  unresolvable targets report in the status bar.  Path resolution lives in
+  `services/ops_paths.py` as small pure `-> Path | None` functions,
+  unit-tested against tmp trees without launching Finder/Explorer.
+- Today's-scan-folder resolution is **strictly read-only**: it builds the
+  daily `scans/` path via `geecs_data_utils.ScanPaths.get_daily_scan_folder`
+  (lazy import, pure path construction) and NEVER creates directories — a
+  missing daily folder reports "no scans today" (repo scan-folder
+  invariant: GUI code is a consumer of scan folders, never a producer).
+  Pinned by tests that assert the tree is unchanged after resolving a
+  missing folder.
+- Per-shot beeps: a checkable **Per-shot beep** Preferences action sounds
+  `QApplication.beep()` (no sound assets, no multimedia dep) whenever the
+  progress stream's `shots_completed` increments; a second checkable
+  **Randomized beeps** action thins that to a random ~1-in-4 subset of
+  shots (the RNG is constructor-injectable for seeded tests).  Both persist
+  via `ConsoleSettings` (`preferences/per_shot_beep`,
+  `preferences/randomized_beeps`); both default off.
+- "Scan NNN" wiring: `ScanEventsAdapter` reads the engine's new
+  `ScanLifecycleEvent.scan_number` (duck-typed getattr; `None` and absent
+  are tolerated) and emits `scan_number_known(int)`, which the window
+  connects to the existing `set_scan_number` slot (10 s expiry to
+  "(previous)").  The R6 label is now live end-to-end.
+- File logging: `main.py` grows a `--log-level` CLI flag (default INFO) and
+  a `RotatingFileHandler` writing to `~/.config/geecs_console/logs/console.log`
+  (2 MB × 3 backups) alongside the stderr handler.  Creating that log dir
+  is deliberate — a user config dir, not a scan folder.
+
+### Fixed
+
+- Menus created by `_build_menus` are now referenced on the window
+  (`self._menus`) — PySide6 can garbage-collect the wrapper returned by
+  `addMenu` and tear down the C++ menu (and its actions) with it.
+
 ## [0.4.0] - 2026-07-11
 
 ### Added

@@ -14,11 +14,13 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
+import random
 import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QFile, QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QFile, QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QApplication,
@@ -40,6 +42,7 @@ from PySide6.QtWidgets import (
 from pydantic import ValidationError
 
 from geecs_console.events_adapter import ScanEventsAdapter
+from geecs_console.services import ops_paths
 from geecs_console.request_builder import (
     MAXIMUM_SCAN_SIZE,
     ConsoleFormError,
@@ -72,6 +75,9 @@ _UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
 _QSS_PATH = Path(__file__).parent / "style.qss"
 
 _SCAN_NUMBER_EXPIRY_MS = 10_000
+
+#: With "Randomized beeps" on, the fraction of shots that actually beep.
+_RANDOM_BEEP_PROBABILITY = 0.25
 
 #: How often the background poller re-checks the health probe.
 _HEALTH_POLL_INTERVAL_MS = 5_000
@@ -204,6 +210,9 @@ class MainWindow(QMainWindow):
     submitter_factory : callable, optional
         ``(experiment, on_event) -> Submitter``; defaults to
         :func:`~geecs_console.submission.make_bluesky_submitter`.
+    rng : random.Random, optional
+        The source of randomness for the "Randomized beeps" option; tests
+        inject a seeded instance.  Defaults to a fresh ``random.Random()``.
     """
 
     #: One readback value from the device-panel backend (emitted from the CA
@@ -224,6 +233,7 @@ class MainWindow(QMainWindow):
         settings: Optional[ConsoleSettings] = None,
         submitter: Optional[Submitter] = None,
         submitter_factory: Optional[Callable[..., Submitter]] = None,
+        rng: Optional[random.Random] = None,
     ) -> None:
         super().__init__()
         self._configs = configs if configs is not None else ConsoleConfigs(experiment)
@@ -245,6 +255,8 @@ class MainWindow(QMainWindow):
         self.events = ScanEventsAdapter(self)
         self._total_shots = 0
         self._shot_count_valid = False
+        self._beep_rng = rng if rng is not None else random.Random()
+        self._last_beep_shots = 0
 
         self._apply_stylesheet()
         self._load_ui()
@@ -381,12 +393,45 @@ class MainWindow(QMainWindow):
             self.acquisition_combo.addItem(mode.value)
 
     def _build_menus(self) -> None:
-        """Create the menu bar (Ops / Actions / Editors / Preferences / Help)."""
-        for title in ("Ops", "Actions", "Editors", "Preferences"):
+        """Create the menu bar (Ops / Actions / Editors / Preferences / Help).
+
+        Every created ``QMenu`` is kept in ``self._menus`` — PySide6 can
+        garbage-collect the Python wrapper returned by ``addMenu`` and take
+        the C++ menu (and its actions) down with it.
+        """
+        self._menus: list = []
+        ops = self.menuBar().addMenu("Ops")
+        self._menus.append(ops)
+        for text, handler in (
+            ("Open experiment config folder", self._on_open_experiment_configs),
+            ("Open user config (config.ini)", self._on_open_user_config),
+            ("Open today's scan folder", self._on_open_todays_scans),
+        ):
+            action = ops.addAction(text)
+            action.triggered.connect(handler)
+        ops.addSeparator()
+        github = ops.addAction("GEECS-Plugins on GitHub")
+        github.triggered.connect(self._on_open_github)
+
+        for title in ("Actions", "Editors"):
             menu = self.menuBar().addMenu(title)
+            self._menus.append(menu)
             placeholder = menu.addAction("(not wired yet)")
             placeholder.setEnabled(False)
+
+        prefs = self.menuBar().addMenu("Preferences")
+        self._menus.append(prefs)
+        self.beep_action = prefs.addAction("Per-shot beep")
+        self.beep_action.setCheckable(True)
+        self.beep_action.setChecked(bool(self._settings.per_shot_beep))
+        self.beep_action.toggled.connect(self._on_per_shot_beep_toggled)
+        self.random_beep_action = prefs.addAction("Randomized beeps")
+        self.random_beep_action.setCheckable(True)
+        self.random_beep_action.setChecked(bool(self._settings.randomized_beeps))
+        self.random_beep_action.toggled.connect(self._on_randomized_beeps_toggled)
+
         help_menu = self.menuBar().addMenu("Help")
+        self._menus.append(help_menu)
         about = help_menu.addAction(f"GEECS Console {_package_version()}")
         about.setEnabled(False)
 
@@ -455,6 +500,7 @@ class MainWindow(QMainWindow):
 
         self.events.state_changed.connect(self._on_scan_state)
         self.events.totals_known.connect(self._on_totals_known)
+        self.events.scan_number_known.connect(self.set_scan_number)
         self.events.progress.connect(self._on_progress)
         self.events.error.connect(self._on_scan_error)
         self.events.log_line.connect(self.append_log)
@@ -832,6 +878,103 @@ class MainWindow(QMainWindow):
         if profile:
             self.trigger_variant_combo.addItem("")
             self.trigger_variant_combo.addItems(self._configs.trigger_variants(profile))
+
+    # ------------------------------------------------------------------
+    # Ops menu (path resolution lives in services/ops_paths — pure & tested)
+    # ------------------------------------------------------------------
+
+    def _open_local_path(self, path: Path) -> None:
+        """Open *path* in the platform file browser (Finder / Explorer).
+
+        Parameters
+        ----------
+        path : Path
+            An existing file or directory.
+        """
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _on_open_experiment_configs(self) -> None:
+        """Ops: open the current experiment's configs-repo directory."""
+        folder = ops_paths.experiment_configs_folder(
+            self.experiment_combo.currentText()
+        )
+        if folder is None:
+            self._report("Experiment config folder not found — no configs repo.")
+            return
+        self._open_local_path(folder)
+
+    def _on_open_user_config(self) -> None:
+        """Ops: open the shared user ``config.ini`` (or its folder if absent)."""
+        target = ops_paths.user_config_target()
+        if target is None:
+            self._report(f"User config not found: {ops_paths.USER_CONFIG_PATH}")
+            return
+        if target.is_dir():
+            self._report("config.ini not found — opening its folder instead.")
+        self._open_local_path(target)
+
+    def _on_open_todays_scans(self) -> None:
+        """Ops: open today's daily ``scans/`` folder — strictly read-only.
+
+        The scanner side is the only producer of scan folders; when today's
+        folder does not exist yet this reports "no scans today" and creates
+        nothing (repo scan-folder invariant).
+        """
+        folder = ops_paths.todays_scan_folder(self.experiment_combo.currentText())
+        if folder is None:
+            self._report(
+                "Cannot resolve today's scan folder — no data root or experiment."
+            )
+            return
+        if not folder.is_dir():
+            self._report("No scans today — the daily folder does not exist yet.")
+            return
+        self._open_local_path(folder)
+
+    def _on_open_github(self) -> None:
+        """Ops: open the GEECS-Plugins GitHub page in the browser."""
+        QDesktopServices.openUrl(QUrl(ops_paths.GITHUB_URL))
+
+    # ------------------------------------------------------------------
+    # Preferences (beeps)
+    # ------------------------------------------------------------------
+
+    def _on_per_shot_beep_toggled(self, checked: bool) -> None:
+        """Persist the per-shot beep preference.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state.
+        """
+        self._settings.per_shot_beep = checked
+
+    def _on_randomized_beeps_toggled(self, checked: bool) -> None:
+        """Persist the randomized-beeps preference.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state.
+        """
+        self._settings.randomized_beeps = checked
+
+    def _maybe_beep(self) -> None:
+        """Sound one per-shot beep, honoring the Preferences options.
+
+        Silent when "Per-shot beep" is off; with "Randomized beeps" on, only
+        ~1 in 4 shots beep (:data:`_RANDOM_BEEP_PROBABILITY`, drawn from the
+        injectable ``rng``).  ``QApplication.beep()`` — no sound assets, no
+        multimedia dependency.
+        """
+        if not self.beep_action.isChecked():
+            return
+        if (
+            self.random_beep_action.isChecked()
+            and self._beep_rng.random() >= _RANDOM_BEEP_PROBABILITY
+        ):
+            return
+        QApplication.beep()
 
     # ------------------------------------------------------------------
     # R5 submit row
@@ -1233,16 +1376,23 @@ class MainWindow(QMainWindow):
         self._total_shots = total_shots
         self.progress_bar.setMaximum(max(1, total_shots))
         self.progress_bar.setValue(0)
+        self._last_beep_shots = 0  # new scan: re-arm the per-shot beep
 
     def _on_progress(
         self, step_index: int, total_steps: int, shots_completed: int
     ) -> None:
-        """Advance the progress bar from step events."""
+        """Advance the progress bar from step events; beep on shot increments."""
         if self._total_shots:
             self.progress_bar.setValue(min(shots_completed, self._total_shots))
         elif total_steps:
             self.progress_bar.setMaximum(total_steps)
             self.progress_bar.setValue(min(step_index + 1, total_steps))
+        if shots_completed > self._last_beep_shots:
+            self._last_beep_shots = shots_completed
+            self._maybe_beep()
+        elif shots_completed < self._last_beep_shots:
+            # A scan that never announced totals restarted the count.
+            self._last_beep_shots = shots_completed
 
     def _on_scan_error(self, message: str) -> None:
         """Show scan errors in the status bar."""

@@ -23,12 +23,14 @@ def recorded(adapter):
     record = {
         "state": [],
         "totals": [],
+        "scan_numbers": [],
         "progress": [],
         "error": [],
         "log": [],
     }
     adapter.state_changed.connect(record["state"].append)
     adapter.totals_known.connect(record["totals"].append)
+    adapter.scan_number_known.connect(record["scan_numbers"].append)
     adapter.progress.connect(lambda *args: record["progress"].append(args))
     adapter.error.connect(record["error"].append)
     adapter.log_line.connect(record["log"].append)
@@ -41,6 +43,26 @@ class TestLifecycle:
         adapter.handle(ScanLifecycleEvent(state="running"))
         assert recorded["state"] == ["initializing", "running"]
         assert recorded["totals"] == [50]  # only the INITIALIZING event carries totals
+
+    def test_scan_number_emitted_only_when_present(self, adapter, recorded):
+        # Before the folder claim the engine emits None — no signal.
+        adapter.handle(ScanLifecycleEvent(state="initializing", total_shots=50))
+        assert recorded["scan_numbers"] == []
+        # After the claim every lifecycle emission carries the number.
+        adapter.handle(ScanLifecycleEvent(state="running", scan_number=42))
+        adapter.handle(ScanLifecycleEvent(state="done", scan_number=42))
+        assert recorded["scan_numbers"] == [42, 42]
+
+    def test_scan_number_absent_attribute_is_tolerated(self, adapter, recorded):
+        """Older engines without the field must not crash the adapter."""
+
+        class ScanLifecycleEvent:  # no scan_number attribute at all
+            state = "running"
+            total_shots = 0
+
+        adapter.handle(ScanLifecycleEvent())
+        assert recorded["scan_numbers"] == []
+        assert recorded["state"] == ["running"]
 
     def test_enum_valued_state_uses_value(self, adapter, recorded):
         from enum import Enum
