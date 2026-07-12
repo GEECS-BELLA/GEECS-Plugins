@@ -1,1 +1,1 @@
-"""Editor dialogs for the configs-repo config kinds (editing only)."""
+"""Editor dialogs for the configs the console submits by name (M5)."""

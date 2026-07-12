@@ -19,10 +19,13 @@ Design notes
 - The ``.ui`` is hand-authored XML (``app/ui/action_library_editor.ui``,
   object names prefixed ``ale_``) loaded at runtime via ``QUiLoader``.
 - Device/variable fields carry a ``QCompleter`` fed by an injectable
-  :class:`CompletionsProvider`; the production
-  :class:`GeecsDbCompletions` queries ``GeecsDb`` lazily and degrades to
-  empty on any failure, tests inject fakes, and the default is
-  :class:`EmptyCompletions` (offline).
+  :class:`~geecs_console.services.device_completions.CompletionsProvider`
+  (the shared editor seam) — fetched **once on a short-lived daemon thread**
+  (the package's no-QThread rule) and marshaled back through the queued
+  ``completions_ready`` signal, so a slow or unreachable DB never blocks
+  the GUI thread.  The production ``GeecsDbCompletions`` degrades to empty
+  on any failure; tests inject fakes; the constructor default is
+  ``EmptyCompletions`` (offline).
 - Enter never accepts the dialog (every button is non-default and the
   key is swallowed) — pressing Return in a field must not close the editor.
 """
@@ -30,11 +33,12 @@ Design notes
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
-from typing import Optional, Protocol
+from typing import Optional
 
 from pydantic import ValidationError
-from PySide6.QtCore import QFile, QStringListModel, Qt
+from PySide6.QtCore import QFile, QStringListModel, Qt, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QKeyEvent
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -63,6 +67,11 @@ from geecs_console.services.action_library_store import (
     ActionLibraryStore,
     ActionLibraryStoreError,
 )
+from geecs_console.services.device_completions import (
+    CompletionsProvider,
+    EmptyCompletions,
+    GeecsDbCompletions,
+)
 from geecs_schemas import ActionPlan
 
 logger = logging.getLogger(__name__)
@@ -72,91 +81,6 @@ _UI_PATH = Path(__file__).parent.parent / "app" / "ui" / "action_library_editor.
 #: Step kinds in kind-combo / stacked-page order — mirrors the schema's
 #: discriminated union (``geecs_schemas.action_plan.ActionStep``).
 STEP_KINDS = ("set", "wait", "check", "run")
-
-
-# ---------------------------------------------------------------------------
-# Completions seam
-# ---------------------------------------------------------------------------
-
-
-class CompletionsProvider(Protocol):
-    """Device/variable name completions for the step editor fields."""
-
-    def devices(self) -> list[str]:
-        """Return the known device names (may be empty)."""
-        ...
-
-    def variables(self, device: str) -> list[str]:
-        """Return the known variable names of *device* (may be empty)."""
-        ...
-
-
-class EmptyCompletions:
-    """The offline/test default: no completions at all."""
-
-    def devices(self) -> list[str]:
-        """Return no device names."""
-        return []
-
-    def variables(self, device: str) -> list[str]:
-        """Return no variable names.
-
-        Parameters
-        ----------
-        device : str
-            Ignored.
-        """
-        return []
-
-
-class GeecsDbCompletions:
-    """DB-backed completions: devices and variables of one experiment.
-
-    Queries ``GeecsDb.get_experiment_device_variables`` **lazily on first
-    use** and caches the result; any failure (no lab network, missing
-    ``mysql-connector``, missing config) degrades to empty completions with
-    a log line — never an exception, never a retry loop.
-
-    Parameters
-    ----------
-    experiment : str
-        GEECS experiment name to enumerate.
-    """
-
-    def __init__(self, experiment: str) -> None:
-        self._experiment = experiment
-        self._cache: Optional[dict[str, list[str]]] = None
-
-    def _catalog(self) -> dict[str, list[str]]:
-        """Fetch (once) the ``{device: [variable, ...]}`` catalog."""
-        if self._cache is not None:
-            return self._cache
-        try:
-            from geecs_ca_gateway.db.geecs_db import GeecsDb
-
-            raw = GeecsDb.get_experiment_device_variables(self._experiment)
-            self._cache = {
-                device: sorted({meta["name"] for meta in metas})
-                for device, metas in raw.items()
-            }
-        except Exception as exc:  # no DB / no network / no driver — degrade
-            logger.info("device/variable completions unavailable: %s", exc)
-            self._cache = {}
-        return self._cache
-
-    def devices(self) -> list[str]:
-        """Return the experiment's device names (empty offline)."""
-        return sorted(self._catalog())
-
-    def variables(self, device: str) -> list[str]:
-        """Return *device*'s variable names (empty offline/unknown).
-
-        Parameters
-        ----------
-        device : str
-            The device to enumerate variables for.
-        """
-        return self._catalog().get(device, [])
 
 
 # ---------------------------------------------------------------------------
@@ -303,10 +227,16 @@ class ActionLibraryEditor(QDialog):
         with no experiment (offline: empty list, saving reports why).
     completions : CompletionsProvider, optional
         Device/variable completions for the step fields; defaults to
-        :class:`EmptyCompletions`.
+        :class:`~geecs_console.services.device_completions.EmptyCompletions`.
+        The provider's one blocking call runs on a daemon thread, never the
+        GUI thread.
     parent : QWidget, optional
         Standard Qt parent.
     """
+
+    #: Provider result (``{device: [variable, ...]}``), emitted from the
+    #: fetch daemon thread; delivered queued to :meth:`_apply_completions`.
+    completions_ready = Signal(object)
 
     def __init__(
         self,
@@ -330,6 +260,12 @@ class ActionLibraryEditor(QDialog):
         #: Snapshot for Revert (steps deep-ish copy + description).
         self._baseline_steps: list[dict] = []
         self._baseline_description = ""
+        #: ``{device: [variable, ...]}`` word lists once the fetch lands.
+        self._device_vars: dict[str, list[str]] = {}
+        #: True once the (async) completions fetch has been delivered on the
+        #: GUI thread — tests wait on this so no queued signal can land
+        #: after teardown.
+        self.completions_applied = False
 
         self._apply_stylesheet()
         self._load_ui()
@@ -342,6 +278,11 @@ class ActionLibraryEditor(QDialog):
         self._clear_plan_editor()
         self._update_title()
         self._refresh_enabled()
+
+        self.completions_ready.connect(
+            self._apply_completions, Qt.ConnectionType.QueuedConnection
+        )
+        self._start_completions_fetch()
 
     # ------------------------------------------------------------------
     # Construction
@@ -475,13 +416,8 @@ class ActionLibraryEditor(QDialog):
         )
 
     def _setup_completers(self) -> None:
-        """Attach device/variable ``QCompleter``s fed by the provider."""
-        try:
-            devices = list(self._completions.devices())
-        except Exception as exc:  # a provider must never break the editor
-            logger.info("completions provider failed: %s", exc)
-            devices = []
-        self._device_completer_model = QStringListModel(devices, self)
+        """Attach device/variable ``QCompleter``s (word lists arrive queued)."""
+        self._device_completer_model = QStringListModel([], self)
         self._set_variable_completer_model = QStringListModel([], self)
         self._check_variable_completer_model = QStringListModel([], self)
         for edit, model in (
@@ -495,13 +431,50 @@ class ActionLibraryEditor(QDialog):
             completer.setFilterMode(Qt.MatchFlag.MatchContains)
             edit.setCompleter(completer)
 
+    def _start_completions_fetch(self) -> None:
+        """Fetch completions on a short-lived daemon thread (queued delivery)."""
+        provider = self._completions
+
+        def fetch() -> None:
+            """Run the provider's one blocking call off the GUI thread."""
+            try:
+                mapping = provider.device_variables()
+            except Exception as exc:  # noqa: BLE001 — providers should not raise
+                logger.info("completions fetch failed: %s", exc)
+                mapping = {}
+            self.completions_ready.emit(mapping)
+
+        threading.Thread(
+            target=fetch, name="ale-completions-fetch", daemon=True
+        ).start()
+
+    @Slot(object)
+    def _apply_completions(self, mapping: object) -> None:
+        """Install the fetched ``{device: [variable, ...]}`` word lists (GUI thread).
+
+        Parameters
+        ----------
+        mapping : dict
+            The provider result delivered by the queued signal.
+        """
+        self.completions_applied = True
+        if not isinstance(mapping, dict):
+            return
+        self._device_vars = {
+            str(device): [str(v) for v in variables]
+            for device, variables in mapping.items()
+        }
+        self._device_completer_model.setStringList(sorted(self._device_vars))
+        self._refresh_variable_completer(
+            self._set_variable_completer_model, self.set_device_edit.text()
+        )
+        self._refresh_variable_completer(
+            self._check_variable_completer_model, self.check_device_edit.text()
+        )
+
     def _refresh_variable_completer(self, model: QStringListModel, device: str) -> None:
-        """Repopulate a variable completer for the typed *device*."""
-        try:
-            model.setStringList(list(self._completions.variables(device)))
-        except Exception as exc:  # a provider must never break the editor
-            logger.info("completions provider failed: %s", exc)
-            model.setStringList([])
+        """Point one variable word-list *model* at the variables of *device*."""
+        model.setStringList(self._device_vars.get(device, []))
 
     # ------------------------------------------------------------------
     # Dialog-level behaviour
@@ -1088,15 +1061,20 @@ def open_action_library_editor(
         Override for the experiments root (defaults to the production
         resolution, lazily — offline stays fine).
     completions : CompletionsProvider, optional
-        Device/variable completions; e.g. ``GeecsDbCompletions(experiment)``
-        on the lab network. Defaults to none.
+        Device/variable completion source.  Defaults to the DB-backed
+        provider for a named experiment (fetched on a daemon thread; offline
+        it degrades to empty) and to no completions otherwise.
 
     Returns
     -------
     QDialog
-        The shown (non-modal) editor dialog.
+        The shown (modeless) editor dialog.
     """
     store = ActionLibraryStore(experiment, experiments_root=configs_base)
+    if completions is None:
+        completions = (
+            GeecsDbCompletions(experiment) if experiment else EmptyCompletions()
+        )
     dialog = ActionLibraryEditor(store=store, completions=completions, parent=parent)
     dialog.show()
     return dialog

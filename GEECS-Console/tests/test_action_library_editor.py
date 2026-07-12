@@ -12,9 +12,8 @@ import yaml
 from PySide6.QtCore import Qt
 
 from geecs_console.editors.action_library_editor import (
-    ActionLibraryEditor,
-    EmptyCompletions,
     STEP_KINDS,
+    ActionLibraryEditor,
     convert_step_kind,
     default_step,
     open_action_library_editor,
@@ -22,6 +21,7 @@ from geecs_console.editors.action_library_editor import (
     step_summary,
 )
 from geecs_console.services.action_library_store import ActionLibraryStore
+from geecs_console.services.device_completions import EmptyCompletions
 
 EXPERIMENT = "TestExp"
 
@@ -70,11 +70,8 @@ class FakeCompletions:
     def __init__(self, catalog=None):
         self._catalog = catalog or {}
 
-    def devices(self):
-        return sorted(self._catalog)
-
-    def variables(self, device):
-        return self._catalog.get(device, [])
+    def device_variables(self):
+        return dict(self._catalog)
 
 
 @pytest.fixture
@@ -97,6 +94,9 @@ def make_editor(qtbot, root, experiment=EXPERIMENT, completions=None):
     # Never let a teardown closeEvent block on a modal box.
     editor._confirm_discard = lambda: True
     editor._confirm_delete = lambda name: True
+    # Let the queued completions delivery land before the test body runs, so
+    # no fetch signal can arrive after teardown.
+    qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
     return editor
 
 
@@ -119,6 +119,7 @@ class TestOffline:
         dialog = open_action_library_editor(None, "", configs_base=tmp_path / "nowhere")
         qtbot.addWidget(dialog)
         dialog._confirm_discard = lambda: True
+        qtbot.waitUntil(lambda: dialog.completions_applied, timeout=2000)
         assert dialog.isVisible()
         assert dialog.plan_list.count() == 0
         dialog.close()
@@ -469,10 +470,7 @@ class TestCompletions:
 
     def test_broken_provider_never_breaks_the_editor(self, qtbot, root):
         class Broken:
-            def devices(self):
-                raise RuntimeError("db exploded")
-
-            def variables(self, device):
+            def device_variables(self):
                 raise RuntimeError("db exploded")
 
         editor = make_editor(qtbot, root, completions=Broken())
@@ -480,10 +478,18 @@ class TestCompletions:
         editor.set_device_edit.setText("U_A")
         assert editor._set_variable_completer_model.stringList() == []
 
+    def test_completer_lists_fill_after_queued_delivery(self, qtbot, root):
+        """The word lists arrive via the queued signal, not at construction."""
+        provider = FakeCompletions({"U_A": ["Alpha"]})
+        store = ActionLibraryStore(EXPERIMENT, experiments_root=root)
+        editor = ActionLibraryEditor(store=store, completions=provider)
+        qtbot.addWidget(editor)
+        editor._confirm_discard = lambda: True
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        assert editor._device_completer_model.stringList() == ["U_A"]
+
     def test_default_provider_is_empty(self):
-        provider = EmptyCompletions()
-        assert provider.devices() == []
-        assert provider.variables("anything") == []
+        assert EmptyCompletions().device_variables() == {}
 
 
 class TestHelpers:
