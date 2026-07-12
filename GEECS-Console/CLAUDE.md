@@ -31,8 +31,13 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
   to "(previous)" (**live**: driven by `ScanLifecycleEvent.scan_number`
   through the adapter's `scan_number_known` signal), compact log tail.
-- **R7 device panel** — device:variable combo (editable free text),
-  readback label, set field + button.  **Backend live** (see Implemented
+  When idle (startup / experiment change) the label shows
+  "Scan NNN (previous)" from a **strictly read-only** peek at today's
+  daily `scans/` folder (see Implemented seams), or "No scans today".
+- **R7 device panel** — device:variable combo (editable, with
+  `device:variable` dropdown completions from `GeecsDbCompletions` — see
+  Implemented seams), readback label, set field + button.  **Backend
+  live** (see Implemented
   seams): gateway PVs — CA monitor on the readback, put to `:SP` riding
   GEECS's native blocking set — never `geecs_python_api`'s ScanDevice.
   Scalar-only at birth (composites arrive with the pseudo-variable
@@ -177,18 +182,79 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `RotatingFileHandler` at `~/.config/geecs_console/logs/console.log`
   (2 MB × 3 backups) beside the stderr handler.  Creating that log dir with
   `parents=True` is deliberate — a user config dir, not a scan folder.
+  `configure_logging` caps the `httpx` logger at WARNING — the Tiled
+  health probe otherwise logs one INFO line per 5 s poll, forever.
+- **The four config editors (Editors menu)** — all implemented (built on
+  their own branches, #504–#507; wired in 0.6.0):
+  `editors/save_set_editor.py::open_save_set_editor`,
+  `editors/scan_variable_editor.py::open_scan_variable_editor`,
+  `editors/shot_control_editor.py::open_shot_control_editor` (trigger
+  profiles), `editors/action_library_editor.py::open_action_library_editor`.
+  Each entry point takes `(parent, experiment, configs_base=None,
+  completions=None)`, shows a **non-modal** dialog (`show()`, not
+  `exec()`), and returns it.  The menu handlers call
+  `open_*_editor(self, experiment=<current combo text>)` and append the
+  returned dialog to `self._open_editors` (pruned when closed) — see the
+  PySide6 ownership hazards below.  Actions are disabled while no
+  experiment is selected.  Tests monkeypatch the `open_*` names on
+  `app.main_window`.
+- **R7 device:variable completions**: the device combo's dropdown lists
+  sorted `device:variable` strings from a `CompletionsProvider`
+  (`GeecsDbCompletions` in production, constructor-injectable
+  `completions_factory` in tests), fetched at startup and on experiment
+  change via a `BackgroundResult` worker (below).  The combo stays
+  editable; typed text survives repopulation; results tagged with a
+  no-longer-selected experiment are dropped.  An unparsable committed
+  selection shows "Device format: DeviceName:Variable Name" in the status
+  bar (both on commit and on a Set attempt) instead of a silent no-op.
+- **R6 idle scan number**: at startup and on experiment change a
+  `BackgroundResult` worker runs the injectable `scan_number_lookup`
+  (default: `ops_paths.todays_scan_folder` +
+  `ops_paths.highest_scan_number`) and the label shows
+  "Scan NNN (previous)" or "No scans today".  **Strictly read-only** —
+  resolution + `is_dir()`/`iterdir()` only, never creating anything on the
+  scans path (repo scan-folder invariant; pinned by tree-untouched tests
+  in `tests/test_ops_paths.py` and
+  `tests/test_main_window_editors_integration.py`).  A live scan number
+  (10 s expiry timer running) is never clobbered.  `tests/conftest.py`
+  patches the module-level default lookup (and the completions factory) so
+  hermetic tests never touch the real data root or DB.
+- **`BackgroundResult`** (`app/main_window.py`): the one blessed
+  daemon-thread → queued-signal worker for one-shot background calls (the
+  `HealthPoller` shape, generalized).  **The daemon thread must emit on
+  the worker QObject, never on the window**: emitting a window-owned
+  signal from a daemon thread races window teardown and segfaults under
+  offscreen pytest (observed directly when the idle scan probe emitted a
+  `MainWindow` signal).  `closeEvent` disconnects each worker's
+  `result_ready`.
+
+## Standing PySide6 ownership hazards (GC eats live C++ objects)
+
+Python wrappers PySide6 does not parent-track are garbage-collected, and
+shiboken tears down the underlying C++ object with them.  Two recurrences
+of the same bug class are load-bearing here; hold a Python reference on
+the window for anything in these families:
+
+- **Menus**: the `QMenu` returned by `menuBar().addMenu(...)` must be kept
+  (`self._menus`) or the menu and all its actions vanish.
+- **Non-modal dialogs**: a dialog shown with `show()` (all four editors)
+  must be kept (`self._open_editors`) or it closes/dies at the next GC.
+- **QCompleter** (inside the editors): a completer set on a line edit via
+  `setCompleter` is not owned by the widget — the editors keep their
+  completers (and their model) on `self`.  The same applies to any
+  `QValidator`, proxy model, or event filter created without a parent.
 
 ## Stubbed seams (intentional, wire later)
 
-- R7 device:variable autocomplete: the combo is editable free text (with a
-  placeholder) — `ConsoleConfigs` has no device/variable listing yet.  The
-  natural source is a `GeecsDb` enumeration (device → `get='yes'`
-  variables), populated the way the other combos are.
 - Optimization mode: radio exists, submission refused with a clear error
   until an `OptimizationSpec` editor exists.
 - `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
   `_scan_variables_catalog()` — promote a public "list variable names"
   method on `ConfigsRepoResolver` when next touching geecs-bluesky.
+- **Remaining M5 item — config bootstrap/repair dialog**: deliberately
+  deferred.  When the configs repo (or an experiment's folder inside it)
+  is missing/broken, the console currently reports and degrades to empty
+  listings; a guided create/repair dialog is the outstanding piece of M5.
 
 ## Testing
 

@@ -27,6 +27,9 @@ def configure_logging(level_name: str = "INFO") -> None:
     level = getattr(logging, level_name.upper(), logging.INFO)
     root = logging.getLogger()
     root.setLevel(level)
+    # The Tiled health probe issues an httpx GET every poll; at INFO httpx
+    # logs one line per request (every 5 s, forever).  Quiet it to WARNING.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     stderr_handler = logging.StreamHandler()
     stderr_handler.setFormatter(formatter)

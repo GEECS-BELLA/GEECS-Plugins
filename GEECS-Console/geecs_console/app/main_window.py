@@ -12,7 +12,7 @@ network.
 
 from __future__ import annotations
 
-import importlib.metadata
+import logging
 import os
 import random
 import threading
@@ -41,8 +41,18 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
+from geecs_console.editors.action_library_editor import open_action_library_editor
+from geecs_console.editors.save_set_editor import open_save_set_editor
+from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
+from geecs_console.editors.shot_control_editor import open_shot_control_editor
 from geecs_console.events_adapter import ScanEventsAdapter
 from geecs_console.services import ops_paths
+from geecs_console.services.device_completions import (
+    CompletionsProvider,
+    EmptyCompletions,
+    GeecsDbCompletions,
+)
+from geecs_console.version import console_version
 from geecs_console.request_builder import (
     MAXIMUM_SCAN_SIZE,
     ConsoleFormError,
@@ -70,6 +80,8 @@ from geecs_console.services.health import (
     StubHealth,
 )
 from geecs_console.submission import Submitter, make_bluesky_submitter
+
+logger = logging.getLogger(__name__)
 
 _UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
 _QSS_PATH = Path(__file__).parent / "style.qss"
@@ -109,12 +121,31 @@ _STATE_DOT_COLORS = {
 }
 
 
-def _package_version() -> str:
-    """Return the installed geecs-console version, or a dev placeholder."""
-    try:
-        return importlib.metadata.version("geecs-console")
-    except importlib.metadata.PackageNotFoundError:
-        return "dev"
+def _default_completions_factory(experiment: str) -> CompletionsProvider:
+    """Build the production R7 completions provider for *experiment*."""
+    return GeecsDbCompletions(experiment)
+
+
+def _idle_scan_lookup(experiment: str) -> Optional[int]:
+    """Highest existing ``ScanNNN`` in today's daily folder — read-only.
+
+    The production R6 idle-scan lookup: resolves today's ``scans/`` path
+    via :func:`ops_paths.todays_scan_folder` and lists it with
+    :func:`ops_paths.highest_scan_number`.  Strictly read-only (repo
+    scan-folder invariant) and possibly slow (network data root), so the
+    window only ever calls it on a daemon thread.
+
+    Parameters
+    ----------
+    experiment : str
+        The selected experiment ("" falls back to the config default).
+
+    Returns
+    -------
+    int or None
+        The highest scan number, or ``None`` when unresolvable/absent.
+    """
+    return ops_paths.highest_scan_number(ops_paths.todays_scan_folder(experiment))
 
 
 def load_stylesheet() -> str:
@@ -182,6 +213,48 @@ class HealthPoller(QObject):
             self.report_ready.emit(report)
 
 
+class BackgroundResult(QObject):
+    """Runs one blocking callable on a daemon thread and reports its result.
+
+    The :class:`HealthPoller` shape, generalized: the worker lives on the
+    GUI thread, each :meth:`run_async` call spawns a short-lived daemon
+    thread, and the result comes back through the queued
+    :attr:`result_ready` signal.  Crucially the daemon thread emits on
+    *this worker*, never on the main window — emitting a window-owned
+    signal from a daemon thread races window teardown and segfaults under
+    offscreen pytest (observed with the idle scan-number probe).
+    """
+
+    result_ready = Signal(object)
+    """Carries the callable's return value, one emission per finished call."""
+
+    def run_async(self, func: Callable[[], object], name: str) -> None:
+        """Run *func* on a fresh daemon thread and emit its result.
+
+        Parameters
+        ----------
+        func : callable
+            Zero-argument blocking callable.  Exceptions are logged and
+            swallowed (no emission), so wrap the call when a failure result
+            should still be delivered.
+        name : str
+            The daemon thread's name (debugging).
+        """
+        threading.Thread(target=self._run, args=(func,), name=name, daemon=True).start()
+
+    def _run(self, func: Callable[[], object]) -> None:
+        """Call *func* (on the daemon thread) and emit the result."""
+        try:
+            result = func()
+        except Exception as exc:  # noqa: BLE001 — background work is best-effort
+            logger.info("background call failed: %s", exc)
+            return
+        try:
+            self.result_ready.emit(result)
+        except RuntimeError:
+            pass  # the worker was deleted while the call ran
+
+
 class MainWindow(QMainWindow):
     """The operator console main window (screen map regions R1-R7).
 
@@ -213,6 +286,15 @@ class MainWindow(QMainWindow):
     rng : random.Random, optional
         The source of randomness for the "Randomized beeps" option; tests
         inject a seeded instance.  Defaults to a fresh ``random.Random()``.
+    completions_factory : callable, optional
+        ``(experiment) -> CompletionsProvider`` for the R7 device combo's
+        ``device:variable`` items; tests inject a fake.  Defaults to the
+        DB-backed provider (daemon-thread fetch, empty offline).
+    scan_number_lookup : callable, optional
+        ``(experiment) -> int | None`` returning today's highest existing
+        scan number for the R6 idle display; tests inject a fake.  Defaults
+        to the read-only ``ops_paths`` lookup (daemon-thread call — the data
+        root may be a slow network mount).
     """
 
     #: One readback value from the device-panel backend (emitted from the CA
@@ -234,6 +316,8 @@ class MainWindow(QMainWindow):
         submitter: Optional[Submitter] = None,
         submitter_factory: Optional[Callable[..., Submitter]] = None,
         rng: Optional[random.Random] = None,
+        completions_factory: Optional[Callable[[str], CompletionsProvider]] = None,
+        scan_number_lookup: Optional[Callable[[str], Optional[int]]] = None,
     ) -> None:
         super().__init__()
         self._configs = configs if configs is not None else ConsoleConfigs(experiment)
@@ -257,6 +341,12 @@ class MainWindow(QMainWindow):
         self._shot_count_valid = False
         self._beep_rng = rng if rng is not None else random.Random()
         self._last_beep_shots = 0
+        self._completions_factory = completions_factory
+        self._scan_number_lookup = scan_number_lookup
+        #: Non-modal editor dialogs opened from the Editors menu.  PySide6
+        #: garbage-collects an unreferenced dialog wrapper and tears down the
+        #: C++ dialog with it, so every opened editor is kept here.
+        self._open_editors: list = []
 
         self._apply_stylesheet()
         self._load_ui()
@@ -281,6 +371,14 @@ class MainWindow(QMainWindow):
         self._set_state_pill("idle")
         self._on_mode_changed()
         self._refresh_device_set_enabled()
+        # Startup fetches for the selected experiment (no-ops when none):
+        # R7 device:variable completions and the R6 idle scan-number peek.
+        # Restoring the last experiment already fired the experiment-changed
+        # path (which starts both); these cover the explicit-experiment and
+        # no-experiment startups.  Stale results are dropped by experiment
+        # tag, so a duplicate fetch is harmless.
+        self._start_device_completions_fetch()
+        self._start_idle_scan_probe()
 
     # ------------------------------------------------------------------
     # Construction
@@ -413,11 +511,23 @@ class MainWindow(QMainWindow):
         github = ops.addAction("GEECS-Plugins on GitHub")
         github.triggered.connect(self._on_open_github)
 
-        for title in ("Actions", "Editors"):
-            menu = self.menuBar().addMenu(title)
-            self._menus.append(menu)
-            placeholder = menu.addAction("(not wired yet)")
-            placeholder.setEnabled(False)
+        actions_menu = self.menuBar().addMenu("Actions")
+        self._menus.append(actions_menu)
+        placeholder = actions_menu.addAction("(not wired yet)")
+        placeholder.setEnabled(False)
+
+        editors = self.menuBar().addMenu("Editors")
+        self._menus.append(editors)
+        self._editor_actions = []
+        for text, handler in (
+            ("Save Elements…", self._on_edit_save_sets),
+            ("Scan Variables…", self._on_edit_scan_variables),
+            ("Shot Control…", self._on_edit_shot_control),
+            ("Action Library…", self._on_edit_action_library),
+        ):
+            action = editors.addAction(text)
+            action.triggered.connect(handler)
+            self._editor_actions.append(action)
 
         prefs = self.menuBar().addMenu("Preferences")
         self._menus.append(prefs)
@@ -432,7 +542,7 @@ class MainWindow(QMainWindow):
 
         help_menu = self.menuBar().addMenu("Help")
         self._menus.append(help_menu)
-        about = help_menu.addAction(f"GEECS Console {_package_version()}")
+        about = help_menu.addAction(f"GEECS Console {console_version()}")
         about.setEnabled(False)
 
     def _build_status_bar(self) -> None:
@@ -440,7 +550,7 @@ class MainWindow(QMainWindow):
         gateway = os.environ.get("EPICS_CA_ADDR_LIST", "unset")
         self._status_gateway = QLabel(f"gateway: {gateway}")
         self._status_configs = QLabel("configs: —")
-        self._status_version = QLabel(f"v{_package_version()}")
+        self._status_version = QLabel(f"v{console_version()}")
         self.statusBar().addWidget(self._status_gateway)
         self.statusBar().addWidget(self._status_configs)
         self.statusBar().addPermanentWidget(self._status_version)
@@ -497,6 +607,18 @@ class MainWindow(QMainWindow):
         self.device_set_finished.connect(
             self._apply_device_set_result, Qt.ConnectionType.QueuedConnection
         )
+        # R7 completions and the R6 idle scan-number peek: each result is
+        # emitted by a BackgroundResult worker (never by the window itself —
+        # a daemon-thread emit on a window-owned signal races teardown) and
+        # delivered queued to its GUI-thread apply slot.
+        self._completions_worker = BackgroundResult()
+        self._completions_worker.result_ready.connect(
+            self._apply_device_completions, Qt.ConnectionType.QueuedConnection
+        )
+        self._idle_scan_worker = BackgroundResult()
+        self._idle_scan_worker.result_ready.connect(
+            self._apply_idle_scan_number, Qt.ConnectionType.QueuedConnection
+        )
 
         self.events.state_changed.connect(self._on_scan_state)
         self.events.totals_known.connect(self._on_totals_known)
@@ -550,6 +672,7 @@ class MainWindow(QMainWindow):
         self._refresh_presets()
         self._refresh_union_preview()
         self._refresh_shot_count()
+        self._refresh_editor_actions()
 
     @staticmethod
     def _chip_markup(name: str, status: HealthStatus) -> str:
@@ -648,6 +771,19 @@ class MainWindow(QMainWindow):
             try:
                 backend.unsubscribe()
             except Exception:  # noqa: BLE001 — teardown must not raise
+                pass
+        for worker, slot in (
+            (
+                getattr(self, "_completions_worker", None),
+                self._apply_device_completions,
+            ),
+            (getattr(self, "_idle_scan_worker", None), self._apply_idle_scan_number),
+        ):
+            if worker is None:
+                continue
+            try:
+                worker.result_ready.disconnect(slot)
+            except (RuntimeError, TypeError):
                 pass
         for signal, slot in (
             (self.device_value_ready, self._apply_device_value),
@@ -855,6 +991,9 @@ class MainWindow(QMainWindow):
         self._populate_from_configs()
         # The readback PV is experiment-prefixed — re-point the monitor.
         self._resubscribe_device()
+        # New experiment, new device list and new daily scans folder.
+        self._start_device_completions_fetch()
+        self._start_idle_scan_probe()
 
     def _restore_last_experiment(self) -> None:
         """Select the remembered experiment at startup (explicit choice wins).
@@ -934,6 +1073,55 @@ class MainWindow(QMainWindow):
     def _on_open_github(self) -> None:
         """Ops: open the GEECS-Plugins GitHub page in the browser."""
         QDesktopServices.openUrl(QUrl(ops_paths.GITHUB_URL))
+
+    # ------------------------------------------------------------------
+    # Editors menu (each entry point shows a non-modal dialog and returns it)
+    # ------------------------------------------------------------------
+
+    def _refresh_editor_actions(self) -> None:
+        """Enable the Editors-menu actions only when an experiment is selected."""
+        enabled = bool(self.experiment_combo.currentText())
+        for action in self._editor_actions:
+            action.setEnabled(enabled)
+
+    def _open_editor(self, opener: Callable[..., object]) -> None:
+        """Open one editor for the current experiment, holding a reference.
+
+        The ``open_*_editor`` entry points show their dialog non-modally
+        (``show()``, not ``exec()``) and return it; an unreferenced PySide6
+        wrapper would be garbage-collected — taking the C++ dialog down with
+        it — so every opened editor is kept in ``self._open_editors``
+        (closed ones are pruned on the next open).
+
+        Parameters
+        ----------
+        opener : callable
+            One of the four ``open_*_editor`` entry points, called as
+            ``opener(self, experiment=<current>)``.
+        """
+        experiment = self.experiment_combo.currentText()
+        if not experiment:
+            self._report("Select an experiment before opening an editor.")
+            return
+        dialog = opener(self, experiment=experiment)
+        self._open_editors = [d for d in self._open_editors if d.isVisible()]
+        self._open_editors.append(dialog)
+
+    def _on_edit_save_sets(self) -> None:
+        """Editors: open the save-set editor for the current experiment."""
+        self._open_editor(open_save_set_editor)
+
+    def _on_edit_scan_variables(self) -> None:
+        """Editors: open the scan-variable editor for the current experiment."""
+        self._open_editor(open_scan_variable_editor)
+
+    def _on_edit_shot_control(self) -> None:
+        """Editors: open the trigger-profile editor for the current experiment."""
+        self._open_editor(open_shot_control_editor)
+
+    def _on_edit_action_library(self) -> None:
+        """Editors: open the action-library editor for the current experiment."""
+        self._open_editor(open_action_library_editor)
 
     # ------------------------------------------------------------------
     # Preferences (beeps)
@@ -1232,6 +1420,70 @@ class MainWindow(QMainWindow):
         )
         self.set_button.setEnabled(ready)
 
+    def _warn_device_format(self) -> None:
+        """Status-bar hint for an unparsable R7 device selection."""
+        self.statusBar().showMessage("Device format: DeviceName:Variable Name", 10_000)
+
+    def _start_device_completions_fetch(self) -> None:
+        """Fetch R7 ``device:variable`` completions off the GUI thread.
+
+        Mirrors the editors' completions pattern: one blocking provider call
+        on a short-lived daemon thread (via the :class:`BackgroundResult`
+        worker), marshaled back queued to :meth:`_apply_device_completions`
+        — never on the GUI thread.  No experiment (or the
+        :class:`EmptyCompletions` default in tests) answers inline with an
+        empty list, spawning no thread.
+        """
+        experiment = self.experiment_combo.currentText()
+        factory = (
+            self._completions_factory
+            if self._completions_factory is not None
+            else _default_completions_factory
+        )
+        provider = factory(experiment) if experiment else EmptyCompletions()
+        if isinstance(provider, EmptyCompletions):
+            self._apply_device_completions((experiment, []))
+            return
+
+        def fetch() -> tuple[str, list[str]]:
+            try:
+                mapping = provider.device_variables()
+            except Exception as exc:  # noqa: BLE001 — completions are best-effort
+                logger.info("device completions failed: %s", exc)
+                mapping = {}
+            words = sorted(
+                f"{device}:{variable}"
+                for device, variables in (mapping or {}).items()
+                for variable in variables
+            )
+            return (experiment, words)
+
+        self._completions_worker.run_async(fetch, name="console-device-completions")
+
+    @Slot(object)
+    def _apply_device_completions(self, payload: object) -> None:
+        """Populate the R7 combo's dropdown (GUI-thread slot, delivered queued).
+
+        Parameters
+        ----------
+        payload : tuple
+            ``(experiment, ["device:variable", ...])``; a result tagged with
+            an experiment that is no longer selected is dropped (a stale
+            fetch racing an experiment change).
+        """
+        experiment, words = payload
+        if experiment != self.experiment_combo.currentText():
+            return
+        current = self.device_combo.currentText()
+        self.device_combo.blockSignals(True)
+        self.device_combo.clear()
+        self.device_combo.addItems(list(words))
+        self.device_combo.setCurrentIndex(-1)
+        line_edit = self.device_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setText(current)
+        self.device_combo.blockSignals(False)
+
     def _resubscribe_device(self, *_args: object) -> None:
         """Re-point the readback monitor at the combo's current selection.
 
@@ -1248,6 +1500,10 @@ class MainWindow(QMainWindow):
         self._refresh_device_set_enabled()
         parsed = parse_device_variable(self.device_combo.currentText())
         if parsed is None:
+            # Committed text that doesn't parse gets a visible hint — a
+            # silent no-op looked like a dead panel (user report).
+            if self.device_combo.currentText().strip():
+                self._warn_device_format()
             return
         device, variable = parsed
         try:
@@ -1277,7 +1533,11 @@ class MainWindow(QMainWindow):
         """Dispatch the blocking backend set to a daemon thread."""
         parsed = parse_device_variable(self.device_combo.currentText())
         text = self.set_field.text().strip()
-        if parsed is None or not text or self._device_set_in_flight:
+        if parsed is None:
+            if self.device_combo.currentText().strip():
+                self._warn_device_format()
+            return
+        if not text or self._device_set_in_flight:
             return
         device, variable = parsed
         value = parse_set_value(text)
@@ -1349,8 +1609,59 @@ class MainWindow(QMainWindow):
     def _expire_scan_number(self) -> None:
         """Mark the displayed scan number as previous once the timer fires."""
         text = self.scan_number_label.text()
-        if text.startswith("Scan "):
+        if text.startswith("Scan ") and not text.endswith("(previous)"):
             self.scan_number_label.setText(f"{text} (previous)")
+
+    def _start_idle_scan_probe(self) -> None:
+        """Peek at today's scans dir for the R6 idle display — read-only.
+
+        The lookup resolves today's daily ``scans/`` folder and lists it for
+        the highest existing ``ScanNNN`` — resolution and listdir only,
+        never creating anything on that path (repo scan-folder invariant).
+        The data root is typically a network mount, so the blocking lookup
+        runs on a short-lived daemon thread (via the
+        :class:`BackgroundResult` worker) and reports back queued to
+        :meth:`_apply_idle_scan_number`.
+        """
+        experiment = self.experiment_combo.currentText()
+        lookup = (
+            self._scan_number_lookup
+            if self._scan_number_lookup is not None
+            else _idle_scan_lookup
+        )
+
+        def probe() -> tuple[str, Optional[int]]:
+            try:
+                number = lookup(experiment)
+            except Exception as exc:  # noqa: BLE001 — a flaky mount is not a crash
+                logger.info("idle scan-number lookup failed: %s", exc)
+                number = None
+            return (experiment, number)
+
+        self._idle_scan_worker.run_async(probe, name="console-idle-scan-probe")
+
+    @Slot(object)
+    def _apply_idle_scan_number(self, payload: object) -> None:
+        """Render the idle scan-number peek (GUI-thread slot, delivered queued).
+
+        A live scan number on display (the 10 s expiry timer still running)
+        is never clobbered, and a result tagged with an experiment that is
+        no longer selected is dropped.
+
+        Parameters
+        ----------
+        payload : tuple
+            ``(experiment, int | None)`` from the daemon-thread probe.
+        """
+        experiment, number = payload
+        if experiment != self.experiment_combo.currentText():
+            return
+        if self._scan_number_timer.isActive():
+            return
+        if number is None:
+            self.scan_number_label.setText("No scans today")
+        else:
+            self.scan_number_label.setText(f"Scan {number:03d} (previous)")
 
     def _set_state_pill(self, state: str) -> None:
         """Render the R6 state pill: colored dot + uppercase state word.
