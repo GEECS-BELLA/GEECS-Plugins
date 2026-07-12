@@ -809,6 +809,54 @@ class TestDevicePanel:
         assert win.close()  # must not join the 0.4 s daemon set
         assert time.monotonic() - started < 0.3
 
+    def test_set_finishing_after_window_deletion_is_swallowed(self, qtbot, monkeypatch):
+        """A set that outlives the window must not raise on its daemon thread.
+
+        Deterministic form of an intermittent suite flake: the daemon
+        thread's ``device_set_finished.emit`` raised ``RuntimeError: Signal
+        source has been deleted`` (a PytestUnhandledThreadExceptionWarning)
+        whenever the window was C++-deleted before the blocking set returned.
+        """
+        import threading
+
+        import shiboken6
+
+        unhandled = []
+        monkeypatch.setattr(threading, "excepthook", unhandled.append)
+
+        class BlockedSetPanel(FakeDevicePanel):
+            def __init__(self):
+                super().__init__()
+                self.release = threading.Event()
+
+            def set(self, experiment, device, variable, value):
+                self.release.wait(timeout=5)
+                super().set(experiment, device, variable, value)
+
+        panel = BlockedSetPanel()
+        # No qtbot.addWidget: the window is deliberately deleted mid-test,
+        # and the fixture teardown would close() the dead wrapper.
+        win = MainWindow(
+            configs=FakeConfigs(), device_panel=panel, submitter=FakeSubmitter()
+        )
+        win.show()
+        win.device_combo.setCurrentText("Dev:Var")
+        win.set_field.setText("1.0")
+        before = set(threading.enumerate())
+        win._on_device_set_clicked()  # daemon thread now blocked in set()
+        worker = next(
+            t
+            for t in threading.enumerate()
+            if t not in before and t.name == "console-device-set"
+        )
+        assert win.close()
+        win.deleteLater()
+        qtbot.waitUntil(lambda: not shiboken6.isValid(win), timeout=3000)
+        panel.release.set()  # set() returns; the emit now targets a dead window
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert unhandled == []
+
 
 def _auto_answer(monkeypatch, role):
     """Make the next QMessageBox return non-blocking, choosing *role*'s button."""

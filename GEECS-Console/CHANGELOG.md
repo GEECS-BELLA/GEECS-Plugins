@@ -4,6 +4,22 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.6.2] - 2026-07-12
+
+### Fixed
+
+- Device-set completion no longer raises `RuntimeError: Signal source has
+  been deleted` on its daemon thread when the window is closed and
+  C++-deleted while the blocking set is still in flight (`closeEvent`
+  deliberately never joins that thread).  The single
+  `device_set_finished.emit` site in `_run_device_set` now swallows the
+  torn-down-window `RuntimeError` — harmless in production, but it was an
+  intermittent `PytestUnhandledThreadExceptionWarning` (~1 in 2 full
+  offscreen suite runs), surfacing under whichever unrelated test the
+  straggler thread finished during.  Pinned by a deterministic regression
+  test that blocks a fake backend's `set()` until after the window is
+  deleted.
+
 ## [0.6.1] - 2026-07-12
 
 ### Added
