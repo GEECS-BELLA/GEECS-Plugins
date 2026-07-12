@@ -4,17 +4,31 @@ import pytest
 from PySide6.QtCore import Qt
 
 from geecs_console.app.main_window import MainWindow
-from geecs_console.request_builder import ConsoleMode, build_scan_request
+from geecs_console.request_builder import (
+    ConsoleFormState,
+    ConsoleMode,
+    FormAxis,
+    build_scan_request,
+)
 from geecs_console.services.configs import ConfigListing, UnionPreview
 from geecs_console.services.health import HealthReport, HealthStatus
+from geecs_console.services.presets import PresetStoreError
 from geecs_schemas import ScanRequestMode
 
 
 class FakeConfigs:
     """ConsoleConfigs stand-in: fixed listings, no filesystem."""
 
-    def __init__(self, save_sets=(), trigger_profiles=(), scan_variables=()):
-        self.experiment = "TestExp"
+    def __init__(
+        self,
+        save_sets=(),
+        trigger_profiles=(),
+        scan_variables=(),
+        experiment="TestExp",
+        experiments=("TestExp",),
+    ):
+        self.experiment = experiment
+        self._experiments = list(experiments)
         self._save_sets = list(save_sets)
         self._trigger_profiles = list(trigger_profiles)
         self._scan_variables = list(scan_variables)
@@ -24,7 +38,7 @@ class FakeConfigs:
 
     def listing(self):
         return ConfigListing(
-            experiments=["TestExp"],
+            experiments=self._experiments,
             save_sets=self._save_sets,
             trigger_profiles=self._trigger_profiles,
             scan_variables=self._scan_variables,
@@ -67,6 +81,42 @@ class FakeHealth:
         return HealthReport(gateway=HealthStatus.DOWN)
 
 
+class FakePresetStore:
+    """PresetStore stand-in: an in-memory name -> ScanRequest dict."""
+
+    def __init__(self, presets=None):
+        self.presets = dict(presets or {})
+        self.experiment = "TestExp"
+        self.saved = []
+
+    def set_experiment(self, experiment):
+        self.experiment = experiment
+
+    def list_names(self):
+        return sorted(self.presets)
+
+    def load(self, name):
+        if name not in self.presets:
+            raise PresetStoreError(f"Preset {name!r} not found.")
+        return self.presets[name]
+
+    def save(self, name, request):
+        self.presets[name] = request
+        self.saved.append((name, request))
+
+    def delete(self, name):
+        if name not in self.presets:
+            raise PresetStoreError(f"Preset {name!r} not found.")
+        del self.presets[name]
+
+
+class FakeSettings:
+    """ConsoleSettings stand-in: a plain attribute, no QSettings."""
+
+    def __init__(self, last_experiment=""):
+        self.last_experiment = last_experiment
+
+
 @pytest.fixture
 def window(qtbot):
     configs = FakeConfigs(
@@ -74,7 +124,12 @@ def window(qtbot):
         trigger_profiles=["HTU-Standard"],
         scan_variables=["jet_x", "jet_z"],
     )
-    win = MainWindow(configs=configs, submitter=FakeSubmitter())
+    win = MainWindow(
+        configs=configs,
+        presets=FakePresetStore(),
+        settings=FakeSettings(),
+        submitter=FakeSubmitter(),
+    )
     qtbot.addWidget(win)
     return win
 
@@ -588,3 +643,268 @@ class TestOperatorDialog:
         delivered queued onto the GUI thread — the only place the modal may run.
         """
         assert window.events.thread() is window.thread()
+
+
+def preset_request(**overrides):
+    """A representative 1D ScanRequest the FakeConfigs listings can render."""
+    form = dict(
+        mode=ConsoleMode.ONE_D,
+        axes=[FormAxis(variable="jet_z", start=-1.0, stop=2.0, step=0.5)],
+        shots_per_step=7,
+        save_sets=["EBeamDiags"],
+        trigger_profile="HTU-Standard",
+        trigger_variant="laser_off",
+        description="preset check",
+    )
+    form.update(overrides)
+    return build_scan_request(ConsoleFormState(**form))
+
+
+class TestPresets:
+    def _select_preset(self, window, name):
+        window._refresh_presets()
+        window.preset_combo.setCurrentIndex(window.preset_combo.findText(name))
+
+    def test_save_as_invokes_store_with_built_request(self, window, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog
+
+        monkeypatch.setattr(
+            QInputDialog, "getText", staticmethod(lambda *a, **k: ("MyPreset", True))
+        )
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        window._on_preset_save_as()
+        ((name, request),) = window._presets.saved
+        assert name == "MyPreset"
+        assert request.mode is ScanRequestMode.STEP
+        assert request.save_sets == ["Amp4In"]
+        assert request.axes[0].variable == "jet_x"
+        # The combo repopulated and now shows the new preset.
+        assert window.preset_combo.currentText() == "MyPreset"
+
+    def test_save_as_cancelled_dialog_saves_nothing(self, window, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog
+
+        monkeypatch.setattr(
+            QInputDialog, "getText", staticmethod(lambda *a, **k: ("ignored", False))
+        )
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        window._on_preset_save_as()
+        assert window._presets.saved == []
+
+    def test_save_as_invalid_form_reports_without_dialog(self, window, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog
+
+        def _fail(*a, **k):
+            raise AssertionError("dialog must not open for an invalid form")
+
+        monkeypatch.setattr(QInputDialog, "getText", staticmethod(_fail))
+        window.variable_combo.setCurrentText("jet_x")
+        window.step_spin.setValue(0.0)  # zero step -> unbuildable request
+        window._on_preset_save_as()
+        assert window._presets.saved == []
+        assert "Cannot save preset" in window.statusBar().currentMessage()
+
+    def test_save_error_surfaces_in_status_bar(self, window, monkeypatch):
+        from PySide6.QtWidgets import QInputDialog
+
+        monkeypatch.setattr(
+            QInputDialog, "getText", staticmethod(lambda *a, **k: ("MyPreset", True))
+        )
+
+        def _refuse(name, request):
+            raise PresetStoreError("Configs repo not found.")
+
+        window._presets.save = _refuse
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        window._on_preset_save_as()
+        assert "Configs repo not found" in window.statusBar().currentMessage()
+
+    def test_apply_populates_form(self, window):
+        window._presets.presets["align"] = preset_request()
+        self._select_preset(window, "align")
+        window._on_preset_apply()
+        assert window.radio_1d.isChecked()
+        assert window.variable_combo.currentText() == "jet_z"
+        assert window.start_spin.value() == -1.0
+        assert window.stop_spin.value() == 2.0
+        assert window.step_spin.value() == 0.5
+        assert window.shots_per_step.value() == 7
+        assert window.description_edit.text() == "preset check"
+        assert window.trigger_profile_combo.currentText() == "HTU-Standard"
+        assert window.trigger_variant_combo.currentText() == "laser_off"
+        assert window.selected_save_sets() == ["EBeamDiags"]
+        assert "total shots: 49" in window.shot_count_label.text()
+        # The applied form is submit-ready and rebuilds an equal request.
+        assert build_scan_request(window.form_state()) == preset_request()
+
+    def test_apply_noscan_preset_switches_mode(self, window):
+        window._presets.presets["stats"] = preset_request(
+            mode=ConsoleMode.NOSCAN,
+            axes=[],
+            shots_per_step=100,
+            trigger_profile=None,
+            trigger_variant=None,
+        )
+        self._select_preset(window, "stats")
+        window._on_preset_apply()
+        assert window.radio_noscan.isChecked()
+        assert window.shots_per_step.value() == 100
+        assert not window.variable_combo.isEnabled()
+
+    def test_apply_unmappable_preset_leaves_form_untouched(self, window):
+        from geecs_schemas import ScanRequest
+
+        window._presets.presets["3axis"] = ScanRequest.model_validate(
+            {
+                "mode": "step",
+                "axes": [
+                    {"variable": f"v{i}", "positions": {"values": [0.0, 1.0]}}
+                    for i in range(3)
+                ],
+            }
+        )
+        before = window.form_state()
+        self._select_preset(window, "3axis")
+        window._on_preset_apply()
+        assert "Cannot apply preset '3axis'" in window.statusBar().currentMessage()
+        assert window.form_state() == before
+
+    def test_apply_position_list_preset_reports_and_leaves_form(self, window):
+        window._presets.presets["list"] = preset_request(
+            axes=[FormAxis(variable="jet_z", values=[0.0, 0.5, 2.0])],
+            trigger_profile=None,
+            trigger_variant=None,
+        )
+        before = window.form_state()
+        self._select_preset(window, "list")
+        window._on_preset_apply()
+        assert "position list" in window.statusBar().currentMessage()
+        assert window.form_state() == before
+
+    def test_apply_skips_unknown_save_sets_with_warning(self, window):
+        window._presets.presets["mixed"] = preset_request(
+            save_sets=["EBeamDiags", "GhostSet"],
+            trigger_profile=None,
+            trigger_variant=None,
+        )
+        self._select_preset(window, "mixed")
+        window._on_preset_apply()
+        assert window.selected_save_sets() == ["EBeamDiags"]
+        assert "GhostSet" in window.log_tail.toPlainText()
+
+    def test_apply_with_nothing_selected_reports(self, window):
+        window._on_preset_apply()
+        assert "No preset selected" in window.statusBar().currentMessage()
+
+    def test_delete_updates_combo(self, window):
+        window._presets.presets["a"] = preset_request()
+        window._presets.presets["b"] = preset_request()
+        self._select_preset(window, "a")
+        window._on_preset_delete()
+        assert "a" not in window._presets.presets
+        assert [
+            window.preset_combo.itemText(i) for i in range(window.preset_combo.count())
+        ] == ["b"]
+
+    def test_delete_error_surfaces_in_status_bar(self, window):
+        window._presets.presets["a"] = preset_request()
+        self._select_preset(window, "a")
+        del window._presets.presets["a"]  # gone underneath us
+        window._on_preset_delete()
+        assert "Cannot delete preset 'a'" in window.statusBar().currentMessage()
+
+    def test_experiment_change_repoints_store_and_repopulates(self, qtbot):
+        class PerExperimentStore(FakePresetStore):
+            def __init__(self, by_experiment):
+                self.by_experiment = by_experiment
+                super().__init__()
+                self.set_experiment("TestExp")
+
+            def set_experiment(self, experiment):
+                super().set_experiment(experiment)
+                self.presets = dict(self.by_experiment.get(experiment, {}))
+
+        store = PerExperimentStore(
+            {
+                "TestExp": {"htu-align": preset_request()},
+                "Bella": {"bella-stats": preset_request()},
+            }
+        )
+        configs = FakeConfigs(experiments=["Bella", "TestExp"])
+        win = MainWindow(
+            configs=configs,
+            presets=store,
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert win.preset_combo.count() == 1
+        assert win.preset_combo.itemText(0) == "htu-align"
+        win.experiment_combo.setCurrentText("Bella")
+        assert store.experiment == "Bella"
+        assert win.preset_combo.itemText(0) == "bella-stats"
+
+
+class TestLastExperiment:
+    def test_remembered_experiment_restored_at_startup(self, qtbot):
+        configs = FakeConfigs(experiment="", experiments=["Bella", "TestExp"])
+        settings = FakeSettings(last_experiment="Bella")
+        win = MainWindow(
+            configs=configs,
+            presets=FakePresetStore(),
+            settings=settings,
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert win.experiment_combo.currentText() == "Bella"
+        assert configs.experiment == "Bella"
+
+    def test_remembered_experiment_not_in_list_is_ignored(self, qtbot):
+        configs = FakeConfigs(experiment="", experiments=["TestExp"])
+        settings = FakeSettings(last_experiment="Ghost")
+        win = MainWindow(
+            configs=configs,
+            presets=FakePresetStore(),
+            settings=settings,
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert win.experiment_combo.currentIndex() == -1
+        assert configs.experiment == ""
+
+    def test_explicit_experiment_wins_over_memory(self, qtbot):
+        configs = FakeConfigs(experiment="TestExp", experiments=["Bella", "TestExp"])
+        settings = FakeSettings(last_experiment="Bella")
+        win = MainWindow(
+            configs=configs,
+            presets=FakePresetStore(),
+            settings=settings,
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert win.experiment_combo.currentText() == "TestExp"
+        assert configs.experiment == "TestExp"
+
+    def test_experiment_change_is_remembered(self, window):
+        window._on_experiment_changed("Bella")
+        assert window._settings.last_experiment == "Bella"
+
+    def test_qsettings_default_persists_across_windows(self, qtbot):
+        """No injected settings: the real ConsoleSettings (isolated to the
+        test's tmp QSettings path by conftest) carries the selection from
+        one window to the next."""
+        configs1 = FakeConfigs(experiment="", experiments=["Bella", "TestExp"])
+        win1 = MainWindow(
+            configs=configs1, presets=FakePresetStore(), submitter=FakeSubmitter()
+        )
+        qtbot.addWidget(win1)
+        win1.experiment_combo.setCurrentText("Bella")
+        configs2 = FakeConfigs(experiment="", experiments=["Bella", "TestExp"])
+        win2 = MainWindow(
+            configs=configs2, presets=FakePresetStore(), submitter=FakeSubmitter()
+        )
+        qtbot.addWidget(win2)
+        assert win2.experiment_combo.currentText() == "Bella"

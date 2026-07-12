@@ -11,6 +11,7 @@ from geecs_console.request_builder import (
     FormAxis,
     build_scan_request,
     estimate_total_shots,
+    form_state_from_request,
 )
 from geecs_schemas import (
     AcquisitionMode,
@@ -203,3 +204,100 @@ class TestGuardsAndModes:
             FormAxis(variable="jet_x", start=0.0)
         with pytest.raises(ValidationError, match="not both"):
             FormAxis(variable="jet_x", start=0.0, stop=1.0, step=0.5, values=[1.0])
+
+
+class TestFormStateFromRequest:
+    """The Apply inverse: request -> form state, round-trip exact."""
+
+    def round_trip(self, form: ConsoleFormState) -> ConsoleFormState:
+        return form_state_from_request(build_scan_request(form))
+
+    def test_noscan_round_trips_exactly(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.NOSCAN,
+            shots_per_step=100,
+            save_sets=["Amp4In"],
+            description="stats run",
+        )
+        assert self.round_trip(form) == form
+
+    def test_background_round_trips_to_background_mode(self):
+        form = ConsoleFormState(mode=ConsoleMode.BACKGROUND, shots_per_step=50)
+        assert self.round_trip(form) == form
+
+    def test_one_d_round_trips_exactly(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.ONE_D,
+            axes=[FormAxis(variable="jet_x", start=0.0, stop=1.0, step=0.25)],
+            shots_per_step=10,
+            save_sets=["Amp4In", "EBeamDiags"],
+            trigger_profile="HTU-Standard",
+            trigger_variant="laser_off",
+            acquisition=AcquisitionMode.STRICT,
+            description="align the jet",
+        )
+        assert self.round_trip(form) == form
+
+    def test_grid_round_trips_exactly(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.GRID,
+            axes=[
+                FormAxis(variable="jet_x", start=0.0, stop=1.0, step=0.5),
+                FormAxis(variable="jet_z", start=-1.0, stop=1.0, step=1.0),
+            ],
+            shots_per_step=3,
+        )
+        assert self.round_trip(form) == form
+
+    def test_position_list_round_trips_exactly(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.ONE_D,
+            axes=[FormAxis(variable="jet_x", values=[0.0, 0.5, 2.0, 8.0])],
+        )
+        assert self.round_trip(form) == form
+
+    def test_step_scan_keeps_the_background_flag(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.ONE_D,
+            axes=[FormAxis(variable="jet_x", start=0.0, stop=1.0, step=0.5)],
+            background=True,
+        )
+        assert self.round_trip(form) == form
+
+    def test_yaml_round_trip_survives_serialization(self):
+        """Preset parity: form -> request -> YAML dict -> request -> form."""
+        form = ConsoleFormState(
+            mode=ConsoleMode.ONE_D,
+            axes=[FormAxis(variable="jet_x", start=0.0, stop=1.0, step=0.25)],
+            shots_per_step=10,
+            save_sets=["Amp4In"],
+            trigger_profile="HTU-Standard",
+        )
+        request = build_scan_request(form)
+        reloaded = ScanRequest.model_validate(request.model_dump(mode="json"))
+        assert form_state_from_request(reloaded) == form
+
+    def test_optimize_request_raises_console_form_error(self):
+        from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
+
+        request = ScanRequest(
+            mode=ScanRequestMode.OPTIMIZE,
+            optimization=OptimizationSpec(
+                variables={"jet_x": (0.0, 1.0)},
+                objectives={"counts": "MAXIMIZE"},
+                evaluator=EvaluatorSpec(module="m", class_name="C"),
+                generator=GeneratorSpec(name="random"),
+            ),
+        )
+        with pytest.raises(ConsoleFormError, match="[Oo]ptimization"):
+            form_state_from_request(request)
+
+    def test_action_bindings_raise_console_form_error(self):
+        from geecs_schemas import ActionBindings
+
+        request = ScanRequest(
+            mode=ScanRequestMode.NOSCAN,
+            actions=ActionBindings(setup=["warmup"]),
+        )
+        with pytest.raises(ConsoleFormError, match="action bindings"):
+            form_state_from_request(request)

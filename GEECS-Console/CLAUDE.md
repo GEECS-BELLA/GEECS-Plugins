@@ -22,8 +22,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   Grid-only), shots per step, acquisition combo (free_run default, strict —
   the request declares intent), live shot count with the
   `MAXIMUM_SCAN_SIZE = 1e6` guard, description.
-- **R4 presets** — combo + Apply + Save-as.  A preset IS a saved
-  `ScanRequest`; persistence not wired yet.
+- **R4 presets** — combo + Apply + Save-as + Delete.  A preset IS a saved
+  `ScanRequest`; **persistence live** (see Implemented seams): YAML files
+  in the configs repo's per-experiment `presets/` dir.
 - **R5 submit row** — Stop (danger) + Start (primary).  Start requires: not
   scanning, ≥1 selected save set, valid shot count within the guard, mode
   not Optimization.
@@ -47,8 +48,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   a request; keep it a pure function, keep widgets out of it.
 - **The window depends on seams, not implementations**: `Submitter`
   (protocol over `BlueskyScanner`'s four ScanManager-compatible methods),
-  `ConsoleConfigs`, `HealthProbe`, `ScanEventsAdapter`.  All constructor-
-  injectable; every test drives the window with fakes.
+  `ConsoleConfigs`, `HealthProbe`, `ScanEventsAdapter`, `PresetStore`,
+  `ConsoleSettings`.  All constructor-injectable; every test drives the
+  window with fakes.
 - **Offline-first**: the window must open and run with zero network and
   zero configs.  `geecs_bluesky` is imported lazily (function-level) in
   `submission.py` and `services/configs.py` — it pulls `aioca` at package
@@ -110,6 +112,36 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   All real imports are lazy (module import-safe offline); `closeEvent`
   unsubscribes and disconnects, never joins.  Inject the real backend in
   `main.py`; keep `StubDevicePanel` as the window's default.
+- **Presets (R4)** are live via `PresetStore` (`services/presets.py`), the
+  constructor-injectable persistence seam.  A preset IS a saved
+  `ScanRequest`: one YAML file per preset at
+  `scanner_configs/experiments/<Experiment>/presets/<name>.yaml` (beside
+  the config kinds `ConfigsRepoResolver` reads), written as
+  `model_dump(mode="json")` and loaded through
+  `ScanRequest.model_validate`.  Save-as goes current form →
+  `build_scan_request` → store (name from a `QInputDialog`, overwrite
+  allowed); Apply goes store → `form_state_from_request` — the **pure
+  inverse** of `build_scan_request`, next to it in `request_builder.py`,
+  widgets kept out — → `_apply_form_state`, which validates everything the
+  widgets cannot express *before* touching any of them (optimize presets,
+  action bindings, explicit position lists, >2 axes ⇒ status-bar error,
+  form untouched; unknown save-set names are skipped with a warning).
+  Listing never raises (missing configs repo ⇒ empty); save/load/delete
+  raise `PresetStoreError` surfaced in the status bar.  Creating the
+  `presets/` dir with `mkdir(parents=True, exist_ok=True)` is deliberate —
+  it is a config dir, not a `scans/ScanNNN/` folder, so the repo's
+  scan-folder invariant does not apply.  The combo repopulates on
+  experiment change and after save/delete.
+- **Last-experiment memory**: `ConsoleSettings` (`services/settings.py`) is
+  a tiny QSettings-backed helper (`GEECS`/`GEECS-Console`, **INI format**
+  so `QSettings.setPath` redirection works in tests) — deliberately not a
+  framework; future GUI state becomes more properties on it.  The window
+  writes `last_experiment` on every experiment change and restores it at
+  startup only when no experiment was passed explicitly and the name is
+  still in the combo (restoring fires the normal experiment-changed path,
+  so configs, presets, health probe, and device panel all follow).
+  Constructor-injectable; `tests/conftest.py` isolates the user scope to a
+  per-test tmp path so no test touches real settings.
 
 ## Stubbed seams (intentional, wire later)
 
@@ -117,8 +149,6 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   placeholder) — `ConsoleConfigs` has no device/variable listing yet.  The
   natural source is a `GeecsDb` enumeration (device → `get='yes'`
   variables), populated the way the other combos are.
-- Presets persistence (save/load ScanRequest YAML; a preset dir in the
-  configs repo is the natural home).
 - Optimization mode: radio exists, submission refused with a clear error
   until an `OptimizationSpec` editor exists.
 - Scan-number source: `set_scan_number` + the 10 s expiry exist, but no

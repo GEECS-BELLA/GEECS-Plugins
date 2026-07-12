@@ -4,6 +4,38 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.4.0] - 2026-07-11
+
+### Added
+
+- Presets persistence (R4): the stub handlers are replaced by a
+  `PresetStore` seam (`services/presets.py`).  A preset IS a saved
+  `ScanRequest` — one YAML file per preset
+  (`scanner_configs/experiments/<Experiment>/presets/<name>.yaml`, a plain
+  `model_dump(mode="json")` document round-tripped through
+  `ScanRequest.model_validate`), living beside the other per-experiment
+  config kinds `ConfigsRepoResolver` reads.  Listing degrades to empty with
+  no configs repo; load/save/delete raise `PresetStoreError` with a message
+  the window surfaces in the status bar.  Constructor-injectable into
+  `MainWindow` (tests drive a fake or a tmp-dir-backed store).
+- Save-as: current form → `build_scan_request` → store, named via a
+  `QInputDialog` (overwrite allowed); the combo repopulates and selects the
+  new preset.  Apply: selected preset → `form_state_from_request` (the new
+  pure inverse of `build_scan_request`, beside it in `request_builder.py`)
+  → form widgets.  Content the form cannot express — an optimize preset,
+  action bindings, explicit position lists, more than two axes — reports a
+  clear status-bar error and leaves the form untouched; preset save-set
+  names missing from the experiment's configs are skipped with a warning.
+  Delete: a Delete button beside Save-as removes the selected preset.  The
+  combo repopulates on experiment change and after save/delete.
+- Last-experiment memory: the last selected experiment persists across
+  sessions via `ConsoleSettings` (`services/settings.py`, a tiny
+  QSettings-backed helper — `GEECS` / `GEECS-Console`, INI format) and is
+  restored at startup when nothing was selected explicitly and the name is
+  still in the combo's list — so the health probe, configs, presets, and
+  device panel all reopen pointed at it.  Constructor-injectable; tests
+  redirect QSettings to a per-test tmp path.
+
 ## [0.3.0] - 2026-07-11
 
 ### Added

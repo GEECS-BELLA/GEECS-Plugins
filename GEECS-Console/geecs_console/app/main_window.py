@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QDoubleSpinBox,
+    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -47,8 +48,11 @@ from geecs_console.request_builder import (
     FormAxis,
     build_scan_request,
     estimate_total_shots,
+    form_state_from_request,
 )
 from geecs_console.services.configs import ConsoleConfigs
+from geecs_console.services.presets import PresetStore, PresetStoreError
+from geecs_console.services.settings import ConsoleSettings
 from geecs_console.services.device_panel import (
     DevicePanelBackend,
     StubDevicePanel,
@@ -187,6 +191,13 @@ class MainWindow(QMainWindow):
         R7 readback/set backend; default is the no-op stub (readback never
         updates, sets report unwired).  ``main.py`` injects the real
         :class:`~geecs_console.services.device_panel.GatewayDevicePanel`.
+    presets : PresetStore, optional
+        R4 preset persistence (a preset IS a saved ``ScanRequest``); tests
+        inject a fake or a tmp-dir-backed store, default reads/writes the
+        experiment's ``presets/`` dir in the configs repo.
+    settings : ConsoleSettings, optional
+        Persisted GUI state (last selected experiment); tests inject one
+        backed by a tmp INI file, default is the user-scope QSettings store.
     submitter : Submitter, optional
         Scan engine; tests inject a fake.  When ``None`` one is built
         lazily by *submitter_factory* on the first Start click.
@@ -209,6 +220,8 @@ class MainWindow(QMainWindow):
         configs: Optional[ConsoleConfigs] = None,
         health: Optional[HealthProbe] = None,
         device_panel: Optional[DevicePanelBackend] = None,
+        presets: Optional[PresetStore] = None,
+        settings: Optional[ConsoleSettings] = None,
         submitter: Optional[Submitter] = None,
         submitter_factory: Optional[Callable[..., Submitter]] = None,
     ) -> None:
@@ -218,6 +231,10 @@ class MainWindow(QMainWindow):
         self._device_panel = (
             device_panel if device_panel is not None else StubDevicePanel()
         )
+        self._presets = (
+            presets if presets is not None else PresetStore(self._configs.experiment)
+        )
+        self._settings = settings if settings is not None else ConsoleSettings()
         self._device_set_in_flight = False
         self._submitter = submitter
         self._submitter_factory = (
@@ -243,6 +260,7 @@ class MainWindow(QMainWindow):
         self._scan_number_timer.timeout.connect(self._expire_scan_number)
 
         self._populate_from_configs()
+        self._restore_last_experiment()
         # Chips read UNKNOWN until the first background poll returns; seed the
         # markup synchronously (no probe call — never touches the network).
         self._apply_health_report(HealthReport())
@@ -339,6 +357,7 @@ class MainWindow(QMainWindow):
         self.preset_combo: QComboBox = self._child(QComboBox, "r4_preset_combo")
         self.apply_button: QPushButton = self._child(QPushButton, "r4_apply_button")
         self.save_as_button: QPushButton = self._child(QPushButton, "r4_save_as_button")
+        self.delete_button: QPushButton = self._child(QPushButton, "r4_delete_button")
         # R5 submit row
         self.stop_button: QPushButton = self._child(QPushButton, "r5_stop_button")
         self.start_button: QPushButton = self._child(QPushButton, "r5_start_button")
@@ -409,8 +428,9 @@ class MainWindow(QMainWindow):
         )
         self.start_button.clicked.connect(self._on_start_clicked)
         self.stop_button.clicked.connect(self._on_stop_clicked)
-        self.apply_button.clicked.connect(self._on_preset_stub)
-        self.save_as_button.clicked.connect(self._on_preset_stub)
+        self.apply_button.clicked.connect(self._on_preset_apply)
+        self.save_as_button.clicked.connect(self._on_preset_save_as)
+        self.delete_button.clicked.connect(self._on_preset_delete)
 
         # R7 device panel.  Selection commits (dropdown pick / Enter / focus
         # leave) resubscribe the readback; per-keystroke edits only regate the
@@ -481,6 +501,7 @@ class MainWindow(QMainWindow):
         if listing.message:
             self.statusBar().showMessage(listing.message, 10_000)
             self.append_log(listing.message)
+        self._refresh_presets()
         self._refresh_union_preview()
         self._refresh_shot_count()
 
@@ -782,10 +803,28 @@ class MainWindow(QMainWindow):
     def _on_experiment_changed(self, experiment: str) -> None:
         """Repopulate everything for the newly selected experiment."""
         self._configs.set_experiment(experiment)
+        self._presets.set_experiment(experiment)
+        self._settings.last_experiment = experiment
         self._push_experiment_to_probe(experiment)
         self._populate_from_configs()
         # The readback PV is experiment-prefixed — re-point the monitor.
         self._resubscribe_device()
+
+    def _restore_last_experiment(self) -> None:
+        """Select the remembered experiment at startup (explicit choice wins).
+
+        Runs once from the constructor, after the combo is populated.  A
+        remembered experiment is restored only when nothing was selected
+        explicitly and the name is still in the combo's list; selecting it
+        fires :meth:`_on_experiment_changed`, so configs, presets, the
+        health probe, and the device panel all follow.
+        """
+        if self._configs.experiment:
+            return
+        remembered = self._settings.last_experiment
+        if not remembered or self.experiment_combo.findText(remembered) < 0:
+            return
+        self.experiment_combo.setCurrentText(remembered)
 
     def _on_trigger_profile_changed(self, profile: str) -> None:
         """Repopulate the variant combo for the selected trigger profile."""
@@ -865,14 +904,177 @@ class MainWindow(QMainWindow):
         self._refresh_submit_enabled()
 
     # ------------------------------------------------------------------
-    # R4 stub
+    # R4 presets (a preset IS a saved ScanRequest)
     # ------------------------------------------------------------------
 
-    def _on_preset_stub(self) -> None:
-        """R4 placeholder: presets are scan requests, not wired yet."""
-        self.statusBar().showMessage(
-            "Presets are not wired yet (a preset is a saved ScanRequest).", 10_000
+    def _report(self, message: str) -> None:
+        """Show *message* in the status bar and append it to the log tail.
+
+        Parameters
+        ----------
+        message : str
+            The operator-facing line.
+        """
+        self.statusBar().showMessage(message, 10_000)
+        self.append_log(message)
+
+    def _refresh_presets(self) -> None:
+        """Repopulate the R4 combo from the store, keeping the selection."""
+        current = self.preset_combo.currentText()
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItems(self._presets.list_names())
+        # findText returns -1 when the previous selection is gone, which
+        # setCurrentIndex(-1) renders as "nothing selected" — exactly right.
+        self.preset_combo.setCurrentIndex(self.preset_combo.findText(current))
+        self.preset_combo.blockSignals(False)
+
+    def _on_preset_save_as(self) -> None:
+        """R4 Save-as: current form → ScanRequest → named YAML in the store."""
+        try:
+            request = build_scan_request(self.form_state())
+        except (ConsoleFormError, ValidationError) as exc:
+            self._report(f"Cannot save preset: {exc}")
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            "Save preset",
+            "Preset name:",
+            text=self.preset_combo.currentText(),
         )
+        name = name.strip()
+        if not accepted or not name:
+            return
+        try:
+            self._presets.save(name, request)
+        except PresetStoreError as exc:
+            self._report(f"Cannot save preset: {exc}")
+            return
+        self._refresh_presets()
+        self.preset_combo.setCurrentText(name)
+        self._report(f"Saved preset {name!r}.")
+
+    def _on_preset_apply(self) -> None:
+        """R4 Apply: load the selected preset and populate the form from it.
+
+        Anything unloadable or inexpressible on the form (a missing or
+        invalid file, an optimize preset, action bindings, explicit position
+        lists, more than two axes) reports a status-bar error and leaves the
+        form untouched.
+        """
+        name = self.preset_combo.currentText()
+        if not name:
+            self._report("No preset selected.")
+            return
+        try:
+            form = form_state_from_request(self._presets.load(name))
+            self._apply_form_state(form)
+        except (PresetStoreError, ConsoleFormError) as exc:
+            self._report(f"Cannot apply preset {name!r}: {exc}")
+            return
+        self._report(f"Applied preset {name!r}.")
+
+    def _on_preset_delete(self) -> None:
+        """R4 Delete: remove the selected preset and refresh the combo."""
+        name = self.preset_combo.currentText()
+        if not name:
+            self._report("No preset selected.")
+            return
+        try:
+            self._presets.delete(name)
+        except PresetStoreError as exc:
+            self._report(f"Cannot delete preset {name!r}: {exc}")
+            return
+        self._refresh_presets()
+        self._report(f"Deleted preset {name!r}.")
+
+    def _apply_form_state(self, form: ConsoleFormState) -> None:
+        """Populate the R1–R3 form widgets from *form* (the Apply inverse).
+
+        Validates everything the widgets cannot express **before** touching
+        any of them, so a failed apply leaves the form exactly as it was.
+
+        Parameters
+        ----------
+        form : ConsoleFormState
+            The form snapshot to render (usually from
+            :func:`form_state_from_request`).
+
+        Raises
+        ------
+        ConsoleFormError
+            More than two axes (the form has two axis rows) or an axis with
+            an explicit values list (the form only shows start/stop/step).
+        """
+        if len(form.axes) > 2:
+            raise ConsoleFormError(
+                f"it sweeps {len(form.axes)} axes — the form has two axis rows."
+            )
+        for axis in form.axes:
+            if axis.values is not None:
+                raise ConsoleFormError(
+                    f"axis {axis.variable!r} uses an explicit position list, "
+                    "which the form cannot show (start/stop/step only)."
+                )
+
+        radio = {
+            ConsoleMode.NOSCAN: self.radio_noscan,
+            ConsoleMode.ONE_D: self.radio_1d,
+            ConsoleMode.GRID: self.radio_grid,
+            ConsoleMode.OPTIMIZATION: self.radio_optimization,
+            ConsoleMode.BACKGROUND: self.radio_background,
+        }[form.mode]
+        radio.setChecked(True)
+
+        axis_rows = (
+            (self.variable_combo, self.start_spin, self.stop_spin, self.step_spin),
+            (self.variable2_combo, self.start2_spin, self.stop2_spin, self.step2_spin),
+        )
+        for axis, (combo, start, stop, step) in zip(form.axes, axis_rows):
+            combo.setCurrentText(axis.variable)
+            start.setValue(axis.start)
+            stop.setValue(axis.stop)
+            step.setValue(axis.step)
+
+        self.shots_per_step.setValue(form.shots_per_step)
+        self.acquisition_combo.setCurrentText(form.acquisition.value)
+        self.description_edit.setText(form.description)
+        self.trigger_profile_combo.setCurrentText(form.trigger_profile or "")
+        # Changing the profile text repopulated the variant combo (the
+        # currentTextChanged handler); now pick the preset's variant.
+        self.trigger_variant_combo.setCurrentText(form.trigger_variant or "")
+        self._apply_save_sets(form.save_sets)
+        self._refresh_shot_count()
+
+    def _apply_save_sets(self, names: list[str]) -> None:
+        """Make the R2 selected list exactly *names* (known ones, in order).
+
+        Save-set names the current experiment's configs don't list are
+        skipped with a status-bar warning — putting an unresolvable name in
+        the selected list would only fail later, at submission.
+
+        Parameters
+        ----------
+        names : list of str
+            The preset's save-set names, in list order.
+        """
+        known = set(self.selected_save_sets()) | {
+            self.available_list.item(row).text()
+            for row in range(self.available_list.count())
+        }
+        selected = [name for name in names if name in known]
+        missing = [name for name in names if name not in known]
+        self.selected_list.clear()
+        self.selected_list.addItems(selected)
+        self.available_list.clear()
+        self.available_list.addItems(sorted(known - set(selected)))
+        if missing:
+            self._report(
+                "Preset save sets not in this experiment's configs "
+                f"(skipped): {', '.join(missing)}"
+            )
+        self._refresh_union_preview()
+        self._refresh_submit_enabled()
 
     # ------------------------------------------------------------------
     # R7 device panel

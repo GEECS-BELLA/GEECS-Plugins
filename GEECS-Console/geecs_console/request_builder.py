@@ -242,3 +242,79 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
         description=form.description,
         background=form.background or form.mode is ConsoleMode.BACKGROUND,
     )
+
+
+def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
+    """Invert :func:`build_scan_request`: a saved request back into form state.
+
+    This is the Apply half of presets (a preset IS a saved
+    :class:`~geecs_schemas.ScanRequest`).  It is pure — no widgets — and
+    strict: content the scan form cannot express raises instead of being
+    silently dropped, so applying then re-saving a preset never loses part
+    of it.
+
+    Parameters
+    ----------
+    request : ScanRequest
+        The saved request to translate.
+
+    Returns
+    -------
+    ConsoleFormState
+        Form state that :func:`build_scan_request` maps back onto an
+        equivalent request.  A ``noscan`` with the ``background`` flag
+        becomes :attr:`ConsoleMode.BACKGROUND` (the same folding the
+        builder applies in the other direction).
+
+    Raises
+    ------
+    ConsoleFormError
+        For an ``optimize`` request (no OptimizationSpec editor yet) or a
+        request carrying action bindings — both inexpressible on the form.
+    """
+    if request.mode is ScanRequestMode.OPTIMIZE:
+        raise ConsoleFormError(
+            "This preset is an optimization scan — the console form cannot "
+            "express it (no OptimizationSpec editor yet)."
+        )
+    if request.actions.setup or request.actions.per_step or request.actions.closeout:
+        raise ConsoleFormError(
+            "This preset carries action bindings (setup/per_step/closeout), "
+            "which the console form cannot express — applying it would drop "
+            "them on the next save or submit."
+        )
+
+    if request.mode is ScanRequestMode.NOSCAN:
+        mode = ConsoleMode.BACKGROUND if request.background else ConsoleMode.NOSCAN
+        background = False  # folded into the mode, mirroring the builder
+        axes: list[FormAxis] = []
+    else:
+        mode = ConsoleMode.ONE_D if len(request.axes) == 1 else ConsoleMode.GRID
+        background = request.background
+        axes = []
+        for axis in request.axes:
+            if isinstance(axis.positions, PositionList):
+                axes.append(
+                    FormAxis(variable=axis.variable, values=axis.positions.to_values())
+                )
+            else:
+                axes.append(
+                    FormAxis(
+                        variable=axis.variable,
+                        start=axis.positions.start,
+                        stop=axis.positions.end,
+                        step=axis.positions.step,
+                    )
+                )
+
+    return ConsoleFormState(
+        mode=mode,
+        axes=axes,
+        shots_per_step=request.shots_per_step,
+        save_sets=list(request.save_sets),
+        trigger_profile=request.trigger_profile,
+        trigger_variant=request.trigger_variant,
+        acquisition=request.acquisition,
+        description=request.description,
+        background=background,
+    )
