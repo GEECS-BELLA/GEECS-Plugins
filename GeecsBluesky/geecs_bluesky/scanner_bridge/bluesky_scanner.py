@@ -230,6 +230,14 @@ class BlueskyScanner:
         self._scan_number: int | None = None
         # uid of the most recent run's start document (for the Tiled exporter)
         self._last_run_uid: str | None = None
+        # Ownership tracking for the shared session RunEngine (issue #511):
+        # the start-document uid of the run *this scanner* owns, plus the
+        # descriptor uids belonging to it.  Foreign runs (e.g. a headless
+        # GeecsSession scan driven directly on self._session) flow through
+        # the same _on_document subscription and must not mutate GUI
+        # progress; see _on_document for the claiming/matching rules.
+        self._active_run_uid: str | None = None
+        self._active_descriptor_uids: set[str] = set()
 
         # Devices held open between reinitialize() and scan completion
         self._motor: Any | None = None
@@ -545,12 +553,52 @@ class BlueskyScanner:
     # ------------------------------------------------------------------
 
     def _on_document(self, name: str, doc: dict) -> None:
+        """Route RunEngine documents into GUI progress — owned runs only.
+
+        The session RunEngine is shared: a foreign run (e.g. a headless
+        ``GeecsSession`` scan driven directly on ``self._session``) flows
+        through this same subscription.  A start document is claimed as
+        *ours* only while this scanner is RUNNING — every scan path sets
+        RUNNING before handing its plan to the (serial) RunEngine, so a
+        start document arriving while the scanner is idle/done is foreign.
+        Event documents carry a ``descriptor`` uid rather than the run
+        start uid, so descriptors of the claimed run are collected and
+        events are matched through them; foreign events never touch
+        ``_completed_shots`` or emit ``ScanStepEvent`` s (issue #511).
+
+        Residual limitation: a foreign run squeezed onto the RunEngine
+        after this scanner enters RUNNING but before its own plan opens
+        its run would still be mis-claimed.  The RunEngine executes plans
+        serially, so that window is only the bridge's pre-plan setup; a
+        full fix would need the plan to hand its run uid out-of-band.
+        """
         if name == "start":
+            if self._current_state != self._scan_state("RUNNING"):
+                return  # foreign run — this scanner has no scan in flight
+            self._active_run_uid = doc.get("uid")
+            self._active_descriptor_uids = set()
             self._last_run_uid = doc.get("uid")
             self._note_claimed_scan_number(doc.get("scan_number"))
+        elif name == "descriptor":
+            uid = doc.get("uid")
+            if (
+                uid is not None
+                and self._active_run_uid is not None
+                and doc.get("run_start") == self._active_run_uid
+            ):
+                self._active_descriptor_uids.add(uid)
         elif name == "event":
+            if doc.get("descriptor") not in self._active_descriptor_uids:
+                return  # event from a run this scanner does not own
             self._completed_shots += 1
             self._emit_step_progress(doc)
+        elif name == "stop":
+            if (
+                self._active_run_uid is not None
+                and doc.get("run_start") == self._active_run_uid
+            ):
+                self._active_run_uid = None
+                self._active_descriptor_uids = set()
 
     def _note_claimed_scan_number(self, scan_number: Any) -> None:
         """Carry an engine-claimed scan number into the lifecycle stream.

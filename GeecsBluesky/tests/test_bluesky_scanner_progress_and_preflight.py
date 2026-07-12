@@ -204,10 +204,28 @@ def _make_scanner(
     scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
+    scanner._last_run_uid = None
+    scanner._active_run_uid = None
+    scanner._active_descriptor_uids = set()
     scanner._RE = SimpleNamespace(
         state="idle", abort=lambda reason=None: None, _loop=_bg_loop()
     )
     return scanner
+
+
+def _begin_owned_run(
+    scanner: BlueskyScanner, uid: str = "run-1", descriptor: str = "desc-1"
+) -> str:
+    """Claim a run as this scanner's own (state RUNNING + start/descriptor).
+
+    Mirrors a real scan: the bridge sets RUNNING before the plan reaches the
+    RunEngine, then the run's start and descriptor documents flow through
+    ``_on_document``.  Returns the descriptor uid for the event documents.
+    """
+    scanner._current_state = scanner._scan_state("RUNNING")
+    scanner._on_document("start", {"uid": uid})
+    scanner._on_document("descriptor", {"uid": descriptor, "run_start": uid})
+    return descriptor
 
 
 def _noscan_config() -> SimpleNamespace:
@@ -272,9 +290,11 @@ def test_event_documents_emit_step_progress(monkeypatch) -> None:
     scanner._total_shots = 4
     scanner._total_steps = 2
 
-    scanner._on_document("start", {"uid": "abc"})
+    desc = _begin_owned_run(scanner, uid="abc")
     for bin_number in (1, 1, 2, 2):
-        scanner._on_document("event", {"data": {"bin_number": bin_number}})
+        scanner._on_document(
+            "event", {"descriptor": desc, "data": {"bin_number": bin_number}}
+        )
 
     assert scanner._last_run_uid == "abc"
     step_events = [e for e in events if isinstance(e, _FakeStepEvent)]
@@ -293,10 +313,11 @@ def test_progress_clamps_at_total_shots_for_tail_flush(monkeypatch) -> None:
     scanner._total_shots = 2
     scanner._total_steps = 1
 
-    scanner._on_document("event", {"data": {"bin_number": 1}})
-    scanner._on_document("event", {"data": {"bin_number": 1}})
+    desc = _begin_owned_run(scanner)
+    scanner._on_document("event", {"descriptor": desc, "data": {"bin_number": 1}})
+    scanner._on_document("event", {"descriptor": desc, "data": {"bin_number": 1}})
     # Tail flush: one extra event on the flush stream (no bin_number here).
-    scanner._on_document("event", {"data": {}})
+    scanner._on_document("event", {"descriptor": desc, "data": {}})
 
     assert [e.shots_completed for e in events] == [1, 2, 2]
     assert events[-1].step_index == 0  # clamped inside [0, total_steps)
@@ -310,12 +331,15 @@ def test_progress_without_callback_or_event_type_is_silent(monkeypatch) -> None:
     """No consumer or no geecs_scanner installed → counting still works."""
     scanner = _make_scanner(_FakeSession())
     scanner._total_shots = 2
-    scanner._on_document("event", {"data": {"bin_number": 1}})  # _on_event None
+    desc = _begin_owned_run(scanner)
+    scanner._on_document(
+        "event", {"descriptor": desc, "data": {"bin_number": 1}}
+    )  # _on_event None
 
     events: list = []
     scanner._on_event = events.append
     monkeypatch.setattr(bluesky_scanner, "ScanStepEvent", None)
-    scanner._on_document("event", {"data": {"bin_number": 1}})
+    scanner._on_document("event", {"descriptor": desc, "data": {"bin_number": 1}})
 
     assert events == []
     assert scanner._completed_shots == 2
@@ -331,7 +355,8 @@ def test_progress_survives_raising_callback(monkeypatch) -> None:
     scanner = _make_scanner(_FakeSession())
     scanner._on_event = bad_callback
     scanner._total_shots = 2
-    scanner._on_document("event", {"data": {"bin_number": 1}})
+    desc = _begin_owned_run(scanner)
+    scanner._on_document("event", {"descriptor": desc, "data": {"bin_number": 1}})
     assert scanner._completed_shots == 1
 
 
