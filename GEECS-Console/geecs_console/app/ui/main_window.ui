@@ -632,6 +632,16 @@
            </widget>
           </item>
           <item>
+           <widget class="QPushButton" name="r4_delete_button">
+            <property name="text">
+             <string>Delete</string>
+            </property>
+            <property name="toolTip">
+             <string>Delete the selected preset</string>
+            </property>
+           </widget>
+          </item>
+          <item>
            <spacer name="r4_spacer">
             <property name="orientation">
              <enum>Qt::Horizontal</enum>
