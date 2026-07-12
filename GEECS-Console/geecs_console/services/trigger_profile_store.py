@@ -33,6 +33,7 @@ from typing import Optional
 import yaml
 from pydantic import ValidationError
 
+from geecs_console.services._experiment_name import check_experiment_name
 from geecs_console.services.configs import TRIGGER_FOLDER, _configs_base
 from geecs_schemas import TriggerProfile
 from geecs_schemas.convert import SchemaConversionError, convert_shot_control
@@ -88,12 +89,20 @@ class TriggerProfileStore:
     # ------------------------------------------------------------------
 
     def _folder(self) -> Optional[Path]:
-        """Return the shot-control dir, or ``None`` offline/unselected."""
+        """Return the shot-control dir, or ``None`` offline/unselected.
+
+        Raises
+        ------
+        TriggerProfileStoreError
+            When the experiment name would escape the experiments root
+            (issue #513) — checked before any path join.
+        """
         root = self._experiments_root
         if root is None:
             root = _configs_base()
         if root is None or not self._experiment:
             return None
+        check_experiment_name(self._experiment, TriggerProfileStoreError)
         return root / self._experiment / TRIGGER_FOLDER
 
     def _folder_or_raise(self) -> Path:
@@ -107,7 +116,8 @@ class TriggerProfileStore:
         Raises
         ------
         TriggerProfileStoreError
-            When the configs repo is not found or no experiment is selected.
+            When the configs repo is not found, no experiment is selected,
+            or the experiment name would escape the experiments root.
         """
         root = self._experiments_root
         if root is None:
@@ -119,6 +129,7 @@ class TriggerProfileStore:
             )
         if not self._experiment:
             raise TriggerProfileStoreError("No experiment selected.")
+        check_experiment_name(self._experiment, TriggerProfileStoreError)
         return root / self._experiment / TRIGGER_FOLDER
 
     def _path(self, name: str) -> Path:
@@ -199,13 +210,19 @@ class TriggerProfileStore:
     # ------------------------------------------------------------------
 
     def list_names(self) -> list[str]:
-        """List the saved profile names, sorted; never raises.
+        """List the saved profile names, sorted.
 
         Returns
         -------
         list of str
             YAML file stems in the shot-control dir — empty when the configs
             repo, experiment folder, or shot-control dir is missing.
+
+        Raises
+        ------
+        TriggerProfileStoreError
+            When the experiment name would escape the experiments root
+            (issue #513); a merely *missing* folder is not an error.
         """
         folder = self._folder()
         if folder is None or not folder.is_dir():

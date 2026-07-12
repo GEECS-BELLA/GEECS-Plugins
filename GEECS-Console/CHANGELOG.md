@@ -4,6 +4,27 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.6.3] - 2026-07-12
+
+### Fixed
+
+- **Experiment-name path traversal in the config stores** (#513): the
+  experiment selector is editable, and four stores (`PresetStore`,
+  `SaveSetStore`, `TriggerProfileStore`, `ActionLibraryStore`) joined the
+  raw text onto the experiments root — and created parent directories on
+  save — without validating it, so a value like `../OtherExperiment`
+  escaped the intended experiment folder and could corrupt another
+  experiment's real lab configs.  Experiment-name validation is now
+  centralized in `services/_experiment_name.py::check_experiment_name`
+  (mirroring the guard `ScanVariableStore` already had, which now delegates
+  to it) and applied by all five stores **before any path join**: names
+  containing `/` or `\`, or equal to `.` / `..`, make load/save/list/delete
+  raise the store's own error with no directory created.  Pinned by
+  `tests/test_experiment_name_validation.py` (every store × traversal
+  variants, asserting the tmp configs tree stays untouched).  Making the
+  experiment combo non-editable (the other half of the issue) is deliberately
+  deferred as a main-window follow-up.
+
 ## [0.6.2] - 2026-07-12
 
 ### Fixed

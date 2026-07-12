@@ -35,6 +35,7 @@ from typing import Optional
 import yaml
 from pydantic import ValidationError
 
+from geecs_console.services._experiment_name import check_experiment_name
 from geecs_console.services.configs import _configs_base
 from geecs_schemas import ScanVariables
 
@@ -113,18 +114,17 @@ class ScanVariableStore:
     def _check_experiment(self) -> None:
         """Reject an experiment name that would escape the experiments root.
 
+        Delegates to the shared
+        :func:`~geecs_console.services._experiment_name.check_experiment_name`
+        guard every config store applies before any path join (issue #513).
+
         Raises
         ------
         ScanVariableStoreError
             When the experiment name contains a path separator or is a
             relative-path special name.
         """
-        name = self._experiment
-        if any(sep in name for sep in ("/", "\\")) or name in (".", ".."):
-            raise ScanVariableStoreError(
-                f"Experiment name {name!r} must be a plain folder name "
-                "(no path separators)."
-            )
+        check_experiment_name(self._experiment, ScanVariableStoreError)
 
     def _folder(self) -> Optional[Path]:
         """Return the ``scan_devices/`` dir, or ``None`` offline/unselected."""
