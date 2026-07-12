@@ -46,6 +46,53 @@ _SKIP_VARTYPES = {"image", "1darray"}
 _MAX_ENUM_STATES = 16
 _MAX_ENUM_STRING_LEN = 26
 
+# `choices` values that are bare type descriptors rather than option lists (the
+# `choice` table's low IDs double as type descriptors in the GEECS DB).
+_CHOICE_TYPE_DESCRIPTORS = _SKIP_VARTYPES | {"numeric", "string", "path"}
+
+
+def effective_vartype(variabletype: str | None, choices: str | None) -> str:
+    """Resolve the effective GEECS variable type from DB metadata.
+
+    The single source of truth for how the gateway interprets a DB variable
+    row's type — used by :meth:`DeviceSpec.from_db_metadata` when building
+    served specs *and* by the DB-hygiene audit
+    (:func:`geecs_ca_gateway.audit.audit_subscribed_variables`), so the audit
+    flags exactly what the gateway skips (#512).
+
+    The ``choice`` table's low IDs double as type descriptors, so when
+    ``choices`` is a bare descriptor word (``image``, ``1darray``, ``numeric``,
+    ``string``, ``path``) it is the AUTHORITATIVE type — even when
+    ``variabletype`` says otherwise (e.g. ``variabletype='choice'`` with
+    ``choices='image'`` is an image variable streaming raw bytes, not a
+    one-option enum).  Otherwise trust ``variabletype``; if it is blank, a real
+    option list is a ``choice``, else fall back to ``numeric``.
+
+    Parameters
+    ----------
+    variabletype : str or None
+        The DB ``variabletype`` column (may be blank/None).
+    choices : str or None
+        The DB ``choices`` column (an option list, a bare type descriptor,
+        or blank/None).
+
+    Returns
+    -------
+    str
+        The effective type, lower-cased: one of the descriptor words above,
+        a ``variabletype`` value, or ``"choice"`` / ``"numeric"`` fallbacks.
+    """
+    vartype = (variabletype or "").strip().lower()
+    raw_choices = (choices or "").strip()
+    descriptor = raw_choices.lower()
+    if descriptor in _CHOICE_TYPE_DESCRIPTORS:
+        return descriptor
+    if vartype:
+        return vartype
+    if "," in raw_choices:
+        return "choice"
+    return "numeric"
+
 
 class VariableSpec(BaseModel):
     """One GEECS variable exposed as EPICS PV(s).
@@ -189,28 +236,12 @@ class DeviceSpec(BaseModel):
             seen.add(var_name)
 
             override = dtypes.get(var_name)
-            vartype = (meta.get("variabletype") or "").strip().lower()
             raw_choices = (meta.get("choices") or "").strip()
-            descriptor = raw_choices.lower()
 
-            # The `choice` table's low IDs double as type descriptors, so when
-            # `choices` is a bare descriptor word it is the AUTHORITATIVE type —
-            # even when variabletype says otherwise (e.g. variabletype='choice'
-            # with choices='image' is an image variable streaming raw bytes, not a
-            # one-option enum). Otherwise trust variabletype; if it's blank, a real
-            # option list is a choice, else fall back to numeric.
-            if descriptor in _SKIP_VARTYPES or descriptor in (
-                "numeric",
-                "string",
-                "path",
-            ):
-                effective = descriptor
-            elif vartype:
-                effective = vartype
-            elif "," in raw_choices:
-                effective = "choice"
-            else:
-                effective = "numeric"
+            # Effective-type resolution (choice-descriptor quirks included)
+            # lives in the shared pure helper so the DB-hygiene audit applies
+            # the identical rules (see `effective_vartype`, #512).
+            effective = effective_vartype(meta.get("variabletype"), raw_choices)
 
             if override is None and effective in _SKIP_VARTYPES:
                 logger.debug(
