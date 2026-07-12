@@ -4,6 +4,65 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.6.0] - 2026-07-12
+
+### Added
+
+- **The four config editors** (built on their own branches, #504–#507, and
+  now wired into the main window): the save-set editor
+  (`editors/save_set_editor.py`), the scan-variable editor
+  (`editors/scan_variable_editor.py`), the trigger-profile / shot-control
+  editor (`editors/shot_control_editor.py`), and the action-library editor
+  (`editors/action_library_editor.py`).  Each exposes an
+  `open_*_editor(parent, experiment, configs_base=None, completions=None)`
+  entry point that shows a non-modal dialog and returns it.
+- **Editors menu wired** (replaces the placeholder): *Save Elements…*,
+  *Scan Variables…*, *Shot Control…*, *Action Library…*, each opening the
+  corresponding editor for the currently selected experiment.  Actions are
+  disabled while no experiment is selected; every opened dialog is
+  referenced on the window (`_open_editors`, pruned when closed) so PySide6
+  garbage collection cannot tear down a live editor.
+- **R7 device-combo autocomplete** (user report: "dropdown shows nothing"):
+  the device panel combo now lists `device:variable` completions from
+  `GeecsDbCompletions` for the current experiment, fetched at startup and
+  on experiment change — one blocking provider call on a short-lived daemon
+  thread, marshaled back through a queued signal (never on the GUI thread;
+  offline degrades to an empty dropdown with free text still working).
+  The combo stays editable; typed text survives repopulation; a stale fetch
+  racing an experiment change is dropped by experiment tag.  The provider
+  factory is constructor-injectable for tests.
+- **R7 parse feedback** (user report: silent nothing): committing device
+  text that doesn't parse as `Device:Variable` now shows
+  "Device format: DeviceName:Variable Name" in the status bar instead of
+  doing nothing (both on selection commit and on a Set attempt).
+- **R6 idle scan-number display** (user report): on startup and experiment
+  change the console peeks — strictly read-only — at today's daily `scans/`
+  folder for the highest existing `ScanNNN` and shows "Scan NNN (previous)"
+  (or keeps "No scans today").  The peek is resolution + listdir only and
+  NEVER creates anything on that path (repo scan-folder invariant, pinned
+  by tree-untouched tests); it runs on a daemon thread because the data
+  root is typically a slow network mount.  New read-only helper
+  `ops_paths.highest_scan_number`.  A live scan number on display is never
+  clobbered by the idle peek.
+- **Version from source** (user report: status bar said 0.1.0 while running
+  0.5.0 code — `importlib.metadata` reflects the last `poetry install`, not
+  the source tree): the status-bar/Help version now prefers the source tree
+  — `geecs_console/version.py::console_version` reads the adjacent
+  `pyproject.toml` (`[tool.poetry] version`) when present (dev checkout),
+  falling back to `importlib.metadata.version`, then to "unknown".
+- `BackgroundResult` (`app/main_window.py`): a small reusable
+  daemon-thread → queued-signal worker (the `HealthPoller` shape,
+  generalized) used by the completions fetch and the idle scan-number
+  probe.  The daemon thread emits on the worker, never on the window —
+  emitting a window-owned signal from a daemon thread races window teardown
+  and segfaults under offscreen pytest.
+
+### Fixed
+
+- `httpx` request logging is capped at WARNING in `configure_logging` — the
+  Tiled health probe's 5 s poll was writing one INFO line per request to
+  the console log, forever.
+
 ## [0.5.0] - 2026-07-11
 
 ### Added

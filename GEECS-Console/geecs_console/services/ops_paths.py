@@ -14,11 +14,15 @@ by the caller ("no scans today"), never created here.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+#: ``ScanNNN`` daily-folder entries (three or more digits, per convention).
+_SCAN_DIR_RE = re.compile(r"^Scan(\d{3,})$")
 
 GITHUB_URL = "https://github.com/GEECS-BELLA/GEECS-Plugins"
 
@@ -138,3 +142,40 @@ def todays_scan_folder(
     except Exception as exc:  # noqa: BLE001 — path building must not crash the GUI
         logger.info("today's scan folder unresolvable: %s", exc)
         return None
+
+
+def highest_scan_number(scans_dir: Optional[Path]) -> Optional[int]:
+    """Return the highest existing ``ScanNNN`` number — strictly read-only.
+
+    Peeks at an existing daily ``scans/`` folder for the R6 idle display
+    ("Scan NNN (previous)").  Resolution and listing only: nothing on this
+    path is ever created or modified (repo scan-folder invariant — the
+    scanner side is the only producer of scan folders).
+
+    Parameters
+    ----------
+    scans_dir : Path or None
+        The daily ``scans/`` folder (usually from
+        :func:`todays_scan_folder`); ``None`` or a missing/unreadable
+        directory yields ``None``.
+
+    Returns
+    -------
+    int or None
+        The largest ``NNN`` among ``ScanNNN`` subdirectories, or ``None``
+        when the folder is absent, unreadable, or holds no scan folders.
+    """
+    if scans_dir is None:
+        return None
+    try:
+        if not scans_dir.is_dir():
+            return None
+        numbers = [
+            int(match.group(1))
+            for entry in scans_dir.iterdir()
+            if entry.is_dir() and (match := _SCAN_DIR_RE.match(entry.name))
+        ]
+    except OSError as exc:  # a flaky network mount must not crash the GUI
+        logger.info("cannot list %s: %s", scans_dir, exc)
+        return None
+    return max(numbers) if numbers else None

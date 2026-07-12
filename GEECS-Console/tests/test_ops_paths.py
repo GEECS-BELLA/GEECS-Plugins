@@ -115,3 +115,47 @@ class TestTodaysScanFolder:
         monkeypatch.setattr(ScanPaths, "paths_config", FakePathsConfig())
         resolved = ops_paths.todays_scan_folder("", today=self.DAY)
         assert resolved == self.expected(tmp_path)
+
+
+class TestHighestScanNumber:
+    def make_scans(self, tmp_path: Path, *names: str) -> Path:
+        scans = tmp_path / "scans"
+        scans.mkdir()
+        for name in names:
+            (scans / name).mkdir()
+        return scans
+
+    def test_highest_of_several(self, tmp_path):
+        scans = self.make_scans(tmp_path, "Scan001", "Scan002", "Scan017")
+        assert ops_paths.highest_scan_number(scans) == 17
+
+    def test_ignores_non_scan_entries(self, tmp_path):
+        scans = self.make_scans(tmp_path, "Scan003", "ScanData", "Scan01", "notes")
+        (scans / "Scan999.txt").write_text("a file, not a scan folder")
+        assert ops_paths.highest_scan_number(scans) == 3
+
+    def test_four_digit_scan_numbers(self, tmp_path):
+        scans = self.make_scans(tmp_path, "Scan0999", "Scan1000")
+        assert ops_paths.highest_scan_number(scans) == 1000
+
+    def test_empty_folder_is_none(self, tmp_path):
+        scans = self.make_scans(tmp_path)
+        assert ops_paths.highest_scan_number(scans) is None
+
+    def test_missing_folder_is_none(self, tmp_path):
+        assert ops_paths.highest_scan_number(tmp_path / "scans") is None
+
+    def test_none_input_is_none(self):
+        assert ops_paths.highest_scan_number(None) is None
+
+    def test_never_creates_or_modifies_anything(self, tmp_path):
+        """The invariant pin: the peek is resolution + listdir only.
+
+        Neither a present nor an absent daily folder may be touched — GUI
+        code is a consumer of scan folders, never a producer.
+        """
+        scans = self.make_scans(tmp_path, "Scan001")
+        before = tree_snapshot(tmp_path)
+        assert ops_paths.highest_scan_number(scans) == 1
+        assert ops_paths.highest_scan_number(tmp_path / "missing" / "scans") is None
+        assert tree_snapshot(tmp_path) == before
