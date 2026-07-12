@@ -3,6 +3,23 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.13.1] - 2026-07-12
+
+### Fixed
+
+- **Audit classifier now matches the gateway's effective-type resolution**
+  (`#512`). The DB-hygiene audit flagged SKIP variables by `variabletype`
+  alone, but the gateway's config builder treats a bare type-descriptor word
+  in `choices` (`image`, `1darray`, `numeric`, `string`, `path`) as the
+  authoritative type — so a `variabletype='choice'`, `choices='image'` row
+  (a real camera/array variable) was skipped by the gateway yet reported
+  clean by the audit. The resolution logic is now a single shared pure
+  helper, `geecs_ca_gateway.config.effective_vartype()`, extracted from
+  `DeviceSpec.from_db_metadata()` and used by both the config builder and
+  `audit_subscribed_variables()`; such rows are now reported as
+  `SKIP:image` / `SKIP:1darray`. Gateway serving behavior is unchanged
+  (pinned by the existing `test_config_from_db.py` tests).
+
 ## [0.13.0] - 2026-07-11
 
 ### Added
