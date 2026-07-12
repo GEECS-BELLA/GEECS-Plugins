@@ -14,6 +14,15 @@ semantic.
   operator-facing GUI and control-room machines run Windows.  Console only;
   the ubuntu job continues to cover the rest of the monorepo.
 
+### Fixed
+
+- **Windows test portability** (surfaced by the new CI job's first run):
+  the four `TestOpsMenu` open-URL assertions now compare as `Path` —
+  `QUrl.toLocalFile()` always returns forward slashes while `str(tmp_path)`
+  is backslashed on Windows — and the no-geecs-python-api source grep reads
+  files as UTF-8 explicitly (`read_text()` defaults to cp1252 on Windows,
+  which cannot decode the sources).
+
 ### Notes
 
 - The monospace font stack in `app/style.qss` was audited for Windows: every

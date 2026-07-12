@@ -26,7 +26,9 @@ def test_source_never_mentions_geecs_python_api():
     for path in PACKAGE_DIR.rglob("*"):
         if path.suffix not in (".py", ".ui"):
             continue
-        text = path.read_text().replace(ALLOWED_LITERAL, "")
+        # Explicit encoding: sources are UTF-8, but read_text() defaults to
+        # the locale codec, which is cp1252 on Windows and cannot decode them.
+        text = path.read_text(encoding="utf-8").replace(ALLOWED_LITERAL, "")
         if FORBIDDEN in text:
             offenders.append(str(path))
     assert not offenders, f"{FORBIDDEN} referenced in: {offenders}"
