@@ -145,7 +145,9 @@ class TestTelemetryBatchConnect:
         session = BatchSession()
         readables, recorded = build_telemetry_readables(session, None, policy)
         assert session.batch_calls  # the batch path was taken
-        assert [r._geecs_device_name for r in readables] == ["d1", "d3"]
+        # Members arrive wrapped in one CaTelemetryGroup (one read Msg/row).
+        assert len(readables) == 1
+        assert [m._geecs_device_name for m in readables[0].members] == ["d1", "d3"]
         assert recorded == {"d1": ["v1"], "d3": ["v3"]}
 
     def test_runner_falls_back_without_batch(self) -> None:
@@ -159,5 +161,6 @@ class TestTelemetryBatchConnect:
             subscribed_by_device=lambda: {"d1": ["v1"], "dead": ["v2"]}
         )
         readables, recorded = build_telemetry_readables(LegacySession(), None, policy)
-        assert [r._geecs_device_name for r in readables] == ["d1"]
+        assert len(readables) == 1
+        assert [m._geecs_device_name for m in readables[0].members] == ["d1"]
         assert recorded == {"d1": ["v1"]}

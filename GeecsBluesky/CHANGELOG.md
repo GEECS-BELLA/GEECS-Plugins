@@ -4,6 +4,28 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.34.0] - 2026-07-13
+
+### Changed
+
+- **Read-path hardening phase 2 — the soft tier is one device.**
+  `build_telemetry_readables` wraps the connected telemetry readables in a
+  single `CaTelemetryGroup` whose `read()`/`describe()` gather across
+  members concurrently — one RunEngine `read` message per row instead of
+  one per device (~0.30 ms/message; ~25 ms/row at the ~87-device Undulator
+  selection).  Deliberately not an ophyd parent: members keep their own
+  names, so every `telemetry_<device>-<var>` event column is byte-identical
+  to the ungrouped layout (EVENT_SCHEMA.md contract).
+  `stage`/`unstage`/`disconnect` forward to members.
+- **Read-path hardening phase 3 — t0 seed check.**  After the first
+  free-run row, the plan logs a WARNING naming any contributor whose
+  `shot_offset != 0` — the signature of a t0 seeding off by a trigger
+  period (or a first-shot lag).  A loud hint, not an abort: offsets stay
+  truthfully labeled and realignable either way.
+- Phase 4 (timestamp-only telemetry shot attribution) is written up as a
+  design note with the open owner decisions:
+  `Planning/device_read_path/01_telemetry_attribution.md`.
+
 ## [0.33.0] - 2026-07-13
 
 ### Fixed
