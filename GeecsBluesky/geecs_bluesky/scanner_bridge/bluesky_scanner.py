@@ -209,6 +209,7 @@ class BlueskyScanner:
         self._on_event = on_event
         self._current_state = self._scan_state("IDLE")
         self._abort_requested = False
+        self._scan_finished = False
 
         self._scan_thread: threading.Thread | None = None
         self._scan_config: Any = None
@@ -501,6 +502,7 @@ class BlueskyScanner:
         self._completed_shots = 0
         self._scan_number = None
         self._abort_requested = False
+        self._scan_finished = False
         self._scan_thread = threading.Thread(
             target=self._run_scan,
             args=(self._scan_config,),
@@ -564,8 +566,23 @@ class BlueskyScanner:
             logger.debug("RE.resume() raised", exc_info=True)
 
     def is_scanning_active(self) -> bool:
-        """Return ``True`` if a scan thread is currently running."""
-        return bool(self._scan_thread and self._scan_thread.is_alive())
+        """Return ``True`` if a scan thread is currently running.
+
+        ``False`` as soon as the scan's cleanup has completed — *before* the
+        terminal DONE/ABORTED lifecycle event is emitted — so an event-driven
+        GUI that re-checks this from its terminal-state handler never races
+        the scan thread's last few instructions (the thread emits the event
+        and exits milliseconds later; ``is_alive()`` alone reported ``True``
+        in that window, leaving Start disabled until an operator clicked
+        Stop).  A thread that is genuinely stuck mid-plan still reports
+        active: the flag is only set once the ``finally`` cleanup ran.
+        """
+        return bool(
+            self._scan_thread
+            and self._scan_thread.is_alive()
+            # getattr: hermetic tests build bare scanners via __new__.
+            and not getattr(self, "_scan_finished", False)
+        )
 
     def estimate_current_completion(self) -> float:
         """Return fraction complete (0.0–1.0) based on shots emitted."""
@@ -959,6 +976,10 @@ class BlueskyScanner:
             logger.exception("BlueskyScanner scan thread raised an exception")
         finally:
             self._disconnect_devices_sync()
+            # Cleanup is complete: mark inactive BEFORE emitting the terminal
+            # state, so a consumer reacting to DONE/ABORTED observes
+            # is_scanning_active() == False (see its docstring).
+            self._scan_finished = True
             if self._abort_requested or failed:
                 self._set_state("ABORTED")
             else:

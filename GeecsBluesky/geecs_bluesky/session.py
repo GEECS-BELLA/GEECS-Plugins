@@ -292,6 +292,65 @@ class GeecsSession:
             )
             return None
 
+    def telemetry_batch(
+        self,
+        selected: dict[str, list[str]],
+    ) -> list[CaTelemetryReadable]:
+        """Build and connect all Tier-2 telemetry readables **concurrently**.
+
+        The per-device :meth:`telemetry` factory connects sequentially — at
+        ~87 telemetry devices that alone cost ~9 s of the operator's
+        start-to-execution latency (each connect is a network round trip;
+        measured live 2026-07-13).  This batch variant constructs every
+        readable first, then awaits all connects in one ``asyncio.gather``
+        on the RunEngine loop, so wall time is the slowest single device
+        rather than the sum.
+
+        Per-device semantics are identical to :meth:`telemetry`: a device
+        unreachable at scan start is dropped with a warning, never an error
+        (the soft-tier contract).
+
+        Parameters
+        ----------
+        selected:
+            ``{device: [variables]}`` — the telemetry selection
+            (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`).
+
+        Returns
+        -------
+        list of CaTelemetryReadable
+            The connected readables, in *selected* order (dropped devices
+            omitted).
+        """
+        import asyncio
+
+        devices = [
+            CaTelemetryReadable(device, variables, experiment=self.experiment)
+            for device, variables in selected.items()
+        ]
+
+        async def _connect_all() -> list:
+            return await asyncio.gather(
+                *(d.connect(mock=self._mock) for d in devices),
+                return_exceptions=True,
+            )
+
+        results = asyncio.run_coroutine_threadsafe(
+            _connect_all(), self.RE._loop
+        ).result(timeout=30.0)
+        connected: list[CaTelemetryReadable] = []
+        for device_obj, result in zip(devices, results):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Dropping background-telemetry device %s: unreachable at "
+                    "scan start (soft tier — never aborts the scan)",
+                    device_obj._geecs_device_name,
+                    exc_info=result,
+                )
+            else:
+                connected.append(device_obj)
+        return connected
+
     def motor(
         self,
         device: str,
