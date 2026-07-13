@@ -4,6 +4,19 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.9.1] - 2026-07-12
+
+### Fixed
+
+- **Scan Browser: stale run detail cleared on context change** (post-merge
+  review finding on #523): reloading the run list (date/experiment change),
+  an emptied selection, and list/load errors now all route through a
+  centralized `_clear_detail()` — B3 actions disabled, plot/table/drift
+  cleared, in-flight loads invalidated. Previously a previously selected
+  scan's detail survived a refresh, and *Open scan folder* could resolve
+  the old run against the newly selected day (wrong-ScanNNN risk). Load
+  failures now carry their request generation so a late error from a
+  superseded load cannot clobber a newer selection.
 ## [0.9.0] - 2026-07-13
 
 ### Added
