@@ -125,6 +125,25 @@ start-doc `background_telemetry` key (present only when telemetry ran) records
 the `{device: [variables]}` actually selected. This is an additive
 device-name convention, not a new schema field — it does not bump the version.
 
+**Telemetry shot context** (optional, additive — does not bump the version):
+every telemetry device additionally records its own
+`telemetry_<device>-acq_timestamp` (the gateway serves this PV for every
+device; `0.0` is the never-acquired placeholder, recorded as-is — an async
+device honestly shows `0.0`). On free-run scans, a telemetry device whose
+cached `acq_timestamp` was **positive at the quiesced t0 snapshot** (i.e. it
+was observed to have actually fired — there is no classification flag) is
+seeded like a contributor and additionally carries the standard sync
+companions `telemetry_<device>-t0_acq_timestamp` / `-shot_id` /
+`-shot_offset` / `-valid`, computed without any grace wait (telemetry never
+gates a shot). Devices not seeded — async, never-fired, or any strict-mode
+scan (no t0 stage) — carry **no derived labels**: attribution for them is a
+downstream decision made from the raw timestamps (owner decision; design:
+`Planning/device_read_path/01_telemetry_attribution.md`). The start-doc
+`telemetry_shot_seeded` key (free-run, telemetry present) lists the device
+names that were seeded. Consumers must key any shot attribution on the
+`acq_timestamp` column, never on a data column's reading timestamp
+(deadband suppression makes those last-*change* times).
+
 **Free-run tail flush:** after the last shot, free-run runs emit one final
 event on a separate `flush` stream (one extra read of all devices) so a
 contributor lagging at `shot_offset = -1` still records its final shot.

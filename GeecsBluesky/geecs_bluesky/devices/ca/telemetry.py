@@ -24,6 +24,7 @@ from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 TELEMETRY_NAME_PREFIX = "telemetry_"
 
 
-class CaTelemetryReadable(StandardReadable):
+class CaTelemetryReadable(ShotIdSupport, StandardReadable):
     """Soft, read-only GEECS readable for background telemetry over gateway PVs.
 
     A fault-tolerant :meth:`read` never propagates an exception: a signal
@@ -42,6 +43,18 @@ class CaTelemetryReadable(StandardReadable):
     per-variable from the PV's native CA type: numeric PVs stay ``float``,
     enum/string PVs are captured as their label string.  Type tolerance is
     per-variable, never whole-device.
+
+    **Shot context (phase 4)**: with ``shot_rep_rate_hz`` set, the device
+    additionally reads its own ``acq_timestamp`` PV (the gateway serves one
+    for every device; it stays at the ``0.0`` placeholder unless the device
+    is actually triggered) as a ``<name>-acq_timestamp`` column, and — when
+    the free-run plan managed to **seed** its tracker at t0-sync (i.e. the
+    device has genuinely fired) — emits the standard sync-companion columns
+    (``shot_id`` / ``shot_offset`` / ``valid``) exactly like a contributor,
+    minus any grace wait (telemetry must never gate a shot).  There is no
+    classification stage or config flag: seeded ⇔ observed-to-have-fired,
+    decided per scan from the quiesced t0 snapshot (design:
+    ``Planning/device_read_path/01_telemetry_attribution.md``).
 
     Parameters
     ----------
@@ -59,6 +72,10 @@ class CaTelemetryReadable(StandardReadable):
         Scalar CA datatype.  Default ``None`` — infer each PV's native type.
         Do not force ``float`` here: that reintroduces the connect-time drop
         for non-numeric variables.
+    shot_rep_rate_hz : float, optional
+        Enable shot context: read the device's ``acq_timestamp`` and derive
+        shot IDs at this trigger rep rate.  ``None`` (default) is the
+        pre-phase-4 value-columns-only behavior.
     """
 
     def __init__(
@@ -69,22 +86,58 @@ class CaTelemetryReadable(StandardReadable):
         experiment: str | None = None,
         name: str | None = None,
         datatype: type | None = None,
+        shot_rep_rate_hz: float | None = None,
     ) -> None:
         if isinstance(variable_list, str):
             variable_list = [variable_list]
         self._geecs_device_name = device
         name = name or f"{TELEMETRY_NAME_PREFIX}{safe_name(device)}"
         self._telemetry_signals: list = []
+        self._row_reference: Any | None = None
         with self.add_children_as_readables():
             for var in variable_list:
+                if shot_rep_rate_hz is not None and var == "acq_timestamp":
+                    continue  # created below as the dedicated child
                 signal = epics_signal_r(datatype, ca_pv(experiment, device, var))
                 setattr(self, safe_name(var), signal)
                 self._telemetry_signals.append(signal)
+            if shot_rep_rate_hz is not None:
+                # Every gateway device serves this PV (0.0 unless triggered);
+                # as a readable child it lands as <name>-acq_timestamp.
+                self.acq_timestamp = epics_signal_r(
+                    float, ca_pv(experiment, device, "acq_timestamp")
+                )
+                self._telemetry_signals.append(self.acq_timestamp)
         super().__init__(name=name)
+        if shot_rep_rate_hz is not None:
+            self.configure_shot_id(shot_rep_rate_hz)
         # Telemetry columns are marked by the device-name prefix, not folded
         # into geecs_scalar_headers: they are Tier 2, not legacy s-file scalars,
         # so the Tiled→s-file exporter must not rename them as save-set data.
         self._column_headers: dict[str, str] = {}
+
+    def set_row_reference(self, reference: Any) -> None:
+        """Anchor companion columns to the free-run pacemaker.
+
+        Stored as a :class:`~ophyd_async.core.Reference` — assigning a bare
+        Device attribute would re-parent and rename the pacemaker (the same
+        hazard :class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport`
+        documents).
+        """
+        from ophyd_async.core import Reference
+
+        self._row_reference = Reference(reference)
+
+    def _row_shot_id(self) -> int | None:
+        """The row's shot ID, from the reference's cached timestamp (or None)."""
+        ref = self._row_reference() if self._row_reference is not None else None
+        if ref is None:
+            return None
+        tracker = ref.shot_id_tracker
+        ts = ref.last_acq_timestamp
+        if tracker is None or ts is None:
+            return None
+        return tracker.peek(ts)
 
     #: Per-signal read budget (seconds).  Bounds the soft tier's *latency*
     #: as well as its failures: without it a hung PV holds the event row for
@@ -137,7 +190,41 @@ class CaTelemetryReadable(StandardReadable):
                     }
             else:
                 reading.update(result)
+        tracker = self._shot_id_tracker
+        if tracker is not None and tracker.is_seeded:
+            # Companion columns for observed-to-have-fired devices only:
+            # seeded at the free-run plan's t0 snapshot, never a config flag.
+            ts_key = f"{self.name}-acq_timestamp"
+            entry = reading.get(ts_key)
+            ts = entry["value"] if entry is not None else None
+            event_timestamp = entry["timestamp"] if entry is not None else time.time()
+            shot_id = (
+                tracker.update(float(ts))
+                if isinstance(ts, (int, float)) and ts > 0
+                else None
+            )
+            row_shot_id = self._row_shot_id()
+            shot_offset = (
+                shot_id - row_shot_id
+                if shot_id is not None and row_shot_id is not None
+                else None
+            )
+            self._emit_shot_id_readings(reading, event_timestamp, shot_id, shot_offset)
         return reading
+
+    async def describe(self) -> dict[str, Any]:
+        """Data keys, plus the sync-companion keys when the tracker is seeded.
+
+        Seeding happens before the run opens (free-run t0 stage), so the
+        descriptor is stable for the whole scan: an unseeded (async or
+        never-fired) device describes exactly its value columns — per the
+        owner decision, async devices carry **no** derived labels.
+        """
+        desc = await super().describe()
+        tracker = self._shot_id_tracker
+        if tracker is not None and tracker.is_seeded:
+            desc.update(self._shot_id_datakeys())
+        return desc
 
 
 async def _null_value_for(signal: Any) -> Any:

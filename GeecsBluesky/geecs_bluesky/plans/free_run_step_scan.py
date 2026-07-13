@@ -221,6 +221,21 @@ def geecs_free_run_step_scan(
     for det in detectors:
         if hasattr(det, "set_reference"):
             det.set_reference(reference)
+    # Soft shot-context candidates: telemetry members (inside a group) with
+    # a configured tracker.  They are anchored to the reference like
+    # contributors, and SEEDED best-effort below — only devices whose
+    # acq_timestamp is positive at the quiesced t0 snapshot (i.e. observed
+    # to have actually fired) get companion columns; the rest stay
+    # value-columns-only.  Soft: never gates, never fails the scan.
+    soft_shot_members = [
+        m
+        for d in detectors
+        for m in getattr(d, "members", [])
+        if isinstance(m, ShotIdSupport) and m.shot_id_tracker is not None
+    ]
+    for member in soft_shot_members:
+        if hasattr(member, "set_row_reference"):
+            member.set_row_reference(reference)
 
     _md: dict[str, Any] = {
         "plan_name": "geecs_free_run_step_scan",
@@ -250,6 +265,24 @@ def geecs_free_run_step_scan(
         yield from enable_saving()
     t0s = yield from geecs_t0_sync(sync_devices, window_s=effective_window_s)
     _md["device_t0s"] = t0s
+    if soft_shot_members:
+        # Soft seeding from the same quiesced snapshot: a positive cached
+        # acq_timestamp means the device has genuinely fired; 0.0 is the
+        # gateway's never-acquired placeholder (PV_CONTRACT.md §3) — those
+        # devices stay unseeded and emit no companion columns this scan.
+        seeded: list[str] = []
+        for member in soft_shot_members:
+            ts = yield from bps.rd(member.acq_timestamp)
+            if ts is not None and float(ts) > 0:
+                member.seed_shot_id(float(ts))
+                seeded.append(getattr(member, "name", str(member)))
+        logger.info(
+            "telemetry shot context: %d of %d devices seeded (fired before "
+            "t0); the rest record value columns only",
+            len(seeded),
+            len(soft_shot_members),
+        )
+        _md["telemetry_shot_seeded"] = seeded
 
     @bpp.run_decorator(md=_md)
     def _inner():

@@ -280,6 +280,7 @@ class GeecsSession:
             variables,
             experiment=self.experiment,
             name=name,
+            shot_rep_rate_hz=self.rep_rate_hz,
         )
         try:
             return self._connect(det)
@@ -325,7 +326,12 @@ class GeecsSession:
         import asyncio
 
         devices = [
-            CaTelemetryReadable(device, variables, experiment=self.experiment)
+            CaTelemetryReadable(
+                device,
+                variables,
+                experiment=self.experiment,
+                shot_rep_rate_hz=self.rep_rate_hz,
+            )
             for device, variables in selected.items()
         ]
 

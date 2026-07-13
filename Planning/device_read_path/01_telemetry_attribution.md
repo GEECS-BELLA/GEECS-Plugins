@@ -1,7 +1,28 @@
 # Phase 4 design note — timestamp-only telemetry shot attribution
 
-**Status: DRAFT for review (Sam).**  Three decisions below (D1–D3) need an
-owner call before any code.  2026-07-13.
+**Status: DECIDED (Sam, 2026-07-13) and implemented in 0.35.0.**
+
+- **D1 → (a)**: async devices carry **no** derived labels and no
+  `systimestamp` column either — Sam's refinement: `systimestamp` advances
+  with the device loop even when nothing is acquiring, so it can be
+  meaningless as an alignment signal.  The raw
+  `telemetry_<device>-acq_timestamp` column (0.0 placeholder for async)
+  is recorded for every telemetry device; attribution beyond that is a
+  downstream decision.
+- **D2 → tabled**: no classification stage.  The standing design decision
+  holds — anything needing strict synchronization belongs in a save set.
+  Telemetry just logs `acq_timestamp`; sync context is recoverable post
+  facto.
+- **D3 → full companion set, under the D2 constraint**: devices whose
+  cached `acq_timestamp` is positive at the quiesced t0 snapshot (i.e.
+  observed to have actually fired) are seeded like contributors and emit
+  `shot_id`/`shot_offset`/`valid`; everything else stays value-columns
+  (+ raw acq) only.  Seeding is free — no observation window, no trigger
+  authority, no flag: seeded ⇔ has-ever-fired at t0.
+
+The original option analysis is kept below for the record.
+
+---
 
 ## Why this matters (the cutover framing)
 

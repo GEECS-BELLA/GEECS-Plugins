@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] - 2026-07-13
+
+### Added
+
+- **Telemetry shot context (read-path phase 4, per the owner decisions in
+  `Planning/device_read_path/01_telemetry_attribution.md`).**  Every
+  telemetry device now records its own
+  `telemetry_<device>-acq_timestamp` column (the gateway serves the PV
+  for every device; async devices honestly show the `0.0` never-acquired
+  placeholder — no derived labels are manufactured for them).  On
+  free-run scans, telemetry devices **observed to have fired** (positive
+  cached `acq_timestamp` at the quiesced t0 snapshot — no classification
+  stage, no config flag, no DB toggle) are seeded like contributors and
+  additionally emit the standard `shot_id`/`shot_offset`/`valid`
+  companions, computed without any grace wait (telemetry never gates a
+  shot).  The start doc records the seeded device names under
+  `telemetry_shot_seeded`.  Additive column convention — no event-schema
+  version bump (EVENT_SCHEMA.md updated).  Strict-mode scans record the
+  raw acq column only (no t0 stage).
+
 ## [0.34.0] - 2026-07-13
 
 ### Changed
