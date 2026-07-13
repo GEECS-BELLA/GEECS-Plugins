@@ -480,14 +480,9 @@ class BaseOptimizer:
         """
         Create optimizer instance from YAML configuration file.
 
-        Loads optimizer configuration, evaluator settings, and VOCS specification
-        from a YAML file and creates a fully configured BaseOptimizer instance.
-        This method provides a convenient way to set up complex optimization
-        problems without manual instantiation.
-
-
-        The evaluator class is dynamically imported based on the module
-        and class name specified in the configuration file.
+        Loads the YAML and delegates to :meth:`from_config`; relative
+        ``seed_dump_files`` entries resolve against the config file's
+        directory.
 
         Parameters
         ----------
@@ -503,12 +498,56 @@ class BaseOptimizer:
         BaseOptimizer
             Fully configured optimizer instance ready for use.
         """
-        import importlib
-        from geecs_scanner.optimization.config_models import BaseOptimizerConfig
-
-        # Load and validate config using Pydantic model
         with open(config_path, "r") as f:
             config_dict = yaml.safe_load(f)
+        return cls.from_config(
+            config_dict,
+            config_dir=Path(config_path).parent,
+            scan_data_manager=scan_data_manager,
+            data_logger=data_logger,
+        )
+
+    @classmethod
+    def from_config(
+        cls,
+        config_dict: Dict[str, Any],
+        config_dir: Optional[Path] = None,
+        scan_data_manager: Optional[Any] = None,
+        data_logger: Optional[Any] = None,
+    ) -> "BaseOptimizer":
+        """
+        Create optimizer instance from an in-memory configuration mapping.
+
+        The dict-shaped twin of :meth:`from_config_file` (which now
+        delegates here): validates the mapping as a
+        :class:`~geecs_scanner.optimization.config_models.BaseOptimizerConfig`
+        (auto-generating ``device_requirements`` from the evaluator's
+        analyzers), dynamically imports and instantiates the evaluator, and
+        returns a fully configured optimizer.  Callers that build the
+        configuration programmatically — e.g. GEECS-Console mapping a
+        schema ``OptimizationSpec`` onto this shape — use this entry point
+        directly, with no YAML file involved.
+
+        Parameters
+        ----------
+        config_dict : dict
+            The optimizer configuration mapping (the parsed YAML shape).
+        config_dir : Path, optional
+            Directory that relative ``seed_dump_files`` entries resolve
+            against.  ``None`` (no file origin) leaves relative entries
+            as-is; missing files are warned about and skipped either way.
+        scan_data_manager : ScanDataManager, optional
+            Instance of ScanDataManager for accessing data during acquisition.
+        data_logger : DataLogger, optional
+            Instance of DataLogger for accessing shot data and bin information.
+
+        Returns
+        -------
+        BaseOptimizer
+            Fully configured optimizer instance ready for use.
+        """
+        import importlib
+        from geecs_scanner.optimization.config_models import BaseOptimizerConfig
 
         # This handles all validation AND auto-generates device_requirements!
         config = BaseOptimizerConfig.model_validate(config_dict)
@@ -554,14 +593,15 @@ class BaseOptimizer:
                                 (scan_folder / path).resolve()
                             )
 
-        # Resolve seed_dump_files paths relative to the config file's directory
+        # Resolve seed_dump_files paths relative to the config's directory
+        # (when it came from a file; dict-shaped configs keep relative
+        # entries as-is — absolute paths are recommended there).
         resolved_seed_paths: Optional[List[Path]] = None
         if config.seed_dump_files:
-            config_dir = Path(config_path).parent
             resolved_seed_paths = []
             for raw in config.seed_dump_files:
                 p = Path(raw)
-                if not p.is_absolute():
+                if not p.is_absolute() and config_dir is not None:
                     p = (config_dir / p).resolve()
                 if not p.exists():
                     logger.warning(

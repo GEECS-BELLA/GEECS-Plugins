@@ -4,6 +4,33 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.9.0] - 2026-07-13
+
+### Added
+
+- **Optimization runs end-to-end (the engine-side loader is now wired)** —
+  closes the last gap of M4 step (iii).  `make_bluesky_submitter` injects
+  an `optimization_loader` into `BlueskyScanner`, implemented in the new
+  `services/optimization.py`: `optimizer_config_from_spec` maps the
+  request's `OptimizationSpec` onto the `BaseOptimizerConfig` dict shape
+  (pinned as the exact inverse of
+  `geecs_schemas.convert.convert_optimizer_config` — `generator.options`
+  ↔ `xopt_config_overrides[generator.name]`; `max_iterations` deliberately
+  unmapped, the engine consumes it from the spec), and
+  `load_console_optimization` builds `BaseOptimizer.from_config(...)`
+  (new in geecs-scanner 0.34.0) wrapped in the `SessionOptimizationBridge`.
+  The stack lives behind the new **`optimization` extra**
+  (`poetry install --extras optimization` pulls `geecs-scanner-gui` — the
+  only place the legacy package appears; the import is confined to
+  `services/optimization.py`, lazy, and availability-gated by a light
+  `find_spec` probe so submitter construction never pays the Xopt import).
+  Without the extra the loader is `None` and the engine refuses
+  optimize-mode submissions at `reinitialize` with its explicit
+  needs-a-loader message, surfaced in the status bar as before; every
+  other scan mode is unaffected.  Relative `seed_dump_files` entries are
+  not resolved on this path (no config-file directory once the spec is
+  inline) — use absolute paths in warm-starting optimizer configs.
+
 ## [0.8.0] - 2026-07-12
 
 ### Added

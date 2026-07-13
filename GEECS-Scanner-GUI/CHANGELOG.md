@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.34.0] — 2026-07-13
+
+### Added
+
+- **`BaseOptimizer.from_config(config_dict, config_dir=None, ...)`** — the
+  dict-shaped twin of `from_config_file`, which now delegates to it (same
+  validation, evaluator import, device-requirements auto-generation).
+  Added for the GEECS-Console optimization loader, which maps a schema
+  `OptimizationSpec` onto the config shape programmatically — no YAML file
+  involved.  Relative `seed_dump_files` entries resolve against
+  `config_dir` when given (`from_config_file` passes the config file's
+  directory, unchanged behavior) and are left as-is otherwise.
+
 ## [0.33.0] — 2026-07-10
 
 ### Removed
