@@ -437,9 +437,32 @@ too.  The bridge contributes its two seams via runner hooks:
 `None` aborts; dropped devices are left connected — the runner's `finally`
 owns disconnection) and `on_scan_start(total_steps, total_shots)` (GUI
 progress totals).  The bridge never pre-claims on this path —
-`session.scan` claims and self-attaches `scan.log`.  Optimize-mode
-requests are still refused at reinitialize until GUI-submission step (iii)
-wires the `optimization_loader` into the delegated path.  Experiment defaults
+`session.scan` claims and self-attaches `scan.log`.  **As of 0.31.0 (M4
+step iii) optimize-mode requests run through the delegated path too**:
+`reinitialize` requires the GUI-injected `optimization_loader` for
+`mode: optimize` (refused with an explicit error otherwise — headless
+callers use `GeecsSession.run(request, resolver, objective=...,
+suggester=...)`) and fail-fast validates the VOCS catalog names; the scan
+thread calls `optimization_loader(request.optimization)` — the loader's
+one argument is the resolved `OptimizationSpec` on this path, vs the
+optimizer-YAML path string on the legacy exec_config path — and threads
+the returned bridge's `bind` into `run_scan_request` as its
+`optimization_binder` hook.  Because the binder's analyzers need the real
+`ScanTag`, the **runner claims the scan itself just before binding**
+(after every fail-fast resolution and device connect — the one delegated
+path where the claim is not inside the session call) and passes the
+pre-claimed number/folder to `session.optimize`, owning the `scan.log`
+attach; the bridge's optional `finish()` (legacy `xopt_dump.yaml`) runs
+after a successful run.  `on_scan_start` fires on the optimize path with
+the `(max_iterations, max_iterations × shots_per_step)` upper bound (the
+suggester may stop early); the operator-dialog `preflight` still does not
+run on optimize (later seam).  Optimizer `device_requirements`
+auto-provisioning is deliberately **not** wired on this path — the
+request's save sets must name the objective's diagnostics (schema-world
+explicitness; the legacy exec_config path keeps its merge).  The
+dependency direction (no `geecs_scanner` import anywhere in this package)
+is pinned by an AST-level test in the scan-request seam suite.
+Experiment defaults
 (`experiment_defaults.yaml`) fill request fields left unset — never
 overriding explicit values — and every applied default is recorded into
 the run metadata for provenance (closeout defaults append *after* the
@@ -551,13 +574,16 @@ Remaining items are features/tuning, not architecture — see
 - **Background scan mode not implemented.**  Optimization runs as a scan via
   `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
   tree as any scan — see `plans/optimize.py`), both headless (suggester +
-  objective in hand) and from the GUI: `BlueskyScanner` handles OPTIMIZATION
-  scan mode through a GUI-injected `optimization_loader`
+  objective in hand) and from the GUI: `BlueskyScanner` handles optimization
+  through a GUI-injected `optimization_loader`
   (`geecs_scanner.optimization.session_bridge`), which runs the config-driven
-  Xopt 3.1 / evaluator / ScanAnalysis stack against the session's bin rows.
-  The evaluator seam is `EvaluatorDataSource` in
+  Xopt 3.1 / evaluator / ScanAnalysis stack against the session's bin rows —
+  on the legacy exec_config path (loader argument: the optimizer-YAML path)
+  and, since 0.31.0, on the delegated ScanRequest path (loader argument: the
+  request's resolved `OptimizationSpec`; see the engine-consolidation
+  section).  The evaluator seam is `EvaluatorDataSource` in
   `geecs_scanner.optimization.base_evaluator`; this package stays free of any
-  geecs_scanner import (dependency direction).
+  geecs_scanner import (dependency direction, pinned by an AST-level test).
 - **Pre/post-scan action sequences run on the ScanRequest path only.**
   `GeecsSession.run(request)` executes setup/per_step/closeout ActionPlans
   (0.23.0), and since 0.28.0 the GUI bridge's delegated ScanRequest path

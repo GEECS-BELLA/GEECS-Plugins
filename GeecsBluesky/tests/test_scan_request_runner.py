@@ -14,6 +14,7 @@ since optimize has no action hooks yet.
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 import pytest
 from bluesky.utils import Msg
@@ -842,6 +843,78 @@ def test_optimize_without_injected_callables_is_a_documented_gap(
 ) -> None:
     with pytest.raises(NotImplementedError, match="objective"):
         run_scan_request(_FakeSession(), _optimize_request(), legacy_resolver)
+
+
+def test_optimize_binder_claims_binds_and_supplies_callables(
+    legacy_resolver, monkeypatch
+) -> None:
+    """The optimization_binder path: the runner claims the scan first (the
+    binder's stack needs the real ScanTag), calls the binder with the
+    connected movables + detectors, and threads the returned callables and
+    the pre-claimed number/folder into session.optimize."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    tag = SimpleNamespace(number=7)
+    claims: list = []
+    monkeypatch.setattr(
+        runner_module,
+        "claim_scan",
+        lambda experiment: claims.append(experiment)
+        or (tag, "/nonexistent/scans/Scan007"),
+    )
+    session = _FakeSession()
+    objective, suggester = object(), object()
+    bind_kwargs: dict = {}
+
+    def binder(*, devices, scan_tag, scan_folder=None):
+        bind_kwargs.update(
+            devices=list(devices), scan_tag=scan_tag, scan_folder=scan_folder
+        )
+        return objective, suggester
+
+    uid = run_scan_request(
+        session, _optimize_request(), legacy_resolver, optimization_binder=binder
+    )
+    assert uid == "uid-opt"
+    assert claims == [""]  # fake session exposes no experiment name
+    assert bind_kwargs["scan_tag"] is tag
+    assert bind_kwargs["scan_folder"] == "/nonexistent/scans/Scan007"
+    # Movables (2 VOCS variables) + the save set's detectors (3 devices).
+    assert len(bind_kwargs["devices"]) == 5
+    kwargs = session.optimize_kwargs
+    assert kwargs["objective"] is objective
+    assert kwargs["suggester"] is suggester
+    assert kwargs["scan_number"] == 7
+    assert kwargs["scan_folder"] == "/nonexistent/scans/Scan007"
+
+
+def test_optimize_binder_ignored_when_callables_given(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Ready-made objective/suggester win: no claim, binder never called."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    def _no_claim(experiment):
+        raise AssertionError("claim_scan must not be called")
+
+    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
+    session = _FakeSession()
+    objective, suggester = object(), object()
+
+    def binder(**_kwargs):
+        raise AssertionError("binder must not be called")
+
+    run_scan_request(
+        session,
+        _optimize_request(),
+        legacy_resolver,
+        objective=objective,
+        suggester=suggester,
+        optimization_binder=binder,
+    )
+    kwargs = session.optimize_kwargs
+    assert kwargs["objective"] is objective
+    assert kwargs["scan_number"] is None
 
 
 def test_optimize_maps_onto_session_optimize(legacy_resolver) -> None:

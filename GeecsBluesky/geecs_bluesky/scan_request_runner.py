@@ -20,9 +20,10 @@
   :class:`~geecs_bluesky.session.GeecsSession`.
 
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
-pseudo scan variables, ``all_scalars``, and optimize without an injected
-``objective``/``suggester`` (the Xopt stack lives in
-``geecs_scanner.optimization``, which this package must not import).
+pseudo scan variables, ``all_scalars``, and optimize without either an
+injected ``objective``/``suggester`` pair or an ``optimization_binder``
+(the Xopt stack lives in ``geecs_scanner.optimization``, which this package
+must not import — the binder is the GUI bridge's injected seam for it).
 
 Configs speak GEECS device/variable names, never PVs (ratified convention);
 PV derivation stays inside the device factories.
@@ -33,6 +34,7 @@ from __future__ import annotations
 import itertools
 import logging
 from collections.abc import Mapping
+from contextlib import nullcontext
 from typing import Any, Callable
 
 # ConfigsRepoResolver is re-exported: the existing import surface
@@ -50,6 +52,8 @@ from geecs_bluesky.db_runtime import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
+from geecs_bluesky.plans.run_wrapper import claim_scan
+from geecs_bluesky.scan_log import scan_log
 from geecs_schemas import (
     ActionBindings,
     ActionPlan,
@@ -845,6 +849,7 @@ def run_scan_request(
     *,
     objective: Any | None = None,
     suggester: Any | None = None,
+    optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     preflight: Callable[[list, bool], list | None] | None = None,
     on_scan_start: Callable[[int, int], None] | None = None,
 ) -> str | None:
@@ -875,9 +880,22 @@ def run_scan_request(
     resolver :
         Resolves the request's names to schema models.
     objective, suggester :
-        Required for ``optimize`` mode (see the module docstring's gap
-        list): the evaluator/generator specs cannot be instantiated in this
-        package.
+        Ready-made optimization callables for ``optimize`` mode (see the
+        module docstring's gap list): the evaluator/generator specs cannot
+        be instantiated in this package.
+    optimization_binder :
+        Alternative to *objective*/*suggester* for ``optimize`` mode: a
+        scanner-layer hook (the GUI bridge's injected
+        ``optimization_loader`` seam) called as
+        ``binder(devices=..., scan_tag=..., scan_folder=...) ->
+        (objective, suggester)`` with the connected movables + detectors
+        and the freshly claimed scan.  Because the binder's stack needs
+        the real ``ScanTag`` (its analyzers load natively saved files by
+        tag), the runner claims the scan itself just before binding —
+        after every fail-fast resolution and device connect — and passes
+        the pre-claimed number/folder to ``session.optimize`` (attaching
+        ``scan.log`` here, since the session only self-attaches when *it*
+        claimed).  Ignored when *objective* and *suggester* are given.
     preflight :
         Optional scanner-layer hook (the GUI bridge's operator-dialog
         seam), called pre-claim with the fully assembled detector list and
@@ -889,7 +907,9 @@ def run_scan_request(
     on_scan_start :
         Optional progress-totals hook (the GUI bridge's progress seam),
         called with ``(total_steps, total_shots)`` immediately before the
-        session scan starts.  Not called on the optimize path.
+        session scan starts.  On the optimize path the totals are the
+        upper bound ``(max_iterations, max_iterations × shots_per_step)``
+        — the suggester may stop early.
 
     Returns
     -------
@@ -900,7 +920,7 @@ def run_scan_request(
     ------
     NotImplementedError
         Pseudo scan variables, and optimize mode without an injected
-        objective/suggester or with action bindings (the documented v1
+        objective/suggester or optimization_binder (the documented v1
         gaps — validated first, refused loudly).
     GeecsConfigurationError
         Unresolvable names, or a step/noscan request without a save set.
@@ -932,6 +952,8 @@ def run_scan_request(
             mode,
             objective=objective,
             suggester=suggester,
+            optimization_binder=optimization_binder,
+            on_scan_start=on_scan_start,
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
         )
@@ -1114,6 +1136,8 @@ def _run_optimize_request(
     *,
     objective: Any | None,
     suggester: Any | None,
+    optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
+    on_scan_start: Callable[[int, int], None] | None = None,
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
 ) -> str | None:
@@ -1124,8 +1148,8 @@ def _run_optimize_request(
     ``max_iterations``, and ``move_to_best_on_finish`` (→ ``on_finish``).
     The variable *bounds*, ``objectives``/``observables``/``constraints``,
     and the evaluator/generator specs are the suggester's business — they
-    are **not** consumed here (documented gap; the injected suggester is
-    expected to have been built from them by the caller's stack).
+    are **not** consumed here (the injected objective/suggester — or the
+    binder's stack — is expected to have been built from them).
 
     Parameters
     ----------
@@ -1134,7 +1158,14 @@ def _run_optimize_request(
     mode :
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
-        The ready-made optimization callables (required).
+        The ready-made optimization callables.
+    optimization_binder, on_scan_start :
+        As in :func:`run_scan_request`.  With a binder (and no ready-made
+        callables) the runner claims the scan itself, pre-bind, so the
+        binder's analyzers get the real ``ScanTag`` — mirroring the legacy
+        exec_config optimization path; the claim still happens *after*
+        every fail-fast resolution and device connect, and the runner then
+        owns the ``scan.log`` attach for the run.
 
     Returns
     -------
@@ -1144,17 +1175,19 @@ def _run_optimize_request(
     Raises
     ------
     NotImplementedError
-        When *objective* or *suggester* is missing.
+        When *objective* or *suggester* is missing and no
+        *optimization_binder* was given.
     """
     spec = request.optimization
     assert spec is not None  # guaranteed by ScanRequest validation
-    if objective is None or suggester is None:
+    if (objective is None or suggester is None) and optimization_binder is None:
         raise NotImplementedError(
             "optimize-mode ScanRequest execution needs a ready-made "
             "objective and suggester (run(request, resolver, objective=..., "
-            "suggester=...)): instantiating them from the request's "
-            "evaluator/generator specs lives in the GUI optimization stack "
-            "(geecs_scanner.optimization), which geecs_bluesky cannot import"
+            "suggester=...)) or an optimization_binder: instantiating them "
+            "from the request's evaluator/generator specs lives in the GUI "
+            "optimization stack (geecs_scanner.optimization), which "
+            "geecs_bluesky cannot import"
         )
 
     detectors: list = []
@@ -1216,19 +1249,63 @@ def _run_optimize_request(
             "db_scalars": "applied",
             "background_telemetry": "not_run_in_optimize",
         }
-        uid, _history = session.optimize(
-            variables=variables,
-            detectors=detectors,
-            objective=objective,
-            suggester=suggester,
-            shots_per_iteration=request.shots_per_step,
-            max_iterations=spec.max_iterations or 20,
-            mode=mode,
-            description=request.description,
-            md=md,
-            on_finish="best" if spec.move_to_best_on_finish else "hold",
-        )
-        return uid
+
+        scan_number: int | None = None
+        scan_folder: str | None = None
+        claimed_here = False
+        try:
+            if objective is None or suggester is None:
+                # Binder path (checked non-None at entry): claim first —
+                # the binder's stack needs the real ScanTag (analyzers load
+                # natively saved files by tag) — then bind against the
+                # connected movables + detectors.  Everything that can
+                # fail-fast already ran above, legacy exec_config parity.
+                scan_tag, scan_folder = claim_scan(
+                    getattr(session, "experiment", "") or ""
+                )
+                scan_number = scan_tag.number if scan_tag is not None else None
+                claimed_here = scan_number is not None
+                objective, suggester = optimization_binder(
+                    devices=list(variables.values()) + detectors,
+                    scan_tag=scan_tag,
+                    scan_folder=scan_folder,
+                )
+
+            max_iterations = spec.max_iterations or 20
+            if on_scan_start is not None:
+                # Upper-bound totals: the suggester may stop early.
+                on_scan_start(max_iterations, max_iterations * request.shots_per_step)
+
+            # The runner claimed → the runner attaches scan.log (the session
+            # only self-attaches when *it* claimed the number).
+            with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+                uid, _history = session.optimize(
+                    variables=variables,
+                    detectors=detectors,
+                    objective=objective,
+                    suggester=suggester,
+                    shots_per_iteration=request.shots_per_step,
+                    max_iterations=max_iterations,
+                    mode=mode,
+                    description=request.description,
+                    md=md,
+                    on_finish="best" if spec.move_to_best_on_finish else "hold",
+                    scan_number=scan_number,
+                    scan_folder=scan_folder,
+                )
+            return uid
+        except BaseException:
+            if claimed_here:
+                # Scan-folder lifecycle invariant: a claimed ScanNNN/ folder
+                # is never deleted, so surface the claimed-but-failed state.
+                logger.error(
+                    "Optimization scan %s failed or aborted after its folder "
+                    "was claimed at %s; the folder is left in place (never "
+                    "deleted) and may be missing ScanInfo or data",
+                    scan_number,
+                    scan_folder,
+                )
+            raise
     finally:
         if created and hasattr(session, "disconnect"):
             session.disconnect(*created)
