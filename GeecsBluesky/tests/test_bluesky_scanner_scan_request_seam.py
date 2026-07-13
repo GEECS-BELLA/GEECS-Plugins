@@ -13,10 +13,12 @@ must not pre-claim a scan number on this path (``session.scan`` claims).
 from __future__ import annotations
 
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from geecs_bluesky import scan_request_runner
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.scan_request_runner import run_scan_request
@@ -93,6 +95,7 @@ class _FakeSession:
     def __init__(self) -> None:
         self.rep_rate_hz = 1.0
         self.scan_kwargs: dict | None = None
+        self.optimize_kwargs: dict | None = None
         self.shot_control_config = "unset"
         self.movables: list[_FakeMovable] = []
         self.disconnected: list = []
@@ -129,8 +132,48 @@ class _FakeSession:
         self.scan_kwargs = kwargs
         return "uid"
 
+    def optimize(self, **kwargs):
+        self.optimize_kwargs = kwargs
+        return "uid-opt", []
+
     def disconnect(self, *devices):
         self.disconnected.extend(devices)
+
+
+class _FakeOptimizationBridge:
+    """Loader-returned bridge fake: records bind()/finish() interactions."""
+
+    def __init__(self, spec) -> None:
+        self.spec = spec
+        self.bind_kwargs: dict | None = None
+        self.finished = False
+        self.objective = object()
+        self.suggester = object()
+
+    def bind(self, *, devices, scan_tag, scan_folder=None):
+        self.bind_kwargs = {
+            "devices": list(devices),
+            "scan_tag": scan_tag,
+            "scan_folder": scan_folder,
+        }
+        return self.objective, self.suggester
+
+    def finish(self) -> None:
+        self.finished = True
+
+
+class _FakeOptimizationLoader:
+    """optimization_loader fake: records what it was called with."""
+
+    def __init__(self) -> None:
+        self.calls: list = []
+        self.bridges: list[_FakeOptimizationBridge] = []
+
+    def __call__(self, spec) -> _FakeOptimizationBridge:
+        self.calls.append(spec)
+        bridge = _FakeOptimizationBridge(spec)
+        self.bridges.append(bridge)
+        return bridge
 
 
 class _StubResolver:
@@ -719,25 +762,221 @@ def test_delegated_totals_hook(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Retained refusal (optimize awaits GUI-submission step (iii)) + state reset
+# Optimize through the seam (delegated via the injected optimization_loader)
 # ---------------------------------------------------------------------------
 
 
-def test_optimize_request_refused_at_reinitialize() -> None:
-    scanner = _make_scanner(_FakeSession())
-    request = ScanRequest.model_validate(
-        {
-            "mode": "optimize",
-            "save_sets": ["baseline"],
-            "optimization": {
-                "variables": {"jet_z": [0.0, 1.0]},
-                "evaluator": {"module": "m", "class": "C"},
-                "generator": {"name": "random"},
-            },
-        }
+def _optimize_request(**overrides) -> ScanRequest:
+    base = dict(
+        mode="optimize",
+        shots_per_step=4,
+        acquisition="free_run",
+        save_sets=["baseline"],
+        optimization={
+            "variables": {"jet_z": [0.0, 1.0], "U_S1H:Current": [-2.0, 2.0]},
+            "objectives": {"counts": "MAXIMIZE"},
+            "evaluator": {"module": "m", "class": "C"},
+            "generator": {"name": "bayes_default"},
+            "max_iterations": 5,
+            "move_to_best_on_finish": True,
+        },
     )
-    with pytest.raises(NotImplementedError, match="GeecsSession.run"):
-        scanner.reinitialize(request, resolver=_resolver())
+    base.update(overrides)
+    return ScanRequest.model_validate(base)
+
+
+def _optimize_resolver(**overrides) -> _StubResolver:
+    base = dict(
+        variables={"jet_z": ScanVariable(target="U_ESP_JetXYZ:Position.Axis 3")}
+    )
+    base.update(overrides)
+    return _resolver(**base)
+
+
+def _patch_runner_claim(monkeypatch, tag) -> list:
+    """Patch the runner's claim_scan; return the recorded experiment names."""
+    claims: list = []
+    folder = None if tag is None else f"/nonexistent/scans/Scan{tag.number:03d}"
+    monkeypatch.setattr(
+        scan_request_runner,
+        "claim_scan",
+        lambda experiment: claims.append(experiment) or (tag, folder),
+    )
+    return claims
+
+
+def test_optimize_request_runs_end_to_end_through_bridge(monkeypatch) -> None:
+    """The refusal is gone: an optimize request delegates through the runner.
+
+    The loader receives the request's resolved ``OptimizationSpec``, the
+    bridge's ``bind`` gets the connected movables + detectors and the
+    runner-claimed scan tag/folder, and its (objective, suggester) pair
+    reaches ``session.optimize`` along with the pre-claimed number/folder.
+    ``finish()`` bookkeeping runs after the successful run.
+    """
+    tag = SimpleNamespace(number=41)
+    _patch_runner_claim(monkeypatch, tag)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    loader = _FakeOptimizationLoader()
+    scanner._optimization_loader = loader
+    request = _optimize_request()
+
+    assert scanner.reinitialize(request, resolver=_optimize_resolver()) is True
+    scanner._run_scan(scanner._scan_config)
+
+    # The loader received the request's optimization field group, verbatim.
+    assert loader.calls == [request.optimization]
+    (bridge,) = loader.bridges
+    assert bridge.bind_kwargs is not None
+    assert bridge.bind_kwargs["scan_tag"] is tag
+    assert bridge.bind_kwargs["scan_folder"] == "/nonexistent/scans/Scan041"
+    bound_names = {
+        getattr(d, "_geecs_device_name", None) for d in bridge.bind_kwargs["devices"]
+    }
+    # Movables (both VOCS variables) + the save set's detectors.
+    assert {"U_ESP_JetXYZ", "U_S1H", "U_Ref", "U_Cam2", "U_Stage"} <= bound_names
+    assert bridge.finished is True
+
+    kwargs = session.optimize_kwargs
+    assert kwargs is not None
+    assert kwargs["objective"] is bridge.objective
+    assert kwargs["suggester"] is bridge.suggester
+    assert kwargs["scan_number"] == 41
+    assert kwargs["scan_folder"] == "/nonexistent/scans/Scan041"
+    assert kwargs["max_iterations"] == 5
+    assert kwargs["shots_per_iteration"] == 4
+    assert kwargs["on_finish"] == "best"
+    assert kwargs["mode"] == "free_run"
+    # Catalog name resolved to its target; Device:Variable passes through.
+    assert set(kwargs["variables"]) == {"jet_z", "U_S1H:Current"}
+    assert kwargs["md"]["scan_request_mode"] == "optimize"
+    assert kwargs["md"]["db_scan_runtime"] == {
+        "db_scalars": "applied",
+        "background_telemetry": "not_run_in_optimize",
+    }
+    # The runner's finally still disconnects everything it created.
+    assert len(session.disconnected) == 5
+
+
+def test_optimize_totals_hook_primes_gui_progress(monkeypatch) -> None:
+    """Optimize primes the GUI totals with the max_iterations upper bound."""
+    _patch_runner_claim(monkeypatch, None)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    scanner._optimization_loader = _FakeOptimizationLoader()
+    scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
+    scanner._run_scan(scanner._scan_config)
+
+    assert scanner._total_steps == 5
+    assert scanner._total_shots == 20  # 5 iterations × 4 shots
+
+
+def test_optimize_unclaimed_scan_still_runs(monkeypatch) -> None:
+    """claim failure (off-network) binds with scan_tag=None and still runs."""
+    _patch_runner_claim(monkeypatch, None)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    loader = _FakeOptimizationLoader()
+    scanner._optimization_loader = loader
+    scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
+    scanner._run_scan(scanner._scan_config)
+
+    (bridge,) = loader.bridges
+    assert bridge.bind_kwargs["scan_tag"] is None
+    kwargs = session.optimize_kwargs
+    assert kwargs is not None
+    assert kwargs["scan_number"] is None
+    assert kwargs["scan_folder"] is None
+
+
+def test_optimize_actions_skipped_and_recorded_through_bridge(monkeypatch) -> None:
+    """Actions on optimize keep the skip-with-warning behavior via the bridge:
+    names still validate fail-fast at reinitialize, nothing compiles/executes,
+    and the skip is recorded in the run metadata."""
+    _patch_runner_claim(monkeypatch, None)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    scanner._optimization_loader = _FakeOptimizationLoader()
+    resolver = _optimize_resolver(plans={"prep": _WAIT_PLAN})
+    request = _optimize_request(actions={"setup": ["prep"]})
+    assert scanner.reinitialize(request, resolver=resolver) is True
+    scanner._run_scan(scanner._scan_config)
+
+    kwargs = session.optimize_kwargs
+    assert kwargs is not None
+    assert kwargs["md"]["skipped_action_plans"] == {"setup": ["prep"]}
+    assert session.action_factories == []  # nothing compiled
+
+
+def test_optimize_unknown_action_still_fails_at_reinitialize() -> None:
+    scanner = _make_scanner(_FakeSession())
+    scanner._optimization_loader = _FakeOptimizationLoader()
+    request = _optimize_request(actions={"setup": ["prep"]})
+    with pytest.raises(GeecsConfigurationError, match="prep"):
+        scanner.reinitialize(request, resolver=_optimize_resolver())
+
+
+def test_optimize_unknown_variable_fails_at_reinitialize() -> None:
+    """A catalog VOCS name that does not resolve fails at reinitialize."""
+    scanner = _make_scanner(_FakeSession())
+    scanner._optimization_loader = _FakeOptimizationLoader()
+    with pytest.raises(GeecsConfigurationError, match="jet_z"):
+        scanner.reinitialize(_optimize_request(), resolver=_resolver())
+
+
+def test_optimize_pseudo_variable_fails_at_reinitialize() -> None:
+    pseudo = PseudoScanVariable(
+        kind="pseudo",
+        targets=[{"target": "U_X:Pos", "forward": "composite_var"}],
+        mode="absolute",
+    )
+    scanner = _make_scanner(_FakeSession())
+    scanner._optimization_loader = _FakeOptimizationLoader()
+    with pytest.raises(NotImplementedError, match="pseudo"):
+        scanner.reinitialize(
+            _optimize_request(), resolver=_resolver(variables={"jet_z": pseudo})
+        )
+
+
+def test_optimize_request_without_loader_refused_at_reinitialize() -> None:
+    """No injected optimization_loader → clear refusal (the GUI half being
+    built in parallel relies on this message staying explicit)."""
+    scanner = _make_scanner(_FakeSession())  # _optimization_loader is None
+    with pytest.raises(NotImplementedError, match="optimization_loader"):
+        scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
+
+
+def test_dependency_direction_no_geecs_scanner_import() -> None:
+    """geecs_bluesky must never import geecs_scanner (the loader stays
+    injected; the Xopt/evaluator stack lives GUI-side).  AST-level check so
+    docstring usage examples don't count — only real import statements."""
+    import ast
+
+    import geecs_bluesky
+
+    def _imports_geecs_scanner(tree: ast.AST) -> bool:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name.split(".")[0] == "geecs_scanner" for a in node.names):
+                    return True
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").split(".")[0] == "geecs_scanner":
+                    return True
+        return False
+
+    package_root = Path(geecs_bluesky.__file__).parent
+    offenders = [
+        str(path.relative_to(package_root))
+        for path in sorted(package_root.rglob("*.py"))
+        if _imports_geecs_scanner(ast.parse(path.read_text()))
+    ]
+    assert offenders == []
+
+
+# ---------------------------------------------------------------------------
+# State reset when switching submission shapes
+# ---------------------------------------------------------------------------
 
 
 def test_exec_config_path_clears_request_state(monkeypatch) -> None:
