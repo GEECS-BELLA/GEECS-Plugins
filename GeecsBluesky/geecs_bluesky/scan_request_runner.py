@@ -53,7 +53,7 @@ from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan
-from geecs_bluesky.scan_log import scan_log
+from geecs_bluesky.scan_log import log_claimed_scan_failure, scan_log
 from geecs_schemas import (
     ActionBindings,
     ActionPlan,
@@ -889,13 +889,9 @@ def run_scan_request(
         ``optimization_loader`` seam) called as
         ``binder(devices=..., scan_tag=..., scan_folder=...) ->
         (objective, suggester)`` with the connected movables + detectors
-        and the freshly claimed scan.  Because the binder's stack needs
-        the real ``ScanTag`` (its analyzers load natively saved files by
-        tag), the runner claims the scan itself just before binding —
-        after every fail-fast resolution and device connect — and passes
-        the pre-claimed number/folder to ``session.optimize`` (attaching
-        ``scan.log`` here, since the session only self-attaches when *it*
-        claimed).  Ignored when *objective* and *suggester* are given.
+        and the freshly claimed scan (the runner claims pre-bind; see
+        :func:`_run_optimize_request`).  Ignored when *objective* and
+        *suggester* are given.
     preflight :
         Optional scanner-layer hook (the GUI bridge's operator-dialog
         seam), called pre-claim with the fully assembled detector list and
@@ -1255,11 +1251,8 @@ def _run_optimize_request(
         claimed_here = False
         try:
             if objective is None or suggester is None:
-                # Binder path (checked non-None at entry): claim first —
-                # the binder's stack needs the real ScanTag (analyzers load
-                # natively saved files by tag) — then bind against the
-                # connected movables + detectors.  Everything that can
-                # fail-fast already ran above, legacy exec_config parity.
+                # Binder path (checked non-None at entry): claim first so the
+                # binder's analyzers get the real ScanTag (docstring above).
                 scan_tag, scan_folder = claim_scan(
                     getattr(session, "experiment", "") or ""
                 )
@@ -1296,14 +1289,8 @@ def _run_optimize_request(
             return uid
         except BaseException:
             if claimed_here:
-                # Scan-folder lifecycle invariant: a claimed ScanNNN/ folder
-                # is never deleted, so surface the claimed-but-failed state.
-                logger.error(
-                    "Optimization scan %s failed or aborted after its folder "
-                    "was claimed at %s; the folder is left in place (never "
-                    "deleted) and may be missing ScanInfo or data",
-                    scan_number,
-                    scan_folder,
+                log_claimed_scan_failure(
+                    scan_number, scan_folder, label="Optimization scan"
                 )
             raise
     finally:

@@ -54,6 +54,37 @@ class ScanLogContextFilter(logging.Filter):
         return True
 
 
+def log_claimed_scan_failure(
+    scan_number: int | None, scan_folder: str | None, *, label: str = "Scan"
+) -> None:
+    """Log loudly that a claimed scan folder was left behind by a failure.
+
+    The folder is never deleted (scan-folder lifecycle invariant: once a
+    ``scans/ScanNNN/`` folder exists it must not be removed or recreated),
+    so the claimed-but-failed state is surfaced instead of being silent.
+    A no-op when nothing was claimed.
+
+    Parameters
+    ----------
+    scan_number : int or None
+        The claimed day-scoped scan number.
+    scan_folder : str or None
+        The claimed ``scans/ScanNNN`` folder path.
+    label : str
+        Message prefix naming the scan kind (e.g. ``"Optimization scan"``).
+    """
+    if scan_number is None and scan_folder is None:
+        return
+    logger.error(
+        "%s %s failed or aborted after its folder was claimed at %s; "
+        "the folder is left in place (never deleted) and may be missing "
+        "ScanInfo or data",
+        label,
+        scan_number,
+        scan_folder,
+    )
+
+
 @contextmanager
 def scan_log(scan_number: int | None, scan_folder: str | None):
     """Attach a per-scan ``scan.log`` file handler for the enclosed block.

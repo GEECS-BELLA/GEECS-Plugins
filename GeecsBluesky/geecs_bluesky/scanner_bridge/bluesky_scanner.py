@@ -83,10 +83,15 @@ from geecs_bluesky.scan_request_runner import (
     run_scan_request,
     trigger_writes_from_profile,
 )
-from geecs_bluesky.scan_log import scan_log
+from geecs_bluesky.scan_log import log_claimed_scan_failure, scan_log
 from geecs_bluesky.session import GeecsSession, _positions
 from geecs_bluesky.utils import safe_name
-from geecs_schemas import AcquisitionMode, ScanRequest, ScanRequestMode
+from geecs_schemas import (
+    AcquisitionMode,
+    OptimizationSpec,
+    ScanRequest,
+    ScanRequestMode,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +189,7 @@ class BlueskyScanner:
         tiled_uri: str | None = None,
         tiled_api_key: str | None = None,
         on_event: Callable[[ScanEvent], None] | None = None,
-        optimization_loader: Callable[[str], Any] | None = None,
+        optimization_loader: Callable[[str | OptimizationSpec], Any] | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
         # The session owns the RunEngine (created with context_managers=[] so
@@ -923,27 +928,6 @@ class BlueskyScanner:
         ]
         return run_preflight(checks, ctx, self._operator_channel())
 
-    @staticmethod
-    def _log_claimed_scan_failure(
-        scan_number: int | None, scan_folder: str | None
-    ) -> None:
-        """Log loudly that a claimed scan folder was left behind by a failure.
-
-        The folder is never deleted (scan-folder lifecycle invariant: once a
-        ``scans/ScanNNN/`` folder exists it must not be removed or
-        recreated), so the claimed-but-failed state is surfaced here instead
-        of being silent.
-        """
-        if scan_number is None and scan_folder is None:
-            return
-        logger.error(
-            "Scan %s failed or aborted after its folder was claimed at %s; "
-            "the folder is left in place (never deleted) and may be missing "
-            "ScanInfo or data",
-            scan_number,
-            scan_folder,
-        )
-
     def _run_scan(self, scan_config: Any) -> None:
         """Scan thread body: create devices, run plan, clean up."""
         failed = False
@@ -999,26 +983,20 @@ class BlueskyScanner:
         """Run the stored ScanRequest through the engine's one definition.
 
         Delegates to
-        :func:`~geecs_bluesky.scan_request_runner.run_scan_request`, so the
-        full schema surface (actions, entry rituals, multi-axis grids,
-        db_scalars, telemetry) executes identically to a headless
-        ``GeecsSession.run``.  The bridge contributes its two seams via the
-        runner hooks: the operator-dialog preflight
-        (:meth:`_delegated_preflight`) and the GUI progress totals
-        (:meth:`_on_delegated_scan_start`).  ``session.scan`` claims the
-        scan number itself on this path, and the session self-attaches
-        ``scan.log`` when *it* claimed — so the bridge must NOT pre-claim
-        here.  Exceptions propagate to :meth:`_run_scan`'s cleanup
-        (ABORTED state + disconnect).
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request`.
+        Bridge-specific facts: the two seams are passed as runner hooks
+        (:meth:`_delegated_preflight`, :meth:`_on_delegated_scan_start`);
+        the bridge must NOT pre-claim — the claim happens inside the runner
+        (``session.scan``, or the runner itself pre-bind on optimize),
+        which also owns the ``scan.log`` attach; exceptions propagate to
+        :meth:`_run_scan`'s cleanup (ABORTED state + disconnect).
 
-        Optimize-mode requests hand the request's ``OptimizationSpec`` to
+        Optimize-mode requests hand the resolved ``OptimizationSpec`` to
         the GUI-injected ``optimization_loader`` (presence enforced at
         :meth:`_reinitialize_from_scan_request`); the returned bridge's
-        ``bind`` becomes the runner's ``optimization_binder`` — the runner
-        claims the scan, binds, and maps onto ``session.optimize``.  The
-        bridge's optional ``finish()`` bookkeeping (e.g. the legacy
-        ``xopt_dump.yaml``) runs after a successful run, as on the legacy
-        exec_config optimization path.
+        ``bind`` becomes the runner's ``optimization_binder``, and its
+        optional ``finish()`` bookkeeping (e.g. the legacy
+        ``xopt_dump.yaml``) runs after a successful run.
         """
         request = self._scan_request
         resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
@@ -1323,7 +1301,7 @@ class BlueskyScanner:
                 if callable(finish):
                     finish()
         except BaseException:
-            self._log_claimed_scan_failure(scan_number, scan_folder)
+            log_claimed_scan_failure(scan_number, scan_folder)
             raise
 
     def _execute_scan(
@@ -1422,7 +1400,7 @@ class BlueskyScanner:
                     scan_info=scan_info,
                 )
         except BaseException:
-            self._log_claimed_scan_failure(scan_number, scan_folder)
+            log_claimed_scan_failure(scan_number, scan_folder)
             raise
 
     def _build_session_devices(self) -> list:

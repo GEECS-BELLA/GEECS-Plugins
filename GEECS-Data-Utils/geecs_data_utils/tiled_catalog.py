@@ -17,11 +17,10 @@ Two implementations live here:
   key), and a run's event table is read with the repo-blessed pattern
   ``run["primary"].read()`` (see ``GeecsBluesky/TILED_SETUP.md``).
 
-Connection details are constructor arguments (pure); the
-:meth:`TiledScanCatalog.from_config` classmethod reads the shared
-``[tiled]`` section of ``~/.config/geecs_python_api/config.ini`` directly
-with :mod:`configparser` — this package never imports ``geecs_bluesky``
-(the dependency arrow points the other way).
+Connection details are constructor arguments (pure);
+:meth:`TiledScanCatalog.from_config` reads ``[tiled]`` from the shared
+config.ini directly — never import ``geecs_bluesky`` here (it depends on
+this package).
 
 Every catalog method may block on the network — interactive callers must
 dispatch them off the GUI thread.
