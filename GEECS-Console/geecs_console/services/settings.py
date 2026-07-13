@@ -23,6 +23,7 @@ _APPLICATION = "GEECS-Console"
 _LAST_EXPERIMENT_KEY = "session/last_experiment"
 _PER_SHOT_BEEP_KEY = "preferences/per_shot_beep"
 _RANDOMIZED_BEEPS_KEY = "preferences/randomized_beeps"
+_SHOW_TOOLTIPS_KEY = "preferences/show_tooltips"
 
 
 class ConsoleSettings:
@@ -83,3 +84,12 @@ class ConsoleSettings:
     @randomized_beeps.setter
     def randomized_beeps(self, value: bool) -> None:
         self._set_bool(_RANDOMIZED_BEEPS_KEY, value)
+
+    @property
+    def show_tooltips(self) -> bool:
+        """Whether widget tooltips are shown (default on — discoverability first)."""
+        return bool(self._settings.value(_SHOW_TOOLTIPS_KEY, True, type=bool))
+
+    @show_tooltips.setter
+    def show_tooltips(self, value: bool) -> None:
+        self._set_bool(_SHOW_TOOLTIPS_KEY, value)

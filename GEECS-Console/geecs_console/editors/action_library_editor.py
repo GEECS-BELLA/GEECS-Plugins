@@ -72,7 +72,9 @@ from geecs_console.services.device_completions import (
     EmptyCompletions,
     GeecsDbCompletions,
 )
+from geecs_console.services.schema_tooltips import apply_schema_tooltips
 from geecs_schemas import ActionPlan
+from geecs_schemas.action_plan import CheckStep, RunPlanStep, SetStep, WaitStep
 
 logger = logging.getLogger(__name__)
 
@@ -377,6 +379,33 @@ class ActionLibraryEditor(QDialog):
         self.run_warning_label.setStyleSheet("color: #d9a21b;")  # --warn amber
         self.error_label.setStyleSheet("color: #c4453a;")  # --abort red
         self.run_plan_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+
+        # Tooltips come from the schema field descriptions — one source of
+        # truth for what each field means (issue #497 phase 1).  Each step
+        # kind's page maps to its own step model.
+        apply_schema_tooltips(
+            ActionPlan,
+            {"description": self.description_edit, "steps": self.steps_table},
+        )
+        apply_schema_tooltips(
+            SetStep,
+            {
+                "device": self.set_device_edit,
+                "variable": self.set_variable_edit,
+                "value": self.set_value_edit,
+                "wait_for_execution": self.set_wait_check,
+            },
+        )
+        apply_schema_tooltips(WaitStep, {"seconds": self.wait_seconds_spin})
+        apply_schema_tooltips(
+            CheckStep,
+            {
+                "device": self.check_device_edit,
+                "variable": self.check_variable_edit,
+                "expected": self.check_expected_edit,
+            },
+        )
+        apply_schema_tooltips(RunPlanStep, {"plan": self.run_plan_combo})
 
     def _wire_signals(self) -> None:
         """Connect every widget signal to its handler."""

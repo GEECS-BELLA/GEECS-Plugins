@@ -4,6 +4,64 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.7.0] - 2026-07-12
+
+### Added
+
+- **Tooltips everywhere** (issue #497 phase 1, text only — no doc links).
+  Editor form fields derive their tooltips from the geecs-schemas pydantic
+  `Field(description=...)` texts via the new
+  `services/schema_tooltips.py::apply_schema_tooltips` helper, applied in
+  all four editors (save sets, scan variables, shot control, action
+  library) — single source of truth; a widget mapped to a description-less
+  or renamed field fails loudly at editor construction.  (No schema
+  descriptions needed backfilling — every geecs-schemas field already
+  carries one, so GEECS-Schemas is untouched.)  The main window's operator
+  controls (mode radios, acquisition combo, shots/step, save-set lists,
+  device panel, Start/Stop, health chips, presets row, ...) get
+  hand-written operator-language tooltips in `_apply_operator_tooltips`.
+  Pinned by `tests/test_tooltips.py`: editor tooltips compared against the
+  schema field descriptions, representative window controls asserted
+  non-empty and not label restatements.  A **Preferences → Show tooltips**
+  toggle (checkable, persisted via `ConsoleSettings.show_tooltips`,
+  default on) turns them all off for operators who know the console: an
+  application-level `ToolTipSuppressor` event filter swallows
+  `QEvent.ToolTip` for every console widget — editors included — and is
+  installed **only while tooltips are off**, so the default path adds no
+  per-event filter overhead (an always-installed filter measurably slowed
+  the offscreen suite).  Parented to the window and removed on close, so
+  no dangling suppressor can outlive it.
+- **Optimization mode dropdown (GUI half)**.  Selecting the R3
+  Optimization radio now shows an optimizer-config combo listing the
+  YAML files in the experiment's `optimizer_configs/` folder (the legacy
+  GEECS-Scanner-GUI folder name; offline → empty combo and Start stays
+  disabled).  `ConsoleConfigs.optimization_spec` loads a named config as a
+  validated `OptimizationSpec`, accepting both new-schema documents and
+  the legacy `vocs` dialect (via
+  `geecs_schemas.convert.convert_optimizer_config`).
+  `build_scan_request` maps optimize forms onto `mode: optimize` requests
+  carrying the loaded spec (still a pure function — the window resolves
+  name → spec when snapshotting the form), and `form_state_from_request`
+  round-trips optimize instead of raising, so optimize presets save and
+  apply (Apply matches the preset's inline spec against the experiment's
+  configs by content; no match ⇒ status-bar error, form untouched).  The
+  GUI does **not** pre-block submission: the current engine still refuses
+  optimize requests, and that refusal is surfaced in the status bar — when
+  the engine half lands, zero GUI changes are needed.
+
+### Fixed
+
+- **Device-set completion routed through a worker QObject** (issue #510,
+  finished properly).  The 0.6.2 fix swallowed the torn-down-window
+  `RuntimeError` around a `MainWindow`-owned `device_set_finished` signal
+  emitted from the set-dispatch daemon thread; that window-owned
+  cross-thread emission is now gone entirely.  The blocking set runs
+  through a dedicated `BackgroundResult` worker whose `result_ready`
+  signal delivers `(ok, message)` queued to the GUI thread — the blessed
+  pattern (the worker owns the emission and survives window teardown).
+  The deterministic regression test (blocked fake backend released after
+  window close) stays green.
+
 ## [0.6.3] - 2026-07-12
 
 ### Fixed

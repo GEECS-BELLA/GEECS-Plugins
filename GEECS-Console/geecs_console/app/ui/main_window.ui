@@ -306,6 +306,37 @@
            </layout>
           </item>
           <item>
+           <layout class="QHBoxLayout" name="r3_optimization_layout">
+            <item>
+             <widget class="QLabel" name="r3_optimization_label">
+              <property name="text">
+               <string>Optimization config</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="r3_optimization_combo">
+              <property name="minimumWidth">
+               <number>220</number>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <spacer name="r3_optimization_spacer">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>10</width>
+                <height>10</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
+           </layout>
+          </item>
+          <item>
            <layout class="QGridLayout" name="r3_axes_layout">
             <item row="0" column="8">
              <spacer name="r3_axes_spacer">

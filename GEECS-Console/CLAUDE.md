@@ -19,15 +19,18 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   line ("union: N devices"), role-conflict/reference hint line.
 - **R3 scan form** — mode radios (No-scan / 1D / Grid / Optimization /
   Background), variable picker + start/stop/step (two axis rows; row 2 is
-  Grid-only), shots per step, acquisition combo (free_run default, strict —
-  the request declares intent), live shot count with the
+  Grid-only), an optimizer-config combo (visible in Optimization mode only —
+  see Implemented seams), shots per step, acquisition combo (free_run
+  default, strict — the request declares intent), live shot count with the
   `MAXIMUM_SCAN_SIZE = 1e6` guard, description.
 - **R4 presets** — combo + Apply + Save-as + Delete.  A preset IS a saved
   `ScanRequest`; **persistence live** (see Implemented seams): YAML files
   in the configs repo's per-experiment `presets/` dir.
 - **R5 submit row** — Stop (danger) + Start (primary).  Start requires: not
-  scanning, ≥1 selected save set, valid shot count within the guard, mode
-  not Optimization.
+  scanning, ≥1 selected save set, valid shot count within the guard, and in
+  Optimization mode a selected optimizer config.  The GUI never pre-blocks
+  an optimize submission beyond that — the engine's accept/refuse answer is
+  surfaced in the status bar.
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
   to "(previous)" (**live**: driven by `ScanLifecycleEvent.scan_number`
   through the adapter's `scan_number_known` signal), compact log tail.
@@ -113,9 +116,11 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   edits only regate the Set button (no CA-monitor churn while typing); a
   generation counter drops straggler callbacks from retired monitors.  Set
   goes through `GatewaySetpointPut` (the one blessed `:SP` put primitive,
-  `wire_value` coercion) on a short-lived daemon thread, reporting via the
-  queued `device_set_finished(bool, str)` signal; the button is disabled
-  while a put is in flight.  PV names come only from `ca_pv`/`bare_pv`
+  `wire_value` coercion) dispatched through a dedicated `BackgroundResult`
+  set worker whose queued `result_ready` delivers `(ok, message)` back on
+  the GUI thread — the worker owns the cross-thread emission, never the
+  window (issue #510, resolved in 0.7.0); the button is disabled while a
+  put is in flight.  PV names come only from `ca_pv`/`bare_pv`
   (never hand-built — the `ca://`-vs-bare addressing rule, issue #490).
   All real imports are lazy (module import-safe offline); `closeEvent`
   unsubscribes and disconnects, never joins.  Inject the real backend in
@@ -225,8 +230,39 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   the worker QObject, never on the window**: emitting a window-owned
   signal from a daemon thread races window teardown and segfaults under
   offscreen pytest (observed directly when the idle scan probe emitted a
-  `MainWindow` signal).  `closeEvent` disconnects each worker's
-  `result_ready`.
+  `MainWindow` signal; the R7 device-set completion was the last such
+  emission and moved to a `BackgroundResult` worker in 0.7.0 — issue
+  #510).  `closeEvent` disconnects each worker's `result_ready`.
+- **Optimization dropdown (R3, GUI half — engine-gated)**: the
+  Optimization radio shows a config combo listing the YAML stems of the
+  experiment's `optimizer_configs/` folder (legacy scanner-GUI folder
+  name; part of `ConfigListing`).  `ConsoleConfigs.optimization_spec`
+  loads a named config as a validated `OptimizationSpec` — new-schema
+  documents directly, the legacy `vocs` dialect through
+  `geecs_schemas.convert.convert_optimizer_config`.  `form_state()`
+  resolves the selected name into the spec (`ConsoleFormState.optimization`)
+  so `build_scan_request` stays pure; optimize requests round-trip through
+  `form_state_from_request`, and applying an optimize preset matches its
+  inline spec against the listed configs by content (no match ⇒ status-bar
+  error, form untouched).  The engine currently refuses optimize requests;
+  the console submits anyway and surfaces the refusal, so the engine half
+  lands with zero GUI changes.
+- **Tooltips (issue #497 phase 1)**: editor form fields get their tooltips
+  from the geecs-schemas `Field(description=...)` texts via
+  `services/schema_tooltips.py::apply_schema_tooltips` — single source of
+  truth; a mapping to a missing or description-less field raises at editor
+  construction.  When a tooltip reads poorly, fix the schema description,
+  never hardcode GUI text.  Main-window operator controls carry
+  hand-written operator-language tooltips (`_apply_operator_tooltips`) —
+  those are GUI concepts with no schema counterpart.  **Preferences →
+  Show tooltips** (persisted, default on) gates them all via
+  `ToolTipSuppressor`, an application-level event filter that swallows
+  `QEvent.ToolTip`; it is installed on the `QApplication` **only while
+  tooltips are off** — an always-installed per-window app filter
+  measurably slowed the offscreen suite (every event crossing into a
+  Python `eventFilter`), so presence = suppression.  It is parented to
+  the window (Qt auto-removes a destroyed filter) and `closeEvent`
+  removes it explicitly.  Pinned by `tests/test_tooltips.py`.
 
 ## Standing PySide6 ownership hazards (GC eats live C++ objects)
 
@@ -246,8 +282,12 @@ the window for anything in these families:
 
 ## Stubbed seams (intentional, wire later)
 
-- Optimization mode: radio exists, submission refused with a clear error
-  until an `OptimizationSpec` editor exists.
+- Optimization mode is GUI-complete but **engine-gated**: the console
+  builds and submits `mode: optimize` requests from a named optimizer
+  config (see Implemented seams), and the engine's refusal is surfaced in
+  the status bar until the engine side lands.  An `OptimizationSpec`
+  *editor* (authoring configs in the GUI) remains out of scope — configs
+  are YAML files in `optimizer_configs/`.
 - `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
   `_scan_variables_catalog()` — promote a public "list variable names"
   method on `ConfigsRepoResolver` when next touching geecs-bluesky.

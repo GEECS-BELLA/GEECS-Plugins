@@ -27,6 +27,18 @@ def roundtrip(request: ScanRequest) -> ScanRequest:
     return ScanRequest.model_validate(request.model_dump(mode="json"))
 
 
+def _optimization_spec():
+    """A small valid OptimizationSpec for the optimize-mode tests."""
+    from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
+
+    return OptimizationSpec(
+        variables={"jet_x": (0.0, 1.0)},
+        objectives={"counts": "MAXIMIZE"},
+        evaluator=EvaluatorSpec(module="m", class_name="C"),
+        generator=GeneratorSpec(name="random"),
+    )
+
+
 class TestNoscan:
     def test_noscan_maps_to_schema_noscan(self):
         form = ConsoleFormState(
@@ -195,9 +207,31 @@ class TestGuardsAndModes:
         assert estimate_total_shots(form) == MAXIMUM_SCAN_SIZE
         build_scan_request(form)  # exactly at the limit is allowed
 
-    def test_optimization_mode_refused(self):
-        with pytest.raises(ConsoleFormError, match="Optimization"):
+    def test_optimization_without_spec_refused(self):
+        with pytest.raises(ConsoleFormError, match="optimization config"):
             build_scan_request(ConsoleFormState(mode=ConsoleMode.OPTIMIZATION))
+
+    def test_optimization_with_spec_builds_optimize_request(self):
+        request = build_scan_request(
+            ConsoleFormState(
+                mode=ConsoleMode.OPTIMIZATION,
+                shots_per_step=5,
+                save_sets=["Amp4In"],
+                optimization=_optimization_spec(),
+            )
+        )
+        assert request.mode is ScanRequestMode.OPTIMIZE
+        assert request.axes == []
+        assert request.optimization == _optimization_spec()
+        assert request.shots_per_step == 5
+        roundtrip(request)
+
+    def test_stray_spec_on_non_optimize_mode_rejected_by_schema(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.NOSCAN, optimization=_optimization_spec()
+        )
+        with pytest.raises(ValidationError, match="optimize"):
+            build_scan_request(form)
 
     def test_axis_needs_one_positions_shape(self):
         with pytest.raises(ValidationError, match="start, stop, and step"):
@@ -277,20 +311,23 @@ class TestFormStateFromRequest:
         reloaded = ScanRequest.model_validate(request.model_dump(mode="json"))
         assert form_state_from_request(reloaded) == form
 
-    def test_optimize_request_raises_console_form_error(self):
-        from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
-
-        request = ScanRequest(
-            mode=ScanRequestMode.OPTIMIZE,
-            optimization=OptimizationSpec(
-                variables={"jet_x": (0.0, 1.0)},
-                objectives={"counts": "MAXIMIZE"},
-                evaluator=EvaluatorSpec(module="m", class_name="C"),
-                generator=GeneratorSpec(name="random"),
-            ),
+    def test_optimize_round_trips_exactly(self):
+        form = ConsoleFormState(
+            mode=ConsoleMode.OPTIMIZATION,
+            shots_per_step=5,
+            save_sets=["Amp4In"],
+            description="tune the jet",
+            optimization=_optimization_spec(),
         )
-        with pytest.raises(ConsoleFormError, match="[Oo]ptimization"):
-            form_state_from_request(request)
+        assert self.round_trip(form) == form
+
+    def test_optimize_round_trip_survives_serialization(self):
+        """Preset parity: optimize form -> request -> YAML dict -> form."""
+        form = ConsoleFormState(
+            mode=ConsoleMode.OPTIMIZATION, optimization=_optimization_spec()
+        )
+        reloaded = roundtrip(build_scan_request(form))
+        assert form_state_from_request(reloaded) == form
 
     def test_action_bindings_raise_console_form_error(self):
         from geecs_schemas import ActionBindings

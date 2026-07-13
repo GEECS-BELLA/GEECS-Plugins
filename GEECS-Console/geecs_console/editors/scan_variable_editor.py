@@ -72,7 +72,13 @@ from geecs_console.services.scan_variable_store import (
     ScanVariableStore,
     ScanVariableStoreError,
 )
-from geecs_schemas import CompositeMode, ScanVariables
+from geecs_console.services.schema_tooltips import apply_schema_tooltips
+from geecs_schemas import (
+    CompositeMode,
+    PseudoScanVariable,
+    ScanVariable,
+    ScanVariables,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -344,6 +350,27 @@ class ScanVariableEditor(QDialog):
         self.revert_button: QPushButton = self._child(QPushButton, "sve_revert_button")
         self.save_button: QPushButton = self._child(QPushButton, "sve_save_button")
         self.close_button: QPushButton = self._child(QPushButton, "sve_close_button")
+
+        # Tooltips come from the schema field descriptions — one source of
+        # truth for what each field means (issue #497 phase 1).  The
+        # Device/Variable edit pairs jointly form one 'Device:Variable'
+        # schema field, so both halves carry that field's description.
+        apply_schema_tooltips(
+            ScanVariable,
+            {
+                "target": [self.device_edit, self.variable_edit],
+                "kind": self.kind_combo,
+                "confirm": [self.confirm_device_edit, self.confirm_variable_edit],
+            },
+        )
+        apply_schema_tooltips(
+            PseudoScanVariable,
+            {
+                "mode": self.mode_combo,
+                "targets": self.components_table,
+                "inverse": self.inverse_edit,
+            },
+        )
 
     def _populate_static_combos(self) -> None:
         """Fill the kind and mode combos from the schema vocabularies."""

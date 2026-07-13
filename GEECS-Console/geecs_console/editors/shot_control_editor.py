@@ -64,6 +64,7 @@ from geecs_console.services.trigger_profile_store import (
     TriggerProfileStore,
     TriggerProfileStoreError,
 )
+from geecs_console.services.schema_tooltips import apply_schema_tooltips
 from geecs_schemas import TriggerProfile, TriggerState
 
 logger = logging.getLogger(__name__)
@@ -310,6 +311,17 @@ class ShotControlEditor(QDialog):
         )
         self.states_tree.setColumnWidth(0, 280)
         self.states_tree.setColumnWidth(1, 220)
+
+        # Tooltips come from the schema field descriptions — one source of
+        # truth for what each field means (issue #497 phase 1).
+        apply_schema_tooltips(
+            TriggerProfile,
+            {
+                "description": self.description_edit,
+                "states": self.states_tree,
+                "variants": self.variant_combo,
+            },
+        )
 
     def _wire_signals(self) -> None:
         """Connect widget signals to the handlers."""
