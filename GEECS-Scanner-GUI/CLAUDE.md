@@ -328,12 +328,12 @@ by GEECS-Console (the greenfield PyQt front-end) at the M6 cutover.
 - **Bluesky backend does not translate `DeviceCommandEvent`s** (deliberate —
   nothing consumes them).  Step/progress and pre-flight dialog events landed
   2026-07-07; see `Planning/gui_stewardship/00_overview.md` §4–5.
-- **Several `ScanOptions` knobs lost their consumers with the G1 deletion**
-  (`enable_global_time_sync`, `on_shot_tdms`, `save_direct_on_network`,
-  `global_time_tolerance_ms`, `master_control_ip`/ECS dumps,
-  `randomized_beeps`/`SoundPlayer`): the GUI still offers the toggles but
-  nothing reads them.  Needs an explicit keep-for-Bluesky-parity-or-delete
-  decision — tracked in a GitHub issue; don't wire them back ad hoc.
+- **`enable_global_time_sync` / `global_time_tolerance_ms` are offered but
+  not yet consumed by the Bluesky backend** — deliberately kept pending
+  parity (#535); the other G1-orphaned knobs (`on_shot_tdms`,
+  `save_direct_on_network`, `master_control_ip`/ECS dumps,
+  `randomized_beeps`/`SoundPlayer`) were deleted in 0.35.0.  ECS dumps on
+  the Bluesky path are still owed separately.
 - **`GeecsDevice` `None` return on hardware rejection**: `device.set()` can
   return `None` when `GeecsDeviceCommandFailed` is raised in the UDP listener
   thread.  Root fix requires API changes (deferred with the python-api

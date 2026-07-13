@@ -1,17 +1,14 @@
 """Sound playback utilities for GEECS Scanner.
 
-Includes per-shot beeps, multi-scanner completion jingles, and action
-success/failure jingles.
+Multi-scanner completion jingles and action success/failure jingles.
+(The threaded per-shot ``SoundPlayer`` died with the legacy engine — G1;
+per-shot beeps live in GEECS-Console now.)
 """
 
 from __future__ import annotations
 
-import logging
 import os
 import platform
-import queue
-import random
-import threading
 import time
 
 import numpy as np
@@ -74,94 +71,6 @@ class SimpleSoundPlayer:
         t = np.linspace(0, duration, int(self.sample_rate * duration), False)
         tone = np.sin(2 * np.pi * frequency * t)
         return (tone * 32767).astype(np.int16)
-
-
-class SoundPlayer(SimpleSoundPlayer):
-    """Threaded sound player that queues beep and toot requests."""
-
-    def __init__(
-        self,
-        beep_frequency=700,
-        beep_duration=0.1,
-        toot_frequency=1200,
-        toot_duration=0.75,
-        sample_rate=44100,
-        randomized_beeps: bool = False,
-    ):
-        """Initialize the SoundPlayer and start the background queue thread.
-
-        Parameters
-        ----------
-        beep_frequency : int, optional
-            Frequency of the beep sound in Hz. Default is 700.
-        beep_duration : float, optional
-            Duration of the beep sound in seconds. Default is 0.1.
-        toot_frequency : int, optional
-            Frequency of the toot sound in Hz. Default is 1200.
-        toot_duration : float, optional
-            Duration of the toot sound in seconds. Default is 0.75.
-        sample_rate : int, optional
-            Sample rate for sound generation (used for macOS). Default is 44100.
-        randomized_beeps : bool, optional
-            Vary pitch between shots. Default is False.
-        """
-        super().__init__(sample_rate=sample_rate)
-
-        self.beep_frequency = beep_frequency
-        self.beep_duration = beep_duration
-        self.toot_frequency = toot_frequency
-        self.toot_duration = toot_duration
-
-        self.sound_queue = queue.Queue()
-
-        self.sound_thread = threading.Thread(target=self._process_queue)
-        self.sound_thread.daemon = True
-        self.running = False
-
-        self.random_beeps = randomized_beeps
-
-    def start_queue(self):
-        """Start the background sound processing thread."""
-        self.running = True
-        self.sound_thread.start()
-
-    def play_beep(self):
-        """Add a beep sound request to the queue."""
-        self.sound_queue.put("beep")
-
-    def play_toot(self):
-        """Add a toot sound request to the queue."""
-        self.sound_queue.put("toot")
-
-    def stop(self):
-        """Stop the sound player by sending a termination signal."""
-        self.running = False
-        self.sound_queue.put(None)
-
-    def _process_queue(self):
-        """Process the sound queue and play sounds until stopped."""
-        while self.running:
-            try:
-                sound_type = self.sound_queue.get()
-
-                if sound_type is None:
-                    break
-
-                if sound_type == "beep":
-                    if self.random_beeps:
-                        self.play_sound(
-                            round(
-                                self.beep_frequency * (0.7 * (random.random() + 0.5))
-                            ),
-                            self.beep_duration,
-                        )
-                    else:
-                        self.play_sound(self.beep_frequency, self.beep_duration)
-                elif sound_type == "toot":
-                    self.play_sound(self.toot_frequency, self.toot_duration)
-                self.sound_queue.task_done()
-            except Exception as e:
-                logging.error(f"Error processing sound: {e}")
 
 
 def play_jingle(notes: list[tuple[int, float, float]]):

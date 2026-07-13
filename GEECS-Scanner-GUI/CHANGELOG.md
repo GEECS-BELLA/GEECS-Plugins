@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] — 2026-07-13
+
+### Removed
+
+- **The G1-orphaned ScanOptions knobs** (#535 decision): `on_shot_tdms`,
+  `save_direct_on_network`, `master_control_ip` (and its "Will attempt to
+  use IP … for ECS dumps" log line — the ECS-dump consumer died with
+  `scan_data_manager.py`), and `randomized_beeps` are deleted from
+  `ScanOptions`, the Options/Preferences menus (`BOOLEAN_OPTIONS` /
+  `STRING_OPTIONS` / `OPTION_MAP`, the Randomized Beeps menu action in
+  `GEECSScanner.ui` + regenerated `_ui.py`), and the threaded per-shot
+  `SoundPlayer` class with them (`SimpleSoundPlayer` and the
+  action/multiscan jingles remain — they are live via `action_control`).
+  Their engine consumers were deleted by G1; the toggles silently did
+  nothing. Stale `.ini` entries and preset extras are ignored harmlessly
+  (pydantic `extra="ignore"`).
+
+### Kept (pending Bluesky parity, #535)
+
+- `enable_global_time_sync` + `global_time_tolerance_ms` stay in
+  `ScanOptions` and the Options menu; they are not yet consumed by the
+  Bluesky backend (noted in the model docstring and CLAUDE.md).
+
 ## [0.34.1] — 2026-07-13
 
 ### Changed
