@@ -3,6 +3,38 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.0] — 2026-07-12
+
+### Added
+
+- **Tiled scan-catalog layer** — the Tiled analogue of `ScanPaths`/`ScanData`
+  (day → scan → data over Bluesky-recorded runs), pure and Qt-free, consumable
+  by GUIs (the GEECS-Console scan browser) and batch analysis alike:
+  - `geecs_data_utils.tiled_catalog` — the `ScanCatalog` protocol,
+    `RunSummary`/`RunDetail`/`CatalogStatus` dataclasses,
+    `summary_from_metadata`, the offline `StubCatalog`, and
+    `TiledScanCatalog` (lazy `tiled` import behind the existing `tiled`
+    extra; metadata-only day listing via a `start.time` range +
+    `start.experiment` search; event table read with the repo-blessed
+    `run["primary"].read()` pattern).  Connection details are constructor
+    args; `TiledScanCatalog.from_config()` reads the `[tiled]` section of
+    the shared `config.ini` directly with `configparser` — no
+    `geecs_bluesky` import (dependency direction preserved).
+  - `geecs_data_utils.tiled_schema` — event-schema v1 column semantics in
+    ONE version-tagged module (`GeecsBluesky/EVENT_SCHEMA.md` is the
+    contract): row-identity columns, per-device companion suffixes,
+    `telemetry_` Tier-2 prefix, `geecs_scalar_headers` display-name
+    prettification, reference-timestamp/pinned-column selection,
+    scan-variable readback detection, scan-shape classification
+    (NOSCAN/1D/GRID/OPT), planned shot totals.
+  - `geecs_data_utils.tiled_drift` — pure "moved during scan" telemetry
+    drift analysis: a column drifts when |last − first| exceeds 3σ of its
+    in-scan spread, with a relative-epsilon guard for σ ≈ 0, NaN/string
+    tolerance (dtype-tolerant telemetry), and significance-sorted results.
+- Hermetic tests for all three modules (fake Tiled client objects — no
+  network): `tests/test_tiled_catalog.py`, `tests/test_tiled_schema.py`,
+  `tests/test_tiled_drift.py`.
+
 ## [0.12.0] — 2026-07-06
 
 ### Added

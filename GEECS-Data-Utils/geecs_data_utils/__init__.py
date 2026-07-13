@@ -54,6 +54,14 @@ from geecs_data_utils.tiled_export import (
     build_legacy_scalar_dataframe,
     write_scalar_files_from_tiled,
 )
+from geecs_data_utils.tiled_catalog import (
+    CatalogStatus,
+    RunDetail,
+    RunSummary,
+    ScanCatalog,
+    StubCatalog,
+    TiledScanCatalog,
+)
 
 __all__ = [
     "ScanData",
@@ -90,4 +98,11 @@ __all__ = [
     # tiled export
     "build_legacy_scalar_dataframe",
     "write_scalar_files_from_tiled",
+    # tiled catalog (scan-shaped navigation of Bluesky runs)
+    "CatalogStatus",
+    "RunDetail",
+    "RunSummary",
+    "ScanCatalog",
+    "StubCatalog",
+    "TiledScanCatalog",
 ]
