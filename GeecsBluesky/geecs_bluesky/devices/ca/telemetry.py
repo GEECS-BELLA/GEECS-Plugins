@@ -86,13 +86,21 @@ class CaTelemetryReadable(StandardReadable):
         # so the Tiled→s-file exporter must not rename them as save-set data.
         self._column_headers: dict[str, str] = {}
 
+    #: Per-signal read budget (seconds).  Bounds the soft tier's *latency*
+    #: as well as its failures: without it a hung PV holds the event row for
+    #: ophyd's 10 s default signal timeout (rows are serialized), and a
+    #: staged-but-never-delivered monitor would hold it forever.  Staged
+    #: reads are cache hits (~µs), so this only ever fires on real trouble.
+    _read_timeout_s: float = 2.0
+
     async def read(self) -> dict[str, Any]:
         """Read all telemetry signals, substituting a null cell for any that fail.
 
         The soft-tier guarantee: one unreadable signal degrades to a
         dtype-appropriate null (``NaN`` for numeric, ``""`` for string/enum)
         rather than raising into ``trigger_and_read``.  Reads are issued
-        concurrently; the row's timestamp is best effort.
+        concurrently and individually bounded by :attr:`_read_timeout_s`;
+        the row's timestamp is best effort.
 
         Returns
         -------
@@ -104,7 +112,11 @@ class CaTelemetryReadable(StandardReadable):
 
         signals = list(self._telemetry_signals)
         results = await asyncio.gather(
-            *(sig.read() for sig in signals), return_exceptions=True
+            *(
+                asyncio.wait_for(sig.read(), timeout=self._read_timeout_s)
+                for sig in signals
+            ),
+            return_exceptions=True,
         )
         reading: dict[str, Any] = {}
         for sig, result in zip(signals, results):

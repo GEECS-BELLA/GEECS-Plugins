@@ -344,6 +344,68 @@ Hermetic testing uses ophyd-async mock backends (`tests/ca_mock_helpers.py`):
 `set_mock_value` on `acq_timestamp` is a shot, `start_pacer` on the RE loop is
 the free-running trigger, `follow_setpoint` stands in for GEECS convergence.
 
+## Read path: staging & shot coherence (0.32.0)
+
+**The read-path contract: every per-row read device is staged.**
+`build_step_scan_plan` wraps the composed plan in `bpp.stage_wrapper` over
+detectors + telemetry + motors, so every readable child signal gets a caching
+CA monitor for the scan's duration and per-shot `read()`s are served from
+memory — zero network round trips per row.  Before this, every signal of
+every device was one uncached CA get per row, serialized across devices by
+the RunEngine (measured live 2026-07-13: 87 telemetry devices × ~7 ms VPN
+RTT ≈ 0.7 s/row — scans at a 1 Hz trigger ran at exactly 0.5 Hz).  Pinned by
+`tests/test_read_path_staging.py` (zero backend gets per row; stage/unstage
+bracket the run, including the abort path).
+
+Why cached reads are *correct*, not just fast — the coherence chain, each
+link verified against installed sources (caproto 1.3.0, aioca 2.1,
+ophyd-async 0.19.3):
+
+1. The gateway posts a frame's data variables before its timestamp-ladder
+   variables (PV_CONTRACT.md §3, pinned by
+   `test_callback_posts_timestamp_variables_last`), sequentially awaited —
+   never gathered.
+2. caproto serializes all subscription updates FIFO through one context
+   queue → one per-circuit queue → one TCP socket; aioca delivers via a
+   single FIFO `call_soon_threadsafe` hop; the ophyd-async cache updates
+   synchronously in that callback.
+3. Therefore when `trigger()` completes (the `acq_timestamp` advance
+   arrived), every staged data cache already holds that frame's values —
+   or newer, never older.  This is strictly stronger than an uncached
+   post-trigger get (which samples the same gateway cache, with the same
+   next-frame race, plus a round trip).
+
+Conditions the guarantee stands on (do not silently violate):
+
+- One CA context per process (ordering is per-circuit; aioca's module-level
+  context — the default — satisfies this).
+- `OPHYD_ASYNC_EPICS_CA_KEEP_ALL_UPDATES` stays at its `True` default —
+  client-side coalescing would break "data before timestamp" delivery.
+- The client must not backlog past caproto's per-subscription drop-oldest
+  quota (~1000 updates) — the stated boundary where coherence can break.
+- Connection loss surfaces as `alarm_severity`/`CONNECTED`, never assumed
+  away — a dead monitor serves its last reading silently.
+
+Sharp edges: ophyd-async staging is a **bool, not a refcount** — the
+orchestration layer stages exactly once; nested plans must never re-stage
+these devices.  A staged reading's `timestamp` is the CA server (device
+ladder) time of the last delivery, not read time.  The first post-stage
+read blocks until each monitor's initial update (stage early, not
+mid-step).  `CaAcqTimestampReadable`'s persistent `subscribe_reading`
+shares the same refcounted-by-listeners cache and survives unstage —
+deliberate and safe.
+
+Rate-derived bounds (1 Hz-era constants scaled for the 5 Hz system limit):
+the contributor grace wait is capped at half a trigger period
+(`_effective_grace_wait_s`), the t0-sync window is capped at
+`0.4 / rep_rate_hz` (recorded value lands in the start doc), the telemetry
+per-signal read budget is 2 s (`CaTelemetryReadable._read_timeout_s` — one
+hung PV costs at most that, not ophyd's 10 s default), and the shot queue
+holds 128 updates.  **The t0-sync design floor**: the window must exceed
+inter-machine clock skew (~50 ms); at 5 Hz that leaves 50–80 ms of margin,
+and rates meaningfully beyond 5 Hz need a redesigned seeding stage — see
+`Planning/device_read_path/00_overview.md`.
+
 ## Transport Layer — moved to GeecsCAGateway
 
 The GEECS wire-protocol transport (`GeecsUdpClient`, `GeecsTcpSubscriber`)

@@ -68,14 +68,18 @@ class CaAcqTimestampReadable(StandardReadable):
     _acq_timestamp_variable : str
         GEECS variable that advances per shot.  Default ``"acq_timestamp"``.
     _shot_queue_maxsize : int
-        Bound on the shot-update queue (default 32 — comfortably above the
-        worst case of rep-rate × trigger-timeout updates between baseline
-        and the awaited get).  Only ``trigger()`` drains the queue, so an
-        unbounded queue would grow one float per machine shot on idle devices.
+        Bound on the shot-update queue (default 128 — the worst case is
+        rep-rate × trigger-timeout updates between baseline and the awaited
+        get, i.e. 15 at the 5 Hz system limit, with a wide margin so the
+        bound never needs revisiting below ~40 Hz).  Only ``trigger()``
+        drains the queue, so an unbounded queue would grow one float per
+        machine shot on idle devices; overflow is drop-oldest and
+        correctness-preserving (any surviving post-baseline update passes
+        the ``!= t0`` shot test).
     """
 
     _acq_timestamp_variable: str = "acq_timestamp"
-    _shot_queue_maxsize: int = 32
+    _shot_queue_maxsize: int = 128
 
     def __init__(
         self,
