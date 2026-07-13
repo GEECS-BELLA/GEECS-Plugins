@@ -22,6 +22,7 @@ longer cannot help, but firing again can.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Callable, Sequence
 
 import bluesky.plan_stubs as bps
@@ -144,9 +145,18 @@ def geecs_single_shot(
         try:
             for obj in triggerables:
                 yield from bps.trigger(obj, group=grp, wait=False)
+            fire_t0 = time.monotonic()
             yield from fire()
+            fire_done = time.monotonic()
             if triggerables:
                 yield from bps.wait(group=grp)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "shot phases: fire %.1f ms, frame wait %.1f ms (%d triggerables)",
+                    (fire_done - fire_t0) * 1e3,
+                    (time.monotonic() - fire_done) * 1e3,
+                    len(triggerables),
+                )
         except FailedStatus as exc:
             # No cancellation of abandoned statuses is needed: the RunEngine
             # stashes a late FailedStatus and throws it into the plan at the

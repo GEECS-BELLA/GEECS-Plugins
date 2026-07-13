@@ -178,4 +178,14 @@ def build_step_scan_plan(
         plan = bpp.finalize_wrapper(plan, controller.disarm())
     if closeout is not None:
         plan = bpp.finalize_wrapper(plan, closeout)
+    # Outermost: stage every per-row read device so each signal gets a caching
+    # CA monitor and per-shot reads are served locally instead of issuing one
+    # network get per signal per row (the read-path contract —
+    # GeecsBluesky/CLAUDE.md "Read path: staging & shot coherence").  Staged
+    # reads are shot-coherent because the gateway posts a frame's data
+    # variables before its timestamp-ladder variables (PV_CONTRACT.md §3).
+    # stage_wrapper stages exactly once on entry and unstages via finalize on
+    # every exit path (ophyd-async staging is a bool, not a refcount — nested
+    # plans must not re-stage these devices).
+    plan = bpp.stage_wrapper(plan, scalar_devices)
     return plan

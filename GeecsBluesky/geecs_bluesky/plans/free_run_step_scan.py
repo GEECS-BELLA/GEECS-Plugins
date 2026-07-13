@@ -39,6 +39,8 @@ do not "fix" into per-step save toggling.  Design rationale:
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any, Callable, Iterable, Sequence
 
 import bluesky.plan_stubs as bps
@@ -53,6 +55,8 @@ from geecs_bluesky.plans.step_scan import (
     normalize_motors,
 )
 from geecs_bluesky.plans.t0_sync import geecs_t0_sync
+
+logger = logging.getLogger(__name__)
 
 
 def geecs_free_run_step_scan(
@@ -125,7 +129,14 @@ def geecs_free_run_step_scan(
         same point, unwindowed.  Save-*off* stays the run wrapper's
         innermost finalize, before the caller's disarm.
     t0_sync_window_s:
-        Acceptance window for the t0-sync stage.
+        Acceptance window for the t0-sync stage.  Capped at
+        ``0.4 / rep_rate_hz`` (from the reference's shot-ID tracker) so the
+        window can never span more than one trigger period — a window wider
+        than a period silently accepts caches seeded one shot apart.  The
+        effective value is recorded in the start document.  Note the design
+        floor: the window must stay above inter-machine clock skew
+        (~50 ms), which at 5 Hz leaves 50–80 ms of real margin; rates much
+        beyond 5 Hz need a redesigned seeding stage, not a smaller window.
     tail_flush:
         Emit one final ``flush``-stream event after the last disarm so
         lagging contributors' final shot is captured.
@@ -162,6 +173,16 @@ def geecs_free_run_step_scan(
 
     _positions = list(positions)
     _motors = normalize_motors(motor)
+    rep_rate_hz = reference.shot_id_tracker.rep_rate_hz
+    effective_window_s = min(t0_sync_window_s, 0.4 / rep_rate_hz)
+    if effective_window_s < t0_sync_window_s:
+        logger.info(
+            "t0-sync window capped to %.3fs (%.3fs requested) for rep rate "
+            "%.1f Hz — the window must stay under one trigger period",
+            effective_window_s,
+            t0_sync_window_s,
+            rep_rate_hz,
+        )
     scan_context = ScanContext()
     _read_devices = [reference, *detectors]
     _read_devices.extend(_motors)
@@ -182,7 +203,7 @@ def geecs_free_run_step_scan(
         "reference_device": getattr(
             reference, "_geecs_device_name", getattr(reference, "name", "")
         ),
-        "t0_sync_window_s": t0_sync_window_s,
+        "t0_sync_window_s": effective_window_s,
         "motor": motor_md(_motors),
         "detectors": [getattr(d, "name", str(d)) for d in (reference, *detectors)],
         "positions": _positions,
@@ -201,7 +222,7 @@ def geecs_free_run_step_scan(
         # Trigger stopped through t0 sync until the first arm[SCAN] — the
         # earliest orphan-free moment to start native saving (Gate-2).
         yield from enable_saving()
-    t0s = yield from geecs_t0_sync(sync_devices, window_s=t0_sync_window_s)
+    t0s = yield from geecs_t0_sync(sync_devices, window_s=effective_window_s)
     _md["device_t0s"] = t0s
 
     @bpp.run_decorator(md=_md)
@@ -224,7 +245,15 @@ def geecs_free_run_step_scan(
                     shot_index_in_bin=shot_index_in_bin,
                     scan_event_index=scan_event_index,
                 )
+                row_t0 = time.monotonic()
                 yield from bps.trigger_and_read(_read_devices)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "row %d: %.1f ms (trigger wait + %d device reads)",
+                        scan_event_index,
+                        (time.monotonic() - row_t0) * 1e3,
+                        len(_read_devices),
+                    )
             if disarm_trigger is not None:
                 yield from disarm_trigger()
         # End of scan: stop the trigger BEFORE the tail machinery — STANDBY
