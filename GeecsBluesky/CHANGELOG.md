@@ -4,6 +4,32 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.33.0] - 2026-07-13
+
+### Fixed
+
+- **The console's Start button no longer sticks after a scan** (operator
+  finding, 2026-07-13): the terminal DONE/ABORTED lifecycle event was
+  emitted from the scan thread milliseconds before it exited, so an
+  event-driven GUI re-checking `is_scanning_active()` from its
+  terminal-state handler raced the thread's last instructions and saw
+  `is_alive() == True` — leaving Start disabled until the operator
+  clicked Stop.  `is_scanning_active()` now reports `False` as soon as
+  the scan's `finally` cleanup completes, *before* the terminal event is
+  emitted; a thread genuinely stuck mid-plan still reports active (the
+  timed-out-join semantics are unchanged).
+
+### Changed
+
+- **Start-to-execution latency: telemetry devices connect concurrently.**
+  New `GeecsSession.telemetry_batch` constructs all Tier-2 readables and
+  awaits their connects in one gather, so wall time is the slowest device
+  rather than the sum — sequential connects cost ~9 s at ~87 devices
+  (measured live 2026-07-13, Scan006 timeline).
+  `build_telemetry_readables` uses the batch when the session provides it
+  (per-device fallback kept for duck-typed sessions); drop-on-failure
+  semantics per device are unchanged.
+
 ## [0.32.0] - 2026-07-13
 
 ### Fixed

@@ -830,11 +830,22 @@ def build_telemetry_readables(
     )
     readables: list = []
     recorded: dict[str, list[str]] = {}
-    for device, variables in selected.items():
-        readable = session.telemetry(device, variables)
-        if readable is not None:
-            readables.append(readable)
-            recorded[device] = list(variables)
+    if hasattr(session, "telemetry_batch"):
+        # Concurrent connects: wall time = slowest device, not the sum
+        # (~87 sequential connects cost ~9 s of start latency; measured
+        # live 2026-07-13).  Fake sessions without the batch method fall
+        # through to the sequential per-device factory below.
+        readables = list(session.telemetry_batch(selected))
+        for readable in readables:
+            device = getattr(readable, "_geecs_device_name", None)
+            if device in selected:
+                recorded[device] = list(selected[device])
+    else:
+        for device, variables in selected.items():
+            readable = session.telemetry(device, variables)
+            if readable is not None:
+                readables.append(readable)
+                recorded[device] = list(variables)
     # Record only the devices that actually connected: a device dropped as
     # unreachable at scan start contributes no columns, so the start-doc
     # metadata must not advertise them (EVENT_SCHEMA.md contract — the key
