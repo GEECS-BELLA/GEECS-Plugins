@@ -233,20 +233,32 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `MainWindow` signal; the R7 device-set completion was the last such
   emission and moved to a `BackgroundResult` worker in 0.7.0 — issue
   #510).  `closeEvent` disconnects each worker's `result_ready`.
-- **Optimization dropdown (R3, GUI half — engine-gated)**: the
-  Optimization radio shows a config combo listing the YAML stems of the
-  experiment's `optimizer_configs/` folder (legacy scanner-GUI folder
-  name; part of `ConfigListing`).  `ConsoleConfigs.optimization_spec`
-  loads a named config as a validated `OptimizationSpec` — new-schema
-  documents directly, the legacy `vocs` dialect through
+- **Optimization (R3) — end to end**: the Optimization radio shows a
+  config combo listing the YAML stems of the experiment's
+  `optimizer_configs/` folder (legacy scanner-GUI folder name; part of
+  `ConfigListing`).  `ConsoleConfigs.optimization_spec` loads a named
+  config as a validated `OptimizationSpec` — new-schema documents
+  directly, the legacy `vocs` dialect through
   `geecs_schemas.convert.convert_optimizer_config`.  `form_state()`
   resolves the selected name into the spec (`ConsoleFormState.optimization`)
   so `build_scan_request` stays pure; optimize requests round-trip through
   `form_state_from_request`, and applying an optimize preset matches its
   inline spec against the listed configs by content (no match ⇒ status-bar
-  error, form untouched).  The engine currently refuses optimize requests;
-  the console submits anyway and surfaces the refusal, so the engine half
-  lands with zero GUI changes.
+  error, form untouched).  **The engine-side loader is wired** (0.8.0):
+  `make_bluesky_submitter` injects `optimization_loader` from
+  `services/optimization.py` — `optimizer_config_from_spec` maps the spec
+  onto the `BaseOptimizerConfig` dict shape (pinned as the exact inverse
+  of `convert_optimizer_config`), `load_console_optimization` builds
+  `BaseOptimizer.from_config(...)` + `SessionOptimizationBridge`, and the
+  engine (GeecsBluesky ≥ 0.31.0) runs the optimization as a delegated
+  ScanRequest.  The stack is the **`optimization` extra**
+  (`geecs-scanner-gui`, the only place the legacy package appears —
+  import confined to `services/optimization.py`, lazy, gated by a light
+  `find_spec` probe); without it the loader is `None` and the engine's
+  needs-a-loader refusal shows in the status bar, all other modes
+  unaffected.  The save sets must name the objective's diagnostics —
+  optimizer `device_requirements` auto-provisioning is deliberately not
+  wired on the delegated path (engine decision, PR #520).
 - **Tooltips (issue #497 phase 1)**: editor form fields get their tooltips
   from the geecs-schemas `Field(description=...)` texts via
   `services/schema_tooltips.py::apply_schema_tooltips` — single source of
@@ -282,12 +294,12 @@ the window for anything in these families:
 
 ## Stubbed seams (intentional, wire later)
 
-- Optimization mode is GUI-complete but **engine-gated**: the console
-  builds and submits `mode: optimize` requests from a named optimizer
-  config (see Implemented seams), and the engine's refusal is surfaced in
-  the status bar until the engine side lands.  An `OptimizationSpec`
-  *editor* (authoring configs in the GUI) remains out of scope — configs
-  are YAML files in `optimizer_configs/`.
+- An `OptimizationSpec` *editor* (authoring configs in the GUI) remains
+  out of scope — configs are YAML files in `optimizer_configs/`.  The
+  optimization stack behind the loader (`geecs_scanner.optimization`) is
+  legacy machinery kept for parity; a redesigned hook (bluesky-adaptive
+  direction) is planned, at which point `services/optimization.py` and
+  the `optimization` extra are deleted together.
 - `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
   `_scan_variables_catalog()` — promote a public "list variable names"
   method on `ConfigsRepoResolver` when next touching geecs-bluesky.

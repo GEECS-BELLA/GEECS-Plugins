@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.7.0"
+version = "0.8.0"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -17,6 +17,19 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "
 # The config vocabulary: ScanRequest is the one submission object this GUI
 # builds.  Pydantic-only — the request builder imports nothing heavier.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+# The Xopt/evaluator optimization stack (geecs_scanner.optimization) — the
+# ONLY reason the legacy package appears here, and only as the opt-in
+# `optimization` extra: it drags the legacy dependency tree into the
+# install.  The console imports nothing else from it (the import lives in
+# services/optimization.py alone, lazy and availability-gated); without the
+# extra, optimize-mode submissions are refused by the engine and every
+# other mode is unaffected.  Slated for deletion when the redesigned
+# optimization hook (bluesky-adaptive direction) replaces the stack.
+geecs-scanner-gui = { path = "../GEECS-Scanner-GUI", develop = true, optional = true }
+
+[tool.poetry.extras]
+optimization = ["geecs-scanner-gui"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
