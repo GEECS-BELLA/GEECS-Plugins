@@ -59,6 +59,32 @@ from geecs_bluesky.plans.t0_sync import geecs_t0_sync
 logger = logging.getLogger(__name__)
 
 
+def _t0_seed_check(contributors: list) -> None:
+    """Warn when the scan's first row shows a contributor off its t0 seed.
+
+    The t0-sync stage seeds every sync device from what should be one common
+    physical shot; a seeding error (window wider than the caches' spread —
+    possible near the ~50 ms clock-skew floor at fast rep rates) shows up as
+    a **constant nonzero ``shot_offset`` from the very first row**.  A
+    transiently lagging contributor also lands nonzero here, so this is a
+    loud hint, not an abort: offsets stay truthfully labeled and rows remain
+    realignable downstream either way (the event-schema contract).
+    """
+    suspects = [
+        getattr(dev, "name", str(dev))
+        for dev in contributors
+        if getattr(dev, "last_shot_offset", None) not in (None, 0)
+    ]
+    if suspects:
+        logger.warning(
+            "t0 seed check: first-row shot_offset != 0 for %s — either the "
+            "t0 seeding is off by a trigger period (check t0_sync_window_s "
+            "vs the rep rate) or the device lagged the first shot; "
+            "shot_offset labels remain truthful and realignable",
+            suspects,
+        )
+
+
 def geecs_free_run_step_scan(
     motor: Any | Sequence[Any] | None,
     positions: Iterable[Any],
@@ -254,6 +280,8 @@ def geecs_free_run_step_scan(
                         (time.monotonic() - row_t0) * 1e3,
                         len(_read_devices),
                     )
+                if scan_event_index == 1:
+                    _t0_seed_check(detectors)
             if disarm_trigger is not None:
                 yield from disarm_trigger()
         # End of scan: stop the trigger BEFORE the tail machinery — STANDBY
