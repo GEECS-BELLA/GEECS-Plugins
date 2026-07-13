@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.7.0"
+version = "0.8.0"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -18,11 +18,24 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "
 # builds.  Pydantic-only — the request builder imports nothing heavier.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 
+# The scan browser's data layer: ScanCatalog / tiled_schema / tiled_drift
+# (plus the read-only ScanPaths resolution ops_paths already used
+# transitively).  Declared directly because geecs_console.browser imports
+# it at module level; the tiled extra backs TiledScanCatalog.
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
+
+# B4 plotting (scan browser): Qt-native, imported lazily with
+# PYQTGRAPH_QT_LIB=PySide6 pinned before the first import.
+pyqtgraph = "^0.13"
+
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"
 pytest-qt = ">=4.4"
 ruff = ">=0.9"
 pydocstyle = ">=6.3"
+
+[tool.poetry.scripts]
+geecs-scan-browser = "geecs_console.browser.__main__:main"
 
 [build-system]
 requires = ["poetry-core"]
