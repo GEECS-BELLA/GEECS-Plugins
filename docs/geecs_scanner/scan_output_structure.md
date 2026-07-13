@@ -112,9 +112,9 @@ If you didn't run ScanAnalysis (live or offline), this folder doesn't exist.
 
 ### Per-device subfolders
 
-For every device in your save element with `save_nonscalar_data: true`, the scanner creates a subfolder named after the device and pulls every per-shot file into it. The naming convention is `Scan{NNN}_{DeviceName}_{ShotNumber}.{ext}`.
+For every device in your save element with `save_nonscalar_data: true`, the scanner creates a subfolder named after the device and the device writes every per-shot file into it. The naming convention is `Scan{NNN}_{DeviceName}_{ShotNumber}.{ext}`.
 
-Files are matched to shots by the device's per-shot timestamp. The scanner's FileMover runs in parallel with acquisition; if the network share is slow or a device finishes writing late, files queue and get drained at scan teardown. If a file never arrives within the orphan-sweep timeout, it's logged at WARNING but the scan still completes — the s-file row exists, only the binary file is missing.
+Files are matched to shots by the device's per-shot timestamp. Devices save their files natively: the scanner points each saving device at the scan folder (its `localsavingpath`/`save` variables) for the trigger-active window of the scan, and files join event rows by the device's `acq_timestamp` downstream. A device that finishes writing late still lands its file in the scan folder — the event row exists either way.
 
 ## Loading per-shot files
 
@@ -139,7 +139,7 @@ For LabVIEW-saved PNGs, use `image_analysis.utils.read_imaq_png_image` instead o
 
 ## Where the layout is enforced
 
-The folder layout is enforced by `ScanDataManager` in `geecs_scanner/engine/scan_data_manager.py` (not by the scanner GUI). The GUI just hands a `ScanExecutionConfig` to the engine; the engine asks `ScanPaths` to claim the next scan number and create the folder. If you're scripting scans without the GUI, you get the same layout for free.
+The folder layout is enforced by the engine's scan-folder claim — `claim_scan_number` in `geecs_bluesky/plans/run_wrapper.py`, the one place allowed to create a `scans/ScanNNN/` folder (not the scanner GUI). The GUI just hands the scan to the engine; the engine asks `ScanPaths` to claim the next scan number and create the folder. If you're scripting scans without the GUI, you get the same layout for free.
 
 If you're loading data and the path resolution is going wrong, the question is almost always "is `geecs_paths_config.py` looking at the right base path?" Check `ScanPaths.paths_config` and reload it with the right experiment if needed.
 

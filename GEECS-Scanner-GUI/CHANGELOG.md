@@ -3,7 +3,22 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.34.0] — 2026-07-13
+## [0.34.1] — 2026-07-13
+
+### Changed
+
+- **Post-G1 documentation sweep (docs-only).** `CLAUDE.md`, the mkdocs
+  pages (`architecture.md` rewritten around the BlueskyScanner backend;
+  `overview.md`, `scan_output_structure.md`, `save_elements.md`,
+  `api/scan_events.md` retargeted), and `README.md` no longer describe the
+  deleted legacy engine as current; the fossil `engine/readme.md`
+  (pre-rename, all-deleted class list) is removed, along with the empty
+  post-G1 test packages `tests/ScannerTools/test_engine/` and
+  `tests/integration/hardware/`. Stale in-code references
+  (`scan_options.py`, `device_command_executor.py`, two comments in
+  `geecs_scanner.py`) updated to the Bluesky reality. The dead ScanOptions
+  knobs left by G1 are recorded in Known Tech Debt pending a
+  keep-or-delete decision.
 
 ### Added
 

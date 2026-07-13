@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.9.2] - 2026-07-13
+
+### Changed
+
+- Docs-only: `browser/_background.py`'s module docstring drops the stale
+  agent-coordination note ("another session owns that file") and the
+  claim that a #510 PR would land `services/background.py` (#510 closed
+  without it — the extraction is simply pending); `CLAUDE.md` corrects the
+  optimization-loader wiring version to 0.9.0.
+
 ## [0.9.1] - 2026-07-12
 
 ### Fixed

@@ -24,11 +24,12 @@ logger = logging.getLogger(__name__)
 
 
 class DeviceCommandExecutor:
-    """Single policy object for every device command issued during a scan.
+    """Single policy object for every device command issued by the action path.
 
     Enforces a per-error-type retry policy and routes failures to a user
-    escalation callback.  One instance is created per scan run and injected
-    into ``ScanStepExecutor``, ``ScanDataManager``, and ``ActionManager``.
+    escalation callback.  Injected into ``ActionManager`` (the GUI-side
+    action-library execution path — in-scan device I/O is the Bluesky
+    engine's business).
 
     Retry policy
     ------------

@@ -147,7 +147,7 @@ To add more functionality, you can enable the `Scan Commands` checkbox to enable
 
 ## Core Classes
 
-TODO, right now files are separated by GUI window and each python file contains all functionality.  `RunControl.py` is the interface between the main window GUI `GEECSScanner.py` and the backend managed by `geecs_python_api/controls/data_acquisition/scan_manager.py`.
+Right now files are separated by GUI window and each python file contains all functionality.  `run_control.py` is the interface between the main window GUI (`geecs_scanner.py`) and the scan engine, `BlueskyScanner` from the GeecsBluesky package.
 
 ## Future Improvements
 

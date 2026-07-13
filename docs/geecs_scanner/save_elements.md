@@ -97,7 +97,7 @@ Action sequences (`setup_action`, `closeout_action`) from every selected element
 
 ## Device flags in detail
 
-`save_nonscalar_data: true` configures the device to write per-shot files (typically images for cameras) and tells the scanner's `FileMover` to pull them into the scan folder under `Scan###/{device_name}/`. Use it for any device that has files associated with shots. If left false, only the variables in `variable_list` are recorded as scalars in the s-file.
+`save_nonscalar_data: true` configures the device to write per-shot files (typically images for cameras) natively into the scan folder under `Scan###/{device_name}/` — the scanner points the device there for the duration of the scan. Use it for any device that has files associated with shots. If left false, only the variables in `variable_list` are recorded as scalars in the s-file.
 
 `synchronous: true` means the scanner waits for this device's per-shot data before counting the shot as done. The shot timestamp comparison enforces alignment to within a configurable tolerance (default 50 ms). Use this for cameras and primary diagnostics where missing a shot means missing a measurement. `synchronous: false` is for devices that log asynchronously and are allowed to drift — the data still gets written but it's not used to gate scan progression.
 
