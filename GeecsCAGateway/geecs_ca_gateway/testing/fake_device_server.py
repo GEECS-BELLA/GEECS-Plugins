@@ -26,6 +26,8 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..transport._coerce import coerce_scalar
+
 logger = logging.getLogger(__name__)
 
 _PUSH_HZ = 5.0
@@ -133,7 +135,7 @@ class _GeecsUdpProtocol(asyncio.DatagramProtocol):
 
         if op_and_var.startswith("set"):
             var = op_and_var[3:]
-            value = self._coerce(value_str)
+            value = coerce_scalar(value_str)
             ok = self._device.set(var, value)
         elif op_and_var.startswith("get"):
             var = op_and_var[3:]
@@ -151,16 +153,6 @@ class _GeecsUdpProtocol(asyncio.DatagramProtocol):
         exe_msg = self._device.build_exe_response(var, error=not ok)
         self._transport.sendto(exe_msg.encode("ascii"), (client_ip, client_exe_port))
         logger.debug("UDP tx exe → %s:%s  %r", client_ip, client_exe_port, exe_msg)
-
-    @staticmethod
-    def _coerce(s: str) -> Any:
-        """Try to parse as float, then int, then leave as str."""
-        try:
-            f = float(s)
-            # Preserve int if it looks like one
-            return int(f) if f == int(f) and "." not in s else f
-        except ValueError:
-            return s
 
     def error_received(self, exc: Exception) -> None:
         logger.error("UDP error: %s", exc)

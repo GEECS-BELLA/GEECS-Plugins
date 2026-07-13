@@ -659,11 +659,9 @@ class GeecsDb:
     def get_fk_orphan_variables(cls, *, sample_limit: int = 20) -> dict:
         """Return ``expt_device_variable`` rows whose ``expt_device`` is gone.
 
-        The LabVIEW DB-editing GUIs do not cascade deletions (there are no
-        foreign-key constraints), so removing a whole experiment can leave
-        ``expt_device_variable`` rows whose ``expt_device_id`` points at an
-        ``expt_device.id`` that no longer exists.  A LEFT JOIN with
-        ``ed.id IS NULL`` finds them.  Read-only — this only reports.
+        Such rows are left behind because DB deletions do not cascade (see
+        :mod:`geecs_ca_gateway.audit`).  A LEFT JOIN with ``ed.id IS NULL``
+        finds them.  Read-only — this only reports.
 
         These orphans are **not experiment-scoped** (their owning
         ``expt_device`` row, which carried the experiment name, is gone), so the

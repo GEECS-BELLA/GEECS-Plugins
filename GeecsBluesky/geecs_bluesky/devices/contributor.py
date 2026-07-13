@@ -64,8 +64,12 @@ class FreeRunContributorSupport:
             ``ShotIdSupport`` device, normally the triggered reference detector.
         grace_wait_s:
             Bounded wait at read time for this device's own frame for the
-            row's shot to arrive (~one push period).  ``0`` disables;
-            ``None`` keeps the current setting (default ``0.3``).
+            row's shot to arrive.  ``0`` disables; ``None`` keeps the
+            current setting (default ``0.3``).  The *effective* wait is
+            additionally capped at half a trigger period
+            (``0.5 / rep_rate_hz`` from the shot-ID tracker), so a fixed
+            default can never burn multiple shot periods at fast rep rates
+            — see :meth:`_effective_grace_wait_s`.
         """
         # Reference opts out of ophyd-async's child adoption: assigning a
         # bare Device attribute would re-parent and rename the pacemaker,
@@ -91,13 +95,27 @@ class FreeRunContributorSupport:
             return None
         return tracker.peek(ts)
 
+    def _effective_grace_wait_s(self) -> float:
+        """Grace wait bounded to half a trigger period.
+
+        Contributors are read sequentially by the RunEngine, so an
+        over-long grace wait serializes across every lagging contributor.
+        Capping at ``0.5 / rep_rate_hz`` keeps the worst case under one
+        shot period per row regardless of the configured default (at the
+        1 Hz default nothing changes: ``min(0.3, 0.5) == 0.3``).
+        """
+        tracker = self._shot_id_tracker
+        if tracker is None:
+            return self._grace_wait_s
+        return min(self._grace_wait_s, 0.5 / tracker.rep_rate_hz)
+
     async def _grace_wait(self, row_shot_id: int) -> None:
         """Wait (bounded) for this device's frame for *row_shot_id*."""
         tracker = self._shot_id_tracker
         if tracker is None or not tracker.is_seeded:
             return
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self._grace_wait_s
+        deadline = loop.time() + self._effective_grace_wait_s()
         while True:
             ts = self.last_acq_timestamp
             if ts is not None:

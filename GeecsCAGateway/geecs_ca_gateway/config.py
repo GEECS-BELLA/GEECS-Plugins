@@ -54,11 +54,9 @@ _CHOICE_TYPE_DESCRIPTORS = _SKIP_VARTYPES | {"numeric", "string", "path"}
 def effective_vartype(variabletype: str | None, choices: str | None) -> str:
     """Resolve the effective GEECS variable type from DB metadata.
 
-    The single source of truth for how the gateway interprets a DB variable
-    row's type — used by :meth:`DeviceSpec.from_db_metadata` when building
-    served specs *and* by the DB-hygiene audit
-    (:func:`geecs_ca_gateway.audit.audit_subscribed_variables`), so the audit
-    flags exactly what the gateway skips (#512).
+    Shared by :meth:`DeviceSpec.from_db_metadata` and the DB-hygiene audit
+    (:func:`geecs_ca_gateway.audit.audit_subscribed_variables`) so both apply
+    identical rules.
 
     The ``choice`` table's low IDs double as type descriptors, so when
     ``choices`` is a bare descriptor word (``image``, ``1darray``, ``numeric``,
@@ -238,9 +236,6 @@ class DeviceSpec(BaseModel):
             override = dtypes.get(var_name)
             raw_choices = (meta.get("choices") or "").strip()
 
-            # Effective-type resolution (choice-descriptor quirks included)
-            # lives in the shared pure helper so the DB-hygiene audit applies
-            # the identical rules (see `effective_vartype`, #512).
             effective = effective_vartype(meta.get("variabletype"), raw_choices)
 
             if override is None and effective in _SKIP_VARTYPES:

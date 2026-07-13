@@ -4,6 +4,68 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.32.0] - 2026-07-13
+
+### Fixed
+
+- **Per-shot reads no longer issue one network CA get per signal per row**
+  (issue #540 — scans at a 1 Hz trigger ran at 0.5 Hz once background
+  telemetry's ~87 devices joined every event row).
+  `build_step_scan_plan` now stages every per-row read device
+  (`bpp.stage_wrapper`, unstaged on every exit path), so each signal gets a
+  caching CA monitor for the scan's duration and per-shot reads are served
+  locally.  Cached reads are shot-coherent by the gateway's frame-ordering
+  contract (data variables post before the timestamp ladder,
+  PV_CONTRACT.md §3) — chain verified against installed caproto/aioca/
+  ophyd-async sources; conditions documented in CLAUDE.md "Read path:
+  staging & shot coherence".  Pinned by `tests/test_read_path_staging.py`
+  (zero backend gets per row; stage/unstage bracket the run, abort path
+  included).
+- **One hung telemetry PV can no longer hold an event row for 10 s**:
+  `CaTelemetryReadable` bounds each signal read at 2 s
+  (`_read_timeout_s`); a timeout degrades to the existing null cell.
+
+### Changed
+
+- **1 Hz-era constants now scale with the configured rep rate** (5 Hz
+  system-limit readiness; behavior at 1 Hz unchanged):
+  - the free-run contributor grace wait is capped at half a trigger period
+    (`FreeRunContributorSupport._effective_grace_wait_s`; was a fixed
+    0.3 s — 1.5 shot periods at 5 Hz, serialized per lagging contributor);
+  - the t0-sync acceptance window is capped at `0.4 / rep_rate_hz`
+    (a window wider than one period silently accepts caches seeded one
+    shot apart); the effective value is recorded in the start document;
+  - `CaAcqTimestampReadable._shot_queue_maxsize` 32 → 128 (worst case is
+    rep-rate × trigger-timeout = 15 at 5 Hz; the old bound left margin 2
+    at 10 Hz).
+- Per-phase DEBUG timing in the shot loop: strict fire / frame-wait
+  durations (`geecs_single_shot`), free-run row duration
+  (`geecs_free_run_step_scan`) — the next timing question is answerable
+  from one log at DEBUG level.
+- Audit findings and the phased hardening plan (telemetry aggregation,
+  t0-sync seed verification, timestamp-only telemetry attribution) are
+  recorded in `Planning/device_read_path/00_overview.md`.
+
+## [0.31.1] - 2026-07-13
+
+### Changed
+
+- Docstring condensation over the M4 range (docs-only in effect): the
+  claim-before-bind rationale is stated once in full
+  (`_run_optimize_request`) with one-line cross-references at the other
+  three sites; `gateway_put.py`'s module docstring opens with the
+  contract instead of its consolidation history (and drops a reference to
+  the deleted legacy `DeviceCommandExecutor`);
+  `BlueskyScanner._run_delegated_request` keeps only the bridge-specific
+  facts.
+- The claimed-scan-failure error message ("folder is left in place, never
+  deleted") now lives in one shared helper,
+  `scan_log.log_claimed_scan_failure`, used by both the bridge and the
+  optimize runner (was duplicated verbatim).
+- `BlueskyScanner.__init__`'s `optimization_loader` type hint updated to
+  `Callable[[str | OptimizationSpec], Any]`, matching the 0.31.0
+  delegated path (the docstring already said so).
+
 ## [0.31.0] - 2026-07-12
 
 ### Added

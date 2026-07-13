@@ -15,11 +15,9 @@ GHOST
 SKIP:<type>
     A ``get='yes'`` variable whose *effective* type is in the gateway's
     ``_SKIP_VARTYPES`` (``image`` / ``1darray``).  These are not scalar CA data,
-    so no PV is served for them.  The effective type is resolved with the same
-    shared helper the gateway's config builder uses
-    (:func:`geecs_ca_gateway.config.effective_vartype`), so choice-descriptor
-    rows (``variabletype='choice'`` with ``choices='image'``/``'1darray'``) are
-    flagged exactly as the gateway skips them (#512).
+    so no PV is served for them.  Effective types come from
+    :func:`geecs_ca_gateway.config.effective_vartype` — the same rules the
+    gateway's config builder applies.
 FK-orphan
     An ``expt_device_variable`` row whose ``expt_device_id`` points at an
     ``expt_device.id`` that no longer exists (a whole experiment removed).
@@ -40,7 +38,7 @@ import argparse
 import logging
 from dataclasses import dataclass, field
 
-from .config import effective_vartype
+from .config import _SKIP_VARTYPES, effective_vartype
 
 logger = logging.getLogger("geecs_ca_gateway.audit")
 
@@ -141,10 +139,8 @@ def audit_subscribed_variables(
     skip_types:
         Variable types the gateway does not serve (the gateway's
         ``_SKIP_VARTYPES``, e.g. ``{"image", "1darray"}``).  Matched against
-        the *effective* type resolved by
-        :func:`geecs_ca_gateway.config.effective_vartype` — the same rules the
-        gateway's config builder applies, so choice-descriptor rows
-        (``variabletype='choice'``, ``choices='image'``) are flagged too.
+        the effective type from
+        :func:`geecs_ca_gateway.config.effective_vartype`.
 
     Returns
     -------
@@ -178,8 +174,8 @@ def audit_subscribed_variables(
 def build_delete_sql(experiment: str, result: AuditResult) -> list[str]:
     """Return DELETE statements a human could review to remove the flagged rows.
 
-    Pure string builder — this **prints** SQL for human review; it never
-    executes anything.  Ghost/skip deletes are scoped by experiment + device +
+    Pure string builder — it returns SQL for human review and never executes
+    anything.  Ghost/skip deletes are scoped by experiment + device +
     variablename + ``get='yes'``; the FK-orphan delete removes rows whose
     ``expt_device`` is gone (global, since they are not experiment-scoped).
 
@@ -318,7 +314,6 @@ def run_audit(
     AuditResult
         Findings, FK-orphan summary, and the audited subscribed set.
     """
-    from .config import _SKIP_VARTYPES
     from .db.geecs_db import GeecsDb
 
     skip = set(_SKIP_VARTYPES if skip_types is None else skip_types)
