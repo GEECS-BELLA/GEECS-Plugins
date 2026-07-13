@@ -49,6 +49,10 @@ class FreeRunContributorSupport:
 
     _reference: "Reference[ShotIdSupport] | None" = None
     _grace_wait_s: float = 0.3
+    #: The most recent read's reference-relative shot offset (``None`` before
+    #: the first read or when underivable) — consumed by the free-run plan's
+    #: t0 seed check after the first row.
+    last_shot_offset: int | None = None
 
     def set_reference(
         self,
@@ -177,5 +181,6 @@ class FreeRunContributorSupport:
             if shot_id is not None and row_shot_id is not None
             else None
         )
+        self.last_shot_offset = shot_offset
         self._emit_shot_id_readings(reading, event_timestamp, shot_id, shot_offset)
         return reading

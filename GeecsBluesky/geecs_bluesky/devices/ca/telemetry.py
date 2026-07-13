@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ophyd_async.core import StandardReadable
+from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r
 
 from geecs_bluesky.devices.ca._pv import ca_pv
@@ -166,3 +166,93 @@ def _reading_keys(signal: Any) -> list[str]:
     """
     name = getattr(signal, "name", None)
     return [name] if name else []
+
+
+class CaTelemetryGroup:
+    """One Bluesky Readable bundling every Tier-2 telemetry device of a scan.
+
+    The RunEngine processes one ``read`` message at a time, so N separate
+    telemetry devices cost N sequential dispatches per event row (~0.3 ms
+    each — ~25 ms/row at the ~87-device Undulator selection, measured by
+    the 2026-07-13 plan-layer benchmark).  The group collapses the whole
+    soft tier into **one** read message whose ``read()``/``describe()``
+    gather across members concurrently.
+
+    Deliberately **not** an ophyd-async parent device: adopting the members
+    as children would re-parent and rename them, changing every
+    ``telemetry_<device>-<var>`` event column (the EVENT_SCHEMA.md
+    contract).  Members keep their own names and their own per-signal
+    fault tolerance; the merged event columns are byte-identical to the
+    ungrouped layout.
+
+    ``stage``/``unstage``/``disconnect`` forward to the members so the
+    read-path staging contract and the runner's cleanup see one device.
+
+    Parameters
+    ----------
+    members : list of CaTelemetryReadable
+        Connected telemetry readables (the group does not connect them).
+    name : str
+        Bluesky object name; never appears in event columns.
+    """
+
+    parent = None
+
+    def __init__(
+        self,
+        members: list[CaTelemetryReadable],
+        name: str = "telemetry_group",
+    ) -> None:
+        self.name = name
+        self._members = list(members)
+
+    @property
+    def members(self) -> list[CaTelemetryReadable]:
+        """The wrapped telemetry readables (read-only view)."""
+        return list(self._members)
+
+    async def describe(self) -> dict[str, Any]:
+        """Merged data keys of every member (concurrent)."""
+        import asyncio
+
+        merged: dict[str, Any] = {}
+        for desc in await asyncio.gather(*(m.describe() for m in self._members)):
+            merged.update(desc)
+        return merged
+
+    async def read(self) -> dict[str, Any]:
+        """Merged readings of every member (concurrent, member-fault-tolerant)."""
+        import asyncio
+
+        merged: dict[str, Any] = {}
+        for reading in await asyncio.gather(*(m.read() for m in self._members)):
+            merged.update(reading)
+        return merged
+
+    @AsyncStatus.wrap
+    async def stage(self) -> None:
+        """Stage every member (starts their caching monitors)."""
+        import asyncio
+
+        await asyncio.gather(*(m.stage() for m in self._members))
+
+    @AsyncStatus.wrap
+    async def unstage(self) -> None:
+        """Unstage every member (drops their caches)."""
+        import asyncio
+
+        await asyncio.gather(*(m.unstage() for m in self._members))
+
+    async def disconnect(self) -> None:
+        """Disconnect members that support it (the runner's cleanup seam).
+
+        ``CaTelemetryReadable`` itself defines no ``disconnect`` — its only
+        per-scan resources are the staged caches, dropped at ``unstage`` —
+        so this is a tolerant forward for members that do (parity with the
+        session's best-effort cleanup loop).
+        """
+        import asyncio
+
+        closers = [m.disconnect() for m in self._members if hasattr(m, "disconnect")]
+        if closers:
+            await asyncio.gather(*closers)

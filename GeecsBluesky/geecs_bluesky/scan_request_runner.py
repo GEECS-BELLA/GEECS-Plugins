@@ -819,24 +819,29 @@ def build_telemetry_readables(
     Returns
     -------
     tuple
-        ``(readables, recorded)`` — connected devices and the
+        ``(readables, recorded)`` — a single-element list holding the
+        :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryGroup` of
+        connected devices (empty list when none connected), and the
         ``{device: [variables]}`` map of **only those that connected**
         (run-metadata key must match the columns that actually exist).
+        The group costs one RunEngine ``read`` message per row instead of
+        one per device; event columns are identical to the ungrouped
+        layout (members keep their own names).
     """
     if scalar_policy is None:
         return [], {}
     selected = select_telemetry_variables(
         save_set, scalar_policy.subscribed_by_device()
     )
-    readables: list = []
+    members: list = []
     recorded: dict[str, list[str]] = {}
     if hasattr(session, "telemetry_batch"):
         # Concurrent connects: wall time = slowest device, not the sum
         # (~87 sequential connects cost ~9 s of start latency; measured
         # live 2026-07-13).  Fake sessions without the batch method fall
         # through to the sequential per-device factory below.
-        readables = list(session.telemetry_batch(selected))
-        for readable in readables:
+        members = list(session.telemetry_batch(selected))
+        for readable in members:
             device = getattr(readable, "_geecs_device_name", None)
             if device in selected:
                 recorded[device] = list(selected[device])
@@ -844,13 +849,19 @@ def build_telemetry_readables(
         for device, variables in selected.items():
             readable = session.telemetry(device, variables)
             if readable is not None:
-                readables.append(readable)
+                members.append(readable)
                 recorded[device] = list(variables)
     # Record only the devices that actually connected: a device dropped as
     # unreachable at scan start contributes no columns, so the start-doc
     # metadata must not advertise them (EVENT_SCHEMA.md contract — the key
     # reflects what was recorded, not what was selected).
-    return readables, recorded
+    if not members:
+        return [], recorded
+    # Lazy import: the runner stays free of device-layer (aioca) imports so
+    # it remains importable without the `ca` extra.
+    from geecs_bluesky.devices.ca.telemetry import CaTelemetryGroup
+
+    return [CaTelemetryGroup(members)], recorded
 
 
 def run_scan_request(
