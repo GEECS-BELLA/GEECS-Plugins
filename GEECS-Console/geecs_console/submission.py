@@ -59,7 +59,22 @@ def make_bluesky_submitter(
     ------
     ImportError
         When ``geecs-bluesky`` is installed without the ``ca`` extra.
+
+    Notes
+    -----
+    The engine's ``optimization_loader`` seam is wired here from
+    :func:`geecs_console.services.optimization.make_optimization_loader`:
+    with the console's optional ``optimization`` extra installed the loader
+    turns an optimize request's ``OptimizationSpec`` into the Xopt/evaluator
+    bridge; without it the loader is ``None`` and the engine refuses
+    optimize-mode requests at ``reinitialize`` (surfaced in the status bar).
     """
     from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
 
-    return BlueskyScanner(experiment_dir=experiment, on_event=on_event)
+    from geecs_console.services.optimization import make_optimization_loader
+
+    return BlueskyScanner(
+        experiment_dir=experiment,
+        on_event=on_event,
+        optimization_loader=make_optimization_loader(),
+    )
