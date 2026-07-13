@@ -160,16 +160,21 @@ class BlueskyScanner:
     tiled_api_key:
         API key for the Tiled server, if authentication is enabled.
     optimization_loader:
-        Callable injected by the GUI layer for OPTIMIZATION scans:
-        ``optimization_loader(optimizer_config_path)`` returns a bridge object
-        exposing ``variable_names`` (``"Device:Variable"`` VOCS keys) and
-        ``bind(devices=..., scan_tag=..., scan_folder=...) -> (objective,
-        suggester)`` for
-        :meth:`GeecsSession.optimize`.  Lives on the GUI side because the
-        config-driven optimizer stack (Xopt, evaluators, ScanAnalysis
-        analyzers) belongs to ``geecs_scanner.optimization`` — this package
-        cannot import it (dependency direction).  Without a loader,
-        optimization-mode requests are logged and skipped.
+        Callable injected by the GUI layer for OPTIMIZATION scans; returns
+        a bridge object exposing ``variable_names`` (``"Device:Variable"``
+        VOCS keys) and ``bind(devices=..., scan_tag=..., scan_folder=...)
+        -> (objective, suggester)`` for :meth:`GeecsSession.optimize`.
+        Called with one argument whose type depends on the submission
+        path: the legacy exec_config path passes the optimizer-config YAML
+        path (``str``); the delegated ScanRequest path passes the
+        request's resolved :class:`~geecs_schemas.OptimizationSpec` — a
+        loader serving both paths dispatches on the argument type.  Lives
+        on the GUI side because the config-driven optimizer stack (Xopt,
+        evaluators, ScanAnalysis analyzers) belongs to
+        ``geecs_scanner.optimization`` — this package cannot import it
+        (dependency direction).  Without a loader, exec_config
+        optimization scans are logged and skipped, and optimize-mode
+        ScanRequests are refused at :meth:`reinitialize`.
     """
 
     def __init__(
@@ -339,21 +344,28 @@ class BlueskyScanner:
         experiment defaults itself, so storing a post-defaults copy would
         apply them twice.  ``acquisition`` comes from the request —
         deliberately no env override, a request declares intent.  Optimize
-        mode is still refused: wiring the GUI's ``optimization_loader`` into
-        the delegated path is GUI-submission step (iii).
+        mode requires the GUI-injected ``optimization_loader`` (refused
+        here otherwise — the loader cannot appear later); the scan thread
+        hands the request's resolved ``OptimizationSpec`` to the loader and
+        threads the returned bridge's ``bind`` into the delegated runner
+        (see :meth:`_run_delegated_request`).
 
         Returns ``True`` (matching :meth:`reinitialize`).
         """
         if resolver is None:
             resolver = ConfigsRepoResolver(self._experiment_dir)
 
-        if request.mode is ScanRequestMode.OPTIMIZE:
+        if request.mode is ScanRequestMode.OPTIMIZE and (
+            self._optimization_loader is None
+        ):
             raise NotImplementedError(
                 "optimize-mode ScanRequest execution through BlueskyScanner "
-                "lands with GUI-submission step (iii), which wires the "
-                "GUI-injected optimization_loader into the delegated path; "
-                "use GeecsSession.run(request, resolver, objective=..., "
-                "suggester=...) headless"
+                "needs the GUI-injected optimization_loader (the config-"
+                "driven Xopt/evaluator stack lives in geecs_scanner."
+                "optimization, which this package cannot import); construct "
+                "the scanner with optimization_loader=..., or run headless "
+                "via GeecsSession.run(request, resolver, objective=..., "
+                "suggester=...)"
             )
 
         # Fail-fast validation on a LOCAL post-defaults copy; every result
@@ -378,6 +390,14 @@ class BlueskyScanner:
                 # variables are refused here, not in the scan thread.
                 spec = resolver.resolve_scan_variable(axis.variable)
                 resolve_movable_target(spec, axis.variable)
+        if validated.mode is ScanRequestMode.OPTIMIZE and validated.optimization:
+            for name in validated.optimization.variables:
+                # Catalog names must resolve (and pseudo variables are
+                # refused) here, not in the scan thread; 'Device:Variable'
+                # strings pass through, matching the runner's dispatch.
+                if ":" not in name:
+                    spec = resolver.resolve_scan_variable(name)
+                    resolve_movable_target(spec, name)
 
         # Store the ORIGINAL pre-defaults request (see docstring).
         self._scan_request = request
@@ -990,16 +1010,43 @@ class BlueskyScanner:
         ``scan.log`` when *it* claimed — so the bridge must NOT pre-claim
         here.  Exceptions propagate to :meth:`_run_scan`'s cleanup
         (ABORTED state + disconnect).
+
+        Optimize-mode requests hand the request's ``OptimizationSpec`` to
+        the GUI-injected ``optimization_loader`` (presence enforced at
+        :meth:`_reinitialize_from_scan_request`); the returned bridge's
+        ``bind`` becomes the runner's ``optimization_binder`` — the runner
+        claims the scan, binds, and maps onto ``session.optimize``.  The
+        bridge's optional ``finish()`` bookkeeping (e.g. the legacy
+        ``xopt_dump.yaml``) runs after a successful run, as on the legacy
+        exec_config optimization path.
         """
         request = self._scan_request
         resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+        optimization_binder = None
+        opt_bridge: Any | None = None
+        if request.mode is ScanRequestMode.OPTIMIZE:
+            if self._optimization_loader is None:
+                # reinitialize refused already; guard direct/stale callers.
+                raise GeecsConfigurationError(
+                    "optimize-mode ScanRequest reached the scan thread "
+                    "without an optimization_loader"
+                )
+            opt_bridge = self._optimization_loader(request.optimization)
+            optimization_binder = opt_bridge.bind
         run_scan_request(
             self._session,
             request,
             resolver,
             preflight=self._delegated_preflight,
             on_scan_start=self._on_delegated_scan_start,
+            optimization_binder=optimization_binder,
         )
+        if opt_bridge is not None:
+            # Post-run bookkeeping owned by the bridge (legacy parity with
+            # _run_optimization); skipped on failure — exceptions propagate.
+            finish = getattr(opt_bridge, "finish", None)
+            if callable(finish):
+                finish()
 
     def _delegated_preflight(self, detectors: list, strict: bool) -> list | None:
         """Runner preflight hook: the operator-dialog pipeline, sans disconnect.

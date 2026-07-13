@@ -4,6 +4,35 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.0] - 2026-07-12
+
+### Added
+
+- **Optimize-mode ScanRequests run through the delegated GUI-bridge path**
+  (M4 GUI-submission step iii). `BlueskyScanner.reinitialize(ScanRequest)`
+  no longer refuses `mode: optimize`: the scan thread hands the request's
+  `OptimizationSpec` to the GUI-injected `optimization_loader` (the same
+  seam as legacy exec_config optimization — the Xopt/evaluator stack stays
+  in `geecs_scanner.optimization`; this package still never imports it,
+  now pinned by an AST-level test) and threads the returned bridge's
+  `bind` into `run_scan_request` as the new `optimization_binder` hook.
+  The runner claims the scan itself just before binding — after every
+  fail-fast resolution and device connect — because the binder's
+  analyzers need the real `ScanTag`; it then passes the pre-claimed
+  number/folder to `session.optimize` and owns the `scan.log` attach
+  (the session only self-attaches when *it* claimed). The bridge's
+  optional `finish()` bookkeeping (legacy `xopt_dump.yaml`) runs after a
+  successful run. Preserved behaviors: fail-fast pre-claim name
+  resolution (VOCS catalog names now validate at reinitialize, pseudo
+  variables refused there), actions-skipped-with-warning on optimize
+  (recorded under `skipped_action_plans`), and the `db_scan_runtime`
+  metadata. The GUI progress-totals hook now fires on the optimize path
+  too, with the `(max_iterations, max_iterations × shots_per_step)`
+  upper bound — the suggester may stop early. Reinitializing an optimize
+  request on a scanner constructed *without* an `optimization_loader` is
+  still refused with an explicit error (headless callers keep using
+  `GeecsSession.run(request, resolver, objective=..., suggester=...)`).
+
 ## [0.30.1] - 2026-07-12
 
 ### Fixed
