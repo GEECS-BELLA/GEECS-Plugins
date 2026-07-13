@@ -53,11 +53,16 @@ pattern `tiled_export.py` / `tiled_readback.py` use — survived 0.2.14's
 composite-container change; ad-hoc `run["primary"]["data"]` does **not**,
 use `.base` for raw node access).
 
-**There is no web UI in the pip wheel** (verified 0.2.14: no built
-frontend assets ship in the package). The root page is a minimal fallback;
-Tiled's React catalog browser comes only with their Docker distribution or
-a separately built frontend. The GEECS quick-look path is the scan browser
-(GEECS-Console), not Tiled's UI.
+**The web UI lives at `/ui`, not `/`** (verified live 0.2.14): the pip
+wheel ships Tiled's built React catalog browser in `share/tiled/ui/`
+(*outside* the Python package dir — easy to miss when searching the
+package), and the server serves it at `http://192.168.6.14:8000/ui`. The
+root `/` is only a minimal landing page. With
+`allow_anonymous_access: false`, open `/ui?api_key=<key>` once — the
+server moves the key into a cookie and strips the URL. The UI is a generic
+catalog browser (uid-oriented; metadata, tables, array previews, downloads);
+the scan-shaped quick-look workflow (day → Scan NNN → plot columns → drift)
+is the GEECS scan browser's job (GEECS-Console).
 
 ### Client machines
 
