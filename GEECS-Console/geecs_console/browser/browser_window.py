@@ -694,8 +694,29 @@ class ScanBrowserWindow(QMainWindow):
             self._settings.last_experiment = experiment
         self.reload_runs()
 
+    def _clear_detail(self) -> None:
+        """Drop the loaded run from B3-B6 and invalidate in-flight loads.
+
+        Called when the run list is about to change (reload), when the
+        selection empties, and on list/load errors.  A stale detail must
+        never outlive its query context: *Open scan folder* resolves
+        against the currently selected day, so acting on an old
+        ``RunDetail`` under a new date could target the wrong ``ScanNNN``.
+        """
+        self._detail_generation += 1
+        self._detail = None
+        self.b3_title.setText("No scan selected")
+        self.b3_pills.setText("")
+        self.b3_copy_uid_button.setEnabled(False)
+        self.b3_open_folder_button.setEnabled(False)
+        self._clear_series()
+        self.b6_drift_list.clear()
+        self.b6_summary.setText("")
+        self._refresh_table()
+
     def reload_runs(self) -> None:
         """Reload B2 for the current experiment/date (off the GUI thread)."""
+        self._clear_detail()
         self._list_generation += 1
         generation = self._list_generation
         experiment = self.current_experiment()
@@ -714,6 +735,7 @@ class ScanBrowserWindow(QMainWindow):
         """Populate B2 from a finished day query (GUI thread, queued)."""
         result, error = outcome  # type: ignore[misc]
         if error is not None:
+            self._clear_detail()
             self.statusBar().showMessage(f"Run listing failed: {error}")
             return
         generation, summaries = result  # type: ignore[misc]
@@ -766,26 +788,42 @@ class ScanBrowserWindow(QMainWindow):
     ) -> None:
         """Load the newly selected run's detail off the GUI thread."""
         if current is None:
+            # The list emptied (reload/filter) — no run is selected now.
+            self._clear_detail()
             return
         uid = str(current.data(Qt.ItemDataRole.UserRole))
         self._detail_generation += 1
         generation = self._detail_generation
         catalog = self.catalog
         self.statusBar().showMessage(f"Loading {uid[:8]}…")
-        self._detail_worker.run_async(
-            lambda: (generation, catalog.load_run(uid)),
-            "browser-load-run",
-        )
+
+        def _load() -> tuple:
+            # Catch inside the payload so a failure still carries its
+            # generation — a *late* error from a superseded load must not
+            # clear the newer selection's in-flight state.
+            try:
+                return (generation, catalog.load_run(uid), None)
+            except Exception as exc:  # noqa: BLE001 — delivered to the GUI thread
+                return (generation, None, exc)
+
+        self._detail_worker.run_async(_load, "browser-load-run")
 
     @Slot(object)
     def _on_detail_result(self, outcome: object) -> None:
         """Populate B3-B6 from a loaded run (GUI thread, queued)."""
         result, error = outcome  # type: ignore[misc]
         if error is not None:
+            # Worker-level failure (payload never built) — no generation to
+            # check, so clear conservatively: never risk showing stale data.
+            self._clear_detail()
             self.statusBar().showMessage(f"Run load failed: {error}")
             return
-        generation, detail = result  # type: ignore[misc]
+        generation, detail, load_error = result  # type: ignore[misc]
         if generation != self._detail_generation or self._closing:
+            return
+        if load_error is not None:
+            self._clear_detail()
+            self.statusBar().showMessage(f"Run load failed: {load_error}")
             return
         self._detail = detail
         self._clear_series()

@@ -368,3 +368,63 @@ def _flush_events(qtbot):
     """Flush posted events after each test before teardown."""
     yield
     qtbot.wait(10)
+
+
+class TestStaleDetail:
+    """A loaded detail must never outlive its query context (review P2).
+
+    Open-scan-folder resolves against the *currently selected* day, so a
+    stale ``RunDetail`` surviving a reload could target the wrong ScanNNN.
+    """
+
+    def _assert_detail_cleared(self, window):
+        assert window._detail is None
+        assert not window.b3_copy_uid_button.isEnabled()
+        assert not window.b3_open_folder_button.isEnabled()
+        assert window.b3_title.text() == "No scan selected"
+        assert window.b6_drift_list.count() == 0
+        assert window.b5_table.rowCount() == 0
+
+    def test_reload_clears_previous_detail(self, qtbot):
+        window = _make_window(qtbot, _two_run_catalog())
+        _wait_runs(qtbot, window, 3)
+        _select_run(qtbot, window, 0)
+        window.catalog = FakeCatalog([])  # the new day has no runs
+        window.reload_runs()
+        self._assert_detail_cleared(window)
+        qtbot.waitUntil(lambda: window.b2_run_list.count() == 0, timeout=3000)
+        self._assert_detail_cleared(window)
+
+    def test_emptied_selection_clears_detail(self, qtbot):
+        window = _make_window(qtbot, _two_run_catalog())
+        _wait_runs(qtbot, window, 3)
+        _select_run(qtbot, window, 0)
+        window.b2_run_list.setCurrentRow(-1)
+        self._assert_detail_cleared(window)
+
+    def test_load_error_clears_previous_detail(self, qtbot):
+        catalog = _two_run_catalog()
+        window = _make_window(qtbot, catalog)
+        _wait_runs(qtbot, window, 3)
+        _select_run(qtbot, window, 0)
+
+        def _boom(uid):
+            raise RuntimeError("share went away")
+
+        catalog.load_run = _boom
+        window.b2_run_list.setCurrentRow(1)
+        qtbot.waitUntil(
+            lambda: "Run load failed" in window.statusBar().currentMessage(),
+            timeout=3000,
+        )
+        self._assert_detail_cleared(window)
+
+    def test_late_error_from_superseded_load_is_ignored(self, qtbot):
+        window = _make_window(qtbot, _two_run_catalog())
+        _wait_runs(qtbot, window, 3)
+        _select_run(qtbot, window, 0)
+        detail_before = window._detail
+        stale = (window._detail_generation - 1, None, RuntimeError("old query"))
+        window._on_detail_result((stale, None))
+        assert window._detail is detail_before
+        assert window.b3_copy_uid_button.isEnabled()
