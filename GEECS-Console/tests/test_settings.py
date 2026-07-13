@@ -27,6 +27,15 @@ class TestConsoleSettings:
         assert ConsoleSettings().per_shot_beep is False
         assert ConsoleSettings().randomized_beeps is True
 
+    def test_show_tooltips_defaults_on(self):
+        assert ConsoleSettings().show_tooltips is True
+
+    def test_show_tooltips_round_trips_across_instances(self):
+        ConsoleSettings().show_tooltips = False
+        assert ConsoleSettings().show_tooltips is False
+        ConsoleSettings().show_tooltips = True
+        assert ConsoleSettings().show_tooltips is True
+
     def test_injected_qsettings_is_used(self, tmp_path):
         from PySide6.QtCore import QSettings
 

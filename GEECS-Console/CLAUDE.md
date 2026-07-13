@@ -254,8 +254,15 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   construction.  When a tooltip reads poorly, fix the schema description,
   never hardcode GUI text.  Main-window operator controls carry
   hand-written operator-language tooltips (`_apply_operator_tooltips`) —
-  those are GUI concepts with no schema counterpart.  Pinned by
-  `tests/test_tooltips.py`.
+  those are GUI concepts with no schema counterpart.  **Preferences →
+  Show tooltips** (persisted, default on) gates them all via
+  `ToolTipSuppressor`, an application-level event filter that swallows
+  `QEvent.ToolTip`; it is installed on the `QApplication` **only while
+  tooltips are off** — an always-installed per-window app filter
+  measurably slowed the offscreen suite (every event crossing into a
+  Python `eventFilter`), so presence = suppression.  It is parented to
+  the window (Qt auto-removes a destroyed filter) and `closeEvent`
+  removes it explicitly.  Pinned by `tests/test_tooltips.py`.
 
 ## Standing PySide6 ownership hazards (GC eats live C++ objects)
 

@@ -22,7 +22,15 @@ semantic.
   hand-written operator-language tooltips in `_apply_operator_tooltips`.
   Pinned by `tests/test_tooltips.py`: editor tooltips compared against the
   schema field descriptions, representative window controls asserted
-  non-empty and not label restatements.
+  non-empty and not label restatements.  A **Preferences → Show tooltips**
+  toggle (checkable, persisted via `ConsoleSettings.show_tooltips`,
+  default on) turns them all off for operators who know the console: an
+  application-level `ToolTipSuppressor` event filter swallows
+  `QEvent.ToolTip` for every console widget — editors included — and is
+  installed **only while tooltips are off**, so the default path adds no
+  per-event filter overhead (an always-installed filter measurably slowed
+  the offscreen suite).  Parented to the window and removed on close, so
+  no dangling suppressor can outlive it.
 - **Optimization mode dropdown (GUI half)**.  Selecting the R3
   Optimization radio now shows an optimizer-config combo listing the
   YAML files in the experiment's `optimizer_configs/` folder (the legacy

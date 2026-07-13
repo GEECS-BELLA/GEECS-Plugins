@@ -19,7 +19,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QFile, QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QEvent, QFile, QObject, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -253,6 +253,47 @@ class BackgroundResult(QObject):
             self.result_ready.emit(result)
         except RuntimeError:
             pass  # the worker was deleted while the call ran
+
+
+class ToolTipSuppressor(QObject):
+    """Application-level event filter that swallows every tooltip event.
+
+    Installed on the ``QApplication`` **only while tooltips are turned
+    off** — presence means suppression, so one switch covers every console
+    widget (the main window *and* the editor dialogs, whose schema-derived
+    tooltips are applied unconditionally) and the default-on path pays no
+    per-event Python filter cost at all.  Parented to the window: Qt
+    removes a destroyed filter from the application automatically, so a
+    closed window can never leave a dangling suppressor behind.
+
+    Parameters
+    ----------
+    parent : QObject
+        The owning window (keeps the wrapper referenced — the usual
+        PySide6 GC hazard — and bounds the filter's lifetime).
+    """
+
+    def __init__(self, parent: QObject) -> None:
+        super().__init__(parent)
+
+    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt override
+        """Swallow ``QEvent.ToolTip``; pass everything else through.
+
+        Parameters
+        ----------
+        obj : QObject
+            The event's target (unused — suppression is global).
+        event : QEvent
+            The event under consideration.
+
+        Returns
+        -------
+        bool
+            ``True`` (consume the event) for tooltip events.
+        """
+        if event.type() == QEvent.Type.ToolTip:
+            return True
+        return super().eventFilter(obj, event)
 
 
 class MainWindow(QMainWindow):
@@ -706,6 +747,18 @@ class MainWindow(QMainWindow):
         self.random_beep_action.setCheckable(True)
         self.random_beep_action.setChecked(bool(self._settings.randomized_beeps))
         self.random_beep_action.toggled.connect(self._on_randomized_beeps_toggled)
+        prefs.addSeparator()
+        # Tooltips default on (discoverability); an experienced operator
+        # turns them off here.  One application-level suppressor covers the
+        # main window and every editor dialog, installed only while off.
+        self.show_tooltips_action = prefs.addAction("Show tooltips")
+        self.show_tooltips_action.setCheckable(True)
+        self.show_tooltips_action.setChecked(bool(self._settings.show_tooltips))
+        self.show_tooltips_action.toggled.connect(self._on_show_tooltips_toggled)
+        self._tooltip_suppressor = ToolTipSuppressor(self)
+        self._tooltip_suppressor_installed = False
+        if not self._settings.show_tooltips:
+            self._set_tooltips_shown(False)
 
         help_menu = self.menuBar().addMenu("Help")
         self._menus.append(help_menu)
@@ -941,6 +994,11 @@ class MainWindow(QMainWindow):
         timer = getattr(self, "_health_timer", None)
         if timer is not None:
             timer.stop()
+        # A closed window must not keep suppressing application tooltips
+        # (Qt would also drop the filter when the window is destroyed, but
+        # close-without-destroy is the common test teardown shape).
+        if getattr(self, "_tooltip_suppressor_installed", False):
+            self._set_tooltips_shown(True)
         poller = getattr(self, "_health_poller", None)
         if poller is not None:
             try:
@@ -1362,6 +1420,39 @@ class MainWindow(QMainWindow):
             The action's new checked state.
         """
         self._settings.randomized_beeps = checked
+
+    def _on_show_tooltips_toggled(self, checked: bool) -> None:
+        """Persist the tooltip preference and apply it.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state (``True`` shows tooltips).
+        """
+        self._settings.show_tooltips = checked
+        self._set_tooltips_shown(checked)
+
+    def _set_tooltips_shown(self, shown: bool) -> None:
+        """Install or remove the application-wide tooltip suppressor.
+
+        The suppressor is present on the ``QApplication`` only while
+        tooltips are off, so the default-on path adds no per-event filter
+        overhead.  Idempotent via the installed flag.
+
+        Parameters
+        ----------
+        shown : bool
+            ``True`` shows tooltips (suppressor removed).
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        if shown and self._tooltip_suppressor_installed:
+            app.removeEventFilter(self._tooltip_suppressor)
+            self._tooltip_suppressor_installed = False
+        elif not shown and not self._tooltip_suppressor_installed:
+            app.installEventFilter(self._tooltip_suppressor)
+            self._tooltip_suppressor_installed = True
 
     def _maybe_beep(self) -> None:
         """Sound one per-shot beep, honoring the Preferences options.

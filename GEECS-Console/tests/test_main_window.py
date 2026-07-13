@@ -131,10 +131,17 @@ class FakePresetStore:
 class FakeSettings:
     """ConsoleSettings stand-in: plain attributes, no QSettings."""
 
-    def __init__(self, last_experiment="", per_shot_beep=False, randomized_beeps=False):
+    def __init__(
+        self,
+        last_experiment="",
+        per_shot_beep=False,
+        randomized_beeps=False,
+        show_tooltips=True,
+    ):
         self.last_experiment = last_experiment
         self.per_shot_beep = per_shot_beep
         self.randomized_beeps = randomized_beeps
+        self.show_tooltips = show_tooltips
 
 
 @pytest.fixture

@@ -116,6 +116,74 @@ class TestMainWindowOperatorTooltips:
         assert "optimizer" in window.radio_optimization.toolTip()
 
 
+def _tooltip_event():
+    """A synthetic QEvent.ToolTip (what Qt sends on hover-dwell)."""
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QHelpEvent
+
+    return QHelpEvent(QHelpEvent.Type.ToolTip, QPoint(1, 1), QPoint(1, 1))
+
+
+class TestShowTooltipsToggle:
+    """The Preferences 'Show tooltips' switch (default on, persisted).
+
+    The suppressor filter sits on the QApplication only while tooltips are
+    off — presence means suppression (and the default-on path pays no
+    per-event filter cost), so it gates every widget, editors included.
+    """
+
+    def test_action_default_checked_and_no_suppressor_installed(self, window):
+        assert window.show_tooltips_action.isChecked()
+        assert not window._tooltip_suppressor_installed
+
+    def test_suppressor_swallows_tooltip_events_only(self, window):
+        from PySide6.QtCore import QEvent
+
+        suppressor = window._tooltip_suppressor
+        assert suppressor.eventFilter(window.start_button, _tooltip_event())
+        assert not suppressor.eventFilter(
+            window.start_button, QEvent(QEvent.Type.Leave)
+        )
+
+    def test_toggle_off_installs_suppressor_and_persists(self, window):
+        window.show_tooltips_action.setChecked(False)
+        assert window._settings.show_tooltips is False
+        assert window._tooltip_suppressor_installed
+        window.show_tooltips_action.setChecked(True)
+        assert window._settings.show_tooltips is True
+        assert not window._tooltip_suppressor_installed
+
+    def test_saved_preference_restored_at_startup(self, qtbot):
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(show_tooltips=False),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        assert not win.show_tooltips_action.isChecked()
+        assert win._tooltip_suppressor_installed
+
+    def test_close_removes_an_installed_suppressor(self, qtbot):
+        """A closed window must not keep suppressing application tooltips."""
+        win = MainWindow(
+            configs=FakeConfigs(),
+            presets=FakePresetStore(),
+            settings=FakeSettings(show_tooltips=False),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        win.show()
+        assert win._tooltip_suppressor_installed
+        assert win.close()
+        assert not win._tooltip_suppressor_installed
+
+    def test_suppressor_is_parented_to_the_window(self, window):
+        """Parenting bounds the filter's lifetime: Qt auto-removes a
+        destroyed filter, so the window can never leak a suppressor."""
+        assert window._tooltip_suppressor.parent() is window
+
+
 class TestSaveSetEditorTooltips:
     def test_entry_fields_match_schema_descriptions(self, qtbot, tmp_path):
         from geecs_console.editors.save_set_editor import SaveSetEditor
