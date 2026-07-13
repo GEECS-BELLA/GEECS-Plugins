@@ -21,10 +21,8 @@ from typing import Mapping, Optional, Sequence
 #: Default drift threshold: |last − first| must exceed this many sigmas.
 DEFAULT_THRESHOLD = 3.0
 
-#: Relative epsilon guarding σ ≈ 0: the effective sigma is never smaller
-#: than this fraction of the column's |mean| (plus a tiny absolute floor
-#: for zero-mean columns), so a numerically-constant column with one real
-#: step is flagged instead of dividing by ~0.
+#: Relative σ ≈ 0 floor (see module docstring): effective sigma is at least
+#: this fraction of the column's |mean|.
 RELATIVE_SIGMA_EPSILON = 1e-6
 
 #: Absolute sigma floor for columns whose mean is itself ~0.

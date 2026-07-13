@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.2] — 2026-07-13
+
+### Changed
+
+- Docstring condensation (docs-only): `tiled_catalog`'s module docstring
+  states the config/dependency-direction rule in one line (the rationale
+  lives in this package's `CLAUDE.md`), and `tiled_drift`'s
+  `RELATIVE_SIGMA_EPSILON` comment defers to the module docstring's σ ≈ 0
+  explanation instead of repeating it.
+
 ## [0.13.1] — 2026-07-12
 
 ### Fixed

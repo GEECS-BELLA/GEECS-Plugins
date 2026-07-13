@@ -4,6 +4,26 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.31.1] - 2026-07-13
+
+### Changed
+
+- Docstring condensation over the M4 range (docs-only in effect): the
+  claim-before-bind rationale is stated once in full
+  (`_run_optimize_request`) with one-line cross-references at the other
+  three sites; `gateway_put.py`'s module docstring opens with the
+  contract instead of its consolidation history (and drops a reference to
+  the deleted legacy `DeviceCommandExecutor`);
+  `BlueskyScanner._run_delegated_request` keeps only the bridge-specific
+  facts.
+- The claimed-scan-failure error message ("folder is left in place, never
+  deleted") now lives in one shared helper,
+  `scan_log.log_claimed_scan_failure`, used by both the bridge and the
+  optimize runner (was duplicated verbatim).
+- `BlueskyScanner.__init__`'s `optimization_loader` type hint updated to
+  `Callable[[str | OptimizationSpec], Any]`, matching the 0.31.0
+  delegated path (the docstring already said so).
+
 ## [0.31.0] - 2026-07-12
 
 ### Added

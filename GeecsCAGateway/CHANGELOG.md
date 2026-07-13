@@ -3,6 +3,28 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.13.2] - 2026-07-13
+
+### Fixed
+
+- The fake device server's UDP set handler now coerces wire values with the
+  canonical `transport/_coerce.coerce_scalar` instead of a private inline
+  copy of the pre-0.12.2 logic — the copy still crashed with an uncaught
+  `OverflowError` on non-finite values (`set…>>inf`), the exact bug 0.12.2
+  fixed in the canonical helper, and its semantics could silently drift
+  from the real transport's.
+
+### Changed
+
+- Docstring condensation (docs-only): the LabVIEW no-cascade-delete
+  backstory and the choice-descriptor resolution rule are each stated once
+  (module docstrings / `CLAUDE.md`) with one-line pointers elsewhere,
+  instead of being retold in full in `config.py`, `audit.py`, and
+  `geecs_db.py`; `build_delete_sql`'s docstring no longer claims the
+  function prints. `run_audit`'s pointless lazy `_SKIP_VARTYPES` import
+  moved to the module top (only the `GeecsDb`/mysql import is meaningfully
+  lazy).
+
 ## [0.13.1] - 2026-07-12
 
 ### Fixed

@@ -1,17 +1,10 @@
 """GatewaySetpointPut — the one blessed gateway ``:SP`` put primitive.
 
-Three call sites used to implement "write a value to a gateway ``:SP`` with
-GEECS-completion semantics" independently: :class:`~geecs_bluesky.devices.ca.
-settable.CaSettable`/``CaMotor``'s Layer-1 ophyd signal put, ``ShotController``'s
-``CaPutSetter`` raw caput, and the action factory's wire settable raw caput.
-Each pathway independently decided the PV **addressing dialect** — ophyd's
-``ca://`` signal URI vs the bare EPICS name aioca expects — and one got it
-wrong: a raw caput to a ``ca://…`` name CA-searches for a PV nothing serves
-and hangs for the full timeout (issue #490, the 2026-07-10 closeout hang).
-This module is the consolidation: one primitive owns the addressing rule,
-the wire-value conventions, the timeout policy, the ``AsyncStatus`` wrapping,
-and mock support; every consumer delegates.  (The legacy engine learned the
-same lesson as ``DeviceCommandExecutor`` — its single blessed command path.)
+Owns the ca://-vs-bare addressing rule (:func:`bare_pv` — a schemed name
+hangs raw aioca; issue #490), the wire-value conventions, the timeout policy,
+the ``AsyncStatus`` wrapping, and mock support.  Every setpoint pathway
+delegates here: ``CaSettable``/``CaMotor``'s Layer-1 signal put,
+``ShotController``'s ``CaPutSetter``, and the action factory's wire settable.
 
 Two transports, one policy owner:
 
