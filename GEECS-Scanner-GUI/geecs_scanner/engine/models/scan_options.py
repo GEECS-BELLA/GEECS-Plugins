@@ -19,28 +19,17 @@ class ScanOptions(BaseModel):
     enable_global_time_sync : bool
         When True, use cross-device timestamp comparison to synchronise
         devices before each scan step instead of the fixed timeout method.
+        Not yet consumed by the Bluesky backend — kept pending parity
+        (issue #535).
     global_time_tolerance_ms : int
         Tolerance window (milliseconds) for global time synchronisation.
-        Clamped to [0, 60000].
-    master_control_ip : str
-        IP address of the Master Control server for ECS live dump.
-        Empty string disables the dump.
-    on_shot_tdms : bool
-        When True, write an incremental TDMS update after each shot.
-    save_direct_on_network : bool
-        When True, save device data directly to the scan folder on the
-        network share instead of staging locally first.
-    randomized_beeps : bool
-        When True, vary the beep pitch between shots.
+        Clamped to [0, 60000].  Kept pending Bluesky parity with
+        ``enable_global_time_sync``.
     """
 
     rep_rate_hz: float = 1.0
     enable_global_time_sync: bool = False
     global_time_tolerance_ms: int = 0
-    master_control_ip: str = ""
-    on_shot_tdms: bool = False
-    save_direct_on_network: bool = False
-    randomized_beeps: bool = False
 
     @field_validator("rep_rate_hz")
     @classmethod

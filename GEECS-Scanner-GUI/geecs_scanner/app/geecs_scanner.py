@@ -81,18 +81,14 @@ MAXIMUM_SCAN_SIZE = (
 )
 
 # Lists of options to appear in the menu bar. Automatically connects these to options in the user's .ini file
-BOOLEAN_OPTIONS = ["On-Shot TDMS", "Save Direct on Network", "Enable Global Time Sync"]
+BOOLEAN_OPTIONS = ["Enable Global Time Sync"]
 STRING_OPTIONS = [
-    "Master Control IP",
     "Global Time Tolerance (ms)",
 ]
 # Menu labels ↔ ScanOptions field names + caster
 OPTION_MAP: dict[str, tuple[str, type]] = {
     "Enable Global Time Sync": ("enable_global_time_sync", bool),
-    "On-Shot TDMS": ("on_shot_tdms", bool),
-    "Save Direct on Network": ("save_direct_on_network", bool),
     "Global Time Tolerance (ms)": ("global_time_tolerance_ms", float),
-    "Master Control IP": ("master_control_ip", str),
 }
 
 
@@ -611,12 +607,6 @@ class GEECSScannerWindow(QMainWindow):
                 ]
             except KeyError:
                 logger.warning("No prior 'timing_configuration' set in config file")
-            try:
-                ip_address = config["Options"]["master_control_ip"]
-                logger.info("Will attempt to use IP '%s' for ECS dumps.", ip_address)
-            except KeyError:
-                logger.warning("Not including master control ip, no ECS dumps.")
-
         except TypeError:
             self.prompt_config_reset("No configuration file found")
         except NameError:
@@ -822,10 +812,6 @@ class GEECSScannerWindow(QMainWindow):
                 raw[key] = str(val) if val is not None else ""
 
         raw["rep_rate_hz"] = self.repetition_rate
-        raw["randomized_beeps"] = bool(
-            getattr(self.ui, "actionRandomizedBeeps", None)
-            and self.ui.actionRandomizedBeeps.isChecked()
-        )
         # ScanOptions validators handle clamping (e.g. global_time_tolerance_ms)
         return ScanOptions.model_validate(raw)
 
