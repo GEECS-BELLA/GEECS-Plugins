@@ -10,7 +10,8 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
-| `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
+| `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt). The legacy in-package scan engine was deleted (G1); BlueskyScanner is the backend. Slated for replacement by GEECS-Console at the M6 cutover |
+| `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
 | `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
@@ -123,6 +124,9 @@ GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
                         GEECS-Data-Utils, GeecsBluesky
+GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils
+                        (+ GEECS-Scanner-GUI, optional via the
+                        `optimization` extra — the Xopt/evaluator stack)
 ```
 
 `GeecsCAGateway` is the self-contained GEECS access layer: the UDP/TCP wire
@@ -216,7 +220,7 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
-`GeecsBluesky/`, `GeecsCAGateway/`, `GEECS-Schemas/`.
+`GeecsBluesky/`, `GeecsCAGateway/`, `GEECS-Schemas/`, `GEECS-Console/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
@@ -230,7 +234,8 @@ has caused real production incidents; the consequences aren't abstract.
 
 ### Analysis code is a consumer of scan folders, never a producer
 
-Only the **scanner side** (GEECS-Scanner-GUI's `ScanDataManager`, BlueskyScanner)
+Only the **scanner side** (BlueskyScanner — concretely `claim_scan_number`
+in GeecsBluesky's `plans/run_wrapper.py`)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
 ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.
@@ -282,14 +287,6 @@ revisit. Speculative cleanup is not.
   indirection without removing complexity. We considered reverting; the cost
   of churn outweighs the benefit at this point. Leave it; it's harmless. Do
   not invest in extending it.
-
-- **`GEECS-Scanner-GUI/geecs_scanner/engine/data_logger.py` and
-  `device_manager.py` lack behavioral tests for several internal paths.** The
-  code works in production; a future Bluesky-backed scan path may obsolete
-  significant parts of these modules. Adding deep tests now risks pinning
-  internals we don't intend to keep. If you need to *change* DataLogger or
-  DeviceManager, write tests for the specific behavior you're modifying as
-  part of that change.
 
 - **`ScanConfig` lives in `geecs_data_utils` rather than
   `geecs_scanner.engine.models`.** This is logically backwards (engine config

@@ -1,13 +1,11 @@
 """Thin private worker shim for the scan browser — daemon thread + queued signal.
 
 A minimal twin of the main window's ``BackgroundResult`` (the one blessed
-daemon-thread → queued-signal worker), duplicated here because the browser
-must not import from ``app/main_window.py`` (another session owns that
-file).  **Temporary**: once issue #510's PR lands the shared
-``services/background.py``, this module is deleted and the browser imports
-that instead — the API here is kept deliberately tiny (one class, one
-signal, one method) so the swap is mechanical (see the coordination
-comment on #510).
+daemon-thread → queued-signal worker), kept separate so the browser never
+imports ``app/main_window.py``.  **Temporary**: delete this module once the
+shared ``services/background.py`` extraction lands (see CLAUDE.md,
+"deliberate temporary twins") — the API here is kept deliberately tiny
+(one class, one signal, one method) so the swap is mechanical.
 
 The rules it encodes (the package's no-QThread policy):
 

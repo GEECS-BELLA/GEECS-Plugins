@@ -17,16 +17,16 @@ The supported scan modes are NOSCAN (record N shots at a fixed configuration), 1
 - **Pre/post-scan action sequences.** A YAML-defined sequence of steps (set variable, wait, run nested action) that runs before the scan starts and after it ends. Used for calibration, gating, and "leave it as you found it" closeouts. See [Save Elements — Action Sequences](save_elements.md#action-sequences).
 - **Multi-scanner.** Queue up several scans with different configurations and run them as a batch. Each one writes its own scan folder.
 - **Optimization.** An optimization scan replaces the fixed step list with an Xopt-driven generator. Each iteration takes the latest scan result, computes an objective via a registered evaluator, and proposes the next set of variable values. See the [Optimization Example](examples/optimization/optimization_example.ipynb).
-- **Scripted access.** The engine (`geecs_scanner.engine.ScanManager`) is independent of Qt; you can run a scan from a Python script without launching the GUI.
+- **Scripted access.** The scan engine (GeecsBluesky's `GeecsSession` / `BlueskyScanner`) is independent of Qt; you can run a scan from a Python script without launching the GUI.
 
 ## Where things live
 
 The package splits cleanly along the GUI/engine line:
 
 - `geecs_scanner.app` — the PyQt5 layer: main window, save-element editor, multiscanner, action library editor. Imports Qt; depends on the engine through one adapter (`RunControl`).
-- `geecs_scanner.engine` — the headless scan execution core: `ScanManager`, `ScanStepExecutor`, `DataLogger`, `FileMover`, `TriggerController`, `DeviceCommandExecutor`, `ScanLifecycleStateMachine`. No Qt imports.
+- `geecs_scanner.engine` — what remains after the legacy execution core was deleted (scan execution now lives in GeecsBluesky's `BlueskyScanner`): `ActionManager`, `DeviceCommandExecutor`, the database dict lookup, and the GUI→engine contract pieces below.
 - `geecs_scanner.engine.models` — Pydantic models for the GUI→engine contract: `ScanExecutionConfig`, `ScanOptions`, `SaveDeviceConfig`, action step types.
-- `geecs_scanner.engine.scan_events` — the typed `ScanEvent` hierarchy. The single contract between the engine and any consumer (GUI, remote monitor, log writer, test harness).
+- `geecs_scanner.engine.scan_events` — re-export shim of the typed `ScanEvent` hierarchy, which lives in `geecs_bluesky.events`. The single contract between the engine and any consumer (GUI, remote monitor, log writer, test harness).
 - `geecs_scanner.utils` — shared exception hierarchy, retry helper, application paths.
 
 The [Architecture page](architecture.md) goes into the lifecycle, event flow, and design rationale. It's worth reading once if you plan to extend the scanner; it's not required reading to use it.

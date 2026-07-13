@@ -1522,7 +1522,7 @@ class GEECSScannerWindow(QMainWindow):
             self.close_scan_device()
 
         try:
-            # Check if it's a composite variable (follow DeviceManager pattern exactly)
+            # Check if it's a composite variable
             if variable_name in self.scan_composite_list:
                 # For composite variables: use the composite data dict
                 var_dict = self.scan_composite_data[variable_name]
@@ -1539,7 +1539,7 @@ class GEECSScannerWindow(QMainWindow):
                 device_tag = self.read_device_tag_from_nickname(variable_name)
                 if ":" in device_tag:
                     device_name, var_name = device_tag.split(":", 1)
-                    # Create ScanDevice and subscribe (follow DeviceManager pattern)
+                    # Create ScanDevice and subscribe
                     self.connected_scan_device = ScanDevice(device_name)
                     self.connected_scan_device.use_alias_in_TCP_subscription = False
                     self.connected_scan_device.subscribe_var_values([var_name])

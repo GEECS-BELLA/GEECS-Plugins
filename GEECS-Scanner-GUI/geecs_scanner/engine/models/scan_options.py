@@ -1,4 +1,4 @@
-"""Validated scan-execution options passed from GUI to ScanManager."""
+"""Validated scan-execution options passed from GUI to the scan backend."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ class ScanOptions(BaseModel):
     """Engine-level options that affect how a scan is executed.
 
     Constructed by the GUI from its menu-bar settings and passed through
-    ``RunControl`` to ``ScanManager``.  User-interface-only preferences
+    ``RunControl`` to ``BlueskyScanner``.  User-interface-only preferences
     (sound theme, dark mode, window layout) are not included here.
 
     Attributes
