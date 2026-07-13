@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.1] — 2026-07-12
+
+### Fixed
+
+- `TiledScanCatalog.load_run` no longer raises on runs whose primary stream
+  holds no event rows (aborted or legacy runs read back as a dimensionless
+  xarray Dataset, where `to_dataframe` raises "no valid index for a
+  0-dimensional object" — hit live in the scan browser's first session).
+  Such runs now degrade to `data=None` with a log line, the same contract
+  as a missing primary stream.
+
 ## [0.13.0] — 2026-07-12
 
 ### Added
