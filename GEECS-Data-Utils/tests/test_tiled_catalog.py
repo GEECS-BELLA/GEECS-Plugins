@@ -155,21 +155,36 @@ class TestSummaryFromMetadata:
 
 
 class _FakeRun:
-    """Metadata + optional primary stream, quacking like a Tiled BlueskyRun."""
+    """Metadata + optional primary stream, quacking like a Tiled BlueskyRun.
 
-    def __init__(self, start_doc, stop_doc=None, frame=None):
+    ``dimensionless=True`` mimics an aborted/legacy run whose primary
+    dataset has no event rows: ``sizes`` is empty and ``to_dataframe``
+    raises the real xarray error for a 0-d dataset.
+    """
+
+    def __init__(self, start_doc, stop_doc=None, frame=None, dimensionless=False):
         self.metadata = {"start": start_doc, "stop": stop_doc or {}}
         self._frame = frame
+        self._dimensionless = dimensionless
 
     def __getitem__(self, key):
-        if key != "primary" or self._frame is None:
+        if key != "primary" or (self._frame is None and not self._dimensionless):
             raise KeyError(key)
         frame = self._frame
+        dimensionless = self._dimensionless
 
         class _Readable:
             def read(self):
                 class _DataSet:
+                    @property
+                    def sizes(self):
+                        return {} if dimensionless else {"dim0": len(frame)}
+
                     def to_dataframe(self):
+                        if dimensionless:
+                            raise ValueError(
+                                "no valid index for a 0-dimensional object"
+                            )
                         return frame
 
                 return _DataSet()
@@ -283,6 +298,20 @@ class TestTiledScanCatalogLoadRun:
         runs = {"uid-002": _FakeRun(_start_doc(2), {"exit_status": "abort"})}
         catalog = _fake_catalog(runs)
         detail = catalog.load_run("uid-002")
+        assert detail.data is None
+        assert detail.summary.exit_status == "abort"
+
+    def test_load_run_with_dimensionless_primary_stream(self):
+        # An aborted/legacy run whose stream recorded zero event rows:
+        # xarray's to_dataframe raises on the 0-d dataset, so the catalog
+        # must degrade to data=None instead of propagating the error.
+        runs = {
+            "uid-003": _FakeRun(
+                _start_doc(3), {"exit_status": "abort"}, dimensionless=True
+            )
+        }
+        catalog = _fake_catalog(runs)
+        detail = catalog.load_run("uid-003")
         assert detail.data is None
         assert detail.summary.exit_status == "abort"
 

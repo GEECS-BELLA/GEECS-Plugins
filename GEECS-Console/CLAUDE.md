@@ -292,6 +292,76 @@ the window for anything in these families:
   completers (and their model) on `self`.  The same applies to any
   `QValidator`, proxy model, or event filter created without a parent.
 
+## The Scan Browser (`geecs_console/browser/`, regions B1–B6)
+
+A second window in this package: the quick-look Tiled client (day → scan →
+plot/table/drift), per its own approved screen map (regions `B1`–`B6`;
+object names `b1_`…`b6_`).  Own entry points — `geecs-scan-browser`
+(console script) and `python -m geecs_console.browser` — deliberately NOT
+wired into the operator console's Ops menu yet (deferred; the browser must
+stay usable by analysts who never run the console).
+
+Structure:
+
+- `browser_window.py` — `ScanBrowserWindow`, layout built in code (no
+  `.ui`: the pyqtgraph central widget doesn't suit `QUiLoader` promotion).
+  Dark screen-map palette QSS applied at window level, over the console
+  family stylesheet the entry point sets application-wide.
+- `__main__.py` — `main()`; injects the real catalog
+  (`TiledScanCatalog.from_config()`).  Loads `app/style.qss` with its own
+  tiny loader (same behavior as `load_stylesheet`) because of the
+  main-window import ban below.
+- `_background.py` — `BrowserWorker`, the thin private daemon-thread →
+  queued-signal worker shim (see below).
+
+Rules (inherit all Architecture rules above, plus):
+
+- **The ScanCatalog seam**: the window depends on
+  `geecs_data_utils.tiled_catalog.ScanCatalog`
+  (`probe`/`list_runs`/`load_run`) — never on `tiled` directly.  Offline
+  default is `StubCatalog`; every catalog call runs on a daemon thread
+  through `BrowserWorker` with generation counters dropping superseded
+  results — the GUI thread never blocks on Tiled (VPN latency is real).
+  `closeEvent` disconnects the workers so a straggling slow read lands
+  nowhere.
+- **Schema knowledge lives in `geecs_data_utils.tiled_schema`** (one
+  version-tagged module; `GeecsBluesky/EVENT_SCHEMA.md` is the contract)
+  and **drift analysis in `geecs_data_utils.tiled_drift`** — the browser
+  interprets no column names on its own.  The pure layer's tests live in
+  GEECS-Data-Utils; this package tests window behavior against
+  `tests/fake_catalog.py`.
+- **No imports from `app/main_window.py`** — the browser duplicates
+  nothing from it except the two deliberate twins noted below.
+- **`pyqtgraph` is imported lazily** with
+  `os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")` set first (the
+  `_pg()` helper) so it can never bind a stray PyQt install.
+- **Open scan folder is strictly read-only** (`resolve_scan_folder`):
+  run-metadata `scan_folder` first, else `ops_paths.todays_scan_folder`
+  for the *selected* date + `ScanNNN`; only an existing dir is returned,
+  nothing on the scans path is ever created (repo scan-folder invariant,
+  pinned by tree-untouched tests in `tests/test_browser_scan_folder.py`).
+
+Kit boundary — shared-intent console modules the browser imports (the
+shared-package candidates for a future extraction; extend these rather
+than copying):
+
+- `services/settings.py` (`ConsoleSettings` — the shared last-experiment
+  memory)
+- `services/ops_paths.py` (read-only daily-folder resolution)
+- `app/style.qss` (read-only; loaded by the browser's own loader)
+- `geecs_data_utils.tiled_catalog` / `tiled_schema` / `tiled_drift` (the
+  data layer, already extracted downward)
+
+Deliberate temporary twins of `app/main_window.py` internals (kept because
+the browser must not import that file — another stream owns it):
+
+- `browser/_background.py::BrowserWorker` ↔ `BackgroundResult`.  **Replace
+  with the shared `services/background.py` once that extraction lands**
+  (the plan recorded on issue #510; #510's own fix landed without it) —
+  the API is kept tiny (one class, one signal, one method) so the swap is
+  mechanical.
+- `__main__._load_console_stylesheet` ↔ `load_stylesheet`.
+
 ## Stubbed seams (intentional, wire later)
 
 - An `OptimizationSpec` *editor* (authoring configs in the GUI) remains

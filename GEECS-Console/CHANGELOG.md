@@ -4,7 +4,7 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
-## [0.8.0] - 2026-07-13
+## [0.9.0] - 2026-07-13
 
 ### Added
 
@@ -30,6 +30,62 @@ semantic.
   other scan mode is unaffected.  Relative `seed_dump_files` entries are
   not resolved on this path (no config-file directory once the spec is
   inline) — use absolute paths in warm-starting optimizer configs.
+
+## [0.8.0] - 2026-07-12
+
+### Added
+
+- **Scan Browser v1** (`geecs_console/browser/`) — a quick-look Tiled client
+  per the approved screen map (regions B1–B6): pick a day, pick a scan, see
+  what happened, without mounting the data share or writing a notebook.
+  New entry points: `geecs-scan-browser` console script and
+  `python -m geecs_console.browser`.
+  - **B1 session bar** — editable experiment combo (last value remembered
+    via the shared `ConsoleSettings`), calendar date picker (default
+    today), Tiled connection chip (off-thread probe), metadata filter box.
+  - **B2 run list** — the selected day's runs newest first (status dot from
+    the stop-doc `exit_status`, scan number, time, mode chip, shots);
+    metadata-only until a row is selected.
+  - **B3 identity strip** — mode/shots/acquisition/duration/save
+    sets/short uid from the start/stop docs, Copy uid (clipboard), Open
+    scan folder (**strictly read-only** resolution — run-metadata
+    `scan_folder` first, else the daily folder for the *selected* date via
+    `ops_paths`; never creates, pinned by tree-untouched tests).
+  - **B4 plot** — pyqtgraph (`PYQTGRAPH_QT_LIB=PySide6` pinned before
+    import): X = shot sequence or any numeric column, multi-series Y via a
+    contains-matching completer over all data columns, per-series
+    mean ± σ in the legend/series list; stepped scans default X to the
+    scan variable with per-step mean ± σ error bars.  Non-numeric columns
+    (dtype-tolerant telemetry) refused with a status message, never a
+    crash.
+  - **B5 table** — pinned columns (shot sequence, reference
+    `acq_timestamp`) + plotted columns; Export CSV of the visible
+    selection via a file dialog.
+  - **B6 "Moved during scan" rail** — `geecs_data_utils.tiled_drift` over
+    the numeric telemetry columns (3σ first-vs-last, significance-sorted,
+    signed Δ with % when meaningful, "N of M steady" line); click adds the
+    column to the plot.
+- **`browser/_background.py`** — a thin private daemon-thread →
+  queued-signal worker shim (the `BackgroundResult` shape).  Temporary
+  twin, to be replaced by the shared `services/background.py` extraction
+  planned on issue #510; API kept tiny so the swap is mechanical.
+- New dependencies: `pyqtgraph ^0.13` and a direct
+  `geecs-data-utils[tiled]` path dep (previously transitive) — the browser
+  consumes its `tiled_catalog` / `tiled_schema` / `tiled_drift` layer
+  (geecs-data-utils 0.13.0) and depends on the `ScanCatalog` protocol,
+  never on `tiled` directly.
+- Hermetic browser tests (fake catalog, offscreen): day listing +
+  filtering, metadata-only listing, B3 population, clipboard uid, plot
+  add/remove/replot, non-numeric guard, per-step error bars, CSV export,
+  drift rail + click-to-plot, never-creates folder pin, offline
+  StubCatalog default, stale-result drop, catalog-error surfacing,
+  close-during-slow-read teardown, and entry-point subprocess smoke.
+
+### Notes
+
+- Ops-menu wiring of the browser into the operator console window is
+  deliberately deferred (the browser is its own window/entry point in v1;
+  `app/main_window.py` is untouched by this change).
 
 ## [0.7.0] - 2026-07-12
 

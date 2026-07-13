@@ -433,7 +433,14 @@ class TiledScanCatalog:
         stop_doc = dict(metadata.get("stop") or {})
         data = None
         try:
-            data = run["primary"].read().to_dataframe().reset_index()
+            dataset = run["primary"].read()
+            if dataset.sizes:
+                data = dataset.to_dataframe().reset_index()
+            else:
+                # A dimensionless dataset — an aborted or legacy run whose
+                # stream holds no event rows — has no index for a frame;
+                # ``to_dataframe`` raises. Same contract as "no stream".
+                logger.info("run %s primary stream has no event rows", uid)
         except KeyError:
             logger.info("run %s has no primary stream", uid)
         return RunDetail(
