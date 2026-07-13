@@ -20,6 +20,12 @@ logger = logging.getLogger(__name__)
 
 SAVE_SET_FOLDER = "save_devices"
 TRIGGER_FOLDER = "shot_control_configurations"
+#: Optimizer configs keep the legacy GEECS-Scanner-GUI folder name.
+OPTIMIZATION_FOLDER = "optimizer_configs"
+
+
+class ConsoleConfigsError(RuntimeError):
+    """A named config cannot be resolved (surfaced in the status bar)."""
 
 
 @dataclass(frozen=True)
@@ -30,6 +36,7 @@ class ConfigListing:
     save_sets: list[str] = field(default_factory=list)
     trigger_profiles: list[str] = field(default_factory=list)
     scan_variables: list[str] = field(default_factory=list)
+    optimization_configs: list[str] = field(default_factory=list)
     configs_root: Optional[Path] = None
     message: Optional[str] = None
 
@@ -133,6 +140,7 @@ class ConsoleConfigs:
             save_sets=_yaml_stems(root / SAVE_SET_FOLDER),
             trigger_profiles=_yaml_stems(root / TRIGGER_FOLDER),
             scan_variables=self._scan_variable_names(),
+            optimization_configs=_yaml_stems(root / OPTIMIZATION_FOLDER),
             configs_root=base,
         )
 
@@ -202,6 +210,93 @@ class ConsoleConfigs:
         ]
         hint = f"reference: {', '.join(references)}" if references else ""
         return UnionPreview(device_count=len(merged.entries), hint=hint)
+
+    def optimization_spec(self, name: str) -> Any:
+        """Load optimizer config *name* as a validated ``OptimizationSpec``.
+
+        Reads ``<experiment>/optimizer_configs/<name>.yaml`` (the folder
+        name the legacy GEECS-Scanner-GUI used) directly — the resolver has
+        no optimization kind yet.  Both dialects are accepted: a plain
+        new-schema :class:`~geecs_schemas.OptimizationSpec` document, or a
+        legacy optimizer config (recognized by its ``vocs`` key) run through
+        :func:`geecs_schemas.convert.convert_optimizer_config`.
+
+        Parameters
+        ----------
+        name : str
+            The config name (YAML file stem from the listing).
+
+        Returns
+        -------
+        geecs_schemas.OptimizationSpec
+            The validated optimization block for a ``mode: optimize``
+            :class:`~geecs_schemas.ScanRequest`.
+
+        Raises
+        ------
+        ConsoleConfigsError
+            Missing configs repo / experiment / file, unparsable YAML, or a
+            document neither dialect accepts — always with a message fit
+            for the status bar.
+        """
+        import yaml
+
+        base = _configs_base()
+        if base is None:
+            raise ConsoleConfigsError(
+                "Configs repo not found — set GEECS_SCANNER_CONFIG_DIR or "
+                "config.ini [Paths] scanner_config_root_path."
+            )
+        if not self._experiment:
+            raise ConsoleConfigsError("No experiment selected.")
+        folder = base / self._experiment / OPTIMIZATION_FOLDER
+        path = folder / f"{name}.yaml"
+        if not path.exists():
+            twin = folder / f"{name}.yml"
+            if twin.exists():
+                path = twin
+        if not path.exists():
+            raise ConsoleConfigsError(f"Optimizer config {name!r} not found ({path}).")
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as exc:
+            raise ConsoleConfigsError(
+                f"Optimizer config {name!r} is not valid YAML ({path}): {exc}"
+            ) from exc
+        if not isinstance(document, dict):
+            raise ConsoleConfigsError(
+                f"Optimizer config {name!r} ({path}) should be a YAML "
+                f"mapping, got {type(document).__name__}."
+            )
+        if "vocs" in document:
+            # The legacy GEECS-Scanner-GUI dialect (new-schema documents
+            # can't carry a 'vocs' key under extra='forbid').
+            from geecs_schemas.convert import (
+                SchemaConversionError,
+                convert_optimizer_config,
+            )
+
+            try:
+                conversion = convert_optimizer_config(document, name=name)
+            except SchemaConversionError as exc:
+                raise ConsoleConfigsError(
+                    f"Optimizer config {name!r} ({path}) could not be "
+                    f"converted from the legacy dialect: {exc}"
+                ) from exc
+            for note in conversion.notes:
+                logger.info("optimizer config %r: %s", name, note)
+            return conversion.optimization
+        from pydantic import ValidationError
+
+        from geecs_schemas import OptimizationSpec
+
+        try:
+            return OptimizationSpec.model_validate(document)
+        except ValidationError as exc:
+            raise ConsoleConfigsError(
+                f"Optimizer config {name!r} ({path}) is not a valid "
+                f"OptimizationSpec: {exc}"
+            ) from exc
 
     def trigger_variants(self, profile_name: str) -> list[str]:
         """List the variants of one trigger profile (R1 variant combo).

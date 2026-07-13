@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from geecs_schemas import (
     AcquisitionMode,
+    OptimizationSpec,
     PositionList,
     PositionRange,
     Positions,
@@ -46,7 +47,8 @@ class ConsoleMode(str, Enum):
     GRID : str
         Sweep two or more variables as an outer-product grid.
     OPTIMIZATION : str
-        Let an optimizer drive the settings (not wired in this version).
+        Let an optimizer drive the settings, per a named optimizer config
+        loaded into the form's ``optimization`` spec.
     BACKGROUND : str
         A noscan whose data is marked as background/calibration shots.
     """
@@ -121,7 +123,12 @@ class FormAxis(BaseModel):
 
 
 class ConsoleFormState(BaseModel):
-    """Snapshot of the scan form — everything the operator chose on screen."""
+    """Snapshot of the scan form — everything the operator chose on screen.
+
+    ``optimization`` carries the *loaded* spec of the optimizer config the
+    R3 combo names (the window resolves name → spec when snapshotting), so
+    this model — and :func:`build_scan_request` — stays pure: no file I/O.
+    """
 
     mode: ConsoleMode = ConsoleMode.ONE_D
     axes: list[FormAxis] = Field(default_factory=list)
@@ -132,6 +139,7 @@ class ConsoleFormState(BaseModel):
     acquisition: AcquisitionMode = AcquisitionMode.FREE_RUN
     description: str = ""
     background: bool = False
+    optimization: Optional[OptimizationSpec] = None
 
 
 def _position_count(positions: Positions) -> int:
@@ -197,18 +205,13 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
     Raises
     ------
     ConsoleFormError
-        On optimization mode (not wired yet), a missing/extra axis for the
-        mode, or a total shot count above :data:`MAXIMUM_SCAN_SIZE`.
+        On optimization mode without a loaded optimization spec, a
+        missing/extra axis for the mode, or a total shot count above
+        :data:`MAXIMUM_SCAN_SIZE`.
     pydantic.ValidationError
         When the schema itself rejects the assembled request (e.g. a
         trigger variant without a profile, duplicate axis variables).
     """
-    if form.mode is ConsoleMode.OPTIMIZATION:
-        raise ConsoleFormError(
-            "Optimization submission is not wired in this version of the "
-            "console — it needs an OptimizationSpec editor."
-        )
-
     if form.mode in (ConsoleMode.ONE_D, ConsoleMode.GRID):
         if form.mode is ConsoleMode.ONE_D and len(form.axes) != 1:
             raise ConsoleFormError("A 1D scan needs exactly one axis.")
@@ -219,6 +222,14 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
             ScanAxis(variable=axis.variable, positions=axis.to_positions())
             for axis in form.axes
         ]
+    elif form.mode is ConsoleMode.OPTIMIZATION:
+        if form.optimization is None:
+            raise ConsoleFormError(
+                "An optimization scan needs an optimization config — pick "
+                "one in the scan form."
+            )
+        mode = ScanRequestMode.OPTIMIZE
+        axes = []
     else:
         mode = ScanRequestMode.NOSCAN
         axes = []
@@ -241,6 +252,10 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
         trigger_variant=form.trigger_variant,
         description=form.description,
         background=form.background or form.mode is ConsoleMode.BACKGROUND,
+        # Passed through for every mode — a stray spec on a non-optimize
+        # form is a bug the schema's consistency validator surfaces loudly
+        # rather than being silently dropped here.
+        optimization=form.optimization,
     )
 
 
@@ -264,19 +279,15 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         Form state that :func:`build_scan_request` maps back onto an
         equivalent request.  A ``noscan`` with the ``background`` flag
         becomes :attr:`ConsoleMode.BACKGROUND` (the same folding the
-        builder applies in the other direction).
+        builder applies in the other direction); an ``optimize`` request
+        becomes :attr:`ConsoleMode.OPTIMIZATION` carrying the request's
+        optimization spec.
 
     Raises
     ------
     ConsoleFormError
-        For an ``optimize`` request (no OptimizationSpec editor yet) or a
-        request carrying action bindings — both inexpressible on the form.
+        For a request carrying action bindings — inexpressible on the form.
     """
-    if request.mode is ScanRequestMode.OPTIMIZE:
-        raise ConsoleFormError(
-            "This preset is an optimization scan — the console form cannot "
-            "express it (no OptimizationSpec editor yet)."
-        )
     if request.actions.setup or request.actions.per_step or request.actions.closeout:
         raise ConsoleFormError(
             "This preset carries action bindings (setup/per_step/closeout), "
@@ -288,6 +299,10 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         mode = ConsoleMode.BACKGROUND if request.background else ConsoleMode.NOSCAN
         background = False  # folded into the mode, mirroring the builder
         axes: list[FormAxis] = []
+    elif request.mode is ScanRequestMode.OPTIMIZE:
+        mode = ConsoleMode.OPTIMIZATION
+        background = request.background
+        axes = []
     else:
         mode = ConsoleMode.ONE_D if len(request.axes) == 1 else ConsoleMode.GRID
         background = request.background
@@ -317,4 +332,5 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         acquisition=request.acquisition,
         description=request.description,
         background=background,
+        optimization=request.optimization,
     )

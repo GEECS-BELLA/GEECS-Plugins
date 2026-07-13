@@ -301,10 +301,6 @@ class MainWindow(QMainWindow):
     #: monitor thread; delivered queued to :meth:`_apply_device_value`).
     device_value_ready = Signal(object)
 
-    #: ``(ok, message)`` for one completed device set (emitted from the
-    #: set-dispatch daemon thread; delivered queued).
-    device_set_finished = Signal(bool, str)
-
     def __init__(
         self,
         experiment: str = "",
@@ -351,6 +347,7 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._load_ui()
         self._bind_widgets()
+        self._apply_operator_tooltips()
         self._build_menus()
         self._build_status_bar()
         self._wire_signals()
@@ -457,6 +454,10 @@ class MainWindow(QMainWindow):
         self.start2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_start2")
         self.stop2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_stop2")
         self.step2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_step2")
+        self.optimization_label: QLabel = self._child(QLabel, "r3_optimization_label")
+        self.optimization_combo: QComboBox = self._child(
+            QComboBox, "r3_optimization_combo"
+        )
         self.shots_per_step: QSpinBox = self._child(QSpinBox, "r3_shots_per_step")
         self.acquisition_combo: QComboBox = self._child(
             QComboBox, "r3_acquisition_combo"
@@ -489,6 +490,172 @@ class MainWindow(QMainWindow):
 
         for mode in (AcquisitionMode.FREE_RUN, AcquisitionMode.STRICT):
             self.acquisition_combo.addItem(mode.value)
+
+    def _apply_operator_tooltips(self) -> None:
+        """Set the operator-language tooltips on the main-window controls.
+
+        These are hand-written (what it does / what happens), not copies of
+        the widget labels.  Editor form fields are different: their tooltips
+        come from the schema field descriptions via
+        :mod:`~geecs_console.services.schema_tooltips` — single source of
+        truth (issue #497 phase 1).
+        """
+        tooltips = {
+            # R1 session bar
+            self.experiment_combo: (
+                "Which experiment's configs, presets, devices, and gateway "
+                "PVs the console works with. Changing it repopulates "
+                "everything below."
+            ),
+            self.rep_rate: (
+                "The machine repetition rate in Hz — informational for "
+                "free-run pacing; it does not command any hardware."
+            ),
+            self.trigger_profile_combo: (
+                "Trigger profile the scan drives the machine with (OFF / "
+                "STANDBY / SCAN / ... device writes). Empty means the scan "
+                "leaves the trigger alone."
+            ),
+            self.trigger_variant_combo: (
+                "Named operating condition of the trigger profile (e.g. "
+                "laser_off) — overlays a few writes on the base profile. "
+                "Empty runs the base behaviour."
+            ),
+            self.gateway_chip: (
+                "CA gateway health: reads the experiment's heartbeat PV "
+                "every few seconds. WARN means the gateway runs but reports "
+                "zero connected devices."
+            ),
+            self.tiled_chip: (
+                "Tiled data-server health: an HTTP check of the configured "
+                "Tiled URI every few seconds."
+            ),
+            self.db_chip: (
+                "GEECS experiment database health: a cheap MySQL query "
+                "every few seconds."
+            ),
+            # R2 save sets
+            self.available_list: (
+                "The experiment's save sets (named device groups) not yet "
+                "picked for this scan. Select and Add to require them."
+            ),
+            self.selected_list: (
+                "Save sets this scan records. Their devices are unioned; "
+                "each required device gets guarantees (completeness, "
+                "dialogs, images). At least one set is needed to start."
+            ),
+            self.add_button: "Require the selected save sets for this scan.",
+            self.remove_button: (
+                "Drop the selected save sets from this scan (their devices "
+                "may still be logged as background telemetry)."
+            ),
+            self.union_label: (
+                "How many distinct devices the selected save sets add up to "
+                "after merging duplicates."
+            ),
+            # R3 scan form
+            self.radio_noscan: (
+                "Collect shots without moving anything — statistics at the "
+                "current machine settings."
+            ),
+            self.radio_1d: (
+                "Sweep one scan variable through start → stop in step-sized "
+                "moves, taking a batch of shots at each position."
+            ),
+            self.radio_grid: (
+                "Sweep two variables as a grid visiting every combination — "
+                "axis 1 is the outer (slow) loop, axis 2 the inner (fast) "
+                "one."
+            ),
+            self.radio_optimization: (
+                "Let an optimizer pick the settings each iteration, per the "
+                "optimizer config chosen below. Submission is accepted only "
+                "when the scan engine supports optimize scans."
+            ),
+            self.radio_background: (
+                "A no-scan whose data is marked as background/calibration "
+                "shots so analysis can find them later."
+            ),
+            self.optimization_combo: (
+                "Which optimizer config to run — the YAML files in this "
+                "experiment's optimizer_configs folder. Empty when offline "
+                "or the experiment has none (Start stays disabled)."
+            ),
+            self.shots_per_step: (
+                "How many shots to take at each scan position / grid point "
+                "(or in total for a no-scan or background run)."
+            ),
+            self.acquisition_combo: (
+                "free_run: the trigger runs at the machine rate and device "
+                "rows are matched by timestamp afterwards. strict: the scan "
+                "fires each shot itself and waits for every device — "
+                "slower, but nothing is ever missing."
+            ),
+            self.shot_count_label: (
+                "Total shots this form implies (positions × shots per "
+                "step). Above the runaway-scan limit, Start is disabled."
+            ),
+            self.description_edit: (
+                "Free-text note about this scan — it ends up in the scan's "
+                "metadata and the experiment log."
+            ),
+            # R4 presets
+            self.preset_combo: (
+                "Saved scan requests for this experiment (one YAML each in "
+                "the configs repo's presets folder)."
+            ),
+            self.apply_button: (
+                "Load the selected preset into the form. Anything the form "
+                "cannot express (action bindings, position lists) is "
+                "refused, leaving the form untouched."
+            ),
+            self.save_as_button: (
+                "Save the current form as a named preset — the exact scan "
+                "request it would submit."
+            ),
+            self.delete_button: "Delete the selected preset's YAML file.",
+            # R5 submit row
+            self.start_button: (
+                "Build the scan request from this form and hand it to the "
+                "scan engine. Needs a valid shot count and at least one "
+                "selected save set; engine refusals show in the status bar."
+            ),
+            self.stop_button: (
+                "Ask the engine to stop the running scan at the next safe "
+                "point (closeout actions still run)."
+            ),
+            # R6 now panel
+            self.state_pill: "What the scan engine is doing right now.",
+            self.progress_bar: (
+                "Shots completed out of the running scan's announced total."
+            ),
+            self.scan_number_label: (
+                "The scan folder claimed by the running scan; '(previous)' "
+                "is the last scan found in today's data folder."
+            ),
+            self.log_tail: "The most recent scan-engine and console messages.",
+            # R7 device panel
+            self.device_combo: (
+                "Type or pick 'DeviceName:Variable Name' to watch its live "
+                "readback from the gateway (updates on commit, not per "
+                "keystroke)."
+            ),
+            self.readback_label: (
+                "Live readback of the selected device variable, streamed "
+                "from the gateway."
+            ),
+            self.set_field: (
+                "Value to write to the selected device variable — a number, "
+                "or a word the device understands (e.g. 'on')."
+            ),
+            self.set_button: (
+                "Write the value via the gateway setpoint and report the "
+                "outcome in the status bar. Disabled while a write is in "
+                "flight."
+            ),
+        }
+        for widget, text in tooltips.items():
+            widget.setToolTip(text)
 
     def _build_menus(self) -> None:
         """Create the menu bar (Ops / Actions / Editors / Preferences / Help).
@@ -575,6 +742,7 @@ class MainWindow(QMainWindow):
         ):
             spin.valueChanged.connect(self._refresh_shot_count)
         self.shots_per_step.valueChanged.connect(self._refresh_shot_count)
+        self.optimization_combo.currentTextChanged.connect(self._refresh_submit_enabled)
         self.add_button.clicked.connect(self._on_add_save_set)
         self.remove_button.clicked.connect(self._on_remove_save_set)
         self.experiment_combo.currentTextChanged.connect(self._on_experiment_changed)
@@ -598,19 +766,21 @@ class MainWindow(QMainWindow):
         device_line_edit = self.device_combo.lineEdit()
         if device_line_edit is not None:
             device_line_edit.editingFinished.connect(self._resubscribe_device)
-        # Force queued connections: both signals are emitted off the GUI
-        # thread (CA monitor thread / set-dispatch daemon thread), and an
-        # undecorated direct delivery would paint widgets there (hard crash).
+        # Force a queued connection: the signal is emitted off the GUI thread
+        # (the CA monitor thread), and an undecorated direct delivery would
+        # paint widgets there (hard crash).
         self.device_value_ready.connect(
             self._apply_device_value, Qt.ConnectionType.QueuedConnection
         )
-        self.device_set_finished.connect(
+        # Device-set completion, the R7 completions, and the R6 idle
+        # scan-number peek: each result is emitted by a BackgroundResult
+        # worker (never by the window itself — a daemon-thread emit on a
+        # window-owned signal races teardown, issue #510) and delivered
+        # queued to its GUI-thread apply slot.
+        self._device_set_worker = BackgroundResult()
+        self._device_set_worker.result_ready.connect(
             self._apply_device_set_result, Qt.ConnectionType.QueuedConnection
         )
-        # R7 completions and the R6 idle scan-number peek: each result is
-        # emitted by a BackgroundResult worker (never by the window itself —
-        # a daemon-thread emit on a window-owned signal races teardown) and
-        # delivered queued to its GUI-thread apply slot.
         self._completions_worker = BackgroundResult()
         self._completions_worker.result_ready.connect(
             self._apply_device_completions, Qt.ConnectionType.QueuedConnection
@@ -653,6 +823,17 @@ class MainWindow(QMainWindow):
         self.available_list.clear()
         self.available_list.addItems(listing.save_sets)
         self.selected_list.clear()
+        # Optimizer configs (R3): keep the selection when the name survives
+        # the repopulation; offline the listing is empty, which leaves the
+        # combo empty and Start disabled in optimization mode.
+        current_optimization = self.optimization_combo.currentText()
+        self.optimization_combo.blockSignals(True)
+        self.optimization_combo.clear()
+        self.optimization_combo.addItems(listing.optimization_configs)
+        self.optimization_combo.setCurrentIndex(
+            self.optimization_combo.findText(current_optimization)
+        )
+        self.optimization_combo.blockSignals(False)
         self.trigger_profile_combo.blockSignals(True)
         self.trigger_profile_combo.clear()
         self.trigger_profile_combo.addItem("")
@@ -778,6 +959,7 @@ class MainWindow(QMainWindow):
                 self._apply_device_completions,
             ),
             (getattr(self, "_idle_scan_worker", None), self._apply_idle_scan_number),
+            (getattr(self, "_device_set_worker", None), self._apply_device_set_result),
         ):
             if worker is None:
                 continue
@@ -785,14 +967,10 @@ class MainWindow(QMainWindow):
                 worker.result_ready.disconnect(slot)
             except (RuntimeError, TypeError):
                 pass
-        for signal, slot in (
-            (self.device_value_ready, self._apply_device_value),
-            (self.device_set_finished, self._apply_device_set_result),
-        ):
-            try:
-                signal.disconnect(slot)
-            except (RuntimeError, TypeError):
-                pass
+        try:
+            self.device_value_ready.disconnect(self._apply_device_value)
+        except (RuntimeError, TypeError):
+            pass
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -837,12 +1015,17 @@ class MainWindow(QMainWindow):
         -------
         ConsoleFormState
             The validated form model :func:`build_scan_request` consumes.
+            In optimization mode this resolves the selected optimizer
+            config's name into its loaded spec (the one place the form
+            snapshot reads a file), keeping the request builder pure.
 
         Raises
         ------
         pydantic.ValidationError
             When the widgets hold an invalid combination (e.g. an empty
             scan-variable name in a step mode).
+        ConsoleFormError
+            When the selected optimizer config cannot be loaded.
         """
         mode = self.current_mode()
         axes: list[FormAxis] = []
@@ -864,6 +1047,9 @@ class MainWindow(QMainWindow):
                     step=self.step2_spin.value(),
                 )
             )
+        optimization = None
+        if mode is ConsoleMode.OPTIMIZATION:
+            optimization = self._load_selected_optimization()
         profile = self.trigger_profile_combo.currentText() or None
         variant = self.trigger_variant_combo.currentText() or None
         from geecs_schemas import AcquisitionMode
@@ -877,7 +1063,33 @@ class MainWindow(QMainWindow):
             trigger_variant=variant if profile else None,
             acquisition=AcquisitionMode(self.acquisition_combo.currentText()),
             description=self.description_edit.text(),
+            optimization=optimization,
         )
+
+    def _load_selected_optimization(self):
+        """Resolve the R3 optimizer-config selection into its loaded spec.
+
+        Returns
+        -------
+        geecs_schemas.OptimizationSpec or None
+            The selected config's spec; ``None`` with nothing selected
+            (:func:`build_scan_request` then refuses with a clear message).
+
+        Raises
+        ------
+        ConsoleFormError
+            When the selected config exists in the combo but cannot be
+            loaded (missing file, bad YAML, schema rejection).
+        """
+        name = self.optimization_combo.currentText()
+        if not name:
+            return None
+        try:
+            return self._configs.optimization_spec(name)
+        except Exception as exc:  # ConsoleConfigsError, or a fake's failure
+            raise ConsoleFormError(
+                f"Cannot load optimizer config {name!r}: {exc}"
+            ) from exc
 
     # ------------------------------------------------------------------
     # R3 handlers
@@ -902,6 +1114,10 @@ class MainWindow(QMainWindow):
             self.step2_spin,
         ):
             widget.setEnabled(axis2)
+        # The optimizer-config row only exists for optimization mode.
+        optimize = mode is ConsoleMode.OPTIMIZATION
+        self.optimization_label.setVisible(optimize)
+        self.optimization_combo.setVisible(optimize)
         self._refresh_shot_count()
 
     def _estimation_form(self) -> ConsoleFormState:
@@ -1173,13 +1389,22 @@ class MainWindow(QMainWindow):
         return self._submitter is not None and self._submitter.is_scanning_active()
 
     def _refresh_submit_enabled(self) -> None:
-        """Recompute Start/Stop enabled state from form + engine."""
+        """Recompute Start/Stop enabled state from form + engine.
+
+        Optimization mode additionally needs a selected optimizer config —
+        that is the only optimize-specific gate; whether the engine accepts
+        an optimize submission is the engine's call, surfaced from
+        :meth:`_on_start_clicked` rather than pre-blocked here.
+        """
         scanning = self._scanning()
         ready = (
             not scanning
             and self._shot_count_valid
             and bool(self.selected_save_sets())
-            and self.current_mode() is not ConsoleMode.OPTIMIZATION
+            and (
+                self.current_mode() is not ConsoleMode.OPTIMIZATION
+                or bool(self.optimization_combo.currentText())
+            )
         )
         self.start_button.setEnabled(ready)
         self.stop_button.setEnabled(scanning)
@@ -1334,8 +1559,10 @@ class MainWindow(QMainWindow):
         Raises
         ------
         ConsoleFormError
-            More than two axes (the form has two axis rows) or an axis with
-            an explicit values list (the form only shows start/stop/step).
+            More than two axes (the form has two axis rows), an axis with
+            an explicit values list (the form only shows start/stop/step),
+            or an optimization spec matching none of the experiment's
+            optimizer configs (the form shows a config *name*, not a spec).
         """
         if len(form.axes) > 2:
             raise ConsoleFormError(
@@ -1347,6 +1574,9 @@ class MainWindow(QMainWindow):
                     f"axis {axis.variable!r} uses an explicit position list, "
                     "which the form cannot show (start/stop/step only)."
                 )
+        optimization_name = ""
+        if form.mode is ConsoleMode.OPTIMIZATION and form.optimization is not None:
+            optimization_name = self._match_optimization_config(form.optimization)
 
         radio = {
             ConsoleMode.NOSCAN: self.radio_noscan,
@@ -1367,6 +1597,8 @@ class MainWindow(QMainWindow):
             stop.setValue(axis.stop)
             step.setValue(axis.step)
 
+        if optimization_name:
+            self.optimization_combo.setCurrentText(optimization_name)
         self.shots_per_step.setValue(form.shots_per_step)
         self.acquisition_combo.setCurrentText(form.acquisition.value)
         self.description_edit.setText(form.description)
@@ -1376,6 +1608,44 @@ class MainWindow(QMainWindow):
         self.trigger_variant_combo.setCurrentText(form.trigger_variant or "")
         self._apply_save_sets(form.save_sets)
         self._refresh_shot_count()
+
+    def _match_optimization_config(self, spec: object) -> str:
+        """Find the listed optimizer config whose loaded spec equals *spec*.
+
+        The form expresses optimization as a config *name* (the R3 combo),
+        so applying a preset that carries an inline spec means finding the
+        experiment's config with identical content — pydantic equality over
+        the loaded documents.  Unloadable configs are skipped.
+
+        Parameters
+        ----------
+        spec : OptimizationSpec
+            The preset's optimization block.
+
+        Returns
+        -------
+        str
+            The matching config name from the combo.
+
+        Raises
+        ------
+        ConsoleFormError
+            When no listed config matches — selecting anything else would
+            silently change what the preset submits.
+        """
+        for index in range(self.optimization_combo.count()):
+            name = self.optimization_combo.itemText(index)
+            try:
+                if self._configs.optimization_spec(name) == spec:
+                    return name
+            except Exception as exc:  # noqa: BLE001 — an unloadable config just can't match
+                logger.info(
+                    "optimizer config %r unloadable while matching: %s", name, exc
+                )
+        raise ConsoleFormError(
+            "its optimization spec matches none of this experiment's "
+            "optimizer configs — the form can only show a named config."
+        )
 
     def _apply_save_sets(self, names: list[str]) -> None:
         """Make the R2 selected list exactly *names* (known ones, in order).
@@ -1530,7 +1800,16 @@ class MainWindow(QMainWindow):
         self.readback_label.setText(format_readback(value))
 
     def _on_device_set_clicked(self) -> None:
-        """Dispatch the blocking backend set to a daemon thread."""
+        """Dispatch the blocking backend set through the set worker.
+
+        The blocking ``backend.set`` runs on a short-lived daemon thread via
+        the :class:`BackgroundResult` set worker, whose ``result_ready``
+        signal delivers the ``(ok, message)`` outcome queued back to
+        :meth:`_apply_device_set_result` — the worker owns the cross-thread
+        emission, never the window (issue #510).  The dispatched callable
+        catches every backend failure and returns it as a result, so the
+        in-flight flag is always re-armed.
+        """
         parsed = parse_device_variable(self.device_combo.currentText())
         text = self.set_field.text().strip()
         if parsed is None:
@@ -1542,44 +1821,30 @@ class MainWindow(QMainWindow):
         device, variable = parsed
         value = parse_set_value(text)
         experiment = self.experiment_combo.currentText()
+        backend = self._device_panel
+
+        def run_set() -> tuple[bool, str]:
+            try:
+                backend.set(experiment, device, variable, value)
+            except Exception as exc:  # noqa: BLE001 — any failure is a status report
+                return (False, f"Set {device}:{variable} failed: {exc}")
+            return (True, f"Set {device}:{variable} = {value}")
+
         self._device_set_in_flight = True
         self._refresh_device_set_enabled()
-        threading.Thread(
-            target=self._run_device_set,
-            args=(experiment, device, variable, value),
-            name="console-device-set",
-            daemon=True,
-        ).start()
+        self._device_set_worker.run_async(run_set, name="console-device-set")
 
-    def _run_device_set(
-        self, experiment: str, device: str, variable: str, value: object
-    ) -> None:
-        """Run the blocking set (on the daemon thread) and emit the outcome."""
-        try:
-            self._device_panel.set(experiment, device, variable, value)
-        except Exception as exc:  # noqa: BLE001 — any failure is a status report
-            ok, message = False, f"Set {device}:{variable} failed: {exc}"
-        else:
-            ok, message = True, f"Set {device}:{variable} = {value}"
-        try:
-            self.device_set_finished.emit(ok, message)
-        except RuntimeError:
-            # The window was closed and C++-deleted while the set ran
-            # (closeEvent never joins this thread) — nothing left to report to.
-            pass
-
-    @Slot(bool, str)
-    def _apply_device_set_result(self, ok: bool, message: str) -> None:
+    @Slot(object)
+    def _apply_device_set_result(self, payload: object) -> None:
         """Report one finished set and re-arm the button (GUI-thread slot).
 
         Parameters
         ----------
-        ok : bool
-            Whether the set completed (unused beyond the message — failures
-            already carry the exception text).
-        message : str
-            The status-bar / log line.
+        payload : tuple
+            ``(ok, message)`` from the set worker; ``ok`` is unused beyond
+            the message — failures already carry the exception text.
         """
+        _ok, message = payload
         self._device_set_in_flight = False
         self.statusBar().showMessage(message, 10_000)
         self.append_log(message)

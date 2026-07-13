@@ -12,14 +12,22 @@ from geecs_console.request_builder import (
     FormAxis,
     build_scan_request,
 )
-from geecs_console.services.configs import ConfigListing, UnionPreview
+from geecs_console.services.configs import (
+    ConfigListing,
+    ConsoleConfigsError,
+    UnionPreview,
+)
 from geecs_console.services.health import HealthReport, HealthStatus
 from geecs_console.services.presets import PresetStoreError
 from geecs_schemas import ScanRequestMode
 
 
 class FakeConfigs:
-    """ConsoleConfigs stand-in: fixed listings, no filesystem."""
+    """ConsoleConfigs stand-in: fixed listings, no filesystem.
+
+    ``optimization_specs`` maps config name -> OptimizationSpec, standing in
+    for the ``optimizer_configs/`` YAML files (the listing shows its keys).
+    """
 
     def __init__(
         self,
@@ -28,12 +36,14 @@ class FakeConfigs:
         scan_variables=(),
         experiment="TestExp",
         experiments=("TestExp",),
+        optimization_specs=None,
     ):
         self.experiment = experiment
         self._experiments = list(experiments)
         self._save_sets = list(save_sets)
         self._trigger_profiles = list(trigger_profiles)
         self._scan_variables = list(scan_variables)
+        self.optimization_specs = dict(optimization_specs or {})
 
     def set_experiment(self, experiment):
         self.experiment = experiment
@@ -44,6 +54,7 @@ class FakeConfigs:
             save_sets=self._save_sets,
             trigger_profiles=self._trigger_profiles,
             scan_variables=self._scan_variables,
+            optimization_configs=sorted(self.optimization_specs),
         )
 
     def union_preview(self, names):
@@ -51,6 +62,11 @@ class FakeConfigs:
 
     def trigger_variants(self, profile_name):
         return ["laser_off"] if profile_name else []
+
+    def optimization_spec(self, name):
+        if name not in self.optimization_specs:
+            raise ConsoleConfigsError(f"Optimizer config {name!r} not found.")
+        return self.optimization_specs[name]
 
 
 class FakeSubmitter:
@@ -268,10 +284,167 @@ class TestModeRadios:
         assert window.variable_combo.isEnabled()
         assert window.variable2_combo.isEnabled()
 
-    def test_optimization_never_submit_ready(self, window):
+    def test_optimization_without_config_not_submit_ready(self, window):
         select_save_set(window, "Amp4In")
         window.radio_optimization.setChecked(True)
         assert not window.start_button.isEnabled()
+
+
+def _optimization_spec(objective="counts"):
+    """A small valid OptimizationSpec for the optimize-mode window tests."""
+    from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
+
+    return OptimizationSpec(
+        variables={"jet_x": (0.0, 1.0)},
+        objectives={objective: "MAXIMIZE"},
+        evaluator=EvaluatorSpec(module="m", class_name="C"),
+        generator=GeneratorSpec(name="random"),
+    )
+
+
+class TestOptimizationMode:
+    """The R3 optimizer-config combo: visibility, gating, submission."""
+
+    @pytest.fixture
+    def opt_window(self, qtbot):
+        configs = FakeConfigs(
+            save_sets=["Amp4In"],
+            scan_variables=["jet_x"],
+            optimization_specs={
+                "bayes_jet": _optimization_spec(),
+                "random_walk": _optimization_spec(objective="charge"),
+            },
+        )
+        win = MainWindow(
+            configs=configs,
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        return win
+
+    def test_combo_hidden_outside_optimization_mode(self, opt_window):
+        opt_window.show()
+        assert not opt_window.optimization_combo.isVisible()
+        opt_window.radio_optimization.setChecked(True)
+        assert opt_window.optimization_combo.isVisible()
+        assert opt_window.optimization_label.isVisible()
+        opt_window.radio_1d.setChecked(True)
+        assert not opt_window.optimization_combo.isVisible()
+
+    def test_combo_populated_from_configs_listing(self, opt_window):
+        items = [
+            opt_window.optimization_combo.itemText(i)
+            for i in range(opt_window.optimization_combo.count())
+        ]
+        assert items == ["bayes_jet", "random_walk"]
+        # Nothing preselected: the operator must pick a config explicitly.
+        assert opt_window.optimization_combo.currentText() == ""
+
+    def test_offline_empty_combo_disables_start(self, window):
+        # The plain fixture lists no optimizer configs (the offline shape).
+        select_save_set(window, "Amp4In")
+        window.radio_optimization.setChecked(True)
+        assert window.optimization_combo.count() == 0
+        assert not window.start_button.isEnabled()
+
+    def test_selecting_config_enables_start(self, opt_window):
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        assert not opt_window.start_button.isEnabled()
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        assert opt_window.start_button.isEnabled()
+
+    def test_start_submits_optimize_request_with_loaded_spec(self, opt_window):
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window._on_start_clicked()
+        submitter = opt_window._submitter
+        assert len(submitter.requests) == 1
+        request = submitter.requests[0]
+        assert request.mode is ScanRequestMode.OPTIMIZE
+        assert request.optimization == _optimization_spec()
+        assert request.save_sets == ["Amp4In"]
+
+    def test_engine_refusal_is_surfaced_not_preblocked(self, opt_window):
+        """The current engine refuses optimize requests — the GUI submits
+        anyway and shows the engine's answer in the status bar."""
+
+        class RefusingSubmitter(FakeSubmitter):
+            def reinitialize(self, request):
+                super().reinitialize(request)
+                return False
+
+        opt_window._submitter = RefusingSubmitter()
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window._on_start_clicked()
+        assert len(opt_window._submitter.requests) == 1  # not pre-blocked
+        assert opt_window._submitter.started == 0
+        assert "refused" in opt_window.log_tail.toPlainText()
+
+    def test_engine_exception_is_surfaced(self, opt_window):
+        class RaisingSubmitter(FakeSubmitter):
+            def reinitialize(self, request):
+                raise RuntimeError("optimize mode not supported by this engine")
+
+        opt_window._submitter = RaisingSubmitter()
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window._on_start_clicked()
+        assert (
+            "Submission failed: optimize mode not supported"
+            in opt_window.log_tail.toPlainText()
+        )
+
+    def test_unloadable_config_reports_and_does_not_submit(self, opt_window):
+        opt_window._configs.optimization_specs["bayes_jet"] = None  # placeholder
+        del opt_window._configs.optimization_specs["bayes_jet"]  # now unloadable
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window._on_start_clicked()
+        assert opt_window._submitter.requests == []
+        assert "Cannot load optimizer config" in opt_window.log_tail.toPlainText()
+
+    def test_optimize_preset_applies_matching_config(self, opt_window):
+        request = build_scan_request(
+            ConsoleFormState(
+                mode=ConsoleMode.OPTIMIZATION,
+                save_sets=["Amp4In"],
+                optimization=_optimization_spec(objective="charge"),
+            )
+        )
+        opt_window._presets.presets["opt"] = request
+        opt_window._refresh_presets()
+        opt_window.preset_combo.setCurrentText("opt")
+        opt_window._on_preset_apply()
+        assert opt_window.radio_optimization.isChecked()
+        assert opt_window.optimization_combo.currentText() == "random_walk"
+        assert "Applied preset" in opt_window.log_tail.toPlainText()
+
+    def test_optimize_preset_without_matching_config_reports(self, opt_window):
+        from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
+
+        stranger = OptimizationSpec(
+            variables={"other": (0.0, 2.0)},
+            objectives={"loss": "MINIMIZE"},
+            evaluator=EvaluatorSpec(module="x", class_name="Y"),
+            generator=GeneratorSpec(name="bayes_default"),
+        )
+        request = build_scan_request(
+            ConsoleFormState(mode=ConsoleMode.OPTIMIZATION, optimization=stranger)
+        )
+        opt_window._presets.presets["opt"] = request
+        opt_window._refresh_presets()
+        opt_window.preset_combo.setCurrentText("opt")
+        opt_window._on_preset_apply()
+        assert not opt_window.radio_optimization.isChecked()  # form untouched
+        assert "matches none" in opt_window.log_tail.toPlainText()
 
 
 class TestShotCount:
@@ -812,10 +985,14 @@ class TestDevicePanel:
     def test_set_finishing_after_window_deletion_is_swallowed(self, qtbot, monkeypatch):
         """A set that outlives the window must not raise on its daemon thread.
 
-        Deterministic form of an intermittent suite flake: the daemon
-        thread's ``device_set_finished.emit`` raised ``RuntimeError: Signal
-        source has been deleted`` (a PytestUnhandledThreadExceptionWarning)
-        whenever the window was C++-deleted before the blocking set returned.
+        Deterministic form of an intermittent suite flake (issue #510): when
+        the window owned the completion signal, the daemon thread's emit
+        raised ``RuntimeError: Signal source has been deleted`` (a
+        PytestUnhandledThreadExceptionWarning) whenever the window was
+        C++-deleted before the blocking set returned.  Completion is now
+        emitted by the window's ``BackgroundResult`` set worker, which
+        survives the window's C++ teardown, so the late emit lands on a live
+        QObject whose connection Qt already dropped.
         """
         import threading
 

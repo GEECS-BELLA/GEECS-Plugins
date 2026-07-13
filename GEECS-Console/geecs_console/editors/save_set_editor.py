@@ -55,6 +55,7 @@ from geecs_console.services.device_completions import (
     GeecsDbCompletions,
 )
 from geecs_console.services.save_set_store import SaveSetStore, SaveSetStoreError
+from geecs_console.services.schema_tooltips import apply_schema_tooltips
 from geecs_schemas import SaveRole, SaveSet, SaveSetEntry
 
 logger = logging.getLogger(__name__)
@@ -242,6 +243,29 @@ class SaveSetEditor(QDialog):
         self.role_combo.addItem(_ROLE_DERIVED_LABEL, None)
         for role in SaveRole:
             self.role_combo.addItem(role.value, role.value)
+
+        # Tooltips come from the schema field descriptions — one source of
+        # truth for what each field means (issue #497 phase 1).
+        apply_schema_tooltips(
+            SaveSet,
+            {
+                "description": self.description_edit,
+                "entries": self.device_list,
+            },
+        )
+        apply_schema_tooltips(
+            SaveSetEntry,
+            {
+                "device": self.device_edit,
+                "images": self.images_check,
+                "db_scalars": self.db_scalars_check,
+                "all_scalars": self.all_scalars_check,
+                "role": self.role_combo,
+                "scalars": [self.scalar_list, self.scalar_edit],
+                "setup": self.setup_edit,
+                "closeout": self.closeout_edit,
+            },
+        )
 
     def _guard_default_buttons(self) -> None:
         """Keep Enter in a line edit from triggering dialog accept.
