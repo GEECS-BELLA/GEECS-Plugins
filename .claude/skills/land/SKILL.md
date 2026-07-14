@@ -48,9 +48,10 @@ commits) and push.
    fix, minor = feature/behavior change), plus a Keep-a-Changelog entry
    under the new version. Docs-only changes to a package still get a
    patch bump by repo convention (see #536/#537 precedent).
-4. **Tests**: run the affected package suites the way CI does (see
-   `/env-doctor` for which env runs what). New behavior gets a pinning
-   test; report exact counts, never "tests pass".
+4. **Tests**: `./scripts/check.sh` runs the affected suites the way CI
+   does (`--all` before opening the PR; see `/check` for tiers and
+   `/env-doctor` for env fixes). New behavior gets a pinning test;
+   report exact counts, never "tests pass".
 5. **Commit** with `./scripts/commit.sh -m "..."` after `git add` (plain
    `git commit` fights the auto-fixing pre-commit hooks). Subject shape:
    `Package X.Y.Z: what changed (#issue)`.

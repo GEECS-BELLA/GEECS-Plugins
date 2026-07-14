@@ -7,7 +7,8 @@ human-facing contract; the same rules (plus deep architectural context)
 live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
-`.claude/skills/` (e.g. `/land`, `/triage`, `/scan-audit`, `/env-doctor`)
+`.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
+`/env-doctor`)
 encode the recurring workflows.
 
 ## Setup
@@ -35,7 +36,11 @@ editing. Active development does **not** target `master`:
 PRs target the branch matching their content. After a vision-v1 merge,
 vision-v1 is merged forward into greenfield. `master` catches up at
 milestone cutovers. (This section will be deleted when the branches
-collapse at M6.)
+collapse at M6 — also prune the branch names from `pick_base()` in
+`scripts/check.sh` then; harmless if forgotten, it skips deleted
+branches and falls back to the default branch. Any other grep hits for
+the branch names — Planning/ notes, CHANGELOGs — are historical record,
+not instruction: leave them.)
 
 ## Every PR that changes a package
 
@@ -45,7 +50,9 @@ collapse at M6.)
    the package's `CHANGELOG.md` under the new version.
 3. One concern per PR. When bundling is unavoidable, give a per-concern
    breakdown in the PR body.
-4. State exact test results ("477 passed"), and for anything touching scan
+4. Run `./scripts/check.sh` (it mirrors the CI env/marker mapping;
+   `--all` before opening the PR). State exact test results
+   ("477 passed"), and for anything touching scan
    execution or devices, fill in the **hardware verification** section of
    the PR template — either live results or an explicit "owed:" note.
    Code-complete and hardware-verified are different states here, and PRs
