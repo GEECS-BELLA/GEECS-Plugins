@@ -2,8 +2,31 @@
 
 Decided 2026-07-10 (maintainer + agent discussion). This note supersedes the
 incremental coexistence sequencing in `Planning/gui_retrofit/00_overview.md`
-§4 steps (ii)–(iv); step (i) (bridge parity, PR #485) is unaffected and
-remains the foundation.
+§4 steps (ii)–(iv) (that doc has since been purged — executed); step (i)
+(bridge parity, PR #485) is unaffected and remains the foundation.
+
+## Status 2026-07-13 (Sam-approved amendment)
+
+Recording what has happened since this doc was written; the plan below is
+kept as the historical record of the decision.
+
+- **The commit/abort checkpoint resolved COMMIT** — implicitly, when the
+  M5 console verification (0.6.0, full 10-item hardware checklist,
+  2026-07-12) blew past condition (c). The abort option is gone; the
+  greenfield direction is the direction.
+- **G1 is done** (#487, 2026-07-10).
+- **G2 as written never happened and is superseded**: the old GUI was not
+  retrofitted to build `ScanRequest`s natively — GEECS-Console *is* the
+  native-ScanRequest GUI, and GEECS-Scanner-GUI stays frozen on its
+  exec_config path (`_build_exec_config`) until it is deleted
+  root-and-stem at M6.
+- **G3 therefore re-times to M6** (delete the bridge's exec_config twin
+  path together with the old GUI), not "once G2 lands."
+- **G-actions is the only live pre-M6 engine step from this doc.**
+- **Branch topology collapsed 2026-07-13** (#549): `feat/vision-v1`
+  retired, the greenfield branch renamed `dev`; `master` = legacy scanner
+  + living analysis line. `CONTRIBUTING.md` § Branch topology is the
+  canonical copy; branch names below are historical.
 
 ## The decision
 
