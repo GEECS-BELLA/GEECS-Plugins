@@ -36,33 +36,44 @@ unreachable — so you can explore the interface anywhere.
 
 ## A tour of the window
 
-The main window is organised into seven regions:
+The main window is organised into seven regions (**R1–R7** below — the
+same region names used throughout the code and its documentation):
 
-- **Session bar (top)** — the experiment selector, rep rate, and trigger
+![The GEECS Console main window with regions R1–R7 highlighted](assets/console_screen_map.png)
+
+- **R1 — Session bar** — the experiment selector, rep rate, and trigger
   profile (which timing configuration drives the shots), plus three
   **health chips**: gateway, Tiled, and database. Green means live; a
   down chip tells you which piece of infrastructure to check before
   blaming a scan.
-- **Save sets** — pick one or more named *save sets* (groups of devices
-  and variables to record). The union line shows how many devices the
-  current selection resolves to. See [Save Sets](save_sets.md).
-- **Scan form** — the scan itself: mode (No-scan / 1D / Grid /
+- **R2 — Save sets** — pick one or more named *save sets* (groups of
+  devices and variables to record). The union line shows how many devices
+  the current selection resolves to. See [Save Sets](save_sets.md).
+- **R3 — Scan form** — the scan itself: mode (No-scan / 1D / Grid /
   Optimization / Background), the scan variable and its start/stop/step,
   shots per step, the acquisition style (`free_run` or `strict` — see
   [Running Scans](running_scans.md)), and a description that ends up in
   the scan's metadata.
-- **Presets** — a preset *is* a saved scan request: the entire form,
+- **R4 — Presets** — a preset *is* a saved scan request: the entire form,
   reloadable in one click, stored as YAML in the experiment's configs
   repository.
-- **Start / Stop** — Start validates everything up front (unknown names
-  and bad configs are refused before any hardware is touched); Stop
+- **R5 — Start / Stop** — Start validates everything up front (unknown
+  names and bad configs are refused before any hardware is touched); Stop
   aborts cleanly, restoring the trigger to its standby state.
-- **Now panel** — live state pill, progress bar, and the "Scan NNN"
+- **R6 — Now panel** — live state pill, progress bar, and the "Scan NNN"
   label with a compact log tail. Optional per-shot beeps live under
   Preferences.
-- **Device panel** — a one-off device readback/set control: pick any
+- **R7 — Device panel** — a one-off device readback/set control: pick any
   `Device:Variable`, watch it live, set it. Useful for small manual
   adjustments without leaving the console.
+
+!!! note
+    The screenshot is generated headlessly from the real application
+    (`GEECS-Console/scripts/generate_screen_map.py` draws the region
+    highlights from the live widget geometry) — re-run it whenever the
+    window changes and the figure stays accurate. For what each *control*
+    does, hover it in the app: operator tooltips are built in
+    (Preferences → Show tooltips).
 
 The menu bar carries **Ops** (open config folders, today's scan folder,
 GitHub), **Editors** (the four config editors: save sets, scan variables,
