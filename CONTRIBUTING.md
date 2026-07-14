@@ -38,7 +38,9 @@ vision-v1 is merged forward into greenfield. `master` catches up at
 milestone cutovers. (This section will be deleted when the branches
 collapse at M6 — also prune the branch names from `pick_base()` in
 `scripts/check.sh` then; harmless if forgotten, it skips deleted
-branches and falls back to the default branch.)
+branches and falls back to the default branch. Any other grep hits for
+the branch names — Planning/ notes, CHANGELOGs — are historical record,
+not instruction: leave them.)
 
 ## Every PR that changes a package
 
