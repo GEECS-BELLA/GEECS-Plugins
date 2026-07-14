@@ -49,6 +49,18 @@ forgotten, it skips deleted branches and falls back to the default
 branch. Grep hits for the *old* branch names — Planning/ notes,
 CHANGELOGs — are historical record, not instruction: leave them.)
 
+## Planning/ is development scratch, not documentation
+
+`Planning/` holds design notes *while the work they describe is live* —
+open questions, deferred items, strategy that code and CLAUDE.md files
+don't yet record. When a plan is executed (or abandoned), delete its
+directory in the PR that finishes the work; anything still load-bearing
+moves to the owning package's `CLAUDE.md` or the docs site first. The
+whole folder is purged before `dev` merges to `master` at M6 — a
+planning doc that reaches `master` is a bug. (Audited 2026-07-13: five
+executed/superseded plans deleted; the survivors each hold live
+deferred-work or strategy content.)
+
 ## Every PR that changes a package
 
 1. `poetry version patch|minor` inside the package (patch = bug fix,
