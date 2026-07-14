@@ -8,9 +8,8 @@
 - [ ] `poetry version patch|minor` run for every package whose code changed
 - [ ] `CHANGELOG.md` entry added under the new version (Keep a Changelog)
 - [ ] Tests: exact counts reported below (not "tests pass")
-- [ ] Base branch matches the content (`feat/vision-v1` = engine/backend;
-      `feat/greenfield-epics-bluesky-gui` = console/GUI/docs — see
-      CONTRIBUTING.md; delete this line at M6)
+- [ ] Base branch matches the content — see CONTRIBUTING.md
+      § "Branch topology" (delete this line at M6)
 - [ ] Public-repo hygiene: no lab accounts/hostnames/home paths
 
 ## Tests

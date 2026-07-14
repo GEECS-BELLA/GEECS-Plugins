@@ -1,3 +1,14 @@
+---
+name: scan-audit
+description: >
+  Scan timing & cadence audit for the Bluesky path. Use for "why was the
+  scan slow", "did every shot land", "shots are skipping / landing on every
+  other trigger", start-latency questions, or any per-shot acq_timestamp
+  cadence analysis of a scan folder. Reads scan.log, the s-file, ScanInfo
+  ini, and optionally Tiled + the console log; needs no hardware. For error
+  triage ("what went wrong / what errored") use /triage instead.
+---
+
 # /scan-audit — scan timing & cadence audit (Bluesky path)
 
 `/triage` answers "what errored"; this answers "**why was the scan slow /

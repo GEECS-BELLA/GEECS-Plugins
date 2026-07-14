@@ -7,7 +7,7 @@ human-facing contract; the same rules (plus deep architectural context)
 live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
-`.claude/commands/` (e.g. `/land`, `/triage`, `/scan-audit`, `/env-doctor`)
+`.claude/skills/` (e.g. `/land`, `/triage`, `/scan-audit`, `/env-doctor`)
 encode the recurring workflows.
 
 ## Setup
@@ -22,7 +22,10 @@ encode the recurring workflows.
 
 ## Branch topology (until the M6 cutover)
 
-Active development does **not** target `master`:
+This section is the **single canonical copy** of the branch layout — the
+PR template and the `/land` skill point here rather than repeating it, so
+at M6 only this section (and the pointers' one-line reminders) needs
+editing. Active development does **not** target `master`:
 
 - `feat/vision-v1` — the engine line: GeecsBluesky, GeecsCAGateway,
   GEECS-Schemas, GEECS-Data-Utils, Planning docs, repo tooling.
@@ -74,9 +77,12 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 ## Tests
 
 CI (`.github/workflows/unit-tests.yml`) runs: root `tests/`, ImageAnalysis,
-ScanAnalysis, GEECS-Data-Utils, GEECS-Schemas from the **root env**;
-GeecsBluesky, GeecsCAGateway, GEECS-Console (Ubuntu + Windows) from their
-**own envs**. Everything is hermetic — no lab network, no hardware.
+ScanAnalysis, GEECS-Data-Utils, GEECS-Schemas from the **root env** and
+GeecsBluesky from its **own env** (Ubuntu); on the greenfield branch a
+second job runs the GEECS-Console suite from its own env on **Windows**
+(control-room machines run Windows). The GeecsCAGateway and
+GEECS-LogTriage suites are not in CI — run them locally when touching
+those packages. Everything is hermetic — no lab network, no hardware.
 `integration`-marked tests need the lab and are deselected by default;
 never run the top-level hardware scripts without lab access and operator
 coordination.

@@ -1,3 +1,16 @@
+---
+name: env-doctor
+description: >
+  Diagnose and fix a package's Poetry environment in this monorepo. Use
+  whenever poetry, pytest, or an import fails for setup-shaped reasons —
+  symptoms include "Current Python version (3.10.x) is not allowed", a test
+  layer collecting as "1 skipped" (missing ca/tiled extras), "Command not
+  found: pytest" inside a package dir, ModuleNotFoundError for an intra-repo
+  package, pre-commit aborting a commit with "files were modified by this
+  hook", or a fresh worktree failing imports. Also consult before running any
+  package's test suite to pick the right env (root vs package).
+---
+
 # /env-doctor — diagnose and fix a package's Poetry environment
 
 Every package in this monorepo is an independent Poetry project, and the
@@ -38,7 +51,7 @@ diagnose the package the current task is about.
    Symptom of missing `ca`: the whole GeecsBluesky mock-device test layer
    collects as "1 skipped" (`pytest.importorskip("aioca")`).
 
-3. **Which env runs which tests** (match CI, `.github/workflows/unit-tests.yml`):
+3. **Which env runs which tests** (mirrors CI, `.github/workflows/unit-tests.yml`):
    - **Root env** (`poetry install` at repo root): root `tests/`,
      `ImageAnalysis`, `ScanAnalysis`, `GEECS-Data-Utils`, `GEECS-Schemas`
      — e.g. `poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" -q`
@@ -46,6 +59,10 @@ diagnose the package the current task is about.
      `pytest` inside them fails with "Command not found".
    - **Package env**: `GeecsBluesky`, `GeecsCAGateway`, `GEECS-Console`,
      `GEECS-LogTriage` run their own suites from inside the package dir.
+     (CI currently covers GeecsBluesky on Ubuntu and — on the greenfield
+     branch — GEECS-Console on Windows; the GeecsCAGateway and
+     GEECS-LogTriage suites are local-only, so run them yourself when
+     touching those packages.)
    - `GEECS-Console` additionally needs `QT_QPA_PLATFORM=offscreen`.
 
 4. **Worktrees have their own envs.** A fresh worktree needs its own

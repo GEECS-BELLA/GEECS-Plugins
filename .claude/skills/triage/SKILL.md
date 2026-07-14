@@ -1,3 +1,14 @@
+---
+name: triage
+description: >
+  GEECS scan log triage: generate a structured error report from scan logs,
+  then analyze bug candidates against the codebase and draft GitHub issues.
+  Use for "what went wrong with the scans", "triage today's scans", or any
+  error/warning analysis of a day, date range, or scan folder. Needs the
+  data share mounted. For timing/cadence questions ("why was the scan
+  slow", "did every shot land") use /scan-audit instead.
+---
+
 # /triage — GEECS scan log triage
 
 Stage 1: generate a structured triage report from scan logs.
