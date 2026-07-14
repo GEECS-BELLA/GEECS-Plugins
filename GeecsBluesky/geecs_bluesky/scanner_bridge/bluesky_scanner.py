@@ -591,6 +591,49 @@ class BlueskyScanner:
         return min(self._completed_shots / self._total_shots, 1.0)
 
     # ------------------------------------------------------------------
+    # On-demand actions (G-actions v1) — the GUI contract
+    # ------------------------------------------------------------------
+    # These two signatures are mirrored by the console's Submitter protocol;
+    # do not change them without flagging it loudly.
+
+    def _action_resolver(self) -> ConfigResolver:
+        """The resolver on-demand actions resolve against.
+
+        The stored ScanRequest resolver when one is active (so converter
+        state, e.g. extracted element plans, is shared), else a fresh
+        configs-repo resolver over this scanner's experiment.
+        """
+        return self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+
+    def run_action(self, name: str) -> None:
+        """Execute the named ActionPlan on demand — refused while scanning.
+
+        Thin delegation to :meth:`GeecsSession.run_action` with this
+        bridge's resolver.  V1 during-scan behavior is refusal (the
+        pause/decide/resume flow is issue #552).
+
+        Raises
+        ------
+        RuntimeError
+            While a scan is active: ``"scan in progress — action not
+            started"`` (the GUI surfaces this message verbatim).
+        """
+        if self.is_scanning_active():
+            raise RuntimeError("scan in progress — action not started")
+        self._session.run_action(name, self._action_resolver())
+
+    def describe_action(self, name: str) -> list[dict]:
+        """Dry-run the named ActionPlan (no CA, no execution) — see the session.
+
+        Thin delegation to :meth:`GeecsSession.describe_action` with this
+        bridge's resolver; refused while scanning with the same exact
+        message as :meth:`run_action` (one uniform GUI contract).
+        """
+        if self.is_scanning_active():
+            raise RuntimeError("scan in progress — action not started")
+        return self._session.describe_action(name, self._action_resolver())
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 

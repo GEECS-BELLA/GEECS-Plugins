@@ -49,6 +49,7 @@ from geecs_bluesky.exceptions import (
 __all__ = [
     "SettableFactory",
     "compile_action_plan",
+    "flatten_action_steps",
     "values_match",
 ]
 
@@ -100,6 +101,60 @@ def values_match(expected: object, actual: object) -> bool:
         except ValueError:
             pass
     return bool(actual == expected)
+
+
+def flatten_action_steps(
+    plan: ActionPlan,
+    *,
+    registry: Mapping[str, ActionPlan],
+) -> list[tuple[SetStep | WaitStep | CheckStep, str | None]]:
+    """Flatten *plan* into its concrete steps, resolving nested ``run`` steps.
+
+    The dry-run / validation counterpart of :func:`compile_action_plan`: it
+    walks the exact same step order the compiler executes — nested plans
+    inlined where their ``run`` step sits — but touches no signals and needs
+    no factory, so it is safe to call with zero hardware.  Every nested
+    ``run`` reference is resolved eagerly, making this the one fail-fast
+    walk for unknown nested names and cycles.
+
+    Parameters
+    ----------
+    plan : ActionPlan
+        The validated plan to flatten.
+    registry : Mapping[str, ActionPlan]
+        Named plans that ``run`` steps may reference.
+
+    Returns
+    -------
+    list of (step, from_plan)
+        Concrete steps (``set`` / ``wait`` / ``check``) in execution order.
+        ``from_plan`` is the name of the nested plan a step was inlined
+        from (the innermost enclosing ``run`` target), or ``None`` for
+        *plan*'s own steps.
+
+    Raises
+    ------
+    ActionPlanNotFoundError
+        When a ``run`` step names a plan missing from *registry*.
+    ActionPlanCycleError
+        When nested ``run`` steps form a loop.
+    """
+    flattened: list[tuple[SetStep | WaitStep | CheckStep, str | None]] = []
+
+    def _walk(current: ActionPlan, origin: str | None, stack: tuple[str, ...]) -> None:
+        for step in current.steps:
+            if isinstance(step, RunPlanStep):
+                if step.plan in stack:
+                    raise ActionPlanCycleError([*stack, step.plan])
+                nested = registry.get(step.plan)
+                if nested is None:
+                    raise ActionPlanNotFoundError(step.plan, list(registry))
+                _walk(nested, step.plan, (*stack, step.plan))
+            else:
+                flattened.append((step, origin))
+
+    _walk(plan, None, ())
+    return flattened
 
 
 def compile_action_plan(

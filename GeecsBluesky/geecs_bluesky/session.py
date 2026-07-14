@@ -932,6 +932,163 @@ class GeecsSession:
         )
 
     # ------------------------------------------------------------------
+    # On-demand actions (G-actions v1)
+    # ------------------------------------------------------------------
+
+    def _resolve_action(
+        self,
+        name: str,
+        resolver: Any | None,  # config_resolver.ConfigResolver
+    ) -> tuple[Any, Any]:
+        """Resolve *name* to ``(plan, registry)`` through *resolver*.
+
+        Defaults to the configs-repo resolver over this session's
+        experiment (matching :meth:`run`).  Raises
+        :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` for an
+        unknown top-level name; nested ``run`` references are validated by
+        the callers' flatten walk.
+        """
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            build_action_registry,
+        )
+
+        if resolver is None:
+            resolver = ConfigsRepoResolver(self.experiment)
+        plan = resolver.resolve_action_plan(name)
+        return plan, build_action_registry(resolver)
+
+    def run_action(
+        self,
+        name: str,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+    ) -> None:
+        """Execute the named ActionPlan on demand, outside any scan.
+
+        The engine half of G-actions v1: resolve *name* from the action
+        library (fail-fast for unknown names, including nested ``run``
+        references), compile it against this session's
+        :class:`~geecs_bluesky.devices.ca.action_signals.CaActionSignalFactory`,
+        prefetch/connect every signal **pre-run** (a lazy connect inside
+        the RunEngine loop would deadlock), and execute the compiled steps
+        as a plan on this session's RunEngine — inheriting the RE's abort
+        machinery and the legacy ActionManager step semantics pinned in
+        :mod:`~geecs_bluesky.plans.action_compiler`.
+
+        During-scan behavior for v1 is refusal; the richer
+        pause/decide/resume flow is issue #552 (the compiled-steps
+        execution stays factored — steps flatten/compile independently of
+        dispatch — so #552 can reuse it).
+
+        Parameters
+        ----------
+        name : str
+            Action-plan name in the experiment's action library.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver,
+            as in :meth:`run`).
+
+        Raises
+        ------
+        RuntimeError
+            When the RunEngine is not idle:
+            ``"scan in progress — action not started"`` (the GUI surfaces
+            this message verbatim).
+        GeecsConfigurationError
+            Unknown plan name, or an unreachable action target.
+        ActionPlanNotFoundError, ActionPlanCycleError, ActionCheckFailedError
+            Bad nested reference / cycle / failed ``check`` step.
+        """
+        from geecs_bluesky.plans.action_compiler import (
+            compile_action_plan,
+            flatten_action_steps,
+        )
+        from geecs_schemas.action_plan import CheckStep, SetStep
+
+        if self.RE.state != "idle":
+            raise RuntimeError("scan in progress — action not started")
+        plan, registry = self._resolve_action(name, resolver)
+        # Fail-fast: unknown nested names / cycles surface here, before any
+        # signal is created or connected.
+        steps = flatten_action_steps(plan, registry=registry)
+        factory = self.action_signal_factory()
+        try:
+            for step, _origin in steps:
+                if not isinstance(step, (SetStep, CheckStep)):
+                    continue
+                try:
+                    if isinstance(step, SetStep):
+                        factory.get_settable(step.device, step.variable)
+                    else:
+                        factory.get_readable(step.device, step.variable)
+                except Exception as exc:
+                    raise GeecsConfigurationError(
+                        f"action {name!r}: cannot reach "
+                        f"{step.device}:{step.variable} — {exc}"
+                    ) from exc
+            logger.info("Running action %r (%d steps)", name, len(steps))
+            self.RE(compile_action_plan(plan, registry=registry, settables=factory))
+            logger.info("Action %r completed", name)
+        finally:
+            self.disconnect(factory)
+
+    def describe_action(
+        self,
+        name: str,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+    ) -> list[dict]:
+        """Dry-run the named ActionPlan: resolve + inspect, no CA, no execution.
+
+        Pure by contract — no signal is created, connected, or read; only
+        the configs repo is touched.  Nested ``run`` steps are resolved and
+        flattened in execution order (fail-fast for unknown names and
+        cycles, exactly like :meth:`run_action`).
+
+        Parameters
+        ----------
+        name : str
+            Action-plan name in the experiment's action library.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver).
+
+        Returns
+        -------
+        list of dict
+            One dict per concrete step, in execution order, with keys
+            ``kind`` (``"set"`` / ``"wait"`` / ``"check"``), ``device``,
+            ``variable``, ``value`` (the written value for ``set``, the
+            expected value for ``check``), ``wait_s``, and ``from_plan``
+            (the nested plan a step was flattened from; ``None`` for the
+            named plan's own steps).  Keys that do not apply are ``None``.
+        """
+        from geecs_bluesky.plans.action_compiler import flatten_action_steps
+        from geecs_schemas.action_plan import CheckStep, SetStep, WaitStep
+
+        plan, registry = self._resolve_action(name, resolver)
+        summaries: list[dict] = []
+        for step, origin in flatten_action_steps(plan, registry=registry):
+            entry: dict = {
+                "kind": step.do,
+                "device": None,
+                "variable": None,
+                "value": None,
+                "wait_s": None,
+                "from_plan": origin,
+            }
+            if isinstance(step, SetStep):
+                entry.update(
+                    device=step.device, variable=step.variable, value=step.value
+                )
+            elif isinstance(step, CheckStep):
+                entry.update(
+                    device=step.device, variable=step.variable, value=step.expected
+                )
+            elif isinstance(step, WaitStep):
+                entry["wait_s"] = step.seconds
+            summaries.append(entry)
+        return summaries
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
