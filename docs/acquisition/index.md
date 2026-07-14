@@ -1,27 +1,37 @@
 # Acquisition
 
-Running scans on the beamline — configuring what gets saved, driving the
-scan, and capturing per-shot data and images into a structured scan folder.
+Running scans on the beamline — choosing what gets recorded, driving the
+scan, and capturing per-shot data and images into both the classic GEECS
+scan folder and a structured Tiled run.
 
 <div class="grid cards" markdown>
 
--   :material-camera-iris:{ .lg .middle } **Scanner GUI**
+-   :material-camera-iris:{ .lg .middle } **GEECS Console**
 
     ---
 
-    The PyQt5 data-acquisition application: connect to GEECS devices,
-    manage save elements, run single scans or multi-scan batches, and
-    drive Xopt-based optimization. The engine underneath is also usable
-    as a headless library from your own scripts.
+    The operator application: compose save sets, run scans and
+    Xopt-driven optimizations through the Bluesky-backed engine, monitor
+    live, and set devices. The same scan requests it submits can be run
+    headlessly from your own scripts.
 
-    [:octicons-arrow-right-24: Overview](../geecs_scanner/overview.md) ·
-    [Your first scan](../geecs_scanner/tutorial.md) ·
-    [Installation](../geecs_scanner/installation.md)
+    [:octicons-arrow-right-24: Overview](../geecs_console/overview.md) ·
+    [Running scans](../geecs_console/running_scans.md) ·
+    [Save sets](../geecs_console/save_sets.md)
+
+-   :material-magnify:{ .lg .middle } **Scan Browser**
+
+    ---
+
+    The quick-look client for recorded scans: day → scan →
+    plot / table / telemetry-drift, straight from the Tiled catalog.
+    Standalone — analysts never need the console.
+
+    [:octicons-arrow-right-24: Scan Browser](../geecs_console/scan_browser.md) ·
+    [Understanding the data](../geecs_console/scan_data.md)
 
 </div>
 
-New to acquisition? The cross-package
-[Acquisition tutorial](../tutorials/acquisition.md) is the guided entry
-point; the Scanner GUI's own
-[Your First Scan](../geecs_scanner/tutorial.md) walkthrough goes deeper on
-the application itself.
+Wondering where your data went or what a column means? Start at
+[Scan Data](../geecs_console/scan_data.md). Something misbehaving? Start
+at [Troubleshooting](../geecs_console/troubleshooting.md).

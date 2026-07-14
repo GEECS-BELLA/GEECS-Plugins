@@ -179,7 +179,7 @@ docs/
 ├── docstring_templates.md      # Templates and examples
 ├── development_guidelines.md   # This file
 ├── installation.md            # General installation
-├── geecs_scanner/             # Scanner GUI docs
+├── geecs_console/             # GEECS Console docs
 ├── image_analysis/            # Image analysis docs
 ├── scan_analysis/             # Scan analysis docs
 └── geecs_python_api/          # Python API docs

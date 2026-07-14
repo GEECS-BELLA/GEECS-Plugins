@@ -200,4 +200,4 @@ For anything that you'll run repeatedly or that needs to be reproducible, prefer
 
 - **[Image Analysis](../image_analysis/overview.md)** — once you have raw images, this is how you process them.
 - **[Data Utils — Basic Usage](../geecs_data_utils/examples/basic_usage.ipynb)** — for loading data that's already on disk.
-- **[Scanner Architecture](../geecs_scanner/architecture.md)** — to understand how `DeviceCommandExecutor` and the engine use these primitives at scale.
+- **GeecsBluesky/CLAUDE.md** (in the repo) — to understand how the Bluesky engine uses device primitives at scale.

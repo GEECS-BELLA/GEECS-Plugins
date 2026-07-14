@@ -34,7 +34,7 @@ that one-tab-per-package sprawl is exactly what the purpose grouping replaced.
 
 The Tutorials tab is the cross-package, user-facing entry point — it holds
 the end-to-end walkthroughs (currently Analysis; Acquisition is stubbed
-and eventually replaces the existing `geecs_scanner/tutorial.md`). Skills
+— see `tutorials/acquisition.md`). Skills
 sits last because it's experimental tooling rather than core suite.
 
 ## When to put what where
