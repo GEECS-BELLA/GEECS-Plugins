@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.3] — 2026-07-13
+
+### Fixed
+
+- `scan_log_loader.HEADER_RE` now parses **Bluesky** scan.log lines: the
+  Bluesky stack writes a `scan=ScanNNN` context token where the legacy
+  engine wrote `shot=<n>`, so every line of a Bluesky scan.log failed the
+  header regex and log triage reported zero entries on perfectly good logs
+  (observed live 2026-07-13, Undulator Scans 1–3).  Both tokens are now
+  accepted; the capture keeps its historical `shot` name so downstream
+  consumers (GEECS-LogTriage) are unaffected.
+
 ## [0.13.2] — 2026-07-13
 
 ### Changed
