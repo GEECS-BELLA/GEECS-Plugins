@@ -4,6 +4,40 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.10.0] - 2026-07-14
+
+### Added
+
+- **Actions menu (G-actions v1, console half)**: the menu now lists the
+  current experiment's action-plan names (from the same
+  `action_library/actions.yaml` the Action Library editor edits), refreshed
+  on experiment change via a `BackgroundResult` worker; empty/offline shows
+  a disabled "(no actions)" entry.  Clicking a plan opens an
+  `ActionRunDialog` (`app/action_dialog.py`): a dry-run steps table from the
+  engine's `describe_action` (kind / device / variable / value / wait /
+  from-plan per row, execution order) plus Run/Close.  Run dispatches the
+  blocking `run_action` on a daemon worker — in flight the button disables
+  and the status bar shows "running action '<name>'…"; success reports
+  "action '<name>' done"; a failure or refusal (e.g. the engine's
+  "scan in progress — action not started") shows in the status bar AND
+  inline in the dialog.  Preview and run outcomes render on separate lines
+  so a slow preview can never clobber a refusal (pinned by test).
+- **Execute gating**: a checkable "Enable action execution" item tops the
+  menu — the accidental-click guard.  Default OFF at every launch and
+  deliberately NOT persisted (a fresh session never starts armed); while
+  unchecked every action dialog is preview-only.
+- `Submitter` protocol extended with the engine contract's
+  `run_action(name) -> None` (blocking; raises operator-readable messages)
+  and `describe_action(name) -> list[dict]` (dry-run step dicts) — mapped
+  by `make_bluesky_submitter` to the scanner's same-named methods.
+
+### Changed
+
+- `BackgroundResult` extracted from `app/main_window.py` to
+  `services/background.py` (the shared home recorded on issue #510) so the
+  action dialog can own its workers; the browser's `BrowserWorker` twin
+  still awaits its mechanical swap.
+
 ## [0.9.2] - 2026-07-13
 
 ### Changed

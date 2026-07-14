@@ -224,15 +224,43 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   (10 s expiry timer running) is never clobbered.  `tests/conftest.py`
   patches the module-level default lookup (and the completions factory) so
   hermetic tests never touch the real data root or DB.
-- **`BackgroundResult`** (`app/main_window.py`): the one blessed
-  daemon-thread → queued-signal worker for one-shot background calls (the
-  `HealthPoller` shape, generalized).  **The daemon thread must emit on
-  the worker QObject, never on the window**: emitting a window-owned
-  signal from a daemon thread races window teardown and segfaults under
-  offscreen pytest (observed directly when the idle scan probe emitted a
-  `MainWindow` signal; the R7 device-set completion was the last such
-  emission and moved to a `BackgroundResult` worker in 0.7.0 — issue
-  #510).  `closeEvent` disconnects each worker's `result_ready`.
+- **`BackgroundResult`** (`services/background.py`, extracted from
+  `app/main_window.py` in 0.10.0 — the shared home recorded on issue
+  #510): the one blessed daemon-thread → queued-signal worker for one-shot
+  background calls (the `HealthPoller` shape, generalized).  **The daemon
+  thread must emit on the worker QObject, never on the window**: emitting
+  a window-owned signal from a daemon thread races window teardown and
+  segfaults under offscreen pytest (observed directly when the idle scan
+  probe emitted a `MainWindow` signal; the R7 device-set completion was
+  the last such emission and moved to a `BackgroundResult` worker in
+  0.7.0 — issue #510).  `closeEvent` disconnects each worker's
+  `result_ready`.
+- **Actions menu (G-actions v1)**: lists the current experiment's
+  action-plan names — fetched from `ActionLibraryStore.list_names()` (the
+  same `action_library/actions.yaml` the Action Library editor edits;
+  constructor-injectable `action_store` seam) on a `BackgroundResult`
+  worker, refreshed on experiment change, stale results dropped by
+  experiment tag; empty/offline renders one disabled "(no actions)"
+  entry.  On top sits **"Enable action execution"** — the accidental-click
+  guard: checkable, **default OFF at every launch and deliberately NOT
+  persisted** (a fresh session must never start armed; do not "fix" this
+  by adding it to `ConsoleSettings`).  Clicking a plan opens the
+  non-modal `ActionRunDialog` (`app/action_dialog.py`, kept in
+  `self._open_action_dialogs` — the GC hazard): a dry-run steps table
+  from the engine's `describe_action(name) -> list[dict]` (keys `kind` /
+  `device` / `variable` / `value` / `wait_s` / `from_plan`, execution
+  order) plus Run/Close.  Run is enabled only while armed and dispatches
+  the blocking `run_action(name)` on a dialog-owned worker — in flight
+  the button disables and the status bar shows "running action
+  '<name>'…"; success reports "action '<name>' done"; failures/refusals
+  (the engine raises exactly `RuntimeError("scan in progress — action
+  not started")` during a scan) land in the status bar AND inline.  The
+  preview and run outcomes render on **separate labels** — a slow
+  describe arriving late must never clobber a refusal (pinned by test).
+  Both engine methods are `Submitter` protocol members
+  (`submission.py`), mapped to `BlueskyScanner`'s same-named methods.
+  A pause-the-scan flow for actions (#552) is future work.  Pinned by
+  `tests/test_actions_menu.py`.
 - **Optimization (R3) — end to end**: the Optimization radio shows a
   config combo listing the YAML stems of the experiment's
   `optimizer_configs/` folder (legacy scanner-GUI folder name; part of
@@ -355,11 +383,11 @@ than copying):
 Deliberate temporary twins of `app/main_window.py` internals (kept because
 the browser must not import that file — another stream owns it):
 
-- `browser/_background.py::BrowserWorker` ↔ `BackgroundResult`.  **Replace
-  with the shared `services/background.py` once that extraction lands**
-  (the plan recorded on issue #510; #510's own fix landed without it) —
-  the API is kept tiny (one class, one signal, one method) so the swap is
-  mechanical.
+- `browser/_background.py::BrowserWorker` ↔ `BackgroundResult`.  The
+  shared `services/background.py` **exists now** (extracted in 0.10.0 for
+  the Actions menu, per the plan recorded on issue #510); the swap onto it
+  is mechanical (one class, one signal, one method) and simply hasn't been
+  done — take it when next touching the browser.
 - `__main__._load_console_stylesheet` ↔ `load_stylesheet`.
 
 ## Stubbed seams (intentional, wire later)
