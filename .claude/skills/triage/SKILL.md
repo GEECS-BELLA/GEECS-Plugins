@@ -1,7 +1,27 @@
+---
+name: triage
+description: >
+  GEECS scan log triage: generate a structured error report from scan logs,
+  then analyze bug candidates against the codebase and draft GitHub issues.
+  Use for "what went wrong with the scans", "triage today's scans", or any
+  error/warning analysis of a day, date range, or scan folder. Needs the
+  data share mounted. For timing/cadence questions ("why was the scan
+  slow", "did every shot land") use /scan-audit instead.
+---
+
 # /triage — GEECS scan log triage
 
 Stage 1: generate a structured triage report from scan logs.
 Stage 2: analyze bug candidates against the codebase and draft GitHub issues.
+
+Covers **both** scan.log formats: the legacy engine's `shot=` token and the
+Bluesky stack's `scan=ScanNNN` (requires geecs-data-utils ≥ 0.13.3 — older
+parsers silently report **zero entries** on Bluesky logs while still
+counting the scans as examined; treat `scans_examined > 0` with
+`total_log_entries == 0` as a parser/version problem, not a clean day).
+Needs the data share mounted — this reads scan folders.  For *timing*
+questions ("why was the scan slow / did every shot land") use
+`/scan-audit` instead; triage is about errors.
 
 ## Arguments
 
@@ -14,7 +34,9 @@ Stage 2: analyze bug candidates against the codebase and draft GitHub issues.
 --scan-folder /path/to/Scan037
 ```
 
-If `$ARGUMENTS` is empty, print usage and stop.
+If `$ARGUMENTS` is empty, print usage and stop.  If `$ARGUMENTS` is prose
+(a date, an experiment, "today's scans"), translate it into one of the
+valid forms above before invoking the CLI.
 
 ---
 
