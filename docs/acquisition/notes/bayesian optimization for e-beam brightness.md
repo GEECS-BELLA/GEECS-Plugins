@@ -16,7 +16,7 @@ The optimizer does move things around and generally identifies the 'good beams'.
 
 Plots of **best so far** vs. iteration showed **no advantage over random**, indicating the surrogate wasn’t extracting useful structure from the initial data/representation. This is a little confusing given that the objective function does score the results appropriately. In other words, the values of the objective function compared to the raw data pass the 'eye test'.
 
-![Best-so-far comparison between optimizer and random](../../assets/best_vs_random.png){ style="display: block; margin: auto;" width=600px }
+![Best-so-far comparison between optimizer and random](assets/best_vs_random.png){ style="display: block; margin: auto;" width=600px }
 
 The performance of the optimizer compared to random sampling can be quantified with the P value, which was <0.7 for both scans, which indicates it is not better than random.
 
@@ -26,7 +26,7 @@ The performance of the optimizer compared to random sampling can be quantified w
 
 Starting by examining the posterior mean and standard deviation (example of Scan4). This is a 3D scan and for visualization, we picked the optimal value for one of the parameters.
 
-![Scan4 posterior mean and sd](../../assets/Scan4_posterior_and_sd.png)
+![Scan4 posterior mean and sd](assets/Scan4_posterior_and_sd.png)
 
 We see the optimizer appears to find a 'basin' region in the posterior mean were the objective function can be minimized. Though, it is fairly broad. We might expect the optimizer to continue to converge in that area (and we do see some clustering of sample points). However, the noise on the posterior mean (on the right) is quite large, almost on the order of the posterior mean itself. The default ExpectedImprovement generator is often going to explore areas of large relative uncertainty, which can be near the edges of the parameter space. So, under the circumstances of this optimization run, the optimizer is likely acting in the expected way. It keeps exploring areas of high uncertainty which keep returning bad beams.
 
@@ -41,7 +41,7 @@ In the **left plot** we include all points — even ones where the beam wasn't p
 In the **right plot** we have now enforced a constraint in the model to exclude the 'no beam' values. The data now only includes points from shots where the beam was present. The KDE becomes much more structured: it shows a clear peak, indicating a common range of good values. This makes the underlying distribution of meaningful objective values much clearer. The red dashed line shows a possible constraint threshold — now easier to define in the context of valid data.
 
 
-![Scan4 KDE with and without constraint](../../assets/kde with and without constraint.png)
+![Scan4 KDE with and without constraint](assets/kde with and without constraint.png)
 
 **Summary:** The KDE tells us where our data tends to cluster — it’s like a smoothed version of the histogram. When we include lots of "junk" data from failed shots (like no beam), the KDE gets flattened and loses meaning. By removing those points, we see a much clearer picture of how the system performs when it’s actually working — which helps modeling and optimization.
 
@@ -51,7 +51,7 @@ In the **right plot** we have now enforced a constraint in the model to exclude 
 
 We can re-evaluate the posterior distributions after introducing a constraint (easy to implement in Xopt/Geecs-scanner). In this case, there are two models: i) one that represents the underlying shape of the objective function and ii) one that represents the underlying 'feasibility' of obtaining useful data. In this case, we want to maximize 'feasibiliy' and minimize the objective function. A few immediate takeaways. The shape of the posterior is substantially different than the case without the constraints (above). In addition, the range of uncertainty (the posterior SD) is reduced by almost a factor of 3. So, we've already introduced more confidence in the shape of our model. That is, we allow the model to optimized based only on the 'good data' which helps it build a better representation. The 'feasibility' model is used in conjuction to push the optimizer to regions of the parameter space where we expect to get some level of good beam.
 
-![Scan4 KDE with and without constraint](../../assets/posteriors after constraint.png)
+![Scan4 KDE with and without constraint](assets/posteriors after constraint.png)
 
 ---
 

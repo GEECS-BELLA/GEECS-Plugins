@@ -49,29 +49,17 @@ nav:
   # the group that matches its audience.
   - Acquisition:
       - acquisition/index.md
-      - Scanner GUI:
-          - Overview: geecs_scanner/overview.md
-          - Installation & Setup: geecs_scanner/installation.md
-          - Tutorial — Your First Scan: geecs_scanner/tutorial.md
-          - Save Elements: geecs_scanner/save_elements.md
-          - Scan Output Structure: geecs_scanner/scan_output_structure.md
-          - Running Optimizations: geecs_scanner/optimization.md
-          - Troubleshooting: geecs_scanner/troubleshooting.md
-          - Extending the Scanner: geecs_scanner/extending.md
-          - Architecture: geecs_scanner/architecture.md
+      - GEECS Console:
+          - Overview: geecs_console/overview.md
+          - Running Scans: geecs_console/running_scans.md
+          - Save Sets: geecs_console/save_sets.md
+          - Scan Data: geecs_console/scan_data.md
+          - Scan Browser: geecs_console/scan_browser.md
+          - Troubleshooting: geecs_console/troubleshooting.md
           - API Reference:
-              - Engine Configuration Models: geecs_scanner/api/engine_models.md
-              - Scan Events: geecs_scanner/api/scan_events.md
-              - Optimization:
-                  - Base Evaluator: geecs_scanner/api/optimization/base_evaluator.md
-                  - Base Optimizer: geecs_scanner/api/optimization/base_optimizer.md
-                  - Generators:
-                      - Generator Factory: geecs_scanner/api/optimization/generators/generator_factory.md
-                      - Cheetah Generator: geecs_scanner/api/optimization/generators/cheetah_generator.md
-          - Examples:
-              - Basic Optimization Setup: geecs_scanner/examples/optimization/optimization_example.ipynb
-          - Notes and Discussions:
-              - Bayesian optimization for e-beam brightness: geecs_scanner/notes_and_discussions/optimization/bayesian optimization for e-beam brightness.md
+              - Scan Events: geecs_console/api/scan_events.md
+      - Notes and Discussions:
+          - Bayesian optimization for e-beam brightness: acquisition/notes/bayesian optimization for e-beam brightness.md
 
   - Analysis:
       - analysis/index.md

@@ -2,7 +2,7 @@
 
 `geecs-python-api` is the low-level Python interface to the GEECS control system. It speaks the GEECS wire protocol (UDP for command/response, TCP for live data subscription) and gives you Python objects that represent devices, variables, and the experiment database.
 
-If you're acquiring data through the [Scanner GUI](../geecs_scanner/overview.md), you're already using this package indirectly. The reasons to reach for it directly are:
+If you're acquiring data through the [GEECS Console](../geecs_console/overview.md), you're already using this package indirectly. The reasons to reach for it directly are:
 
 - **You want to script device interaction outside the GUI** — write your own one-off measurement, run a Jupyter notebook that talks to a device, or drive an experiment from a script. See the [Scripting Guide](scripting_guide.md).
 - **You're writing a custom GUI component or analyzer** that needs to read or set a device variable.

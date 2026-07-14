@@ -2,7 +2,7 @@
 
 The typed event hierarchy emitted by the scan engine. Every state transition, every device command, every error, and every dialog request is delivered as an instance of one of these classes through the `on_event` callback registered with the scanner backend (`BlueskyScanner`).
 
-The narrative description of when each event fires and how to consume them lives at [Architecture — Event vocabulary](../architecture.md#event-vocabulary). This page is the formal API. The vocabulary now lives in `geecs_bluesky.events`; `geecs_scanner.engine.scan_events` remains a re-export shim so existing imports keep working.
+This page is the formal API of the event stream a scan emits — the contract any consumer (the console's Now panel, a remote monitor, a test harness) builds on. The vocabulary lives in `geecs_bluesky.events`; the narrative of when each event fires is in `GeecsBluesky/CLAUDE.md`.
 
 ## ScanState
 
