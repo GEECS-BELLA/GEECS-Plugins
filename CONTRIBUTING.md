@@ -26,21 +26,28 @@ encode the recurring workflows.
 This section is the **single canonical copy** of the branch layout — the
 PR template and the `/land` skill point here rather than repeating it, so
 at M6 only this section (and the pointers' one-line reminders) needs
-editing. Active development does **not** target `master`:
+editing. Two lines (collapsed from three on 2026-07-13 — `feat/vision-v1`
+was retired into `dev`, and `feat/greenfield-epics-bluesky-gui` was
+renamed `dev`):
 
-- `feat/vision-v1` — the engine line: GeecsBluesky, GeecsCAGateway,
-  GEECS-Schemas, GEECS-Data-Utils, Planning docs, repo tooling.
-- `feat/greenfield-epics-bluesky-gui` — stacked on vision-v1: the
-  GEECS-Console operator GUI, GEECS-Scanner-GUI changes, the docs site.
+- `dev` — the vision world, and the default target for development:
+  GeecsBluesky, GeecsCAGateway, GEECS-Schemas, GEECS-Console, the scan
+  browser, Planning docs, repo tooling, the docs site.
+- `master` — the legacy-scanner line, kept deployable through the M6 gap:
+  the pure-legacy GEECS-Scanner-GUI plus **living analysis development**
+  (ImageAnalysis, ScanAnalysis, and their data-utils needs). Target
+  `master` for analysis work *unless it imports something that only
+  exists on `dev`* (e.g. `geecs_data_utils.tiled_catalog`) — then target
+  `dev`.
 
-PRs target the branch matching their content. After a vision-v1 merge,
-vision-v1 is merged forward into greenfield. `master` catches up at
-milestone cutovers. (This section will be deleted when the branches
-collapse at M6 — also prune the branch names from `pick_base()` in
-`scripts/check.sh` then; harmless if forgotten, it skips deleted
-branches and falls back to the default branch. Any other grep hits for
-the branch names — Planning/ notes, CHANGELOGs — are historical record,
-not instruction: leave them.)
+`master` is merged forward into `dev` periodically, so analysis work
+flows into the vision world automatically; nothing merges the other way
+until the M6 cutover (tag `master` first, then merge `dev` in). (At M6
+this section collapses to "everything targets `master`" — also prune the
+branch names from `pick_base()` in `scripts/check.sh` then; harmless if
+forgotten, it skips deleted branches and falls back to the default
+branch. Grep hits for the *old* branch names — Planning/ notes,
+CHANGELOGs — are historical record, not instruction: leave them.)
 
 ## Every PR that changes a package
 

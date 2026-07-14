@@ -70,7 +70,7 @@ pick_base() {
     # not a correctness fix.
     best=""
     best_n=999999
-    for c in origin/feat/vision-v1 origin/feat/greenfield-epics-bluesky-gui origin/HEAD origin/master; do
+    for c in origin/dev origin/HEAD origin/master; do
         git rev-parse --verify -q "$c" >/dev/null || continue
         mb="$(git merge-base HEAD "$c" 2>/dev/null)" || continue
         n="$(git rev-list --count "$mb..HEAD")"

@@ -26,14 +26,14 @@ and the topology in `CONTRIBUTING.md`.
 The branch topology (which work targets which base, until the M6 cutover)
 lives in **CONTRIBUTING.md § "Branch topology"** — that is the single
 canonical copy; read it now and pick the base matching the content of the
-change. Never target `master` directly — it lags the active branches
-until M6.
+change (`dev` for vision-world work; `master` only for analysis/legacy
+work with no dev-only imports).
 
-**Roll-forward rule (until M6):** the greenfield GUI branch is stacked on
-the engine branch. After merging a PR into the engine branch, merge it
-forward into greenfield (`git merge origin/<engine-branch> --no-edit
---no-verify` — `--no-verify` because pre-commit's auto-fixers abort merge
-commits) and push.
+**Roll-forward rule (until M6):** after merging an analysis/legacy PR
+into `master`, merge `master` forward into `dev` (`git merge
+origin/master --no-edit --no-verify` — `--no-verify` because pre-commit's
+auto-fixers abort merge commits) and push. Nothing merges `dev` →
+`master` until the M6 cutover.
 
 ## Steps
 
