@@ -12,20 +12,34 @@ poetry run geecs-scan-browser        # or: python -m geecs_console.browser
 
 ## What it shows
 
-- **Day list** — the scans recorded on a chosen date for the selected
-  experiment (newest first), with mode and shot counts, filterable as you
-  type.
-- **Run detail** — for the selected scan:
-  - **Plot** — any recorded column vs shot (or vs the scan variable),
-    for eyeballing trends and step structure;
-  - **Table** — the raw per-shot event rows;
-  - **Drift** — the telemetry drift report: which background-telemetry
-    channels *moved* during the scan (|last − first| beyond 3σ of the
-    in-scan spread), sorted by significance. The fastest way to answer
-    "did anything else change while I was scanning?"
-- **Open scan folder** — jumps to the classic `ScanNNN/` directory for
-  the raw files (strictly read-only — the browser never creates or
-  modifies anything on the data share).
+The window is organised into six regions (**B1–B6**; shown here with
+synthetic demo data):
+
+![The Scan Browser with regions B1–B6 highlighted](assets/browser_screen_map.png)
+
+- **B1 — Controls bar** — experiment, date, Reload, the Tiled connection
+  chip, and a type-to-filter box for the run list.
+- **B2 — Run list** — the scans recorded on the chosen day (newest
+  first), with mode and shot counts.
+- **B3 — Run header** — the selected scan's identity: mode, shots,
+  acquisition style, duration, exit status, save sets, plus *Copy uid*
+  and *Open scan folder* (strictly read-only — the browser never creates
+  or modifies anything on the data share).
+- **B4 — Plot** — any recorded column vs shot or vs the scan variable;
+  1D scans are binned per step with error bars (as in the figure).
+- **B5 — Table** — the raw per-shot event rows, pinned + plotted columns
+  first, with CSV export.
+- **B6 — Drift** — the telemetry drift report: which background-telemetry
+  channels *moved* during the scan (|last − first| beyond 3σ of the
+  in-scan spread), sorted by significance. The fastest way to answer
+  "did anything else change while I was scanning?"
+
+!!! note
+    The screenshot is generated headlessly from the real application over
+    a synthetic catalog
+    (`GEECS-Console/scripts/generate_browser_screen_map.py`) — the region
+    highlights are drawn from live widget geometry, so re-running the
+    script keeps the figure accurate as the UI evolves.
 
 ## Notes
 
