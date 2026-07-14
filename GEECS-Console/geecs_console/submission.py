@@ -2,9 +2,11 @@
 
 :class:`Submitter` is the protocol the main window depends on — the four
 methods of ``BlueskyScanner``'s ScanManager-compatible surface that the
-console actually calls.  :func:`make_bluesky_submitter` builds the real
-engine; the import is inside the function so the window opens (and the whole
-package imports) without the ``ca`` extra or a reachable gateway.
+console actually calls, plus the two action-plan methods behind the Actions
+menu (``run_action`` / ``describe_action``, same names on the scanner).
+:func:`make_bluesky_submitter` builds the real engine; the import is inside
+the function so the window opens (and the whole package imports) without the
+``ca`` extra or a reachable gateway.
 """
 
 from __future__ import annotations
@@ -32,6 +34,24 @@ class Submitter(Protocol):
 
     def is_scanning_active(self) -> bool:
         """Whether a scan is currently running."""
+        ...
+
+    def run_action(self, name: str) -> None:
+        """Execute action plan *name* now — blocking.
+
+        Raises with an operator-readable message on refusal or failure;
+        during a scan the engine raises exactly
+        ``RuntimeError("scan in progress — action not started")``.
+        """
+        ...
+
+    def describe_action(self, name: str) -> list[dict]:
+        """Dry-run action plan *name* — the resolved steps, never executed.
+
+        Returns one dict per step in execution order, with keys ``kind``,
+        ``device``, ``variable``, ``value``, ``wait_s``, and ``from_plan``
+        (``None`` where not applicable).
+        """
         ...
 
 
@@ -62,6 +82,10 @@ def make_bluesky_submitter(
 
     Notes
     -----
+    The Actions-menu methods (``run_action`` / ``describe_action``) map to
+    the scanner's same-named methods — the returned engine satisfies the
+    protocol structurally, no adapter needed.
+
     The engine's ``optimization_loader`` seam is wired here from
     :func:`geecs_console.services.optimization.make_optimization_loader`:
     with the console's optional ``optimization`` extra installed the loader

@@ -41,12 +41,15 @@ from PySide6.QtWidgets import (
 )
 from pydantic import ValidationError
 
+from geecs_console.app.action_dialog import ActionRunDialog
 from geecs_console.editors.action_library_editor import open_action_library_editor
 from geecs_console.editors.save_set_editor import open_save_set_editor
 from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
 from geecs_console.editors.shot_control_editor import open_shot_control_editor
 from geecs_console.events_adapter import ScanEventsAdapter
 from geecs_console.services import ops_paths
+from geecs_console.services.action_library_store import ActionLibraryStore
+from geecs_console.services.background import BackgroundResult
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -213,48 +216,6 @@ class HealthPoller(QObject):
             self.report_ready.emit(report)
 
 
-class BackgroundResult(QObject):
-    """Runs one blocking callable on a daemon thread and reports its result.
-
-    The :class:`HealthPoller` shape, generalized: the worker lives on the
-    GUI thread, each :meth:`run_async` call spawns a short-lived daemon
-    thread, and the result comes back through the queued
-    :attr:`result_ready` signal.  Crucially the daemon thread emits on
-    *this worker*, never on the main window — emitting a window-owned
-    signal from a daemon thread races window teardown and segfaults under
-    offscreen pytest (observed with the idle scan-number probe).
-    """
-
-    result_ready = Signal(object)
-    """Carries the callable's return value, one emission per finished call."""
-
-    def run_async(self, func: Callable[[], object], name: str) -> None:
-        """Run *func* on a fresh daemon thread and emit its result.
-
-        Parameters
-        ----------
-        func : callable
-            Zero-argument blocking callable.  Exceptions are logged and
-            swallowed (no emission), so wrap the call when a failure result
-            should still be delivered.
-        name : str
-            The daemon thread's name (debugging).
-        """
-        threading.Thread(target=self._run, args=(func,), name=name, daemon=True).start()
-
-    def _run(self, func: Callable[[], object]) -> None:
-        """Call *func* (on the daemon thread) and emit the result."""
-        try:
-            result = func()
-        except Exception as exc:  # noqa: BLE001 — background work is best-effort
-            logger.info("background call failed: %s", exc)
-            return
-        try:
-            self.result_ready.emit(result)
-        except RuntimeError:
-            pass  # the worker was deleted while the call ran
-
-
 class ToolTipSuppressor(QObject):
     """Application-level event filter that swallows every tooltip event.
 
@@ -315,6 +276,11 @@ class MainWindow(QMainWindow):
         R4 preset persistence (a preset IS a saved ``ScanRequest``); tests
         inject a fake or a tmp-dir-backed store, default reads/writes the
         experiment's ``presets/`` dir in the configs repo.
+    action_store : ActionLibraryStore, optional
+        The Actions-menu name source (only ``list_names`` /
+        ``set_experiment`` are used — listing runs on a daemon thread);
+        tests inject a fake, default reads the experiment's
+        ``action_library/actions.yaml`` in the configs repo.
     settings : ConsoleSettings, optional
         Persisted GUI state (last selected experiment); tests inject one
         backed by a tmp INI file, default is the user-scope QSettings store.
@@ -349,6 +315,7 @@ class MainWindow(QMainWindow):
         health: Optional[HealthProbe] = None,
         device_panel: Optional[DevicePanelBackend] = None,
         presets: Optional[PresetStore] = None,
+        action_store: Optional[ActionLibraryStore] = None,
         settings: Optional[ConsoleSettings] = None,
         submitter: Optional[Submitter] = None,
         submitter_factory: Optional[Callable[..., Submitter]] = None,
@@ -364,6 +331,11 @@ class MainWindow(QMainWindow):
         )
         self._presets = (
             presets if presets is not None else PresetStore(self._configs.experiment)
+        )
+        self._action_store = (
+            action_store
+            if action_store is not None
+            else ActionLibraryStore(self._configs.experiment)
         )
         self._settings = settings if settings is not None else ConsoleSettings()
         self._device_set_in_flight = False
@@ -384,6 +356,9 @@ class MainWindow(QMainWindow):
         #: garbage-collects an unreferenced dialog wrapper and tears down the
         #: C++ dialog with it, so every opened editor is kept here.
         self._open_editors: list = []
+        #: Non-modal ActionRunDialogs opened from the Actions menu — same
+        #: PySide6 GC hazard, same keep-a-reference cure.
+        self._open_action_dialogs: list = []
 
         self._apply_stylesheet()
         self._load_ui()
@@ -410,13 +385,15 @@ class MainWindow(QMainWindow):
         self._on_mode_changed()
         self._refresh_device_set_enabled()
         # Startup fetches for the selected experiment (no-ops when none):
-        # R7 device:variable completions and the R6 idle scan-number peek.
-        # Restoring the last experiment already fired the experiment-changed
-        # path (which starts both); these cover the explicit-experiment and
-        # no-experiment startups.  Stale results are dropped by experiment
-        # tag, so a duplicate fetch is harmless.
+        # R7 device:variable completions, the R6 idle scan-number peek, and
+        # the Actions-menu plan names.  Restoring the last experiment already
+        # fired the experiment-changed path (which starts all three); these
+        # cover the explicit-experiment and no-experiment startups.  Stale
+        # results are dropped by experiment tag, so a duplicate fetch is
+        # harmless.
         self._start_device_completions_fetch()
         self._start_idle_scan_probe()
+        self._start_actions_fetch()
 
     # ------------------------------------------------------------------
     # Construction
@@ -719,10 +696,21 @@ class MainWindow(QMainWindow):
         github = ops.addAction("GEECS-Plugins on GitHub")
         github.triggered.connect(self._on_open_github)
 
+        # Actions menu: the arming switch on top, then one entry per action
+        # plan in the current experiment's library (filled asynchronously by
+        # _apply_action_names).  The arming state is deliberately NOT
+        # persisted — a fresh session must never start armed, so every
+        # launch begins with execution off and preview-only dialogs.
         actions_menu = self.menuBar().addMenu("Actions")
         self._menus.append(actions_menu)
-        placeholder = actions_menu.addAction("(not wired yet)")
-        placeholder.setEnabled(False)
+        self._actions_menu = actions_menu
+        self.enable_actions_action = actions_menu.addAction("Enable action execution")
+        self.enable_actions_action.setCheckable(True)
+        self.enable_actions_action.setChecked(False)
+        self.enable_actions_action.toggled.connect(self._on_enable_actions_toggled)
+        actions_menu.addSeparator()
+        self._action_plan_actions: list = []
+        self._set_action_names([])
 
         editors = self.menuBar().addMenu("Editors")
         self._menus.append(editors)
@@ -841,6 +829,10 @@ class MainWindow(QMainWindow):
         self._idle_scan_worker = BackgroundResult()
         self._idle_scan_worker.result_ready.connect(
             self._apply_idle_scan_number, Qt.ConnectionType.QueuedConnection
+        )
+        self._actions_worker = BackgroundResult()
+        self._actions_worker.result_ready.connect(
+            self._apply_action_names, Qt.ConnectionType.QueuedConnection
         )
 
         self.events.state_changed.connect(self._on_scan_state)
@@ -1018,6 +1010,7 @@ class MainWindow(QMainWindow):
             ),
             (getattr(self, "_idle_scan_worker", None), self._apply_idle_scan_number),
             (getattr(self, "_device_set_worker", None), self._apply_device_set_result),
+            (getattr(self, "_actions_worker", None), self._apply_action_names),
         ):
             if worker is None:
                 continue
@@ -1260,14 +1253,17 @@ class MainWindow(QMainWindow):
         """Repopulate everything for the newly selected experiment."""
         self._configs.set_experiment(experiment)
         self._presets.set_experiment(experiment)
+        self._action_store.set_experiment(experiment)
         self._settings.last_experiment = experiment
         self._push_experiment_to_probe(experiment)
         self._populate_from_configs()
         # The readback PV is experiment-prefixed — re-point the monitor.
         self._resubscribe_device()
-        # New experiment, new device list and new daily scans folder.
+        # New experiment: new device list, new daily scans folder, and a
+        # new action-plan library.
         self._start_device_completions_fetch()
         self._start_idle_scan_probe()
+        self._start_actions_fetch()
 
     def _restore_last_experiment(self) -> None:
         """Select the remembered experiment at startup (explicit choice wins).
@@ -1396,6 +1392,117 @@ class MainWindow(QMainWindow):
     def _on_edit_action_library(self) -> None:
         """Editors: open the action-library editor for the current experiment."""
         self._open_editor(open_action_library_editor)
+
+    # ------------------------------------------------------------------
+    # Actions menu (G-actions v1: arming switch + per-plan Run/Preview)
+    # ------------------------------------------------------------------
+
+    def _start_actions_fetch(self) -> None:
+        """Fetch the experiment's action-plan names off the GUI thread.
+
+        ``list_names`` parses the library YAML on a possibly slow configs
+        mount, so it runs on a short-lived daemon thread (via the
+        :class:`BackgroundResult` worker), tagged with the experiment and
+        delivered queued to :meth:`_apply_action_names`.  No experiment
+        answers inline with an empty list, spawning no thread.
+        """
+        experiment = self.experiment_combo.currentText()
+        if not experiment:
+            self._apply_action_names((experiment, []))
+            return
+        store = self._action_store
+
+        def fetch() -> tuple[str, list[str]]:
+            return (experiment, store.list_names())
+
+        self._actions_worker.run_async(fetch, name="console-action-names")
+
+    @Slot(object)
+    def _apply_action_names(self, payload: object) -> None:
+        """Rebuild the Actions-menu entries (GUI-thread slot, delivered queued).
+
+        Parameters
+        ----------
+        payload : tuple
+            ``(experiment, [plan_name, ...])``; a result tagged with an
+            experiment that is no longer selected is dropped (a stale fetch
+            racing an experiment change).
+        """
+        experiment, names = payload
+        if experiment != self.experiment_combo.currentText():
+            return
+        self._set_action_names(list(names))
+
+    def _set_action_names(self, names: list[str]) -> None:
+        """Replace the per-plan menu entries below the arming switch.
+
+        Parameters
+        ----------
+        names : list of str
+            The experiment's action-plan names; empty (or offline) renders
+            one disabled ``(no actions)`` entry.
+        """
+        for action in self._action_plan_actions:
+            self._actions_menu.removeAction(action)
+            action.deleteLater()
+        self._action_plan_actions = []
+        if not names:
+            placeholder = self._actions_menu.addAction("(no actions)")
+            placeholder.setEnabled(False)
+            self._action_plan_actions.append(placeholder)
+            return
+        for name in names:
+            action = self._actions_menu.addAction(name)
+            action.triggered.connect(
+                lambda checked=False, plan=name: self._on_action_plan(plan)
+            )
+            self._action_plan_actions.append(action)
+
+    def _on_enable_actions_toggled(self, checked: bool) -> None:
+        """Push the arming state into every open action dialog.
+
+        Deliberately **not** persisted (unlike the Preferences toggles): a
+        fresh console session must never start with action execution armed.
+
+        Parameters
+        ----------
+        checked : bool
+            The "Enable action execution" state.
+        """
+        self._open_action_dialogs = [
+            d for d in self._open_action_dialogs if d.isVisible()
+        ]
+        for dialog in self._open_action_dialogs:
+            dialog.set_execution_enabled(checked)
+
+    def _on_action_plan(self, name: str) -> None:
+        """Open the Run/Preview dialog for action plan *name*.
+
+        The dialog is shown non-modally and kept in
+        ``self._open_action_dialogs`` (the PySide6 GC hazard).  Preview is
+        always available; Run is gated by the arming switch.
+
+        Parameters
+        ----------
+        name : str
+            The action-plan name (a menu entry).
+        """
+        submitter = self._ensure_submitter()
+        if submitter is None:
+            return
+        dialog = ActionRunDialog(
+            self,
+            name,
+            describe=submitter.describe_action,
+            run=submitter.run_action,
+            execution_enabled=self.enable_actions_action.isChecked(),
+            report=self._report,
+        )
+        self._open_action_dialogs = [
+            d for d in self._open_action_dialogs if d.isVisible()
+        ]
+        self._open_action_dialogs.append(dialog)
+        dialog.show()
 
     # ------------------------------------------------------------------
     # Preferences (beeps)
