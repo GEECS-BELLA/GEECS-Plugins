@@ -38,6 +38,8 @@ geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
                             #   + session.run(ScanRequest) — the schema front door;
                             #   writes scan.log when it claimed the scan number
+                            #   + run_action / describe_action — on-demand
+                            #   ActionPlan execution & dry-run (G-actions v1)
   events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
                             #   ScanState, DialogRequest — moved down from
                             #   geecs_scanner (vision §2); geecs_scanner's
@@ -67,7 +69,10 @@ geecs_bluesky/
                             #   finalize nesting (save-off → disarm → closeout)
     action_compiler.py      # compile_action_plan — ActionPlan → plan stubs
                             #   (legacy ActionManager semantics pinned; signals
-                            #   from an injected SettableFactory)
+                            #   from an injected SettableFactory) +
+                            #   flatten_action_steps (the pure resolve/flatten
+                            #   walk behind describe_action and fail-fast
+                            #   nested-name validation)
     step_scan.py            # geecs_step_scan — step scan (motor optional OR a
                             #   motor list = multi-axis grid; per_step hook)
     free_run_step_scan.py   # geecs_free_run_step_scan — reference-paced + t0-sync + tail flush
@@ -160,9 +165,15 @@ adds a staleness stage for the trigger-must-be-free-running requirement)
 (all defensive imports — headless
 installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
 translation is deliberately skipped (no consumer).  Still not done in
-Bluesky mode: `ActionControl` / setup-closeout actions on the legacy
-`exec_config` path (ScanRequest submissions execute actions via the
-delegated runner — see the engine-consolidation section).  Acquisition
+Bluesky mode: setup-closeout actions on the legacy `exec_config` path
+(ScanRequest submissions execute actions via the delegated runner — see
+the engine-consolidation section).  Manual (operator-clicked) action
+execution is **no longer dark**: `BlueskyScanner.run_action(name)` /
+`describe_action(name)` (0.35.0) execute/dry-run a named ActionPlan on
+demand, refusing while a scan is active with the exact message
+`"scan in progress — action not started"` (the GUI surfaces it verbatim;
+these two signatures are the console Submitter contract).  The richer
+pause/decide/resume during-scan flow is issue #552.  Acquisition
 mode is chosen by
 the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
 (intentional; bluesky is still being derisked).
@@ -653,6 +664,11 @@ Remaining items are features/tuning, not architecture — see
   `setup_action` / `closeout_action` (legacy elements' actions *are*
   executed when the element is resolved as a save set through a
   ScanRequest — the converter extracts them into entry rituals).
+  On-demand execution (0.35.0): `GeecsSession.run_action` /
+  `describe_action` and the bridge's thin delegations run/dry-run a named
+  plan outside any scan (v1 refuses during a scan; the pause/decide/resume
+  flow is issue #552 — the flatten/compile split in `action_compiler` is
+  kept factored so #552 can dispatch the same compiled steps differently).
 - **Scan-folder creation invariant:** `claim_scan_number`
   (`plans/run_wrapper.py`) is the one place (outside the GUI's `ScanDataManager`)
   allowed to create a `scans/ScanNNN/` folder.  It logs a warning and returns

@@ -4,6 +4,35 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.0] - 2026-07-14
+
+### Added
+
+- **On-demand ActionPlan execution (G-actions v1, engine half).**
+  `GeecsSession.run_action(name, resolver=None)` resolves a named
+  ActionPlan from the action library (fail-fast for unknown names,
+  nested `run` references included), compiles it against the session's
+  `CaActionSignalFactory`, prefetches/connects every signal pre-run (a
+  lazy connect inside the RunEngine loop would deadlock), and executes
+  the compiled steps on the session's RunEngine.  While the RE is not
+  idle it refuses with `RuntimeError("scan in progress — action not
+  started")` — the exact message is part of the GUI contract (surfaced
+  verbatim).  The richer pause/decide/resume during-scan flow is
+  issue #552.
+- **`GeecsSession.describe_action(name, resolver=None)`** — the pure
+  dry-run: resolve + flatten without connecting or executing; returns one
+  dict per step (`kind`/`device`/`variable`/`value`/`wait_s`/`from_plan`,
+  inapplicable keys `None`) in execution order, nested plans flattened
+  with `from_plan` naming the innermost enclosing plan.
+- **Bridge delegation:** `BlueskyScanner.run_action(name)` and
+  `describe_action(name)` — refuse with the same exact message while
+  `is_scanning_active()`, else delegate to the session with the bridge's
+  resolver.  These two signatures are the GUI contract mirrored by the
+  console's Submitter protocol.
+- `plans/action_compiler.flatten_action_steps` — the shared
+  resolve/flatten walk (same execution order as `compile_action_plan`,
+  zero signals), reusable by the #552 pause-flow dispatch.
+
 ## [0.34.0] - 2026-07-13
 
 ### Changed
