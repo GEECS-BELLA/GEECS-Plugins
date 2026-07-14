@@ -296,11 +296,15 @@ def test_bridge_run_action_refuses_while_scanning_exact_message() -> None:
     assert str(excinfo.value) == REFUSAL
 
 
-def test_bridge_describe_action_refuses_while_scanning_exact_message() -> None:
+def test_bridge_describe_action_works_while_scanning() -> None:
+    # The dry-run is pure (zero CA) and is exactly what an operator wants
+    # to consult mid-scan — only run_action carries the refusal.
     scanner = _bare_scanner(scanning=True)
-    with pytest.raises(RuntimeError) as excinfo:
-        scanner.describe_action("anything")
-    assert str(excinfo.value) == REFUSAL
+    expected = [{"kind": "wait", "wait_s": 1.0}]
+    scanner._session = SimpleNamespace(describe_action=lambda name, resolver: expected)
+    scanner._action_resolver = lambda: object()
+    steps = scanner.describe_action("anything")
+    assert steps == expected
 
 
 # ---------------------------------------------------------------------------

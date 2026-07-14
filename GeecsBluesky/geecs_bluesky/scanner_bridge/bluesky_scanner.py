@@ -626,11 +626,11 @@ class BlueskyScanner:
         """Dry-run the named ActionPlan (no CA, no execution) — see the session.
 
         Thin delegation to :meth:`GeecsSession.describe_action` with this
-        bridge's resolver; refused while scanning with the same exact
-        message as :meth:`run_action` (one uniform GUI contract).
+        bridge's resolver.  Deliberately NOT refused while scanning: the
+        dry-run is pure (zero CA), and "what would this action do?" is
+        exactly the question an operator asks while a scan runs.  Only
+        :meth:`run_action` carries the scan-in-progress refusal.
         """
-        if self.is_scanning_active():
-            raise RuntimeError("scan in progress — action not started")
         return self._session.describe_action(name, self._action_resolver())
 
     # ------------------------------------------------------------------
