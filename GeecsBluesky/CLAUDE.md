@@ -622,8 +622,8 @@ Remaining items are features/tuning, not architecture — see
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
-- **`DeviceCommandEvent`s are not translated** (deliberate — the GUI does
-  not render them; see `Planning/gui_stewardship/00_overview.md` §5).
+- **`DeviceCommandEvent`s are not translated** (deliberate — no GUI ever
+  rendered them, so emitting them would be dead traffic).
   Lifecycle, step/progress, and pre-flight dialog events are emitted as of
   0.21.0.  Pre-flight liveness is CONNECTED-based (the gateway serves every
   DB device's data PVs whether or not the device is up, so CA-connect
