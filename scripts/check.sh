@@ -22,9 +22,9 @@
 #   ./scripts/check.sh --dry-run        # show the plan without running anything
 #
 # Change detection: tracked changes (committed, staged, unstaged) against the
-# merge-base with the nearest of origin/feat/vision-v1,
-# origin/feat/greenfield-epics-bluesky-gui, origin/master (fewest commits
-# since merge-base); override with --base. Untracked files are deliberately
+# merge-base with the nearest integration branch (fewest commits since
+# merge-base; candidates in pick_base mirror CONTRIBUTING.md § Branch
+# topology); override with --base. Untracked files are deliberately
 # invisible until `git add`ed — a scratch file inside a package must not
 # trigger its whole suite.
 set -euo pipefail
@@ -63,9 +63,14 @@ contains() {  # contains "list of words" word
 }
 
 pick_base() {
+    # The named candidates mirror CONTRIBUTING.md § Branch topology (the
+    # canonical copy) and die with it at M6. Deleted branches are skipped by
+    # the rev-parse guard, so this degrades to origin/HEAD (the default
+    # branch) with no edit required — pruning the stale names is cleanup,
+    # not a correctness fix.
     best=""
     best_n=999999
-    for c in origin/feat/vision-v1 origin/feat/greenfield-epics-bluesky-gui origin/master; do
+    for c in origin/feat/vision-v1 origin/feat/greenfield-epics-bluesky-gui origin/HEAD origin/master; do
         git rev-parse --verify -q "$c" >/dev/null || continue
         mb="$(git merge-base HEAD "$c" 2>/dev/null)" || continue
         n="$(git rev-list --count "$mb..HEAD")"

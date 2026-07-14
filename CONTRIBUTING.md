@@ -36,7 +36,9 @@ editing. Active development does **not** target `master`:
 PRs target the branch matching their content. After a vision-v1 merge,
 vision-v1 is merged forward into greenfield. `master` catches up at
 milestone cutovers. (This section will be deleted when the branches
-collapse at M6.)
+collapse at M6 — also prune the branch names from `pick_base()` in
+`scripts/check.sh` then; harmless if forgotten, it skips deleted
+branches and falls back to the default branch.)
 
 ## Every PR that changes a package
 
