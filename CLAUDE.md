@@ -32,6 +32,18 @@ notebook hygiene constraints. Read it whenever you touch anything under
 repository. `AGENTS.md` exists only as a Codex compatibility shim that points
 Codex to the root and package-level `CLAUDE.md` files. Do not duplicate policy
 between `AGENTS.md` and `CLAUDE.md`; update the relevant `CLAUDE.md` instead.
+`CONTRIBUTING.md` is the human-facing distillation of the same contract —
+keep the three in sync when the rules change.
+
+Recurring workflows are encoded as repo-checked skills under
+`.claude/skills/<name>/SKILL.md`: `/land` (the PR ritual), `/triage`
+(scan-log error triage), `/scan-audit` (scan timing/cadence analysis),
+`/env-doctor` (per-package Poetry env fixups). Each skill's frontmatter
+`description` carries its trigger symptoms so sessions pull the skill in
+on their own — keep those descriptions current when a skill changes.
+Prefer invoking/updating a skill over re-deriving its workflow in a
+session. Facts owned elsewhere (e.g. the branch topology, which lives in
+`CONTRIBUTING.md`) are referenced from skills, never copied into them.
 
 Worktrees should live **inside** the main checkout at `.claude/worktrees/`,
 under stable names that describe the intended feature or fix — for example
