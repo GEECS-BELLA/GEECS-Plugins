@@ -60,9 +60,7 @@ commits) and push.
    anything touching scan execution or devices — a **hardware
    verification** section: either the live results or an explicit
    "OWED: <what to verify, expected numbers>" so the code-complete vs
-   hardware-verified distinction is never implicit. OWED entries are
-   picked up later by `/lab-day` — write them so a future session can
-   run them without this PR's context.
+   hardware-verified distinction is never implicit.
 7. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
    `--merge --delete-branch`. Then do the roll-forward merge if the base
    was the engine branch (rule above). Remove the worktree after merge

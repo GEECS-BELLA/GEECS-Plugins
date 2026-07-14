@@ -8,7 +8,7 @@ live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
 `.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`, `/lab-day`)
+`/env-doctor`)
 encode the recurring workflows.
 
 ## Setup

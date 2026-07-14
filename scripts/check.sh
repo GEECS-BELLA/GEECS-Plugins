@@ -8,7 +8,8 @@
 # specific environment (root env vs the package's own env, with markers and
 # env vars that differ per package). Re-deriving that mapping by hand every
 # time is exactly the kind of tribal knowledge that rots; this script IS the
-# mapping. The /check skill documents when to run which mode and how to read
+# mapping — when CI changes, change the runner table here in the same PR.
+# The /check skill documents when to run which mode and how to read
 # failures; /env-doctor fixes environment-shaped failures.
 #
 # Usage
@@ -20,10 +21,12 @@
 #   ./scripts/check.sh --base <ref>     # diff against <ref> instead of auto-picking
 #   ./scripts/check.sh --dry-run        # show the plan without running anything
 #
-# Change detection: diff against the merge-base with the nearest of
-# origin/feat/vision-v1, origin/feat/greenfield-epics-bluesky-gui,
-# origin/master (fewest commits since merge-base), plus uncommitted and
-# untracked files. Override with --base.
+# Change detection: tracked changes (committed, staged, unstaged) against the
+# merge-base with the nearest of origin/feat/vision-v1,
+# origin/feat/greenfield-epics-bluesky-gui, origin/master (fewest commits
+# since merge-base); override with --base. Untracked files are deliberately
+# invisible until `git add`ed — a scratch file inside a package must not
+# trigger its whole suite.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -40,7 +43,7 @@ BASE=""
 DRY_RUN=0
 EXPLICIT_PKGS=""
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -75,10 +78,9 @@ pick_base() {
 }
 
 # --- Work out the changed-file set and the suites it implies -----------------
-CHANGED_FILES=""
+CHANGED=()          # changed files, NUL-delimited source (space-safe)
 UNITS=""            # suites to run: "root-tests" and/or package names
 UNCOVERED=""        # touched packages with no CI-mirrored suite
-NOTES=""
 
 add_unit() { contains "$UNITS" "$1" || UNITS="$UNITS $1"; }
 
@@ -95,7 +97,9 @@ if [ -n "$EXPLICIT_PKGS" ]; then
 elif [ "$MODE" = "all" ]; then
     UNITS="root-tests $ROOT_ENV_PKGS"
     for p in $OWN_ENV_PKGS; do
-        [ -d "$p" ] && UNITS="$UNITS $p"
+        if [ -d "$p" ]; then
+            UNITS="$UNITS $p"
+        fi
     done
 else
     [ -n "$BASE" ] || BASE="$(pick_base)"
@@ -104,13 +108,17 @@ else
         exit 2
     fi
     MB="$(git merge-base HEAD "$BASE")"
-    CHANGED_FILES="$( { git diff --name-only "$MB"; git ls-files --others --exclude-standard; } | sort -u )"
-    for f in $CHANGED_FILES; do
+    while IFS= read -r -d '' f; do
+        CHANGED+=("$f")
+    done < <(git diff --name-only -z "$MB")
+    for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
         top="${f%%/*}"
         if [ "$top" = "tests" ]; then
             add_unit "root-tests"
         elif contains "$ROOT_ENV_PKGS $OWN_ENV_PKGS" "$top"; then
-            [ -d "$top" ] && add_unit "$top"
+            if [ -d "$top" ]; then
+                add_unit "$top"
+            fi
         elif [ -f "$top/pyproject.toml" ]; then
             contains "$UNCOVERED" "$top" || UNCOVERED="$UNCOVERED $top"
         fi
@@ -125,7 +133,7 @@ if [ -n "$EXPLICIT_PKGS" ]; then
 elif [ "$MODE" = "all" ]; then
     echo "   scope: --all (every locally runnable suite)"
 else
-    echo "   scope: changed vs $BASE ($(echo "$CHANGED_FILES" | grep -c . || true) files)"
+    echo "   scope: changed vs $BASE (${#CHANGED[@]} tracked files; untracked ignored until git add)"
 fi
 echo "   lint : ${MODE}$( [ "$MODE" = "lint" ] && echo " (lint only)" )"
 echo "   suites:$( [ "$MODE" = "lint" ] && echo " (none)" || echo "${UNITS:- (none — nothing testable changed)}" )"
@@ -151,14 +159,16 @@ if [ -n "$EXPLICIT_PKGS" ]; then
     echo "   (explicit packages — lint skipped; run --lint or --all for it)"
 elif [ "$MODE" = "all" ]; then
     "${PC[@]}" run --all-files || LINT_OK=0
-elif [ -n "$CHANGED_FILES" ]; then
+elif [ "${#CHANGED[@]}" -gt 0 ]; then
     # Only lint files that still exist (deletions have nothing to lint).
     lint_files=()
-    for f in $CHANGED_FILES; do
-        [ -e "$f" ] && lint_files+=("$f")
+    for f in ${CHANGED[@]+"${CHANGED[@]}"}; do
+        if [ -e "$f" ]; then
+            lint_files+=("$f")
+        fi
     done
     if [ "${#lint_files[@]}" -gt 0 ]; then
-        "${PC[@]}" run --files "${lint_files[@]}" || LINT_OK=0
+        "${PC[@]}" run --files ${lint_files[@]+"${lint_files[@]}"} || LINT_OK=0
     else
         echo "   (nothing to lint)"
     fi
@@ -167,16 +177,20 @@ else
 fi
 
 if [ "$MODE" = "lint" ]; then
-    [ "$LINT_OK" -eq 1 ] && echo "== OK (lint)" || { echo "== FAILED (lint)"; exit 1; }
-    exit 0
+    if [ "$LINT_OK" -eq 1 ]; then
+        echo "== OK (lint)"
+        exit 0
+    fi
+    echo "== FAILED (lint)"
+    exit 1
 fi
 
 # --- Test suites ----------------------------------------------------------------
 run_suite() {
     case "$1" in
         root-tests)
-            # Root tests/ is currently all integration-marked; tolerate
-            # pytest's no-tests-collected exit code (5), same as CI.
+            # Root tests/ is mostly integration-marked; tolerate pytest's
+            # no-tests-collected exit code (5), same as CI.
             poetry run pytest tests -m "not integration and not gui" --tb=short -q || [ $? -eq 5 ] ;;
         ImageAnalysis|ScanAnalysis|GEECS-Data-Utils|GEECS-Schemas)
             poetry run pytest "$1/tests" -m "not integration and not gui" --tb=short -q ;;
@@ -204,8 +218,12 @@ done
 # --- Summary --------------------------------------------------------------------
 echo ""
 if [ "$LINT_OK" -eq 0 ] || [ -n "$FAILED" ]; then
-    [ "$LINT_OK" -eq 0 ] && echo "== FAILED: lint"
-    [ -n "$FAILED" ]     && echo "== FAILED:$FAILED"
+    if [ "$LINT_OK" -eq 0 ]; then
+        echo "== FAILED: lint"
+    fi
+    if [ -n "$FAILED" ]; then
+        echo "== FAILED:$FAILED"
+    fi
     echo "   (env-shaped failure — wrong python, missing extras, 'Command not found'," \
          "a layer collecting as '1 skipped'? → /env-doctor)"
     exit 1
