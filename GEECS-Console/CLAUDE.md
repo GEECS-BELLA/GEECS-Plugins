@@ -339,8 +339,6 @@ Structure:
   (`TiledScanCatalog.from_config()`).  Loads `app/style.qss` with its own
   tiny loader (same behavior as `load_stylesheet`) because of the
   main-window import ban below.
-- `_background.py` — `BrowserWorker`, the thin private daemon-thread →
-  queued-signal worker shim (see below).
 
 Rules (inherit all Architecture rules above, plus):
 
@@ -348,8 +346,12 @@ Rules (inherit all Architecture rules above, plus):
   `geecs_data_utils.tiled_catalog.ScanCatalog`
   (`probe`/`list_runs`/`load_run`) — never on `tiled` directly.  Offline
   default is `StubCatalog`; every catalog call runs on a daemon thread
-  through `BrowserWorker` with generation counters dropping superseded
-  results — the GUI thread never blocks on Tiled (VPN latency is real).
+  through the shared `BackgroundResult` worker (`services/background.py`)
+  with generation counters dropping superseded results — the GUI thread
+  never blocks on Tiled (VPN latency is real).  `BackgroundResult`
+  swallows exceptions, so the browser wraps every callable in
+  `_capture_outcome` to deliver `(result, error)` tuples — catalog
+  failures reach the status bar instead of hanging a spinner.
   `closeEvent` disconnects the workers so a straggling slow read lands
   nowhere.
 - **Schema knowledge lives in `geecs_data_utils.tiled_schema`** (one
@@ -359,7 +361,7 @@ Rules (inherit all Architecture rules above, plus):
   GEECS-Data-Utils; this package tests window behavior against
   `tests/fake_catalog.py`.
 - **No imports from `app/main_window.py`** — the browser duplicates
-  nothing from it except the two deliberate twins noted below.
+  nothing from it except the one deliberate twin noted below.
 - **`pyqtgraph` is imported lazily** with
   `os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")` set first (the
   `_pg()` helper) so it can never bind a stray PyQt install.
@@ -380,15 +382,15 @@ than copying):
 - `geecs_data_utils.tiled_catalog` / `tiled_schema` / `tiled_drift` (the
   data layer, already extracted downward)
 
-Deliberate temporary twins of `app/main_window.py` internals (kept because
+Deliberate temporary twin of `app/main_window.py` internals (kept because
 the browser must not import that file — another stream owns it):
 
-- `browser/_background.py::BrowserWorker` ↔ `BackgroundResult`.  The
-  shared `services/background.py` **exists now** (extracted in 0.10.0 for
-  the Actions menu, per the plan recorded on issue #510); the swap onto it
-  is mechanical (one class, one signal, one method) and simply hasn't been
-  done — take it when next touching the browser.
 - `__main__._load_console_stylesheet` ↔ `load_stylesheet`.
+
+(The other twin, `browser/_background.py::BrowserWorker` ↔
+`BackgroundResult`, was retired once the shared `services/background.py`
+extraction landed in 0.10.0 — the browser now uses `BackgroundResult`
+directly.)
 
 ## Stubbed seams (intentional, wire later)
 

@@ -2,9 +2,9 @@
 
 :class:`BackgroundResult` lived in ``app/main_window.py`` until the Actions
 menu needed it from a second window-family module (``app/action_dialog.py``);
-this is the shared extraction recorded on issue #510.  The browser's private
-twin (``browser/_background.py::BrowserWorker``) is still pending its
-mechanical swap onto this class.
+this is the shared extraction recorded on issue #510.  The scan browser uses
+it too (its former private twin, ``browser/_background.py::BrowserWorker``,
+was deleted once this module landed).
 """
 
 from __future__ import annotations

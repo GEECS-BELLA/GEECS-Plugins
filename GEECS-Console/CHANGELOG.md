@@ -4,6 +4,17 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.10.1] - 2026-07-15
+
+### Changed
+
+- Scan browser workers swapped onto the shared `BackgroundResult`
+  (`services/background.py`), retiring the temporary
+  `browser/_background.py::BrowserWorker` twin (module deleted).  Because
+  the shared worker swallows exceptions, the browser wraps each catalog
+  callable in `_capture_outcome` to keep delivering `(result, error)`
+  tuples — status-bar error reporting is unchanged.
+
 ## [0.10.0] - 2026-07-14
 
 ### Added
