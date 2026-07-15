@@ -6,10 +6,13 @@ happened — identity strip (B3), column plot (B4), pinned+plotted table
 
 Architecture rules (mirroring the console package):
 
-- The window depends on the :class:`~geecs_console.browser.catalog.ScanCatalog`
+- The window depends on the :class:`~geecs_data_utils.tiled_catalog.ScanCatalog`
   protocol, never on ``tiled``.  Every catalog call runs off the GUI
-  thread through :class:`~geecs_console.browser._background.BrowserWorker`
+  thread through the shared
+  :class:`~geecs_console.services.background.BackgroundResult` worker
   (daemon thread + queued signal) — the GUI thread never blocks on Tiled.
+  ``BackgroundResult`` swallows exceptions, so callables are wrapped with
+  :func:`_capture_outcome` to deliver ``(result, error)`` tuples.
 - ``pyqtgraph`` is imported lazily (function-level) with
   ``PYQTGRAPH_QT_LIB=PySide6`` set first.
 - Column interpretation (pinning, prettification, telemetry selection,
@@ -60,8 +63,8 @@ from geecs_data_utils.tiled_catalog import (
     StubCatalog,
 )
 
-from geecs_console.browser._background import BrowserWorker
 from geecs_console.services import ops_paths
+from geecs_console.services.background import BackgroundResult
 from geecs_console.services.settings import ConsoleSettings
 
 logger = logging.getLogger(__name__)
@@ -239,6 +242,26 @@ def _pg() -> Any:
     return pyqtgraph
 
 
+def _capture_outcome(func: Callable[[], object]) -> Callable[[], tuple]:
+    """Wrap *func* so its outcome is delivered as an ``(result, error)`` tuple.
+
+    The shared ``BackgroundResult`` worker logs and swallows exceptions (no
+    emission), but the browser must surface catalog failures in the status
+    bar instead of hanging a spinner — so every callable handed to a worker
+    goes through this wrapper, and exactly one element of the emitted tuple
+    is non-None.
+    """
+
+    def _call() -> tuple:
+        try:
+            return (func(), None)
+        except Exception as exc:  # noqa: BLE001 — reported, never fatal
+            logger.info("browser background call failed: %s", exc)
+            return (None, str(exc))
+
+    return _call
+
+
 def resolve_scan_folder(detail: RunDetail, day: date) -> Optional[Path]:
     """Resolve a run's scan folder for B3's Open button — strictly read-only.
 
@@ -365,9 +388,9 @@ class ScanBrowserWindow(QMainWindow):
 
         # Workers (window-owned QObjects; daemon threads emit on them, the
         # queued connections below deliver on the GUI thread).
-        self._probe_worker = BrowserWorker(self)
-        self._list_worker = BrowserWorker(self)
-        self._detail_worker = BrowserWorker(self)
+        self._probe_worker = BackgroundResult(self)
+        self._list_worker = BackgroundResult(self)
+        self._detail_worker = BackgroundResult(self)
         self._probe_worker.result_ready.connect(
             self._on_probe_result, Qt.ConnectionType.QueuedConnection
         )
@@ -651,7 +674,7 @@ class ScanBrowserWindow(QMainWindow):
     def _start_probe(self) -> None:
         """Kick the connection-chip probe on a daemon thread."""
         catalog = self.catalog
-        self._probe_worker.run_async(catalog.probe, "browser-probe")
+        self._probe_worker.run_async(_capture_outcome(catalog.probe), "browser-probe")
 
     @Slot(object)
     def _on_probe_result(self, outcome: object) -> None:
@@ -725,7 +748,7 @@ class ScanBrowserWindow(QMainWindow):
         catalog = self.catalog
         self.statusBar().showMessage("Loading runs…")
         self._list_worker.run_async(
-            lambda: (generation, catalog.list_runs(experiment, day)),
+            _capture_outcome(lambda: (generation, catalog.list_runs(experiment, day))),
             "browser-list-runs",
         )
         self._start_probe()
@@ -806,7 +829,7 @@ class ScanBrowserWindow(QMainWindow):
             except Exception as exc:  # noqa: BLE001 — delivered to the GUI thread
                 return (generation, None, exc)
 
-        self._detail_worker.run_async(_load, "browser-load-run")
+        self._detail_worker.run_async(_capture_outcome(_load), "browser-load-run")
 
     @Slot(object)
     def _on_detail_result(self, outcome: object) -> None:
