@@ -140,7 +140,7 @@ class CaAcqTimestampReadable(StandardReadable):
     async def disconnect(self) -> None:
         """Stop the persistent ``acq_timestamp`` monitor and drop shot state.
 
-        Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+        Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
         Unsubscribing removes the signal cache's reference to this instance's
         bound callback — without it every per-scan device object stays alive
         and keeps enqueuing monitor updates for the rest of the process.

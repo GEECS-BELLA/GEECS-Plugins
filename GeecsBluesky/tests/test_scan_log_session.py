@@ -1,10 +1,10 @@
 """Headless GeecsSession scan.log attachment tests (mock CA backends).
 
-The shared-helper and bridge-regression tests live in ``test_scan_log.py``
-(CI-safe, no CA); these need the ``ca`` extra's mock backends to run a real
-session scan.  Pins the Gate-2 fix: a session-*claimed* scan writes
-``scan.log`` into its folder; a pre-claimed scan does not self-attach (the
-claiming caller — e.g. the GUI bridge — owns the handler).
+The shared-helper tests live in ``test_scan_log.py`` (CI-safe, no CA);
+these need the ``ca`` extra's mock backends to run a real session scan.
+Pins the Gate-2 fix: a session-*claimed* scan writes ``scan.log`` into its
+folder; a pre-claimed scan does not self-attach (the claiming caller —
+e.g. the optimize-mode runner, which claims pre-bind — owns the handler).
 """
 
 from __future__ import annotations

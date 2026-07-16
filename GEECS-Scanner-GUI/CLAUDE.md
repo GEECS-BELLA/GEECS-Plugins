@@ -91,6 +91,17 @@ uncaught exceptions to the logger, then creates and shows `GEECSScannerWindow`.
 
 ## Scan Execution Flow
 
+> **DEAD on `dev` since G3 (GeecsBluesky 0.39.0, PR #572).** The engine's
+> exec_config path was deleted root-and-stem: `BlueskyScanner` no longer
+> takes a `shot_control_information` constructor kwarg (so `RunControl`
+> crashes at engine construction with a generic kwarg `TypeError` — during
+> main-window init, before any submission) and `reinitialize` accepts only
+> a `geecs_schemas.ScanRequest`. This GUI is un-launchable from `dev` by
+> owner decision; `master`'s legacy line is untouched. The package stays
+> in-tree only for its `optimization` module (the console's `optimization`
+> extra) until M6 deletes it whole. The flow below is the historical
+> record — see `GeecsBluesky/CLAUDE.md` for the current architecture.
+
 ```
 User clicks Start
   → initialize_and_start_scan()        (builds ScanExecutionConfig from GUI state)
@@ -116,9 +127,10 @@ always-True stub purely so old imports don't break; the `GEECS_USE_BLUESKY`
 env var no longer does anything. The backend receives the GUI's `on_event`
 callback and emits lifecycle, step/progress, and pre-flight dialog events
 (no `DeviceCommandEvent` translation — deliberate; see
-`Planning/gui_stewardship/00_overview.md`). `RunControl` submits either a
-`ScanExecutionConfig` (legacy path) or a schema `ScanRequest` (delegated to
-the engine's one runner).
+`Planning/gui_stewardship/00_overview.md`). Since G3 (PR #572) the engine
+accepts only a schema `ScanRequest` — `RunControl`'s `ScanExecutionConfig`
+submission (and its `shot_control_information` engine kwarg) is dead on
+`dev`; see the banner under "Scan Execution Flow".
 
 ## Threading Model
 
@@ -271,7 +283,6 @@ from geecs_bluesky.scanner_bridge import BlueskyScanner
 events = []
 scanner = BlueskyScanner(
     experiment_dir="Undulator",
-    shot_control_information=shot_info,
     on_event=events.append,
 )
 ```

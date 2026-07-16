@@ -62,7 +62,7 @@ class CaSnapshotReadable(StandardReadable):
         }
 
     async def disconnect(self) -> None:
-        """Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+        """Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
 
         This device holds no persistent monitor subscription, so there is
         nothing to unsubscribe — the method exists so scanner teardown is

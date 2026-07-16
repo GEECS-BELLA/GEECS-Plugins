@@ -22,6 +22,11 @@ kept as the historical record of the decision.
   root-and-stem at M6.
 - **G3 therefore re-times to M6** (delete the bridge's exec_config twin
   path together with the old GUI), not "once G2 lands."
+  *Update 2026-07-16: G3 executed early by owner decision ("we've totally
+  abandoned the old gui path… We can break the legacy scanner on the dev
+  branch") — the bridge's exec_config path is deleted root-and-stem
+  (GeecsBluesky 0.39.0, PR #572); the old GUI itself still deletes at M6,
+  and `master`'s legacy line is untouched.*
 - **G-actions is the only live pre-M6 engine step from this doc.**
 - **Branch topology collapsed 2026-07-13** (#549): `feat/vision-v1`
   retired, the greenfield branch renamed `dev`; `master` = legacy scanner

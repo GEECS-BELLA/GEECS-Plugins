@@ -12,7 +12,6 @@ must not pre-claim a scan number on this path (``session.scan`` claims).
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -229,14 +228,6 @@ def _make_scanner(session: _FakeSession) -> BlueskyScanner:
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._session = session
     scanner._experiment_dir = "TestExp"
-    scanner._devices_config = {}
-    scanner._acquisition_mode = "free_run_time_sync"
-    scanner._shot_control = None
-    scanner._shots_per_step = 1
-    scanner._rep_rate_hz = 1.0
-    scanner._detectors = []
-    scanner._motor = None
-    scanner._device_lock = threading.Lock()
     scanner._on_event = None
     scanner._current_state = None
     scanner._total_shots = 0
@@ -250,7 +241,6 @@ def _make_scanner(session: _FakeSession) -> BlueskyScanner:
     scanner._active_descriptor_uids = set()
     scanner._scan_request = None
     scanner._request_resolver = None
-    scanner._scan_config = None
     scanner._RE = SimpleNamespace(
         state="idle", abort=lambda reason=None: None, _loop=None
     )
@@ -282,11 +272,18 @@ def _no_stale_recheck_wait(monkeypatch):
 
 
 def _patch_claim(monkeypatch, claims: list) -> None:
-    monkeypatch.setattr(
-        bluesky_scanner,
-        "claim_scan_number",
-        lambda experiment: claims.append(experiment) or (None, None),
-    )
+    """Pin that a bridge-side claim is structurally impossible (G3).
+
+    The bridge module no longer imports any claim entry point, so *claims*
+    can only ever stay empty.  If a claim import returns to the bridge,
+    this fails loudly — re-patch it here so the never-pre-claims
+    assertions in these tests become meaningful again.
+    """
+    for name in ("claim_scan_number", "claim_scan"):
+        assert not hasattr(bluesky_scanner, name), (
+            f"the bridge module regained {name}; monkeypatch it here so "
+            "the never-pre-claims assertions stay meaningful"
+        )
 
 
 def _normalize_scan_kwargs(kwargs: dict) -> dict:
@@ -341,7 +338,7 @@ def test_scan_request_delegation_parity_with_headless(monkeypatch) -> None:
     bridge_session = _FakeSession()
     scanner = _make_scanner(bridge_session)
     assert scanner.reinitialize(request, resolver=_resolver()) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     headless_session = _FakeSession()
     run_scan_request(headless_session, request, _resolver())
@@ -384,7 +381,7 @@ def test_scan_request_step_uses_resolved_variable_kind(monkeypatch) -> None:
         }
     )
     assert scanner.reinitialize(request, resolver=resolver) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     kwargs = session.scan_kwargs
     assert kwargs is not None
@@ -421,7 +418,7 @@ def test_multi_axis_request_delegates(monkeypatch) -> None:
         }
     )
     assert scanner.reinitialize(request, resolver=resolver) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     kwargs = session.scan_kwargs
     assert kwargs is not None
@@ -454,7 +451,7 @@ def test_scan_request_trigger_profile_reaches_session(monkeypatch) -> None:
     scanner = _make_scanner(session)
     request = _noscan_request(shots_per_step=1, trigger_profile="HTU")
     scanner.reinitialize(request, resolver=_resolver(trigger_profiles={"HTU": profile}))
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     writes = session.shot_control_config
     assert isinstance(writes, ShotControlWrites)
@@ -469,7 +466,7 @@ def test_scan_request_without_profile_detaches_shot_control(monkeypatch) -> None
     session = _FakeSession()
     scanner = _make_scanner(session)
     scanner.reinitialize(_noscan_request(), resolver=_resolver())
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
     assert session.shot_control_config is None
 
 
@@ -486,7 +483,7 @@ def test_actions_delegate_and_compile(monkeypatch) -> None:
     request = _noscan_request(actions={"setup": ["prep"]})
     resolver = _resolver(plans={"prep": _WAIT_PLAN})
     assert scanner.reinitialize(request, resolver=resolver) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     kwargs = session.scan_kwargs
     assert kwargs is not None
@@ -554,7 +551,7 @@ def test_defaults_not_applied_twice(monkeypatch) -> None:
     assert scanner.reinitialize(_noscan_request(), resolver=resolver) is True
     # The stored request is the pre-defaults original.
     assert list(scanner._scan_request.actions.setup) == []
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     kwargs = session.scan_kwargs
     assert kwargs is not None
@@ -576,7 +573,7 @@ def test_delegated_preflight_abort(monkeypatch) -> None:
     scanner._preflight_check_sync_liveness = (
         lambda detectors, strict=False, disconnect_on_drop=True: None
     )
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     assert session.scan_kwargs is None
     assert scanner._abort_requested is True
@@ -592,18 +589,16 @@ def test_delegated_preflight_receives_assembled_detectors(monkeypatch) -> None:
     scanner.reinitialize(_noscan_request(acquisition="strict"), resolver=_resolver())
     seen: dict = {}
 
-    def _fake_preflight(detectors, *, strict=False, disconnect_on_drop=True):
+    def _fake_preflight(detectors, *, strict=False):
         seen["devices"] = [d._geecs_device_name for d in detectors]
         seen["strict"] = strict
-        seen["disconnect_on_drop"] = disconnect_on_drop
         return detectors
 
     scanner._preflight_check_sync_liveness = _fake_preflight
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     assert seen["devices"] == ["U_Ref", "U_Cam2", "U_Stage"]
     assert seen["strict"] is True
-    assert seen["disconnect_on_drop"] is False
     assert session.scan_kwargs is not None
 
 
@@ -642,7 +637,7 @@ def test_delegated_lifecycle_carries_engine_claimed_scan_number(monkeypatch) -> 
         return original_scan(**kwargs)
 
     session.scan = scan_with_engine_claim
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     lifecycle = [
         (e.state, e.scan_number) for e in events if isinstance(e, ScanLifecycleEvent)
@@ -755,7 +750,7 @@ def test_delegated_totals_hook(monkeypatch) -> None:
         }
     )
     scanner.reinitialize(request, resolver=resolver)
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     assert scanner._total_steps == 3
     assert scanner._total_shots == 6
@@ -823,7 +818,7 @@ def test_optimize_request_runs_end_to_end_through_bridge(monkeypatch) -> None:
     request = _optimize_request()
 
     assert scanner.reinitialize(request, resolver=_optimize_resolver()) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     # The loader received the request's optimization field group, verbatim.
     assert loader.calls == [request.optimization]
@@ -890,7 +885,7 @@ def test_optimize_bridge_device_requirements_auto_provisioned(monkeypatch) -> No
 
     scanner._optimization_loader = _loader
     scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     (bridge,) = loader.bridges
     bound_names = {
@@ -918,7 +913,7 @@ def test_optimize_bridge_without_requirements_attribute_is_no_op(
     loader = _FakeOptimizationLoader()  # its bridge has no such attribute
     scanner._optimization_loader = loader
     scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     assert "provisioned_device_requirements" not in session.optimize_kwargs["md"]
 
@@ -946,7 +941,7 @@ def test_optimize_zero_save_sets_accepted_at_reinitialize_and_runs(
     scanner._optimization_loader = lambda spec: _RequirementsBridge(spec)
     request = _optimize_request(save_sets=[])
     assert scanner.reinitialize(request, resolver=_optimize_resolver()) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     md = session.optimize_kwargs["md"]
     assert "save_sets" not in md
@@ -966,7 +961,7 @@ def test_optimize_totals_hook_primes_gui_progress(monkeypatch) -> None:
     scanner = _make_scanner(session)
     scanner._optimization_loader = _FakeOptimizationLoader()
     scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     assert scanner._total_steps == 5
     assert scanner._total_shots == 20  # 5 iterations × 4 shots
@@ -980,7 +975,7 @@ def test_optimize_unclaimed_scan_still_runs(monkeypatch) -> None:
     loader = _FakeOptimizationLoader()
     scanner._optimization_loader = loader
     scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     (bridge,) = loader.bridges
     assert bridge.bind_kwargs["scan_tag"] is None
@@ -1001,7 +996,7 @@ def test_optimize_actions_skipped_and_recorded_through_bridge(monkeypatch) -> No
     resolver = _optimize_resolver(plans={"prep": _WAIT_PLAN})
     request = _optimize_request(actions={"setup": ["prep"]})
     assert scanner.reinitialize(request, resolver=resolver) is True
-    scanner._run_scan(scanner._scan_config)
+    scanner._run_scan()
 
     kwargs = session.optimize_kwargs
     assert kwargs is not None
@@ -1075,44 +1070,29 @@ def test_dependency_direction_no_geecs_scanner_import() -> None:
 
 
 # ---------------------------------------------------------------------------
-# State reset when switching submission shapes
+# The one submission shape: anything but a ScanRequest is refused (G3)
 # ---------------------------------------------------------------------------
 
 
-def test_exec_config_path_clears_request_state(monkeypatch) -> None:
-    """Switching back to exec_config after a request forgets the request."""
-    monkeypatch.delenv("GEECS_BLUESKY_ACQUISITION_MODE", raising=False)
-    claims: list = []
-    _patch_claim(monkeypatch, claims)
-    session = _FakeSession()
-    scanner = _make_scanner(session)
-    request = ScanRequest.model_validate(
-        {
-            "mode": "step",
-            "shots_per_step": 1,
-            "save_sets": ["baseline"],
-            "axes": [{"variable": "v", "positions": {"start": 0, "end": 1, "step": 1}}],
-        }
-    )
-    resolver = _resolver(variables={"v": ScanVariable(target="U_X:Pos")})
-    scanner.reinitialize(request, resolver=resolver)
-    assert scanner._scan_request is not None
-    assert scanner._request_resolver is resolver
+def test_non_scan_request_submission_raises_type_error() -> None:
+    """A legacy exec_config-shaped object is refused with a clear TypeError.
 
+    The duck-typed exec_config path was deleted root-and-stem (G3); the
+    error must name the removal and point at ScanRequest so any stale
+    exec_config-shaped submission fails loudly, not mysteriously.  (The
+    legacy GUI itself never reaches this: it dies earlier, at engine
+    construction, on the deleted ``shot_control_information`` kwarg.)
+    """
+    scanner = _make_scanner(_FakeSession())
     exec_config = SimpleNamespace(
-        scan_config=SimpleNamespace(
-            scan_mode="noscan",
-            device_var=None,
-            start=0.0,
-            end=0.0,
-            step=0.0,
-            wait_time=1.0,
-            additional_description="",
-            background=False,
-        ),
-        options=SimpleNamespace(rep_rate_hz=1.0, acquisition_mode="free_run_time_sync"),
+        scan_config=SimpleNamespace(scan_mode="noscan"),
+        options=SimpleNamespace(rep_rate_hz=1.0),
         save_config=SimpleNamespace(Devices={}),
     )
-    scanner.reinitialize(exec_config)
+    with pytest.raises(TypeError, match="exec_config path was removed"):
+        scanner.reinitialize(exec_config)
+    with pytest.raises(TypeError, match="ScanRequest"):
+        scanner.reinitialize({"mode": "noscan"})
+    # State is untouched by a refused submission.
     assert scanner._scan_request is None
     assert scanner._request_resolver is None

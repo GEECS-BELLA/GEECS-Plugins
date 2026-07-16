@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.35.1] — 2026-07-16
+
+### Changed
+
+- Docs only: `CLAUDE.md` now records that this GUI is dead on `dev` since
+  G3 (GeecsBluesky 0.39.0, PR #572) — the engine's exec_config path and
+  the `shot_control_information` constructor kwarg were deleted, so
+  `RunControl` crashes at engine construction during main-window init.
+  The package stays in-tree only for its `optimization` module until M6.
+  No code changes; `master`'s legacy line is untouched.
+
 ## [0.35.0] — 2026-07-13
 
 ### Removed

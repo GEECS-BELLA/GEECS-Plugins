@@ -1,16 +1,13 @@
 """Tests for the shared per-scan scan.log helper (Gate-2 follow-up).
 
-Covers the extracted :mod:`geecs_bluesky.scan_log` helper itself and the GUI
-bridge's delegation (behavior regression — identical file, format, and
-scan-id stamping).  CI-safe: no CA needed.  The headless
-:class:`GeecsSession` attachment tests (mock CA backends) live in
-``test_scan_log_session.py``.
+Covers the extracted :mod:`geecs_bluesky.scan_log` helper itself.  CI-safe:
+no CA needed.  The headless :class:`GeecsSession` attachment tests (mock CA
+backends) live in ``test_scan_log_session.py``.
 """
 
 from __future__ import annotations
 
 import logging
-import threading
 
 import pytest
 
@@ -61,25 +58,3 @@ def test_scan_log_detaches_and_restores_levels(tmp_path) -> None:
     # Post-exit records do not land in the file.
     module_logger.info("after the scan")
     assert "after the scan" not in (folder / "scan.log").read_text()
-
-
-def test_bridge_scan_log_delegates_to_shared_helper(tmp_path) -> None:
-    """Regression: BlueskyScanner._scan_log behavior is unchanged."""
-    from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
-
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._device_lock = threading.Lock()
-
-    folder = tmp_path / "Scan012"
-    folder.mkdir()
-    with scanner._scan_log(12, str(folder)):
-        module_logger.info("bridge line")
-    content = (folder / "scan.log").read_text()
-    assert "scan Scan012: starting" in content
-    assert "bridge line" in content
-    assert "scan=Scan012" in content
-    assert "scan Scan012: finished" in content
-
-    # The no-claim no-op is preserved too.
-    with scanner._scan_log(None, None):
-        module_logger.info("no claim")

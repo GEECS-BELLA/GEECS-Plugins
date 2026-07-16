@@ -69,8 +69,8 @@ diagnose the package the current task is about.
 5. **Network-dependent tests.** `integration` markers (lab DB at
    192.168.6.14) are deselected by default — leave them that way off-site;
    a MySQL attempt off-network blocks ~75 s before timing out. Never run
-   `test_bluesky_scanner.py` (top-level hardware script) without lab
-   access and operator awareness.
+   `GeecsBluesky/tests/test_scan_request_hardware.py` (the hardware
+   integration test) without lab access and operator awareness.
 
 6. **Pre-commit.** `pre-commit` runs from the root env. Committing with
    plain `git commit` gets aborted by the auto-fixers ("files were
