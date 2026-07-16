@@ -145,11 +145,17 @@ class GeecsSession:
         self._mock = mock
         # context_managers=[] so sessions also work off the main thread.
         self.RE = RunEngine(context_managers=[])
-        # Silence upstream's RequestAbort traceback on THIS engine's logger
-        # (operator aborts are quiet, intentional outcomes — #563 follow-up);
-        # RE.log is a LoggerAdapter, so the filter goes on its real logger.
+        # Silence upstream's RequestAbort traceback (operator aborts are
+        # quiet, intentional outcomes — #563 follow-up).  RE.log is a
+        # LoggerAdapter over the PROCESS-WIDE ``bluesky`` logger shared by
+        # every RunEngine, so this covers all engines in the process (a
+        # RequestAbort is the abort mechanism whoever raised it) — and the
+        # guard keeps repeated session construction from stacking
+        # duplicate filters on that global logger.
         _re_logger = getattr(self.RE.log, "logger", None)
-        if _re_logger is not None:
+        if _re_logger is not None and not any(
+            isinstance(f, _RequestAbortLogFilter) for f in _re_logger.filters
+        ):
             _re_logger.addFilter(_RequestAbortLogFilter())
         self._last_run_uid: str | None = None
         #: ``True`` when the most recent :meth:`scan`/:meth:`optimize` ended

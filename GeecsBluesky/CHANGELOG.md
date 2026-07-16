@@ -10,7 +10,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Upstream bluesky's `Run aborted` traceback silenced for operator
   aborts** (the #563 follow-up, observed live 2026-07-16): the session
-  attaches a log filter to its RunEngine's logger that drops records
+  attaches a log filter (once — idempotent) to the process-wide
+  ``bluesky`` logger every RunEngine shares that drops records
   whose exception is `RequestAbort` — the abort *mechanism*, not an
   error. The filter keys on the exception type, never the message, so
   the genuine-exception path's identically-worded "Run aborted" record

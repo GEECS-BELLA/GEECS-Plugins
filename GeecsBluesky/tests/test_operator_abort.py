@@ -316,3 +316,17 @@ def test_live_abort_produces_no_upstream_traceback(caplog) -> None:
         and issubclass(r.exc_info[0], RequestAbort)
     ]
     assert leaked == [], "RequestAbort tracebacks must not reach the log"
+
+
+def test_abort_log_filter_attaches_once_across_sessions() -> None:
+    """The filter lands on the process-global bluesky logger — repeated
+    session construction must not stack duplicates (review finding, #570)."""
+    from geecs_bluesky.session import _RequestAbortLogFilter
+
+    s1 = _session()
+    s2 = _session()
+    assert s1.RE.log.logger is s2.RE.log.logger  # global, by upstream design
+    ours = [
+        f for f in s1.RE.log.logger.filters if isinstance(f, _RequestAbortLogFilter)
+    ]
+    assert len(ours) == 1
