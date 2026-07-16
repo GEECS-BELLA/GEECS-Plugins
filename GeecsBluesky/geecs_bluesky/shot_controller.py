@@ -81,6 +81,11 @@ class ShotController:
         # {state_name: [(setter, value), ...]} — set by from_writes.
         self._transitions: dict[str, list[tuple[Any, str]]] | None = None
         self._writes: ShotControlWrites | None = None
+        #: The last *standing* state actually driven (writes issued) —
+        #: OFF/SCAN/STANDBY/ARMED, never the momentary SINGLESHOT fire.
+        #: The #552 pause supervisor reads this to know what to re-assert
+        #: after an operator action runs in the pause window.
+        self.last_state: str | None = None
 
     # ------------------------------------------------------------------
     # Factories
@@ -206,6 +211,7 @@ class ShotController:
                 yield from bps.abs_set(setter, value, group=group)
                 yield from bps.wait(group)
             if ordered:
+                self._record_state(name)
                 logger.info("Shot controller → %s", name)
             return
         group = f"shot_ctrl_{state}"
@@ -216,7 +222,18 @@ class ShotController:
                 yield from bps.abs_set(setter, val, group=group)
         if writes:
             yield from bps.wait(group)
+            self._record_state(state)
             logger.info("Shot controller → %s", state)
+
+    def _record_state(self, state: str | ShotControlState) -> None:
+        """Remember *state* as :attr:`last_state` if it is a standing state.
+
+        ``SINGLESHOT`` is a momentary fire, not a standing state — recording
+        it would make a later re-assert refire a physical shot.
+        """
+        name = state.value if isinstance(state, ShotControlState) else str(state)
+        if name != ShotControlState.SINGLESHOT.value:
+            self.last_state = name
 
     def arm(self):
         """Plan stub: SCAN state (data-taking, trigger running)."""

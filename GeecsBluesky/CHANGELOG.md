@@ -4,6 +4,35 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.42.0] - 2026-07-16
+
+### Added
+
+- **Deferred-pause checkpoints in all three scan plans** (issue #552,
+  PR-1 of the G-actions v2 sequence): one `bps.checkpoint()` before each
+  step's move / iteration and one before every row, in `geecs_step_scan`,
+  `geecs_free_run_step_scan`, and `geecs_adaptive_scan` (optimize — added
+  after review: without them a pause requested during an optimize scan
+  would never land and the console would sit in PAUSING).  `request_pause(defer=True)` now lands at a
+  row/step boundary with an empty rewind cache — resume replays nothing
+  (no re-move, no re-fire).  Zero behavior change for an unpaused scan.
+  Pinned by `tests/test_pause_checkpoints.py` (checkpoint placement,
+  never inside an open event bundle, and an RE-level deferred
+  pause + resume yielding every row exactly once).
+- **`ShotController.last_state`** — records the last *standing* state
+  actually driven (OFF/SCAN/STANDBY/ARMED; never the momentary
+  SINGLESHOT fire, so a later re-assert can never refire a shot).  Read
+  by the upcoming #552 pause supervisor to restore the trigger state
+  after an operator action runs in the pause window.
+
+### Removed
+
+- **`BlueskyScanner.pause_scan` / `resume_scan`** — the old hard-pause
+  API (`request_pause(defer=False)`).  With no checkpoints it was a
+  resume-replays-the-whole-scan trap; with them, a hard pause still
+  replays the partial row (re-firing a physical shot in strict mode).
+  No caller existed; absence pinned by test.
+
 ## [0.41.0] - 2026-07-16
 
 ### Added
