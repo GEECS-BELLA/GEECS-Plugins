@@ -88,7 +88,10 @@ extend-select = ["D"]  # Enable all pydocstyle checks
 # Legacy trees exempt from lint debt until their proper audit/cleanup
 # (owner decision on PR #574, 2026-07-16). Only the pre-existing debt
 # categories are exempted; syntax/undefined-name checks stay active.
-"GEECS-Scanner-GUI/geecs_scanner/app/**" = ["D", "F841"]
+"GEECS-Scanner-GUI/geecs_scanner/app/**" = ["D"]
+# The one pre-existing F841 in the tree — keep F841 live elsewhere in app/,
+# geecs_scanner.py and run_control.py still see active development:
+"GEECS-Scanner-GUI/geecs_scanner/app/save_element_editor.py" = ["D", "F841"]
 # The app package's __init__ re-exports (public API of the legacy GUI):
 "GEECS-Scanner-GUI/geecs_scanner/app/**/__init__.py" = ["F401"]
 "GEECS-Scanner-GUI/geecs_scanner/utils/convert_png_to_ico.py" = ["D"]
