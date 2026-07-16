@@ -5,8 +5,9 @@ The protocol and a stub live here alongside the real
 PV, an HTTP ping to Tiled, a GeecsDb connection check).  Every real
 dependency is imported lazily *inside* :meth:`GatewayTiledDbHealth.poll` so
 this module stays import-safe with zero network and without the ``ca`` extra.
-The probe is polled from a background thread (see the main window's
-``HealthPoller``); :meth:`poll` never blocks the GUI thread and never raises.
+The probe is polled from a background thread (see
+:class:`~geecs_console.services.background.HealthPoller`); :meth:`poll`
+never blocks the GUI thread and never raises.
 """
 
 from __future__ import annotations
