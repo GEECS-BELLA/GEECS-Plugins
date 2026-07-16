@@ -381,3 +381,37 @@ def test_no_provider_skips_the_check() -> None:
     assert effective is config
     assert dropped == {}
     assert dropped_devices == []
+
+
+def test_gateway_synthesized_variables_are_always_served(monkeypatch) -> None:
+    """acq_timestamp/systimestamp/CONNECTED are gateway-synthesized for every
+    device (no expt_device_variable row exists) — they must never draw the
+    unserved dialog. Field regression 2026-07-16: the optimizer's
+    auto-provisioned ``acq_timestamp`` request produced a false
+    whole-device-drop question for UC_TopView.
+    """
+    _install_served(monkeypatch, _SERVED)
+    session = _RecordingSession()
+    channel = _ScriptedChannel([])  # any question would exhaust the script
+    save_set = SaveSet(
+        name="TopView",
+        entries=[
+            SaveSetEntry(
+                device="UC_TopView",
+                scalars=["acq_timestamp", "systimestamp", "CONNECTED"],
+                db_scalars=False,
+            )
+        ],
+    )
+    resolver = _SaveSetResolver({"TopView": save_set})
+
+    uid = run_scan_request(
+        session, _noscan_request(), resolver, operator_channel=channel
+    )
+
+    assert uid == "uid-scan"
+    assert channel.questions == []  # no dialog: synthesized vars are served
+    assert session.device_calls == [
+        ("detector", "UC_TopView", ["acq_timestamp", "systimestamp", "CONNECTED"])
+    ]
+    assert "dropped_unserved_variables" not in session.scan_kwargs["md"]

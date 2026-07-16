@@ -137,6 +137,20 @@ class GeecsDbScalarPolicy:
         return list(self._all_by_device().get(device, []))
 
 
+#: Variables the gateway synthesizes for EVERY device, independent of the
+#: DB ``get`` flags: the timestamp ladder (``DeviceSpec.timestamp_vars`` in
+#: GeecsCAGateway's ``config.py`` — ``acq_timestamp`` preferred,
+#: ``systimestamp`` fallback, both always subscribed) and the per-device
+#: ``CONNECTED`` status PV (``gateway.py``). These are served even though no
+#: ``expt_device_variable`` row exists, so the unserved-variables check must
+#: treat them as always-served (field regression 2026-07-16: the optimizer's
+#: auto-provisioned ``acq_timestamp`` request drew a false "not served"
+#: dialog threatening to drop the whole device).
+GATEWAY_SYNTHESIZED_VARIABLES = frozenset(
+    {"acq_timestamp", "systimestamp", "CONNECTED"}
+)
+
+
 @dataclass
 class GeecsDbServedSetProvider:
     """The gateway's served variable set, per device — failure-tolerant.

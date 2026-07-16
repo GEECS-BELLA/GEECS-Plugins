@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.1] - 2026-07-16
+
+### Fixed
+
+- **Gateway-synthesized variables no longer draw the unserved-variables
+  dialog** (field regression, same day): `acq_timestamp`, `systimestamp`,
+  and `CONNECTED` are synthesized by the gateway for every device — no
+  `expt_device_variable` row exists, so the served-set model
+  (`get='yes'` ∪ settable) wrongly flagged them. First seen when the
+  optimizer's auto-provisioned `acq_timestamp` request produced a false
+  "Every listed variable of UC_TopView is unserved" whole-device-drop
+  question. `GATEWAY_SYNTHESIZED_VARIABLES` (db_runtime) is now the
+  canonical always-served set, honored by the pre-flight check; pinned by
+  a regression test.
+
 ## [0.38.0] - 2026-07-16
 
 ### Added

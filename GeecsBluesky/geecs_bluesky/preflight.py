@@ -29,6 +29,7 @@ from geecs_bluesky.exceptions import (
     GeecsStaleDevicesError,
     GeecsUnservedVariablesError,
 )
+from geecs_bluesky.db_runtime import GATEWAY_SYNTHESIZED_VARIABLES
 from geecs_bluesky.operator_channel import (
     ANSWER_ABORT,
     ANSWER_CONTINUE,
@@ -615,6 +616,7 @@ class UnservedVariablesCheck:
                 variable
                 for variable in (cfg.get("variable_list") or [])
                 if variable not in served_vars
+                and variable not in GATEWAY_SYNTHESIZED_VARIABLES
             ]
             if missing:
                 unserved[device] = missing
