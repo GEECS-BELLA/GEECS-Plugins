@@ -12,10 +12,10 @@ poetry run geecs-scan-browser        # or: python -m geecs_console.browser
 
 ## What it shows
 
-The window is organised into six regions (**B1–B6**; shown here with
+The window is organised into seven regions (**B1–B7**; shown here with
 synthetic demo data):
 
-![The Scan Browser with regions B1–B6 highlighted](assets/browser_screen_map.png)
+![The Scan Browser with regions B1–B7 highlighted](assets/browser_screen_map.png)
 
 - **B1 — Controls bar** — experiment, date, Reload, the Tiled connection
   chip, and a type-to-filter box for the run list.
@@ -33,6 +33,12 @@ synthetic demo data):
   channels *moved* during the scan (|last − first| beyond 3σ of the
   in-scan spread), sorted by significance. The fastest way to answer
   "did anything else change while I was scanning?"
+- **B7 — Scan metadata** — the selected scan's full run info, below the
+  table: uid, description, mode and acquisition style, scan variable (or
+  grid axes and shape), planned shots, save sets, scan folder, start
+  time, duration, exit status and reason. Everything that previously
+  required opening Tiled or the scan folder by hand, rendered from the
+  run's own metadata with no extra catalog fetch.
 
 !!! note
     The screenshot is generated headlessly from the real application over
