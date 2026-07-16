@@ -13,8 +13,14 @@ from pathlib import Path
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt, QTimer
 
-from geecs_scanner.app import (GEECSScannerWindow, SaveElementEditor, ScanVariableEditor,
-                               ShotControlEditor, MultiScanner, ActionLibrary)
+from geecs_scanner.app import (
+    GEECSScannerWindow,
+    SaveElementEditor,
+    ScanVariableEditor,
+    ShotControlEditor,
+    MultiScanner,
+    ActionLibrary,
+)
 from geecs_scanner.app.geecs_scanner import MAXIMUM_SCAN_SIZE
 
 from geecs_scanner.utils import ApplicationPaths as AppPaths
@@ -24,7 +30,7 @@ from geecs_scanner.utils.exceptions import ConflictingScanElements
 
 @pytest.fixture
 def app(qtbot: QtBot):
-    """ Initializes the GEECS Scanner window in debug mode, manually setting the Exp Name and App Paths """
+    """Initializes the GEECS Scanner window in debug mode, manually setting the Exp Name and App Paths"""
     window = GEECSScannerWindow()
     qtbot.addWidget(window)
     window.show()
@@ -42,7 +48,7 @@ def app(qtbot: QtBot):
 
 
 def test_element_list(app, qtbot: QtBot):
-    """ Tests moving elements from one list to another, as well as the refresh lists button """
+    """Tests moving elements from one list to another, as well as the refresh lists button"""
 
     # First, test the ability to discover and move elements between the `found` and `selected` lists
     list1 = app.ui.foundDevices
@@ -89,9 +95,9 @@ def test_element_list(app, qtbot: QtBot):
 
 
 def test_open_element_editor(app, qtbot):
-    """ Tests opening the element editor using 'New' and 'Edit' with elements selected/not selected """
+    """Tests opening the element editor using 'New' and 'Edit' with elements selected/not selected"""
 
-    def check_and_close_element_editor(check_value: str = ''):
+    def check_and_close_element_editor(check_value: str = ""):
         active_modal = QApplication.activeModalWidget()
         if active_modal:
             if isinstance(active_modal, SaveElementEditor):
@@ -103,14 +109,14 @@ def test_open_element_editor(app, qtbot):
         else:
             raise AssertionError("No active modal to check value of")
 
-    QTimer.singleShot(200, lambda: check_and_close_element_editor(check_value=''))
+    QTimer.singleShot(200, lambda: check_and_close_element_editor(check_value=""))
     qtbot.mouseClick(app.ui.newDeviceButton, Qt.LeftButton)
 
     assert app.element_editor is not None
     app.element_editor = None
 
     app.ui.foundDevices.clearSelection()
-    QTimer.singleShot(200, lambda: check_and_close_element_editor(check_value=''))
+    QTimer.singleShot(200, lambda: check_and_close_element_editor(check_value=""))
     qtbot.mouseClick(app.ui.editDeviceButton, Qt.LeftButton)
 
     assert app.element_editor is not None
@@ -119,7 +125,9 @@ def test_open_element_editor(app, qtbot):
     test_ind = 0
     app.ui.foundDevices.setCurrentRow(test_ind)
     test_text = app.ui.foundDevices.item(test_ind).text()
-    QTimer.singleShot(200, lambda: check_and_close_element_editor(check_value=test_text))
+    QTimer.singleShot(
+        200, lambda: check_and_close_element_editor(check_value=test_text)
+    )
     qtbot.mouseClick(app.ui.editDeviceButton, Qt.LeftButton)
 
     assert app.element_editor is not None
@@ -129,6 +137,7 @@ def test_open_element_editor(app, qtbot):
 
 def test_menu_options(app, qtbot: QtBot):
     from geecs_scanner.app.geecs_scanner import BOOLEAN_OPTIONS, STRING_OPTIONS
+
     assert len(app.all_options) == len(BOOLEAN_OPTIONS) + len(STRING_OPTIONS)
 
     if len(BOOLEAN_OPTIONS) > 0:
@@ -145,20 +154,20 @@ def test_menu_options(app, qtbot: QtBot):
     if len(STRING_OPTIONS) > 0:
         str_opt = app.all_options[len(BOOLEAN_OPTIONS)]
         assert str_opt.get_name() == STRING_OPTIONS[0]
-        assert str_opt.get_value() == ''
+        assert str_opt.get_value() == ""
         assert str_opt.isChecked() is False
 
         str_opt.trigger()
-        assert str_opt.get_value() == 'test'
+        assert str_opt.get_value() == "test"
         assert str_opt.isChecked() is True
 
         str_opt.trigger()
-        assert str_opt.get_value() == ''
+        assert str_opt.get_value() == ""
         assert str_opt.isChecked() is False
 
 
 def test_opening_side_guis(app, qtbot: QtBot):
-    """ Tests opening the other 4 main gui windows and closing them """
+    """Tests opening the other 4 main gui windows and closing them"""
 
     def close_window(gui_reference, gui_class):
         active_modal = QApplication.activeModalWidget()
@@ -167,7 +176,7 @@ def test_opening_side_guis(app, qtbot: QtBot):
             active_modal.close()
         elif gui_reference:
             assert isinstance(gui_reference, gui_class)
-            if hasattr(gui_reference, 'close'):
+            if hasattr(gui_reference, "close"):
                 gui_reference.close()
             else:
                 raise AssertionError(f"No function 'close' for '{gui_class}'.")
@@ -175,7 +184,9 @@ def test_opening_side_guis(app, qtbot: QtBot):
             raise AssertionError(f"No active gui found for '{gui_class}'.")
 
     # 1D Scan Variable Editor
-    QTimer.singleShot(200, lambda: close_window(app.variable_editor, ScanVariableEditor))
+    QTimer.singleShot(
+        200, lambda: close_window(app.variable_editor, ScanVariableEditor)
+    )
     qtbot.mouseClick(app.ui.buttonScanVariables, Qt.LeftButton)
     assert app.variable_editor is not None
     app.variable_editor = None
@@ -187,7 +198,9 @@ def test_opening_side_guis(app, qtbot: QtBot):
     app.timing_editor = None
 
     # Action Library
-    QTimer.singleShot(200, lambda: close_window(app.action_library_window, ActionLibrary))
+    QTimer.singleShot(
+        200, lambda: close_window(app.action_library_window, ActionLibrary)
+    )
     qtbot.mouseClick(app.ui.buttonActionLibrary, Qt.LeftButton)
     assert app.action_library_window is not None
     assert app.is_in_action_library is True
@@ -206,16 +219,27 @@ def test_opening_side_guis(app, qtbot: QtBot):
 
 
 def test_adjusting_scan_parameters(app, qtbot: QtBot):
-    """ Tests the basic functionality of changing the scan settings.  This ensures that (1) the correct line edits
-     are enabled when their respective radio button is selected and (2) """
-    scan_line_elements = [app.ui.lineStartValue, app.ui.lineStopValue, app.ui.lineStepSize, app.ui.lineShotStep]
+    """Tests the basic functionality of changing the scan settings.  This ensures that (1) the correct line edits
+    are enabled when their respective radio button is selected and (2)"""
+    scan_line_elements = [
+        app.ui.lineStartValue,
+        app.ui.lineStopValue,
+        app.ui.lineStepSize,
+        app.ui.lineShotStep,
+    ]
 
     def check_scan_line_edits(selected_radio: QRadioButton, check_value: bool):
-        """ First checks that only the specified radio button is the one currently checked.  Next, checks that
-         the line edits are enabled/disabled correctly based on the given expected boolean """
-        assert app.ui.noscanRadioButton.isChecked() is (selected_radio is app.ui.noscanRadioButton)
-        assert app.ui.scanRadioButton.isChecked() is (selected_radio is app.ui.scanRadioButton)
-        assert app.ui.backgroundRadioButton.isChecked() is (selected_radio is app.ui.backgroundRadioButton)
+        """First checks that only the specified radio button is the one currently checked.  Next, checks that
+        the line edits are enabled/disabled correctly based on the given expected boolean"""
+        assert app.ui.noscanRadioButton.isChecked() is (
+            selected_radio is app.ui.noscanRadioButton
+        )
+        assert app.ui.scanRadioButton.isChecked() is (
+            selected_radio is app.ui.scanRadioButton
+        )
+        assert app.ui.backgroundRadioButton.isChecked() is (
+            selected_radio is app.ui.backgroundRadioButton
+        )
 
         assert app.ui.lineScanVariable.isEnabled() is check_value
         for element in scan_line_elements:
@@ -231,7 +255,7 @@ def test_adjusting_scan_parameters(app, qtbot: QtBot):
     qtbot.mouseClick(app.ui.backgroundRadioButton, Qt.LeftButton)
     check_scan_line_edits(app.ui.backgroundRadioButton, False)
 
-    app.ui.lineNumShots.setText('50')
+    app.ui.lineNumShots.setText("50")
     app.update_noscan_num_shots()
     assert app.noscan_num == 50
 
@@ -252,13 +276,13 @@ def test_adjusting_scan_parameters(app, qtbot: QtBot):
 
     assert app.noscan_num == 50
     assert int(app.ui.lineNumShots.text()) == 50
-    app.ui.lineNumShots.setText('100')
+    app.ui.lineNumShots.setText("100")
     app.update_noscan_num_shots()
 
     # Check that scan line edits are empty
-    assert app.ui.lineScanVariable.text() == ''
+    assert app.ui.lineScanVariable.text() == ""
     for line in scan_line_elements:
-        assert line.text() == ''
+        assert line.text() == ""
 
     # Click on 'Scan', check that previously entered values were preserved.  Reset it and go back to 'NoScan'
     qtbot.mouseClick(app.ui.scanRadioButton, Qt.LeftButton)
@@ -272,7 +296,7 @@ def test_adjusting_scan_parameters(app, qtbot: QtBot):
 
 
 def test_scan_preset(app, qtbot: QtBot):
-    """ Tests saving, loading, and deleting presets """
+    """Tests saving, loading, and deleting presets"""
     assert app.ui.listScanPresets.count() == 0
 
     app.save_current_preset(filename="blank")
@@ -313,7 +337,7 @@ def test_scan_preset(app, qtbot: QtBot):
 
 
 def test_shot_calculation(app, qtbot: QtBot):
-    """ Tests calculating the number of shots in various configurations """
+    """Tests calculating the number of shots in various configurations"""
     app.save_current_preset(filename="blank")
 
     def calculate_and_assert(expected_string: str = "N/A"):
@@ -400,30 +424,32 @@ def test_list_of_steps(app, qtbot: QtBot):
 
 
 def test_dictionary_combining(app, qtbot: QtBot):
-    """ Tests combining element dictionaries while (1) throwing errors for conflicting flags and (2) no duplicates """
-    test_dict_location = app.app_paths.experiment() / 'aux_configs'
-    dict_a = read_yaml_file_to_dict(test_dict_location / 'test_a.yaml')
-    dict_b = read_yaml_file_to_dict(test_dict_location / 'test_b.yaml')
-    dict_c = read_yaml_file_to_dict(test_dict_location / 'test_c.yaml')
+    """Tests combining element dictionaries while (1) throwing errors for conflicting flags and (2) no duplicates"""
+    test_dict_location = app.app_paths.experiment() / "aux_configs"
+    dict_a = read_yaml_file_to_dict(test_dict_location / "test_a.yaml")
+    dict_b = read_yaml_file_to_dict(test_dict_location / "test_b.yaml")
+    dict_c = read_yaml_file_to_dict(test_dict_location / "test_c.yaml")
 
-    test_ab = copy.deepcopy(dict_a['Devices'])
-    app.combine_elements(test_ab, dict_b['Devices'])
-    assert len(test_ab['device_1']['variable_list']) == 3  # Should not append two copies of a particular variable
-    assert test_ab['device_1']['synchronous'] is True
-    assert len(test_ab['device_2']['variable_list']) == 1
+    test_ab = copy.deepcopy(dict_a["Devices"])
+    app.combine_elements(test_ab, dict_b["Devices"])
+    assert (
+        len(test_ab["device_1"]["variable_list"]) == 3
+    )  # Should not append two copies of a particular variable
+    assert test_ab["device_1"]["synchronous"] is True
+    assert len(test_ab["device_2"]["variable_list"]) == 1
 
     try:
-        app.combine_elements(dict_a['Devices'], dict_c['Devices'])
+        app.combine_elements(dict_a["Devices"], dict_c["Devices"])
         raise AssertionError("Mismatched 'synchronous' flags, should raise an error")
     except ConflictingScanElements:
         assert True
 
-    test_bc = copy.deepcopy(dict_b['Devices'])
-    app.combine_elements(test_bc, dict_c['Devices'])
-    assert len(test_bc['device_1']['variable_list']) == 2
-    assert test_ab['device_1']['synchronous'] is True
-    assert test_bc['device_2']['synchronous'] is False
-    assert len(test_bc['device_2']['variable_list']) == 1
+    test_bc = copy.deepcopy(dict_b["Devices"])
+    app.combine_elements(test_bc, dict_c["Devices"])
+    assert len(test_bc["device_1"]["variable_list"]) == 2
+    assert test_ab["device_1"]["synchronous"] is True
+    assert test_bc["device_2"]["synchronous"] is False
+    assert len(test_bc["device_2"]["variable_list"]) == 1
 
 
 # TODO Test Updating config
@@ -431,5 +457,5 @@ def test_dictionary_combining(app, qtbot: QtBot):
 # TODO Test starting/stopping scan and logic for which buttons are enabled
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main()

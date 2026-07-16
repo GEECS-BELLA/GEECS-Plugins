@@ -1,6 +1,2 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Wed Nov 20 14:52:58 2024
-
-@author: loasis
-"""
+"""Post-scan analysis framework (created 2024-11-20, @author: loasis)."""

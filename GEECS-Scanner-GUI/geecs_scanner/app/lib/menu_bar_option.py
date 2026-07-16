@@ -14,6 +14,7 @@ TODO  when hovering over the option in the menu bar, or during the update dialog
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Union
+
 if TYPE_CHECKING:
     from .. import GEECSScannerWindow
 
@@ -23,7 +24,7 @@ from PyQt5.QtWidgets import QAction, QInputDialog
 from PyQt5.QtCore import QCoreApplication
 
 
-CONFIG_SECTION = 'Options'
+CONFIG_SECTION = "Options"
 
 
 class MenuBarOption(QAction):
@@ -49,7 +50,7 @@ class MenuBarOption(QAction):
         self.triggered.connect(self.update_default)
 
     def update_default(self):
-        """ Writes the current result of "get_value()" to the config file under `[CONFIG_SECTION][self.get_name()]` """
+        """Writes the current result of "get_value()" to the config file under `[CONFIG_SECTION][self.get_name()]`"""
         if self.unit_test_mode:
             return
 
@@ -61,7 +62,7 @@ class MenuBarOption(QAction):
 
         config.set(CONFIG_SECTION, self.get_name(), str(self.get_value()))
 
-        with open(AppPaths.config_file(), 'w') as file:
+        with open(AppPaths.config_file(), "w") as file:
             config.write(file)
 
     def get_name(self) -> str:
@@ -93,13 +94,15 @@ class MenuBarOptionBool(MenuBarOption):
         self.setChecked(self.value)
 
     def load_default(self):
-        """ Loads the boolean value of the given option from the user config .ini file """
+        """Loads the boolean value of the given option from the user config .ini file"""
         if self.unit_test_mode:
             return
 
         config = configparser.ConfigParser()
         config.read(AppPaths.config_file())
-        if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
+        if config.has_section(CONFIG_SECTION) and config.has_option(
+            CONFIG_SECTION, self.get_name()
+        ):
             self.value = config.getboolean(CONFIG_SECTION, self.get_name())
 
 
@@ -122,13 +125,15 @@ class MenuBarOptionStr(MenuBarOption):
         self.setChecked(not self.value == "")
 
     def load_default(self):
-        """ Loads the str value of the given option from the user config .ini file """
+        """Loads the str value of the given option from the user config .ini file"""
         if self.unit_test_mode:
             return
 
         config = configparser.ConfigParser()
         config.read(AppPaths.config_file())
-        if config.has_section(CONFIG_SECTION) and config.has_option(CONFIG_SECTION, self.get_name()):
+        if config.has_section(CONFIG_SECTION) and config.has_option(
+            CONFIG_SECTION, self.get_name()
+        ):
             self.value = config[CONFIG_SECTION][self.get_name()]
 
     def get_value(self) -> Union[bool, str]:
@@ -138,17 +143,22 @@ class MenuBarOptionStr(MenuBarOption):
         return self.value
 
     def update_default(self):
-        """ First prompts for a new str value before continuing on to the default `update_default()` function """
+        """First prompts for a new str value before continuing on to the default `update_default()` function"""
         self.prompt_new_value()
         super().update_default()
 
     def prompt_new_value(self):
-        """ Opens a dialog box to prompt the user for a new value """
+        """Opens a dialog box to prompt the user for a new value"""
         if self.unit_test_mode:
-            self.value = 'test' if not self.value else ''
+            self.value = "test" if not self.value else ""
 
         else:
-            text, ok = QInputDialog.getText(self.main_window, 'Update Optional Parameter', self.get_name(), text=self.value)
+            text, ok = QInputDialog.getText(
+                self.main_window,
+                "Update Optional Parameter",
+                self.get_name(),
+                text=self.value,
+            )
             if ok:
                 self.value = text.strip()
 

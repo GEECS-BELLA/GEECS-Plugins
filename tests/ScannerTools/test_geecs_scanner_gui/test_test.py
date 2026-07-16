@@ -12,8 +12,8 @@ from PyQt5.QtCore import Qt
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Test Window')
-        self.button = QPushButton('Click Me', self)
+        self.setWindowTitle("Test Window")
+        self.button = QPushButton("Click Me", self)
         self.button.clicked.connect(self.on_button_click)
         self.setCentralWidget(self.button)
         self.button_clicked = False
@@ -35,5 +35,5 @@ def test_button_click(app, qtbot):
     assert app.button_clicked is True
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main()

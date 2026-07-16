@@ -1,6 +1,2 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Mon Nov 11 15:24:05 2024
-
-@author: loasis
-"""
+"""Scan analyzers (created 2024-11-11, @author: loasis)."""

@@ -982,6 +982,7 @@ def get_or_create_folder(parent_folder_id: str, folder_name: str) -> str:
     _folder_id_cache[cache_key] = folder_id
     return folder_id
 
+
 def get_document_id(experiment: str) -> Optional[str]:
     r"""Return the current Google Doc LogID for an experiment.
 
