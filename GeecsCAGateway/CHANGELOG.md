@@ -3,6 +3,19 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.13.3] - 2026-07-15
+
+### Changed
+
+- `DEPLOYMENT.md`: new "Host reboots and network mounts" runbook — the
+  NAS-mount boot-order dependency whose failure mode is a healthy gateway
+  with silently absent derived channels (hand mounts / fstab racing a
+  down NAS). Documents the self-healing pattern (credentials file +
+  `_netdev,nofail,x-systemd.automount` + `RequiresMountsFor` on the
+  unit), the no-reboot verification cycle, and the off-subnet CA-client
+  footnote (beacons don't cross routed paths — restart long-lived
+  displays after a gateway restart). Verified live 2026-07-15.
+
 ## [0.13.2] - 2026-07-13
 
 ### Fixed

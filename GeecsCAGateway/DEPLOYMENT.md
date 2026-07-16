@@ -350,6 +350,51 @@ sudo systemctl enable --now geecs-ca-gateway
   `--experiment`/subsystem configs; CA name resolution makes this invisible to
   clients (DESIGN.md).
 
+### Host reboots and network mounts (verified live 2026-07-15)
+
+The gateway host typically holds the configs repo on a NAS mount (the
+derived-channels overlay resolves through it — §1). That makes the mount a
+**boot-order dependency with a silent failure mode**: a hand-mounted share
+(no fstab entry), or an fstab mount attempted while the NAS is down,
+simply isn't there when the service starts — and the gateway then starts
+*normally with no derived PVs* (by design). The only symptom is the
+derived channels missing; every other PV is healthy. This exact chain
+happened after a 2026-07-15 site power cycle where the NAS came up after
+the gateway host.
+
+Make the whole chain self-healing once:
+
+```bash
+# root-only credentials file (never put the password in fstab):
+#   /root/.smb-credentials   (chmod 600)  containing username=/password=/domain=
+# fstab entry — the three options are the point:
+//<nas-host>/<share>  /mnt/<share>  cifs  credentials=/root/.smb-credentials,_netdev,nofail,x-systemd.automount  0  0
+sudo systemctl daemon-reload
+```
+
+- `x-systemd.automount` mounts **on first access** instead of once at
+  boot — a NAS that comes up hours after the host is a non-event.
+- `nofail` keeps a dead NAS from wedging boot; `_netdev` orders after
+  networking.
+- Teach the unit the dependency so a missing mount *delays* the gateway
+  instead of silently starting it configless:
+  `sudo systemctl edit geecs-ca-gateway` →
+  `[Unit]` / `RequiresMountsFor=/mnt/<share>`.
+
+Verify the cycle without rebooting: `umount` the share, `systemctl start
+mnt-<share>.automount` (at boot it arms itself; mid-session you start it
+once), then `ls` the mountpoint — the listing should trigger the mount.
+After fixing, `systemctl restart geecs-ca-gateway` and confirm a derived
+PV answers.
+
+One client-side footnote for off-subnet operators (VPN/routed): CA's
+beacon mechanism — which tells clients to re-search PVs after a server
+restart — rides UDP broadcast and does not cross routed paths. Long-lived
+displays (Phoebus) that were searching while the gateway was down back
+off to very slow retries and can look stuck for minutes after the
+gateway returns; restart the display. On-subnet clients and the Python
+stack (fresh searches per polling cycle) recover on their own.
+
 ### Log expectations
 
 journald captures stdout (`%(asctime)s %(levelname)s %(name)s: %(message)s`).
