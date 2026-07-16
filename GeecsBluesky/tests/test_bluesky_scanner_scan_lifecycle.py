@@ -1,19 +1,21 @@
-"""Pinning tests for BlueskyScanner scan-lifecycle fixes (PR #449 review).
+"""Pinning tests for BlueskyScanner scan-thread lifecycle behavior.
 
-Finding A — a free-run reference (pacemaker) that fails to connect must not
-let a non-Triggerable contributor silently inherit pacemaker duty: the next
-synchronous device is promoted to the reference role, and with nothing to
-promote the scanner aborts loudly.  Belt-and-suspenders: the free-run plan
-itself rejects a non-Triggerable reference.
+- A stop requested before the request reaches the delegated runner aborts
+  the scan cleanly (``run_scan_request`` is never invoked), and a
+  timed-out scan-thread join keeps the scanner reporting active instead
+  of clearing the handle.
+- Operator-requested aborts are quiet: an exception unwinding out of the
+  delegated run after Stop is one INFO line (no ERROR traceback), a quiet
+  aborted-outcome return still reports ABORTED, and an aborted
+  optimization skips the bridge's ``finish()`` bookkeeping (success runs
+  it — also pinned end-to-end in the scan-request seam suite).
+- Belt-and-suspenders plan guards: the free-run plan itself rejects a
+  non-Triggerable reference and still requires the shot-id tracker.
 
-Finding B — a stop requested before the plan reaches the RunEngine aborts
-the scan cleanly (no claim, no plan execution), and a timed-out scan-thread
-join keeps the scanner reporting active instead of clearing the handle.
-
-Finding C — early-exit paths validate *before* claiming the scan folder, so
-they never leave a silently claimed ``ScanNNN/`` behind; optimization
-settables join the cleanup list as soon as they connect, and post-claim
-failures log the claimed-but-aborted state loudly.
+The exec_config-path device-build/claim-ordering tests that used to live
+here died with the legacy arm (G3): device building, pre-claim ordering,
+and optimizer device-requirements merging are owned by
+``scan_request_runner`` and pinned in its suites.
 """
 
 from __future__ import annotations
@@ -24,10 +26,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
 from geecs_bluesky.scanner_bridge import bluesky_scanner
 from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+from geecs_schemas import ScanRequestMode
 
 # ---------------------------------------------------------------------------
 # Fakes (no network / DB / CA)
@@ -51,175 +53,105 @@ class _FakeReadable:
         self.name = name
 
 
-class _FakeSession:
-    """Records factory calls; raises for devices listed in *fail*."""
-
-    def __init__(self, fail: set[str] | None = None) -> None:
-        self.fail = set(fail or ())
-        self.calls: list[tuple[str, str]] = []
-        self.settables: list[tuple[str, str]] = []
-        self.scan_kwargs: dict | None = None
-        self.optimize_kwargs: dict | None = None
-        self.shot_control_called_with: object = "unset"
-
-    def _maybe_fail(self, device: str) -> None:
-        if device in self.fail:
-            raise RuntimeError(f"connect failed: {device}")
-
-    def detector(self, device, variables, *, save_images=False, name=None):
-        self.calls.append(("detector", device))
-        self._maybe_fail(device)
-        return _FakeTriggerable(name or device)
-
-    def contributor(self, device, variables, *, save_images=False, name=None):
-        self.calls.append(("contributor", device))
-        self._maybe_fail(device)
-        return _FakeReadable(name or device)
-
-    def snapshot(self, device, variables, *, name=None):
-        self.calls.append(("snapshot", device))
-        self._maybe_fail(device)
-        return _FakeReadable(name or device)
-
-    def settable(self, device, variable, *, name=None):
-        self.settables.append((device, variable))
-        self._maybe_fail(device)
-        return _FakeReadable(name or f"{device}_{variable}")
-
-    def shot_control(self, config):
-        self.shot_control_called_with = config
-
-    def scan(self, **kwargs):
-        self.scan_kwargs = kwargs
-        return "uid"
-
-    def optimize(self, **kwargs):
-        self.optimize_kwargs = kwargs
-        return "uid", []
-
-
-def _make_scanner(
-    session: _FakeSession,
-    devices_config: dict | None = None,
-    mode: str = "free_run_time_sync",
-) -> BlueskyScanner:
+def _make_scanner(session: object | None = None) -> BlueskyScanner:
     scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._session = session
+    scanner._session = session if session is not None else SimpleNamespace()
     scanner._experiment_dir = "TestExp"
-    scanner._devices_config = devices_config or {}
-    scanner._acquisition_mode = mode
-    scanner._shot_control = None
-    scanner._shots_per_step = 2
-    scanner._detectors = []
-    scanner._motor = None
-    scanner._device_lock = threading.Lock()
     scanner._on_event = None
     scanner._current_state = None
     scanner._total_shots = 0
+    scanner._total_steps = 0
     scanner._completed_shots = 0
     scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
+    scanner._scan_request = None
+    scanner._request_resolver = None
     scanner._RE = SimpleNamespace(
         state="idle", abort=lambda reason=None: None, _loop=None
     )
     return scanner
 
 
-def _noscan_config() -> SimpleNamespace:
-    return SimpleNamespace(
-        scan_mode="noscan",
-        device_var=None,
-        start=0.0,
-        end=0.0,
-        step=0.0,
-        wait_time=1.0,
-        additional_description="",
-        background=False,
-    )
+def _noscan_request_sentinel() -> SimpleNamespace:
+    """A stored-request stand-in for tests that stub run_scan_request.
 
-
-def _patch_claim(monkeypatch, claims: list, result=(None, None)) -> None:
-    """Record every claim attempt made through either claim entry point."""
-    monkeypatch.setattr(
-        bluesky_scanner,
-        "claim_scan_number",
-        lambda experiment: claims.append(experiment) or result,
-    )
-    monkeypatch.setattr(
-        bluesky_scanner,
-        "claim_scan",
-        lambda experiment: claims.append(experiment) or result,
-    )
+    ``_run_delegated_request`` only reads ``.mode`` before handing the
+    request to the (monkeypatched) runner, so a SimpleNamespace suffices.
+    """
+    return SimpleNamespace(mode=ScanRequestMode.NOSCAN)
 
 
 # ---------------------------------------------------------------------------
-# Finding A — reference connect failure must reclassify or abort loudly
+# Stop before the delegated runner runs; timed-out thread join
 # ---------------------------------------------------------------------------
 
 
-def test_reference_connect_failure_promotes_next_sync_device(caplog) -> None:
-    """The next synchronous device becomes the Triggerable pacemaker."""
-    session = _FakeSession(fail={"U_RefCam"})
-    scanner = _make_scanner(
-        session,
-        {
-            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
-            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
-            "U_Stage": {"synchronous": False, "variable_list": ["Pos"]},
-        },
+def test_stop_before_run_prevents_delegation(monkeypatch, caplog) -> None:
+    """A stop that lands before _run_scan starts never reaches the runner."""
+    scanner = _make_scanner()
+    scanner._scan_request = _noscan_request_sentinel()
+    scanner._request_resolver = object()
+    scanner._abort_requested = True  # the stop button, pre-acquisition
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    runs: list = []
+    monkeypatch.setattr(
+        bluesky_scanner, "run_scan_request", lambda *a, **kw: runs.append(a)
     )
 
     with caplog.at_level(logging.WARNING):
-        detectors = scanner._build_session_devices()
+        scanner._run_scan()
 
-    # Promoted device leads the list (session.scan uses detectors[0] as the
-    # pacemaker) and was built Triggerable via the detector factory.
-    assert detectors[0].name == "u_cam2"
-    assert isinstance(detectors[0], _FakeTriggerable)
-    assert ("detector", "U_Cam2") in session.calls
-    assert ("contributor", "U_Cam2") not in session.calls
-    assert "Promoting U_Cam2 to free-run reference" in caplog.text
-    assert [d.name for d in detectors] == ["u_cam2", "u_stage"]
+    assert runs == [], "the delegated runner must never be invoked"
+    assert scanner.current_state == "aborted"
+    assert "stop requested before acquisition" in caplog.text
 
 
-def test_reference_promotion_cascades_past_further_failures() -> None:
-    """If the promoted device also fails, promotion moves to the next one."""
-    session = _FakeSession(fail={"U_RefCam", "U_Cam2"})
-    scanner = _make_scanner(
-        session,
-        {
-            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
-            "U_Cam2": {"synchronous": True, "variable_list": ["Val"]},
-            "U_Cam3": {"synchronous": True, "variable_list": ["Val"]},
-        },
-    )
+def test_run_scan_without_stored_request_aborts_loudly(monkeypatch, caplog) -> None:
+    """A scan thread with no stored ScanRequest fails loudly, never silently."""
+    scanner = _make_scanner()
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
 
-    detectors = scanner._build_session_devices()
+    with caplog.at_level(logging.ERROR):
+        scanner._run_scan()
 
-    assert detectors[0].name == "u_cam3"
-    assert isinstance(detectors[0], _FakeTriggerable)
-    assert ("detector", "U_Cam3") in session.calls
+    assert scanner.current_state == "aborted"
+    assert "no stored ScanRequest" in caplog.text
 
 
-def test_reference_failure_without_promotable_device_aborts_loudly() -> None:
-    """No Triggerable pacemaker available -> raise instead of acquiring garbage."""
-    session = _FakeSession(fail={"U_RefCam"})
-    scanner = _make_scanner(
-        session,
-        {
-            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
-            "U_Stage": {"synchronous": False, "variable_list": ["Pos"]},
-        },
-    )
+def test_timed_out_join_keeps_scanner_active(monkeypatch, caplog) -> None:
+    """A join timeout must not clear the handle while the thread still runs."""
+    scanner = _make_scanner()
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    monkeypatch.setattr(bluesky_scanner, "_THREAD_JOIN_TIMEOUT", 0.05)
+    scanner._RE = SimpleNamespace(state="running", abort=lambda reason=None: None)
 
-    with pytest.raises(GeecsConfigurationError, match="pacemaker"):
-        scanner._build_session_devices()
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True, name="stuck-scan")
+    thread.start()
+    scanner._scan_thread = thread
+    scanner._scan_finished = False
+    try:
+        with caplog.at_level(logging.ERROR):
+            scanner.stop_scanning_thread()
 
-    # No acquisition was started, and the device that did connect is tracked
-    # so the scan thread's cleanup disconnects it.
-    assert session.scan_kwargs is None
-    assert [d.name for d in scanner._detectors] == ["u_stage"]
+        assert scanner._scan_thread is thread, "handle kept after timed-out join"
+        assert scanner.is_scanning_active() is True
+        assert "did not stop" in caplog.text
+    finally:
+        release.set()
+        thread.join(timeout=5)
+
+    # Once the thread actually exits, a subsequent stop clears the handle.
+    scanner._RE = SimpleNamespace(state="idle", abort=lambda reason=None: None)
+    scanner.stop_scanning_thread()
+    assert scanner._scan_thread is None
+    assert scanner.is_scanning_active() is False
+
+
+# ---------------------------------------------------------------------------
+# Plan guards (belt-and-suspenders, independent of the bridge)
+# ---------------------------------------------------------------------------
 
 
 def test_free_run_plan_rejects_non_triggerable_reference() -> None:
@@ -249,525 +181,27 @@ def test_free_run_plan_still_requires_shot_id_tracker() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Finding B — stop before the RunEngine runs; timed-out thread join
-# ---------------------------------------------------------------------------
-
-
-def test_stop_during_device_connect_prevents_plan_execution(
-    monkeypatch, caplog
-) -> None:
-    """A stop clicked while devices connect aborts before RE(plan) runs."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_RefCam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-
-    original_detector = session.detector
-
-    def detector_with_stop(device, variables, **kwargs):
-        det = original_detector(device, variables, **kwargs)
-        scanner._abort_requested = True  # the stop button, mid-connect
-        return det
-
-    session.detector = detector_with_stop
-    claims: list = []
-    _patch_claim(monkeypatch, claims)
-
-    with caplog.at_level(logging.WARNING):
-        scanner._run_scan(_noscan_config())
-
-    assert session.scan_kwargs is None, "plan must never reach the RunEngine"
-    assert claims == [], "no scan folder may be claimed for an aborted scan"
-    assert scanner.current_state == "aborted"
-    assert "stop requested before acquisition" in caplog.text
-
-
-def test_timed_out_join_keeps_scanner_active(monkeypatch, caplog) -> None:
-    """A join timeout must not clear the handle while the thread still runs."""
-    scanner = _make_scanner(_FakeSession())
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    monkeypatch.setattr(bluesky_scanner, "_THREAD_JOIN_TIMEOUT", 0.05)
-    scanner._RE = SimpleNamespace(state="running", abort=lambda reason=None: None)
-
-    release = threading.Event()
-    thread = threading.Thread(target=release.wait, daemon=True, name="stuck-scan")
-    thread.start()
-    scanner._scan_thread = thread
-    try:
-        with caplog.at_level(logging.ERROR):
-            scanner.stop_scanning_thread()
-
-        assert scanner._scan_thread is thread, "handle kept after timed-out join"
-        assert scanner.is_scanning_active() is True
-        assert "did not stop" in caplog.text
-    finally:
-        release.set()
-        thread.join(timeout=5)
-
-    # Once the thread actually exits, a subsequent stop clears the handle.
-    scanner._RE = SimpleNamespace(state="idle", abort=lambda reason=None: None)
-    scanner.stop_scanning_thread()
-    assert scanner._scan_thread is None
-    assert scanner.is_scanning_active() is False
-
-
-# ---------------------------------------------------------------------------
-# Finding C — validate before claiming; clean up on early exits
-# ---------------------------------------------------------------------------
-
-
-def test_statistics_with_no_detectors_claims_no_folder(monkeypatch, caplog) -> None:
-    """The no-usable-detectors early exit must not leave a claimed folder."""
-    session = _FakeSession()
-    scanner = _make_scanner(session, devices_config={})
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    claims: list = []
-    _patch_claim(monkeypatch, claims)
-
-    with caplog.at_level(logging.INFO):
-        scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
-
-    assert claims == []
-    assert session.scan_kwargs is None
-    assert "nothing to collect" in caplog.text
-
-
-def test_strict_mode_without_shot_control_raises_before_claim(monkeypatch) -> None:
-    """The strict-mode raise path fires before any scan folder is claimed."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {"U_RefCam": {"synchronous": True, "variable_list": ["Sig"]}},
-        mode="strict_shot_control",
-    )
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    claims: list = []
-    _patch_claim(monkeypatch, claims)
-
-    with pytest.raises(GeecsConfigurationError, match="strict_shot_control"):
-        scanner._execute_scan(_noscan_config(), motor=None, positions=[None])
-
-    assert claims == []
-
-
-def test_optimization_without_detectors_claims_nothing_and_no_settables(
-    monkeypatch, caplog
-) -> None:
-    """Empty detector list exits before connecting settables or claiming."""
-    session = _FakeSession()
-    scanner = _make_scanner(session, devices_config={})
-    scanner._optimization_loader = lambda path: SimpleNamespace(
-        variable_names=["U_S1H:Current"]
-    )
-    claims: list = []
-    _patch_claim(monkeypatch, claims)
-
-    scan_config = SimpleNamespace(
-        optimizer_config_path="/cfg/opt.yaml",
-        start=0.0,
-        end=1.0,
-        step=1.0,
-        wait_time=1.0,
-        additional_description="",
-    )
-    with caplog.at_level(logging.ERROR):
-        scanner._run_optimization(scan_config)
-
-    assert session.settables == [], "no CA monitors may be opened on this path"
-    assert claims == []
-    assert session.optimize_kwargs is None
-    assert "aborting before claiming" in caplog.text
-
-
-def test_optimization_postclaim_failure_tracks_settables_and_logs(
-    monkeypatch, caplog
-) -> None:
-    """A failure after the claim leaves settables cleanable and a loud record."""
-
-    class _ExplodingBridge:
-        variable_names = ["U_S1H:Current"]
-
-        def bind(self, **kwargs):
-            raise RuntimeError("bind exploded")
-
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_RefCam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
-    scanner._optimization_loader = lambda path: _ExplodingBridge()
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    claims: list = []
-    _patch_claim(
-        monkeypatch, claims, result=(SimpleNamespace(number=7), "/tmp/Scan007")
-    )
-
-    scan_config = SimpleNamespace(
-        optimizer_config_path="/cfg/opt.yaml",
-        start=0.0,
-        end=1.0,
-        step=1.0,
-        wait_time=1.0,
-        additional_description="",
-    )
-    with caplog.at_level(logging.ERROR):
-        with pytest.raises(RuntimeError, match="bind exploded"):
-            scanner._run_optimization(scan_config)
-
-    # The connected settable joined self._detectors before the failure, so
-    # the scan thread's cleanup will disconnect its persistent CA monitor.
-    tracked = [d.name for d in scanner._detectors]
-    assert "u_s1h_current" in tracked
-    # The claimed-but-aborted state is surfaced loudly, never silently.
-    assert "claimed" in caplog.text
-    assert "left in place" in caplog.text
-
-
-# ---------------------------------------------------------------------------
-# Empty variable_list — synchronous devices still build (image-only cameras)
-# ---------------------------------------------------------------------------
-
-
-def test_variableless_sync_reference_is_built_not_skipped() -> None:
-    """A save-images-only camera is a valid free-run reference.
-
-    acq_timestamp is always created as a dedicated child of the CA detector,
-    so an empty variable_list must not disqualify a synchronous device —
-    the legacy scanner force-appends acq_timestamp for the same reason.
-    Regression: this config used to be skipped at DEBUG and then aborted
-    with a misleading "failed to connect" error (live-check 2026-07-06,
-    single healthy UC_Amp4_IR_input, laser-off).
-    """
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {
-            "U_Cam": {
-                "synchronous": True,
-                "variable_list": [],
-                "save_nonscalar_data": True,
-            },
-        },
-    )
-
-    detectors = scanner._build_session_devices()
-
-    assert session.calls == [("detector", "U_Cam")]
-    assert len(detectors) == 1
-    assert isinstance(detectors[0], _FakeTriggerable)
-
-
-def test_variableless_sync_contributor_is_built() -> None:
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {
-            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
-            "U_Cam2": {
-                "synchronous": True,
-                "variable_list": [],
-                "save_nonscalar_data": True,
-            },
-        },
-    )
-
-    detectors = scanner._build_session_devices()
-
-    assert ("contributor", "U_Cam2") in session.calls
-    assert len(detectors) == 2
-
-
-def test_variableless_snapshot_is_skipped_with_warning(caplog) -> None:
-    """An async device with no variables records nothing — skip loudly."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {
-            "U_RefCam": {"synchronous": True, "variable_list": ["Sig"]},
-            "U_Idle": {"synchronous": False, "variable_list": []},
-        },
-    )
-
-    with caplog.at_level(logging.WARNING):
-        detectors = scanner._build_session_devices()
-
-    assert ("snapshot", "U_Idle") not in session.calls
-    assert len(detectors) == 1
-    assert any(
-        "U_Idle" in r.message and "empty variable_list" in r.message
-        for r in caplog.records
-    )
-
-
-# ---------------------------------------------------------------------------
-# Analyzer-device auto-provisioning (legacy device_requirements parity)
-# ---------------------------------------------------------------------------
-
-
-class _FakeBridge:
-    """Duck-typed optimization bridge (mirrors SessionOptimizationBridge)."""
-
-    variable_names = ["U_S1H:Current"]
-    on_finish = "hold"
-
-    def __init__(self, device_requirements: dict | None = None) -> None:
-        if device_requirements is not None:
-            self.device_requirements = device_requirements
-        self.bound_kwargs: dict | None = None
-
-    def bind(self, **kwargs):
-        self.bound_kwargs = kwargs
-        return (lambda bin_data: 0.0), self
-
-
-def _opt_scan_config() -> SimpleNamespace:
-    return SimpleNamespace(
-        optimizer_config_path="/cfg/opt.yaml",
-        start=0.0,
-        end=1.0,
-        step=1.0,
-        wait_time=1.0,
-        additional_description="",
-    )
-
-
-def _run_optimization_with_bridge(monkeypatch, scanner, bridge) -> None:
-    scanner._optimization_loader = lambda path: bridge
-    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    _patch_claim(monkeypatch, [], result=(None, None))
-    scanner._run_optimization(_opt_scan_config())
-
-
-def test_optimization_auto_provisions_required_analyzer_device(
-    monkeypatch, caplog
-) -> None:
-    """A required device absent from the GUI list is built as a sync detector."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}},
-        mode="strict_shot_control",
-    )
-    scanner._shot_control = object()  # strict mode only checks presence here
-    bridge = _FakeBridge(
-        {
-            "Devices": {
-                "UC_ObjCam": {
-                    "add_all_variables": False,
-                    "save_nonscalar_data": True,
-                    "synchronous": True,
-                    "variable_list": ["acq_timestamp"],
-                }
-            }
-        }
-    )
-
-    with caplog.at_level(logging.INFO):
-        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
-
-    # Merged before _build_session_devices: synchronous → detector factory.
-    assert ("detector", "UC_ObjCam") in session.calls
-    cfg = scanner._devices_config["UC_ObjCam"]
-    assert cfg["synchronous"] is True
-    assert cfg["save_nonscalar_data"] is True
-    assert cfg["variable_list"] == ["acq_timestamp"]
-    detector_names = [d.name for d in session.optimize_kwargs["detectors"]]
-    assert "uc_objcam" in detector_names
-    assert "auto-provisioned" in caplog.text
-
-
-def test_optimization_merges_required_variables_into_gui_device(
-    monkeypatch, caplog
-) -> None:
-    """An overlapping device keeps its GUI config and gains missing variables."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {
-            "UC_ObjCam": {
-                "synchronous": True,
-                "save_nonscalar_data": False,
-                "variable_list": ["MeanCounts"],
-            }
-        },
-        mode="strict_shot_control",
-    )
-    scanner._shot_control = object()
-    bridge = _FakeBridge(
-        {
-            "Devices": {
-                "UC_ObjCam": {
-                    "synchronous": True,
-                    "save_nonscalar_data": True,
-                    "variable_list": ["MeanCounts", "acq_timestamp"],
-                }
-            }
-        }
-    )
-
-    with caplog.at_level(logging.INFO):
-        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
-
-    cfg = scanner._devices_config["UC_ObjCam"]
-    # Union of variables; GUI settings (save flag) preserved.
-    assert cfg["variable_list"] == ["MeanCounts", "acq_timestamp"]
-    assert cfg["save_nonscalar_data"] is False
-    assert session.calls.count(("detector", "UC_ObjCam")) == 1
-    assert "GUI settings preserved" in caplog.text
-
-
-def test_optimization_case_mismatched_requirement_merges_into_gui_device(
-    monkeypatch, caplog
-) -> None:
-    """A requirement differing only in case merges under the GUI spelling.
-
-    Live-observed 2026-07-06: the DB (and gateway PVs) spelled the camera
-    ``UC_Amp4_IR_input`` while the optimizer config said ``UC_Amp4_IR_Input``;
-    the case-sensitive merge added a duplicate wrong-case device whose PVs
-    could never connect.  The GUI/DB spelling must win.
-    """
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {
-            "UC_Cam_input": {
-                "synchronous": True,
-                "save_nonscalar_data": False,
-                "variable_list": ["MeanCounts"],
-            }
-        },
-        mode="strict_shot_control",
-    )
-    scanner._shot_control = object()
-    bridge = _FakeBridge(
-        {
-            "Devices": {
-                "UC_Cam_Input": {
-                    "synchronous": True,
-                    "save_nonscalar_data": True,
-                    "variable_list": ["MeanCounts", "acq_timestamp"],
-                }
-            }
-        }
-    )
-
-    with caplog.at_level(logging.INFO):
-        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
-
-    # One device, under the GUI's spelling — no wrong-case duplicate.
-    assert "UC_Cam_Input" not in scanner._devices_config
-    cfg = scanner._devices_config["UC_Cam_input"]
-    assert cfg["variable_list"] == ["MeanCounts", "acq_timestamp"]
-    assert cfg["save_nonscalar_data"] is False  # GUI settings preserved
-    assert [c for c in session.calls if c[0] == "detector"] == [
-        ("detector", "UC_Cam_input")
-    ]
-    # The case difference is called out, naming the spelling that was used.
-    assert "differs only in case" in caplog.text
-    assert "merging under the GUI spelling UC_Cam_input" in caplog.text
-
-
-def test_optimization_auto_provision_hints_at_case_sensitive_pv_names(
-    monkeypatch, caplog
-) -> None:
-    """A genuinely-new device is still added, with the spelling hint logged.
-
-    When no GUI save element covers the required device, the requirement's
-    own spelling is all we have — the log must point the operator at the
-    failure mode (wrong-case spellings abort the scan with NotConnectedError
-    on every PV).
-    """
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session,
-        {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}},
-        mode="strict_shot_control",
-    )
-    scanner._shot_control = object()
-    bridge = _FakeBridge(
-        {
-            "Devices": {
-                "UC_ObjCam": {
-                    "synchronous": True,
-                    "save_nonscalar_data": True,
-                    "variable_list": ["acq_timestamp"],
-                }
-            }
-        }
-    )
-
-    with caplog.at_level(logging.INFO):
-        _run_optimization_with_bridge(monkeypatch, scanner, bridge)
-
-    assert "UC_ObjCam" in scanner._devices_config  # requirement spelling kept
-    assert ("detector", "UC_ObjCam") in session.calls
-    assert "auto-provisioned" in caplog.text
-    assert "verify the spelling matches the GEECS database" in caplog.text
-    assert "CA PV names are case-sensitive" in caplog.text
-
-
-def test_optimization_bridge_without_requirements_is_unchanged(monkeypatch) -> None:
-    """A bridge without a device_requirements attribute changes nothing."""
-    session = _FakeSession()
-    gui_devices = {"U_Ref": {"synchronous": True, "variable_list": ["Sig"]}}
-    scanner = _make_scanner(
-        session,
-        {name: dict(cfg) for name, cfg in gui_devices.items()},
-        mode="strict_shot_control",
-    )
-    scanner._shot_control = object()
-    bridge = _FakeBridge()  # no device_requirements attribute at all
-
-    _run_optimization_with_bridge(monkeypatch, scanner, bridge)
-
-    assert scanner._devices_config == gui_devices
-    assert [c for c in session.calls if c[0] == "detector"] == [("detector", "U_Ref")]
-
-
-def test_reference_abort_message_names_the_failing_devices() -> None:
-    """The loud abort says WHY each device failed, not just that it did."""
-    session = _FakeSession(fail={"U_RefCam"})
-    scanner = _make_scanner(
-        session,
-        {"U_RefCam": {"synchronous": True, "variable_list": ["Sig"]}},
-    )
-
-    with pytest.raises(GeecsConfigurationError) as excinfo:
-        scanner._build_session_devices()
-
-    assert "U_RefCam" in str(excinfo.value)
-    assert "connect failed" in str(excinfo.value)
-
-
-# ---------------------------------------------------------------------------
-# Operator-requested aborts are quiet (0.36.0) — no ERROR tracebacks
+# Operator-requested aborts are quiet — no ERROR tracebacks
 # ---------------------------------------------------------------------------
 
 
 def test_scan_thread_operator_abort_logs_info_not_error(monkeypatch, caplog) -> None:
     """An exception unwinding after Stop is one INFO line, not a traceback."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
+    scanner = _make_scanner()
+    scanner._scan_request = _noscan_request_sentinel()
+    scanner._request_resolver = object()
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
-    monkeypatch.setattr(
-        scanner,
-        "_preflight_check_sync_liveness",
-        lambda detectors, strict, **kw: detectors,
-    )
 
-    def scan_stopped_mid_run(**kwargs):
+    def run_stopped_mid_scan(*args, **kwargs):
         # The operator's Stop: the flag is set and something unwinds out of
         # the interrupted run (the shape of the 2026-07-15 field incident).
         scanner._abort_requested = True
         raise RuntimeError("unwinding after RE.abort()")
 
-    session.scan = scan_stopped_mid_run
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", run_stopped_mid_scan)
 
     with caplog.at_level(logging.INFO):
-        scanner._run_scan(_noscan_config())
+        scanner._run_scan()
 
     assert scanner.current_state == "aborted"
     errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
@@ -776,34 +210,22 @@ def test_scan_thread_operator_abort_logs_info_not_error(monkeypatch, caplog) -> 
         "exiting after operator abort" in r.getMessage() and r.levelno == logging.INFO
         for r in caplog.records
     )
-    # The claimed-folder note is the calm WARNING variant.
-    assert any(
-        "aborted by operator" in r.getMessage() and r.levelno == logging.WARNING
-        for r in caplog.records
-    )
 
 
 def test_scan_thread_genuine_failure_keeps_error_traceback(monkeypatch, caplog) -> None:
     """Without an abort request, a raising scan thread still ERRORs loudly."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
+    scanner = _make_scanner()
+    scanner._scan_request = _noscan_request_sentinel()
+    scanner._request_resolver = object()
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
-    monkeypatch.setattr(
-        scanner,
-        "_preflight_check_sync_liveness",
-        lambda detectors, strict, **kw: detectors,
-    )
 
-    def scan_blows_up(**kwargs):
+    def run_blows_up(*args, **kwargs):
         raise RuntimeError("genuine failure")
 
-    session.scan = scan_blows_up
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", run_blows_up)
 
     with caplog.at_level(logging.INFO):
-        scanner._run_scan(_noscan_config())
+        scanner._run_scan()
 
     assert scanner.current_state == "aborted"
     tracebacks = [
@@ -813,116 +235,85 @@ def test_scan_thread_genuine_failure_keeps_error_traceback(monkeypatch, caplog) 
         and "scan thread raised an exception" in r.getMessage()
     ]
     assert len(tracebacks) == 1 and tracebacks[0].exc_info is not None
-    assert any(
-        "failed or aborted" in r.getMessage() and r.levelno == logging.ERROR
-        for r in caplog.records
-    ), "the genuine-failure claimed-folder note must stay ERROR"
 
 
-def test_operator_abort_quiet_return_notes_folder_calmly(monkeypatch, caplog) -> None:
-    """session.scan's quiet aborted return → calm folder WARNING, no ERROR."""
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
+def test_operator_abort_quiet_return_reports_aborted(monkeypatch, caplog) -> None:
+    """The runner's quiet aborted-outcome return still reports ABORTED."""
+    scanner = _make_scanner(SimpleNamespace(last_run_aborted=False))
+    scanner._scan_request = _noscan_request_sentinel()
+    scanner._request_resolver = object()
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
-    monkeypatch.setattr(
-        scanner,
-        "_preflight_check_sync_liveness",
-        lambda detectors, strict, **kw: detectors,
-    )
 
-    def scan_aborted_quietly(**kwargs):
+    def run_aborted_quietly(session, *args, **kwargs):
         scanner._abort_requested = True  # Stop arrived while the RE ran
         session.last_run_aborted = True  # session translated it quietly
         return "uid"
 
-    session.scan = scan_aborted_quietly
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", run_aborted_quietly)
 
     with caplog.at_level(logging.INFO):
-        scanner._run_scan(_noscan_config())
+        scanner._run_scan()
 
     assert scanner.current_state == "aborted"
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
-    notes = [
-        r
-        for r in caplog.records
-        if "aborted by operator" in r.getMessage() and "kept" in r.getMessage()
-    ]
-    assert [r.levelno for r in notes] == [logging.WARNING]
+
+
+class _FinishTrackingBridge:
+    """Loader-returned optimization bridge fake with finish() bookkeeping."""
+
+    def __init__(self) -> None:
+        self.finished = False
+
+    def bind(self, **kwargs):
+        return (lambda bin_data: 0.0), self
+
+    def finish(self) -> None:
+        self.finished = True
+
+
+def _optimize_request_sentinel() -> SimpleNamespace:
+    return SimpleNamespace(mode=ScanRequestMode.OPTIMIZE, optimization=object())
 
 
 def test_optimization_operator_abort_skips_finish_and_stays_calm(
     monkeypatch, caplog
 ) -> None:
-    """An aborted optimization skips bridge.finish() (legacy parity) quietly."""
-
-    class _FinishTrackingBridge(_FakeBridge):
-        def __init__(self) -> None:
-            super().__init__()
-            self.finished = False
-
-        def finish(self) -> None:
-            self.finished = True
-
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
+    """An aborted optimization skips bridge.finish() quietly."""
+    session = SimpleNamespace(last_run_aborted=False)
+    scanner = _make_scanner(session)
     bridge = _FinishTrackingBridge()
-    scanner._optimization_loader = lambda path: bridge
+    scanner._optimization_loader = lambda spec: bridge
+    scanner._scan_request = _optimize_request_sentinel()
+    scanner._request_resolver = object()
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    _patch_claim(
-        monkeypatch, [], result=(SimpleNamespace(number=7), "/nonexistent/Scan007")
-    )
 
-    def optimize_aborted(**kwargs):
-        session.optimize_kwargs = kwargs
+    def optimize_aborted(inner_session, *args, **kwargs):
         scanner._abort_requested = True
-        session.last_run_aborted = True
-        return "uid", []
+        inner_session.last_run_aborted = True
+        return "uid"
 
-    session.optimize = optimize_aborted
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", optimize_aborted)
 
     with caplog.at_level(logging.INFO):
-        scanner._run_scan(
-            SimpleNamespace(
-                scan_mode="optimization",
-                optimizer_config_path="/cfg/opt.yaml",
-                start=0.0,
-                end=1.0,
-                step=1.0,
-                wait_time=1.0,
-                additional_description="",
-            )
-        )
+        scanner._run_scan()
 
     assert scanner.current_state == "aborted"
     assert bridge.finished is False, "finish() must not run after an abort"
     assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
-    assert any(
-        "aborted by operator" in r.getMessage() and r.levelno == logging.WARNING
-        for r in caplog.records
-    )
 
 
 def test_optimization_normal_completion_still_runs_finish(monkeypatch) -> None:
     """The abort guard must not eat the successful-run finish() bookkeeping."""
-
-    class _FinishTrackingBridge(_FakeBridge):
-        def __init__(self) -> None:
-            super().__init__()
-            self.finished = False
-
-        def finish(self) -> None:
-            self.finished = True
-
-    session = _FakeSession()
-    scanner = _make_scanner(
-        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
-    )
+    session = SimpleNamespace(last_run_aborted=False)
+    scanner = _make_scanner(session)
     bridge = _FinishTrackingBridge()
-    _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+    scanner._optimization_loader = lambda spec: bridge
+    scanner._scan_request = _optimize_request_sentinel()
+    scanner._request_resolver = object()
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", lambda *a, **kw: "uid")
 
+    scanner._run_scan()
+
+    assert scanner.current_state == "done"
     assert bridge.finished is True

@@ -117,5 +117,5 @@ df = run["primary"].read()
 
 # Run hardware integration test (requires lab network)
 cd GeecsBluesky
-poetry run python test_bluesky_scanner.py
+poetry run pytest tests/test_scan_request_hardware.py -m integration -s
 ```

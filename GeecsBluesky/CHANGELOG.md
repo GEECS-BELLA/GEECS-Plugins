@@ -4,6 +4,52 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.39.0] - 2026-07-16
+
+### Removed
+
+- **The bridge's legacy `exec_config` path, root-and-stem** (G3, executed
+  early by owner decision — the cutover doc had re-timed it to M6; the
+  old GUI path is abandoned on `dev`, and `master`'s legacy scanner line
+  is untouched). `BlueskyScanner.reinitialize` now accepts **only** a
+  `geecs_schemas.ScanRequest` and raises a clear `TypeError` for anything
+  else, so the legacy `GEECS-Scanner-GUI` `RunControl` can no longer
+  launch scans from this branch (accepted and documented breakage).
+  Deleted with the arm: the duck-typed exec_config `reinitialize` branch,
+  `_execute_scan` / `_run_standard_scan` / `_run_noscan` /
+  `_run_optimization`, the bridge-side device-build twin
+  (`_build_session_devices` + `_classify_device_roles` — the delegated
+  runner's `_build_request_detectors` owns device building since 0.28.0),
+  the bridge-side optimizer-requirements merge
+  (`_merge_optimization_device_requirements` — superseded by the runner's
+  `merge_optimizer_device_requirements`, 0.38.0), the
+  `shots_per_step = round(rep_rate × wait_time)` derivation, the
+  `GEECS_BLUESKY_ACQUISITION_MODE` env override
+  (`_resolve_acquisition_mode` — acquisition comes from the request), the
+  `shot_control_information` constructor parameter (trigger profiles are
+  resolved per request by the runner), bridge-side claim/scan.log/device
+  bookkeeping that existed only for the deleted arm, the dead
+  `last_reinit_error` attribute, and the exec_config-driven
+  `test_bluesky_scanner.py` hardware script
+  (`tests/test_scan_request_hardware.py` is the hardware test).
+- **The `optimization_loader` contract is `OptimizationSpec`-only**: the
+  legacy calling convention (optimizer-YAML path string) is gone with the
+  exec_config arm; the loader receives the request's resolved
+  `OptimizationSpec` (the console's loader already speaks this).
+
+### Changed
+
+- Pre-flight drop-and-continue no longer disconnects dropped devices in
+  the bridge — the delegated runner's `finally` owns disconnection of
+  everything it creates (this was already the behavior on the delegated
+  path; the disconnecting variant existed only for the deleted arm).
+- Exec_config-path test suites converted to the delegated path or
+  deleted: the operator-dialog pre-flight suite now drives the runner's
+  `_delegated_preflight` hook directly; lifecycle/abort-quietness tests
+  drive the delegated scan thread; device-build/claim-ordering tests
+  that pinned the deleted twin are gone (the runner's own suites pin the
+  surviving definitions).
+
 ## [0.38.2] - 2026-07-16
 
 ### Fixed

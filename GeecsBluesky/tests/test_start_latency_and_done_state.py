@@ -32,17 +32,16 @@ class TestDoneImpliesInactive:
         scanner._current_state = None
         scanner._scan_number = None
         scanner._scan_thread = None
-        scanner._scan_request = None
         scanner._total_shots = 0
-        scanner._disconnect_devices_sync = lambda: None  # type: ignore[method-assign]
+        # A stored-request sentinel plus a no-op delegated run: the shortest
+        # real path through _run_scan's cleanup (the finally block).
+        scanner._scan_request = SimpleNamespace(mode="noscan")
+        scanner._run_delegated_request = lambda: None  # type: ignore[method-assign]
         return scanner
 
     def test_done_event_observes_inactive_scanner(self) -> None:
         events: list[tuple] = []
         scanner = self._bare_scanner(events)
-        # An unsupported mode runs the thread body straight to the finally
-        # block — the shortest real path through _run_scan's cleanup.
-        scanner._scan_config = SimpleNamespace(scan_mode="unsupported-mode")
 
         scanner.start_scan_thread()
         scanner._scan_thread.join(timeout=5.0)
@@ -61,7 +60,6 @@ class TestDoneImpliesInactive:
     def test_aborted_event_observes_inactive_scanner(self) -> None:
         events: list[tuple] = []
         scanner = self._bare_scanner(events)
-        scanner._scan_config = SimpleNamespace(scan_mode="unsupported-mode")
 
         scanner.start_scan_thread()
         scanner._abort_requested = True  # simulate a stop arriving mid-run
@@ -77,7 +75,6 @@ class TestDoneImpliesInactive:
     def test_restart_resets_the_finished_flag(self) -> None:
         events: list[tuple] = []
         scanner = self._bare_scanner(events)
-        scanner._scan_config = SimpleNamespace(scan_mode="unsupported-mode")
         scanner.start_scan_thread()
         scanner._scan_thread.join(timeout=5.0)
         assert scanner.is_scanning_active() is False
@@ -87,7 +84,7 @@ class TestDoneImpliesInactive:
 
         release = threading.Event()
 
-        def blocking_run(_config):
+        def blocking_run():
             release.wait(timeout=5.0)
 
         scanner._run_scan = blocking_run  # type: ignore[method-assign]

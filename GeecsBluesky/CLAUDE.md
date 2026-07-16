@@ -3,17 +3,27 @@
 Bridges the GEECS hardware control system to the
 [Bluesky](https://blueskyproject.io/) experiment orchestration ecosystem.
 The primary product is `BlueskyScanner` — a RunEngine-backed scan executor
-designed to become a `ScanManager` replacement.  It runs from the
-`GEECS-Scanner-GUI` (`use_bluesky=True`, or the `GEECS_USE_BLUESKY` env var
-for a stock GUI session) and has been hardware-verified for both acquisition
-modes (free-run and strict) including DG645 shot control; first GUI-launched
+consumed by `GEECS-Console` through its `Submitter` protocol (and headless
+via `GeecsSession`).  Hardware-verified for both acquisition modes
+(free-run and strict) including DG645 shot control; first GUI-launched
 scans ran in production on 2026-07-06.
+
+**The one submission shape is `geecs_schemas.ScanRequest`.**  The legacy
+duck-typed `exec_config` path was deleted root-and-stem (G3, executed
+early 2026-07-16 by owner decision — the cutover doc had re-timed it to
+M6): `reinitialize` raises `TypeError` for anything but a `ScanRequest`,
+so the legacy `GEECS-Scanner-GUI` can no longer launch scans from `dev`
+(accepted and deliberate; `master`'s legacy scanner line is untouched —
+the fallback story is unchanged).  GEECS-Scanner-GUI stays in-tree only
+for its `optimization` module (the console's `optimization` extra) until
+M6 deletes it whole.
 
 ## Two acquisition modes (the core architecture)
 
-Scans run in one of two modes, selected by the
-`GEECS_BLUESKY_ACQUISITION_MODE` env var (`free_run_time_sync` or
-`strict_shot_control`; default strict).  Both write the **same versioned event
+Scans run in one of two modes, declared by the request
+(`ScanRequest.acquisition`: `free_run` or `strict`; the old
+`GEECS_BLUESKY_ACQUISITION_MODE` env override died with the exec_config
+path — a request declares intent).  Both write the **same versioned event
 schema** (`EVENT_SCHEMA.md`); consumers branch on `geecs_event_schema`, never on
 the mode.  `EVENT_SCHEMA.md` is the canonical data contract.
 
@@ -63,8 +73,8 @@ geecs_bluesky/
                             #   action slot assembly (§4.4b layers) + compile
                             #   + signal prefetch, multi-axis grid execution
   scanner_bridge/
-    bluesky_scanner.py      # BlueskyScanner — ScanManager-compatible GUI bridge
-                            #   (reinitialize also accepts a ScanRequest)
+    bluesky_scanner.py      # BlueskyScanner — the GUI/console bridge
+                            #   (reinitialize accepts ONLY a ScanRequest)
   plans/
     orchestration.py        # build_step_scan_plan — THE one scan recipe (both front
                             #   doors); setup/per_step/closeout action hooks +
@@ -133,74 +143,45 @@ EVENT_SCHEMA.md — the canonical event-schema v1 data contract (read it).
 
 ## BlueskyScanner — Key Design Points
 
-### Public API (matches ScanManager)
+### Public API (the console `Submitter` protocol)
 
 ```python
 scanner = BlueskyScanner(
     experiment_dir="Undulator",
-    shot_control_information=shot_ctrl_yaml_dict,  # optional
+    on_event=...,                    # optional GUI event callback
+    optimization_loader=...,         # optional, optimize mode only
 )
-scanner.reinitialize(exec_config)   # stores config; no hardware yet
-scanner.start_scan_thread()         # launches scan in background thread
+scanner.reinitialize(request)       # ScanRequest ONLY; validates fail-fast
+scanner.start_scan_thread()         # runs it via run_scan_request in a thread
 scanner.is_scanning_active()        # → bool
 scanner.estimate_current_completion()  # → 0.0–1.0
 scanner.stop_scanning_thread()      # RE.abort() + thread join
+scanner.run_action(name)            # on-demand ActionPlan (refused mid-scan)
+scanner.describe_action(name)       # pure dry-run (allowed mid-scan)
 ```
 
-`RunControl` in `GEECS-Scanner-GUI` switches between `ScanManager` and
-`BlueskyScanner` via an explicit `use_bluesky=True` or, for a stock GUI
-session, the `GEECS_USE_BLUESKY` env var (resolved by
-`geecs_scanner.engine.backend_selection`; explicit argument wins, default
-legacy).  That path loads the selected shot-control YAML and passes it as
-`shot_control_information`, and passes the `on_event` callback:
+`GEECS-Console` builds the scanner via `make_bluesky_submitter`
+(`geecs_console/submission.py`) and passes the `on_event` callback:
 BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state` —
 each carrying the claimed scan number (`scan_number=None` until the
-`ScanNNN` folder is claimed; the delegated ScanRequest path, where
-`session.scan` claims inside the engine, picks the number up from the run
-start document and re-emits RUNNING with it, so a "Scan NNN" GUI label
-works on every path) — shot-level `ScanStepEvent`s per event document via
-`_on_document` (so the
-GUI progress bar works in Bluesky mode), and pre-flight `ScanDialogEvent`s
-from the gateway-liveness check (both modes: each sync device's
+`ScanNNN` folder is claimed; `session.scan` claims inside the engine, and
+the bridge picks the number up from the run start document and re-emits
+RUNNING with it, so a "Scan NNN" GUI label works) — shot-level
+`ScanStepEvent`s per event document via `_on_document` (so the GUI
+progress bar works), and pre-flight `ScanDialogEvent`s from the
+gateway-liveness pipeline (both modes: each sync device's
 `connected_status` — the gateway `CONNECTED` PV — is read pre-claim; free-run
-adds a staleness stage for the trigger-must-be-free-running requirement)
-(all defensive imports — headless
-installs without geecs_scanner just skip emission).  `DeviceCommandEvent`
-translation is deliberately skipped (no consumer).  Still not done in
-Bluesky mode: setup-closeout actions on the legacy `exec_config` path
-(ScanRequest submissions execute actions via the delegated runner — see
-the engine-consolidation section).  Manual (operator-clicked) action
-execution is **no longer dark**: `BlueskyScanner.run_action(name)` /
-`describe_action(name)` (0.35.0) execute/dry-run a named ActionPlan on
-demand, refusing while a scan is active with the exact message
-`"scan in progress — action not started"` (the GUI surfaces it verbatim;
-these two signatures are the console Submitter contract).  The richer
-pause/decide/resume during-scan flow is issue #552.  Acquisition
-mode is chosen by
-the `GEECS_BLUESKY_ACQUISITION_MODE` env var — there is no GUI toggle for it
-(intentional; bluesky is still being derisked).
-
-### exec_config duck-typing
-
-`reinitialize(exec_config)` accepts any object with:
-- `.scan_config` — object with `scan_mode`, `device_var`, `start`, `end`, `step`,
-  `wait_time`, `additional_description`
-- `.options` — object with `rep_rate_hz`
-- `.save_config` — object with `.Devices` dict (device name → config dict or
-  Pydantic model with `variable_list`, `save_nonscalar_data`)
-
-In production this is `ScanExecutionConfig`.  In the hardware integration test it
-is a `SimpleNamespace` to avoid cross-package imports.
-
-`SaveDeviceConfig.setup_action` and `SaveDeviceConfig.closeout_action` exist in
-the current scanner model, but `BlueskyScanner` does not execute them yet.
-
-### shots_per_step derivation
-
-`ScanOptions` has no explicit shots field.  `shots_per_step` is derived as:
-```python
-max(1, round(rep_rate_hz * wait_time))
-```
+adds a staleness stage for the trigger-must-be-free-running requirement).
+`DeviceCommandEvent` translation is deliberately skipped (no consumer).
+Manual (operator-clicked) action execution:
+`BlueskyScanner.run_action(name)` / `describe_action(name)` (0.35.0)
+execute/dry-run a named ActionPlan on demand, refusing while a scan is
+active with the exact message `"scan in progress — action not started"`
+(the GUI surfaces it verbatim; these two signatures are part of the
+console Submitter contract).  The richer pause/decide/resume during-scan
+flow is issue #552.  Acquisition mode comes from
+`ScanRequest.acquisition` — deliberately no env override, a request
+declares intent.
 
 ### Shot control — `ShotControlConfig` + named states
 
@@ -214,16 +195,18 @@ empty-string no-ops (matching legacy `TriggerController`).
 `ShotController` (`shot_controller.py`) drives the shot-control device(s)
 through named states as plan stubs, via `CaPutSetter`s writing the gateway
 `:SP` PVs (put-completion rides GEECS's blocking set). Two construction
-paths: the legacy single-device `ShotControlConfig` + one setter per
-variable (state writes issued concurrently — byte-identical to the
-pre-M3b behavior, and untouched for the scanner path), and
+paths: the single-device `ShotControlConfig` + one setter per variable
+(state writes issued concurrently — byte-identical to the pre-M3b
+behavior; headless callers may still hand a `ShotControlConfig` to
+`GeecsSession.shot_control`), and
 `ShotController.from_writes(ShotControlWrites)` — generalized per-state
 **ordered** `(device, variable, value)` lists, possibly spanning several
 devices (TriggerProfile semantics: writes replayed top to bottom, each
 completing before the next; one cached `CaPutSetter` per distinct target).
 `trigger_writes_from_profile` (scan_request_runner) adapts a TriggerProfile
-into that shape; `GeecsSession.shot_control` accepts either generation.
-Both `BlueskyScanner` and `GeecsSession` use it:
+into that shape — the runner attaches it per request (`trigger_profile`
+named ⇒ writes, else `shot_control(None)`); `GeecsSession.shot_control`
+accepts either generation.  The plans use it:
 
 - `arm()` → `SCAN`, `disarm()` → `STANDBY` (per-step bracketing on the
   free-running modes; jet on during shots, off during moves)
@@ -263,13 +246,15 @@ difference lives entirely in the per-config YAML.
 
 ### Acquisition-mode dispatch
 
-`BlueskyScanner._resolve_acquisition_mode` reads `options.acquisition_mode` with
-a `GEECS_BLUESKY_ACQUISITION_MODE` env override (env wins), default strict.
-`_classify_device_roles` assigns each save device a role from the mode: free-run
-→ first sync device is `reference`, later sync devices are `contributor`
-(`CaTimestampedReadable`), async are `snapshot`; strict → all sync are
-`triggered` (`CaGenericDetector`).  STANDARD and NOSCAN share one
-`_run_step_scan` body (NOSCAN = `motor=None`, one no-move bin).
+`ScanRequest.acquisition` selects the mode (`free_run` or `strict`); the
+runner's `_build_request_detectors` (`scan_request_runner.py`) assigns each
+save device a role from it: free-run → first sync device is `reference`,
+later sync devices are `contributor` (`CaTimestampedReadable`), async are
+`snapshot`; strict → all sync are `triggered` (`CaGenericDetector`).
+Explicit `role:` overrides in the save set are honoured by
+`save_set_to_devices_config` (reference moves first; conflicting explicit
+roles across merged sets raise).  STEP and NOSCAN share one plan body
+(NOSCAN = `motor=None`, one no-move bin).
 
 ### Tiled integration
 
@@ -440,15 +425,13 @@ Device Layer section above.
 
 ### Hardware integration test
 
-`test_bluesky_scanner.py` (top-level, run with `poetry run python
-test_bluesky_scanner.py`) requires lab network access.  Tests three scenarios
-against real hardware: NOSCAN, STANDARD step scan, NOSCAN with DG645 shot control.
-The opt-in pytest case
-`test_bluesky_scanner_full_output_hardware_integration` requires
-`GEECS_BLUESKY_FULL_OUTPUT_TEST=1` and `poetry install --extras tiled`; it runs a
-real STANDARD scan with native camera saving enabled and verifies the scan
-folder, `ScanInfo`, `scan.log`, legacy scalar files, analysis s-file, saved
-camera images, and event save-path metadata.
+`tests/test_scan_request_hardware.py` (integration-marked, skipped in CI)
+runs a real ScanRequest end to end against the live gateway over the lab
+network / VPN — save set + trigger profile resolved from the configs repo,
+every name parameterizable via `GEECS_HW_*` env vars (see its module
+docstring for the invocation and the table).  The old exec_config-driven
+`test_bluesky_scanner.py` hardware script was deleted with the legacy
+path (G3).
 
 ## Configuration
 
@@ -518,9 +501,10 @@ action hooks yet, so the actions (request, experiment defaults, and
 save-set rituals) are skipped, logged (WARNING), and recorded in run
 metadata under `skipped_action_plans` (refusing would block every
 optimization the moment an experiment defines default bracket actions;
-unknown names still fail fast).  **As of 0.28.0 (M4 step i) the GUI bridge
-delegates ScanRequest execution to `run_scan_request`**:
-`reinitialize(ScanRequest)` validates every name fail-fast (discarding the
+unknown names still fail fast).  **The GUI bridge delegates ScanRequest
+execution to `run_scan_request`** (0.28.0, M4 step i; since G3 this is
+the bridge's *only* path — `reinitialize` raises `TypeError` for anything
+but a `ScanRequest`): it validates every name fail-fast (discarding the
 results) and stores the **original pre-defaults** request; the scan thread
 runs it through the one engine definition, so actions, entry rituals,
 multi-axis grids, db_scalars, and telemetry all execute through the bridge
@@ -536,9 +520,9 @@ step iii) optimize-mode requests run through the delegated path too**:
 callers use `GeecsSession.run(request, resolver, objective=...,
 suggester=...)`) and fail-fast validates the VOCS catalog names; the scan
 thread calls `optimization_loader(request.optimization)` — the loader's
-one argument is the resolved `OptimizationSpec` on this path, vs the
-optimizer-YAML path string on the legacy exec_config path — and threads
-the returned bridge's `bind` into `run_scan_request` as its
+one argument is the resolved `OptimizationSpec` (the optimizer-YAML
+path-string calling convention died with the exec_config path, G3) — and
+threads the returned bridge's `bind` into `run_scan_request` as its
 `optimization_binder` hook.  Because the binder's analyzers need the real
 `ScanTag`, the **runner claims the scan itself just before binding**
 (after every fail-fast resolution and device connect — the one delegated
@@ -562,7 +546,7 @@ duck-typed (like `finish`) and hands the opaque mapping to
 devices config with `merge_save_sets` semantics (variable lists deduped,
 `save_nonscalar_data` ORs; an already-configured device keeps its
 save-set `synchronous`/role semantics, new devices append after the
-save-set ones — legacy exec_config merge parity, including
+save-set ones — pinned parity with the deleted legacy merge, including
 case-insensitive device-name matching).  Provisioned additions run
 through the same unserved-variables pre-flight and are recorded in run
 metadata as `provisioned_device_requirements`.  A zero-save-sets
@@ -685,21 +669,20 @@ Remaining items are features/tuning, not architecture — see
   tree as any scan — see `plans/optimize.py`), both headless (suggester +
   objective in hand) and from the GUI: `BlueskyScanner` handles optimization
   through a GUI-injected `optimization_loader`
-  (`geecs_scanner.optimization.session_bridge`), which runs the config-driven
-  Xopt 3.1 / evaluator / ScanAnalysis stack against the session's bin rows —
-  on the legacy exec_config path (loader argument: the optimizer-YAML path)
-  and, since 0.31.0, on the delegated ScanRequest path (loader argument: the
-  request's resolved `OptimizationSpec`; see the engine-consolidation
-  section).  The evaluator seam is `EvaluatorDataSource` in
-  `geecs_scanner.optimization.base_evaluator`; this package stays free of any
-  geecs_scanner import (dependency direction, pinned by an AST-level test).
-- **Pre/post-scan action sequences run on the ScanRequest path only.**
-  `GeecsSession.run(request)` executes setup/per_step/closeout ActionPlans
-  (0.23.0), and since 0.28.0 the GUI bridge's delegated ScanRequest path
-  does too; the legacy `exec_config` path still skips
-  `setup_action` / `closeout_action` (legacy elements' actions *are*
-  executed when the element is resolved as a save set through a
-  ScanRequest — the converter extracts them into entry rituals).
+  (`geecs_console.services.optimization` builds it from
+  `geecs_scanner.optimization`, the console's `optimization` extra), which
+  runs the config-driven Xopt 3.1 / evaluator / ScanAnalysis stack against
+  the session's bin rows on the delegated ScanRequest path (loader
+  argument: the request's resolved `OptimizationSpec`; see the
+  engine-consolidation section).  The evaluator seam is
+  `EvaluatorDataSource` in `geecs_scanner.optimization.base_evaluator`;
+  this package stays free of any geecs_scanner import (dependency
+  direction, pinned by an AST-level test).
+- **Action sequences run per request.**  `GeecsSession.run(request)` /
+  the bridge's delegated path execute setup/per_step/closeout ActionPlans
+  (0.23.0 / 0.28.0); legacy save elements' actions are executed when the
+  element is resolved as a save set through a ScanRequest — the converter
+  extracts them into entry rituals.
   On-demand execution (0.35.0): `GeecsSession.run_action` /
   `describe_action` and the bridge's thin delegations run/dry-run a named
   plan outside any scan (v1 refuses during a scan; the pause/decide/resume

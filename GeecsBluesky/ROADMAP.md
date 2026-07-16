@@ -7,6 +7,13 @@
 > reached live parity. Devices are now CA-backed via GeecsCAGateway; the
 > checked items below are kept as the historical record of that path.
 
+> **Historical note (2026-07-16):** the `ScanExecutionConfig` /
+> `exec_config` submission API and the RunControl integration described
+> below were likewise completed, verified, and then **deleted** (G3):
+> `reinitialize` accepts only a `geecs_schemas.ScanRequest`, and the
+> consumer is GEECS-Console's `Submitter` seam. See `CLAUDE.md` for the
+> current architecture; the items below are the historical record.
+
 
 Current status (2026-06-14): the **two-acquisition-mode architecture is complete
 and hardware-verified** (GeecsBluesky 0.8.0, branch
