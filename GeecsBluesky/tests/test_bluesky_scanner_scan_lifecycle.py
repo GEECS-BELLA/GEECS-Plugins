@@ -737,3 +737,192 @@ def test_reference_abort_message_names_the_failing_devices() -> None:
 
     assert "U_RefCam" in str(excinfo.value)
     assert "connect failed" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
+# Operator-requested aborts are quiet (0.36.0) — no ERROR tracebacks
+# ---------------------------------------------------------------------------
+
+
+def test_scan_thread_operator_abort_logs_info_not_error(monkeypatch, caplog) -> None:
+    """An exception unwinding after Stop is one INFO line, not a traceback."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
+    monkeypatch.setattr(
+        scanner,
+        "_preflight_check_sync_liveness",
+        lambda detectors, strict, **kw: detectors,
+    )
+
+    def scan_stopped_mid_run(**kwargs):
+        # The operator's Stop: the flag is set and something unwinds out of
+        # the interrupted run (the shape of the 2026-07-15 field incident).
+        scanner._abort_requested = True
+        raise RuntimeError("unwinding after RE.abort()")
+
+    session.scan = scan_stopped_mid_run
+
+    with caplog.at_level(logging.INFO):
+        scanner._run_scan(_noscan_config())
+
+    assert scanner.current_state == "aborted"
+    errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert errors == [], "operator abort must not produce ERROR records"
+    assert any(
+        "exiting after operator abort" in r.getMessage() and r.levelno == logging.INFO
+        for r in caplog.records
+    )
+    # The claimed-folder note is the calm WARNING variant.
+    assert any(
+        "aborted by operator" in r.getMessage() and r.levelno == logging.WARNING
+        for r in caplog.records
+    )
+
+
+def test_scan_thread_genuine_failure_keeps_error_traceback(monkeypatch, caplog) -> None:
+    """Without an abort request, a raising scan thread still ERRORs loudly."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
+    monkeypatch.setattr(
+        scanner,
+        "_preflight_check_sync_liveness",
+        lambda detectors, strict, **kw: detectors,
+    )
+
+    def scan_blows_up(**kwargs):
+        raise RuntimeError("genuine failure")
+
+    session.scan = scan_blows_up
+
+    with caplog.at_level(logging.INFO):
+        scanner._run_scan(_noscan_config())
+
+    assert scanner.current_state == "aborted"
+    tracebacks = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR
+        and "scan thread raised an exception" in r.getMessage()
+    ]
+    assert len(tracebacks) == 1 and tracebacks[0].exc_info is not None
+    assert any(
+        "failed or aborted" in r.getMessage() and r.levelno == logging.ERROR
+        for r in caplog.records
+    ), "the genuine-failure claimed-folder note must stay ERROR"
+
+
+def test_operator_abort_quiet_return_notes_folder_calmly(monkeypatch, caplog) -> None:
+    """session.scan's quiet aborted return → calm folder WARNING, no ERROR."""
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    _patch_claim(monkeypatch, [], result=(7, "/nonexistent/scans/Scan007"))
+    monkeypatch.setattr(
+        scanner,
+        "_preflight_check_sync_liveness",
+        lambda detectors, strict, **kw: detectors,
+    )
+
+    def scan_aborted_quietly(**kwargs):
+        scanner._abort_requested = True  # Stop arrived while the RE ran
+        session.last_run_aborted = True  # session translated it quietly
+        return "uid"
+
+    session.scan = scan_aborted_quietly
+
+    with caplog.at_level(logging.INFO):
+        scanner._run_scan(_noscan_config())
+
+    assert scanner.current_state == "aborted"
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+    notes = [
+        r
+        for r in caplog.records
+        if "aborted by operator" in r.getMessage() and "kept" in r.getMessage()
+    ]
+    assert [r.levelno for r in notes] == [logging.WARNING]
+
+
+def test_optimization_operator_abort_skips_finish_and_stays_calm(
+    monkeypatch, caplog
+) -> None:
+    """An aborted optimization skips bridge.finish() (legacy parity) quietly."""
+
+    class _FinishTrackingBridge(_FakeBridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self.finished = False
+
+        def finish(self) -> None:
+            self.finished = True
+
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    bridge = _FinishTrackingBridge()
+    scanner._optimization_loader = lambda path: bridge
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    _patch_claim(
+        monkeypatch, [], result=(SimpleNamespace(number=7), "/nonexistent/Scan007")
+    )
+
+    def optimize_aborted(**kwargs):
+        session.optimize_kwargs = kwargs
+        scanner._abort_requested = True
+        session.last_run_aborted = True
+        return "uid", []
+
+    session.optimize = optimize_aborted
+
+    with caplog.at_level(logging.INFO):
+        scanner._run_scan(
+            SimpleNamespace(
+                scan_mode="optimization",
+                optimizer_config_path="/cfg/opt.yaml",
+                start=0.0,
+                end=1.0,
+                step=1.0,
+                wait_time=1.0,
+                additional_description="",
+            )
+        )
+
+    assert scanner.current_state == "aborted"
+    assert bridge.finished is False, "finish() must not run after an abort"
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+    assert any(
+        "aborted by operator" in r.getMessage() and r.levelno == logging.WARNING
+        for r in caplog.records
+    )
+
+
+def test_optimization_normal_completion_still_runs_finish(monkeypatch) -> None:
+    """The abort guard must not eat the successful-run finish() bookkeeping."""
+
+    class _FinishTrackingBridge(_FakeBridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self.finished = False
+
+        def finish(self) -> None:
+            self.finished = True
+
+    session = _FakeSession()
+    scanner = _make_scanner(
+        session, {"U_Cam": {"synchronous": True, "variable_list": ["Sig"]}}
+    )
+    bridge = _FinishTrackingBridge()
+    _run_optimization_with_bridge(monkeypatch, scanner, bridge)
+
+    assert bridge.finished is True

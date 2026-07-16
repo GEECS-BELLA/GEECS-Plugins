@@ -1970,3 +1970,45 @@ def test_on_scan_start_totals_for_grid(legacy_resolver) -> None:
         on_scan_start=lambda steps, shots: calls.append((steps, shots)),
     )
     assert calls == [(6, 18)]  # shots_per_step=3
+
+
+def test_optimize_binder_operator_abort_notes_folder_calmly(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """A quiet aborted optimize return draws the calm WARNING, never the ERROR."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    tag = SimpleNamespace(number=7)
+    monkeypatch.setattr(
+        runner_module,
+        "claim_scan",
+        lambda experiment: (tag, "/nonexistent/scans/Scan007"),
+    )
+    session = _FakeSession()
+
+    def optimize_aborted_by_operator(**kwargs):
+        session.optimize_kwargs = kwargs
+        session.last_run_aborted = True  # session.optimize's quiet abort return
+        return "uid-opt", []
+
+    session.optimize = optimize_aborted_by_operator
+
+    with caplog.at_level(logging.INFO):
+        uid = run_scan_request(
+            session,
+            _optimize_request(),
+            legacy_resolver,
+            optimization_binder=lambda **_kw: (object(), object()),
+        )
+
+    assert uid == "uid-opt"
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == [], (
+        "an operator-requested abort must not log ERROR records"
+    )
+    notes = [
+        r
+        for r in caplog.records
+        if "aborted by operator" in r.getMessage()
+        and "Optimization scan" in r.getMessage()
+    ]
+    assert [r.levelno for r in notes] == [logging.WARNING]

@@ -1014,9 +1014,18 @@ class BlueskyScanner:
                 logger.warning(
                     "BlueskyScanner: scan mode %r not yet supported; skipping", mode_val
                 )
-        except Exception:
-            failed = True
-            logger.exception("BlueskyScanner scan thread raised an exception")
+        except Exception as exc:
+            if self._abort_requested:
+                # Operator-requested abort: anything unwinding out of the
+                # scan here is part of the stop, not a failure — one INFO
+                # line, no traceback (ABORTED state is set below either way).
+                logger.info(
+                    "BlueskyScanner: scan thread exiting after operator abort (%s)",
+                    exc,
+                )
+            else:
+                failed = True
+                logger.exception("BlueskyScanner scan thread raised an exception")
         finally:
             self._disconnect_devices_sync()
             # Cleanup is complete: mark inactive BEFORE emitting the terminal
@@ -1083,9 +1092,12 @@ class BlueskyScanner:
             on_scan_start=self._on_delegated_scan_start,
             optimization_binder=optimization_binder,
         )
-        if opt_bridge is not None:
+        if opt_bridge is not None and not getattr(
+            self._session, "last_run_aborted", False
+        ):
             # Post-run bookkeeping owned by the bridge (legacy parity with
-            # _run_optimization); skipped on failure — exceptions propagate.
+            # _run_optimization); skipped on failure (exceptions propagate)
+            # and on an operator abort (the quiet aborted-outcome return).
             finish = getattr(opt_bridge, "finish", None)
             if callable(finish):
                 finish()
@@ -1359,13 +1371,21 @@ class BlueskyScanner:
                     # legacy move_to_best_on_finish flag) onto the session's.
                     on_finish=getattr(bridge, "on_finish", "hold"),
                 )
-                # Post-run bookkeeping owned by the bridge (e.g. the legacy
-                # xopt_dump.yaml written into the scan folder).
-                finish = getattr(bridge, "finish", None)
-                if callable(finish):
-                    finish()
+                if getattr(self._session, "last_run_aborted", False):
+                    # Aborted outcome returned quietly: note the folder
+                    # calmly and skip finish() (legacy parity — the
+                    # exception path never ran it on abort either).
+                    log_claimed_scan_failure(scan_number, scan_folder, aborted=True)
+                else:
+                    # Post-run bookkeeping owned by the bridge (e.g. the
+                    # legacy xopt_dump.yaml written into the scan folder).
+                    finish = getattr(bridge, "finish", None)
+                    if callable(finish):
+                        finish()
         except BaseException:
-            log_claimed_scan_failure(scan_number, scan_folder)
+            log_claimed_scan_failure(
+                scan_number, scan_folder, aborted=self._abort_requested
+            )
             raise
 
     def _execute_scan(
@@ -1464,8 +1484,14 @@ class BlueskyScanner:
                     scan_info=scan_info,
                 )
         except BaseException:
-            log_claimed_scan_failure(scan_number, scan_folder)
+            log_claimed_scan_failure(
+                scan_number, scan_folder, aborted=self._abort_requested
+            )
             raise
+        if getattr(self._session, "last_run_aborted", False):
+            # session.scan returned the aborted outcome quietly; note the
+            # claimed-but-partial folder calmly (WARNING, not ERROR).
+            log_claimed_scan_failure(scan_number, scan_folder, aborted=True)
 
     def _build_session_devices(self) -> list:
         """Create CA devices from the GUI device table via the session factories.
