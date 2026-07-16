@@ -4,6 +4,19 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.15.1] - 2026-07-16
+
+### Changed
+
+- **main_window slimming, step 1** (issue #534 plan; no behavior change):
+  `HealthPoller` moved to `services/background.py` beside
+  `BackgroundResult` (the module now holds both blessed worker shapes,
+  one-shot + interval), and `ToolTipSuppressor` + the operator-tooltip
+  catalog moved to the new `app/tooltips.py` — the catalog is now pure
+  attribute-name → text data (`OPERATOR_TOOLTIPS`), applied by
+  `apply_operator_tooltips(window)`, raising loudly on a missing widget.
+  `main_window.py`: 2,390 → 2,125 lines.
+
 ## [0.15.0] - 2026-07-16
 
 ### Fixed

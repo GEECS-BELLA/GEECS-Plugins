@@ -235,7 +235,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **`BackgroundResult`** (`services/background.py`, extracted from
   `app/main_window.py` in 0.10.0 — the shared home recorded on issue
   #510): the one blessed daemon-thread → queued-signal worker for one-shot
-  background calls (the `HealthPoller` shape, generalized).  **The daemon
+  background calls (the `HealthPoller` shape, generalized —
+  `HealthPoller` itself, the interval variant with in-flight skip, lives
+  beside it in the same module since 0.15.1 / issue #534 step 1).  **The daemon
   thread must emit on the worker QObject, never on the window**: emitting
   a window-owned signal from a daemon thread races window teardown and
   segfaults under offscreen pytest (observed directly when the idle scan
@@ -323,8 +325,11 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   truth; a mapping to a missing or description-less field raises at editor
   construction.  When a tooltip reads poorly, fix the schema description,
   never hardcode GUI text.  Main-window operator controls carry
-  hand-written operator-language tooltips (`_apply_operator_tooltips`) —
-  those are GUI concepts with no schema counterpart.  **Preferences →
+  hand-written operator-language tooltips
+  (`app/tooltips.py::apply_operator_tooltips`, an attribute-name → text
+  catalog that raises loudly on a missing widget; `ToolTipSuppressor`
+  lives in the same module) — those are GUI concepts with no schema
+  counterpart.  **Preferences →
   Show tooltips** (persisted, default on) gates them all via
   `ToolTipSuppressor`, an application-level event filter that swallows
   `QEvent.ToolTip`; it is installed on the `QApplication` **only while

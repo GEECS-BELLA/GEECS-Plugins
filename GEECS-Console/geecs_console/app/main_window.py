@@ -15,11 +15,10 @@ from __future__ import annotations
 import logging
 import os
 import random
-import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QFile, QObject, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QFile, Qt, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -49,7 +48,8 @@ from geecs_console.editors.shot_control_editor import open_shot_control_editor
 from geecs_console.events_adapter import ScanEventsAdapter
 from geecs_console.services import ops_paths
 from geecs_console.services.action_library_store import ActionLibraryStore
-from geecs_console.services.background import BackgroundResult
+from geecs_console.app.tooltips import ToolTipSuppressor, apply_operator_tooltips
+from geecs_console.services.background import BackgroundResult, HealthPoller
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -173,98 +173,6 @@ def load_stylesheet() -> str:
     return qss.replace("@UI_DIR@", ui_dir)
 
 
-class HealthPoller(QObject):
-    """Runs ``probe.poll()`` off the GUI thread and reports the result.
-
-    The poller itself lives on the GUI thread; each :meth:`poll_async` call
-    spawns a short-lived daemon thread that runs the (possibly slow) blocking
-    ``poll()`` and emits :attr:`report_ready` with the result.  Qt marshals the
-    emit back to the GUI-thread slot as a queued delivery, so the chips update
-    without ever blocking the event loop — and there is no worker Qt event loop
-    or cross-thread QTimer to manage.
-
-    Parameters
-    ----------
-    probe : HealthProbe
-        The probe to poll; only its ``poll()`` method is used, so it works
-        with the real probe, the stub, or a test fake.
-    """
-
-    report_ready = Signal(object)
-    """Carries one :class:`HealthReport` per completed poll."""
-
-    def __init__(self, probe: HealthProbe) -> None:
-        super().__init__()
-        self._probe = probe
-        self._busy = False
-
-    @Slot()
-    def poll_async(self) -> None:
-        """Kick off one poll in a daemon thread (skipped if one is in flight).
-
-        Called on the GUI thread from the interval timer; returns immediately.
-        """
-        if self._busy:
-            return
-        self._busy = True
-        threading.Thread(
-            target=self._run, name="console-health-poll", daemon=True
-        ).start()
-
-    def _run(self) -> None:
-        """Poll the probe (on the daemon thread) and emit the report."""
-        report = None
-        try:
-            report = self._probe.poll()
-        except Exception:  # noqa: BLE001 — a probe fault must not kill the poller
-            report = None
-        finally:
-            self._busy = False
-        if report is not None:
-            self.report_ready.emit(report)
-
-
-class ToolTipSuppressor(QObject):
-    """Application-level event filter that swallows every tooltip event.
-
-    Installed on the ``QApplication`` **only while tooltips are turned
-    off** — presence means suppression, so one switch covers every console
-    widget (the main window *and* the editor dialogs, whose schema-derived
-    tooltips are applied unconditionally) and the default-on path pays no
-    per-event Python filter cost at all.  Parented to the window: Qt
-    removes a destroyed filter from the application automatically, so a
-    closed window can never leave a dangling suppressor behind.
-
-    Parameters
-    ----------
-    parent : QObject
-        The owning window (keeps the wrapper referenced — the usual
-        PySide6 GC hazard — and bounds the filter's lifetime).
-    """
-
-    def __init__(self, parent: QObject) -> None:
-        super().__init__(parent)
-
-    def eventFilter(self, obj, event) -> bool:  # noqa: N802 — Qt override
-        """Swallow ``QEvent.ToolTip``; pass everything else through.
-
-        Parameters
-        ----------
-        obj : QObject
-            The event's target (unused — suppression is global).
-        event : QEvent
-            The event under consideration.
-
-        Returns
-        -------
-        bool
-            ``True`` (consume the event) for tooltip events.
-        """
-        if event.type() == QEvent.Type.ToolTip:
-            return True
-        return super().eventFilter(obj, event)
-
-
 class MainWindow(QMainWindow):
     """The operator console main window (screen map regions R1-R7).
 
@@ -371,7 +279,7 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._load_ui()
         self._bind_widgets()
-        self._apply_operator_tooltips()
+        apply_operator_tooltips(self)
         self._build_menus()
         self._build_status_bar()
         self._wire_signals()
@@ -522,180 +430,6 @@ class MainWindow(QMainWindow):
 
         for mode in (AcquisitionMode.FREE_RUN, AcquisitionMode.STRICT):
             self.acquisition_combo.addItem(mode.value)
-
-    def _apply_operator_tooltips(self) -> None:
-        """Set the operator-language tooltips on the main-window controls.
-
-        These are hand-written (what it does / what happens), not copies of
-        the widget labels.  Editor form fields are different: their tooltips
-        come from the schema field descriptions via
-        :mod:`~geecs_console.services.schema_tooltips` — single source of
-        truth (issue #497 phase 1).
-        """
-        tooltips = {
-            # R1 session bar
-            self.experiment_combo: (
-                "Which experiment's configs, presets, devices, and gateway "
-                "PVs the console works with. Changing it repopulates "
-                "everything below."
-            ),
-            self.rep_rate: (
-                "The machine repetition rate in Hz — informational for "
-                "free-run pacing; it does not command any hardware."
-            ),
-            self.trigger_profile_combo: (
-                "Trigger profile the scan drives the machine with (OFF / "
-                "STANDBY / SCAN / ... device writes). Empty means the scan "
-                "leaves the trigger alone."
-            ),
-            self.trigger_variant_combo: (
-                "Named operating condition of the trigger profile (e.g. "
-                "laser_off) — overlays a few writes on the base profile. "
-                "Empty runs the base behaviour."
-            ),
-            self.gateway_chip: (
-                "CA gateway health: reads the experiment's heartbeat PV "
-                "every few seconds. WARN means the gateway runs but reports "
-                "zero connected devices."
-            ),
-            self.tiled_chip: (
-                "Tiled data-server health: an HTTP check of the configured "
-                "Tiled URI every few seconds."
-            ),
-            self.db_chip: (
-                "GEECS experiment database health: a cheap MySQL query "
-                "every few seconds."
-            ),
-            # R2 save sets
-            self.available_list: (
-                "The experiment's save sets (named device groups) not yet "
-                "picked for this scan. Select and Add to require them."
-            ),
-            self.selected_list: (
-                "Save sets this scan records. Their devices are unioned; "
-                "each required device gets guarantees (completeness, "
-                "dialogs, images). At least one set is needed to start — "
-                "except in Optimization mode, where the optimizer config "
-                "provisions its own diagnostics."
-            ),
-            self.add_button: "Require the selected save sets for this scan.",
-            self.remove_button: (
-                "Drop the selected save sets from this scan (their devices "
-                "may still be logged as background telemetry)."
-            ),
-            self.union_label: (
-                "How many distinct devices the selected save sets add up to "
-                "after merging duplicates."
-            ),
-            # R3 scan form
-            self.radio_noscan: (
-                "Collect shots without moving anything — statistics at the "
-                "current machine settings."
-            ),
-            self.radio_1d: (
-                "Sweep one scan variable through start → stop in step-sized "
-                "moves, taking a batch of shots at each position."
-            ),
-            self.radio_grid: (
-                "Sweep two variables as a grid visiting every combination — "
-                "axis 1 is the outer (slow) loop, axis 2 the inner (fast) "
-                "one."
-            ),
-            self.radio_optimization: (
-                "Let an optimizer pick the settings each iteration, per the "
-                "optimizer config chosen below. Submission is accepted only "
-                "when the scan engine supports optimize scans."
-            ),
-            self.radio_background: (
-                "A no-scan whose data is marked as background/calibration "
-                "shots so analysis can find them later."
-            ),
-            self.optimization_combo: (
-                "Which optimizer config to run — the YAML files in this "
-                "experiment's optimizer_configs folder. Empty when offline "
-                "or the experiment has none (Start stays disabled)."
-            ),
-            self.iterations_spin: (
-                "How many optimizer iterations to run — total shots = "
-                "iterations × shots per step. Picking a config seeds this "
-                "from the config's own limit; 'auto' (0) submits no limit "
-                "and the engine's default budget applies."
-            ),
-            self.shots_per_step: (
-                "How many shots to take at each scan position / grid point "
-                "(or in total for a no-scan or background run)."
-            ),
-            self.acquisition_combo: (
-                "free_run: the trigger runs at the machine rate and device "
-                "rows are matched by timestamp afterwards. strict: the scan "
-                "fires each shot itself and waits for every device — "
-                "slower, but nothing is ever missing."
-            ),
-            self.shot_count_label: (
-                "Total shots this form implies (positions × shots per "
-                "step). Above the runaway-scan limit, Start is disabled."
-            ),
-            self.description_edit: (
-                "Free-text note about this scan — it ends up in the scan's "
-                "metadata and the experiment log."
-            ),
-            # R4 presets
-            self.preset_combo: (
-                "Saved scan requests for this experiment (one YAML each in "
-                "the configs repo's presets folder)."
-            ),
-            self.apply_button: (
-                "Load the selected preset into the form. Anything the form "
-                "cannot express (action bindings, position lists) is "
-                "refused, leaving the form untouched."
-            ),
-            self.save_as_button: (
-                "Save the current form as a named preset — the exact scan "
-                "request it would submit."
-            ),
-            self.delete_button: "Delete the selected preset's YAML file.",
-            # R5 submit row
-            self.start_button: (
-                "Build the scan request from this form and hand it to the "
-                "scan engine. Needs a valid shot count and at least one "
-                "selected save set; engine refusals show in the status bar."
-            ),
-            self.stop_button: (
-                "Ask the engine to stop the running scan at the next safe "
-                "point (closeout actions still run)."
-            ),
-            # R6 now panel
-            self.state_pill: "What the scan engine is doing right now.",
-            self.progress_bar: (
-                "Shots completed out of the running scan's announced total."
-            ),
-            self.scan_number_label: (
-                "The scan folder claimed by the running scan; '(previous)' "
-                "is the last scan found in today's data folder."
-            ),
-            self.log_tail: "The most recent scan-engine and console messages.",
-            # R7 device panel
-            self.device_combo: (
-                "Type or pick 'DeviceName:Variable Name' to watch its live "
-                "readback from the gateway (updates on commit, not per "
-                "keystroke)."
-            ),
-            self.readback_label: (
-                "Live readback of the selected device variable, streamed "
-                "from the gateway."
-            ),
-            self.set_field: (
-                "Value to write to the selected device variable — a number, "
-                "or a word the device understands (e.g. 'on')."
-            ),
-            self.set_button: (
-                "Write the value via the gateway setpoint and report the "
-                "outcome in the status bar. Disabled while a write is in "
-                "flight."
-            ),
-        }
-        for widget, text in tooltips.items():
-            widget.setToolTip(text)
 
     def _build_menus(self) -> None:
         """Create the menu bar (Ops / Actions / Editors / Preferences / Help).
