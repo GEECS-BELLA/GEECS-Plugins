@@ -190,3 +190,110 @@ def test_dead_loop_refused_loudly() -> None:
         execute_action_steps_directly(
             flatten_action_steps(plan, registry={}), _FakeFactory([]), dead
         )
+
+
+class _FailingSettable:
+    def __init__(self, *, delay_s: float = 0.0, exc: Exception | None = None) -> None:
+        self._delay_s = delay_s
+        self._exc = exc or RuntimeError("GEECS refused the set")
+
+    def set(self, value):
+        async def _run() -> None:
+            if self._delay_s:
+                await asyncio.sleep(self._delay_s)
+            raise self._exc
+
+        return _run()
+
+
+def test_failed_no_wait_put_aborts_a_still_running_sequence(loop) -> None:
+    """RunEngine FailedStatus parity: a mid-sequence put failure aborts."""
+    plan = _plan(
+        [
+            {
+                "do": "set",
+                "device": "U_Bad",
+                "variable": "V",
+                "value": 1,
+                "wait_for_execution": False,
+            },
+            {"do": "wait", "seconds": 2.0},
+            {"do": "set", "device": "U_B", "variable": "V", "value": 2},
+        ]
+    )
+    factory = _FakeFactory(journal := [])
+    factory_get = factory.get_settable
+
+    def get_settable(device, variable):
+        if device == "U_Bad":
+            return _FailingSettable(delay_s=0.05)
+        return factory_get(device, variable)
+
+    factory.get_settable = get_settable
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="GEECS refused the set"):
+        execute_action_steps_directly(
+            flatten_action_steps(plan, registry={}), factory, loop
+        )
+    # Aborted during the wait (well before its 2 s), and B was never written.
+    assert time.monotonic() - started < 1.5
+    assert journal == []
+
+
+def test_failed_no_wait_put_after_completion_is_pardoned(loop, caplog) -> None:
+    """RE end-of-plan parity: a failure landing after the sequence is logged."""
+    import logging as _logging
+
+    plan = _plan(
+        [
+            {
+                "do": "set",
+                "device": "U_Late",
+                "variable": "V",
+                "value": 1,
+                "wait_for_execution": False,
+            },
+        ]
+    )
+    factory = _FakeFactory([])
+    factory.get_settable = lambda d, v: _FailingSettable(delay_s=0.3)
+    with caplog.at_level(_logging.WARNING, logger="geecs_bluesky.plans.action_direct"):
+        execute_action_steps_directly(
+            flatten_action_steps(plan, registry={}), factory, loop
+        )  # returns normally — the failure has not landed yet
+        time.sleep(0.6)
+    assert "failed late" in caplog.text
+
+
+def test_abort_interrupts_a_stuck_blocking_set_promptly(loop) -> None:
+    plan = _plan([{"do": "set", "device": "U_Stuck", "variable": "V", "value": 1}])
+    factory = _FakeFactory([])
+    factory.set_delays["U_Stuck:V"] = 60.0
+    started = time.monotonic()
+    with pytest.raises(ActionExecutionAborted):
+        execute_action_steps_directly(
+            flatten_action_steps(plan, registry={}),
+            factory,
+            loop,
+            should_abort=lambda: time.monotonic() - started > 0.1,
+        )
+    assert time.monotonic() - started < 2.0
+
+
+def test_steps_own_timeout_error_is_never_relabelled(loop) -> None:
+    """A step raising TimeoutError propagates as-is, not as budget expiry."""
+    plan = _plan([{"do": "set", "device": "U_T", "variable": "V", "value": 1}])
+    factory = _FakeFactory([])
+    factory.get_settable = lambda d, v: _FailingSettable(
+        exc=TimeoutError("the signal's own richer timeout")
+    )
+    with pytest.raises(TimeoutError, match="richer"):
+        execute_action_steps_directly(
+            flatten_action_steps(plan, registry={}), factory, loop
+        )
+
+
+def test_step_timeout_error_is_a_geecs_error() -> None:
+    from geecs_bluesky.exceptions import GeecsError
+
+    assert issubclass(ActionStepTimeoutError, GeecsError)
