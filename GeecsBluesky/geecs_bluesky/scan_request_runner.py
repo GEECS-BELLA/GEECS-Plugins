@@ -792,6 +792,90 @@ def _defaults_flag(defaults: Any | None, name: str, fallback: bool) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def validate_scan_request(
+    request: ScanRequest, resolver: ConfigResolver
+) -> tuple[ScanRequest, dict[str, Any]]:
+    """Fail-fast dry-run of everything :func:`run_scan_request` must resolve.
+
+    THE one definition of "what must resolve" (issue #529): the GUI
+    bridge's ``reinitialize`` calls this for submission-time errors, and
+    :func:`run_scan_request` runs it as its own first phase — so the
+    bridge's fail-fast can never drift from execution.  **When a new
+    resolvable field is added to the runner, its resolution is added
+    here**, never re-implemented in a caller.
+
+    Pure resolution: no session, no hardware, no side effects.  Resolved
+    products beyond the returned pair are discarded — execution re-resolves
+    what it needs.  Checks, in order: experiment defaults apply, every
+    action name (request-level; unknown nested ``run`` references included),
+    the trigger profile + variant, the save-set rule (a non-optimize
+    request needs at least one — optimize may run save-set-less because the
+    optimizer's ``device_requirements`` are auto-provisioned at execution
+    time, where an empty *effective* set still refuses pre-claim), every
+    named save set + entry rituals, every step-axis movable target (pseudo
+    variables refused), and every optimize VOCS catalog name (bare names
+    only — ``Device:Variable`` strings pass through, matching the runner's
+    dispatch).
+
+    Parameters
+    ----------
+    request :
+        The scan request to validate.
+    resolver :
+        Resolves the request's names to schema models.
+
+    Returns
+    -------
+    tuple[ScanRequest, dict, Any]
+        The **post-defaults** validated copy of *request*, the applied-
+        defaults provenance record (as :func:`apply_experiment_defaults`),
+        and the raw defaults object itself — returned so execution reads
+        the defaults file exactly once per run (flags that are not request
+        fields, e.g. ``background_telemetry``, must come from the same
+        snapshot the validation applied, not a second read that could see
+        a concurrent edit).
+
+    Raises
+    ------
+    GeecsConfigurationError
+        Unresolvable names, an unknown trigger variant, or a step/noscan
+        request without a save set.
+    NotImplementedError
+        Pseudo (composite) scan variables — validated first, refused loudly.
+    """
+    defaults = resolve_experiment_defaults(resolver)
+    validated, applied = apply_experiment_defaults(request, defaults)
+    resolve_and_validate_actions(validated.actions, resolver)
+
+    if validated.trigger_profile:
+        # Adapt (and discard) the writes so an unknown trigger_variant
+        # fails here, not at execution time.
+        profile = resolver.resolve_trigger_profile(validated.trigger_profile)
+        trigger_writes_from_profile(profile, validated.trigger_variant)
+
+    if not validated.save_sets:
+        if validated.mode is not ScanRequestMode.OPTIMIZE:
+            raise GeecsConfigurationError(
+                f"a {validated.mode.value!r} ScanRequest needs at least "
+                "one save set in save_sets — without one the scan would "
+                "record nothing"
+            )
+    else:
+        resolve_save_sets_and_rituals(resolver, validated.save_sets)
+
+    if validated.mode is ScanRequestMode.STEP:
+        for axis in validated.axes:
+            spec = resolver.resolve_scan_variable(axis.variable)
+            resolve_movable_target(spec, axis.variable)
+    if validated.mode is ScanRequestMode.OPTIMIZE and validated.optimization:
+        for name in validated.optimization.variables:
+            if ":" not in name:
+                spec = resolver.resolve_scan_variable(name)
+                resolve_movable_target(spec, name)
+
+    return validated, applied, defaults
+
+
 def resolve_movable_target(
     spec: ScanVariableSpec, name: str
 ) -> tuple[str, str, str, str | None]:
@@ -1187,8 +1271,14 @@ def run_scan_request(
         an optimize request with an empty effective device set (no save
         sets and no optimizer device requirements to provision).
     """
-    defaults = resolve_experiment_defaults(resolver)
-    request, applied_defaults = apply_experiment_defaults(request, defaults)
+    # Phase 1 — the one fail-fast definition (issue #529): everything that
+    # must resolve does so here, before any session state is touched.  The
+    # GUI bridge's reinitialize calls the same function, so submission-time
+    # and execution-time validation cannot drift.
+    # The returned raw defaults object serves execution-time flags that are
+    # not request fields (background_telemetry) from the SAME file snapshot
+    # the validation applied — one read per run, no torn-edit window.
+    request, applied_defaults, defaults = validate_scan_request(request, resolver)
     resolved_actions = resolve_and_validate_actions(request.actions, resolver)
 
     if request.trigger_profile:
@@ -1223,11 +1313,8 @@ def run_scan_request(
             should_abort=should_abort,
         )
 
-    if not request.save_sets:
-        raise GeecsConfigurationError(
-            f"a {request.mode.value!r} ScanRequest needs at least one save "
-            "set in save_sets — without one the scan would record nothing"
-        )
+    # A step/noscan request without a save set was already refused by
+    # validate_scan_request (phase 1) — no second copy of that rule here.
     # Multiple named save sets union into one effective save set (devices
     # deduped/merged; rituals collected across all sets, deduped by name).
     save_set, rituals = resolve_save_sets_and_rituals(resolver, request.save_sets)

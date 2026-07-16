@@ -4,6 +4,33 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.41.0] - 2026-07-16
+
+### Added
+
+- **`validate_scan_request(request, resolver)`** (issue #529) — THE one
+  fail-fast definition of "what must resolve" for a ScanRequest, in
+  `scan_request_runner`: experiment defaults, action names (nested `run`
+  references included), trigger profile + variant, the save-set rule
+  (non-optimize needs ≥1; optimize may run save-set-less), save sets +
+  entry rituals, step-axis movable targets (pseudo refused), and optimize
+  VOCS catalog names.  Pure resolution — no session, no hardware.
+
+### Changed
+
+- `BlueskyScanner.reinitialize` and `run_scan_request` both route through
+  `validate_scan_request` (the bridge for submission-time errors, the
+  runner as its own first phase), replacing the bridge's hand-maintained
+  "resolve and discard" mirror of the runner's resolution sequence — the
+  drift class where a new resolvable field surfaced its error in the scan
+  thread instead of at Start (it had already bitten once: the optimize
+  save-set-less rule of 0.38.0 was encoded twice).  New resolvable fields
+  are added to `validate_scan_request`, never to a caller.  The runner now
+  refuses a bad request **before** touching any session state (previously
+  the trigger profile was attached before some name resolutions); pinned
+  by `tests/test_validate_scan_request.py`, including a structural
+  no-drift spy on the bridge and a session-untouched fail-fast pin.
+
 ## [0.40.0] - 2026-07-16
 
 ### Fixed
