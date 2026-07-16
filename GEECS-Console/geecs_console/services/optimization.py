@@ -132,7 +132,12 @@ def load_console_optimization(spec: Any) -> Any:
     -------
     geecs_scanner.optimization.session_bridge.SessionOptimizationBridge
         The bridge exposing ``bind(devices=..., scan_tag=...,
-        scan_folder=...) -> (objective, suggester)`` and ``finish()``.
+        scan_folder=...) -> (objective, suggester)``, ``finish()``, and
+        ``device_requirements`` (auto-generated from the evaluator's
+        analyzers) — the engine reads the latter duck-typed and
+        auto-provisions those devices into the effective device set
+        (GeecsBluesky ≥ 0.38.0), so an optimize request needs no save
+        sets naming the objective's diagnostics.
     """
     from geecs_scanner.optimization.base_optimizer import BaseOptimizer
     from geecs_scanner.optimization.session_bridge import SessionOptimizationBridge

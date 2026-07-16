@@ -550,10 +550,25 @@ the `(max_iterations, max_iterations × shots_per_step)` upper bound (the
 suggester may stop early); the detector-level operator-dialog `preflight`
 hook still does not run on optimize (later seam), but the config-level
 unserved-variables check does (0.36.0) — it runs pre-claim on every mode,
-inside the runner.  Optimizer `device_requirements`
-auto-provisioning is deliberately **not** wired on this path — the
-request's save sets must name the objective's diagnostics (schema-world
-explicitness; the legacy exec_config path keeps its merge).  The
+inside the runner.  **Optimizer `device_requirements` auto-provisioning
+is wired on this path too (0.38.0)** — reversing the deliberate #520
+deferral after a field incident (2026-07-15: `TopViewMax` optimize runs
+produced NaN objectives on every iteration because the evaluator's
+auto-generated requirements were ignored and `UC_TopView` never saved).
+The bridge reads the loader-returned bridge's `device_requirements`
+duck-typed (like `finish`) and hands the opaque mapping to
+`run_scan_request(device_requirements=...)`;
+`merge_optimizer_device_requirements` unions it into the effective
+devices config with `merge_save_sets` semantics (variable lists deduped,
+`save_nonscalar_data` ORs; an already-configured device keeps its
+save-set `synchronous`/role semantics, new devices append after the
+save-set ones — legacy exec_config merge parity, including
+case-insensitive device-name matching).  Provisioned additions run
+through the same unserved-variables pre-flight and are recorded in run
+metadata as `provisioned_device_requirements`.  A zero-save-sets
+optimize request is now valid when the optimizer provisions its own
+diagnostics; an empty *effective* device set still refuses pre-claim
+with a clear `GeecsConfigurationError`.  The
 dependency direction (no `geecs_scanner` import anywhere in this package)
 is pinned by an AST-level test in the scan-request seam suite.
 Experiment defaults

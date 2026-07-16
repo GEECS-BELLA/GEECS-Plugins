@@ -28,6 +28,7 @@ from geecs_bluesky.scan_request_runner import (
     assemble_action_slots,
     build_action_registry,
     collect_save_set_rituals,
+    merge_optimizer_device_requirements,
     merge_save_sets,
     resolve_save_sets_and_rituals,
     run_scan_request,
@@ -947,6 +948,265 @@ def test_optimize_maps_onto_session_optimize(legacy_resolver) -> None:
         "U_Cam",
         "U_Cam2",
         "U_Slow",
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Optimizer device_requirements auto-provisioning (the #520 reversal)
+# ---------------------------------------------------------------------------
+
+
+_TOPVIEW_REQUIREMENTS = {
+    "Devices": {
+        "UC_TopView": {
+            "add_all_variables": False,
+            "save_nonscalar_data": True,
+            "synchronous": True,
+            "variable_list": ["acq_timestamp"],
+        }
+    }
+}
+
+
+class TestMergeOptimizerDeviceRequirements:
+    """The pure merge: union semantics, casefold matching, provenance."""
+
+    def test_none_and_empty_are_no_ops(self) -> None:
+        config = {"U_Cam": {"variable_list": ["a"]}}
+        for requirements in (None, {}, {"Devices": {}}, "not-a-mapping"):
+            before = {k: dict(v) for k, v in config.items()}
+            assert merge_optimizer_device_requirements(config, requirements) == {}
+            assert config == before
+
+    def test_new_device_appended_after_save_set_devices(self) -> None:
+        config = {
+            "U_Ref": {
+                "synchronous": True,
+                "save_nonscalar_data": True,
+                "variable_list": ["acq_timestamp"],
+            }
+        }
+        provisioned = merge_optimizer_device_requirements(config, _TOPVIEW_REQUIREMENTS)
+        # Appended after the save-set devices: the pacemaker is unchanged.
+        assert list(config) == ["U_Ref", "UC_TopView"]
+        assert config["UC_TopView"] == {
+            "synchronous": True,
+            "save_nonscalar_data": True,
+            "variable_list": ["acq_timestamp"],
+        }
+        assert provisioned == {
+            "UC_TopView": {
+                "synchronous": True,
+                "save_nonscalar_data": True,
+                "variable_list": ["acq_timestamp"],
+            }
+        }
+
+    def test_existing_device_unions_variables_and_ors_save_flag(self) -> None:
+        config = {
+            "UC_TopView": {
+                "synchronous": True,
+                "save_nonscalar_data": False,
+                "variable_list": ["MaxCounts"],
+            }
+        }
+        requirements = {
+            "Devices": {
+                "UC_TopView": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["acq_timestamp", "MaxCounts"],
+                }
+            }
+        }
+        provisioned = merge_optimizer_device_requirements(config, requirements)
+        # Save-set variables stay first; only the missing ones append.
+        assert config["UC_TopView"]["variable_list"] == ["MaxCounts", "acq_timestamp"]
+        assert config["UC_TopView"]["save_nonscalar_data"] is True
+        assert provisioned == {
+            "UC_TopView": {
+                "variable_list": ["acq_timestamp"],
+                "save_nonscalar_data": True,
+            }
+        }
+
+    def test_existing_device_keeps_save_set_synchronous_semantics(self) -> None:
+        # The save sets own the acquisition-role semantics: a snapshot
+        # (asynchronous) entry is never flipped synchronous by a requirement.
+        config = {
+            "U_Slow": {
+                "synchronous": False,
+                "save_nonscalar_data": False,
+                "variable_list": ["Pressure"],
+            }
+        }
+        requirements = {
+            "Devices": {"U_Slow": {"synchronous": True, "variable_list": ["Pressure"]}}
+        }
+        provisioned = merge_optimizer_device_requirements(config, requirements)
+        assert config["U_Slow"]["synchronous"] is False
+        assert provisioned == {}  # nothing was actually added
+
+    def test_case_insensitive_match_merges_under_configured_spelling(self) -> None:
+        config = {
+            "UC_TopView": {
+                "synchronous": True,
+                "save_nonscalar_data": True,
+                "variable_list": ["MaxCounts"],
+            }
+        }
+        requirements = {"Devices": {"uc_topview": {"variable_list": ["acq_timestamp"]}}}
+        provisioned = merge_optimizer_device_requirements(config, requirements)
+        assert list(config) == ["UC_TopView"]  # no wrong-case duplicate entry
+        assert config["UC_TopView"]["variable_list"] == ["MaxCounts", "acq_timestamp"]
+        assert provisioned == {"UC_TopView": {"variable_list": ["acq_timestamp"]}}
+
+    def test_duck_typed_attribute_requirements(self) -> None:
+        # Requirement entries may be objects, not dicts (duck-typed).
+        entry = SimpleNamespace(
+            synchronous=True,
+            save_nonscalar_data=True,
+            variable_list=["acq_timestamp"],
+        )
+        config: dict = {}
+        provisioned = merge_optimizer_device_requirements(
+            config, {"Devices": {"UC_TopView": entry}}
+        )
+        assert config["UC_TopView"]["variable_list"] == ["acq_timestamp"]
+        assert provisioned["UC_TopView"]["synchronous"] is True
+
+
+def test_optimize_provisions_requirements_into_detectors(legacy_resolver) -> None:
+    """The field-incident fix: the objective's diagnostic acquires and saves
+    even when the request's save sets do not name it, and the addition is
+    recorded in run metadata for provenance."""
+    session = _FakeSession()
+    run_scan_request(
+        session,
+        _optimize_request(),
+        legacy_resolver,
+        objective=object(),
+        suggester=object(),
+        device_requirements=_TOPVIEW_REQUIREMENTS,
+    )
+    detector_names = [d for d, kind in session.devices if kind != "settable"]
+    # The save set's three devices first (pacemaker unchanged), then the
+    # provisioned diagnostic.
+    assert detector_names == ["U_Cam", "U_Cam2", "U_Slow", "UC_TopView"]
+    md = session.optimize_kwargs["md"]
+    assert md["provisioned_device_requirements"] == {
+        "UC_TopView": {
+            "synchronous": True,
+            "save_nonscalar_data": True,
+            "variable_list": ["acq_timestamp"],
+        }
+    }
+
+
+def test_optimize_zero_save_sets_with_requirements_runs(legacy_resolver) -> None:
+    """Zero save sets + optimizer requirements is a valid optimize request:
+    the provisioned diagnostics are the whole effective device set."""
+    session = _FakeSession()
+    uid = run_scan_request(
+        session,
+        _optimize_request(save_sets=[]),
+        legacy_resolver,
+        objective=object(),
+        suggester=object(),
+        device_requirements=_TOPVIEW_REQUIREMENTS,
+    )
+    assert uid == "uid-opt"
+    detector_names = [d for d, kind in session.devices if kind != "settable"]
+    assert detector_names == ["UC_TopView"]
+    md = session.optimize_kwargs["md"]
+    assert "save_sets" not in md
+    assert list(md["provisioned_device_requirements"]) == ["UC_TopView"]
+
+
+def test_optimize_empty_effective_device_set_refused_pre_claim(
+    legacy_resolver, monkeypatch
+) -> None:
+    """No save sets and no requirements → clear refusal before any claim."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    def _no_claim(experiment):
+        raise AssertionError("claim_scan must not be called")
+
+    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
+    session = _FakeSession()
+    with pytest.raises(GeecsConfigurationError, match="recording device"):
+        run_scan_request(
+            session,
+            _optimize_request(save_sets=[]),
+            legacy_resolver,
+            objective=object(),
+            suggester=object(),
+        )
+    assert session.devices == []  # refused before any hardware was touched
+
+
+def test_optimize_empty_requirements_is_a_no_op(legacy_resolver) -> None:
+    """Empty/None requirements leave the save-set devices exactly as before."""
+    session = _FakeSession()
+    run_scan_request(
+        session,
+        _optimize_request(),
+        legacy_resolver,
+        objective=object(),
+        suggester=object(),
+        device_requirements={"Devices": {}},
+    )
+    detector_names = [d for d, kind in session.devices if kind != "settable"]
+    assert detector_names == ["U_Cam", "U_Cam2", "U_Slow"]
+    assert "provisioned_device_requirements" not in session.optimize_kwargs["md"]
+
+
+def test_optimize_provisioned_variables_face_unserved_preflight(
+    legacy_resolver, monkeypatch
+) -> None:
+    """Provisioned variables run through the same unserved-variables check
+    as save-set ones (#562): an unserved provisioned variable is dropped
+    (headless default) and recorded, so it can never die in a 20 s
+    NotConnectedError during detector build."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    served = {
+        "U_Cam": {"acq_timestamp", "MaxCounts"},
+        "U_Cam2": {"Val"},
+        "U_Slow": {"Pressure"},
+        "UC_TopView": {"acq_timestamp"},  # 2ndmomW0x is NOT served
+    }
+    monkeypatch.setattr(
+        runner_module,
+        "make_served_set_provider",
+        lambda session: SimpleNamespace(served_by_device=lambda: served),
+    )
+    requirements = {
+        "Devices": {
+            "UC_TopView": {
+                "synchronous": True,
+                "save_nonscalar_data": True,
+                "variable_list": ["acq_timestamp", "2ndmomW0x"],
+            }
+        }
+    }
+    session = _FakeSession()
+    run_scan_request(
+        session,
+        _optimize_request(),
+        legacy_resolver,
+        objective=object(),
+        suggester=object(),
+        device_requirements=requirements,
+    )
+    detector_names = [d for d, kind in session.devices if kind != "settable"]
+    assert "UC_TopView" in detector_names  # still built, minus the bad variable
+    md = session.optimize_kwargs["md"]
+    assert md["dropped_unserved_variables"] == {"UC_TopView": ["2ndmomW0x"]}
+    # Provenance records the optimizer's full (pre-drop) request.
+    assert md["provisioned_device_requirements"]["UC_TopView"]["variable_list"] == [
+        "acq_timestamp",
+        "2ndmomW0x",
     ]
 
 

@@ -4,6 +4,23 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.14.0] - 2026-07-16
+
+### Changed
+
+- **Optimization mode no longer requires a selected save set to Start**
+  (paired with GeecsBluesky 0.38.0, which auto-provisions the optimizer
+  config's `device_requirements` — the evaluator's diagnostics — into
+  the effective device set; the #520 reversal after the 2026-07-15
+  NaN-objectives field incident).  Every other mode keeps the ≥1
+  save-set gate.  The R2 union line is now mode-aware so it stays
+  honest: "union: diagnostics from optimizer config" with zero selected
+  sets in Optimization mode, "union: N devices + optimizer diagnostics"
+  with sets selected, unchanged elsewhere.
+  `services/optimization.py` needed no code change — the loader-returned
+  `SessionOptimizationBridge` already exposes `device_requirements`,
+  which the engine bridge reads duck-typed.
+
 ## [0.12.1] - 2026-07-16
 
 ### Fixed
