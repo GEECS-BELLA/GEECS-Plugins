@@ -11,6 +11,19 @@ recipe, smoke tests, log expectations — is in
 
 ## Install
 
+**Step 0 — persistent NAS mount, before anything else.** The gateway reads
+the configs repo (derived channels, and any config kind that lives there)
+from the data share. A hand mount will not survive a reboot, and an
+ordinary fstab mount fails permanently if the NAS is down at boot — and
+the gateway then starts *silently without derived PVs*. Set up the
+self-healing mount first, exactly as in
+[`DEPLOYMENT.md` § "Host reboots and network mounts"](../DEPLOYMENT.md):
+root-only credentials file, an fstab entry with
+`_netdev,nofail,x-systemd.automount`, and `RequiresMountsFor=` on the
+unit once it is installed below. Spring-test the automount (umount →
+`systemctl start <mountpoint>.automount` → `ls` the path) before
+proceeding.
+
 From the repo checkout on the target box:
 
 ```bash
