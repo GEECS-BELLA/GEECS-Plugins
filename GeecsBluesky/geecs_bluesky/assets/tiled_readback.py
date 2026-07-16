@@ -11,6 +11,10 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+# The one config reader (issue #527): re-exported here so existing callers
+# (including the assets package's public API) keep working.
+from geecs_data_utils.tiled_catalog import read_tiled_config
+
 from geecs_bluesky.assets.readback import (
     Document,
     ExternalAssetDocumentSpec,
@@ -59,19 +63,6 @@ class FilledTiledGeecsAsset:
 TiledCameraAsset = TiledGeecsAsset
 FilledTiledCameraAsset = FilledTiledGeecsAsset
 Data1DConfigInput = Any
-
-
-def read_tiled_config() -> tuple[str | None, str | None]:
-    """Read Tiled connection details from the shared GEECS config file."""
-    config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-    if not config_path.exists():
-        return None, None
-
-    cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    if "tiled" not in cfg:
-        return None, None
-    return cfg["tiled"].get("uri") or None, cfg["tiled"].get("api_key") or None
 
 
 def read_geecs_root_map() -> dict[str, str]:

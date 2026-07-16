@@ -20,6 +20,21 @@ semantic.
   `services/optimization.py` needed no code change — the loader-returned
   `SessionOptimizationBridge` already exposes `device_requirements`,
   which the engine bridge reads duck-typed.
+## [0.13.0] - 2026-07-16
+
+### Added
+
+- **Scan Browser B7 — scan metadata panel** (issue #559).  A new region
+  below the B5 table in the middle column showing the selected run's
+  full metadata: scan number, uid, experiment, description, mode and
+  acquisition style, scan variable (or grid axes/shape for grid scans),
+  planned shots, save sets, reference device, scan folder, start time,
+  duration, exit status/reason, and recorded row count.  Rendered by the
+  pure `metadata_rows()` from the already-loaded `RunDetail` (summary +
+  start/stop docs) — no additional Tiled fetch; absent keys are omitted
+  rather than shown blank.  B5's vertical share shrinks to make room
+  (splitter 3:2 → 3:2:2).  The docs screen map (`scan_browser.md` +
+  regenerated `browser_screen_map.png`) now shows B1–B7.
 
 ## [0.12.1] - 2026-07-16
 
@@ -80,7 +95,6 @@ semantic.
   constructor's first configs populate runs quietly and the message is
   announced only if the restore selects nothing.  Selecting an experiment
   now also clears a stale listing message from the status bar.
->>>>>>> origin/dev
 
 ## [0.10.1] - 2026-07-15
 

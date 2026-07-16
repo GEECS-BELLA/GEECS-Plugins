@@ -344,11 +344,12 @@ the window for anything in these families:
   completers (and their model) on `self`.  The same applies to any
   `QValidator`, proxy model, or event filter created without a parent.
 
-## The Scan Browser (`geecs_console/browser/`, regions B1–B6)
+## The Scan Browser (`geecs_console/browser/`, regions B1–B7)
 
 A second window in this package: the quick-look Tiled client (day → scan →
-plot/table/drift), per its own approved screen map (regions `B1`–`B6`;
-object names `b1_`…`b6_`).  Own entry points — `geecs-scan-browser`
+plot/table/metadata/drift), per its own approved screen map (regions
+`B1`–`B7`; object names `b1_`…`b7_`; B7 is the scan-metadata panel below
+B5 in the middle column, added on issue #559).  Own entry points — `geecs-scan-browser`
 (console script) and `python -m geecs_console.browser` — deliberately NOT
 wired into the operator console's Ops menu yet (deferred; the browser must
 stay usable by analysts who never run the console).
@@ -394,6 +395,10 @@ Rules (inherit all Architecture rules above, plus):
   for the *selected* date + `ScanNNN`; only an existing dir is returned,
   nothing on the scans path is ever created (repo scan-folder invariant,
   pinned by tree-untouched tests in `tests/test_browser_scan_folder.py`).
+- **B7 (scan metadata) renders from the already-loaded `RunDetail` only**
+  (`metadata_rows`, a pure function over summary + start/stop docs) —
+  never a second Tiled fetch; absent/empty keys are omitted, not rendered
+  blank, so legacy/aborted runs get a shorter list.
 
 Kit boundary — shared-intent console modules the browser imports (the
 shared-package candidates for a future extraction; extend these rather

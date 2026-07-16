@@ -23,12 +23,13 @@ cross-package "analysis code never creates scan folders" invariant).
 
 from __future__ import annotations
 
-import configparser
 import logging
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+
+from geecs_data_utils.tiled_catalog import read_tiled_config
 
 logger = logging.getLogger(__name__)
 
@@ -46,22 +47,6 @@ _COMPANION_SUFFIXES = (
     "-valid",
     "-nonscalar_save_path",
 )
-
-
-def _read_tiled_config() -> tuple[Optional[str], Optional[str]]:
-    """Read Tiled ``uri``/``api_key`` from ``~/.config/geecs_python_api/config.ini``.
-
-    Returns ``(uri, api_key)``, either of which may be ``None`` if absent.  Same
-    config source ``BlueskyScanner`` uses to subscribe its ``TiledWriter``.
-    """
-    config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-    if not config_path.exists():
-        return None, None
-    cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    if "tiled" not in cfg:
-        return None, None
-    return cfg["tiled"].get("uri") or None, cfg["tiled"].get("api_key") or None
 
 
 def build_legacy_scalar_dataframe(
@@ -193,7 +178,7 @@ def write_scalar_files_from_tiled(
         If ``tiled`` is not installed or no Tiled URI can be resolved.
     """
     if tiled_uri is None:
-        tiled_uri, tiled_api_key = _read_tiled_config()
+        tiled_uri, tiled_api_key = read_tiled_config()
     if not tiled_uri:
         raise RuntimeError(
             "No Tiled URI given and none found in "

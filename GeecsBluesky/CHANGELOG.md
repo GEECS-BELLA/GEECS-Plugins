@@ -37,6 +37,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     pre-claim with a clear `GeecsConfigurationError` instead of dying in
     `session.optimize` after the claim.
 
+## [0.37.1] - 2026-07-16
+
+### Changed
+
+- **Tiled config reading consolidated onto `geecs_data_utils`** (issue
+  #527).  The local `read_tiled_config` copies in `tiled_integration.py`
+  and `assets/tiled_readback.py` are deleted; both names are now
+  re-exports of `geecs_data_utils.tiled_catalog.read_tiled_config` (the
+  canonical, tested reader), so `[tiled]` config semantics have exactly
+  one definition.  Existing import paths and test monkeypatches keep
+  working; pinned by
+  `tests/test_tiled_integration.py::test_read_tiled_config_is_the_canonical_data_utils_reader`.
+
 ## [0.37.0] - 2026-07-15
 
 ### Changed

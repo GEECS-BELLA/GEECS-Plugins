@@ -3,6 +3,16 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.4] — 2026-07-16
+
+### Changed
+
+- **`tiled_export` uses the canonical config reader** (issue #527): the
+  private `_read_tiled_config` duplicate is deleted in favor of
+  `tiled_catalog.read_tiled_config`, so the package no longer carries two
+  parsers of the same `[tiled]` section.  Pinned by an identity test in
+  `tests/test_tiled_export.py`.
+
 ## [0.13.3] — 2026-07-13
 
 ### Fixed
