@@ -14,11 +14,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   onto the RE's persistent asyncio loop (alive while the RE is paused) —
   the dispatch the #552 pause supervisor will use to execute an operator
   action in the pause window.  Legacy step semantics preserved one for
-  one (blocking set on put-completion, `wait_for_execution: false`
-  fire-and-continue with late failures logged, sliced abort-aware waits,
-  `values_match` check quirks); a stuck blocking step trips a per-step
-  timeout, and a dead loop is refused loudly.  Pinned by
-  `tests/test_action_direct.py` (7 tests over a real loop in a thread).
+  one, including the RunEngine's real treatment of
+  `wait_for_execution: false` puts: a put failing **while later steps
+  still run aborts the sequence** (`FailedStatus` parity); only failures
+  landing after the sequence has finished are pardoned to a log line
+  (end-of-plan `_pardon_failures` parity).  Blocking dispatches are
+  waited in slices so the abort probe interrupts even a wedged CA put
+  promptly (the in-loop coroutine is cancelled); a step still pending at
+  its budget trips `ActionStepTimeoutError` (a `GeecsError`, in
+  `exceptions.py` beside the other operational timeouts) while a step's
+  *own* timeout error propagates unrelabelled; a dead loop is refused
+  loudly and re-checked every slice.  Pinned by
+  `tests/test_action_direct.py` (12 tests over a real loop in a thread).
 
 ## [0.42.0] - 2026-07-16
 
