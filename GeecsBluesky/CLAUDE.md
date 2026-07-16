@@ -182,8 +182,26 @@ Manual (operator-clicked) action execution:
 execute/dry-run a named ActionPlan on demand, refusing while a scan is
 active with the exact message `"scan in progress — action not started"`
 (the GUI surfaces it verbatim; these two signatures are part of the
-console Submitter contract).  The richer pause/decide/resume during-scan
-flow is issue #552.  Acquisition mode comes from
+console Submitter contract).  The richer **pause/decide/resume during-scan
+flow is `request_action_during_scan(name)`** (G-actions v2, issue #552, engine
+half landed 0.44.0): validated fail-fast on the GUI thread (unknown name /
+unreachable target / cycle), **refused if the action writes to the active
+scan's shot-control device(s)** (owner decision 11 — an action must not
+perturb the trigger the scan drives), then it stages the flattened steps +
+a connected factory on the run's `PauseSupervisor`, emits `PAUSING`, and
+asks the RE to pause at its next checkpoint (deferred).  The supervisor
+(`pause_supervisor.py`, on the scan thread inside `session.scan`'s
+interrupt handling) drives the mode-specific safe state (free-run → `OFF`;
+strict → nothing, already quiescent), delivers the three-way
+`ActionDecisionRequest` (execute / ignore / abort) through the same
+`ScanDialogEvent` transport as the pre-flight dialogs, executes an
+approved action via the direct executor (`plans/action_direct.py`, 0.43.0)
+against the paused RE's loop, then re-asserts the captured `last_state` and
+resumes — abort skips the restore (the finalize chain owns the end state).
+A pause requested but never delivered (scan ended first) is withdrawn and
+logged, not an error (design-note contract on #552).  `PAUSING`/`PAUSED`
+are non-terminal ScanStates; `RE.record_interruptions = True` puts the
+pause window in the data record.  Acquisition mode comes from
 `ScanRequest.acquisition` — deliberately no env override, a request
 declares intent.
 

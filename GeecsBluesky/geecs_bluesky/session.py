@@ -181,6 +181,10 @@ class GeecsSession:
         self._mock = mock
         # context_managers=[] so sessions also work off the main thread.
         self.RE = RunEngine(context_managers=[])
+        # #552 (owner decision 13): pause/resume land as documents in the
+        # run, so a pause window is part of the data record — a wall-clock
+        # gap between rows explains itself.
+        self.RE.record_interruptions = True
         # Silence upstream's RequestAbort traceback (operator aborts are
         # quiet, intentional outcomes — #563 follow-up).  RE.log is a
         # LoggerAdapter over the PROCESS-WIDE ``bluesky`` logger shared by
@@ -582,6 +586,53 @@ class GeecsSession:
             md=md,
         )
 
+    def _run_supervised(self, plan: Any, pause_supervisor: Any | None) -> str:
+        """Run *plan* on the RE, handling supervised pause windows (#552).
+
+        With no *pause_supervisor* this is exactly ``self.RE(plan)`` —
+        every interrupt propagates as before (headless default).  With one,
+        a deferred pause landing at a plan checkpoint hands control to
+        ``pause_supervisor.on_pause(self)`` on this (scan) thread: a
+        ``"resume"`` verdict re-enters ``RE.resume()`` (which may pause
+        again — the window can repeat), an ``"abort"`` verdict runs
+        ``RE.abort()`` (the plan's finalize chain executes) and reports
+        ``"aborted"``.
+
+        Returns
+        -------
+        str
+            ``"completed"`` (the plan ran to its own end) or ``"aborted"``
+            (an abort verdict from a pause window).
+
+        Raises
+        ------
+        RunEngineInterrupted
+            Unsupervised pause (propagated, today's contract), or the
+            engine settling to idle from an operator stop — the caller's
+            existing handling owns both.
+        """
+        try:
+            self.RE(plan)
+            return "completed"
+        except RunEngineInterrupted:
+            if pause_supervisor is None or self.RE.state != "paused":
+                raise
+        while True:
+            verdict = pause_supervisor.on_pause(self)
+            if verdict == "abort":
+                logger.info("pause window verdict: abort — stopping the scan")
+                self.RE.abort()
+                return "aborted"
+            try:
+                self.RE.resume()
+                return "completed"
+            except RunEngineInterrupted:
+                if self.RE.state != "paused":
+                    # An operator stop landed during the resumed stretch —
+                    # the caller's settled-to-idle handling owns it.
+                    raise
+                continue
+
     def scan(
         self,
         *,
@@ -603,6 +654,7 @@ class GeecsSession:
         per_step: Any | None = None,
         closeout: Any | None = None,
         should_abort: Callable[[], bool] | None = None,
+        pause_supervisor: Any | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -735,7 +787,7 @@ class GeecsSession:
         # the scan.log handler, and a second one would duplicate every line.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
             try:
-                self.RE(plan)
+                supervised_outcome = self._run_supervised(plan, pause_supervisor)
             except RunEngineInterrupted:
                 if self.RE.state == "paused":
                     # A pause is not a settled outcome — the operator may
@@ -749,6 +801,17 @@ class GeecsSession:
                 logger.info(
                     "Scan %s aborted by operator; cleanup completed "
                     "(trigger disarmed, saving stopped)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return self._last_run_uid
+
+            if supervised_outcome == "aborted":
+                # Abort verdict from a pause window: RE.abort() already ran
+                # the plan's finalize chain — an intentional outcome.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s aborted from the pause window; cleanup "
+                    "completed (trigger disarmed, saving stopped)",
                     scan_number if scan_number is not None else "(unsaved)",
                 )
                 return self._last_run_uid
@@ -786,6 +849,7 @@ class GeecsSession:
         scan_number: int | None = None,
         scan_folder: str | None = None,
         should_abort: Callable[[], bool] | None = None,
+        pause_supervisor: Any | None = None,
     ) -> tuple[str | None, list[dict]]:
         """Run an optimization **as a scan** (iteration = bin); return (uid, history).
 
@@ -988,7 +1052,8 @@ class GeecsSession:
             self.last_run_aborted = False
             aborted = False
             try:
-                self.RE(run_plan)
+                outcome = self._run_supervised(run_plan, pause_supervisor)
+                aborted = outcome == "aborted"
             except RunEngineInterrupted:
                 if self.RE.state == "paused":
                     # A pause is not a settled outcome (the operator may
