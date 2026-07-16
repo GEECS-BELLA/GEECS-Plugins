@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Mechanical pre-commit normalization (repo-wide `pre-commit run --all-files`
-  pass): trailing-whitespace / end-of-file / CRLF fixes, ruff-format
+  pass): trailing-whitespace / end-of-file fixes, ruff-format
   reformatting, safe ruff autofixes (unused-import removal in the Hexapod
   testing notebook), and cleared notebook outputs. No behavior changes; no
   package code restructured (refactor moratorium respected).

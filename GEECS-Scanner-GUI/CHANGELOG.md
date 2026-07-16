@@ -8,12 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Mechanical pre-commit normalization (repo-wide `pre-commit run --all-files`
-  pass): trailing-whitespace / end-of-file / CRLF fixes and ruff-format
+  pass): trailing-whitespace / end-of-file fixes and ruff-format
   reformatting in the legacy app editors (`multi_scanner.py`,
   `save_element_editor.py`, `scan_variable_editor.py`,
   `shot_control_editor.py`, `app/lib/*`, `resources.qrc`/`resources_rc.py`,
   `utils/convert_png_to_ico.py`), plus one unused-import removal
-  (`Optional`). No behavior changes.
+  (`Optional`, in `app/lib/gui_utilities.py`). No behavior changes.
 
 ## [0.35.1] — 2026-07-16
 
