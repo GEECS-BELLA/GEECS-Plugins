@@ -4,6 +4,37 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.37.0] - 2026-07-15
+
+### Changed
+
+- **Operator-requested aborts are quiet, intentional outcomes** (field
+  incident 2026-07-15: a Stop during a delegated optimization run cleaned
+  up perfectly yet produced three ERROR blocks).
+  - `GeecsSession.scan` / `GeecsSession.optimize` catch
+    `bluesky.utils.RunEngineInterrupted` at their `RE(...)` call sites.
+    When the engine settled back to `idle` (an `RE.abort()`/`RE.stop()`
+    — bluesky raises the same type for a pause, which leaves the engine
+    `paused`), they log one INFO line and **return the aborted outcome
+    instead of raising**, with the new session attribute
+    `last_run_aborted` set so callers distinguish completed vs aborted
+    without exceptions.  A pause still propagates.  Optimize's
+    `on_finish` restore-to-initial runs on the quiet abort branch (no
+    longer rides the propagating exception); abort still restores
+    *initial*, never best, and `finish()`-style post-run bookkeeping is
+    still skipped.
+  - `BlueskyScanner._run_scan` no longer logs the generic ERROR
+    "scan thread raised an exception" traceback when `_abort_requested`
+    is set — one INFO line, same ABORTED state.  Genuine exceptions
+    (no abort requested) keep the full ERROR traceback.
+  - `log_claimed_scan_failure` grew an `aborted` flag: an
+    operator-requested abort draws one calm WARNING ("aborted by
+    operator; folder … kept (never deleted) — partial data may be
+    present") instead of the failure ERROR, which is unchanged for
+    genuine failures.  The bridge (`_execute_scan`,
+    `_run_optimization`) and the delegated optimize runner thread the
+    distinction through.
+
 ## [0.36.0] - 2026-07-15
 
 ### Added

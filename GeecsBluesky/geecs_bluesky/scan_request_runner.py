@@ -1420,6 +1420,16 @@ def _run_optimize_request(
                     scan_number=scan_number,
                     scan_folder=scan_folder,
                 )
+            if claimed_here and getattr(session, "last_run_aborted", False):
+                # session.optimize returned the aborted outcome quietly
+                # (operator-requested); note the claimed-but-partial folder
+                # calmly (WARNING) instead of the failure ERROR.
+                log_claimed_scan_failure(
+                    scan_number,
+                    scan_folder,
+                    label="Optimization scan",
+                    aborted=True,
+                )
             return uid
         except BaseException:
             if claimed_here:

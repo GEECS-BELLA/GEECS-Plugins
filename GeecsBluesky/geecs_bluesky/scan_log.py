@@ -55,14 +55,20 @@ class ScanLogContextFilter(logging.Filter):
 
 
 def log_claimed_scan_failure(
-    scan_number: int | None, scan_folder: str | None, *, label: str = "Scan"
+    scan_number: int | None,
+    scan_folder: str | None,
+    *,
+    label: str = "Scan",
+    aborted: bool = False,
 ) -> None:
-    """Log loudly that a claimed scan folder was left behind by a failure.
+    """Log that a claimed scan folder was left behind by a failure or abort.
 
     The folder is never deleted (scan-folder lifecycle invariant: once a
     ``scans/ScanNNN/`` folder exists it must not be removed or recreated),
-    so the claimed-but-failed state is surfaced instead of being silent.
-    A no-op when nothing was claimed.
+    so the claimed-but-not-completed state is surfaced instead of being
+    silent.  A genuine failure is an ERROR; an operator-requested abort
+    (``aborted=True``) is an intentional outcome and gets one calm WARNING
+    instead.  A no-op when nothing was claimed.
 
     Parameters
     ----------
@@ -72,8 +78,20 @@ def log_claimed_scan_failure(
         The claimed ``scans/ScanNNN`` folder path.
     label : str
         Message prefix naming the scan kind (e.g. ``"Optimization scan"``).
+    aborted : bool
+        ``True`` when the scan ended because the operator requested an
+        abort (WARNING, calm wording) rather than failing (ERROR).
     """
     if scan_number is None and scan_folder is None:
+        return
+    if aborted:
+        logger.warning(
+            "%s %s aborted by operator; folder %s kept (never deleted) — "
+            "partial data may be present",
+            label,
+            scan_number,
+            scan_folder,
+        )
         return
     logger.error(
         "%s %s failed or aborted after its folder was claimed at %s; "

@@ -35,6 +35,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 from bluesky import RunEngine
+from bluesky.utils import RunEngineInterrupted
 
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
 from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -127,6 +128,11 @@ class GeecsSession:
         # context_managers=[] so sessions also work off the main thread.
         self.RE = RunEngine(context_managers=[])
         self._last_run_uid: str | None = None
+        #: ``True`` when the most recent :meth:`scan`/:meth:`optimize` ended
+        #: in an operator-requested abort (``RE.abort()``/``RE.stop()``) —
+        #: those calls return the aborted outcome instead of raising, and
+        #: callers distinguish completed vs aborted through this flag.
+        self.last_run_aborted: bool = False
         self.RE.subscribe(self._remember_uid, name="start")
         if tiled:
             subscribe_tiled(self.RE, tiled_uri, tiled_api_key)
@@ -556,6 +562,13 @@ class GeecsSession:
         (after the move, before the shots), closeout in a finalize wrapper
         that runs even on abort, after the trigger disarm.  See
         :func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`.
+
+        An operator-requested abort (``RE.abort()``/``RE.stop()`` while the
+        plan runs) is an intentional outcome, not a failure: the run uid (of
+        the partial run, when one started) is returned normally with
+        :attr:`last_run_aborted` set ``True`` and one INFO line logged.  A
+        *pause* still propagates :class:`~bluesky.utils.RunEngineInterrupted`
+        (the operator may resume).
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -635,12 +648,30 @@ class GeecsSession:
         )
 
         self._last_run_uid = None
+        self.last_run_aborted = False
         # Headless scans get the same per-scan scan.log as bridge scans
         # (Gate-2 finding).  Attach only when this call claimed the number:
         # a pre-claimed number means the caller (e.g. the GUI bridge) owns
         # the scan.log handler, and a second one would duplicate every line.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
-            self.RE(plan)
+            try:
+                self.RE(plan)
+            except RunEngineInterrupted:
+                if self.RE.state == "paused":
+                    # A pause is not a settled outcome — the operator may
+                    # still resume; keep today's propagation behavior.
+                    raise
+                # The engine settled back to idle: an operator-requested
+                # abort/stop.  The plan's finalize chain (save-off, disarm)
+                # already ran inside the engine's cleanup, so this is an
+                # intentional outcome, not a failure — report it quietly.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s aborted by operator; cleanup completed "
+                    "(trigger disarmed, saving stopped)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return self._last_run_uid
 
             if save_data and self._last_run_uid and scan_number is not None:
                 self._export_scalar_files(scan_number)
@@ -698,6 +729,15 @@ class GeecsSession:
         scan_number, scan_folder:
             Pre-claimed scan number/folder (as in :meth:`scan`).  When omitted
             and *save_data* is true, they are claimed here.
+
+        Notes
+        -----
+        An operator-requested abort is an intentional outcome, not a
+        failure: ``(uid, history)`` for the completed iterations is
+        returned normally with :attr:`last_run_aborted` set ``True``, the
+        ``on_finish`` restore-to-initial still runs (abort restores
+        *initial*, never best), and one INFO line is logged.  A *pause*
+        still propagates :class:`~bluesky.utils.RunEngineInterrupted`.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -844,14 +884,45 @@ class GeecsSession:
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
             token = self.RE.subscribe(_collect)
             self._last_run_uid = None
+            self.last_run_aborted = False
+            aborted = False
             try:
                 self.RE(run_plan)
+            except RunEngineInterrupted:
+                if self.RE.state == "paused":
+                    # A pause is not a settled outcome (the operator may
+                    # resume) — keep today's restore-and-propagate behavior.
+                    if on_finish in ("initial", "best"):
+                        self._move_movables(variables, initial_values)
+                    raise
+                aborted = True
             except BaseException:
                 if on_finish in ("initial", "best"):
                     self._move_movables(variables, initial_values)
                 raise
             finally:
                 self.RE.unsubscribe(token)
+            if aborted:
+                # Operator-requested abort: the engine settled back to idle
+                # and its cleanup (finalize disarm) already ran.  Restore the
+                # variables exactly as the exception path always has (abort
+                # restores *initial*, never best — docstring contract), then
+                # return the aborted outcome quietly instead of raising.
+                self.last_run_aborted = True
+                if on_finish in ("initial", "best"):
+                    self._move_movables(variables, initial_values)
+                logger.info(
+                    "Optimization scan %s aborted by operator; cleanup "
+                    "completed (%d iteration(s) recorded%s)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                    len(history),
+                    (
+                        "; variables restored to initial values"
+                        if on_finish in ("initial", "best")
+                        else ""
+                    ),
+                )
+                return self._last_run_uid, history
             _observe_previous(len(history) + 1)  # final bin
 
             if on_finish in ("initial", "best"):
