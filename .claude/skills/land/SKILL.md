@@ -65,7 +65,9 @@ auto-fixers abort merge commits) and push. Nothing merges `dev` →
    hardware-verified distinction is never implicit.
 7. **Adversarial review** (runs during the CI wait; see the section
    below): spawn a fresh-context reviewer subagent on the PR's diff,
-   post its surviving findings as a PR comment, and disposition every
+   post its report as a PR comment **either way** — a "no surviving
+   findings" report is itself the audit record distinguishing
+   "reviewed, clean" from "review skipped" — and disposition every
    finding — fix it, or waive it with a stated reason — before merging.
    No PR merges with an undispositioned finding.
 8. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
@@ -97,7 +99,11 @@ The reviewer brief (pass verbatim, plus the PR/diff reference):
 >    (inputs/state → wrong behavior). Check edge cases the tests skip,
 >    invariant violations (scan-folder creation, public-repo hygiene,
 >    contract files traveling with behavior), and whether new tests
->    would actually fail if the code were wrong.
+>    would actually fail if the code were wrong. For a diff with no
+>    runtime surface (docs, process, tooling), correctness means:
+>    internal contradictions, conflicts with other repo policy
+>    documents, broken cross-references, and instructions that are
+>    ambiguous or unexecutable as written.
 > 2. **Redundancy** — does some or all of this already exist? Search
 >    the repo for existing implementations, helpers, or patterns that
 >    overlap what the diff adds (the repo has grown duplicate config
@@ -117,9 +123,11 @@ The reviewer brief (pass verbatim, plus the PR/diff reference):
 
 Disposition, in a PR comment before merge: each finding is either
 **fixed** (commit referenced) or **waived** with a one-line reason.
-Waivers are cheap-to-veto flags for the owner, same as judgment-call
-additions. If a finding invalidates the approach, stop and surface it
-instead of merging.
+A fix must go back to the **same reviewer** (continue the subagent)
+for a confirm/deny before it is dispositioned as fixed — otherwise the
+author is back to assessing their own work. Waivers are cheap-to-veto
+flags for the owner, same as judgment-call additions. If a finding
+invalidates the approach, stop and surface it instead of merging.
 
 ## Hard rules (violations have shipped incidents)
 
