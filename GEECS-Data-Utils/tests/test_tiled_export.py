@@ -80,3 +80,10 @@ def test_missing_bin_number_defaults_to_one() -> None:
     primary = _primary_df().drop(columns=["bin_number"])
     df = build_legacy_scalar_dataframe(_start_doc(), primary)
     assert list(df["Bin #"]) == [1, 1, 1, 1]
+
+
+def test_export_uses_the_canonical_config_reader() -> None:
+    """Issue #527: tiled_export delegates to tiled_catalog's one reader."""
+    from geecs_data_utils import tiled_catalog, tiled_export
+
+    assert tiled_export.read_tiled_config is tiled_catalog.read_tiled_config
