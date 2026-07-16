@@ -338,3 +338,82 @@ class TestFormStateFromRequest:
         )
         with pytest.raises(ConsoleFormError, match="action bindings"):
             form_state_from_request(request)
+
+
+class TestMaxIterations:
+    """The Iterations spinner's field: owns the submitted spec's limit."""
+
+    def _form(self, **overrides):
+        base = dict(
+            mode=ConsoleMode.OPTIMIZATION,
+            shots_per_step=5,
+            save_sets=["Amp4In"],
+            optimization=_optimization_spec(),
+        )
+        base.update(overrides)
+        return ConsoleFormState(**base)
+
+    def test_positive_count_lands_on_the_spec(self):
+        request = build_scan_request(self._form(max_iterations=50))
+        assert request.optimization.max_iterations == 50
+        assert roundtrip(request).optimization.max_iterations == 50
+
+    def test_zero_is_auto_and_maps_to_none(self):
+        # The spinner's special value 0 ("auto") submits no limit.
+        request = build_scan_request(self._form(max_iterations=0))
+        assert request.optimization.max_iterations is None
+
+    def test_unset_maps_to_none(self):
+        request = build_scan_request(self._form(max_iterations=None))
+        assert request.optimization.max_iterations is None
+
+    def test_form_count_owns_the_specs_own_limit(self):
+        """The spinner is authoritative — a config's inline limit is
+        surfaced by seeding the spinner, never merged at build time."""
+        spec = _optimization_spec().model_copy(update={"max_iterations": 20})
+        assert (
+            build_scan_request(
+                self._form(optimization=spec, max_iterations=50)
+            ).optimization.max_iterations
+            == 50
+        )
+        assert (
+            build_scan_request(
+                self._form(optimization=spec, max_iterations=None)
+            ).optimization.max_iterations
+            is None
+        )
+
+    def test_estimate_multiplies_iterations_by_shots(self):
+        assert estimate_total_shots(self._form(max_iterations=50)) == 250
+        # Unset ("auto"): one iteration's worth, as before.
+        assert estimate_total_shots(self._form(max_iterations=None)) == 5
+
+    def test_runaway_guard_applies_to_optimize_iterations(self):
+        form = self._form(max_iterations=100_000, shots_per_step=11)
+        assert estimate_total_shots(form) == 1_100_000 > MAXIMUM_SCAN_SIZE
+        with pytest.raises(ConsoleFormError, match="runaway"):
+            build_scan_request(form)
+
+    def test_negative_count_rejected(self):
+        with pytest.raises(ValidationError):
+            self._form(max_iterations=-1)
+
+    def test_iterations_round_trip_is_request_exact(self):
+        """Apply-then-resubmit fidelity: the restored form rebuilds the
+        identical request (the spinner field is folded into the spec, so
+        form equality is not the invariant — request equality is)."""
+        form = self._form(max_iterations=50)
+        request = roundtrip(build_scan_request(form))
+        restored = form_state_from_request(request)
+        assert restored.max_iterations == 50
+        assert build_scan_request(restored) == request
+
+    def test_auto_round_trips_to_none(self):
+        # 0 (widget) -> None (request) -> None (form): resubmitting an
+        # applied "auto" preset submits "auto" again.
+        request = build_scan_request(self._form(max_iterations=0))
+        restored = form_state_from_request(request)
+        assert restored.max_iterations is None
+        rebuilt = build_scan_request(restored)
+        assert rebuilt.optimization.max_iterations is None

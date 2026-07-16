@@ -272,7 +272,15 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   so `build_scan_request` stays pure; optimize requests round-trip through
   `form_state_from_request`, and applying an optimize preset matches its
   inline spec against the listed configs by content (no match ⇒ status-bar
-  error, form untouched).  **The engine-side loader is wired** (0.9.0):
+  error, form untouched; `max_iterations` is neutral in the match — it
+  belongs to the spinner below).  The **Iterations spinner** (`r3_iterations_spin`,
+  visible with the mode) owns the submitted spec's `max_iterations`
+  (`ConsoleFormState.max_iterations`; 0 renders as "auto" ⇒ `None`, the
+  engine's default budget — deliberately NOT the old GUI's derive-from-1D-
+  limits hack): the builder writes it onto the spec, picking a config seeds
+  the spinner from the config's own limit, presets restore it, and the R3
+  shot count shows `iterations × shots/step` (the runaway guard applies) or
+  "auto".  **The engine-side loader is wired** (0.9.0):
   `make_bluesky_submitter` injects `optimization_loader` from
   `services/optimization.py` — `optimizer_config_from_spec` maps the spec
   onto the `BaseOptimizerConfig` dict shape (pinned as the exact inverse
