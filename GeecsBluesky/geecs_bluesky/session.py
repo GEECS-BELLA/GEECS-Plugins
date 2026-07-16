@@ -35,7 +35,7 @@ from typing import Any, Callable, Sequence
 
 import numpy as np
 from bluesky import RunEngine
-from bluesky.utils import RunEngineInterrupted
+from bluesky.utils import RequestAbort, RunEngineInterrupted
 
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
 from geecs_bluesky.exceptions import GeecsConfigurationError
@@ -92,6 +92,24 @@ def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
     return value
 
 
+class _RequestAbortLogFilter(logging.Filter):
+    """Drop upstream bluesky's ``RequestAbort`` traceback record.
+
+    The RunEngine logs ``"Run aborted"`` with a full traceback from two
+    sites: the ``RequestAbort`` path (an operator-requested abort — the
+    *mechanism* of aborting, not an error; the session logs its own single
+    INFO line) and a genuine-exception path.  Filtering on the exception
+    *type* silences only the former — a real failure's "Run aborted"
+    traceback still gets through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D102 — base doc
+        exc = record.exc_info
+        if exc and exc[0] is not None and issubclass(exc[0], RequestAbort):
+            return False
+        return True
+
+
 class GeecsSession:
     """Headless scan session for one experiment, over the CA gateway.
 
@@ -127,6 +145,18 @@ class GeecsSession:
         self._mock = mock
         # context_managers=[] so sessions also work off the main thread.
         self.RE = RunEngine(context_managers=[])
+        # Silence upstream's RequestAbort traceback (operator aborts are
+        # quiet, intentional outcomes — #563 follow-up).  RE.log is a
+        # LoggerAdapter over the PROCESS-WIDE ``bluesky`` logger shared by
+        # every RunEngine, so this covers all engines in the process (a
+        # RequestAbort is the abort mechanism whoever raised it) — and the
+        # guard keeps repeated session construction from stacking
+        # duplicate filters on that global logger.
+        _re_logger = getattr(self.RE.log, "logger", None)
+        if _re_logger is not None and not any(
+            isinstance(f, _RequestAbortLogFilter) for f in _re_logger.filters
+        ):
+            _re_logger.addFilter(_RequestAbortLogFilter())
         self._last_run_uid: str | None = None
         #: ``True`` when the most recent :meth:`scan`/:meth:`optimize` ended
         #: in an operator-requested abort (``RE.abort()``/``RE.stop()``) —

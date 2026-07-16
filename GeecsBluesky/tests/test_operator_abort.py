@@ -257,3 +257,76 @@ def test_claimed_scan_failure_note_stays_error(caplog) -> None:
     [record] = caplog.records
     assert record.levelno == logging.ERROR
     assert "failed or aborted" in record.getMessage()
+
+
+def test_upstream_request_abort_traceback_is_filtered(caplog) -> None:
+    """Upstream bluesky's 'Run aborted' RequestAbort traceback is dropped by
+    the session's log filter; a genuine exception's record passes through
+    (the filter keys on the exception TYPE, never the message)."""
+    from bluesky.utils import RequestAbort
+
+    s = _session()
+    re_logger = s.RE.log.logger
+
+    with caplog.at_level(logging.DEBUG, logger=re_logger.name):
+        try:
+            raise RequestAbort()
+        except RequestAbort:
+            re_logger.exception("Run aborted")  # upstream's abort-path record
+        try:
+            raise RuntimeError("real failure")
+        except RuntimeError:
+            re_logger.exception("Run aborted")  # upstream's genuine-error record
+
+    aborted = [r for r in caplog.records if r.getMessage() == "Run aborted"]
+    assert len(aborted) == 1, "only the genuine-exception record may survive"
+    assert aborted[0].exc_info[0] is RuntimeError
+
+
+def test_live_abort_produces_no_upstream_traceback(caplog) -> None:
+    """End-to-end: a real RE.abort() leaves zero RequestAbort tracebacks in
+    the log stream (the field complaint), while the quiet INFO remains."""
+    s = _session()
+    det = s.detector("U_Cam", ["Sig"])
+    set_mock_value(det.acq_timestamp, 1000.0)
+    pacer = start_pacer(s.RE, [(det, 1000.0)], initial_delay=0.4, interval=0.05)
+    aborter = _abort_when_running(s.RE)
+    try:
+        with caplog.at_level(logging.DEBUG):
+            s.scan(
+                detectors=[det],
+                motor=None,
+                positions=[None],
+                shots_per_step=200,
+                mode="free_run",
+                save_data=False,
+            )
+    finally:
+        pacer.cancel()
+        aborter.join(timeout=15.0)
+        s.disconnect(det)
+
+    from bluesky.utils import RequestAbort
+
+    leaked = [
+        r
+        for r in caplog.records
+        if r.exc_info
+        and r.exc_info[0] is not None
+        and issubclass(r.exc_info[0], RequestAbort)
+    ]
+    assert leaked == [], "RequestAbort tracebacks must not reach the log"
+
+
+def test_abort_log_filter_attaches_once_across_sessions() -> None:
+    """The filter lands on the process-global bluesky logger — repeated
+    session construction must not stack duplicates (review finding, #570)."""
+    from geecs_bluesky.session import _RequestAbortLogFilter
+
+    s1 = _session()
+    s2 = _session()
+    assert s1.RE.log.logger is s2.RE.log.logger  # global, by upstream design
+    ours = [
+        f for f in s1.RE.log.logger.filters if isinstance(f, _RequestAbortLogFilter)
+    ]
+    assert len(ours) == 1
