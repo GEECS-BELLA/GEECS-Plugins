@@ -32,7 +32,13 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   selected sets is valid there), valid shot count within the guard, and in
   Optimization mode a selected optimizer config.  The GUI never pre-blocks
   an optimize submission beyond that — the engine's accept/refuse answer is
-  surfaced in the status bar.
+  surfaced in the status bar.  **Stop is asynchronous** (#571):
+  `stop_scanning_thread` can block briefly engine-side, so the click
+  dispatches it through a dedicated `BackgroundResult` stop worker (no
+  result slot — completion arrives via the lifecycle stream); the button
+  disables and shows "Stopping…" until a terminal lifecycle state
+  (`_TERMINAL_SCAN_STATES` = aborted/done, exactly the engine's terminal
+  vocabulary) releases the hold and normal gating resumes.
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
   to "(previous)" (**live**: driven by `ScanLifecycleEvent.scan_number`
   through the adapter's `scan_number_known` signal), compact log tail.

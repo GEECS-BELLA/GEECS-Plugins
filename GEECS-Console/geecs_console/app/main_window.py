@@ -124,10 +124,12 @@ _STATE_DOT_COLORS = {
     "failed": _COLOR_RED,
 }
 
-# Lifecycle states that settle an in-flight Stop request: the scan is over
-# (or the engine failed), so the Stop button's "Stopping…" hold releases and
-# normal gating resumes.
-_TERMINAL_SCAN_STATES = frozenset({"aborted", "done", "error", "failed", "idle"})
+# Lifecycle states that settle an in-flight Stop request, releasing the Stop
+# button's "Stopping…" hold.  Exactly the engine's terminal vocabulary: the
+# bridge's scan-thread cleanup always ends in ABORTED or DONE
+# (geecs_bluesky.events.ScanState; BlueskyScanner._run_scan).  Deliberately
+# NOT paused_on_error — that state is resumable, the scan is not over.
+_TERMINAL_SCAN_STATES = frozenset({"aborted", "done"})
 
 
 def _default_completions_factory(experiment: str) -> CompletionsProvider:

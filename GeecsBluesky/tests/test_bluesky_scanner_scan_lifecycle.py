@@ -185,6 +185,22 @@ def test_stop_returns_promptly_while_thread_is_stuck_in_init() -> None:
         thread.join(timeout=5)
 
 
+def test_stop_with_no_active_scan_is_a_stateless_no_op(monkeypatch) -> None:
+    """A stop racing the scan's natural completion must not repaint the
+    already-emitted terminal state with STOPPING (#573 review finding),
+    nor park an abort flag on the idle scanner."""
+    scanner = _make_scanner()
+    monkeypatch.setattr(bluesky_scanner, "ScanState", None)
+    scanner._scan_finished = True  # the scan thread's cleanup already ran
+    scanner._scan_thread = None
+    scanner._current_state = "done"
+
+    scanner.stop_scanning_thread()
+
+    assert scanner._current_state == "done", "no STOPPING repaint after DONE"
+    assert scanner._abort_requested is False
+
+
 def test_delegated_request_supplies_should_abort_probe(monkeypatch) -> None:
     """The bridge hands the runner a live probe of its abort flag."""
     scanner = _make_scanner()

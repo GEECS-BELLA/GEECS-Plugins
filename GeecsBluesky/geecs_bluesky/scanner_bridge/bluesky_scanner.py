@@ -394,8 +394,23 @@ class BlueskyScanner:
         reporting ``True``: clearing it would let a second
         ``start_scan_thread`` run the still-busy RunEngine under a live
         scan.
+
+        With no active scan (e.g. the click raced the scan's natural
+        completion) this is a logged no-op — no STOPPING event, so the
+        already-emitted terminal state stays the last word.
         """
         logger.info("BlueskyScanner: abort requested")
+        if not self.is_scanning_active():
+            # Nothing to stop — the scan may have just finished naturally
+            # (the click raced the last shot).  Emitting STOPPING here
+            # would repaint the state pill *after* the terminal DONE/
+            # ABORTED event and leave it stuck amber (#573 review); leave
+            # the state stream alone and just reap a dead thread handle.
+            thread = self._scan_thread
+            if thread is not None and not thread.is_alive():
+                self._scan_thread = None
+            logger.info("BlueskyScanner: no active scan; nothing to stop")
+            return
         self._abort_requested = True
         self._set_state("STOPPING")
         try:

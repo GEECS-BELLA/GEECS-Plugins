@@ -31,7 +31,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     (bluesky 1.15.0 `run_engine.py::_run`), so a stop that lands between
     the runner's last checkpoint and plan start still takes effect — the
     gate skips the whole plan (zero messages, no run document) and
-    returns the quiet aborted outcome.
+    returns the quiet aborted outcome.  **Gate-path caveat**: on
+    `session.scan` the claim happens before the gate, so a stop landing
+    in the claim→plan-start window (the claim's network I/O + the
+    ScanInfo write) does burn a number — the folder holds ScanInfo and
+    no data, and the INFO line reads "stopped before the plan started".
+    Only the runner checkpoints carry the burns-nothing promise.
   - `stop_scanning_thread` now returns promptly: the 15 s completion
     join became a 2 s bookkeeping-only join (`_STOP_JOIN_TIMEOUT`), the
     still-finishing case logs INFO instead of ERROR, and completion is
