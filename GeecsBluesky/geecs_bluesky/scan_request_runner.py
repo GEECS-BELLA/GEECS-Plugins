@@ -1044,6 +1044,29 @@ def build_telemetry_readables(
     return [CaTelemetryGroup(members)], recorded
 
 
+def _stopped_during_init(
+    session: Any, should_abort: Callable[[], bool] | None, stage: str
+) -> bool:
+    """Return ``True`` when an operator stop arrived during initialization.
+
+    The init-stage checkpoints of :func:`run_scan_request`: all of them run
+    **pre-claim**, so a stop caught here burns no scan number.  On trip the
+    session's ``last_run_aborted`` is set (the quiet aborted-outcome
+    contract from #563 — callers distinguish "stopped" from "failed"
+    without an exception) and one INFO line is logged; the caller's
+    ``finally`` still owns disconnection of everything it created.
+    """
+    if should_abort is None or not should_abort():
+        return False
+    logger.info(
+        "scan stopped during initialization (%s); nothing claimed — "
+        "no scan number was burned",
+        stage,
+    )
+    session.last_run_aborted = True
+    return True
+
+
 def run_scan_request(
     session: Any,
     request: ScanRequest,
@@ -1056,6 +1079,7 @@ def run_scan_request(
     preflight: Callable[[list, bool], list | None] | None = None,
     on_scan_start: Callable[[int, int], None] | None = None,
     operator_channel: "OperatorChannel | None" = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -1131,6 +1155,21 @@ def run_scan_request(
         detector is built).  ``None`` (headless default) answers with each
         question's default: continue-and-drop with a WARNING.  Distinct
         from *preflight*, which vets the already-built detector list.
+    should_abort :
+        Optional operator-stop probe (the GUI bridge passes
+        ``lambda: self._abort_requested``), consulted between the
+        initialization stages — after configuration resolution, after
+        device connect, after the *preflight* hook, and immediately before
+        the scan-number claim — because ``RE.abort()`` cannot stop a scan
+        that has not reached the RunEngine yet.  Every checkpoint is
+        pre-claim, so an init-stage stop burns no scan number; on trip the
+        runner disconnects what it created, logs one INFO line, sets
+        ``session.last_run_aborted`` (the #563 aborted-outcome contract)
+        and returns ``None``.  The callable is also handed to
+        ``session.scan``/``session.optimize``, whose in-plan gate closes
+        the residual window between the last checkpoint here and the
+        engine reporting ``running``.  ``None`` (headless default) checks
+        nothing.
 
     Returns
     -------
@@ -1181,6 +1220,7 @@ def run_scan_request(
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
             operator_channel=operator_channel,
+            should_abort=should_abort,
         )
 
     if not request.save_sets:
@@ -1210,6 +1250,8 @@ def run_scan_request(
         )
         return None
     devices_config = checked_config
+    if _stopped_during_init(session, should_abort, "after configuration resolution"):
+        return None
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
     warn_if_reserved_boundary_overrides(save_set)
 
@@ -1266,6 +1308,9 @@ def run_scan_request(
             detectors = list(detectors) + telemetry_readables
             created.extend(telemetry_readables)
 
+        if _stopped_during_init(session, should_abort, "after device connect"):
+            return None
+
         if preflight is not None:
             # Scanner-layer seam (operator dialogs): runs pre-claim by
             # construction — the claim happens inside session.scan below.
@@ -1277,6 +1322,8 @@ def run_scan_request(
                 )
                 return None
             detectors = list(checked)
+            if _stopped_during_init(session, should_abort, "after preflight"):
+                return None
 
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         # Provenance: which named save sets were unioned for this scan.
@@ -1308,6 +1355,10 @@ def run_scan_request(
 
         if request.mode is ScanRequestMode.NOSCAN:
             scan_info["scan_mode"] = "noscan"
+            # The last pre-claim checkpoint: the claim happens inside
+            # session.scan, immediately below.
+            if _stopped_during_init(session, should_abort, "before scan-number claim"):
+                return None
             if on_scan_start is not None:
                 on_scan_start(1, request.shots_per_step)
             return session.scan(
@@ -1322,6 +1373,7 @@ def run_scan_request(
                 setup=setup,
                 per_step=per_step,
                 closeout=closeout,
+                should_abort=should_abort,
             )
 
         movables: list = []
@@ -1355,6 +1407,10 @@ def run_scan_request(
             scan_info["start"] = outer[0]
             scan_info["end"] = outer[-1]
             scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+        # The last pre-claim checkpoint: the claim happens inside
+        # session.scan, immediately below.
+        if _stopped_during_init(session, should_abort, "before scan-number claim"):
+            return None
         if on_scan_start is not None:
             on_scan_start(len(positions), len(positions) * request.shots_per_step)
         return session.scan(
@@ -1369,6 +1425,7 @@ def run_scan_request(
             setup=setup,
             per_step=per_step,
             closeout=closeout,
+            should_abort=should_abort,
         )
     finally:
         if created and hasattr(session, "disconnect"):
@@ -1389,6 +1446,7 @@ def _run_optimize_request(
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
     operator_channel: "OperatorChannel | None" = None,
+    should_abort: Callable[[], bool] | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1408,10 +1466,14 @@ def _run_optimize_request(
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
         The ready-made optimization callables.
-    optimization_binder, device_requirements, on_scan_start, operator_channel :
+    optimization_binder, device_requirements, on_scan_start, operator_channel,
+    should_abort :
         As in :func:`run_scan_request` (the unserved-variables check runs
         here too, pre-claim, over the effective devices config — save-set
-        devices *and* optimizer-provisioned ones).  With a
+        devices *and* optimizer-provisioned ones; the *should_abort*
+        init-stage checkpoints run after device connect and immediately
+        before the claim — which on this path is the runner's own,
+        pre-bind).  With a
         binder (and no ready-made callables) the runner claims the scan
         itself, pre-bind, so the
         binder's analyzers get the real ``ScanTag`` — mirroring the legacy
@@ -1521,6 +1583,9 @@ def _run_optimize_request(
             variables[name] = movable
             created.append(movable)
 
+        if _stopped_during_init(session, should_abort, "after device connect"):
+            return None
+
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         if request.save_sets:
             # Provenance: which named save sets were unioned for this scan.
@@ -1561,6 +1626,10 @@ def _run_optimize_request(
         scan_folder: str | None = None
         claimed_here = False
         try:
+            # The last pre-claim checkpoint: on this path the runner claims
+            # the scan itself (pre-bind), immediately below.
+            if _stopped_during_init(session, should_abort, "before scan-number claim"):
+                return None
             if objective is None or suggester is None:
                 # Binder path (checked non-None at entry): claim first so the
                 # binder's analyzers get the real ScanTag (docstring above).
@@ -1596,6 +1665,7 @@ def _run_optimize_request(
                     on_finish="best" if spec.move_to_best_on_finish else "hold",
                     scan_number=scan_number,
                     scan_folder=scan_folder,
+                    should_abort=should_abort,
                 )
             if claimed_here and getattr(session, "last_run_aborted", False):
                 # session.optimize returned the aborted outcome quietly

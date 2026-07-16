@@ -158,7 +158,8 @@ scanner.reinitialize(request)       # ScanRequest ONLY; validates fail-fast
 scanner.start_scan_thread()         # runs it via run_scan_request in a thread
 scanner.is_scanning_active()        # → bool
 scanner.estimate_current_completion()  # → 0.0–1.0
-scanner.stop_scanning_thread()      # RE.abort() + thread join
+scanner.stop_scanning_thread()      # request stop, returns promptly;
+                                    # ABORTED/DONE arrives via events
 scanner.run_action(name)            # on-demand ActionPlan (refused mid-scan)
 scanner.describe_action(name)       # pure dry-run (allowed mid-scan)
 ```

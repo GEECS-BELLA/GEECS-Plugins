@@ -675,13 +675,69 @@ class TestSubmission:
         assert not window.start_button.isEnabled()
         assert window.stop_button.isEnabled()
 
-    def test_stop_clears_active_and_reenables(self, window):
+    def test_stop_clears_active_and_reenables(self, window, qtbot):
+        """Stop is asynchronous (issue #571): the worker delivers the call,
+        the terminal lifecycle event — not the click — restores gating."""
+        from fake_events import ScanLifecycleEvent
+
         select_save_set(window, "Amp4In")
         window._on_start_clicked()
         assert window._submitter.is_scanning_active()
         window._on_stop_clicked()
-        assert window._submitter.stopped == 1
+        qtbot.waitUntil(lambda: window._submitter.stopped == 1, timeout=2000)
+        window.events.handle(ScanLifecycleEvent(state="aborted"))
         assert window.start_button.isEnabled()
+
+    def test_stop_click_never_blocks_the_gui_thread(self, window, qtbot):
+        """The pinwheel half of issue #571: a stop that takes engine-side
+        time (the old path joined the scan thread for up to 15 s) must
+        return immediately, with the button disabled and 'Stopping…'."""
+        import time
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        submitter = window._submitter
+        finished: list[bool] = []
+
+        def slow_stop():
+            time.sleep(0.5)  # engine-side bookkeeping join stand-in
+            submitter.active = False
+            submitter.stopped += 1
+            finished.append(True)
+
+        submitter.stop_scanning_thread = slow_stop
+        started = time.monotonic()
+        window._on_stop_clicked()
+        assert time.monotonic() - started < 0.3, "stop must not block the GUI"
+        assert not window.stop_button.isEnabled()
+        assert window.stop_button.text() == "Stopping…"
+        qtbot.waitUntil(lambda: bool(finished), timeout=2000)
+
+    def test_stopping_hold_releases_on_terminal_lifecycle_event(self, window, qtbot):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        label = window.stop_button.text()
+        window._on_stop_clicked()
+        assert window._stop_in_flight
+        # The engine's STOPPING event is not terminal: the hold stays.
+        window.events.handle(ScanLifecycleEvent(state="stopping"))
+        assert window._stop_in_flight
+        assert not window.stop_button.isEnabled()
+        assert "STOPPING" in window.state_pill.text()
+        qtbot.waitUntil(lambda: window._submitter.stopped == 1, timeout=2000)
+        # The terminal event releases the hold and normal gating resumes.
+        window.events.handle(ScanLifecycleEvent(state="aborted"))
+        assert not window._stop_in_flight
+        assert window.stop_button.text() == label
+        assert window.start_button.isEnabled()
+        assert not window.stop_button.isEnabled()  # nothing scanning now
+
+    def test_stop_click_with_no_active_scan_is_a_no_op(self, window):
+        window._on_stop_clicked()
+        assert window._submitter.stopped == 0
+        assert not window._stop_in_flight
 
     def test_form_round_trips_into_build_scan_request(self, window):
         select_save_set(window, "Amp4In")

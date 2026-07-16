@@ -167,7 +167,6 @@ def _make_scanner() -> BlueskyScanner:
     scanner._optimization_loader = None
     scanner._scan_request = None
     scanner._request_resolver = None
-    scanner._last_run_uid = None
     scanner._active_run_uid = None
     scanner._active_descriptor_uids = set()
     scanner._RE = SimpleNamespace(
@@ -241,7 +240,6 @@ def test_event_documents_emit_step_progress(monkeypatch) -> None:
             "event", {"descriptor": desc, "data": {"bin_number": bin_number}}
         )
 
-    assert scanner._last_run_uid == "abc"
     step_events = [e for e in events if isinstance(e, _FakeStepEvent)]
     assert [e.shots_completed for e in step_events] == [1, 2, 3, 4]
     assert [e.step_index for e in step_events] == [0, 0, 1, 1]

@@ -29,7 +29,13 @@ class Submitter(Protocol):
         ...
 
     def stop_scanning_thread(self) -> None:
-        """Abort the running scan and join its thread."""
+        """Request the running scan to stop; returns promptly.
+
+        May still block briefly (a short bookkeeping join in the engine),
+        so the window dispatches it through a ``BackgroundResult`` worker —
+        never on the GUI thread.  Completion is announced by the terminal
+        ABORTED/DONE lifecycle event, not by this call's return.
+        """
         ...
 
     def is_scanning_active(self) -> bool:
