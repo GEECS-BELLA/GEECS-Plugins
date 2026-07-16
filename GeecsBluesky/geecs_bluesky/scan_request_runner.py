@@ -45,14 +45,17 @@ from geecs_bluesky.config_resolver import (  # noqa: F401
 )
 from geecs_bluesky.db_runtime import (
     GeecsDbScalarPolicy,
+    GeecsDbServedSetProvider,
     ScalarPolicyProvider,
     resolve_entry_scalars,
     select_telemetry_variables,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.models.shot_control import ShotControlWrites
+from geecs_bluesky.operator_channel import OperatorChannel
 from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan
+from geecs_bluesky.preflight import run_unserved_variables_check
 from geecs_bluesky.scan_log import log_claimed_scan_failure, scan_log
 from geecs_schemas import (
     ActionBindings,
@@ -776,6 +779,52 @@ def make_scalar_policy(session: Any) -> ScalarPolicyProvider | None:
     return GeecsDbScalarPolicy(experiment)
 
 
+def make_served_set_provider(session: Any) -> GeecsDbServedSetProvider | None:
+    """Build the gateway served-set provider for *session*'s experiment.
+
+    The unserved-variables pre-flight check resolves every devices-config
+    variable against this provider's served set (``get='yes'`` union
+    settable variables of enabled devices — the gateway's serving rule).
+    The provider is failure-tolerant: a DB failure makes
+    ``served_by_device()`` return ``None`` and the check is skipped with a
+    warning — a scan never aborts because the DB blipped.
+
+    Parameters
+    ----------
+    session :
+        The :class:`~geecs_bluesky.session.GeecsSession` (duck-typed).
+
+    Returns
+    -------
+    GeecsDbServedSetProvider or None
+        A DB-backed provider, or ``None`` when no experiment is known
+        (the check is then skipped entirely).
+    """
+    experiment = getattr(session, "experiment", None)
+    if not experiment:
+        return None
+    return GeecsDbServedSetProvider(experiment)
+
+
+def _preflight_unserved(
+    session: Any,
+    devices_config: dict[str, dict[str, Any]],
+    operator_channel: "OperatorChannel | None",
+) -> tuple[dict[str, dict[str, Any]] | None, dict[str, list[str]], list[str]]:
+    """Run the unserved-variables check over *devices_config* (pre-claim).
+
+    Thin glue between :func:`make_served_set_provider` and
+    :func:`~geecs_bluesky.preflight.run_unserved_variables_check`; returns
+    as the latter (``None`` config means the operator aborted).
+    """
+    provider = make_served_set_provider(session)
+    return run_unserved_variables_check(
+        devices_config,
+        provider.served_by_device if provider is not None else None,
+        operator_channel,
+    )
+
+
 def warn_if_reserved_boundary_overrides(save_set: SaveSet | None) -> None:
     """Warn once if any entry sets the reserved (not-honored) set-side fields.
 
@@ -874,6 +923,7 @@ def run_scan_request(
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     preflight: Callable[[list, bool], list | None] | None = None,
     on_scan_start: Callable[[int, int], None] | None = None,
+    operator_channel: "OperatorChannel | None" = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -920,14 +970,23 @@ def run_scan_request(
         a strict flag: ``preflight(detectors, strict) -> list | None``.
         The returned (possibly reduced) list becomes the scan's detectors;
         ``None`` aborts the run (created devices are still disconnected).
-        Not called on the optimize path — an optimize preflight is a later
-        seam.  Headless callers omit it (behavior unchanged when ``None``).
+        Not called on the optimize path — a detector-level optimize
+        preflight is a later seam (the config-level unserved-variables
+        check *does* run there; see *operator_channel*).  Headless callers
+        omit it (behavior unchanged when ``None``).
     on_scan_start :
         Optional progress-totals hook (the GUI bridge's progress seam),
         called with ``(total_steps, total_shots)`` immediately before the
         session scan starts.  On the optimize path the totals are the
         upper bound ``(max_iterations, max_iterations × shots_per_step)``
         — the suggester may stop early.
+    operator_channel :
+        Where the runner's own pre-flight questions go (today: the
+        unserved-variables check, which runs pre-claim over the devices
+        config on **every** mode — noscan/step *and* optimize — before any
+        detector is built).  ``None`` (headless default) answers with each
+        question's default: continue-and-drop with a WARNING.  Distinct
+        from *preflight*, which vets the already-built detector list.
 
     Returns
     -------
@@ -974,6 +1033,7 @@ def run_scan_request(
             on_scan_start=on_scan_start,
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
+            operator_channel=operator_channel,
         )
 
     if not request.save_sets:
@@ -989,6 +1049,20 @@ def run_scan_request(
     # aborts a scan); the DB set-side stays disabled (reserved fields warn).
     scalar_policy = make_scalar_policy(session)
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
+    # Unserved-variables pre-flight (pre-claim, pre-device-build): a variable
+    # the gateway does not serve has no PV, so its detector could never
+    # connect — ask the operator (or headless: drop with a WARNING) now
+    # instead of dying in a 20 s NotConnectedError during connect.
+    checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
+        session, devices_config, operator_channel
+    )
+    if checked_config is None:
+        logger.warning(
+            "ScanRequest preflight aborted the scan (unserved save-set "
+            "variables; pre-claim — no scan number was burned)"
+        )
+        return None
+    devices_config = checked_config
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
     warn_if_reserved_boundary_overrides(save_set)
 
@@ -1060,6 +1134,14 @@ def run_scan_request(
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
         # Provenance: which named save sets were unioned for this scan.
         md["save_sets"] = list(request.save_sets)
+        if dropped_unserved:
+            # Provenance: variables (and whole devices) dropped by the
+            # unserved-variables pre-flight — the run proceeded without them.
+            md["dropped_unserved_variables"] = {
+                dev: list(vars_) for dev, vars_ in dropped_unserved.items()
+            }
+        if dropped_unserved_devices:
+            md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
             # Provenance: the run records exactly which experiment defaults
             # filled in fields the submitter left unset.
@@ -1158,6 +1240,7 @@ def _run_optimize_request(
     on_scan_start: Callable[[int, int], None] | None = None,
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
+    operator_channel: "OperatorChannel | None" = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1177,9 +1260,11 @@ def _run_optimize_request(
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
         The ready-made optimization callables.
-    optimization_binder, on_scan_start :
-        As in :func:`run_scan_request`.  With a binder (and no ready-made
-        callables) the runner claims the scan itself, pre-bind, so the
+    optimization_binder, on_scan_start, operator_channel :
+        As in :func:`run_scan_request` (the unserved-variables check runs
+        here too, pre-claim, over the save-set devices config).  With a
+        binder (and no ready-made callables) the runner claims the scan
+        itself, pre-bind, so the
         binder's analyzers get the real ``ScanTag`` — mirroring the legacy
         exec_config optimization path; the claim still happens *after*
         every fail-fast resolution and device connect, and the runner then
@@ -1210,6 +1295,8 @@ def _run_optimize_request(
 
     detectors: list = []
     created: list = []
+    dropped_unserved: dict[str, list[str]] = {}
+    dropped_unserved_devices: list[str] = []
     try:
         skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
         # db_scalars applies to optimize too; telemetry does not run here yet
@@ -1227,9 +1314,26 @@ def _run_optimize_request(
                 # Save-set entry rituals can't run in optimize mode yet either;
                 # skip and record rather than refuse (see run_scan_request).
                 skipped["save_set_rituals"] = ritual_names
+            devices_config = save_set_to_devices_config(save_set, scalar_policy)
+            # Unserved-variables pre-flight, exactly as on the scan/noscan
+            # path (pre-claim: the optimize claim happens further down, so
+            # an abort here burns no scan number).  The detector-level
+            # operator preflight hook still does not run on optimize (its
+            # seam is unchanged); this config-level check does.
+            (
+                devices_config,
+                dropped_unserved,
+                dropped_unserved_devices,
+            ) = _preflight_unserved(session, devices_config, operator_channel)
+            if devices_config is None:
+                logger.warning(
+                    "ScanRequest preflight aborted the optimization (unserved "
+                    "save-set variables; pre-claim — no scan number was burned)"
+                )
+                return None
             detectors = _build_request_detectors(
                 session,
-                save_set_to_devices_config(save_set, scalar_policy),
+                devices_config,
                 free_run=mode == "free_run",
             )
             created.extend(detectors)
@@ -1250,6 +1354,14 @@ def _run_optimize_request(
         if request.save_sets:
             # Provenance: which named save sets were unioned for this scan.
             md["save_sets"] = list(request.save_sets)
+        if dropped_unserved:
+            # Provenance: variables (and whole devices) dropped by the
+            # unserved-variables pre-flight — the run proceeded without them.
+            md["dropped_unserved_variables"] = {
+                dev: list(vars_) for dev, vars_ in dropped_unserved.items()
+            }
+        if dropped_unserved_devices:
+            md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
             md["applied_defaults"] = applied_defaults
         if skipped:

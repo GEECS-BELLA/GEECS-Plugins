@@ -1528,10 +1528,17 @@ class _M3cSession(_FakeSession):
 
 
 def _install_policy(monkeypatch, policy) -> None:
-    """Force run_scan_request to use *policy* instead of a real GeecsDb."""
+    """Force run_scan_request to use *policy* instead of a real GeecsDb.
+
+    Also stubs out the served-set provider (the unserved-variables
+    pre-flight): a session exposing ``experiment`` would otherwise reach for
+    the real DB — these tests must stay hermetic (and never stall on an
+    off-network MySQL timeout).
+    """
     import geecs_bluesky.scan_request_runner as runner
 
     monkeypatch.setattr(runner, "make_scalar_policy", lambda session: policy)
+    monkeypatch.setattr(runner, "make_served_set_provider", lambda session: None)
 
 
 def _db_noscan_request(**overrides):

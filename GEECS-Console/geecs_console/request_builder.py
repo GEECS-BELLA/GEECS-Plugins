@@ -128,6 +128,13 @@ class ConsoleFormState(BaseModel):
     ``optimization`` carries the *loaded* spec of the optimizer config the
     R3 combo names (the window resolves name → spec when snapshotting), so
     this model — and :func:`build_scan_request` — stays pure: no file I/O.
+
+    ``max_iterations`` mirrors the R3 Iterations spinner (optimization mode
+    only) and **owns** the submitted spec's ``max_iterations``: the builder
+    writes it onto the spec, so ``0``/``None`` (the spinner's "auto")
+    submits no limit even when the loaded config carries one — the window
+    seeds the spinner from the config on selection, so a config's own limit
+    is surfaced there rather than applied silently.
     """
 
     mode: ConsoleMode = ConsoleMode.ONE_D
@@ -140,6 +147,7 @@ class ConsoleFormState(BaseModel):
     description: str = ""
     background: bool = False
     optimization: Optional[OptimizationSpec] = None
+    max_iterations: Optional[int] = Field(None, ge=0)
 
 
 def _position_count(positions: Positions) -> int:
@@ -174,13 +182,18 @@ def estimate_total_shots(form: ConsoleFormState) -> int:
     -------
     int
         ``shots_per_step`` times the product of the axis position counts
-        (1 for noscan/background/optimization).
+        (1 for noscan/background).  Optimization mode multiplies by
+        ``max_iterations`` when set — the engine's announced upper bound —
+        and falls back to one iteration's worth when unset ("auto": the
+        window renders that case as such rather than as a count).
 
     Raises
     ------
     ConsoleFormError
         If an axis's positions are invalid (e.g. zero step).
     """
+    if form.mode is ConsoleMode.OPTIMIZATION and form.max_iterations:
+        return form.shots_per_step * form.max_iterations
     if form.mode not in (ConsoleMode.ONE_D, ConsoleMode.GRID):
         return form.shots_per_step
     total = form.shots_per_step
@@ -212,6 +225,9 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
         When the schema itself rejects the assembled request (e.g. a
         trigger variant without a profile, duplicate axis variables).
     """
+    # A stray spec on a non-optimize form is a bug the schema's consistency
+    # validator surfaces loudly rather than being silently dropped here.
+    optimization = form.optimization
     if form.mode in (ConsoleMode.ONE_D, ConsoleMode.GRID):
         if form.mode is ConsoleMode.ONE_D and len(form.axes) != 1:
             raise ConsoleFormError("A 1D scan needs exactly one axis.")
@@ -230,6 +246,13 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
             )
         mode = ScanRequestMode.OPTIMIZE
         axes = []
+        # The form's iteration count owns the submitted spec's limit (see
+        # ConsoleFormState): the spinner was seeded from the config, so
+        # whatever it now says — a number or "auto" (None) — is the
+        # operator's answer, not a value to merge with the config's.
+        optimization = form.optimization.model_copy(
+            update={"max_iterations": form.max_iterations or None}
+        )
     else:
         mode = ScanRequestMode.NOSCAN
         axes = []
@@ -252,10 +275,7 @@ def build_scan_request(form: ConsoleFormState) -> ScanRequest:
         trigger_variant=form.trigger_variant,
         description=form.description,
         background=form.background or form.mode is ConsoleMode.BACKGROUND,
-        # Passed through for every mode — a stray spec on a non-optimize
-        # form is a bug the schema's consistency validator surfaces loudly
-        # rather than being silently dropped here.
-        optimization=form.optimization,
+        optimization=optimization,
     )
 
 
@@ -281,7 +301,8 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         becomes :attr:`ConsoleMode.BACKGROUND` (the same folding the
         builder applies in the other direction); an ``optimize`` request
         becomes :attr:`ConsoleMode.OPTIMIZATION` carrying the request's
-        optimization spec.
+        optimization spec and its ``max_iterations`` (the Iterations
+        spinner).
 
     Raises
     ------
@@ -333,4 +354,11 @@ def form_state_from_request(request: ScanRequest) -> ConsoleFormState:
         description=request.description,
         background=background,
         optimization=request.optimization,
+        # The spec's limit is the Iterations spinner's value (None = "auto"
+        # = 0 on the widget) — the exact inverse of the builder's override.
+        max_iterations=(
+            request.optimization.max_iterations
+            if request.optimization is not None
+            else None
+        ),
     )

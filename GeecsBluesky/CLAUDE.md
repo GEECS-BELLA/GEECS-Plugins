@@ -49,8 +49,10 @@ geecs_bluesky/
                             #   "continue"/"abort"/default; EventStreamOperator
                             #   (GUI dialog path) / NullOperator (headless)
   preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);
-                            #   GatewayLivenessCheck + FreeRunStalenessCheck,
-                            #   run pre-claim, questions via OperatorChannel
+                            #   UnservedVariablesCheck (devices-config level,
+                            #   pre-device-build) + GatewayLivenessCheck +
+                            #   FreeRunStalenessCheck, run pre-claim,
+                            #   questions via OperatorChannel
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
                             #   ScanRequest names → schema models (new-schema
                             #   YAML directly, else legacy-convert)
@@ -477,7 +479,24 @@ The scanner's old defensive try/except imports are gone; the remaining
 Operator interaction is one seam: `operator_channel.OperatorChannel`
 (`EventStreamOperator` = today's GUI dialog behavior, `NullOperator` =
 headless default-and-log).  Pre-flight is a pipeline
-(`preflight.run_preflight`); new checks are list entries.
+(`preflight.run_preflight`); new checks are list entries.  Three checks
+exist (0.36.0): the device-level pair (`GatewayLivenessCheck` +
+`FreeRunStalenessCheck`, run by the bridge's `preflight` hook over the
+built detector list) and the config-level `UnservedVariablesCheck`, which
+the **runner itself** runs over the resolved devices config *before any
+detector is built* — a save-set variable outside the gateway's served set
+(`get='yes'` ∪ settable of enabled devices; `GeecsCAGateway/DEPLOYMENT.md`)
+has no PV, so building its detector used to die in a 20 s ophyd
+`NotConnectedError` (live incident 2026-07-15: `UC_TopView`
+`2ndmomW0x`/`2ndmomW0y`).  One dialog names every unserved variable;
+continue (and the headless default, with a WARNING) drops exactly those
+variables — a fully-unserved device is dropped whole — recorded in run
+metadata (`dropped_unserved_variables` / `dropped_unserved_devices`);
+abort is pre-claim.  The served set comes from the failure-tolerant
+`db_runtime.GeecsDbServedSetProvider`, whose DB failure reads as
+*unknown* (check skipped with one warning), never as *empty*.  Questions
+route through the runner's `operator_channel` parameter (the bridge
+passes its dialog channel; headless callers get `NullOperator`).
 
 `ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
 the full schema surface as of 0.23.0 (M3b): **actions execute**
@@ -528,8 +547,10 @@ pre-claimed number/folder to `session.optimize`, owning the `scan.log`
 attach; the bridge's optional `finish()` (legacy `xopt_dump.yaml`) runs
 after a successful run.  `on_scan_start` fires on the optimize path with
 the `(max_iterations, max_iterations × shots_per_step)` upper bound (the
-suggester may stop early); the operator-dialog `preflight` still does not
-run on optimize (later seam).  Optimizer `device_requirements`
+suggester may stop early); the detector-level operator-dialog `preflight`
+hook still does not run on optimize (later seam), but the config-level
+unserved-variables check does (0.36.0) — it runs pre-claim on every mode,
+inside the runner.  Optimizer `device_requirements`
 auto-provisioning is deliberately **not** wired on this path — the
 request's save sets must name the objective's diagnostics (schema-world
 explicitness; the legacy exec_config path keeps its merge).  The

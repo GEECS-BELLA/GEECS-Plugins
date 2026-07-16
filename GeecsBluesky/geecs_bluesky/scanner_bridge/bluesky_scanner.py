@@ -60,6 +60,7 @@ from geecs_bluesky.events import (
 )
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.operator_channel import (
+    ANSWER_ABORT,
     EventStreamOperator,
     NullOperator,
     OperatorChannel,
@@ -1091,6 +1092,7 @@ class BlueskyScanner:
             preflight=self._delegated_preflight,
             on_scan_start=self._on_delegated_scan_start,
             optimization_binder=optimization_binder,
+            operator_channel=self._delegated_operator_channel(),
         )
         if opt_bridge is not None and not getattr(
             self._session, "last_run_aborted", False
@@ -1101,6 +1103,29 @@ class BlueskyScanner:
             finish = getattr(opt_bridge, "finish", None)
             if callable(finish):
                 finish()
+
+    def _delegated_operator_channel(self) -> OperatorChannel:
+        """Operator channel for the runner's own pre-flight questions.
+
+        The delegated runner asks its config-level questions itself (today:
+        the unserved-variables check, which runs before detectors exist so
+        it cannot go through :meth:`_delegated_preflight`).  This wraps
+        :meth:`_operator_channel` so an "abort" answer to a runner-asked
+        question also sets the scanner's abort flag — the scan thread's
+        cleanup then reports ABORTED instead of DONE, matching the
+        detector-level pipeline's behavior.
+        """
+        inner = self._operator_channel()
+        scanner = self
+
+        class _AbortNotingChannel:
+            def ask(self, question: OperatorQuestion) -> str:
+                answer = inner.ask(question)
+                if answer == ANSWER_ABORT:
+                    scanner._abort_requested = True
+                return answer
+
+        return _AbortNotingChannel()
 
     def _delegated_preflight(self, detectors: list, strict: bool) -> list | None:
         """Runner preflight hook: the operator-dialog pipeline, sans disconnect.

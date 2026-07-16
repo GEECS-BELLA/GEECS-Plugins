@@ -156,3 +156,76 @@ def test_policy_caches_queries() -> None:
     policy.get_variables("U_Other")
     policy.subscribed_by_device()
     assert _CountingDb.calls == 1  # one batched query, cached
+
+
+# ---------------------------------------------------------------------------
+# GeecsDbServedSetProvider (the unserved-variables pre-flight source)
+# ---------------------------------------------------------------------------
+
+
+class _ServedDb:
+    """Fake DB with a subscribed set and a settable control surface."""
+
+    calls = 0
+
+    @classmethod
+    def get_subscribed_variables(cls, experiment, *, enabled_only=True):
+        cls.calls += 1
+        return {"UC_TopView": ["centroidx", "centroidy"]}
+
+    @classmethod
+    def get_experiment_device_variables(cls, experiment, *, enabled_only=True):
+        return {
+            "UC_TopView": [
+                {"name": "centroidx", "settable": False},
+                {"name": "2ndmomW0x", "settable": False},  # real but unserved
+                {"name": "save", "settable": True},
+                {"name": "localsavingpath", "settable": True},
+            ],
+            "U_SettableOnly": [
+                {"name": "Setpoint", "settable": True},
+            ],
+            "U_NothingServed": [
+                {"name": "ReadOnlyThing", "settable": False},
+            ],
+        }
+
+
+def test_served_set_is_subscribed_union_settable() -> None:
+    from geecs_bluesky.db_runtime import GeecsDbServedSetProvider
+
+    provider = GeecsDbServedSetProvider("Undulator", db=_ServedDb)
+    served = provider.served_by_device()
+    assert served is not None
+    # get='yes' ∪ settable — 2ndmomW0x is a real DB variable but in neither.
+    assert served["UC_TopView"] == {
+        "centroidx",
+        "centroidy",
+        "save",
+        "localsavingpath",
+    }
+    # A device with zero get='yes' variables keeps its control surface.
+    assert served["U_SettableOnly"] == {"Setpoint"}
+    # Nothing subscribed and nothing settable → the gateway skips the device.
+    assert "U_NothingServed" not in served
+
+
+def test_served_set_is_cached() -> None:
+    from geecs_bluesky.db_runtime import GeecsDbServedSetProvider
+
+    _ServedDb.calls = 0
+    provider = GeecsDbServedSetProvider("Undulator", db=_ServedDb)
+    provider.served_by_device()
+    provider.served_by_device()
+    assert _ServedDb.calls == 1
+
+
+def test_served_set_db_failure_returns_none_not_empty(caplog) -> None:
+    from geecs_bluesky.db_runtime import GeecsDbServedSetProvider
+
+    provider = GeecsDbServedSetProvider("Undulator", db=_RaisingDb)
+    with caplog.at_level(logging.WARNING):
+        assert provider.served_by_device() is None  # unknown, NOT empty
+        assert provider.served_by_device() is None  # failure is cached too
+    warnings = [r for r in caplog.records if "served set" in r.getMessage()]
+    assert len(warnings) == 1
