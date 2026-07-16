@@ -229,6 +229,12 @@ def geecs_step_scan(
         scan_event_index = 0
         previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
+            # Deferred-pause boundary (issue #552): a checkpoint before the
+            # move and before every row means request_pause(defer=True)
+            # lands with an empty rewind cache — resume replays nothing
+            # (no re-move, no re-fire).  Never place a checkpoint between
+            # create and save (IllegalMessageSequence).
+            yield from bps.checkpoint()
             if _motors and pos is not None:
                 previous = yield from move_changed_axes(_motors, pos, previous)
             if per_step is not None:
@@ -238,6 +244,7 @@ def geecs_step_scan(
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):
+                yield from bps.checkpoint()
                 scan_event_index += 1
                 scan_context.set_context(
                     bin_number=bin_number,

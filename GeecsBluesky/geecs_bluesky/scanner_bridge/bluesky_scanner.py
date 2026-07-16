@@ -401,21 +401,11 @@ class BlueskyScanner:
             else:
                 self._scan_thread = None
 
-    def pause_scan(self) -> None:
-        """Request the RunEngine to pause between plans steps."""
-        logger.info("BlueskyScanner: pause requested")
-        try:
-            self._RE.request_pause()
-        except Exception:
-            logger.debug("RE.request_pause() raised", exc_info=True)
-
-    def resume_scan(self) -> None:
-        """Resume a paused RunEngine."""
-        logger.info("BlueskyScanner: resume requested")
-        try:
-            self._RE.resume()
-        except Exception:
-            logger.debug("RE.resume() raised", exc_info=True)
+    # pause_scan/resume_scan were deleted (issue #552 PR-1): they issued a
+    # HARD pause (request_pause(defer=False)) whose resume replays the
+    # partial row — in strict mode refiring a physical shot — and no caller
+    # existed.  The deferred pause/decide/resume flow arrives with the #552
+    # pause supervisor; do not reintroduce a bare pause API.
 
     def is_scanning_active(self) -> bool:
         """Return ``True`` if a scan thread is currently running.

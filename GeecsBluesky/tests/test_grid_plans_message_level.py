@@ -106,9 +106,11 @@ def test_per_step_runs_after_move_before_shots_at_every_grid_point() -> None:
     for index, command in enumerate(commands):
         if command != "per_step_marker":
             continue
-        # No trigger/create between this step's moves and the marker.
+        # No trigger/create between this step's moves and the marker.  The
+        # row's deferred-pause checkpoint (issue #552) sits between the
+        # marker and the first shot — part of the row boundary, not a shot.
         after = commands[index + 1]
-        assert after in ("trigger", "create"), after
+        assert after in ("checkpoint", "trigger", "create"), after
         before = commands[index - 1]
         assert before in ("wait", "open_run"), before
 
