@@ -3,8 +3,10 @@ name: land
 description: >
   Land a change as a PR the GEECS-Plugins way: branch off the right base,
   scope check, version bump + CHANGELOG, tests run the way CI runs them,
-  commit.sh, PR body with the hardware-verification section, CI watch,
-  merge, roll-forward. Use when the user says "land this", "open a PR",
+  commit.sh, PR body with the hardware-verification section, adversarial
+  review by a fresh-context subagent (correctness + redundancy +
+  placement) with dispositioned findings, CI watch, merge, roll-forward.
+  Use when the user says "land this", "open a PR",
   "commit and push this", "prep this branch for review", or when a change
   in the working tree is finished and needs to become a merged PR.
 ---
@@ -61,15 +63,71 @@ auto-fixers abort merge commits) and push. Nothing merges `dev` →
    verification** section: either the live results or an explicit
    "OWED: <what to verify, expected numbers>" so the code-complete vs
    hardware-verified distinction is never implicit.
-7. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
+7. **Adversarial review** (runs during the CI wait; see the section
+   below): spawn a fresh-context reviewer subagent on the PR's diff,
+   post its report as a PR comment **either way** — a "no surviving
+   findings" report is itself the audit record distinguishing
+   "reviewed, clean" from "review skipped" — and disposition every
+   finding — fix it, or waive it with a stated reason — before merging.
+   No PR merges with an undispositioned finding.
+8. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
    `--merge --delete-branch`. Then do the roll-forward merge if the base
    was the engine branch (rule above). Remove the worktree after merge
    unless it hosts an open stacked branch — and always confirm with the
    user before removing any worktree.
-8. **Stacked PRs**: base on the parent PR's branch and say "merge #N
+9. **Stacked PRs**: base on the parent PR's branch and say "merge #N
    first" in the body — but beware: GitHub auto-closes (unreopenable) a
    PR whose base branch is deleted. Prefer merging the parent first and
    retargeting before it merges, or re-file (precedent: #538 → #539).
+
+## The adversarial review step
+
+The author must not be the only reader of a diff before it lands. The
+reviewer is a **separate subagent with fresh context**: give it the PR
+number (or the diff), the branch, and the brief below — never your own
+rationale, summaries, or the PR body's framing beyond what any outside
+reviewer would see. Its job is to refute the change, not to appreciate
+it.
+
+The reviewer brief (pass verbatim, plus the PR/diff reference):
+
+> Review this diff adversarially through three lenses, using the whole
+> repository as context (root and package `CLAUDE.md` files, the
+> dependency graph, existing modules and tests):
+>
+> 1. **Correctness** — try to construct concrete failure scenarios
+>    (inputs/state → wrong behavior). Check edge cases the tests skip,
+>    invariant violations (scan-folder creation, public-repo hygiene,
+>    contract files traveling with behavior), and whether new tests
+>    would actually fail if the code were wrong. For a diff with no
+>    runtime surface (docs, process, tooling), correctness means:
+>    internal contradictions, conflicts with other repo policy
+>    documents, broken cross-references, and instructions that are
+>    ambiguous or unexecutable as written.
+> 2. **Redundancy** — does some or all of this already exist? Search
+>    the repo for existing implementations, helpers, or patterns that
+>    overlap what the diff adds (the repo has grown duplicate config
+>    readers, worker classes, and prompt dialogs before — assume
+>    duplication until a search says otherwise, and cite the files you
+>    checked).
+> 3. **Placement** — is there a more natural home for each new piece,
+>    given the package dependency graph and each package's stated
+>    boundaries (e.g. pure logic belongs below GUI packages; schema
+>    knowledge in its one module; browser/console kit boundaries)?
+>    Flag code that a future feature would have to move.
+>
+> Report only findings that survive your own attempt to refute them,
+> ranked by severity, each with the concrete scenario or the existing
+> file it duplicates / the better home. Say "no surviving findings"
+> if that is the honest result — do not pad.
+
+Disposition, in a PR comment before merge: each finding is either
+**fixed** (commit referenced) or **waived** with a one-line reason.
+A fix must go back to the **same reviewer** (continue the subagent)
+for a confirm/deny before it is dispositioned as fixed — otherwise the
+author is back to assessing their own work. Waivers are cheap-to-veto
+flags for the owner, same as judgment-call additions. If a finding
+invalidates the approach, stop and surface it instead of merging.
 
 ## Hard rules (violations have shipped incidents)
 

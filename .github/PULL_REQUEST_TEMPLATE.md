@@ -11,6 +11,8 @@
 - [ ] Base branch matches the content — see CONTRIBUTING.md
       § "Branch topology" (delete this line at M6)
 - [ ] Public-repo hygiene: no lab accounts/hostnames/home paths
+- [ ] Adversarial review posted and every finding dispositioned
+      (brief in `.claude/skills/land/SKILL.md`)
 
 ## Tests
 
