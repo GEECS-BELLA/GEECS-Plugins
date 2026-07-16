@@ -40,13 +40,22 @@ from geecs_schemas import (
     TriggerProfile,
 )
 
-# Names that would escape (or alias) the experiments root when joined.
+# Names that would escape (or alias) the experiments root when joined —
+# under POSIX *or* Windows path grammar (issue #517: PureWindowsPath("root")
+# / "D:Other" discards root entirely), plus reserved Windows device names
+# (rejected everywhere so configs stay portable to the control-room boxes).
 TRAVERSAL_NAMES = [
     "../OtherExperiment",
     "..",
     ".",
     "a/b",
     "a\\b",
+    "D:Other",
+    "C:Other",
+    "C:",
+    "CON",
+    "nul.yaml",
+    "com1",
 ]
 
 GUARD_MESSAGE = "plain folder name"
@@ -172,3 +181,11 @@ class TestPlainNamesStillWork:
         assert path.is_file()
         assert path.parent.parent == tmp_path / "HTU.v2"
         assert store.list_names() == ["align"]
+
+    def test_reserved_prefix_is_not_reserved(self, tmp_path):
+        # "CONSOLE" starts with "CON" but is a legal folder name everywhere;
+        # only the exact device names (bare or with an extension) are blocked.
+        store = PresetStore("CONSOLE", experiments_root=tmp_path)
+        path = store.save("align", minimal_request())
+        assert path.is_file()
+        assert path.parent.parent == tmp_path / "CONSOLE"
