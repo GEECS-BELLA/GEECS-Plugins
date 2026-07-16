@@ -374,8 +374,12 @@ class MainWindow(QMainWindow):
         self._scan_number_timer.setInterval(_SCAN_NUMBER_EXPIRY_MS)
         self._scan_number_timer.timeout.connect(self._expire_scan_number)
 
-        self._populate_from_configs()
-        self._restore_last_experiment()
+        # First populate quietly: a remembered experiment restored on the
+        # next line makes its "No experiment selected." a lie (it used to
+        # flash for 10 s and stick in the log tail — user report).
+        self._populate_from_configs(announce=False)
+        if not self._restore_last_experiment() and self._listing_message:
+            self._report(self._listing_message)
         # Chips read UNKNOWN until the first background poll returns; seed the
         # markup synchronously (no probe call — never touches the network).
         self._apply_health_report(HealthReport())
@@ -476,6 +480,8 @@ class MainWindow(QMainWindow):
         self.optimization_combo: QComboBox = self._child(
             QComboBox, "r3_optimization_combo"
         )
+        self.iterations_label: QLabel = self._child(QLabel, "r3_iterations_label")
+        self.iterations_spin: QSpinBox = self._child(QSpinBox, "r3_iterations_spin")
         self.shots_per_step: QSpinBox = self._child(QSpinBox, "r3_shots_per_step")
         self.acquisition_combo: QComboBox = self._child(
             QComboBox, "r3_acquisition_combo"
@@ -598,6 +604,12 @@ class MainWindow(QMainWindow):
                 "Which optimizer config to run — the YAML files in this "
                 "experiment's optimizer_configs folder. Empty when offline "
                 "or the experiment has none (Start stays disabled)."
+            ),
+            self.iterations_spin: (
+                "How many optimizer iterations to run — total shots = "
+                "iterations × shots per step. Picking a config seeds this "
+                "from the config's own limit; 'auto' (0) submits no limit "
+                "and the engine's default budget applies."
             ),
             self.shots_per_step: (
                 "How many shots to take at each scan position / grid point "
@@ -783,7 +795,10 @@ class MainWindow(QMainWindow):
         ):
             spin.valueChanged.connect(self._refresh_shot_count)
         self.shots_per_step.valueChanged.connect(self._refresh_shot_count)
-        self.optimization_combo.currentTextChanged.connect(self._refresh_submit_enabled)
+        self.iterations_spin.valueChanged.connect(self._refresh_shot_count)
+        self.optimization_combo.currentTextChanged.connect(
+            self._on_optimization_config_changed
+        )
         self.add_button.clicked.connect(self._on_add_save_set)
         self.remove_button.clicked.connect(self._on_remove_save_set)
         self.experiment_combo.currentTextChanged.connect(self._on_experiment_changed)
@@ -847,8 +862,20 @@ class MainWindow(QMainWindow):
     # Configs / health population
     # ------------------------------------------------------------------
 
-    def _populate_from_configs(self) -> None:
-        """Fill the combos and lists from the configs service (offline-safe)."""
+    def _populate_from_configs(self, announce: bool = True) -> None:
+        """Fill the combos and lists from the configs service (offline-safe).
+
+        Parameters
+        ----------
+        announce : bool, optional
+            Show the listing's message (or clear a stale one) in the status
+            bar.  The constructor's *first* populate passes ``False``: it
+            runs before the last-experiment restore, so its transient
+            "No experiment selected." would flash — and sit in the log tail
+            right above whatever the operator does next — even though an
+            experiment is selected one line later (the constructor
+            re-announces afterwards only if the restore selected nothing).
+        """
         listing = self._configs.listing()
         self.experiment_combo.blockSignals(True)
         self.experiment_combo.clear()
@@ -892,9 +919,15 @@ class MainWindow(QMainWindow):
 
         root = str(listing.configs_root) if listing.configs_root else "not found"
         self._status_configs.setText(f"configs: {root}")
-        if listing.message:
-            self.statusBar().showMessage(listing.message, 10_000)
-            self.append_log(listing.message)
+        self._listing_message = listing.message
+        if announce:
+            if listing.message:
+                self._report(listing.message)
+            else:
+                # A clean listing supersedes any earlier listing complaint
+                # still sitting in the status bar (e.g. the no-experiment
+                # message after the operator picks one).
+                self.statusBar().clearMessage()
         self._refresh_presets()
         self._refresh_union_preview()
         self._refresh_shot_count()
@@ -1099,8 +1132,11 @@ class MainWindow(QMainWindow):
                 )
             )
         optimization = None
+        max_iterations = None
         if mode is ConsoleMode.OPTIMIZATION:
             optimization = self._load_selected_optimization()
+            # The spinner's special value 0 renders as "auto" = no limit.
+            max_iterations = self.iterations_spin.value() or None
         profile = self.trigger_profile_combo.currentText() or None
         variant = self.trigger_variant_combo.currentText() or None
         from geecs_schemas import AcquisitionMode
@@ -1115,6 +1151,7 @@ class MainWindow(QMainWindow):
             acquisition=AcquisitionMode(self.acquisition_combo.currentText()),
             description=self.description_edit.text(),
             optimization=optimization,
+            max_iterations=max_iterations,
         )
 
     def _load_selected_optimization(self):
@@ -1169,7 +1206,37 @@ class MainWindow(QMainWindow):
         optimize = mode is ConsoleMode.OPTIMIZATION
         self.optimization_label.setVisible(optimize)
         self.optimization_combo.setVisible(optimize)
+        self.iterations_label.setVisible(optimize)
+        self.iterations_spin.setVisible(optimize)
         self._refresh_shot_count()
+
+    def _on_optimization_config_changed(self, name: str) -> None:
+        """Seed the Iterations spinner from the newly selected config.
+
+        The spinner owns the submitted iteration count (see
+        :class:`~geecs_console.request_builder.ConsoleFormState`), so a
+        config's own ``max_iterations`` must surface *here* — otherwise it
+        would be silently overridden at submission.  Best-effort: an
+        unloadable config leaves the spinner alone (submission reports the
+        load failure properly).
+
+        Parameters
+        ----------
+        name : str
+            The R3 optimizer-config combo's new text ("" for none).
+        """
+        if name:
+            try:
+                spec = self._configs.optimization_spec(name)
+            except Exception as exc:  # noqa: BLE001 — seeding is best-effort
+                logger.info(
+                    "optimizer config %r unloadable while seeding: %s", name, exc
+                )
+            else:
+                self.iterations_spin.setValue(
+                    getattr(spec, "max_iterations", None) or 0
+                )
+        self._refresh_submit_enabled()
 
     def _estimation_form(self) -> ConsoleFormState:
         """Form state for shot counting only (placeholder variable names)."""
@@ -1194,13 +1261,32 @@ class MainWindow(QMainWindow):
                 )
             )
         return ConsoleFormState(
-            mode=mode, axes=axes, shots_per_step=self.shots_per_step.value()
+            mode=mode,
+            axes=axes,
+            shots_per_step=self.shots_per_step.value(),
+            max_iterations=(
+                self.iterations_spin.value() or None
+                if mode is ConsoleMode.OPTIMIZATION
+                else None
+            ),
         )
 
     def _refresh_shot_count(self) -> None:
-        """Recompute the live shot-count label and the runaway guard."""
+        """Recompute the live shot-count label and the runaway guard.
+
+        Optimization mode shows ``iterations × shots per step`` when the
+        Iterations spinner is set (the engine's announced upper bound —
+        the suggester may stop early), or ``auto`` when it isn't; the
+        runaway guard applies to the product like any other mode.
+        """
+        form = self._estimation_form()
+        if form.mode is ConsoleMode.OPTIMIZATION and form.max_iterations is None:
+            self._shot_count_valid = True
+            self.shot_count_label.setText("total shots: auto")
+            self._refresh_submit_enabled()
+            return
         try:
-            total = estimate_total_shots(self._estimation_form())
+            total = estimate_total_shots(form)
         except (ConsoleFormError, ValidationError):
             self._shot_count_valid = False
             self.shot_count_label.setText("total shots: —")
@@ -1265,7 +1351,7 @@ class MainWindow(QMainWindow):
         self._start_idle_scan_probe()
         self._start_actions_fetch()
 
-    def _restore_last_experiment(self) -> None:
+    def _restore_last_experiment(self) -> bool:
         """Select the remembered experiment at startup (explicit choice wins).
 
         Runs once from the constructor, after the combo is populated.  A
@@ -1273,13 +1359,21 @@ class MainWindow(QMainWindow):
         explicitly and the name is still in the combo's list; selecting it
         fires :meth:`_on_experiment_changed`, so configs, presets, the
         health probe, and the device panel all follow.
+
+        Returns
+        -------
+        bool
+            Whether the restore selected an experiment (and so repopulated
+            with a fresh listing message) — ``False`` tells the constructor
+            the quiet first populate's message still stands.
         """
         if self._configs.experiment:
-            return
+            return False
         remembered = self._settings.last_experiment
         if not remembered or self.experiment_combo.findText(remembered) < 0:
-            return
+            return False
         self.experiment_combo.setCurrentText(remembered)
+        return True
 
     def _on_trigger_profile_changed(self, profile: str) -> None:
         """Repopulate the variant combo for the selected trigger profile."""
@@ -1797,6 +1891,9 @@ class MainWindow(QMainWindow):
 
         if optimization_name:
             self.optimization_combo.setCurrentText(optimization_name)
+        # After the combo (whose change handler seeds the spinner from the
+        # config): the preset's own iteration count wins.
+        self.iterations_spin.setValue(form.max_iterations or 0)
         self.shots_per_step.setValue(form.shots_per_step)
         self.acquisition_combo.setCurrentText(form.acquisition.value)
         self.description_edit.setText(form.description)
@@ -1813,7 +1910,11 @@ class MainWindow(QMainWindow):
         The form expresses optimization as a config *name* (the R3 combo),
         so applying a preset that carries an inline spec means finding the
         experiment's config with identical content — pydantic equality over
-        the loaded documents.  Unloadable configs are skipped.
+        the loaded documents, with ``max_iterations`` neutralized on both
+        sides: that field belongs to the Iterations spinner (restored
+        separately from the preset), so a preset saved with an overridden
+        count must still match its source config.  Unloadable configs are
+        skipped.
 
         Parameters
         ----------
@@ -1831,10 +1932,15 @@ class MainWindow(QMainWindow):
             When no listed config matches — selecting anything else would
             silently change what the preset submits.
         """
+        neutral = {"max_iterations": None}
+        wanted = spec.model_copy(update=neutral)
         for index in range(self.optimization_combo.count()):
             name = self.optimization_combo.itemText(index)
             try:
-                if self._configs.optimization_spec(name) == spec:
+                if (
+                    self._configs.optimization_spec(name).model_copy(update=neutral)
+                    == wanted
+                ):
                     return name
             except Exception as exc:  # noqa: BLE001 — an unloadable config just can't match
                 logger.info(

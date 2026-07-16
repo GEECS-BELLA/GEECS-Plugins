@@ -434,6 +434,110 @@ class TestOptimizationMode:
         assert opt_window.optimization_combo.currentText() == "random_walk"
         assert "Applied preset" in opt_window.log_tail.toPlainText()
 
+    def test_iterations_spinner_hidden_outside_optimization_mode(self, opt_window):
+        opt_window.show()
+        assert not opt_window.iterations_spin.isVisible()
+        opt_window.radio_optimization.setChecked(True)
+        assert opt_window.iterations_spin.isVisible()
+        assert opt_window.iterations_label.isVisible()
+        opt_window.radio_1d.setChecked(True)
+        assert not opt_window.iterations_spin.isVisible()
+
+    def test_iterations_spinner_defaults_to_auto(self, opt_window):
+        assert opt_window.iterations_spin.value() == 0
+        assert opt_window.iterations_spin.specialValueText() == "auto"
+
+    def test_start_submits_the_iteration_count(self, opt_window):
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window.iterations_spin.setValue(25)
+        opt_window._on_start_clicked()
+        request = opt_window._submitter.requests[0]
+        assert request.optimization.max_iterations == 25
+
+    def test_start_with_auto_submits_no_limit(self, opt_window):
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        assert opt_window.iterations_spin.value() == 0  # "auto"
+        opt_window._on_start_clicked()
+        request = opt_window._submitter.requests[0]
+        assert request.optimization.max_iterations is None
+
+    def test_selecting_config_seeds_spinner_from_its_limit(self, opt_window):
+        """A config's own max_iterations surfaces on the spinner (the
+        spinner owns the submitted value, so it must show the config's)."""
+        opt_window._configs.optimization_specs["capped"] = (
+            _optimization_spec().model_copy(update={"max_iterations": 15})
+        )
+        opt_window._populate_from_configs()
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.iterations_spin.setValue(3)
+        opt_window.optimization_combo.setCurrentText("capped")
+        assert opt_window.iterations_spin.value() == 15
+        # A config without a limit reseeds back to "auto".
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        assert opt_window.iterations_spin.value() == 0
+
+    def test_optimize_preset_restores_the_iteration_count(self, opt_window):
+        """A preset saved with an overridden count still matches its source
+        config (max_iterations is neutral in matching) and restores it."""
+        request = build_scan_request(
+            ConsoleFormState(
+                mode=ConsoleMode.OPTIMIZATION,
+                save_sets=["Amp4In"],
+                optimization=_optimization_spec(objective="charge"),
+                max_iterations=7,
+            )
+        )
+        opt_window._presets.presets["opt"] = request
+        opt_window._refresh_presets()
+        opt_window.preset_combo.setCurrentText("opt")
+        opt_window._on_preset_apply()
+        assert opt_window.optimization_combo.currentText() == "random_walk"
+        assert opt_window.iterations_spin.value() == 7
+
+    def test_optimize_preset_with_auto_restores_auto(self, opt_window):
+        request = build_scan_request(
+            ConsoleFormState(
+                mode=ConsoleMode.OPTIMIZATION,
+                save_sets=["Amp4In"],
+                optimization=_optimization_spec(),
+            )
+        )
+        opt_window._presets.presets["opt"] = request
+        opt_window._refresh_presets()
+        opt_window.iterations_spin.setValue(9)  # stale operator value
+        opt_window.preset_combo.setCurrentText("opt")
+        opt_window._on_preset_apply()
+        assert opt_window.iterations_spin.value() == 0
+
+    def test_optimize_shot_count_shows_auto_without_iterations(self, opt_window):
+        opt_window.radio_optimization.setChecked(True)
+        assert opt_window.shot_count_label.text() == "total shots: auto"
+
+    def test_optimize_shot_count_multiplies_iterations(self, opt_window):
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.shots_per_step.setValue(10)
+        opt_window.iterations_spin.setValue(25)
+        assert opt_window.shot_count_label.text() == "total shots: 250"
+        # Leaving optimization mode goes back to step counting
+        # (start 0 / stop 1 / step 1 -> 2 positions x 10 shots).
+        opt_window.radio_1d.setChecked(True)
+        assert opt_window.shot_count_label.text() == "total shots: 20"
+
+    def test_optimize_runaway_guard_gates_start(self, opt_window):
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window.shots_per_step.setValue(100)
+        opt_window.iterations_spin.setValue(100_000)  # 10,000,000 shots
+        assert "exceeds" in opt_window.shot_count_label.text()
+        assert not opt_window.start_button.isEnabled()
+        opt_window.iterations_spin.setValue(10)
+        assert opt_window.start_button.isEnabled()
+
     def test_optimize_preset_without_matching_config_reports(self, opt_window):
         from geecs_schemas import EvaluatorSpec, GeneratorSpec, OptimizationSpec
 
@@ -1368,3 +1472,52 @@ class TestLastExperiment:
         )
         qtbot.addWidget(win2)
         assert win2.experiment_combo.currentText() == "Bella"
+
+
+class MessagingConfigs(FakeConfigs):
+    """FakeConfigs honoring the real listing's message contract."""
+
+    def listing(self):
+        if not self.experiment:
+            return ConfigListing(
+                experiments=self._experiments,
+                message="No experiment selected.",
+            )
+        return super().listing()
+
+
+class TestStartupListingMessage:
+    """The stray 'No experiment selected.' flash (live-test report).
+
+    The constructor's first populate runs before the last-experiment
+    restore; its no-experiment message must not reach the operator when a
+    restore is about to select one, and a stale status-bar message must not
+    outlive an experiment change.
+    """
+
+    def _window(self, qtbot, last_experiment):
+        win = MainWindow(
+            configs=MessagingConfigs(experiment=""),
+            presets=FakePresetStore(),
+            settings=FakeSettings(last_experiment=last_experiment),
+            submitter=FakeSubmitter(),
+        )
+        qtbot.addWidget(win)
+        return win
+
+    def test_restored_experiment_suppresses_the_flash(self, qtbot):
+        win = self._window(qtbot, last_experiment="TestExp")
+        assert win.experiment_combo.currentText() == "TestExp"
+        assert "No experiment selected." not in win.log_tail.toPlainText()
+        assert win.statusBar().currentMessage() == ""
+
+    def test_no_restore_still_reports_the_message(self, qtbot):
+        win = self._window(qtbot, last_experiment="")
+        assert "No experiment selected." in win.log_tail.toPlainText()
+        assert win.statusBar().currentMessage() == "No experiment selected."
+
+    def test_selecting_an_experiment_clears_the_stale_message(self, qtbot):
+        win = self._window(qtbot, last_experiment="")
+        assert win.statusBar().currentMessage() == "No experiment selected."
+        win.experiment_combo.setCurrentText("TestExp")
+        assert win.statusBar().currentMessage() == ""
