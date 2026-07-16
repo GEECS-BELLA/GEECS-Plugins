@@ -4,6 +4,45 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] - 2026-07-15
+
+### Added
+
+- **Unserved-variables pre-flight check (ScanRequest paths, all modes).**
+  Field incident (2026-07-15, live): a save set naming `UC_TopView`
+  `2ndmomW0x`/`2ndmomW0y` — real DB variables, but not `get='yes'` in
+  `expt_device_variable` and not settable, so the gateway serves no PVs
+  for them — died 20 s into detector connect with an ophyd
+  `NotConnectedError` traceback.  The runner now vets the resolved
+  devices config against the gateway's served set (`get='yes'` ∪ settable
+  variables of enabled devices, per `GeecsCAGateway/DEPLOYMENT.md`)
+  **pre-claim and pre-device-build**, as a new
+  `preflight.UnservedVariablesCheck` pipeline entry:
+  - Unserved variable(s) → ONE operator dialog naming them all
+    (`"<Device>:<var>, … are not set to 'get' in expt_device_variable,
+    so the gateway does not serve them. Continue without these
+    variables?"`).  Continue proceeds with exactly those variables
+    dropped from the devices config (a device whose *every* listed
+    variable is unserved is dropped whole); abort stops the run
+    pre-claim — no scan number burned.
+  - Drops are recorded in run metadata (`dropped_unserved_variables`
+    `{device: [vars]}` + `dropped_unserved_devices`).
+  - Headless (`NullOperator`) default: continue-and-drop with a WARNING
+    — a scan is never aborted headlessly for a soft reason.
+  - Failure-tolerant served-set source
+    (`db_runtime.GeecsDbServedSetProvider`): a DB failure reads as
+    *unknown* (check skipped with one warning), never as *empty* — a DB
+    blip neither blocks nor dialogs a scan.
+- `run_scan_request` / `_run_optimize_request` grew an
+  `operator_channel` hook for runner-asked pre-flight questions; the GUI
+  bridge passes its dialog channel (wrapped so an operator abort answer
+  reports the terminal state as ABORTED).  The check runs on
+  noscan/step/grid **and optimize** (the first operator-dialog pre-flight
+  stage on the optimize path; the detector-level gateway-liveness
+  pipeline still does not run there — unchanged, a later seam).
+- New scan-level exception `GeecsUnservedVariablesError` (carried inside
+  the dialog; `unserved` attribute maps device → variables).
+
 ## [0.35.0] - 2026-07-14
 
 ### Added
