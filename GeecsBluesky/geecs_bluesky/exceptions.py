@@ -33,6 +33,7 @@ __all__ = [
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsStaleDevicesError",
+    "GeecsUnservedVariablesError",
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
@@ -194,6 +195,31 @@ class GeecsStaleDevicesError(GeecsError):
     Genuinely *dead* devices are :class:`GeecsDeviceDownError` territory.
     The message is operator-facing.
     """
+
+
+class GeecsUnservedVariablesError(GeecsError):
+    """Save-set variable(s) the gateway does not serve as PVs.
+
+    The gateway serves each enabled device's ``get='yes'`` variables plus its
+    settable control surface (``GeecsCAGateway/DEPLOYMENT.md``); a save-set
+    variable outside that set has no PV, so its detector signal can never
+    connect (a 20 s ophyd ``NotConnectedError``, observed live 2026-07-15).
+    Carried inside the pre-claim operator dialog raised by the
+    unserved-variables pre-flight check.  The message is operator-facing.
+
+    Parameters
+    ----------
+    message :
+        The operator-facing dialog body.
+    unserved :
+        ``{device: [variables]}`` — the unserved variables, by device.
+    """
+
+    def __init__(
+        self, message: str, unserved: dict[str, list[str]] | None = None
+    ) -> None:
+        self.unserved = dict(unserved or {})
+        super().__init__(message)
 
 
 # ---------------------------------------------------------------------------

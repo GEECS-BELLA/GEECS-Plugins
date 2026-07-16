@@ -7,22 +7,32 @@ checks in order, routing questions through the injected
 additions to the list, not new branches in the scanner class.  All checks run
 **before the scan folder is claimed**, so an abort here burns no scan number.
 
-Today's checks: :class:`GatewayLivenessCheck` (both modes) and
+Today's checks: :class:`UnservedVariablesCheck` (ScanRequest paths, all modes
+— it inspects the devices config, so it runs *before* detectors are built),
+:class:`GatewayLivenessCheck` (both acquisition modes) and
 :class:`FreeRunStalenessCheck` (free-run only).  Headless / no answer → the
-check passes unchanged and the scan fails loudly downstream.
+device checks pass unchanged and the scan fails loudly downstream; the
+unserved-variables check instead defaults to continue-and-drop with a
+WARNING (matching the telemetry philosophy: a headless scan is never
+aborted for a soft reason).
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol, Union
 
-from geecs_bluesky.exceptions import GeecsDeviceDownError, GeecsStaleDevicesError
+from geecs_bluesky.exceptions import (
+    GeecsDeviceDownError,
+    GeecsStaleDevicesError,
+    GeecsUnservedVariablesError,
+)
 from geecs_bluesky.operator_channel import (
     ANSWER_ABORT,
     ANSWER_CONTINUE,
+    NullOperator,
     OperatorChannel,
     OperatorQuestion,
 )
@@ -524,3 +534,209 @@ class FreeRunStalenessCheck:
             on_default=_proceed_unchanged,
             abort_reason="Pre-flight: operator aborted (stale sync devices)",
         )
+
+
+# ---------------------------------------------------------------------------
+# Check 0 — unserved save-set variables (ScanRequest paths, all modes)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class UnservedVariablesCheck:
+    """Catch save-set variables the gateway does not serve, pre-device-build.
+
+    The gateway serves each enabled device's ``get='yes'`` variables plus its
+    settable control surface (``GeecsCAGateway/DEPLOYMENT.md``); a save-set
+    variable outside that union has no PV, so building a detector on it dies
+    in a 20 s ophyd ``NotConnectedError`` (observed live 2026-07-15:
+    ``UC_TopView`` ``2ndmomW0x``/``2ndmomW0y`` — real DB variables, but not
+    ``get='yes'``).  This check therefore runs against the resolved
+    ``devices_config``, **before** any detector is built.
+
+    Outcomes: every listed variable served → pass; the served set unknown
+    (DB unreachable — ``served_by_device()`` returned ``None``) → pass with
+    one warning, never block on a DB blip; unserved variable(s) → ONE
+    operator question naming them all.  Continue (and the headless default,
+    with a WARNING) drops exactly those variables from the devices config —
+    a device whose *every* listed variable is unserved is dropped whole —
+    abort stops the run pre-claim.  Results are exposed on the check
+    instance (``effective_config`` / ``dropped`` / ``dropped_devices``) for
+    the caller to record in run metadata.
+
+    Parameters
+    ----------
+    devices_config :
+        The resolved ``{device: {"variable_list": [...], ...}}`` config.
+    served_by_device :
+        Zero-argument callable returning ``{device: {served variables}}``
+        or ``None`` when the served set could not be determined (see
+        :meth:`~geecs_bluesky.db_runtime.GeecsDbServedSetProvider.served_by_device`).
+    """
+
+    devices_config: dict[str, dict[str, Any]]
+    served_by_device: Callable[[], "dict[str, set[str]] | None"]
+    effective_config: dict[str, dict[str, Any]] = field(init=False)
+    dropped: dict[str, list[str]] = field(default_factory=dict, init=False)
+    dropped_devices: list[str] = field(default_factory=list, init=False)
+
+    def __post_init__(self) -> None:
+        """Start with the unreduced config (a skipped check changes nothing)."""
+        self.effective_config = self.devices_config
+
+    def __call__(self, ctx: PreflightContext) -> CheckResult:
+        """Run the unserved-variables stage against the devices config.
+
+        Parameters
+        ----------
+        ctx :
+            The pre-flight context (used for question assembly only — this
+            check inspects the devices config, not the detector list).
+
+        Returns
+        -------
+        CheckResult
+            ``Passed`` (all served, or served set unknown), or an ``Ask``.
+        """
+        served = self.served_by_device()
+        if served is None:
+            # DB unreachable / no policy: the served set is unknown, which
+            # must never read as "everything unserved" — skip with a warning.
+            logger.warning(
+                "Pre-flight: the gateway served set could not be determined; "
+                "skipping the unserved-variables check (unserved save-set "
+                "variables would fail to connect downstream)"
+            )
+            return Passed()
+
+        unserved: dict[str, list[str]] = {}
+        for device, cfg in self.devices_config.items():
+            served_vars = served.get(device, set())
+            missing = [
+                variable
+                for variable in (cfg.get("variable_list") or [])
+                if variable not in served_vars
+            ]
+            if missing:
+                unserved[device] = missing
+        if not unserved:
+            return Passed()
+
+        whole_devices = [
+            device
+            for device, missing in unserved.items()
+            if len(missing)
+            == len(self.devices_config[device].get("variable_list") or [])
+        ]
+        details = ", ".join(
+            f"{device}:{variable}"
+            for device, missing in unserved.items()
+            for variable in missing
+        )
+        message = (
+            f"{details} are not set to 'get' in expt_device_variable, so the "
+            "gateway does not serve them."
+        )
+        if whole_devices:
+            message += (
+                f" Every listed variable of {', '.join(whole_devices)} is "
+                "unserved, so continuing drops the device(s) entirely."
+            )
+        message += " Continue without these variables?"
+        exc = GeecsUnservedVariablesError(message, unserved)
+
+        def _drop() -> Passed:
+            reduced: dict[str, dict[str, Any]] = {}
+            for device, cfg in self.devices_config.items():
+                missing = set(unserved.get(device, ()))
+                if not missing:
+                    reduced[device] = cfg
+                    continue
+                remaining = [
+                    v for v in (cfg.get("variable_list") or []) if v not in missing
+                ]
+                if not remaining:
+                    # Every listed variable unserved → drop the device whole
+                    # (even an images=True device: with no served scalar it
+                    # has no synchronizable columns to contribute).
+                    self.dropped_devices.append(device)
+                    continue
+                new_cfg = dict(cfg)
+                new_cfg["variable_list"] = remaining
+                reduced[device] = new_cfg
+            self.effective_config = reduced
+            self.dropped = {dev: list(vars_) for dev, vars_ in unserved.items()}
+            return Passed()
+
+        def _drop_by_default() -> Passed:
+            logger.warning(
+                "Pre-flight: unserved save-set variable(s) %s and no operator "
+                "answer — continuing without them (headless default: a scan "
+                "is never aborted for a soft reason)",
+                details,
+            )
+            return _drop()
+
+        return Ask(
+            question=ctx.question(
+                exc,
+                title="Unserved Save-Set Variable(s)",
+                continue_label="Continue Without Them",
+            ),
+            on_continue=_drop,
+            on_default=_drop_by_default,
+            abort_reason="Pre-flight: operator aborted (unserved save-set variables)",
+        )
+
+
+def run_unserved_variables_check(
+    devices_config: dict[str, dict[str, Any]],
+    served_by_device: Callable[[], "dict[str, set[str]] | None"] | None,
+    channel: OperatorChannel | None,
+    *,
+    dialog_timeout: Optional[float] = None,
+) -> tuple[dict[str, dict[str, Any]] | None, dict[str, list[str]], list[str]]:
+    """Run :class:`UnservedVariablesCheck` as a one-check pipeline.
+
+    The scan-request runner's entry point for the config-level pre-flight
+    stage: builds a minimal context (no detectors exist yet), routes the one
+    question through *channel*, and unpacks the check's outputs.
+
+    Parameters
+    ----------
+    devices_config :
+        The resolved devices config to vet.
+    served_by_device :
+        The served-set callable; ``None`` (no experiment / no provider)
+        skips the check entirely.
+    channel :
+        Where the question goes; ``None`` → :class:`NullOperator`
+        (headless: continue-and-drop with a WARNING).
+    dialog_timeout :
+        Per-question wait budget (``None`` → channel default).
+
+    Returns
+    -------
+    tuple
+        ``(effective_config, dropped, dropped_devices)`` —
+        ``effective_config`` is ``None`` when the operator aborted (pre-claim
+        — no scan number burned); ``dropped`` is ``{device: [variables]}``
+        and ``dropped_devices`` the devices removed whole (both empty when
+        nothing was dropped).
+    """
+    if served_by_device is None:
+        return devices_config, {}, []
+    check = UnservedVariablesCheck(
+        devices_config=devices_config, served_by_device=served_by_device
+    )
+    ctx = PreflightContext(
+        detectors=[],
+        strict=False,
+        read_liveness=lambda device: True,
+        drop_devices=lambda detectors, ids: detectors,
+        device_label=str,
+        dialog_timeout=dialog_timeout,
+    )
+    outcome = run_preflight([check], ctx, channel or NullOperator())
+    if outcome is None:
+        return None, {}, []
+    return check.effective_config, check.dropped, check.dropped_devices
