@@ -229,6 +229,136 @@ def save_set_to_devices_config(
     return config
 
 
+def _requirement_field(requirement: Any, name: str, default: Any) -> Any:
+    """Read *name* from a duck-typed requirement entry (mapping or attributes)."""
+    if isinstance(requirement, Mapping):
+        return requirement.get(name, default)
+    return getattr(requirement, name, default)
+
+
+def merge_optimizer_device_requirements(
+    devices_config: dict[str, dict[str, Any]],
+    requirements: Any,
+) -> dict[str, dict[str, Any]]:
+    """Merge optimizer ``device_requirements`` into *devices_config*, in place.
+
+    The delegated-path counterpart of the legacy exec_config merge
+    (``BlueskyScanner._merge_optimization_device_requirements``): every
+    device the objective's evaluator needs is acquired and natively saved
+    even when the request's save sets do not name it — or when the request
+    names no save sets at all.  This reverses the #520 deferral ("the
+    request's save sets must name the objective's diagnostics"): in the
+    field the evaluator's auto-generated requirements were silently
+    ignored, the diagnostic never saved, and every objective evaluated to
+    NaN (live incident 2026-07-15, ``TopViewMax`` / ``UC_TopView``).
+
+    Union semantics per device, mirroring :func:`merge_save_sets`:
+    ``variable_list`` unions (order-preserving, deduped; the save-set
+    variables stay first), ``save_nonscalar_data`` ORs (True wins), and a
+    device already configured keeps its ``synchronous`` flag — the save
+    sets own the acquisition-role/ordering semantics, so the pacemaker
+    choice is unchanged and a *new* required device is appended after the
+    save-set devices (exactly the legacy merge's behavior).
+
+    Device names match case-insensitively (``str.casefold``) — GEECS is
+    case-inconsistent about device-name spelling and CA PV names are not —
+    with a hit merged under the configured spelling, logged at INFO.
+
+    *requirements* is duck-typed and opaque: a ``{"Devices": {name: cfg}}``
+    mapping (the shape the optimization stack auto-generates from its
+    evaluator's analyzers and exposes on the loader-returned bridge), or
+    ``None``/empty for a no-op.  ``geecs_bluesky`` never imports the stack
+    that builds it (dependency direction, AST-pinned).
+
+    Parameters
+    ----------
+    devices_config :
+        The effective devices config derived from the request's save sets
+        (possibly empty).  Mutated in place.
+    requirements :
+        The optimizer's device requirements, or ``None``.
+
+    Returns
+    -------
+    dict
+        What was actually provisioned, for run-metadata provenance
+        (recorded as ``provisioned_device_requirements``): the full entry
+        for a newly added device; only the added variables / flipped save
+        flag for an already-configured one.  Empty when nothing changed.
+    """
+    devices = requirements.get("Devices") if isinstance(requirements, Mapping) else None
+    provisioned: dict[str, dict[str, Any]] = {}
+    if not devices:
+        return provisioned
+    for device_name, requirement in devices.items():
+        req_vars = [
+            str(v) for v in (_requirement_field(requirement, "variable_list", []) or [])
+        ]
+        req_save = bool(_requirement_field(requirement, "save_nonscalar_data", False))
+        configured_name = device_name
+        existing = devices_config.get(device_name)
+        if existing is None:
+            folded = str(device_name).casefold()
+            match = next(
+                (name for name in devices_config if name.casefold() == folded),
+                None,
+            )
+            if match is not None:
+                configured_name = match
+                existing = devices_config[match]
+                logger.info(
+                    "Optimization: required device %s differs only in case "
+                    "from configured device %s; merging under the configured "
+                    "spelling %s (CA PV names are case-sensitive)",
+                    device_name,
+                    match,
+                    match,
+                )
+        if existing is None:
+            entry = {
+                "synchronous": bool(
+                    _requirement_field(requirement, "synchronous", False)
+                ),
+                "save_nonscalar_data": req_save,
+                "variable_list": req_vars,
+            }
+            devices_config[device_name] = entry
+            provisioned[device_name] = {
+                "synchronous": entry["synchronous"],
+                "save_nonscalar_data": entry["save_nonscalar_data"],
+                "variable_list": list(req_vars),
+            }
+            logger.info(
+                "Optimization: auto-provisioned required device %s "
+                "(synchronous=%s, save_nonscalar=%s, variables=%s) — verify "
+                "the spelling matches the GEECS database; CA PV names are "
+                "case-sensitive",
+                device_name,
+                entry["synchronous"],
+                entry["save_nonscalar_data"],
+                req_vars,
+            )
+        else:
+            added: dict[str, Any] = {}
+            current = list(existing.get("variable_list") or [])
+            missing = [v for v in req_vars if v not in current]
+            if missing:
+                existing["variable_list"] = current + missing
+                added["variable_list"] = missing
+            if req_save and not existing.get("save_nonscalar_data", False):
+                existing["save_nonscalar_data"] = True
+                added["save_nonscalar_data"] = True
+            if added:
+                provisioned[configured_name] = added
+                logger.info(
+                    "Optimization: merged optimizer requirements into "
+                    "configured device %s (save-set settings preserved): %s",
+                    configured_name,
+                    added,
+                )
+    return provisioned
+
+
 def resolve_and_validate_actions(
     actions: ActionBindings, resolver: ConfigResolver
 ) -> dict[str, list[str]]:
@@ -921,6 +1051,7 @@ def run_scan_request(
     objective: Any | None = None,
     suggester: Any | None = None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
+    device_requirements: Any | None = None,
     preflight: Callable[[list, bool], list | None] | None = None,
     on_scan_start: Callable[[int, int], None] | None = None,
     operator_channel: "OperatorChannel | None" = None,
@@ -964,6 +1095,18 @@ def run_scan_request(
         and the freshly claimed scan (the runner claims pre-bind; see
         :func:`_run_optimize_request`).  Ignored when *objective* and
         *suggester* are given.
+    device_requirements :
+        Optional optimizer device requirements for ``optimize`` mode
+        (duck-typed ``{"Devices": {name: cfg}}`` mapping — e.g. the
+        loader-returned bridge's ``device_requirements`` attribute,
+        auto-generated by the optimization stack from its evaluator's
+        analyzers).  Merged into the effective devices config so the
+        objective's diagnostics acquire and save even when the save sets
+        do not name them (:func:`merge_optimizer_device_requirements`);
+        the merged additions run through the same unserved-variables
+        pre-flight as everything else and are recorded in run metadata as
+        ``provisioned_device_requirements``.  ``None``/empty is a no-op;
+        ignored on non-optimize modes.
     preflight :
         Optional scanner-layer hook (the GUI bridge's operator-dialog
         seam), called pre-claim with the fully assembled detector list and
@@ -1000,7 +1143,9 @@ def run_scan_request(
         objective/suggester or optimization_binder (the documented v1
         gaps — validated first, refused loudly).
     GeecsConfigurationError
-        Unresolvable names, or a step/noscan request without a save set.
+        Unresolvable names, a step/noscan request without a save set, or
+        an optimize request with an empty effective device set (no save
+        sets and no optimizer device requirements to provision).
     """
     defaults = resolve_experiment_defaults(resolver)
     request, applied_defaults = apply_experiment_defaults(request, defaults)
@@ -1030,6 +1175,7 @@ def run_scan_request(
             objective=objective,
             suggester=suggester,
             optimization_binder=optimization_binder,
+            device_requirements=device_requirements,
             on_scan_start=on_scan_start,
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
@@ -1237,6 +1383,7 @@ def _run_optimize_request(
     objective: Any | None,
     suggester: Any | None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
+    device_requirements: Any | None = None,
     on_scan_start: Callable[[int, int], None] | None = None,
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
@@ -1260,9 +1407,10 @@ def _run_optimize_request(
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
         The ready-made optimization callables.
-    optimization_binder, on_scan_start, operator_channel :
+    optimization_binder, device_requirements, on_scan_start, operator_channel :
         As in :func:`run_scan_request` (the unserved-variables check runs
-        here too, pre-claim, over the save-set devices config).  With a
+        here too, pre-claim, over the effective devices config — save-set
+        devices *and* optimizer-provisioned ones).  With a
         binder (and no ready-made callables) the runner claims the scan
         itself, pre-bind, so the
         binder's analyzers get the real ``ScanTag`` — mirroring the legacy
@@ -1280,6 +1428,10 @@ def _run_optimize_request(
     NotImplementedError
         When *objective* or *suggester* is missing and no
         *optimization_binder* was given.
+    GeecsConfigurationError
+        The effective device set is empty — no save sets named and no
+        optimizer device requirements to provision (pre-claim; the
+        objective would have nothing to read).
     """
     spec = request.optimization
     assert spec is not None  # guaranteed by ScanRequest validation
@@ -1302,6 +1454,7 @@ def _run_optimize_request(
         # db_scalars applies to optimize too; telemetry does not run here yet
         # (no scan-boundary hook); the DB set-side stays disabled everywhere.
         scalar_policy = make_scalar_policy(session)
+        devices_config: dict[str, dict[str, Any]] | None = {}
         if request.save_sets:
             save_set, rituals = resolve_save_sets_and_rituals(
                 resolver, request.save_sets
@@ -1315,28 +1468,45 @@ def _run_optimize_request(
                 # skip and record rather than refuse (see run_scan_request).
                 skipped["save_set_rituals"] = ritual_names
             devices_config = save_set_to_devices_config(save_set, scalar_policy)
-            # Unserved-variables pre-flight, exactly as on the scan/noscan
-            # path (pre-claim: the optimize claim happens further down, so
-            # an abort here burns no scan number).  The detector-level
-            # operator preflight hook still does not run on optimize (its
-            # seam is unchanged); this config-level check does.
-            (
-                devices_config,
-                dropped_unserved,
-                dropped_unserved_devices,
-            ) = _preflight_unserved(session, devices_config, operator_channel)
-            if devices_config is None:
-                logger.warning(
-                    "ScanRequest preflight aborted the optimization (unserved "
-                    "save-set variables; pre-claim — no scan number was burned)"
-                )
-                return None
-            detectors = _build_request_detectors(
-                session,
-                devices_config,
-                free_run=mode == "free_run",
+        # Auto-provision the optimizer's device requirements: the objective's
+        # diagnostics acquire and save even when the save sets don't name
+        # them — or when the request names no save sets at all (field
+        # incident 2026-07-15: the evaluator's auto-generated requirements
+        # were ignored, the diagnostic never saved, every objective was NaN).
+        provisioned = merge_optimizer_device_requirements(
+            devices_config, device_requirements
+        )
+        if not devices_config:
+            raise GeecsConfigurationError(
+                "an 'optimize' ScanRequest needs at least one recording "
+                "device — name save sets in save_sets, or use an optimizer "
+                "whose evaluator declares device_requirements (auto-generated "
+                "from its analyzers); without either the objective has "
+                "nothing to read"
             )
-            created.extend(detectors)
+        # Unserved-variables pre-flight, exactly as on the scan/noscan
+        # path (pre-claim: the optimize claim happens further down, so
+        # an abort here burns no scan number).  Provisioned devices go
+        # through the same check as save-set ones.  The detector-level
+        # operator preflight hook still does not run on optimize (its
+        # seam is unchanged); this config-level check does.
+        (
+            devices_config,
+            dropped_unserved,
+            dropped_unserved_devices,
+        ) = _preflight_unserved(session, devices_config, operator_channel)
+        if devices_config is None:
+            logger.warning(
+                "ScanRequest preflight aborted the optimization (unserved "
+                "save-set variables; pre-claim — no scan number was burned)"
+            )
+            return None
+        detectors = _build_request_detectors(
+            session,
+            devices_config,
+            free_run=mode == "free_run",
+        )
+        created.extend(detectors)
 
         variables: dict[str, Any] = {}
         for name in spec.variables:
@@ -1354,6 +1524,12 @@ def _run_optimize_request(
         if request.save_sets:
             # Provenance: which named save sets were unioned for this scan.
             md["save_sets"] = list(request.save_sets)
+        if provisioned:
+            # Provenance: what the optimizer's device_requirements added to
+            # the effective device set (whole entries for new devices, the
+            # added variables/flags for save-set ones).  Recorded pre-drop —
+            # dropped_unserved_* below says what pre-flight then removed.
+            md["provisioned_device_requirements"] = provisioned
         if dropped_unserved:
             # Provenance: variables (and whole devices) dropped by the
             # unserved-variables pre-flight — the run proceeded without them.

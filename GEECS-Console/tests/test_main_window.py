@@ -375,6 +375,48 @@ class TestOptimizationMode:
         assert request.optimization == _optimization_spec()
         assert request.save_sets == ["Amp4In"]
 
+    def test_zero_save_sets_enables_start_in_optimization_mode(self, opt_window):
+        """Optimize needs no selected save sets: the engine auto-provisions
+        the optimizer config's device_requirements (GeecsBluesky >= 0.38.0)."""
+        opt_window.radio_optimization.setChecked(True)
+        assert not opt_window.start_button.isEnabled()  # config still unpicked
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        assert opt_window.start_button.isEnabled()
+
+    def test_zero_save_sets_still_gates_every_other_mode(self, opt_window):
+        for radio in (
+            opt_window.radio_noscan,
+            opt_window.radio_1d,
+            opt_window.radio_grid,
+            opt_window.radio_background,
+        ):
+            radio.setChecked(True)
+            assert not opt_window.start_button.isEnabled()
+
+    def test_zero_save_sets_optimize_submits_empty_save_sets(self, opt_window):
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        opt_window._on_start_clicked()
+        submitter = opt_window._submitter
+        assert len(submitter.requests) == 1
+        request = submitter.requests[0]
+        assert request.mode is ScanRequestMode.OPTIMIZE
+        assert request.save_sets == []
+
+    def test_union_label_notes_optimizer_diagnostics(self, opt_window):
+        """The R2 union line stays honest in optimize mode — the optimizer
+        provisions diagnostics beyond the selected save sets."""
+        opt_window.radio_optimization.setChecked(True)
+        assert (
+            opt_window.union_label.text() == "union: diagnostics from optimizer config"
+        )
+        select_save_set(opt_window, "Amp4In")
+        assert (
+            opt_window.union_label.text() == "union: 3 devices + optimizer diagnostics"
+        )
+        opt_window.radio_1d.setChecked(True)
+        assert opt_window.union_label.text() == "union: 3 devices"
+
     def test_engine_refusal_is_surfaced_not_preblocked(self, opt_window):
         """The current engine refuses optimize requests — the GUI submits
         anyway and shows the engine's answer in the status bar."""

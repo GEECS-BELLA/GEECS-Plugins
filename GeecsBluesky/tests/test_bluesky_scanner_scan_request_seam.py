@@ -859,6 +859,106 @@ def test_optimize_request_runs_end_to_end_through_bridge(monkeypatch) -> None:
     assert len(session.disconnected) == 5
 
 
+def test_optimize_bridge_device_requirements_auto_provisioned(monkeypatch) -> None:
+    """The loader-returned bridge's ``device_requirements`` (duck-typed, like
+    ``finish``) reach the runner and provision the objective's diagnostic
+    into the effective device set — the #520 reversal (field incident
+    2026-07-15: NaN objectives because the diagnostic never saved)."""
+    _patch_runner_claim(monkeypatch, SimpleNamespace(number=42))
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+
+    class _RequirementsBridge(_FakeOptimizationBridge):
+        device_requirements = {
+            "Devices": {
+                "UC_TopView": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+
+    loader = _FakeOptimizationLoader()
+    loader_calls = loader.calls
+
+    def _loader(spec):
+        loader_calls.append(spec)
+        bridge = _RequirementsBridge(spec)
+        loader.bridges.append(bridge)
+        return bridge
+
+    scanner._optimization_loader = _loader
+    scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
+    scanner._run_scan(scanner._scan_config)
+
+    (bridge,) = loader.bridges
+    bound_names = {
+        getattr(d, "_geecs_device_name", None) for d in bridge.bind_kwargs["devices"]
+    }
+    assert "UC_TopView" in bound_names  # provisioned, connected, bound
+    md = session.optimize_kwargs["md"]
+    assert md["provisioned_device_requirements"] == {
+        "UC_TopView": {
+            "synchronous": True,
+            "save_nonscalar_data": True,
+            "variable_list": ["acq_timestamp"],
+        }
+    }
+
+
+def test_optimize_bridge_without_requirements_attribute_is_no_op(
+    monkeypatch,
+) -> None:
+    """A loader bridge exposing no ``device_requirements`` changes nothing —
+    the effective device set is exactly the save sets'."""
+    _patch_runner_claim(monkeypatch, None)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+    loader = _FakeOptimizationLoader()  # its bridge has no such attribute
+    scanner._optimization_loader = loader
+    scanner.reinitialize(_optimize_request(), resolver=_optimize_resolver())
+    scanner._run_scan(scanner._scan_config)
+
+    assert "provisioned_device_requirements" not in session.optimize_kwargs["md"]
+
+
+def test_optimize_zero_save_sets_accepted_at_reinitialize_and_runs(
+    monkeypatch,
+) -> None:
+    """Optimize mode no longer needs save sets at reinitialize: the optimizer
+    provisions its own diagnostics.  Other modes keep the requirement."""
+    _patch_runner_claim(monkeypatch, None)
+    session = _FakeSession()
+    scanner = _make_scanner(session)
+
+    class _RequirementsBridge(_FakeOptimizationBridge):
+        device_requirements = {
+            "Devices": {
+                "UC_TopView": {
+                    "synchronous": True,
+                    "save_nonscalar_data": True,
+                    "variable_list": ["acq_timestamp"],
+                }
+            }
+        }
+
+    scanner._optimization_loader = lambda spec: _RequirementsBridge(spec)
+    request = _optimize_request(save_sets=[])
+    assert scanner.reinitialize(request, resolver=_optimize_resolver()) is True
+    scanner._run_scan(scanner._scan_config)
+
+    md = session.optimize_kwargs["md"]
+    assert "save_sets" not in md
+    assert list(md["provisioned_device_requirements"]) == ["UC_TopView"]
+    # Non-optimize modes still refuse an empty save_sets at reinitialize.
+    noscan = ScanRequest.model_validate(
+        {"mode": "noscan", "shots_per_step": 3, "save_sets": []}
+    )
+    with pytest.raises(GeecsConfigurationError, match="save set"):
+        _make_scanner(_FakeSession()).reinitialize(noscan, resolver=_resolver())
+
+
 def test_optimize_totals_hook_primes_gui_progress(monkeypatch) -> None:
     """Optimize primes the GUI totals with the max_iterations upper bound."""
     _patch_runner_claim(monkeypatch, None)

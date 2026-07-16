@@ -380,12 +380,19 @@ class BlueskyScanner:
         validated, _applied = resolve_defaults_for(resolver, request)
         resolve_and_validate_actions(validated.actions, resolver)
         if not validated.save_sets:
-            raise GeecsConfigurationError(
-                f"a {request.mode.value!r} ScanRequest needs at least one "
-                "save set in save_sets — without one the scan would record "
-                "nothing"
-            )
-        resolve_save_sets_and_rituals(resolver, validated.save_sets)
+            # Optimize may run save-set-less: the optimizer's
+            # device_requirements are auto-provisioned into the effective
+            # device set at execution time (the runner still refuses an
+            # empty *effective* set pre-claim).  Every other mode records
+            # nothing without a save set.
+            if validated.mode is not ScanRequestMode.OPTIMIZE:
+                raise GeecsConfigurationError(
+                    f"a {request.mode.value!r} ScanRequest needs at least "
+                    "one save set in save_sets — without one the scan "
+                    "would record nothing"
+                )
+        else:
+            resolve_save_sets_and_rituals(resolver, validated.save_sets)
         if validated.trigger_profile:
             # Adapt (and discard) the writes so an unknown trigger_variant
             # fails here, not in the scan thread.
@@ -1068,7 +1075,11 @@ class BlueskyScanner:
         Optimize-mode requests hand the resolved ``OptimizationSpec`` to
         the GUI-injected ``optimization_loader`` (presence enforced at
         :meth:`_reinitialize_from_scan_request`); the returned bridge's
-        ``bind`` becomes the runner's ``optimization_binder``, and its
+        ``bind`` becomes the runner's ``optimization_binder``, its
+        ``device_requirements`` (duck-typed, like ``finish``) are handed
+        to the runner for auto-provisioning into the effective device set
+        (legacy exec_config parity — the objective's diagnostics acquire
+        and save without being named in the save sets), and its
         optional ``finish()`` bookkeeping (e.g. the legacy
         ``xopt_dump.yaml``) runs after a successful run.
         """
@@ -1092,6 +1103,11 @@ class BlueskyScanner:
             preflight=self._delegated_preflight,
             on_scan_start=self._on_delegated_scan_start,
             optimization_binder=optimization_binder,
+            device_requirements=(
+                getattr(opt_bridge, "device_requirements", None)
+                if opt_bridge is not None
+                else None
+            ),
             operator_channel=self._delegated_operator_channel(),
         )
         if opt_bridge is not None and not getattr(

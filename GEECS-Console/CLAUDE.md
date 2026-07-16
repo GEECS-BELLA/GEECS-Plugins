@@ -27,7 +27,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `ScanRequest`; **persistence live** (see Implemented seams): YAML files
   in the configs repo's per-experiment `presets/` dir.
 - **R5 submit row** — Stop (danger) + Start (primary).  Start requires: not
-  scanning, ≥1 selected save set, valid shot count within the guard, and in
+  scanning, ≥1 selected save set (**except in Optimization mode** — the
+  engine auto-provisions the optimizer's `device_requirements`, so zero
+  selected sets is valid there), valid shot count within the guard, and in
   Optimization mode a selected optimizer config.  The GUI never pre-blocks
   an optimize submission beyond that — the engine's accept/refuse answer is
   surfaced in the status bar.
@@ -298,9 +300,17 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   tens of seconds cold) so the first optimize submission doesn't freeze;
   failures are logged and swallowed (the lazy path then pays the cost),
   and a submission mid-warm-up simply blocks on Python's per-module
-  import lock — no extra machinery.  The save sets must name the objective's diagnostics —
-  optimizer `device_requirements` auto-provisioning is deliberately not
-  wired on the delegated path (engine decision, PR #520).
+  import lock — no extra machinery.  **The engine auto-provisions the
+  optimizer's `device_requirements`** (GeecsBluesky ≥ 0.38.0, reversing
+  the #520 deferral after the 2026-07-15 NaN-objectives field incident):
+  the loader-returned `SessionOptimizationBridge` already exposes
+  `device_requirements` (auto-generated from the evaluator's analyzers),
+  the engine bridge reads it duck-typed and merges it into the effective
+  device set, recorded in run metadata as
+  `provisioned_device_requirements`.  So in Optimization mode Start no
+  longer requires a selected save set, and the R2 union line notes the
+  optimizer's contribution ("diagnostics from optimizer config" /
+  "+ optimizer diagnostics").
 - **Tooltips (issue #497 phase 1)**: editor form fields get their tooltips
   from the geecs-schemas `Field(description=...)` texts via
   `services/schema_tooltips.py::apply_schema_tooltips` — single source of

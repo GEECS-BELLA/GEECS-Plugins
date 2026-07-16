@@ -566,7 +566,9 @@ class MainWindow(QMainWindow):
             self.selected_list: (
                 "Save sets this scan records. Their devices are unioned; "
                 "each required device gets guarantees (completeness, "
-                "dialogs, images). At least one set is needed to start."
+                "dialogs, images). At least one set is needed to start — "
+                "except in Optimization mode, where the optimizer config "
+                "provisions its own diagnostics."
             ),
             self.add_button: "Require the selected save sets for this scan.",
             self.remove_button: (
@@ -1208,6 +1210,9 @@ class MainWindow(QMainWindow):
         self.optimization_combo.setVisible(optimize)
         self.iterations_label.setVisible(optimize)
         self.iterations_spin.setVisible(optimize)
+        # The union line is mode-aware (optimization notes the optimizer's
+        # own provisioned diagnostics), so a mode flip must repaint it.
+        self._refresh_union_preview()
         self._refresh_shot_count()
 
     def _on_optimization_config_changed(self, name: str) -> None:
@@ -1323,10 +1328,24 @@ class MainWindow(QMainWindow):
         self._move_items(self.selected_list, self.available_list)
 
     def _refresh_union_preview(self) -> None:
-        """Update the R2 union line and role-conflict/reference hint."""
+        """Update the R2 union line and role-conflict/reference hint.
+
+        Optimization mode notes the optimizer's own contribution — the
+        engine merges the optimizer config's ``device_requirements`` into
+        the effective device set, so the save-set union alone undercounts
+        what the scan will record (and zero selected sets still records
+        the optimizer's diagnostics).
+        """
         preview = self._configs.union_preview(self.selected_save_sets())
+        optimize = self.current_mode() is ConsoleMode.OPTIMIZATION
         if preview.device_count is None:
             self.union_label.setText("union: —")
+        elif optimize and not preview.device_count:
+            self.union_label.setText("union: diagnostics from optimizer config")
+        elif optimize:
+            self.union_label.setText(
+                f"union: {preview.device_count} devices + optimizer diagnostics"
+            )
         else:
             self.union_label.setText(f"union: {preview.device_count} devices")
         self.hint_label.setText(preview.hint)
@@ -1683,20 +1702,22 @@ class MainWindow(QMainWindow):
     def _refresh_submit_enabled(self) -> None:
         """Recompute Start/Stop enabled state from form + engine.
 
-        Optimization mode additionally needs a selected optimizer config —
-        that is the only optimize-specific gate; whether the engine accepts
-        an optimize submission is the engine's call, surfaced from
+        Optimization mode needs a selected optimizer config but — unlike
+        every other mode — no selected save sets: the engine
+        auto-provisions the optimizer's ``device_requirements`` (the
+        evaluator's diagnostics) into the effective device set
+        (GeecsBluesky ≥ 0.38.0), so an optimize run records something even
+        with an empty R2 selection.  Whether the engine accepts an
+        optimize submission remains the engine's call, surfaced from
         :meth:`_on_start_clicked` rather than pre-blocked here.
         """
         scanning = self._scanning()
+        optimize = self.current_mode() is ConsoleMode.OPTIMIZATION
         ready = (
             not scanning
             and self._shot_count_valid
-            and bool(self.selected_save_sets())
-            and (
-                self.current_mode() is not ConsoleMode.OPTIMIZATION
-                or bool(self.optimization_combo.currentText())
-            )
+            and (bool(self.selected_save_sets()) or optimize)
+            and (not optimize or bool(self.optimization_combo.currentText()))
         )
         self.start_button.setEnabled(ready)
         self.stop_button.setEnabled(scanning)

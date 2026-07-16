@@ -965,6 +965,7 @@ class GeecsSession:
         *,
         objective: Any | None = None,
         suggester: Any | None = None,
+        device_requirements: Any | None = None,
     ) -> str | None:
         """Run one :class:`~geecs_schemas.scan_request.ScanRequest`; return the uid.
 
@@ -985,6 +986,11 @@ class GeecsSession:
             Ready-made optimization callables, required for ``optimize``
             mode (the evaluator/generator specs are instantiated by the
             caller's stack, not here).
+        device_requirements :
+            Optional optimizer device requirements (duck-typed
+            ``{"Devices": {name: cfg}}``) auto-provisioned into the
+            effective device set on ``optimize`` mode — see
+            :func:`~geecs_bluesky.scan_request_runner.run_scan_request`.
 
         Returns
         -------
@@ -999,7 +1005,12 @@ class GeecsSession:
         if resolver is None:
             resolver = ConfigsRepoResolver(self.experiment)
         return run_scan_request(
-            self, request, resolver, objective=objective, suggester=suggester
+            self,
+            request,
+            resolver,
+            objective=objective,
+            suggester=suggester,
+            device_requirements=device_requirements,
         )
 
     # ------------------------------------------------------------------

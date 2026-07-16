@@ -4,6 +4,39 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.0] - 2026-07-16
+
+### Added
+
+- **Optimizer `device_requirements` auto-provisioning on the delegated
+  ScanRequest path** — reversing the deliberate #520 deferral after a
+  field incident (2026-07-15: `TopViewMax` optimize runs produced NaN
+  objectives on every iteration because the evaluator's auto-generated
+  requirements were ignored and `UC_TopView` images were never saved).
+  - `merge_optimizer_device_requirements` (scan_request_runner): unions
+    an opaque duck-typed `{"Devices": {name: cfg}}` mapping into the
+    effective devices config with `merge_save_sets` semantics —
+    `variable_list` deduped (save-set variables stay first),
+    `save_nonscalar_data` ORs; an already-configured device keeps its
+    save-set `synchronous`/role semantics, a new required device appends
+    after the save-set devices (pacemaker unchanged) — plus the legacy
+    merge's case-insensitive device-name matching.  Returns what was
+    actually added, recorded in run metadata as
+    `provisioned_device_requirements` (pre-drop; the unserved-variables
+    pre-flight applies to provisioned variables exactly as to save-set
+    ones and records its own drops).
+  - `run_scan_request` / `GeecsSession.run` accept
+    `device_requirements=...`; the GUI bridge's delegated path reads the
+    loader-returned bridge's `device_requirements` duck-typed (like
+    `finish`) and threads it through — no `geecs_scanner` import
+    (AST-pinned dependency direction unchanged).
+  - **Zero save sets + requirements-only is now a valid optimize
+    request**: `reinitialize(ScanRequest)` no longer refuses an empty
+    `save_sets` for `mode: optimize` (every other mode keeps the
+    requirement), and the runner refuses an empty *effective* device set
+    pre-claim with a clear `GeecsConfigurationError` instead of dying in
+    `session.optimize` after the claim.
+
 ## [0.37.1] - 2026-07-16
 
 ### Changed
