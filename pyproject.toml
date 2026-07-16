@@ -75,7 +75,7 @@ norecursedirs = [
 # Ruff settings
 # -------------------------------
 [tool.ruff]
-exclude = ["extras/**", "**/third_party_sdks/**"]
+exclude = ["extras/**", "**/third_party_sdks/**", "**/.ipynb_checkpoints/**"]
 
 [tool.ruff.lint]
 ignore = ["D100", "D104", "D401"]  # Allow missing module/package docstrings and imperative mood
@@ -85,6 +85,15 @@ extend-select = ["D"]  # Enable all pydocstyle checks
 "extras/**" = ["D"]
 "**/third_party_sdks/**" = ["D"]
 "**/tests/**" = ["D"]  # Ignore all docstring rules in test files
+# Legacy trees exempt from lint debt until their proper audit/cleanup
+# (owner decision on PR #574, 2026-07-16). Only the pre-existing debt
+# categories are exempted; syntax/undefined-name checks stay active.
+"GEECS-Scanner-GUI/geecs_scanner/app/**" = ["D", "F841"]
+# The app package's __init__ re-exports (public API of the legacy GUI):
+"GEECS-Scanner-GUI/geecs_scanner/app/**/__init__.py" = ["F401"]
+"GEECS-Scanner-GUI/geecs_scanner/utils/convert_png_to_ico.py" = ["D"]
+"LogMaker4GoogleDocs/**" = ["D", "E711", "E712", "E722"]
+"GEECS-PythonAPI/**/*.ipynb" = ["D", "F841"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

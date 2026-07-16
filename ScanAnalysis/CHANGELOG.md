@@ -9,6 +9,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Mechanical pre-commit normalization (repo-wide `pre-commit run --all-files`
   pass): whitespace/EOF fix in `logging_config.json`. No behavior changes.
+- Docstring lint fixes: one-line module docstrings for
+  `scan_analysis/__init__.py` and `analyzers/__init__.py` (replacing the
+  bare "Created on …" headers; date/author preserved), and new one-line
+  docstrings for the empty `analyzers/Undulator/__init__.py` and
+  `analyzers/Thomson/__init__.py`. Docs only.
 
 ## [1.15.0] — 2026-07-09
 

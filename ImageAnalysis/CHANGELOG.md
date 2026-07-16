@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pass): ruff-format reformatting and unused-import removal (`ureg`) in
   `tests/algorithms/test_grenouille_analysis.py` and
   `tests/algorithms/test_qwlsi_analysis.py`. Tests only; no behavior changes.
+- Docstring lint fix: one-line docstring for the empty
+  `image_analysis/tools/__init__.py`. Docs only.
 
 ## [1.11.0] — 2026-07-09
 
