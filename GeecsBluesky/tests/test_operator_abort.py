@@ -330,3 +330,114 @@ def test_abort_log_filter_attaches_once_across_sessions() -> None:
         f for f in s1.RE.log.logger.filters if isinstance(f, _RequestAbortLogFilter)
     ]
     assert len(ours) == 1
+
+
+# ---------------------------------------------------------------------------
+# The idle-window stop gate (#571): a stop that lands after the caller's
+# last pre-run check but before the engine reports 'running' must still
+# take effect.  RE.abort() on an idle engine raises TransitionError, so the
+# session re-reads should_abort as the plan's first instruction — which the
+# engine only fetches after setting state 'running' (bluesky 1.15.0,
+# run_engine.py::_run), giving a happens-before edge over any stopper that
+# observed the engine idle.
+# ---------------------------------------------------------------------------
+
+
+def test_stop_gate_trips_before_plan_start(caplog) -> None:
+    """should_abort True at plan start → zero messages, no run, quiet abort."""
+    s = _session()
+    det = s.detector("U_Cam", ["Sig"])
+    set_mock_value(det.acq_timestamp, 1000.0)
+    documents: list[str] = []
+    token = s.RE.subscribe(lambda name, doc: documents.append(name))
+    try:
+        with caplog.at_level(logging.INFO, logger="geecs_bluesky"):
+            uid = s.scan(
+                detectors=[det],
+                motor=None,
+                positions=[None],
+                shots_per_step=5,
+                mode="free_run",
+                save_data=False,
+                should_abort=lambda: True,  # the stop landed in the window
+            )
+    finally:
+        s.RE.unsubscribe(token)
+        s.disconnect(det)
+
+    assert uid is None
+    assert s.last_run_aborted is True
+    assert documents == [], "the gate must skip the plan before any run opens"
+    notes = [
+        r
+        for r in caplog.records
+        if "stopped before the plan started" in r.getMessage()
+        and r.name == "geecs_bluesky.session"
+    ]
+    assert len(notes) == 1 and notes[0].levelno == logging.INFO
+    assert _package_errors(caplog) == []
+
+
+def test_stop_gate_quiet_when_no_stop_requested() -> None:
+    """A never-tripping probe leaves the scan completely unchanged."""
+    s = _session()
+    det = s.detector("U_Cam", ["Sig"])
+    set_mock_value(det.acq_timestamp, 1000.0)
+    documents: list[str] = []
+    token = s.RE.subscribe(lambda name, doc: documents.append(name))
+    pacer = start_pacer(s.RE, [(det, 1000.0)], initial_delay=0.4, interval=0.05)
+    try:
+        s.scan(
+            detectors=[det],
+            motor=None,
+            positions=[None],
+            shots_per_step=2,
+            mode="free_run",
+            save_data=False,
+            should_abort=lambda: False,
+        )
+    finally:
+        pacer.cancel()
+        s.RE.unsubscribe(token)
+        s.disconnect(det)
+
+    assert s.last_run_aborted is False
+    assert "start" in documents and "stop" in documents
+
+
+def test_optimize_stop_gate_trips_before_plan_start(caplog) -> None:
+    """The same gate guards optimize: (None, []) returned, nothing moved."""
+    s = _session()
+    cam = s.detector("UC_Cam", ["Sig"], name="cam")
+    knob = s.settable("U_S1H", "Current", name="s1h")
+    set_mock_value(knob.readback, 5.0)
+    set_mock_value(cam.acq_timestamp, 1000.0)
+
+    class _NeverSuggester:
+        def suggest(self):
+            raise AssertionError("the plan must never run")
+
+        def observe(self, inputs, objective, bin_data):
+            raise AssertionError("the plan must never run")
+
+    try:
+        with caplog.at_level(logging.INFO, logger="geecs_bluesky"):
+            uid, history = s.optimize(
+                variables={"s1h": knob},
+                detectors=[cam],
+                objective=lambda bin_data: 1.0,
+                suggester=_NeverSuggester(),
+                shots_per_iteration=2,
+                max_iterations=3,
+                save_data=False,
+                on_finish="initial",
+                should_abort=lambda: True,
+            )
+    finally:
+        s.disconnect(cam, knob)
+
+    assert uid is None
+    assert history == []
+    assert s.last_run_aborted is True
+    assert s._read_movable(knob) == pytest.approx(5.0), "nothing moved, no restore"
+    assert _package_errors(caplog) == []

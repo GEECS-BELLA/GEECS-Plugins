@@ -2279,3 +2279,187 @@ def test_optimize_binder_operator_abort_notes_folder_calmly(
         and "Optimization scan" in r.getMessage()
     ]
     assert [r.levelno for r in notes] == [logging.WARNING]
+
+
+# ---------------------------------------------------------------------------
+# Operator stop during initialization — the should_abort checkpoints (#571)
+# ---------------------------------------------------------------------------
+#
+# RE.abort() cannot stop a scan that has not reached the RunEngine, so the
+# runner consults the injected probe between init stages: after configuration
+# resolution, after device connect, after the preflight hook, and immediately
+# before the scan-number claim.  Every checkpoint is pre-claim — an
+# init-stage stop must burn NO scan number — and trips into the quiet
+# aborted outcome (session.last_run_aborted set, one INFO line, created
+# devices disconnected, None returned).
+
+
+class _TripAfter:
+    """A should_abort probe that turns True from its Nth consultation on."""
+
+    def __init__(self, calls_before_trip: int) -> None:
+        self.calls_before_trip = calls_before_trip
+        self.calls = 0
+
+    def __call__(self) -> bool:
+        self.calls += 1
+        return self.calls > self.calls_before_trip
+
+
+def _init_stop_notes(caplog) -> list:
+    return [
+        r for r in caplog.records if "stopped during initialization" in r.getMessage()
+    ]
+
+
+def test_stop_after_resolution_builds_nothing_and_burns_nothing(
+    legacy_resolver, caplog
+) -> None:
+    session = _FakeSession()
+    with caplog.at_level(logging.INFO):
+        uid = run_scan_request(
+            session, _noscan_request(), legacy_resolver, should_abort=lambda: True
+        )
+
+    assert uid is None
+    assert session.devices == [], "no detector may be built after the stop"
+    assert session.scan_kwargs is None, "the claim (session.scan) never happens"
+    assert session.last_run_aborted is True
+    (note,) = _init_stop_notes(caplog)
+    assert note.levelno == logging.INFO
+    assert "nothing claimed" in note.getMessage()
+    assert [r for r in caplog.records if r.levelno >= logging.ERROR] == []
+
+
+def test_stop_after_device_connect_disconnects_created(legacy_resolver, caplog) -> None:
+    session = _FakeSession()
+    probe = _TripAfter(1)  # pass "after resolution", trip "after device connect"
+    with caplog.at_level(logging.INFO):
+        uid = run_scan_request(
+            session, _noscan_request(), legacy_resolver, should_abort=probe
+        )
+
+    assert uid is None
+    assert len(session.devices) == 3, "devices were built before the stop landed"
+    assert len(session.disconnected) == 3, "the runner's finally owns disconnect"
+    assert session.scan_kwargs is None
+    assert session.last_run_aborted is True
+    assert len(_init_stop_notes(caplog)) == 1
+
+
+def test_stop_after_preflight_checkpoint(legacy_resolver) -> None:
+    session = _FakeSession()
+    preflight_ran: list = []
+
+    def preflight(detectors, strict):
+        preflight_ran.append(strict)
+        return detectors
+
+    probe = _TripAfter(2)  # trip on the "after preflight" consultation
+    uid = run_scan_request(
+        session,
+        _noscan_request(),
+        legacy_resolver,
+        preflight=preflight,
+        should_abort=probe,
+    )
+
+    assert uid is None
+    assert preflight_ran == [False], "the stop landed after preflight ran"
+    assert session.scan_kwargs is None
+    assert session.last_run_aborted is True
+
+
+def test_stop_immediately_before_claim_burns_no_number(legacy_resolver, caplog) -> None:
+    """The last checkpoint: everything initialized, claim not yet made."""
+    session = _FakeSession()
+    probe = _TripAfter(2)  # no preflight hook → the 3rd consultation is pre-claim
+    with caplog.at_level(logging.INFO):
+        uid = run_scan_request(
+            session, _noscan_request(), legacy_resolver, should_abort=probe
+        )
+
+    assert uid is None
+    assert session.scan_kwargs is None, "session.scan (the claim) never ran"
+    assert session.last_run_aborted is True
+    (note,) = _init_stop_notes(caplog)
+    assert "before scan-number claim" in note.getMessage()
+
+
+def test_stop_pre_claim_on_step_path(legacy_resolver) -> None:
+    """The standard (step) branch has the same final pre-claim checkpoint."""
+    session = _FakeSession()
+    request = _noscan_request(
+        mode="step",
+        axes=[{"variable": "jet_z", "positions": {"start": 0, "end": 1, "step": 0.5}}],
+    )
+    uid = run_scan_request(
+        session, request, legacy_resolver, should_abort=_TripAfter(2)
+    )
+    assert uid is None
+    assert session.scan_kwargs is None
+    assert session.last_run_aborted is True
+
+
+def test_should_abort_probe_is_threaded_into_session_scan(legacy_resolver) -> None:
+    """A never-tripping probe reaches session.scan — the in-plan stop gate
+    that closes the window between the last checkpoint and plan start."""
+    session = _FakeSession()
+    probe = _TripAfter(10_000)
+    uid = run_scan_request(
+        session, _noscan_request(), legacy_resolver, should_abort=probe
+    )
+    assert uid == "uid-scan"
+    assert session.scan_kwargs["should_abort"] is probe
+
+
+def test_optimize_stop_pre_claim_burns_no_number(
+    legacy_resolver, monkeypatch, caplog
+) -> None:
+    """On the binder path the runner itself claims — the checkpoint precedes it."""
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    def _no_claim(experiment):
+        raise AssertionError("claim_scan must not be called after a stop")
+
+    monkeypatch.setattr(runner_module, "claim_scan", _no_claim)
+    session = _FakeSession()
+
+    def binder(**_kwargs):
+        raise AssertionError("the binder must not be called after a stop")
+
+    # Consultations on this path: after device connect, then pre-claim.
+    probe = _TripAfter(1)
+    with caplog.at_level(logging.INFO):
+        uid = run_scan_request(
+            session,
+            _optimize_request(),
+            legacy_resolver,
+            optimization_binder=binder,
+            should_abort=probe,
+        )
+
+    assert uid is None
+    assert session.optimize_kwargs is None
+    assert session.last_run_aborted is True
+    # Movables + detectors were created before the stop; all disconnected.
+    assert len(session.disconnected) == len(session.devices) > 0
+    (note,) = _init_stop_notes(caplog)
+    assert "before scan-number claim" in note.getMessage()
+
+
+def test_optimize_should_abort_probe_reaches_session_optimize(
+    legacy_resolver,
+) -> None:
+    session = _FakeSession()
+    probe = _TripAfter(10_000)
+    uid = run_scan_request(
+        session,
+        _optimize_request(),
+        legacy_resolver,
+        objective=lambda bin_data: 1.0,
+        suggester=object(),
+        should_abort=probe,
+    )
+    assert uid == "uid-opt"
+    assert session.optimize_kwargs["should_abort"] is probe

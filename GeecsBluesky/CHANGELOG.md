@@ -4,6 +4,52 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.40.0] - 2026-07-16
+
+### Fixed
+
+- **Stop during scan initialization is now honoured, RunEngine-native**
+  (#571 — the engine half; the GUI-freeze half is GEECS-Console 0.15.0).
+  A stop clicked while the delegated runner was still resolving configs /
+  connecting devices / running preflight used to be ignored: the bridge
+  set `_abort_requested`, `RE.abort()` no-oped on the idle engine, and
+  nothing re-read the flag once the plan started — the scan ran against
+  the operator's intent.
+  - `run_scan_request` gains a `should_abort` hook (the bridge supplies
+    `lambda: self._abort_requested`), consulted between init stages —
+    after configuration resolution, after device connect, after the
+    preflight hook, and immediately before the scan-number claim (on the
+    optimize path: after device connect and before the runner's own
+    pre-bind claim).  **Every checkpoint is pre-claim, so an init-stage
+    stop burns no scan number**; a trip is the quiet aborted outcome
+    (`session.last_run_aborted` set, one INFO line, created devices
+    disconnected by the runner's `finally`).
+  - `GeecsSession.scan`/`optimize` gain the same `should_abort` and close
+    the residual idle-window race with an in-plan stop gate
+    (`_stop_gated`): the probe is re-read as the plan's very first
+    instruction, which the engine only fetches after reporting `running`
+    (bluesky 1.15.0 `run_engine.py::_run`), so a stop that lands between
+    the runner's last checkpoint and plan start still takes effect — the
+    gate skips the whole plan (zero messages, no run document) and
+    returns the quiet aborted outcome.
+  - `stop_scanning_thread` now returns promptly: the 15 s completion
+    join became a 2 s bookkeeping-only join (`_STOP_JOIN_TIMEOUT`), the
+    still-finishing case logs INFO instead of ERROR, and completion is
+    announced natively by the scan thread's terminal ABORTED/DONE
+    `ScanLifecycleEvent` (a STOPPING event is emitted at request time,
+    as before).  For a running plan the direct `RE.abort()` is kept —
+    verified against bluesky 1.15.0: `abort()` is valid from `running`
+    and `paused` and thread-safe (dispatched onto the engine loop via
+    `__interrupter_helper`'s `call_soon_threadsafe`); no
+    `request_pause()` is needed first.
+
+### Removed
+
+- Bridge dead code (waived finding from #572's review, in scope here):
+  the write-only `_last_run_uid` remnant and the caller-less
+  `_request_operator_decision` one-question seam (its behavior lives on
+  in `operator_channel.EventStreamOperator`).
+
 ## [0.39.0] - 2026-07-16
 
 ### Removed

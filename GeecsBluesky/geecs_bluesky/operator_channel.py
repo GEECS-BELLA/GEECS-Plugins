@@ -119,8 +119,9 @@ class EventStreamOperator:
 
     Wraps the question in a :class:`~geecs_bluesky.events.DialogRequest`,
     emits a :class:`~geecs_bluesky.events.ScanDialogEvent` via the injected
-    callback, and waits on ``response_event``.  Behavior matches the previous
-    ``BlueskyScanner._request_operator_decision`` exactly: an emit failure or
+    callback, and waits on ``response_event``.  Behavior matches the
+    scanner's legacy one-question seam exactly (the since-deleted
+    ``BlueskyScanner._request_operator_decision``): an emit failure or
     an unanswered wait returns the question's default.
 
     Parameters

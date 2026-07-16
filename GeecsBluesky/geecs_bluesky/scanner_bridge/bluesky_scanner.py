@@ -98,7 +98,12 @@ from geecs_schemas import (
 
 logger = logging.getLogger(__name__)
 
-_THREAD_JOIN_TIMEOUT = 15.0
+# Bookkeeping-only join budget for stop_scanning_thread: long enough to
+# reap a thread whose plan cleanup is finishing, short enough that a stop
+# during initialization (the scan thread may sit in a 20 s device connect)
+# never blocks the caller — completion is announced via the lifecycle
+# event stream, not by this join (issue #571).
+_STOP_JOIN_TIMEOUT = 2.0
 
 # LabVIEW→Unix epoch offset; owned by geecs_bluesky.preflight, aliased here
 # because tests and external callers reference it at this path.
@@ -199,8 +204,6 @@ class BlueskyScanner:
         # The claimed day-scoped scan number for the current scan (None until
         # claimed); stamped onto every lifecycle event via _set_state.
         self._scan_number: int | None = None
-        # uid of the most recent run's start document (for the Tiled exporter)
-        self._last_run_uid: str | None = None
         # Ownership tracking for the shared session RunEngine (issue #511):
         # the start-document uid of the run *this scanner* owns, plus the
         # descriptor uids belonging to it.  Foreign runs (e.g. a headless
@@ -362,37 +365,58 @@ class BlueskyScanner:
         logger.info("BlueskyScanner scan thread started")
 
     def stop_scanning_thread(self) -> None:
-        """Abort the running scan and wait for the thread to finish.
+        """Request the running scan to stop; return promptly.
 
-        The abort flag is honoured even before the plan reaches the
-        RunEngine (``RE.abort()`` on an idle engine is a no-op, so a stop
-        clicked during device connect relies on the flag — see
-        :meth:`_abort_before_acquisition`).  If the scan thread does not
-        exit within the join timeout, the thread handle is *kept* so
-        :meth:`is_scanning_active` keeps reporting ``True``: clearing it
-        would let a second ``start_scan_thread`` run the still-busy
-        RunEngine under a live scan.
+        Safe to call from any thread, including a GUI worker: this method
+        never blocks on the scan winding down.  Completion is announced
+        the native way — the scan thread's cleanup emits the terminal
+        ABORTED/DONE :class:`ScanLifecycleEvent` through the event stream
+        the GUI already consumes (a STOPPING event is emitted here first).
+
+        How the stop lands, by phase (issue #571):
+
+        - **Running plan**: ``RE.abort()`` directly — valid from
+          ``running`` *and* ``paused``, and thread-safe (bluesky 1.15.0
+          ``run_engine.py``: ``abort()`` dispatches ``_abort_coro`` onto
+          the engine loop via ``__interrupter_helper``'s
+          ``call_soon_threadsafe``; from ``running`` it cancels the plan
+          task and returns without waiting on the plan's cleanup — no
+          ``request_pause()`` needed first).
+        - **Initialization** (idle engine — ``RE.abort()`` would raise
+          ``TransitionError``): the ``_abort_requested`` flag is read by
+          the delegated runner's init-stage checkpoints
+          (``run_scan_request(should_abort=...)``, all pre-claim) and,
+          for a stop landing between the last checkpoint and plan start,
+          by the session's in-plan stop gate.
+
+        If the scan thread does not exit within the short bookkeeping
+        join, the handle is *kept* so :meth:`is_scanning_active` keeps
+        reporting ``True``: clearing it would let a second
+        ``start_scan_thread`` run the still-busy RunEngine under a live
+        scan.
         """
         logger.info("BlueskyScanner: abort requested")
         self._abort_requested = True
         self._set_state("STOPPING")
         try:
-            # RE.abort() on an idle engine raises a TransitionError; the
-            # pre-RE abort path is covered by the _abort_requested flag.
+            # Idle engine: skip — the init-stage stop is covered by the
+            # should_abort checkpoints + the session's stop gate (above).
             if self._RE.state != "idle":
                 self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
             logger.debug("RE.abort() raised (may not be running)", exc_info=True)
         thread = self._scan_thread
         if thread is not None:
-            thread.join(timeout=_THREAD_JOIN_TIMEOUT)
+            # Bookkeeping-only: never a completion wait (see docstring).
+            thread.join(timeout=_STOP_JOIN_TIMEOUT)
             if thread.is_alive():
-                logger.error(
-                    "BlueskyScanner: scan thread did not stop within %.0f s — "
-                    "keeping the thread handle; the scanner still reports "
-                    "active and must not be restarted or reinitialized until "
-                    "the thread exits",
-                    _THREAD_JOIN_TIMEOUT,
+                logger.info(
+                    "BlueskyScanner: scan thread still finishing after the "
+                    "%.0f s bookkeeping join (normal for a stop during "
+                    "initialization); the scanner keeps reporting active "
+                    "and the terminal lifecycle event will announce "
+                    "completion",
+                    _STOP_JOIN_TIMEOUT,
                 )
             else:
                 self._scan_thread = None
@@ -510,7 +534,6 @@ class BlueskyScanner:
                 return  # foreign run — this scanner has no scan in flight
             self._active_run_uid = doc.get("uid")
             self._active_descriptor_uids = set()
-            self._last_run_uid = doc.get("uid")
             self._note_claimed_scan_number(doc.get("scan_number"))
         elif name == "descriptor":
             uid = doc.get("uid")
@@ -637,9 +660,11 @@ class BlueskyScanner:
         """Return ``True`` (logging loudly) if a stop arrived before the plan ran.
 
         ``RE.abort()`` cannot stop a scan that has not reached the RunEngine
-        yet, so the scan thread checks this flag between thread start and
-        the ``RE(plan)`` invocation (after device connect, before the scan
-        folder is claimed).
+        yet.  This is the scan thread's entry check (a stop that landed
+        before the thread even started); the later initialization stages
+        are covered by the ``should_abort`` hook the delegated runner
+        consults between resolution, device connect, preflight, and the
+        claim (see :meth:`_run_delegated_request`).
         """
         if not self._abort_requested:
             return False
@@ -716,42 +741,6 @@ class BlueskyScanner:
             dialog_event_type=ScanDialogEvent,
             request_type=DialogRequest,
             default_timeout=_PREFLIGHT_DIALOG_TIMEOUT_S,
-        )
-
-    def _request_operator_decision(
-        self,
-        exc: Exception,
-        *,
-        title: str,
-        continue_label: str,
-        abort_label: str = "Abort Scan",
-        context: str | None = None,
-    ) -> str:
-        """Ask the operator one question through the injected channel.
-
-        Kept as the scanner's one-question seam (ad-hoc callers outside the
-        pre-flight pipeline).  Behavior is that of
-        :class:`~geecs_bluesky.operator_channel.EventStreamOperator`:
-
-        Returns
-        -------
-        str
-            ``"continue"`` or ``"abort"`` when the consumer answered;
-            ``"default"`` when there is no consumer (headless), the event
-            types are unavailable, or no answer arrived within
-            :data:`_PREFLIGHT_DIALOG_TIMEOUT_S` — callers must then preserve
-            today's behavior (proceed, fail loudly later).
-        """
-        return self._operator_channel().ask(
-            OperatorQuestion(
-                message=str(exc),
-                exc=exc,
-                context=context,
-                title=title,
-                continue_label=continue_label,
-                abort_label=abort_label,
-                timeout=_PREFLIGHT_DIALOG_TIMEOUT_S,
-            )
         )
 
     def _drop_devices(self, detectors: list, drop_ids: set[int]) -> list:
@@ -888,6 +877,11 @@ class BlueskyScanner:
                 else None
             ),
             operator_channel=self._delegated_operator_channel(),
+            # Stop clicked during initialization: the runner consults this
+            # between init stages (all pre-claim) and the session's stop
+            # gate re-reads it at plan start — RE.abort() alone cannot
+            # reach a scan that has not entered the RunEngine (issue #571).
+            should_abort=lambda: self._abort_requested,
         )
         if opt_bridge is not None and not getattr(
             self._session, "last_run_aborted", False

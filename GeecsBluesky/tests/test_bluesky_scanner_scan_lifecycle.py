@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -120,10 +121,15 @@ def test_run_scan_without_stored_request_aborts_loudly(monkeypatch, caplog) -> N
 
 
 def test_timed_out_join_keeps_scanner_active(monkeypatch, caplog) -> None:
-    """A join timeout must not clear the handle while the thread still runs."""
+    """A join timeout must not clear the handle while the thread still runs.
+
+    The still-finishing case is INFO, not ERROR (issue #571): a stop during
+    initialization normally outlives the short bookkeeping join, and the
+    terminal lifecycle event — not this call — announces completion.
+    """
     scanner = _make_scanner()
     monkeypatch.setattr(bluesky_scanner, "ScanState", None)
-    monkeypatch.setattr(bluesky_scanner, "_THREAD_JOIN_TIMEOUT", 0.05)
+    monkeypatch.setattr(bluesky_scanner, "_STOP_JOIN_TIMEOUT", 0.05)
     scanner._RE = SimpleNamespace(state="running", abort=lambda reason=None: None)
 
     release = threading.Event()
@@ -132,12 +138,14 @@ def test_timed_out_join_keeps_scanner_active(monkeypatch, caplog) -> None:
     scanner._scan_thread = thread
     scanner._scan_finished = False
     try:
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.INFO):
             scanner.stop_scanning_thread()
 
         assert scanner._scan_thread is thread, "handle kept after timed-out join"
         assert scanner.is_scanning_active() is True
-        assert "did not stop" in caplog.text
+        assert "still finishing" in caplog.text
+        errors = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert errors == [], "a slow stop is expected, never an ERROR"
     finally:
         release.set()
         thread.join(timeout=5)
@@ -147,6 +155,54 @@ def test_timed_out_join_keeps_scanner_active(monkeypatch, caplog) -> None:
     scanner.stop_scanning_thread()
     assert scanner._scan_thread is None
     assert scanner.is_scanning_active() is False
+
+
+def test_stop_returns_promptly_while_thread_is_stuck_in_init() -> None:
+    """stop_scanning_thread is bounded by the short bookkeeping join.
+
+    The GUI-freeze half of issue #571: the old 15 s join on the GUI thread
+    pinwheeled the window while the scan thread sat in 20 s device
+    connects.  The join budget is now a short constant, so even a
+    worst-case call returns in ~_STOP_JOIN_TIMEOUT.
+    """
+    scanner = _make_scanner()
+    scanner._RE = SimpleNamespace(state="idle", abort=lambda reason=None: None)
+
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True, name="init-stuck")
+    thread.start()
+    scanner._scan_thread = thread
+    scanner._scan_finished = False
+    try:
+        started = time.monotonic()
+        scanner.stop_scanning_thread()
+        elapsed = time.monotonic() - started
+        assert elapsed < bluesky_scanner._STOP_JOIN_TIMEOUT + 1.0
+        assert scanner._abort_requested is True
+        assert scanner.is_scanning_active() is True
+    finally:
+        release.set()
+        thread.join(timeout=5)
+
+
+def test_delegated_request_supplies_should_abort_probe(monkeypatch) -> None:
+    """The bridge hands the runner a live probe of its abort flag."""
+    scanner = _make_scanner()
+    scanner._scan_request = _noscan_request_sentinel()
+    scanner._request_resolver = object()
+    captured: dict = {}
+
+    def capture(session, request, resolver, **kwargs):
+        captured.update(kwargs)
+        return None
+
+    monkeypatch.setattr(bluesky_scanner, "run_scan_request", capture)
+    scanner._run_delegated_request()
+
+    probe = captured["should_abort"]
+    assert probe() is False
+    scanner._abort_requested = True
+    assert probe() is True, "the probe must read the flag live, not a copy"
 
 
 # ---------------------------------------------------------------------------

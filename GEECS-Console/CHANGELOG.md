@@ -4,6 +4,22 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.15.0] - 2026-07-16
+
+### Fixed
+
+- **Stop no longer pinwheels the GUI** (#571 — the console half; the
+  stop-is-ignored engine half is GeecsBluesky 0.40.0).
+  `_on_stop_clicked` used to call `stop_scanning_thread()` on the GUI
+  thread, which could block up to 15 s (the engine joined a scan thread
+  sitting in 20 s device connects) — the window froze while the terminal
+  kept logging init steps.  Stop now dispatches through a
+  `BackgroundResult` worker: the click returns immediately, the Stop
+  button disables and shows "Stopping…", and normal gating resumes when
+  the lifecycle event stream reports the terminal state (ABORTED/DONE) —
+  the same stream the window already consumes.  The state pill knows the
+  engine's STOPPING state (amber).
+
 ## [0.14.0] - 2026-07-16
 
 ### Changed

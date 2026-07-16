@@ -118,10 +118,16 @@ _STATE_DOT_COLORS = {
     "complete": _COLOR_GREEN,
     "completed": _COLOR_GREEN,
     "initializing": _COLOR_AMBER,
+    "stopping": _COLOR_AMBER,
     "aborted": _COLOR_RED,
     "error": _COLOR_RED,
     "failed": _COLOR_RED,
 }
+
+# Lifecycle states that settle an in-flight Stop request: the scan is over
+# (or the engine failed), so the Stop button's "Stopping…" hold releases and
+# normal gating resumes.
+_TERMINAL_SCAN_STATES = frozenset({"aborted", "done", "error", "failed", "idle"})
 
 
 def _default_completions_factory(experiment: str) -> CompletionsProvider:
@@ -851,6 +857,13 @@ class MainWindow(QMainWindow):
         self._actions_worker.result_ready.connect(
             self._apply_action_names, Qt.ConnectionType.QueuedConnection
         )
+        # Stop dispatch (issue #571): stop_scanning_thread may block briefly
+        # (engine bookkeeping join), so it runs on a worker — never the GUI
+        # thread.  No result slot: completion is announced by the terminal
+        # lifecycle event (_on_scan_state clears the in-flight hold).
+        self._stop_worker = BackgroundResult()
+        self._stop_in_flight = False
+        self._stop_button_label = self.stop_button.text()
 
         self.events.state_changed.connect(self._on_scan_state)
         self.events.totals_known.connect(self._on_totals_known)
@@ -1720,7 +1733,9 @@ class MainWindow(QMainWindow):
             and (not optimize or bool(self.optimization_combo.currentText()))
         )
         self.start_button.setEnabled(ready)
-        self.stop_button.setEnabled(scanning)
+        # While a stop is in flight the button stays disabled ("Stopping…")
+        # until the terminal lifecycle event lands (_on_scan_state).
+        self.stop_button.setEnabled(scanning and not self._stop_in_flight)
 
     def _ensure_submitter(self) -> Optional[Submitter]:
         """Return the injected submitter, or lazily build the real engine."""
@@ -1767,9 +1782,24 @@ class MainWindow(QMainWindow):
         self._refresh_submit_enabled()
 
     def _on_stop_clicked(self) -> None:
-        """Stop the running scan."""
-        if self._submitter is not None and self._submitter.is_scanning_active():
-            self._submitter.stop_scanning_thread()
+        """Request the running scan to stop — never blocking the GUI thread.
+
+        ``stop_scanning_thread`` can block (during initialization the
+        engine's scan thread may sit in a 20 s device connect; calling it
+        here used to pinwheel the window — issue #571), so it is
+        dispatched through the stop worker.  The button disables and shows
+        "Stopping…" until the lifecycle stream reports a terminal state
+        (:meth:`_on_scan_state` releases the hold), then normal gating
+        resumes.
+        """
+        submitter = self._submitter
+        if submitter is None or not submitter.is_scanning_active():
+            self._refresh_submit_enabled()
+            return
+        self._stop_in_flight = True
+        self.stop_button.setText("Stopping…")
+        self._stop_worker.run_async(submitter.stop_scanning_thread, "scan-stop")
+        self.append_log("stop requested")
         self._refresh_submit_enabled()
 
     # ------------------------------------------------------------------
@@ -2272,7 +2302,15 @@ class MainWindow(QMainWindow):
         self.state_pill.setText(f'<span style="color:{color};">●</span> {word.upper()}')
 
     def _on_scan_state(self, state: str) -> None:
-        """Update the state pill and button gating on lifecycle events."""
+        """Update the state pill and button gating on lifecycle events.
+
+        A terminal state (aborted/done/error) also releases an in-flight
+        Stop request: the button label restores and normal gating resumes
+        (:meth:`_on_stop_clicked` set the hold).
+        """
+        if self._stop_in_flight and (state or "").lower() in _TERMINAL_SCAN_STATES:
+            self._stop_in_flight = False
+            self.stop_button.setText(self._stop_button_label)
         self._set_state_pill(state)
         self._refresh_submit_enabled()
 

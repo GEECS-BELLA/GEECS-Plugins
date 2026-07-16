@@ -75,6 +75,42 @@ def _positions(start: float, end: float, step: float) -> list[float]:
     return list(np.linspace(start, end, n))
 
 
+def _stop_gated(plan: Any, should_abort: Callable[[], bool]) -> tuple[Any, list[bool]]:
+    """Wrap *plan* so a stop that landed in the idle window still takes effect.
+
+    ``RE.abort()`` on an idle engine raises ``TransitionError`` (a no-op to
+    a guarded caller), so a stop request that lands *after* the caller's
+    last pre-run check but *before* the engine reports ``running`` would
+    otherwise be lost — the flag is set, nobody reads it, the scan runs
+    (issue #571).  The gate re-reads *should_abort* as the plan's very
+    first instruction.  That closes the race completely: the engine sets
+    ``self._state = "running"`` before fetching the plan's first message
+    (bluesky 1.15.0, ``run_engine.py::_run``), so a stopper that observed
+    the engine ``idle`` set the flag strictly before this check runs, and
+    a stopper that observed it ``running`` used ``RE.abort()`` directly —
+    which is valid from ``running`` (``_abort_coro`` cancels the plan
+    task; no pause required first).
+
+    On trip the gate yields nothing: the engine processes zero messages,
+    opens no run, and settles back to idle; the second element of the
+    returned pair reads ``True`` so the caller can report the quiet
+    aborted outcome.
+    """
+    tripped = [False]
+
+    def gated():
+        if should_abort():
+            tripped[0] = True
+            # Never started, close for hygiene (generators only).
+            close = getattr(plan, "close", None)
+            if callable(close):
+                close()
+            return
+        return (yield from plan)
+
+    return gated(), tripped
+
+
 def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
     """Recursively replace non-finite floats (NaN/inf) with ``None``.
 
@@ -566,6 +602,7 @@ class GeecsSession:
         setup: Any | None = None,
         per_step: Any | None = None,
         closeout: Any | None = None,
+        should_abort: Callable[[], bool] | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -599,6 +636,15 @@ class GeecsSession:
         :attr:`last_run_aborted` set ``True`` and one INFO line logged.  A
         *pause* still propagates :class:`~bluesky.utils.RunEngineInterrupted`
         (the operator may resume).
+
+        ``should_abort`` (optional) is a stop probe re-read as the plan's
+        first instruction (:func:`_stop_gated`): it closes the window where
+        a stop lands after the caller's last check but before the engine
+        reports ``running`` (``RE.abort()`` is a no-op on an idle engine).
+        A trip is the same quiet aborted outcome — ``None`` returned,
+        :attr:`last_run_aborted` set — but nothing ran: no run document was
+        emitted (the scan number, when this call claimed one, was already
+        burned; the folder holds ScanInfo and no data).
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -677,6 +723,10 @@ class GeecsSession:
             closeout=closeout,
         )
 
+        stop_gate = [False]
+        if should_abort is not None:
+            plan, stop_gate = _stop_gated(plan, should_abort)
+
         self._last_run_uid = None
         self.last_run_aborted = False
         # Headless scans get the same per-scan scan.log as bridge scans
@@ -703,6 +753,18 @@ class GeecsSession:
                 )
                 return self._last_run_uid
 
+            if stop_gate[0]:
+                # The stop landed in the idle window (after the caller's
+                # last pre-run check, before the engine reported running):
+                # the gate skipped the whole plan — zero messages, no run.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s stopped before the plan started; nothing ran "
+                    "(no data recorded)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return None
+
             if save_data and self._last_run_uid and scan_number is not None:
                 self._export_scalar_files(scan_number)
         return self._last_run_uid
@@ -723,6 +785,7 @@ class GeecsSession:
         on_finish: str = "hold",
         scan_number: int | None = None,
         scan_folder: str | None = None,
+        should_abort: Callable[[], bool] | None = None,
     ) -> tuple[str | None, list[dict]]:
         """Run an optimization **as a scan** (iteration = bin); return (uid, history).
 
@@ -768,6 +831,10 @@ class GeecsSession:
         ``on_finish`` restore-to-initial still runs (abort restores
         *initial*, never best), and one INFO line is logged.  A *pause*
         still propagates :class:`~bluesky.utils.RunEngineInterrupted`.
+        ``should_abort`` is the pre-plan-start stop gate, exactly as on
+        :meth:`scan` (:func:`_stop_gated`); a trip returns ``(None, [])``
+        quietly — nothing ran, so the variables were never moved and no
+        restore is needed.
         """
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
@@ -909,6 +976,10 @@ class GeecsSession:
 
             run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
 
+        stop_gate = [False]
+        if should_abort is not None:
+            run_plan, stop_gate = _stop_gated(run_plan, should_abort)
+
         # Headless optimizations get the same per-scan scan.log as bridge
         # runs (see scan()): attach only when this call claimed the number.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
@@ -932,6 +1003,16 @@ class GeecsSession:
                 raise
             finally:
                 self.RE.unsubscribe(token)
+            if stop_gate[0]:
+                # Stop landed in the idle window: the gate skipped the whole
+                # plan — no iterations, no moves, nothing to restore.
+                self.last_run_aborted = True
+                logger.info(
+                    "Optimization scan %s stopped before the plan started; "
+                    "nothing ran (no data recorded)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return None, history
             if aborted:
                 # Operator-requested abort: the engine settled back to idle
                 # and its cleanup (finalize disarm) already ran.  Restore the

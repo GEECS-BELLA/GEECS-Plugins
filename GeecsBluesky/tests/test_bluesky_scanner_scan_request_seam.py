@@ -236,7 +236,6 @@ def _make_scanner(session: _FakeSession) -> BlueskyScanner:
     scanner._scan_number = None
     scanner._abort_requested = False
     scanner._optimization_loader = None
-    scanner._last_run_uid = None
     scanner._active_run_uid = None
     scanner._active_descriptor_uids = set()
     scanner._scan_request = None
@@ -307,6 +306,10 @@ def _normalize_scan_kwargs(kwargs: dict) -> dict:
     for slot in ("setup", "per_step", "closeout"):
         if slot in normalized:
             normalized[slot] = normalized[slot] is not None
+    # The stop probe is a bridge-vs-headless seam by design: the bridge
+    # supplies its abort-flag lambda, a headless run supplies nothing
+    # (issue #571) — drop it from the parity comparison.
+    normalized.pop("should_abort", None)
     return normalized
 
 
