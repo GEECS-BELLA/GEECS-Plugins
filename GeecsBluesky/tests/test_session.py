@@ -42,7 +42,7 @@ def _session() -> GeecsSession:
 
 
 def test_positions_math() -> None:
-    """start/end/step expands like the scanner's _build_positions."""
+    """start/end/step expands to an inclusive position list."""
     assert _positions(4.0, 5.0, 0.5) == [4.0, 4.5, 5.0]
     assert _positions(1.0, 1.0, 0.5) == [1.0]
     assert _positions(0.0, 1.0, 0.0) == [0.0]

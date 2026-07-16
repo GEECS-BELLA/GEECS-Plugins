@@ -242,8 +242,8 @@ def merge_optimizer_device_requirements(
 ) -> dict[str, dict[str, Any]]:
     """Merge optimizer ``device_requirements`` into *devices_config*, in place.
 
-    The delegated-path counterpart of the legacy exec_config merge
-    (``BlueskyScanner._merge_optimization_device_requirements``): every
+    The one surviving definition of the optimizer-requirements merge
+    (the bridge-side twin died with the exec_config path, G3): every
     device the objective's evaluator needs is acquired and natively saved
     even when the request's save sets do not name it — or when the request
     names no save sets at all.  This reverses the #520 deferral ("the
@@ -847,7 +847,8 @@ def _build_request_detectors(
 ) -> list:
     """Create session devices from a derived devices_config, roles by order.
 
-    Mirrors ``BlueskyScanner._classify_device_roles``: free-run → first
+    Role assignment by config order (the one definition since G3
+    deleted the bridge-side twin): free-run → first
     synchronous entry is the reference, later ones contributors; strict →
     all synchronous entries triggered; asynchronous → snapshots.  This is
     the *headless* build — failures propagate (fail loudly); operator

@@ -12,11 +12,14 @@ scans ran in production on 2026-07-06.
 duck-typed `exec_config` path was deleted root-and-stem (G3, executed
 early 2026-07-16 by owner decision — the cutover doc had re-timed it to
 M6): `reinitialize` raises `TypeError` for anything but a `ScanRequest`,
-so the legacy `GEECS-Scanner-GUI` can no longer launch scans from `dev`
-(accepted and deliberate; `master`'s legacy scanner line is untouched —
-the fallback story is unchanged).  GEECS-Scanner-GUI stays in-tree only
-for its `optimization` module (the console's `optimization` extra) until
-M6 deletes it whole.
+and the `shot_control_information` constructor kwarg is gone — so the
+legacy `GEECS-Scanner-GUI` breaks on `dev` at **engine construction**
+(its `RunControl` passes the deleted kwarg during main-window init and
+gets a generic kwarg `TypeError`, uncaught) before any submission could
+even reach the curated `reinitialize` error (accepted and deliberate;
+`master`'s legacy scanner line is untouched — the fallback story is
+unchanged).  GEECS-Scanner-GUI stays in-tree only for its `optimization`
+module (the console's `optimization` extra) until M6 deletes it whole.
 
 ## Two acquisition modes (the core architecture)
 

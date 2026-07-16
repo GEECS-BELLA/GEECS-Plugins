@@ -1,8 +1,8 @@
 """Tests for the OperatorChannel seam (NullOperator / EventStreamOperator).
 
 The channel is the one seam through which the engine asks the operator
-anything; behavior is pinned against the previous inline implementation in
-``BlueskyScanner._request_operator_decision``: headless → default answer,
+anything; behavior pins the legacy dialog-channel semantics (the bridge's
+one-question seam delegates here): headless → default answer,
 emit failure → default, timeout → default, otherwise the consumer's
 abort-flag maps to "abort"/"continue".
 """

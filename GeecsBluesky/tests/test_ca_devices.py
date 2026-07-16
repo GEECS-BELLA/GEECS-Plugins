@@ -748,11 +748,12 @@ async def test_reconnect_after_disconnect_resubscribes() -> None:
 
 
 async def test_all_ca_devices_define_disconnect() -> None:
-    """Every CA device type honours the scanner bridge teardown contract.
+    """Every CA device type honours the per-scan teardown contract.
 
-    _disconnect_devices_sync runs device.disconnect() on the RE loop for the
-    motor and every detector; each class must expose it as a coroutine that
-    does not raise (previously an AttributeError swallowed by the bridge).
+    The runner's cleanup (``session.disconnect``) runs device.disconnect()
+    on the RE loop for every device it created; each class must expose it
+    as a coroutine that does not raise (previously an AttributeError was
+    swallowed by the caller).
     """
     devices = [
         CaSnapshotReadable("U_S1H", "Current", name="snap"),

@@ -1078,8 +1078,10 @@ def test_non_scan_request_submission_raises_type_error() -> None:
     """A legacy exec_config-shaped object is refused with a clear TypeError.
 
     The duck-typed exec_config path was deleted root-and-stem (G3); the
-    error must name the removal and point at ScanRequest so a stale caller
-    (the frozen legacy GUI) fails loudly, not mysteriously.
+    error must name the removal and point at ScanRequest so any stale
+    exec_config-shaped submission fails loudly, not mysteriously.  (The
+    legacy GUI itself never reaches this: it dies earlier, at engine
+    construction, on the deleted ``shot_control_information`` kwarg.)
     """
     scanner = _make_scanner(_FakeSession())
     exec_config = SimpleNamespace(

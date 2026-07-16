@@ -13,8 +13,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   old GUI path is abandoned on `dev`, and `master`'s legacy scanner line
   is untouched). `BlueskyScanner.reinitialize` now accepts **only** a
   `geecs_schemas.ScanRequest` and raises a clear `TypeError` for anything
-  else, so the legacy `GEECS-Scanner-GUI` `RunControl` can no longer
-  launch scans from this branch (accepted and documented breakage).
+  else. The legacy `GEECS-Scanner-GUI` breaks on this branch at engine
+  construction — its `RunControl` passes the deleted
+  `shot_control_information` kwarg during main-window init, so the GUI
+  dies with a generic kwarg `TypeError` before any submission (accepted
+  and documented breakage; see `GEECS-Scanner-GUI/CLAUDE.md`).
   Deleted with the arm: the duck-typed exec_config `reinitialize` branch,
   `_execute_scan` / `_run_standard_scan` / `_run_noscan` /
   `_run_optimization`, the bridge-side device-build twin
