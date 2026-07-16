@@ -157,7 +157,11 @@ def execute_action_steps_directly(
                 raise exc
 
     def _dispatch(coro: Any, label: str) -> concurrent.futures.Future:
-        _loop_check(label)
+        try:
+            _loop_check(label)
+        except BaseException:
+            coro.close()  # a refused dispatch must not leak a warning
+            raise
         return asyncio.run_coroutine_threadsafe(coro, loop)
 
     def _result(future: concurrent.futures.Future, label: str) -> Any:
@@ -168,10 +172,11 @@ def execute_action_steps_directly(
                 return future.result(timeout=_WAIT_SLICE_S)
             except TimeoutError:
                 if future.done():
-                    # The step ITSELF raised a TimeoutError-family error —
-                    # that is the signal's own richer failure, not budget
-                    # expiry; never re-label it.
-                    raise
+                    # The future completed in the microseconds between the
+                    # wait expiring and this check: return its value if it
+                    # succeeded, else re-raise the step's OWN error
+                    # (timeout-family included — never re-labelled).
+                    return future.result()
             try:
                 _abort_check()
                 _reap_pending()

@@ -37,6 +37,7 @@ __all__ = [
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
+    "ActionStepTimeoutError",
 ]
 
 
