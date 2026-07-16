@@ -826,9 +826,14 @@ def validate_scan_request(
 
     Returns
     -------
-    tuple[ScanRequest, dict]
-        The **post-defaults** validated copy of *request*, and the applied-
-        defaults provenance record (as :func:`apply_experiment_defaults`).
+    tuple[ScanRequest, dict, Any]
+        The **post-defaults** validated copy of *request*, the applied-
+        defaults provenance record (as :func:`apply_experiment_defaults`),
+        and the raw defaults object itself — returned so execution reads
+        the defaults file exactly once per run (flags that are not request
+        fields, e.g. ``background_telemetry``, must come from the same
+        snapshot the validation applied, not a second read that could see
+        a concurrent edit).
 
     Raises
     ------
@@ -838,7 +843,8 @@ def validate_scan_request(
     NotImplementedError
         Pseudo (composite) scan variables — validated first, refused loudly.
     """
-    validated, applied = resolve_defaults_for(resolver, request)
+    defaults = resolve_experiment_defaults(resolver)
+    validated, applied = apply_experiment_defaults(request, defaults)
     resolve_and_validate_actions(validated.actions, resolver)
 
     if validated.trigger_profile:
@@ -867,7 +873,7 @@ def validate_scan_request(
                 spec = resolver.resolve_scan_variable(name)
                 resolve_movable_target(spec, name)
 
-    return validated, applied
+    return validated, applied, defaults
 
 
 def resolve_movable_target(
@@ -1269,10 +1275,10 @@ def run_scan_request(
     # must resolve does so here, before any session state is touched.  The
     # GUI bridge's reinitialize calls the same function, so submission-time
     # and execution-time validation cannot drift.
-    request, applied_defaults = validate_scan_request(request, resolver)
-    # The raw defaults object is still needed for execution-time flags that
-    # are not request fields (the background_telemetry experiment default).
-    defaults = resolve_experiment_defaults(resolver)
+    # The returned raw defaults object serves execution-time flags that are
+    # not request fields (background_telemetry) from the SAME file snapshot
+    # the validation applied — one read per run, no torn-edit window.
+    request, applied_defaults, defaults = validate_scan_request(request, resolver)
     resolved_actions = resolve_and_validate_actions(request.actions, resolver)
 
     if request.trigger_profile:

@@ -149,7 +149,7 @@ def test_no_save_sets_allowed_for_optimize() -> None:
             "generator": {"name": "bayes_default"},
         },
     )
-    validated, applied = validate_scan_request(request, _resolver())
+    validated, applied, _defaults = validate_scan_request(request, _resolver())
     assert validated.mode.value == "optimize"
     assert applied == {}
 
@@ -222,7 +222,7 @@ def test_optimize_vocs_device_variable_passes_through() -> None:
             "generator": {"name": "bayes_default"},
         },
     )
-    validated, _applied = validate_scan_request(request, _resolver())
+    validated, _applied, _defaults = validate_scan_request(request, _resolver())
     assert validated.optimization is not None
 
 
@@ -238,7 +238,7 @@ def test_returns_post_defaults_copy_with_provenance() -> None:
         defaults={"trigger_profile": "HTU"},
     )
     request = _request()  # no trigger_profile of its own
-    validated, applied = validate_scan_request(request, resolver)
+    validated, applied, _defaults = validate_scan_request(request, resolver)
     assert validated.trigger_profile == "HTU"
     assert applied == {"trigger_profile": "HTU"}
     # The input request is untouched (post-defaults COPY, never in place).
@@ -248,7 +248,9 @@ def test_returns_post_defaults_copy_with_provenance() -> None:
 def test_valid_plan_names_resolve_clean() -> None:
     plan = ActionPlan.model_validate({"steps": [{"do": "wait", "seconds": 0.01}]})
     request = _request(actions={"setup": ["prep"]})
-    validated, applied = validate_scan_request(request, _resolver(plans={"prep": plan}))
+    validated, applied, _defaults = validate_scan_request(
+        request, _resolver(plans={"prep": plan})
+    )
     assert validated.actions.setup == ["prep"]
     assert applied == {}
 
@@ -270,7 +272,7 @@ def test_bridge_reinitialize_calls_the_shared_validator(monkeypatch) -> None:
 
     def _spy(request, resolver):
         calls.append((request, resolver))
-        return request, {}
+        return request, {}, None
 
     monkeypatch.setattr(bluesky_scanner, "validate_scan_request", _spy)
     scanner = bluesky_scanner.BlueskyScanner.__new__(bluesky_scanner.BlueskyScanner)
