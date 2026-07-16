@@ -82,12 +82,8 @@ from geecs_bluesky.preflight import (
 from geecs_bluesky.scan_request_runner import (
     ConfigResolver,
     ConfigsRepoResolver,
-    resolve_and_validate_actions,
-    resolve_defaults_for,
-    resolve_movable_target,
-    resolve_save_sets_and_rituals,
     run_scan_request,
-    trigger_writes_from_profile,
+    validate_scan_request,
 )
 from geecs_bluesky.session import GeecsSession
 from geecs_schemas import (
@@ -283,43 +279,12 @@ class BlueskyScanner:
                 "suggester=...)"
             )
 
-        # Fail-fast validation on a LOCAL post-defaults copy; every result
-        # is discarded — run_scan_request re-resolves at execution time.
-        validated, _applied = resolve_defaults_for(resolver, request)
-        resolve_and_validate_actions(validated.actions, resolver)
-        if not validated.save_sets:
-            # Optimize may run save-set-less: the optimizer's
-            # device_requirements are auto-provisioned into the effective
-            # device set at execution time (the runner still refuses an
-            # empty *effective* set pre-claim).  Every other mode records
-            # nothing without a save set.
-            if validated.mode is not ScanRequestMode.OPTIMIZE:
-                raise GeecsConfigurationError(
-                    f"a {request.mode.value!r} ScanRequest needs at least "
-                    "one save set in save_sets — without one the scan "
-                    "would record nothing"
-                )
-        else:
-            resolve_save_sets_and_rituals(resolver, validated.save_sets)
-        if validated.trigger_profile:
-            # Adapt (and discard) the writes so an unknown trigger_variant
-            # fails here, not in the scan thread.
-            profile = resolver.resolve_trigger_profile(validated.trigger_profile)
-            trigger_writes_from_profile(profile, validated.trigger_variant)
-        if validated.mode is ScanRequestMode.STEP:
-            for axis in validated.axes:
-                # Resolve to an executable target so pseudo (composite)
-                # variables are refused here, not in the scan thread.
-                spec = resolver.resolve_scan_variable(axis.variable)
-                resolve_movable_target(spec, axis.variable)
-        if validated.mode is ScanRequestMode.OPTIMIZE and validated.optimization:
-            for name in validated.optimization.variables:
-                # Catalog names must resolve (and pseudo variables are
-                # refused) here, not in the scan thread; 'Device:Variable'
-                # strings pass through, matching the runner's dispatch.
-                if ":" not in name:
-                    spec = resolver.resolve_scan_variable(name)
-                    resolve_movable_target(spec, name)
+        # Fail-fast validation through THE one definition of "what must
+        # resolve" (scan_request_runner.validate_scan_request, issue #529);
+        # results are discarded — run_scan_request re-resolves at execution
+        # time (it runs the same function as its own first phase, so this
+        # submission-time check can never drift from execution).
+        validate_scan_request(request, resolver)
 
         # Store the ORIGINAL pre-defaults request (see docstring).
         self._scan_request = request
