@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.11.1] — 2026-07-16
+
+### Changed
+
+- Mechanical pre-commit normalization (repo-wide `pre-commit run --all-files`
+  pass): ruff-format reformatting and unused-import removal (`ureg`) in
+  `tests/algorithms/test_grenouille_analysis.py` and
+  `tests/algorithms/test_qwlsi_analysis.py`. Tests only; no behavior changes.
+
 ## [1.11.0] — 2026-07-09
 
 ### Added

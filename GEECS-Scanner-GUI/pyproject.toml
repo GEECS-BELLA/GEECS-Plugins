@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-scanner-gui"
-version = "0.35.1"
+version = "0.35.2"
 
 
 description = ""

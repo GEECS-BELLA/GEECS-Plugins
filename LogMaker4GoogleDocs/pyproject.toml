@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "LogMaker4GoogleDocs"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "readme.md"

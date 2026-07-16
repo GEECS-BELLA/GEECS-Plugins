@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.15.1] — 2026-07-16
+
+### Changed
+
+- Mechanical pre-commit normalization (repo-wide `pre-commit run --all-files`
+  pass): whitespace/EOF fix in `logging_config.json`. No behavior changes.
+
 ## [1.15.0] — 2026-07-09
 
 ### Added

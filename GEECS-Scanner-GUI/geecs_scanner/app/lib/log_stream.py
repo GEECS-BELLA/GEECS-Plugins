@@ -10,7 +10,7 @@ class EmittingStream:
         self.text_edit = text_edit
 
     def write(self, text):
-        if text.endswith('\n'):
+        if text.endswith("\n"):
             text = text[:-1]
 
         scrollbar = self.text_edit.verticalScrollBar()

@@ -25,7 +25,7 @@ scan_data = ScanData(tag=scan_tag, experiment='Undulator')
 
 One can also use the following methods to get various folder/ScanData of importance:
 ```python
-# Get the next scan folder location for the current day:    
+# Get the next scan folder location for the current day:
 next_folder = ScanData.get_next_scan_folder(experiment=experiment_name)
 
 # Create a new ScanData at the location of the next scan, creating the folder in the process
