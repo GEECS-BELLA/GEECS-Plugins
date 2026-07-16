@@ -8,10 +8,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Deferred-pause checkpoints in both step plans** (issue #552, PR-1 of
-  the G-actions v2 sequence): one `bps.checkpoint()` before each step's
-  move and one before every row, in `geecs_step_scan` and
-  `geecs_free_run_step_scan`.  `request_pause(defer=True)` now lands at a
+- **Deferred-pause checkpoints in all three scan plans** (issue #552,
+  PR-1 of the G-actions v2 sequence): one `bps.checkpoint()` before each
+  step's move / iteration and one before every row, in `geecs_step_scan`,
+  `geecs_free_run_step_scan`, and `geecs_adaptive_scan` (optimize — added
+  after review: without them a pause requested during an optimize scan
+  would never land and the console would sit in PAUSING).  `request_pause(defer=True)` now lands at a
   row/step boundary with an empty rewind cache — resume replays nothing
   (no re-move, no re-fire).  Zero behavior change for an unpaused scan.
   Pinned by `tests/test_pause_checkpoints.py` (checkpoint placement,

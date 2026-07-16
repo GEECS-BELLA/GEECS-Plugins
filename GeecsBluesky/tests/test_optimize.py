@@ -239,3 +239,47 @@ def test_move_movables_uses_movable_set_not_raw_setpoint(caplog) -> None:
     warnings = [r for r in caplog.records if "could not move" in r.getMessage()]
     assert len(warnings) == 1
     assert warnings[0].exc_info is not None
+
+
+def test_adaptive_scan_checkpoints_per_iteration_and_row() -> None:
+    """Optimize scans carry the same deferred-pause checkpoints (issue #552).
+
+    Without them, request_pause(defer=True) during an optimize scan would
+    never fire — the console would sit in PAUSING while the scan ran on.
+    2 iterations × (1 pre-iteration + 2 pre-row) = 6 checkpoints, never
+    inside an open event bundle.
+    """
+    s = GeecsSession("Test", tiled=False, mock=True)
+    cam = s.detector("UC_Cam", ["Sig"], name="cam")
+    knob = s.settable("U_S1H", "Current", name="s1h")
+    callback_on_mock_put(
+        knob._setpoint, lambda v, **kw: set_mock_value(knob.readback, v)
+    )
+    set_mock_value(cam.acq_timestamp, 1000.0)
+    commands: list[str] = []
+    s.RE.msg_hook = lambda msg: commands.append(msg.command)
+    pacer = start_pacer(s.RE, [(cam, 1000.0)], initial_delay=0.8, interval=0.15)
+    try:
+        s.optimize(
+            variables={"s1h": knob},
+            detectors=[cam],
+            objective=lambda bin_data: 0.0,
+            suggester=ScriptedSuggester([{"s1h": 0.1}, {"s1h": 0.4}]),
+            shots_per_iteration=2,
+            max_iterations=5,
+            save_data=False,
+        )
+    finally:
+        pacer.cancel()
+
+    # 2 scripted iterations + the stopping call's own pre-iteration
+    # checkpoint (the suggester answers None on the 3rd propose).
+    assert commands.count("checkpoint") == 2 * (1 + 2) + 1
+    open_bundle = False
+    for command in commands:
+        if command == "create":
+            open_bundle = True
+        elif command == "save":
+            open_bundle = False
+        elif command == "checkpoint":
+            assert not open_bundle

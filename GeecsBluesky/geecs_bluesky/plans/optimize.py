@@ -141,6 +141,12 @@ def geecs_adaptive_scan(
         try:
             scan_event_index = 0
             for iteration in range(1, max_iterations + 1):
+                # Deferred-pause boundary (issue #552): same per-iteration +
+                # per-row checkpoints as the step plans, so an operator
+                # action during an optimize scan can pause it — without
+                # these, request_pause(defer=True) never fires and the
+                # console would sit in PAUSING while the scan ran on.
+                yield from bps.checkpoint()
                 proposal = propose_pool.submit(propose, iteration)
                 while not proposal.done():
                     yield from bps.sleep(_PROPOSE_POLL_S)
@@ -155,6 +161,7 @@ def geecs_adaptive_scan(
                 if arm_trigger is not None:
                     yield from arm_trigger()
                 for shot_index_in_bin in range(1, shots_per_iteration + 1):
+                    yield from bps.checkpoint()
                     scan_event_index += 1
                     scan_context.set_context(
                         bin_number=iteration,

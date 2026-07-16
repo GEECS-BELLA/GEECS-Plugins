@@ -252,3 +252,49 @@ def test_hard_pause_bridge_api_deleted() -> None:
     """pause_scan/resume_scan (hard pause, replay trap) must not return."""
     assert not hasattr(BlueskyScanner, "pause_scan")
     assert not hasattr(BlueskyScanner, "resume_scan")
+
+
+def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:
+    """Free-run (production mode): same checkpoint contract, incl. tail flush.
+
+    Motorless statistics run, 1 bin × 2 shots → 1 pre-move + 2 pre-row
+    checkpoints; the tail-flush create/read/save bundle must contain none.
+    """
+    pytest.importorskip("aioca")
+    from ophyd_async.core import set_mock_value
+
+    from geecs_bluesky.devices.ca import CaGenericDetector
+    from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
+    from tests.ca_mock_helpers import connect_mock, start_pacer
+
+    ref = CaGenericDetector("U_Ref", ["Sig"], name="ref")
+    ref.configure_shot_id(rep_rate_hz=1.0)
+
+    RE = RunEngine()
+    commands: list[str] = []
+    RE.msg_hook = lambda msg: commands.append(msg.command)
+    connect_mock(RE, ref)
+    set_mock_value(ref.acq_timestamp, 1000.0)
+    pacer = start_pacer(RE, [(ref, 1000.0)], initial_delay=0.2, interval=0.1)
+    try:
+        RE(
+            geecs_free_run_step_scan(
+                motor=None,
+                positions=[None],
+                reference=ref,
+                detectors=[],
+                shots_per_step=2,
+            )
+        )
+    finally:
+        pacer.cancel()
+
+    assert commands.count("checkpoint") == 1 + 2
+    open_bundle = False
+    for command in commands:
+        if command == "create":
+            open_bundle = True
+        elif command == "save":
+            open_bundle = False
+        elif command == "checkpoint":
+            assert not open_bundle, "checkpoint inside an open event bundle"
