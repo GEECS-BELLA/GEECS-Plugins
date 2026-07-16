@@ -4,6 +4,20 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.12.1] - 2026-07-16
+
+### Fixed
+
+- **Experiment-name guard covers Windows path grammar** (issue #517).
+  `check_experiment_name` now also rejects `:` — on Windows,
+  `PureWindowsPath(root) / "D:Other"` silently discards the experiments
+  root, so a drive-qualified name escaped the guard without containing a
+  path separator — and reserved Windows device names (`CON`, `NUL`,
+  `COM1`, …, bare or with an extension), which would create unusable or
+  aliased config directories on the control-room machines.  Regression
+  names added to the per-store traversal matrix in
+  `tests/test_experiment_name_validation.py`.
+
 ## [0.12.0] - 2026-07-15
 
 ### Added
