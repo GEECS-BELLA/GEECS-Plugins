@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.38.2] - 2026-07-16
+
+### Fixed
+
+- **Upstream bluesky's `Run aborted` traceback silenced for operator
+  aborts** (the #563 follow-up, observed live 2026-07-16): the session
+  attaches a log filter to its RunEngine's logger that drops records
+  whose exception is `RequestAbort` — the abort *mechanism*, not an
+  error. The filter keys on the exception type, never the message, so
+  the genuine-exception path's identically-worded "Run aborted" record
+  (real failures) still logs with its full traceback. Pinned by a
+  type-discrimination test and an end-to-end live-abort test.
+
 ## [0.38.1] - 2026-07-16
 
 ### Fixed
