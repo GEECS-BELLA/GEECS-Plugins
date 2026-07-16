@@ -76,6 +76,14 @@ deferred-work or strategy content.)
    the PR template — either live results or an explicit "owed:" note.
    Code-complete and hardware-verified are different states here, and PRs
    are expected to say which they are.
+5. **Adversarial review before merge.** Every PR gets a review by someone
+   (or, for AI-assisted work, a fresh-context agent) who did not write
+   it, covering three lenses: correctness (concrete failure scenarios),
+   redundancy (does this already exist somewhere in the repo?), and
+   placement (is there a more natural home, given the dependency graph
+   and package boundaries?). Findings are posted on the PR and each one
+   is dispositioned — fixed, or waived with a stated reason — before
+   merge. The reviewer brief lives in `.claude/skills/land/SKILL.md`.
 
 ## Committing
 
