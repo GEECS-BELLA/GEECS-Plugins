@@ -292,7 +292,13 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   import confined to `services/optimization.py`, lazy, gated by a light
   `find_spec` probe); without it the loader is `None` and the engine's
   needs-a-loader refusal shows in the status bar, all other modes
-  unaffected.  The save sets must name the objective's diagnostics —
+  unaffected.  With the extra installed, `main.py` calls
+  `warm_up_optimization_stack()` once after `window.show()` — a daemon
+  thread pre-imports the loader's heavy modules (torch/botorch/xopt cost
+  tens of seconds cold) so the first optimize submission doesn't freeze;
+  failures are logged and swallowed (the lazy path then pays the cost),
+  and a submission mid-warm-up simply blocks on Python's per-module
+  import lock — no extra machinery.  The save sets must name the objective's diagnostics —
   optimizer `device_requirements` auto-provisioning is deliberately not
   wired on the delegated path (engine decision, PR #520).
 - **Tooltips (issue #497 phase 1)**: editor form fields get their tooltips

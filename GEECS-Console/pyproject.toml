@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.11.0"
+version = "0.12.0"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

@@ -4,6 +4,23 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.12.0] - 2026-07-15
+
+### Added
+
+- **Optimization stack warm-up at startup**
+  (`services/optimization.py::warm_up_optimization_stack`, called once by
+  `main.py` after the window shows): with the `optimization` extra
+  installed, a daemon thread pre-imports the loader's heavy modules
+  (`geecs_scanner.optimization` → xopt → botorch → torch) so their
+  tens-of-seconds cold import is paid in the background at launch instead
+  of freezing the first optimize submission (field incident 2026-07-15).
+  Logs "optimization stack preloaded in N.n s" on completion; failures are
+  logged and swallowed (the lazy loader path then pays the cost as
+  before).  No-op without the extra (same `find_spec` probe as the
+  loader).  A submission arriving mid-warm-up needs no guard — Python's
+  per-module import locks serialize the concurrent import.
+
 ## [0.11.0] - 2026-07-15
 
 ### Added
@@ -32,6 +49,7 @@ semantic.
   constructor's first configs populate runs quietly and the message is
   announced only if the restore selects nothing.  Selecting an experiment
   now also clears a stale listing message from the status bar.
+>>>>>>> origin/dev
 
 ## [0.10.1] - 2026-07-15
 

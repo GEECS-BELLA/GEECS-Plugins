@@ -77,6 +77,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     from geecs_console.app.main_window import MainWindow
     from geecs_console.services.device_panel import GatewayDevicePanel
     from geecs_console.services.health import GatewayTiledDbHealth
+    from geecs_console.services.optimization import warm_up_optimization_stack
 
     app = QApplication([sys.argv[0], *qt_args])
     # Inject the real seams in production; tests/offline fall back to the
@@ -89,6 +90,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         device_panel=GatewayDevicePanel(),
     )
     window.show()
+    # With the `optimization` extra installed, pre-import the torch/botorch/
+    # xopt stack on a daemon thread so the first optimize submission doesn't
+    # freeze for its tens-of-seconds cold import (no-op without the extra;
+    # started after the window is up so nothing races Qt initialization).
+    warm_up_optimization_stack()
     return app.exec()
 
 
