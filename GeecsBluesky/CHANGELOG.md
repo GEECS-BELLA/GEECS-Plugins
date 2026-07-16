@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.43.0] - 2026-07-16
+
+### Added
+
+- **Direct ActionPlan step executor** (`plans/action_direct.py`, issue
+  #552, PR-2): `execute_action_steps_directly` runs the output of
+  `flatten_action_steps` without the RunEngine, by scheduling coroutines
+  onto the RE's persistent asyncio loop (alive while the RE is paused) —
+  the dispatch the #552 pause supervisor will use to execute an operator
+  action in the pause window.  Legacy step semantics preserved one for
+  one (blocking set on put-completion, `wait_for_execution: false`
+  fire-and-continue with late failures logged, sliced abort-aware waits,
+  `values_match` check quirks); a stuck blocking step trips a per-step
+  timeout, and a dead loop is refused loudly.  Pinned by
+  `tests/test_action_direct.py` (7 tests over a real loop in a thread).
+
 ## [0.42.0] - 2026-07-16
 
 ### Added
