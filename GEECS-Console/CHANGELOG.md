@@ -4,7 +4,7 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
-## [0.11.0] - 2026-07-15
+## [0.12.0] - 2026-07-15
 
 ### Added
 
@@ -20,6 +20,36 @@ semantic.
   before).  No-op without the extra (same `find_spec` probe as the
   loader).  A submission arriving mid-warm-up needs no guard — Python's
   per-module import locks serialize the concurrent import.
+
+## [0.11.0] - 2026-07-15
+
+### Added
+
+- **Iterations spinner (R3, optimization mode)**: exposes the scan
+  request's `optimization.max_iterations`.  Visible only in Optimization
+  mode next to the optimizer-config combo; range 0–100000 with 0 rendered
+  as "auto" (submits no limit — the engine's default budget applies).
+  The spinner owns the submitted value: `ConsoleFormState.max_iterations`
+  is written onto the spec by `build_scan_request`, restored by
+  `form_state_from_request` (presets round-trip it; spec matching treats
+  `max_iterations` as neutral), and picking a config seeds the spinner
+  from the config's own limit so nothing is overridden silently.  This
+  deliberately does NOT revive the old GUI's derive-iterations-from-the-
+  1D-start/stop/step hack.
+- The R3 live shot count is now honest in Optimization mode: it shows
+  `iterations × shots per step` (the engine's announced upper bound; the
+  runaway-scan guard applies to the product) or "total shots: auto" when
+  no limit is set — it previously showed a bare `shots per step`.
+
+### Fixed
+
+- The stray "No experiment selected." status message no longer flashes at
+  startup (and no longer sits in the R6 log tail right above the next
+  submission report) when the last-used experiment is restored: the
+  constructor's first configs populate runs quietly and the message is
+  announced only if the restore selects nothing.  Selecting an experiment
+  now also clears a stale listing message from the status bar.
+>>>>>>> origin/dev
 
 ## [0.10.1] - 2026-07-15
 

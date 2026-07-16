@@ -322,6 +322,35 @@
              </widget>
             </item>
             <item>
+             <widget class="QLabel" name="r3_iterations_label">
+              <property name="text">
+               <string>Iterations</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QSpinBox" name="r3_iterations_spin">
+              <property name="buttonSymbols">
+               <enum>QAbstractSpinBox::NoButtons</enum>
+              </property>
+              <property name="maximumWidth">
+               <number>90</number>
+              </property>
+              <property name="minimum">
+               <number>0</number>
+              </property>
+              <property name="maximum">
+               <number>100000</number>
+              </property>
+              <property name="value">
+               <number>0</number>
+              </property>
+              <property name="specialValueText">
+               <string>auto</string>
+              </property>
+             </widget>
+            </item>
+            <item>
              <spacer name="r3_optimization_spacer">
               <property name="orientation">
                <enum>Qt::Horizontal</enum>
