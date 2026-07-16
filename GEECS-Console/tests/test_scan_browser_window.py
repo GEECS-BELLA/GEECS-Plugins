@@ -12,7 +12,7 @@ import time
 import pytest
 from PySide6.QtCore import Qt
 
-from geecs_console.browser.browser_window import ScanBrowserWindow
+from geecs_console.browser.browser_window import ScanBrowserWindow, metadata_rows
 from geecs_console.services.settings import ConsoleSettings
 from fake_catalog import TEST_DAY, FakeCatalog, make_detail
 
@@ -384,6 +384,7 @@ class TestStaleDetail:
         assert window.b3_title.text() == "No scan selected"
         assert window.b6_drift_list.count() == 0
         assert window.b5_table.rowCount() == 0
+        assert window.b7_meta_table.rowCount() == 0
 
     def test_reload_clears_previous_detail(self, qtbot):
         window = _make_window(qtbot, _two_run_catalog())
@@ -428,3 +429,82 @@ class TestStaleDetail:
         window._on_detail_result((stale, None))
         assert window._detail is detail_before
         assert window.b3_copy_uid_button.isEnabled()
+
+
+def _b7_rows(window) -> dict[str, str]:
+    """Read the B7 table into a field → value dict."""
+    return {
+        window.b7_meta_table.item(row, 0).text(): window.b7_meta_table.item(
+            row, 1
+        ).text()
+        for row in range(window.b7_meta_table.rowCount())
+    }
+
+
+class TestB7Metadata:
+    """The metadata panel renders from the already-loaded RunDetail."""
+
+    def test_selecting_a_run_fills_the_metadata_table(self, qtbot):
+        catalog = FakeCatalog(
+            [
+                make_detail(
+                    2,
+                    motor="jet_x-position",
+                    num_points=5,
+                    shots_per_step=10,
+                    description="jet x alignment",
+                    scan_folder="/data/Undulator/Y2026/07-Jul/26_0712/scans/Scan002",
+                )
+            ]
+        )
+        window = _make_window(qtbot, catalog)
+        _wait_runs(qtbot, window, 1)
+        _select_run(qtbot, window, 0)
+        rows = _b7_rows(window)
+        assert rows["Scan"] == "Scan 002"
+        assert rows["uid"] == "uid-002"
+        assert rows["Experiment"] == "Undulator"
+        assert rows["Description"] == "jet x alignment"
+        assert rows["Mode"] == "1D · free_run_time_sync"
+        assert rows["Scan variable"] == "jet_x-position"
+        assert rows["Planned shots"] == "5 steps × 10 = 50"
+        assert rows["Save sets"] == "Amp4In"
+        assert (
+            rows["Scan folder"] == "/data/Undulator/Y2026/07-Jul/26_0712/scans/Scan002"
+        )
+        assert rows["Exit status"] == "success"
+        assert rows["Duration"] == "74 s"
+        assert rows["Recorded rows"] == "50"
+
+    def test_missing_stop_document_reads_no_stop_document(self, qtbot):
+        catalog = FakeCatalog([make_detail(4, exit_status=None)])
+        window = _make_window(qtbot, catalog)
+        _wait_runs(qtbot, window, 1)
+        _select_run(qtbot, window, 0)
+        rows = _b7_rows(window)
+        assert rows["Exit status"] == "no stop document"
+        assert "Duration" not in rows
+        assert "Recorded rows" not in rows
+        # Absent/empty keys are omitted, not rendered blank.
+        assert "Description" not in rows
+        assert "Scan folder" not in rows
+
+    def test_grid_metadata_rows_from_scan_axes(self):
+        # Pure-function coverage: grid runs carry scan_axes/grid_shape/
+        # num_grid_points instead of a single motor (runner metadata shape).
+        detail = make_detail(7, num_points=15, shots_per_step=2)
+        detail.start_doc.pop("motor")
+        detail.start_doc["scan_axes"] = ["jet_x-position", "jet_z-position"]
+        detail.start_doc["grid_shape"] = [5, 3]
+        detail.start_doc["num_grid_points"] = 15
+        rows = dict(metadata_rows(detail))
+        assert rows["Scan axes"] == "jet_x-position, jet_z-position"
+        assert rows["Grid"] == "5 × 3 = 15 steps"
+        assert "Scan variable" not in rows
+
+    def test_stop_reason_is_shown_when_present(self):
+        detail = make_detail(8, exit_status="abort")
+        detail.stop_doc["reason"] = "operator stop"
+        rows = dict(metadata_rows(detail))
+        assert rows["Exit status"] == "abort"
+        assert rows["Reason"] == "operator stop"

@@ -1,4 +1,4 @@
-"""Generate the annotated B1-B6 screen-map figure for the scan-browser docs.
+"""Generate the annotated B1-B7 screen-map figure for the scan-browser docs.
 
 Same technique as ``generate_screen_map.py`` (headless, reproducible):
 opens the real ScanBrowserWindow offscreen, populated from the test
@@ -36,6 +36,7 @@ REGION_COLORS = {
     4: QColor(171, 71, 188),  # plot — purple
     5: QColor(234, 67, 53),  # table — red
     6: QColor(0, 172, 193),  # drift — cyan
+    7: QColor(255, 112, 67),  # scan metadata — orange
 }
 
 

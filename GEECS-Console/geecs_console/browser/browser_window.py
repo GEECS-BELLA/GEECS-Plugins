@@ -1,8 +1,9 @@
-"""The GEECS Scan Browser main window — screen-map regions B1-B6.
+"""The GEECS Scan Browser main window — screen-map regions B1-B7.
 
 A quick-look Tiled client: pick a day (B1), pick a scan (B2), see what
 happened — identity strip (B3), column plot (B4), pinned+plotted table
-(B5), and the "Moved during scan" telemetry-drift rail (B6).
+(B5), the "Moved during scan" telemetry-drift rail (B6), and the
+selected run's full scan-metadata panel (B7, below B5).
 
 Architecture rules (mirroring the console package):
 
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -334,8 +336,104 @@ def _fmt_value(value: Any) -> str:
     return f"{number:.6g}"
 
 
+def _fmt_datetime(epoch: float) -> str:
+    """Format epoch seconds as local ``YYYY-MM-DD HH:MM:SS`` ("" if invalid)."""
+    if not epoch or not math.isfinite(epoch):
+        return ""
+    try:
+        return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
+    except (OverflowError, OSError, ValueError):
+        return ""
+
+
+def metadata_rows(detail: RunDetail) -> list[tuple[str, str]]:
+    """Compose the B7 field/value rows from a loaded run's metadata.
+
+    Pure — reads only the already-loaded :class:`RunDetail` (summary +
+    start/stop documents), never the catalog.  Rows whose source key is
+    absent or empty are omitted, so legacy or aborted runs render a
+    shorter list rather than blank cells.
+
+    Parameters
+    ----------
+    detail : RunDetail
+        The selected run.
+
+    Returns
+    -------
+    list of (str, str)
+        Ordered ``(field, value)`` pairs for the B7 table.
+    """
+    summary = detail.summary
+    start = detail.start_doc
+    stop = detail.stop_doc
+    rows: list[tuple[str, str]] = []
+
+    if summary.scan_number is not None:
+        rows.append(("Scan", f"Scan {summary.scan_number:03d}"))
+    rows.append(("uid", summary.uid))
+    if summary.experiment:
+        rows.append(("Experiment", summary.experiment))
+    if summary.description:
+        rows.append(("Description", summary.description))
+    acquisition = str(start.get("acquisition_mode") or "")
+    rows.append(
+        ("Mode", f"{summary.mode} · {acquisition}" if acquisition else summary.mode)
+    )
+    plan = str(start.get("plan_name") or "")
+    if plan:
+        rows.append(("Plan", plan))
+
+    axes = start.get("scan_axes") or []
+    if axes:
+        rows.append(("Scan axes", ", ".join(str(a) for a in axes)))
+        shape = start.get("grid_shape") or []
+        points = start.get("num_grid_points")
+        if shape and points:
+            shape_text = " × ".join(str(s) for s in shape)
+            rows.append(("Grid", f"{shape_text} = {points} steps"))
+    elif start.get("motor"):
+        rows.append(("Scan variable", str(start["motor"])))
+
+    num_points = start.get("num_points")
+    shots_per_step = start.get("shots_per_step")
+    if num_points and shots_per_step:
+        rows.append(
+            (
+                "Planned shots",
+                f"{num_points} steps × {shots_per_step} = {summary.shots}",
+            )
+        )
+    if summary.save_sets:
+        rows.append(("Save sets", ", ".join(summary.save_sets)))
+    reference = str(start.get("reference_device") or "")
+    if reference:
+        rows.append(("Reference device", reference))
+    folder = str(start.get("scan_folder") or "")
+    if folder:
+        rows.append(("Scan folder", folder))
+
+    started = _fmt_datetime(float(start.get("time") or 0.0))
+    if started:
+        rows.append(("Started", started))
+    if stop:
+        if stop.get("time") and start.get("time"):
+            rows.append(("Duration", f"{stop['time'] - start['time']:.0f} s"))
+        rows.append(("Exit status", str(stop.get("exit_status") or "unknown")))
+        reason = str(stop.get("reason") or "")
+        if reason:
+            rows.append(("Reason", reason))
+        events = stop.get("num_events")
+        primary = events.get("primary") if isinstance(events, dict) else None
+        if primary is not None:
+            rows.append(("Recorded rows", str(primary)))
+    else:
+        rows.append(("Exit status", "no stop document"))
+    return rows
+
+
 class ScanBrowserWindow(QMainWindow):
-    """The scan-browser main window (screen-map regions B1-B6).
+    """The scan-browser main window (screen-map regions B1-B7).
 
     Parameters
     ----------
@@ -417,7 +515,7 @@ class ScanBrowserWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self, initial_day: date) -> None:
-        """Assemble regions B1-B6 (code-built; object names ``b1_``-``b6_``)."""
+        """Assemble regions B1-B7 (code-built; object names ``b1_``-``b7_``)."""
         root = QWidget(self)
         root.setObjectName("b_root")
         outer = QVBoxLayout(root)
@@ -504,7 +602,7 @@ class ScanBrowserWindow(QMainWindow):
         return rail
 
     def _build_main_column(self) -> QWidget:
-        """Build the center column: B3 identity, B4 plot, B5 table."""
+        """Build the center column: B3 identity, B4 plot, B5 table, B7 metadata."""
         column = QWidget(self)
         layout = QVBoxLayout(column)
         layout.setContentsMargins(6, 0, 6, 0)
@@ -514,8 +612,10 @@ class ScanBrowserWindow(QMainWindow):
         split = QSplitter(Qt.Orientation.Vertical, column)
         split.addWidget(self._build_b4())
         split.addWidget(self._build_b5())
+        split.addWidget(self._build_b7())
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
+        split.setStretchFactor(2, 2)
         layout.addWidget(split, 1)
         return column
 
@@ -636,6 +736,31 @@ class ScanBrowserWindow(QMainWindow):
         layout.addLayout(footer)
         return region
 
+    def _build_b7(self) -> QWidget:
+        """Build the B7 metadata region: the selected run's full scan info."""
+        region = QWidget(self)
+        layout = QVBoxLayout(region)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        title = QLabel("Scan metadata", region)
+        title.setObjectName("b7_title")
+        layout.addWidget(title)
+
+        self.b7_meta_table = QTableWidget(region)
+        self.b7_meta_table.setObjectName("b7_meta_table")
+        self.b7_meta_table.setColumnCount(2)
+        self.b7_meta_table.horizontalHeader().setVisible(False)
+        self.b7_meta_table.verticalHeader().setVisible(False)
+        self.b7_meta_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.b7_meta_table.setShowGrid(False)
+        self.b7_meta_table.setWordWrap(False)
+        header = self.b7_meta_table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        layout.addWidget(self.b7_meta_table, 1)
+        return region
+
     def _build_b6(self) -> QWidget:
         """Build the B6 rail: the "Moved during scan" telemetry-drift list."""
         rail = QWidget(self)
@@ -718,7 +843,7 @@ class ScanBrowserWindow(QMainWindow):
         self.reload_runs()
 
     def _clear_detail(self) -> None:
-        """Drop the loaded run from B3-B6 and invalidate in-flight loads.
+        """Drop the loaded run from B3-B7 and invalidate in-flight loads.
 
         Called when the run list is about to change (reload), when the
         selection empties, and on list/load errors.  A stale detail must
@@ -735,6 +860,7 @@ class ScanBrowserWindow(QMainWindow):
         self._clear_series()
         self.b6_drift_list.clear()
         self.b6_summary.setText("")
+        self.b7_meta_table.setRowCount(0)
         self._refresh_table()
 
     def reload_runs(self) -> None:
@@ -833,7 +959,7 @@ class ScanBrowserWindow(QMainWindow):
 
     @Slot(object)
     def _on_detail_result(self, outcome: object) -> None:
-        """Populate B3-B6 from a loaded run (GUI thread, queued)."""
+        """Populate B3-B7 from a loaded run (GUI thread, queued)."""
         result, error = outcome  # type: ignore[misc]
         if error is not None:
             # Worker-level failure (payload never built) — no generation to
@@ -853,6 +979,7 @@ class ScanBrowserWindow(QMainWindow):
         self._populate_b3(detail)
         self._populate_b4_pickers(detail)
         self._populate_b6(detail)
+        self._populate_b7(detail)
         self._refresh_table()
         self.statusBar().showMessage("")
 
@@ -881,6 +1008,14 @@ class ScanBrowserWindow(QMainWindow):
         self.b3_pills.setText("   |   ".join(pills))
         self.b3_copy_uid_button.setEnabled(True)
         self.b3_open_folder_button.setEnabled(True)
+
+    def _populate_b7(self, detail: RunDetail) -> None:
+        """Fill the B7 metadata table from the loaded run's documents."""
+        rows = metadata_rows(detail)
+        self.b7_meta_table.setRowCount(len(rows))
+        for index, (field, value) in enumerate(rows):
+            self.b7_meta_table.setItem(index, 0, QTableWidgetItem(field))
+            self.b7_meta_table.setItem(index, 1, QTableWidgetItem(value))
 
     def _on_copy_uid(self) -> None:
         """Copy the selected run's full uid to the clipboard."""
