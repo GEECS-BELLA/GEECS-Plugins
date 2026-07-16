@@ -15,7 +15,7 @@ semantic.
   catalog moved to the new `app/tooltips.py` — the catalog is now pure
   attribute-name → text data (`OPERATOR_TOOLTIPS`), applied by
   `apply_operator_tooltips(window)`, raising loudly on a missing widget.
-  `main_window.py`: 2,390 → 2,125 lines.
+  `main_window.py`: 2,390 → 2,124 lines.
 
 ## [0.15.0] - 2026-07-16
 
