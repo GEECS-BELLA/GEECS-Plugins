@@ -3,6 +3,15 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.13.4] - 2026-07-15
+
+### Changed
+
+- `deploy/README.md`: install checklist gains **Step 0 — persistent NAS
+  mount** (pointer to the DEPLOYMENT.md host-reboots runbook, with the
+  spring-test), so a new gateway host is never stood up with a hand
+  mount that dies at the first reboot.
+
 ## [0.13.3] - 2026-07-15
 
 ### Changed
