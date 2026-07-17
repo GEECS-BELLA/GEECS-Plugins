@@ -98,7 +98,9 @@ def _make_running_scanner(session, request, resolver, *, scanning=True):
     )
     scanner._pauses = pauses
     # Force is_scanning_active without a real thread.
-    scanner._scan_thread = SimpleNamespace(is_alive=lambda: scanning)
+    scanner._scan_thread = SimpleNamespace(
+        is_alive=lambda: scanning, join=lambda timeout=None: None
+    )
     return scanner
 
 
@@ -171,3 +173,34 @@ def test_single_action_per_pause_window() -> None:
     scanner.request_action_during_scan("jet_on")
     with pytest.raises(RuntimeError, match="already awaiting"):
         scanner.request_action_during_scan("jet_on")
+
+
+_TOUCHES_DG_LOWER = ActionPlan.model_validate(
+    {"steps": [{"do": "set", "device": "u_dg645", "variable": "Amp", "value": 9}]}
+)
+
+
+def test_case_mismatched_shot_control_device_still_refused() -> None:
+    """Decision 11 is case-insensitive (GEECS configs disagree on case)."""
+    resolver = _FakeResolver({"bad": _TOUCHES_DG_LOWER}, profiles={"HTU": _PROFILE})
+    request = _request(trigger_profile="HTU")  # profile writes 'U_DG645'
+    scanner = _make_running_scanner(_FakeSession(resolver), request, resolver)
+    with pytest.raises(GeecsConfigurationError, match="shot-control"):
+        scanner.request_action_during_scan("bad")  # 'u_dg645' vs 'U_DG645'
+
+
+def test_stop_during_pause_does_not_abort_the_re_itself() -> None:
+    """#552: while paused, stop_scanning_thread lets the supervisor own the
+    abort — a second RE.abort() here would truncate the finalize cleanup."""
+    aborts: list = []
+    resolver = _FakeResolver({"jet_on": _JET_ON})
+    scanner = _make_running_scanner(_FakeSession(resolver), _request(), resolver)
+    scanner._RE = SimpleNamespace(
+        state="paused",
+        request_pause=lambda defer=True: None,
+        abort=lambda reason=None: aborts.append(reason),
+    )
+    scanner._set_state = lambda *a, **k: None  # skip event plumbing
+    scanner.stop_scanning_thread()
+    assert scanner._abort_requested is True  # flag set (wakes the park loop)
+    assert aborts == []  # but the RE was NOT aborted from here (supervisor owns it)

@@ -49,8 +49,8 @@ from typing import Any, Callable
 from geecs_bluesky.events import ActionDecisionRequest
 from geecs_bluesky.plans.action_direct import (
     ActionExecutionAborted,
-    _set_in_loop,
     execute_action_steps_directly,
+    set_signal_in_loop,
 )
 
 logger = logging.getLogger(__name__)
@@ -302,7 +302,7 @@ class PauseSupervisor:
         writes = controller.state_setters(state)
         for setter, value in writes:
             future = asyncio.run_coroutine_threadsafe(
-                _set_in_loop(setter, value), session.RE.loop
+                set_signal_in_loop(setter, value), session.RE.loop
             )
             try:
                 future.result(timeout=_STATE_WRITE_TIMEOUT_S)

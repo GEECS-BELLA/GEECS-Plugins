@@ -620,6 +620,11 @@ class GeecsSession:
         while True:
             verdict = pause_supervisor.on_pause(self)
             if verdict == "abort":
+                # The pause supervisor is the *sole* abort owner while
+                # paused (stop_scanning_thread deliberately skips its own
+                # RE.abort() when the RE is paused — #552 review): abort
+                # here, from the RE's own thread context, so the finalize
+                # chain runs to completion exactly once.
                 logger.info("pause window verdict: abort — stopping the scan")
                 self.RE.abort()
                 return "aborted"

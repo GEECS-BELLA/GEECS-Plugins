@@ -385,9 +385,16 @@ class BlueskyScanner:
         self._abort_requested = True
         self._set_state("STOPPING")
         try:
-            # Idle engine: skip — the init-stage stop is covered by the
-            # should_abort checkpoints + the session's stop gate (above).
-            if self._RE.state != "idle":
+            if self._RE.state == "paused":
+                # A pause window (#552) is active: the scan thread is in
+                # the supervisor, which reads _abort_requested and issues
+                # RE.abort() from the RE's own thread context.  A second
+                # abort here would race it and cancel the cleanup task
+                # partway (finalize chain truncated).  Only set the flag.
+                pass
+            elif self._RE.state != "idle":
+                # Idle engine: skip — the init-stage stop is covered by the
+                # should_abort checkpoints + the session's stop gate (above).
                 self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
             logger.debug("RE.abort() raised (may not be running)", exc_info=True)
@@ -520,11 +527,16 @@ class BlueskyScanner:
         plan, registry = self._session._resolve_action(name, resolver)
         steps = flatten_action_steps(plan, registry=registry)
 
-        guarded = self._guarded_shot_control_devices()
+        # Case-insensitive: GEECS configs disagree on device-name case, so
+        # the guard folds both sides (same rule as merge_save_sets /
+        # merge_optimizer_device_requirements) — a case-mismatched name
+        # must not slip a shot-control write past decision 11.  CheckStep
+        # (read-only) does not perturb the trigger, so only SetStep counts.
+        guarded = {d.casefold() for d in self._guarded_shot_control_devices()}
         touched = {
             step.device
             for step, _ in steps
-            if isinstance(step, (SetStep, CheckStep)) and step.device in guarded
+            if isinstance(step, SetStep) and step.device.casefold() in guarded
         }
         if touched:
             raise GeecsConfigurationError(
