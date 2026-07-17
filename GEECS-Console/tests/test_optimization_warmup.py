@@ -1,10 +1,12 @@
 """The startup warm-up: pre-importing the optimization stack off-thread.
 
 Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
-installed in the test environment: the no-op path is exercised against the
-real ``find_spec`` probe, the warm path against fake ``geecs_scanner``
-modules planted in ``sys.modules``, and the never-blocks pin against an
-import stub gated on an event.  The double-work guard (a submission
+installed in CI, where the no-op path is exercised against the real
+``find_spec`` probe; on dev machines that installed the extra, that
+real-probe test skips (the environment, not the code, decides its
+premise).  The warm path runs against fake ``geecs_scanner`` modules
+planted in ``sys.modules``, and the never-blocks pin against an import
+stub gated on an event.  The double-work guard (a submission
 arriving mid-warm-up) is deliberately not machinery — Python's per-module
 import locks already serialize concurrent imports — so there is nothing to
 test beyond the loader tests in ``test_optimization_loader.py``.
@@ -18,8 +20,13 @@ import sys
 import threading
 import types
 
+import pytest
+
 from geecs_console.services import optimization as optimization_module
-from geecs_console.services.optimization import warm_up_optimization_stack
+from geecs_console.services.optimization import (
+    optimization_available,
+    warm_up_optimization_stack,
+)
 
 _JOIN_TIMEOUT_S = 5.0
 
@@ -34,6 +41,14 @@ def _plant_fake_stack(monkeypatch) -> None:
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
 
 
+@pytest.mark.skipif(
+    # optimization_available() is the probe under test itself — agreement
+    # by construction, and (unlike a bare dotted find_spec) it guards the
+    # ModuleNotFoundError that an absent parent package raises.
+    optimization_available(),
+    reason="the optimization extra IS installed here — the test's premise "
+    "(extra absent, as in CI) does not hold",
+)
 def test_warm_up_no_ops_without_the_extra(caplog) -> None:
     """Extra absent (real find_spec probe): no thread, nothing logged loudly."""
     with caplog.at_level(logging.INFO, logger=optimization_module.__name__):

@@ -1,10 +1,11 @@
 """The optimization_loader seam: spec→config mapping, gating, and injection.
 
 Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
-installed in the test environment: the mapping tests are pure, the loader
-construction test injects fake ``geecs_scanner`` modules into
-``sys.modules``, and the availability gate is monkeypatched.  The
-round-trip test pins :func:`optimizer_config_from_spec` as the exact
+installed in CI; on dev machines that installed it, the real-probe test
+skips (the environment, not the code, decides its premise).  The mapping
+tests are pure, the loader construction test injects fake
+``geecs_scanner`` modules into ``sys.modules``, and the availability gate
+is monkeypatched.  The round-trip test pins :func:`optimizer_config_from_spec` as the exact
 inverse of ``geecs_schemas.convert.convert_optimizer_config``.
 """
 
@@ -98,9 +99,20 @@ def test_mapping_is_the_exact_inverse_of_the_legacy_converter() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    # optimization_available() is the probe under test itself — agreement
+    # by construction, and (unlike a bare dotted find_spec) it guards the
+    # ModuleNotFoundError that an absent parent package raises.
+    optimization_available(),
+    reason="the optimization extra IS installed here — the test's premise "
+    "(extra absent, as in CI) does not hold; the available path is covered "
+    "by the monkeypatched tests below",
+)
 def test_optimization_unavailable_without_the_extra() -> None:
-    # The console test environment deliberately does not install the
-    # `optimization` extra, so the real probe reports unavailable.
+    # CI deliberately does not install the `optimization` extra, so the
+    # real probe reports unavailable.  Skipped (not failed) on dev
+    # machines that installed the extra — the environment, not the code,
+    # decides this test's premise.
     assert optimization_available() is False
     assert make_optimization_loader() is None
 

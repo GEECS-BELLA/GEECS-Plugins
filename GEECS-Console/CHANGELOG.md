@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.17.1] - 2026-07-16
+
+### Fixed
+
+- The two `*_without_the_extra` optimization tests now **skip** (with the
+  reason) instead of failing on dev machines where the `optimization`
+  extra is installed — the environment, not the code, decides those
+  tests' premise; CI (extra absent) runs them as before.  They had
+  false-failed every local `check.sh` run on extra-installed setups.
+
 ## [0.17.0] - 2026-07-16
 
 ### Added
