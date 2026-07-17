@@ -744,6 +744,16 @@
            </spacer>
           </item>
           <item>
+           <widget class="QPushButton" name="r5_pause_button">
+            <property name="text">
+             <string>❚❚ Pause</string>
+            </property>
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
            <widget class="QPushButton" name="r5_stop_button">
             <property name="text">
              <string>■ Stop</string>

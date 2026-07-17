@@ -77,6 +77,8 @@ class FakeSubmitter:
         self.requests = []
         self.started = 0
         self.stopped = 0
+        self.pauses = 0
+        self.resumes = 0
 
     def reinitialize(self, request):
         self.requests.append(request)
@@ -92,6 +94,12 @@ class FakeSubmitter:
 
     def is_scanning_active(self):
         return self.active
+
+    def request_pause(self):
+        self.pauses += 1
+
+    def request_resume(self):
+        self.resumes += 1
 
 
 class FakeHealth:
@@ -738,6 +746,59 @@ class TestSubmission:
         window._on_stop_clicked()
         assert window._submitter.stopped == 0
         assert not window._stop_in_flight
+
+    def test_pause_button_disabled_when_not_scanning(self, window):
+        assert not window.pause_button.isEnabled()
+
+    def test_pause_button_enabled_while_running_reads_pause(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="running"))
+        assert window.pause_button.isEnabled()
+        assert "Pause" in window.pause_button.text()
+
+    def test_pause_click_requests_pause_then_button_becomes_resume(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="running"))
+        window.pause_button.click()
+        assert window._submitter.pauses == 1
+        # The engine confirms with PAUSED; the button flips to Resume.
+        window.events.handle(ScanLifecycleEvent(state="paused"))
+        assert "Resume" in window.pause_button.text()
+        assert window.pause_button.isEnabled()
+
+    def test_resume_click_calls_request_resume(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="paused"))
+        window.pause_button.click()
+        assert window._submitter.resumes == 1
+        assert window._submitter.pauses == 0  # resume, not a second pause
+
+    def test_pause_button_disabled_during_pausing_transition(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="pausing"))
+        assert not window.pause_button.isEnabled()  # transitional
+
+    def test_terminal_state_disables_the_pause_button(self, window):
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="paused"))
+        window.events.handle(ScanLifecycleEvent(state="aborted"))
+        assert not window.pause_button.isEnabled()
+        assert "Pause" in window.pause_button.text()
 
     def test_form_round_trips_into_build_scan_request(self, window):
         select_save_set(window, "Amp4In")

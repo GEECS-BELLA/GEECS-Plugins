@@ -4,6 +4,21 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.17.0] - 2026-07-16
+
+### Added
+
+- **Pause / Resume button on the submit row (R5)** — the standalone
+  operator pause (GeecsBluesky 0.45.0).  While a scan is RUNNING the
+  button reads "Pause" and calls the engine's `request_pause` (pause at
+  the next safe point; the machine goes quiescent — jet off in free-run);
+  while PAUSED it becomes "▶ Resume" and calls `request_resume`; Stop still
+  aborts out of the pause.  Non-modal by design — the device panels and
+  everything else stay usable while the scan holds.  Disabled during the
+  transitional PAUSING/STOPPING states and when idle/terminal.  New
+  `Submitter` members `request_pause` / `request_resume`; the `r5_pause_button`
+  widget added to `main_window.ui`.  Pinned by `tests/test_main_window.py`.
+
 ## [0.16.0] - 2026-07-16
 
 ### Added

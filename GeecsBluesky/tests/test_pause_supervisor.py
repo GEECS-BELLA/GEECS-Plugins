@@ -243,3 +243,70 @@ def test_set_pending_is_single_slot() -> None:
     taken = sup.take_unconsumed_pending()
     assert taken.name == "a"
     assert sup.take_unconsumed_pending() is None
+
+
+class TestManualPause:
+    """The bare operator Pause button: park until Resume or Stop, no action."""
+
+    def test_manual_pause_parks_until_resume_then_restores(self, loop) -> None:
+        states: list = []
+        controller = _FakeController(states, last_state="SCAN")
+        sup = PauseSupervisor(
+            acquisition="free_run", shot_controller=lambda: controller
+        )
+        sup.arm_manual_pause()
+        # Resume from another thread shortly after on_pause parks.
+        import threading as _t
+
+        _t.Timer(0.15, sup.request_resume).start()
+        assert sup.on_pause(_FakeSession(loop)) == "resume"
+        # OFF driven on pause, SCAN re-asserted on resume — no action ran.
+        assert states == [("U_DG645:Amp", "0.0"), ("U_DG645:Amp", "4.0")]
+
+    def test_manual_pause_strict_drives_nothing(self, loop) -> None:
+        states: list = []
+        sup = PauseSupervisor(
+            acquisition="strict",
+            shot_controller=lambda: _FakeController(states, last_state="ARMED"),
+        )
+        sup.arm_manual_pause()
+        import threading as _t
+
+        _t.Timer(0.1, sup.request_resume).start()
+        assert sup.on_pause(_FakeSession(loop)) == "resume"
+        assert states == []
+
+    def test_manual_pause_abort_via_stop_probe_skips_restore(self, loop) -> None:
+        states: list = []
+        controller = _FakeController(states, last_state="SCAN")
+        stopping = {"v": False}
+        sup = PauseSupervisor(
+            acquisition="free_run",
+            shot_controller=lambda: controller,
+            should_abort=lambda: stopping["v"],
+        )
+        sup.arm_manual_pause()
+        import threading as _t
+
+        _t.Timer(0.1, lambda: stopping.update(v=True)).start()
+        assert sup.on_pause(_FakeSession(loop)) == "abort"
+        assert states == [("U_DG645:Amp", "0.0")]  # OFF only; no restore
+
+
+def test_manual_pause_with_staged_action_runs_the_action_and_cleans_up(loop):
+    """Manual pause + a staged action (raced): the action wins, is decided,
+    and its factory is cleaned up exactly once (no leak)."""
+    cleaned: list = []
+    states: list = []
+    steps: list = []
+    controller = _FakeController(states, last_state="SCAN")
+    sup = PauseSupervisor(
+        acquisition="free_run",
+        shot_controller=lambda: controller,
+        ask=_answering("execute"),
+    )
+    sup.set_pending(_pending(journal=steps, cleanup=lambda: cleaned.append(True)))
+    sup.arm_manual_pause()  # both armed — action must win, not be dropped
+    assert sup.on_pause(_FakeSession(loop)) == "resume"
+    assert steps == [("U_Valve:V", 1)]  # the action ran
+    assert cleaned == [True]  # factory cleaned exactly once (the leak fix)

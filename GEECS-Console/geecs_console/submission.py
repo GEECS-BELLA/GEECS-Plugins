@@ -60,6 +60,19 @@ class Submitter(Protocol):
         """
         ...
 
+    def request_pause(self) -> None:
+        """Pause the running scan at its next safe point (operator Pause).
+
+        No action involved: the machine goes to its quiescent state and the
+        scan holds (non-modally) until :meth:`request_resume` or a stop.
+        Returns promptly; the PAUSED lifecycle state is announced back.
+        """
+        ...
+
+    def request_resume(self) -> None:
+        """Resume a scan paused by :meth:`request_pause` (operator Resume)."""
+        ...
+
     def request_action_during_scan(self, name: str) -> None:
         """Request action plan *name* to run in the scan's pause window.
 
