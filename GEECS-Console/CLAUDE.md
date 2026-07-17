@@ -45,6 +45,14 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   When idle (startup / experiment change) the label shows
   "Scan NNN (previous)" from a **strictly read-only** peek at today's
   daily `scans/` folder (see Implemented seams), or "No scans today".
+  **The log tail is NOT the Python log**: it is a narration of the
+  `ScanEvent` stream built in `events_adapter.handle` — per-shot lines
+  are event *documents* (emitted at end-of-shot, delivered queued, lagged
+  over VPN), while the terminal/file log's lines fire synchronously at
+  the point of action.  The two are independent stories with different
+  timing and granularity; they will drift, and shot counts must never be
+  reconciled across them (live-investigated 2026-07-16 — a "pause shows
+  extra steps" report was mostly this drift).
 - **R7 device panel** — device:variable combo (editable, with
   `device:variable` dropdown completions from `GeecsDbCompletions` — see
   Implemented seams), readback label, set field + button.  **Backend

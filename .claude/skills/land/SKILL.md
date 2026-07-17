@@ -125,7 +125,11 @@ Disposition, in a PR comment before merge: each finding is either
 **fixed** (commit referenced) or **waived** with a one-line reason.
 A fix must go back to the **same reviewer** (continue the subagent)
 for a confirm/deny before it is dispositioned as fixed — otherwise the
-author is back to assessing their own work. Waivers are cheap-to-veto
+author is back to assessing their own work.  If that reviewer becomes
+unreachable (repeated API errors after backoff — long transcripts make
+resumes heavy), a **fresh-context verifier** given only the finding text
+and the fix commit preserves the independence; note the substitution in
+the disposition. Waivers are cheap-to-veto
 flags for the owner, same as judgment-call additions. If a finding
 invalidates the approach, stop and surface it instead of merging.
 

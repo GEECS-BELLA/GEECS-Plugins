@@ -10,6 +10,7 @@ inverse of ``geecs_schemas.convert.convert_optimizer_config``.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import types
 
@@ -98,9 +99,17 @@ def test_mapping_is_the_exact_inverse_of_the_legacy_converter() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("geecs_scanner") is not None,
+    reason="the optimization extra IS installed here — the test's premise "
+    "(extra absent, as in CI) does not hold; the available path is covered "
+    "by the monkeypatched tests below",
+)
 def test_optimization_unavailable_without_the_extra() -> None:
-    # The console test environment deliberately does not install the
-    # `optimization` extra, so the real probe reports unavailable.
+    # CI deliberately does not install the `optimization` extra, so the
+    # real probe reports unavailable.  Skipped (not failed) on dev
+    # machines that installed the extra — the environment, not the code,
+    # decides this test's premise.
     assert optimization_available() is False
     assert make_optimization_loader() is None
 

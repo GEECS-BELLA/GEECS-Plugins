@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import importlib
 import logging
+
+import pytest
 import sys
 import threading
 import types
@@ -34,6 +36,11 @@ def _plant_fake_stack(monkeypatch) -> None:
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("geecs_scanner") is not None,
+    reason="the optimization extra IS installed here — the test's premise "
+    "(extra absent, as in CI) does not hold",
+)
 def test_warm_up_no_ops_without_the_extra(caplog) -> None:
     """Extra absent (real find_spec probe): no thread, nothing logged loudly."""
     with caplog.at_level(logging.INFO, logger=optimization_module.__name__):

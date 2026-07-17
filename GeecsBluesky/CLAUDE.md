@@ -201,9 +201,24 @@ resumes — abort skips the restore (the finalize chain owns the end state).
 A pause requested but never delivered (scan ended first) is withdrawn and
 logged, not an error (design-note contract on #552).  `PAUSING`/`PAUSED`
 are non-terminal ScanStates; `RE.record_interruptions = True` puts the
-pause window in the data record.  Acquisition mode comes from
-`ScanRequest.acquisition` — deliberately no env override, a request
-declares intent.
+pause window in the data record.  The bare operator pause
+(`request_pause`/`request_resume`, #582/#583) rides the same supervisor:
+no action staged, park non-modally until Resume/Stop, emit
+`on_state("running")` on resume so the GUI relabels (multiple pauses per
+scan).  **Expected pause latency — do not "fix" (live-investigated
+2026-07-16):** 1–2 shots complete after the pause request.  The in-flight
+shot always finishes (checkpoints deliberately never split a shot), and
+the deferred flag is set by a coroutine dispatched onto the busy RE loop
+(`request_pause` → `run_coroutine_threadsafe`), which on a loaded/VPN
+loop can land after the next shot's checkpoint has already passed — one
+more shot slips.  This is the architectural floor; getting under it means
+reintroducing the hard-pause replay trap.  The GUI's log tail can make it
+look worse: its per-shot lines are event *documents* (emitted at
+``bps.save()``, end of shot, delivered queued + over VPN), while the
+terminal log's `SINGLESHOT` lines fire at shot *start* — two independent
+streams that drift; never reconcile shot counts across them.  Acquisition
+mode comes from `ScanRequest.acquisition` — deliberately no env override,
+a request declares intent.
 
 ### Shot control — `ShotControlConfig` + named states
 
