@@ -221,25 +221,32 @@ class PauseSupervisor:
 
         outcome = "resume"
         try:
+            if pending is not None:
+                # A staged action wins even if a bare pause was *also* armed
+                # (operator raced the Pause button with an action's "Pause
+                # scan & run"): honour the action decision rather than
+                # silently drop it — its cleanup runs in the finally below
+                # regardless of which branch we took.
+                outcome = self._decide_and_execute(session, pending)
+                return outcome
             if manual_pause:
                 # Bare operator pause: hold (safe state driven above) until
                 # Resume or Stop.  Non-modal — the GUI stays usable.
                 outcome = self._park_manual_pause()
                 return outcome
-            if pending is None:
-                # Pause landed with nothing staged (e.g. the operator
-                # already withdrew it) — just resume.
-                logger.info("pause window opened with no pending action")
-                return outcome
-            try:
-                outcome = self._decide_and_execute(session, pending)
-                return outcome
-            finally:
+            # Pause landed with nothing staged (e.g. the operator already
+            # withdrew it) — just resume.
+            logger.info("pause window opened with no pending action")
+            return outcome
+        finally:
+            # Cleanup of a staged action's connected factory ALWAYS runs
+            # when one was taken — whatever branch or exception path (this
+            # is the leak the manual-pause branch used to skip).
+            if pending is not None:
                 try:
                     pending.cleanup()
                 except Exception:  # noqa: BLE001 — cleanup is best-effort
                     logger.warning("pending-action cleanup failed", exc_info=True)
-        finally:
             # The abort outcome deliberately skips the restore: RE.abort()'s
             # finalize chain (quiesce → save-off → disarm → closeout) owns
             # the end state.

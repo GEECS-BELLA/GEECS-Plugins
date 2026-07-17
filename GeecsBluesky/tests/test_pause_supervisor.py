@@ -291,3 +291,22 @@ class TestManualPause:
         _t.Timer(0.1, lambda: stopping.update(v=True)).start()
         assert sup.on_pause(_FakeSession(loop)) == "abort"
         assert states == [("U_DG645:Amp", "0.0")]  # OFF only; no restore
+
+
+def test_manual_pause_with_staged_action_runs_the_action_and_cleans_up(loop):
+    """Manual pause + a staged action (raced): the action wins, is decided,
+    and its factory is cleaned up exactly once (no leak)."""
+    cleaned: list = []
+    states: list = []
+    steps: list = []
+    controller = _FakeController(states, last_state="SCAN")
+    sup = PauseSupervisor(
+        acquisition="free_run",
+        shot_controller=lambda: controller,
+        ask=_answering("execute"),
+    )
+    sup.set_pending(_pending(journal=steps, cleanup=lambda: cleaned.append(True)))
+    sup.arm_manual_pause()  # both armed — action must win, not be dropped
+    assert sup.on_pause(_FakeSession(loop)) == "resume"
+    assert steps == [("U_Valve:V", 1)]  # the action ran
+    assert cleaned == [True]  # factory cleaned exactly once (the leak fix)

@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Operator pause (bare Pause button, #552 follow-up).**
-  `BlueskyScanner.request_pause()` / `resume_scan()` and
+  `BlueskyScanner.request_pause()` / `request_resume()` and
   `PauseSupervisor.arm_manual_pause()` / `request_resume()`: a manual
   pause with **no action** — the supervisor drives the mode-safe state
   (free-run → `OFF`, strict → nothing) and **parks non-modally** on a
@@ -114,7 +114,7 @@ without importing it — dormant because it lived under a broad `except`
 
 ### Removed
 
-- **`BlueskyScanner.pause_scan` / `request_resume`** — the old hard-pause
+- **`BlueskyScanner.pause_scan` / `resume_scan`** — the old hard-pause
   API (`request_pause(defer=False)`).  With no checkpoints it was a
   resume-replays-the-whole-scan trap; with them, a hard pause still
   replays the partial row (re-firing a physical shot in strict mode).
