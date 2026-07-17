@@ -310,6 +310,9 @@ def _normalize_scan_kwargs(kwargs: dict) -> dict:
     # supplies its abort-flag lambda, a headless run supplies nothing
     # (issue #571) — drop it from the parity comparison.
     normalized.pop("should_abort", None)
+    # The bridge injects a pause supervisor (#552) the headless path does
+    # not — a bridge-only seam like should_abort, not a scan-content field.
+    normalized.pop("pause_supervisor", None)
     return normalized
 
 

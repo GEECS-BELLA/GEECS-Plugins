@@ -61,6 +61,7 @@ __all__ = [
     "ActionExecutionAborted",
     "ActionStepTimeoutError",
     "execute_action_steps_directly",
+    "set_signal_in_loop",
 ]
 
 #: Per-step budget for a blocking ``set`` / ``check`` dispatch.  Slightly
@@ -194,7 +195,7 @@ def execute_action_steps_directly(
         if isinstance(step, SetStep):
             label = f"set {step.device}:{step.variable}"
             signal = settables.get_settable(step.device, step.variable)
-            future = _dispatch(_set_in_loop(signal, step.value), label)
+            future = _dispatch(set_signal_in_loop(signal, step.value), label)
             if step.wait_for_execution:
                 _result(future, label)
             else:
@@ -242,8 +243,14 @@ async def _await_maybe(value: Any) -> Any:
     return value
 
 
-async def _set_in_loop(signal: Any, value: Any) -> None:
-    """Call ``signal.set`` on the loop and await its status there."""
+async def set_signal_in_loop(signal: Any, value: Any) -> None:
+    """Await ``signal.set(value)`` inside the loop (the shared RE-loop put).
+
+    The one primitive for "put a value onto an ophyd-async signal from a
+    non-loop thread": an ``AsyncStatus`` must be created where the loop
+    runs.  Used by both this executor and the #552 pause supervisor's
+    direct shot-control writes.
+    """
     await _await_maybe(signal.set(value))
 
 

@@ -1164,6 +1164,7 @@ def run_scan_request(
     on_scan_start: Callable[[int, int], None] | None = None,
     operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
+    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -1311,6 +1312,7 @@ def run_scan_request(
             skipped_actions=skipped_actions,
             operator_channel=operator_channel,
             should_abort=should_abort,
+            pause_supervisor=pause_supervisor,
         )
 
     # A step/noscan request without a save set was already refused by
@@ -1461,6 +1463,7 @@ def run_scan_request(
                 per_step=per_step,
                 closeout=closeout,
                 should_abort=should_abort,
+                pause_supervisor=pause_supervisor,
             )
 
         movables: list = []
@@ -1513,6 +1516,7 @@ def run_scan_request(
             per_step=per_step,
             closeout=closeout,
             should_abort=should_abort,
+            pause_supervisor=pause_supervisor,
         )
     finally:
         if created and hasattr(session, "disconnect"):
@@ -1534,6 +1538,7 @@ def _run_optimize_request(
     skipped_actions: dict[str, list[str]] | None = None,
     operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
+    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1753,6 +1758,7 @@ def _run_optimize_request(
                     scan_number=scan_number,
                     scan_folder=scan_folder,
                     should_abort=should_abort,
+                    pause_supervisor=pause_supervisor,
                 )
             if claimed_here and getattr(session, "last_run_aborted", False):
                 # session.optimize returned the aborted outcome quietly

@@ -4,6 +4,44 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.44.0] - 2026-07-16
+
+### Added
+
+- **Pause/decide/resume during-scan action flow — engine + bridge half**
+  (issue #552, PR-3; console half is next).  A deferred pause requested by
+  `BlueskyScanner.request_action_during_scan(name)` lands at a plan
+  checkpoint (PR-1) and hands the scan thread to the new
+  `pause_supervisor.PauseSupervisor` (inside `GeecsSession.scan`/`optimize`
+  via the new `_run_supervised` helper + `pause_supervisor=` param): drive
+  the mode-specific **safe state** (free-run → `OFF` so the jet stops and
+  no orphan frames are saved; strict → nothing, `ARMED` is already
+  quiescent) with direct `ShotController.state_setters` writes, emit
+  `PAUSED`, deliver the three-way `ActionDecisionRequest`
+  (execute/ignore/abort) through the existing `ScanDialogEvent` transport,
+  run an approved action via the direct executor (PR-2) against the paused
+  RE loop, then re-assert the captured `last_state` and resume — **abort
+  skips the restore** (the plan's finalize chain owns the end state).  A
+  failed step **stays paused and re-prompts** (retry/ignore/abort, owner
+  decision 10).  Owner decision 11: an action writing to the scan's
+  shot-control device(s) is **refused** (fail-fast, before pausing).
+- **`ScanState.PAUSING` / `ScanState.PAUSED`** (non-terminal) and
+  `ActionDecisionRequest` (the three-way dialog request; `ScanDialogEvent`
+  now carries either it or the binary `DialogRequest`, duck-typed on the
+  `verdict` attribute).
+- `RE.record_interruptions = True` (owner decision 13) so a pause window
+  is part of the run's document record.
+- `ShotController.state_setters(state)` — the non-plan accessor the
+  supervisor uses to drive a state while the RE is paused (the plan-stub
+  `set_state` cannot run there).
+
+Headless callers pass no supervisor and keep today's behavior
+(`RunEngineInterrupted` propagates).  Pinned by
+`tests/test_pause_supervisor.py` (8) and `tests/test_action_during_scan.py`
+(5).  Fixed in passing: the bridge used `trigger_writes_from_profile`
+without importing it — dormant because it lived under a broad `except`
+(now a narrow `GeecsConfigurationError` catch, so a real error can't hide).
+
 ## [0.43.0] - 2026-07-16
 
 ### Added

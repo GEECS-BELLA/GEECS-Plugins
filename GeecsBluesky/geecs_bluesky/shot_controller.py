@@ -225,6 +225,27 @@ class ShotController:
             self._record_state(state)
             logger.info("Shot controller → %s", state)
 
+    def state_setters(self, state: str | ShotControlState) -> list[tuple[Any, str]]:
+        """Return the ordered ``(setter, value)`` writes for *state*.
+
+        The non-plan accessor behind the #552 pause supervisor: while the
+        RunEngine is paused, :meth:`set_state`'s plan stub cannot run, so
+        the supervisor drives these writes directly (each dispatched onto
+        the RE's loop, sequentially, preserving the profile's declared
+        order — the same semantics the plan stub yields).  Empty when the
+        state defines no writes.
+        """
+        name = state.value if isinstance(state, ShotControlState) else str(state)
+        if self._transitions is not None:
+            return list(self._transitions.get(name, []))
+        if self.config is None:
+            return []
+        return [
+            (self._setters[var], value)
+            for var, value in self.config.values_for_state(name).items()
+            if var in self._setters
+        ]
+
     def _record_state(self, state: str | ShotControlState) -> None:
         """Remember *state* as :attr:`last_state` if it is a standing state.
 

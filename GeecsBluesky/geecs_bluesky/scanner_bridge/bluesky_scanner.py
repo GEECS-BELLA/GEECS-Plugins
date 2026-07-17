@@ -58,6 +58,7 @@ from geecs_bluesky.exceptions import GeecsConfigurationError
 # Bound at module level (not via the events module) because hermetic tests
 # monkeypatch these names — the `is None` guards downstream are that seam.
 from geecs_bluesky.events import (
+    ActionDecisionRequest,
     DialogRequest,
     ScanDialogEvent,
     ScanEvent,
@@ -83,6 +84,7 @@ from geecs_bluesky.scan_request_runner import (
     ConfigResolver,
     ConfigsRepoResolver,
     run_scan_request,
+    trigger_writes_from_profile,
     validate_scan_request,
 )
 from geecs_bluesky.session import GeecsSession
@@ -184,6 +186,10 @@ class BlueskyScanner:
         # scan thread delegates the stored request to run_scan_request.
         self._scan_request: ScanRequest | None = None
         self._request_resolver: ConfigResolver | None = None
+        # The active run's pause supervisor (#552); set for the duration of
+        # a delegated run, None otherwise — request_action_during_scan
+        # refuses when it is None.
+        self._pause_supervisor: Any | None = None
 
         # Catch a stale env loudly rather than silently changing behavior.
         legacy_backend = os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND")
@@ -379,9 +385,16 @@ class BlueskyScanner:
         self._abort_requested = True
         self._set_state("STOPPING")
         try:
-            # Idle engine: skip — the init-stage stop is covered by the
-            # should_abort checkpoints + the session's stop gate (above).
-            if self._RE.state != "idle":
+            if self._RE.state == "paused":
+                # A pause window (#552) is active: the scan thread is in
+                # the supervisor, which reads _abort_requested and issues
+                # RE.abort() from the RE's own thread context.  A second
+                # abort here would race it and cancel the cleanup task
+                # partway (finalize chain truncated).  Only set the flag.
+                pass
+            elif self._RE.state != "idle":
+                # Idle engine: skip — the init-stage stop is covered by the
+                # should_abort checkpoints + the session's stop gate (above).
                 self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
             logger.debug("RE.abort() raised (may not be running)", exc_info=True)
@@ -474,6 +487,162 @@ class BlueskyScanner:
         :meth:`run_action` carries the scan-in-progress refusal.
         """
         return self._session.describe_action(name, self._action_resolver())
+
+    def request_action_during_scan(self, name: str) -> None:
+        """Request an action to run in the scan's pause window (G-actions v2).
+
+        The during-scan counterpart of :meth:`run_action` (issue #552).
+        Validated fail-fast on the calling (GUI) thread — unknown name,
+        cycle, or unreachable target raises here, before anything pauses —
+        then **refused if the action writes to the active scan's
+        shot-control device(s)** (owner decision 11: an action must not
+        perturb the trigger the scan is driving).  On success the action's
+        flattened steps + a connected signal factory are staged on the
+        pause supervisor, PAUSING is emitted, and the RunEngine is asked to
+        pause at its next checkpoint (deferred); the supervisor then runs
+        the operator's execute/ignore/abort decision on the scan thread.
+
+        Raises
+        ------
+        RuntimeError
+            No scan is active (``"no scan in progress — use run_action"``),
+            or one is already awaiting the pause window.
+        GeecsConfigurationError
+            Unknown plan, unreachable target, or an action targeting the
+            scan's shot-control device(s).
+        ActionPlanNotFoundError, ActionPlanCycleError
+            Bad nested reference / cycle.
+        """
+        from geecs_bluesky.pause_supervisor import PendingAction
+        from geecs_bluesky.plans.action_compiler import flatten_action_steps
+        from geecs_schemas.action_plan import CheckStep, SetStep
+
+        if not self.is_scanning_active():
+            raise RuntimeError("no scan in progress — use run_action")
+        supervisor = self._pause_supervisor
+        if supervisor is None:
+            raise RuntimeError("no scan in progress — use run_action")
+
+        resolver = self._action_resolver()
+        plan, registry = self._session._resolve_action(name, resolver)
+        steps = flatten_action_steps(plan, registry=registry)
+
+        # Case-insensitive: GEECS configs disagree on device-name case, so
+        # the guard folds both sides (same rule as merge_save_sets /
+        # merge_optimizer_device_requirements) — a case-mismatched name
+        # must not slip a shot-control write past decision 11.  CheckStep
+        # (read-only) does not perturb the trigger, so only SetStep counts.
+        guarded = {d.casefold() for d in self._guarded_shot_control_devices()}
+        touched = {
+            step.device
+            for step, _ in steps
+            if isinstance(step, SetStep) and step.device.casefold() in guarded
+        }
+        if touched:
+            raise GeecsConfigurationError(
+                f"action {name!r} writes to the scan's shot-control "
+                f"device(s) {sorted(touched)} — refused during a scan so it "
+                "cannot perturb the trigger (run it between scans instead)"
+            )
+
+        # Pre-connect every signal the steps touch (a lazy connect inside
+        # the paused RE loop would deadlock), exactly as run_action does.
+        factory = self._session.action_signal_factory()
+        for step, _ in steps:
+            if not isinstance(step, (SetStep, CheckStep)):
+                continue
+            try:
+                if isinstance(step, SetStep):
+                    factory.get_settable(step.device, step.variable)
+                else:
+                    factory.get_readable(step.device, step.variable)
+            except Exception as exc:
+                self._session.disconnect(factory)
+                raise GeecsConfigurationError(
+                    f"action {name!r}: cannot reach "
+                    f"{step.device}:{step.variable} — {exc}"
+                ) from exc
+
+        pending = PendingAction(
+            name=name,
+            steps=steps,
+            factory=factory,
+            cleanup=lambda: self._session.disconnect(factory),
+        )
+        if not supervisor.set_pending(pending):
+            self._session.disconnect(factory)
+            raise RuntimeError("an action is already awaiting the pause window")
+
+        logger.info("action %r requested during scan — pausing", name)
+        self._set_state("PAUSING")
+        try:
+            self._RE.request_pause(defer=True)
+        except Exception:
+            # The scan may have ended between the active-check and here —
+            # withdraw the staged action so nothing lingers.
+            supervisor.take_unconsumed_pending()
+            self._session.disconnect(factory)
+            self._set_state("RUNNING")
+            raise
+
+    def _guarded_shot_control_devices(self) -> set[str]:
+        """Device names the active scan's shot control drives (decision 11).
+
+        Derived from the stored request's trigger profile (the writes the
+        ShotController replays), so an action targeting any of them is
+        refused during the scan.  Empty when the scan has no trigger
+        profile (nothing to perturb).
+        """
+        request = self._scan_request
+        if request is None or not getattr(request, "trigger_profile", None):
+            return set()
+        resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+        try:
+            profile = resolver.resolve_trigger_profile(request.trigger_profile)
+            writes = trigger_writes_from_profile(profile, request.trigger_variant)
+        except GeecsConfigurationError:
+            # An unresolvable trigger profile is a scan-setup problem the
+            # runner already surfaced; the guard degrades to "nothing to
+            # protect" rather than masking it (narrow catch on purpose —
+            # a programming error must not be swallowed here).
+            logger.debug("could not resolve trigger devices for guard", exc_info=True)
+            return set()
+        devices: set[str] = set()
+        for ordered in writes.states.values():
+            devices.update(device for device, _var, _val in ordered)
+        return devices
+
+    def _make_pause_supervisor(self) -> Any:
+        """Build the pause supervisor for the delegated run (#552)."""
+        from geecs_bluesky.pause_supervisor import PauseSupervisor
+
+        request = self._scan_request
+        acquisition = getattr(
+            getattr(request, "acquisition", None), "value", "free_run"
+        )
+        return PauseSupervisor(
+            acquisition=acquisition,
+            shot_controller=lambda: getattr(self._session, "_shot_controller", None),
+            ask=self._ask_action_decision,
+            should_abort=lambda: self._abort_requested,
+            on_state=lambda s: self._set_state(s.upper()),
+        )
+
+    def _ask_action_decision(self, request: "ActionDecisionRequest") -> None:
+        """Deliver the three-way decision to the GUI (queued dialog event).
+
+        Emits the request inside a ``ScanDialogEvent`` (the same transport
+        as the pre-flight binary dialogs); the consumer renders the three
+        choices and answers via ``request.response_event`` / ``verdict``.
+        Headless / no-consumer installs never reach here — the supervisor's
+        ``ask`` is ``None`` there.
+        """
+        if self._on_event is None or ScanDialogEvent is None:
+            return
+        try:
+            self._on_event(ScanDialogEvent(request=request))
+        except Exception:
+            logger.debug("action-decision dialog emit raised; ignoring", exc_info=True)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -834,25 +1003,47 @@ class BlueskyScanner:
                 )
             opt_bridge = self._optimization_loader(request.optimization)
             optimization_binder = opt_bridge.bind
-        run_scan_request(
-            self._session,
-            request,
-            resolver,
-            preflight=self._delegated_preflight,
-            on_scan_start=self._on_delegated_scan_start,
-            optimization_binder=optimization_binder,
-            device_requirements=(
-                getattr(opt_bridge, "device_requirements", None)
-                if opt_bridge is not None
-                else None
-            ),
-            operator_channel=self._delegated_operator_channel(),
-            # Stop clicked during initialization: the runner consults this
-            # between init stages (all pre-claim) and the session's stop
-            # gate re-reads it at plan start — RE.abort() alone cannot
-            # reach a scan that has not entered the RunEngine (issue #571).
-            should_abort=lambda: self._abort_requested,
-        )
+        self._pause_supervisor = self._make_pause_supervisor()
+        try:
+            run_scan_request(
+                self._session,
+                request,
+                resolver,
+                preflight=self._delegated_preflight,
+                on_scan_start=self._on_delegated_scan_start,
+                optimization_binder=optimization_binder,
+                device_requirements=(
+                    getattr(opt_bridge, "device_requirements", None)
+                    if opt_bridge is not None
+                    else None
+                ),
+                operator_channel=self._delegated_operator_channel(),
+                # Stop clicked during initialization: the runner consults
+                # this between init stages (all pre-claim) and the session's
+                # stop gate re-reads it at plan start — RE.abort() alone
+                # cannot reach a scan not yet in the RunEngine (issue #571).
+                should_abort=lambda: self._abort_requested,
+                # The during-scan operator-action pause window (#552): a
+                # deferred pause at a plan checkpoint hands the scan thread
+                # to this supervisor (safe state → decide → act → restore).
+                pause_supervisor=self._pause_supervisor,
+            )
+        finally:
+            # A pause requested but never delivered (the scan ended first)
+            # is the normal end-of-plan outcome recorded on #552 — withdraw
+            # it, report it, release its factory.
+            leftover = self._pause_supervisor.take_unconsumed_pending()
+            if leftover is not None:
+                logger.info(
+                    "action %r was requested but the scan ended before the "
+                    "pause landed — it was NOT run",
+                    leftover.name,
+                )
+                try:
+                    leftover.cleanup()
+                except Exception:  # noqa: BLE001 — best-effort
+                    logger.debug("leftover-action cleanup raised", exc_info=True)
+            self._pause_supervisor = None
         if opt_bridge is not None and not getattr(
             self._session, "last_run_aborted", False
         ):

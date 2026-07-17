@@ -55,6 +55,12 @@ class ScanState(str, enum.Enum):
     INITIALIZING = "initializing"
     RUNNING = "running"
     PAUSED_ON_ERROR = "paused_on_error"
+    #: Deferred pause requested (operator action, issue #552) — the scan
+    #: finishes its in-flight row before PAUSED lands.  Non-terminal.
+    PAUSING = "pausing"
+    #: Scan paused at a checkpoint; machine driven to its safe state; the
+    #: operator is deciding (execute / ignore / abort).  Non-terminal.
+    PAUSED = "paused"
     STOPPING = "stopping"
     DONE = "done"
     ABORTED = "aborted"
@@ -108,6 +114,44 @@ class DialogRequest:
     abort_label: Optional[str] = None
     response_event: threading.Event = field(default_factory=threading.Event)
     abort: list[bool] = field(default_factory=lambda: [False])
+
+
+@dataclass
+class ActionDecisionRequest:
+    """Three-way operator decision for an action in the pause window (#552).
+
+    The pause supervisor emits this (inside a :class:`ScanDialogEvent`)
+    once the scan is PAUSED and the machine is in its safe state, then
+    blocks on ``response_event.wait()``.  The consumer renders the three
+    choices and answers by writing ``verdict[0]`` and setting
+    ``response_event``.  Consumers duck-type: a dialog request carrying a
+    ``verdict`` attribute is three-way; the binary :class:`DialogRequest`
+    keeps its Continue/Abort contract untouched.
+
+    Parameters
+    ----------
+    action_name :
+        The named ActionPlan the operator asked to run.
+    message :
+        Full operator-facing dialog body (the supervisor owns the wording —
+        scan number, shots completed, what each choice does).
+    step_count :
+        Number of concrete steps the action flattens to (shown in the
+        Execute label).
+    response_event :
+        Set by the consumer once the user has responded.
+    verdict :
+        Single-element mutable result container:
+        ``"execute"`` / ``"ignore"`` / ``"abort"``.  Defaults to
+        ``"ignore"`` — an unanswered/torn-down dialog must never execute
+        steps or kill the scan.
+    """
+
+    action_name: str
+    message: str
+    step_count: int = 0
+    response_event: threading.Event = field(default_factory=threading.Event)
+    verdict: list[str] = field(default_factory=lambda: ["ignore"])
 
 
 # ---------------------------------------------------------------------------
@@ -291,8 +335,10 @@ class ScanDialogEvent(ScanEvent):
     Parameters
     ----------
     request :
-        The :class:`DialogRequest` object shared between the worker and the
-        consumer.
+        The dialog object shared between the worker and the consumer — a
+        binary :class:`DialogRequest`, or (G-actions v2, #552) a three-way
+        :class:`ActionDecisionRequest`.  Consumers duck-type on the
+        presence of a ``verdict`` attribute to tell them apart.
     """
 
-    request: Optional[DialogRequest] = None
+    request: Optional[object] = None
