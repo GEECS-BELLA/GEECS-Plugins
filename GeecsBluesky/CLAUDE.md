@@ -212,13 +212,12 @@ the deferred flag is set by a coroutine dispatched onto the busy RE loop
 (`request_pause` → `run_coroutine_threadsafe`), which on a loaded/VPN
 loop can land after the next shot's checkpoint has already passed — one
 more shot slips.  This is the architectural floor; getting under it means
-reintroducing the hard-pause replay trap.  The GUI's log tail can make it
-look worse: its per-shot lines are event *documents* (emitted at
-``bps.save()``, end of shot, delivered queued + over VPN), while the
-terminal log's `SINGLESHOT` lines fire at shot *start* — two independent
-streams that drift; never reconcile shot counts across them.  Acquisition
-mode comes from `ScanRequest.acquisition` — deliberately no env override,
-a request declares intent.
+reintroducing the hard-pause replay trap.  (The console's log tail can
+make the latency look worse than it is — its per-shot lines and the
+terminal log are two independent streams with different timing; the
+canonical description lives in `GEECS-Console/CLAUDE.md`'s R6 bullet.)
+Acquisition mode comes from `ScanRequest.acquisition` — deliberately no
+env override, a request declares intent.
 
 ### Shot control — `ShotControlConfig` + named states
 

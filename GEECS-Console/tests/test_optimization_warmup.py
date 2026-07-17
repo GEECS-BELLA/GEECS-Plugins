@@ -1,10 +1,12 @@
 """The startup warm-up: pre-importing the optimization stack off-thread.
 
 Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
-installed in the test environment: the no-op path is exercised against the
-real ``find_spec`` probe, the warm path against fake ``geecs_scanner``
-modules planted in ``sys.modules``, and the never-blocks pin against an
-import stub gated on an event.  The double-work guard (a submission
+installed in CI, where the no-op path is exercised against the real
+``find_spec`` probe; on dev machines that installed the extra, that
+real-probe test skips (the environment, not the code, decides its
+premise).  The warm path runs against fake ``geecs_scanner`` modules
+planted in ``sys.modules``, and the never-blocks pin against an import
+stub gated on an event.  The double-work guard (a submission
 arriving mid-warm-up) is deliberately not machinery — Python's per-module
 import locks already serialize concurrent imports — so there is nothing to
 test beyond the loader tests in ``test_optimization_loader.py``.
@@ -12,13 +14,13 @@ test beyond the loader tests in ``test_optimization_loader.py``.
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
 import logging
-
-import pytest
 import sys
 import threading
 import types
+
+import pytest
 
 from geecs_console.services import optimization as optimization_module
 from geecs_console.services.optimization import warm_up_optimization_stack
@@ -37,7 +39,7 @@ def _plant_fake_stack(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("geecs_scanner") is not None,
+    importlib.util.find_spec("geecs_scanner.optimization") is not None,
     reason="the optimization extra IS installed here — the test's premise "
     "(extra absent, as in CI) does not hold",
 )

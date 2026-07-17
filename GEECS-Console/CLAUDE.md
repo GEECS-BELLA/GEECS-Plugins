@@ -45,11 +45,15 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   When idle (startup / experiment change) the label shows
   "Scan NNN (previous)" from a **strictly read-only** peek at today's
   daily `scans/` folder (see Implemented seams), or "No scans today".
-  **The log tail is NOT the Python log**: it is a narration of the
+  **The log tail is NOT the Python log** (the canonical statement of
+  this — the engine CLAUDE.md points here): it is a narration of the
   `ScanEvent` stream built in `events_adapter.handle` — per-shot lines
-  are event *documents* (emitted at end-of-shot, delivered queued, lagged
-  over VPN), while the terminal/file log's lines fire synchronously at
-  the point of action.  The two are independent stories with different
+  are event *documents*, emitted at ``bps.save()`` (end of shot, *after*
+  the per-shot CA reads that ride the VPN) and delivered queued; the
+  terminal/file log's lines fire synchronously at the point of action
+  (e.g. `SINGLESHOT` logs at shot *start*).  Same process, no network
+  between engine and GUI — the VPN latency enters upstream, in when the
+  shot's reads complete.  The two are independent stories with different
   timing and granularity; they will drift, and shot counts must never be
   reconciled across them (live-investigated 2026-07-16 — a "pause shows
   extra steps" report was mostly this drift).

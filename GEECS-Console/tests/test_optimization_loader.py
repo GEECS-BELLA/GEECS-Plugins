@@ -1,9 +1,11 @@
 """The optimization_loader seam: spec→config mapping, gating, and injection.
 
 Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
-installed in the test environment: the mapping tests are pure, the loader
-construction test injects fake ``geecs_scanner`` modules into
-``sys.modules``, and the availability gate is monkeypatched.  The
+installed in CI; on dev machines that installed it, the real-probe test
+skips (the environment, not the code, decides its premise).  The mapping
+tests are pure, the loader construction test injects fake
+``geecs_scanner`` modules into ``sys.modules``, and the availability gate
+is monkeypatched.  The
 round-trip test pins :func:`optimizer_config_from_spec` as the exact
 inverse of ``geecs_schemas.convert.convert_optimizer_config``.
 """
@@ -100,7 +102,7 @@ def test_mapping_is_the_exact_inverse_of_the_legacy_converter() -> None:
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("geecs_scanner") is not None,
+    importlib.util.find_spec("geecs_scanner.optimization") is not None,
     reason="the optimization extra IS installed here — the test's premise "
     "(extra absent, as in CI) does not hold; the available path is covered "
     "by the monkeypatched tests below",
