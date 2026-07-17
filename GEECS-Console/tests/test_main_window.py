@@ -782,6 +782,25 @@ class TestSubmission:
         assert window._submitter.resumes == 1
         assert window._submitter.pauses == 0  # resume, not a second pause
 
+    def test_button_returns_to_pause_after_resume_running_event(self, window):
+        """Multiple pauses per scan: the engine emits RUNNING on resume, so
+        the button flips back to Pause and a second Pause click works."""
+        from fake_events import ScanLifecycleEvent
+
+        select_save_set(window, "Amp4In")
+        window._on_start_clicked()
+        window.events.handle(ScanLifecycleEvent(state="running"))
+        window.pause_button.click()  # pause
+        window.events.handle(ScanLifecycleEvent(state="paused"))
+        assert "Resume" in window.pause_button.text()
+        window.pause_button.click()  # resume
+        # The engine's resume emits RUNNING; the button must flip back.
+        window.events.handle(ScanLifecycleEvent(state="running"))
+        assert "Pause" in window.pause_button.text()
+        assert window.pause_button.isEnabled()
+        window.pause_button.click()  # a SECOND pause must work
+        assert window._submitter.pauses == 2
+
     def test_pause_button_disabled_during_pausing_transition(self, window):
         from fake_events import ScanLifecycleEvent
 

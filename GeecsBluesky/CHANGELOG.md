@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.45.1] - 2026-07-16
+
+### Fixed
+
+- **Multiple pauses per scan** (operator-pause follow-up): the pause
+  supervisor now emits `on_state("running")` when a pause window ends in a
+  resume — the symmetric close of the `on_state("paused")` it emits at
+  window open.  Without it the console's state pill and Pause/Resume button
+  stayed stuck on PAUSED/"Resume" after resuming, so a second Pause click
+  hit the no-op resume path — one pause per scan.  The engine already
+  supported repeated pauses (the supervised-run loop re-enters `on_pause`
+  per deferred pause); this just lets the GUI keep up.  Covers both the
+  bare operator pause and the action-triggered pause.  Pinned by
+  `tests/test_pause_supervisor.py`.
+
 ## [0.45.0] - 2026-07-16
 
 ### Added
