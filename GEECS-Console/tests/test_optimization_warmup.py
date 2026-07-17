@@ -14,7 +14,7 @@ test beyond the loader tests in ``test_optimization_loader.py``.
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import logging
 import sys
 import threading
@@ -23,7 +23,10 @@ import types
 import pytest
 
 from geecs_console.services import optimization as optimization_module
-from geecs_console.services.optimization import warm_up_optimization_stack
+from geecs_console.services.optimization import (
+    optimization_available,
+    warm_up_optimization_stack,
+)
 
 _JOIN_TIMEOUT_S = 5.0
 
@@ -39,7 +42,10 @@ def _plant_fake_stack(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("geecs_scanner.optimization") is not None,
+    # optimization_available() is the probe under test itself — agreement
+    # by construction, and (unlike a bare dotted find_spec) it guards the
+    # ModuleNotFoundError that an absent parent package raises.
+    optimization_available(),
     reason="the optimization extra IS installed here — the test's premise "
     "(extra absent, as in CI) does not hold",
 )
