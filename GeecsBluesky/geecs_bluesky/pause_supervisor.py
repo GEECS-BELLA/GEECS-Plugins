@@ -143,6 +143,11 @@ class PauseSupervisor:
         self._pending: PendingAction | None = None
         self._lock = threading.Lock()
         self._last_failure: Exception | None = None
+        #: A bare operator pause (Pause button, no action).  Parks on
+        #: :attr:`_resume_event` until Resume or Abort — the GUI stays
+        #: usable (non-modal), unlike the action-decision modal.
+        self._manual_pause = False
+        self._resume_event = threading.Event()
 
     # ------------------------------------------------------------------
     # Bridge side (GUI thread)
@@ -171,6 +176,22 @@ class PauseSupervisor:
             pending, self._pending = self._pending, None
             return pending
 
+    def arm_manual_pause(self) -> None:
+        """Mark the next pause window as a bare operator pause (Pause button).
+
+        No action is staged: :meth:`on_pause` drives the safe state, emits
+        PAUSED, and parks until :meth:`request_resume` (Resume) or the abort
+        probe (Stop).  Idempotent — a second call before the pause lands is
+        a no-op.
+        """
+        with self._lock:
+            self._manual_pause = True
+            self._resume_event.clear()
+
+    def request_resume(self) -> None:
+        """Wake a manually-paused window so the scan resumes (Resume button)."""
+        self._resume_event.set()
+
     # ------------------------------------------------------------------
     # Scan-thread side
     # ------------------------------------------------------------------
@@ -185,6 +206,7 @@ class PauseSupervisor:
         """
         with self._lock:
             pending, self._pending = self._pending, None
+            manual_pause, self._manual_pause = self._manual_pause, False
 
         controller = self._shot_controller()
         entry_state = getattr(controller, "last_state", None)
@@ -199,6 +221,11 @@ class PauseSupervisor:
 
         outcome = "resume"
         try:
+            if manual_pause:
+                # Bare operator pause: hold (safe state driven above) until
+                # Resume or Stop.  Non-modal — the GUI stays usable.
+                outcome = self._park_manual_pause()
+                return outcome
             if pending is None:
                 # Pause landed with nothing staged (e.g. the operator
                 # already withdrew it) — just resume.
@@ -226,6 +253,20 @@ class PauseSupervisor:
     @property
     def _abort_tripped(self) -> bool:
         return self._should_abort is not None and self._should_abort()
+
+    def _park_manual_pause(self) -> str:
+        """Hold a bare operator pause until Resume or Stop.
+
+        Returns ``"resume"`` when :meth:`request_resume` fires, ``"abort"``
+        when the operator-stop probe trips.  Sliced so a Stop lands
+        promptly.
+        """
+        logger.info("scan paused by operator — awaiting resume/stop")
+        while not self._resume_event.wait(timeout=_DECISION_SLICE_S):
+            if self._abort_tripped:
+                return "abort"
+        logger.info("operator resumed the scan")
+        return "resume"
 
     def _decide_and_execute(self, session: Any, pending: PendingAction) -> str:
         attempt = 0

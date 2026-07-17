@@ -414,11 +414,12 @@ class BlueskyScanner:
             else:
                 self._scan_thread = None
 
-    # pause_scan/resume_scan were deleted (issue #552 PR-1): they issued a
-    # HARD pause (request_pause(defer=False)) whose resume replays the
-    # partial row — in strict mode refiring a physical shot — and no caller
-    # existed.  The deferred pause/decide/resume flow arrives with the #552
-    # pause supervisor; do not reintroduce a bare pause API.
+    # The old pause_scan/resume_scan were deleted (issue #552 PR-1): they
+    # issued a HARD pause (request_pause(defer=False)) whose resume replays
+    # the partial row — in strict mode refiring a physical shot.  The safe
+    # operator pause is request_pause/request_resume below (deferred pause
+    # at a checkpoint, driven through the pause supervisor); never
+    # reintroduce a bare RE.resume() API under the old names.
 
     def is_scanning_active(self) -> bool:
         """Return ``True`` if a scan thread is currently running.
@@ -487,6 +488,44 @@ class BlueskyScanner:
         :meth:`run_action` carries the scan-in-progress refusal.
         """
         return self._session.describe_action(name, self._action_resolver())
+
+    def request_pause(self) -> None:
+        """Pause the running scan at its next safe point (operator Pause).
+
+        The bare-pause counterpart of :meth:`request_action_during_scan`:
+        no action is staged.  Marks the pause supervisor for a manual
+        pause, emits ``PAUSING``, and asks the RunEngine to pause at its
+        next checkpoint (deferred).  The supervisor drives the mode-safe
+        state (free-run → ``OFF``, jet off; strict → nothing) and holds —
+        non-modal, the GUI stays usable — until :meth:`request_resume` or a
+        Stop.  A no-op (logged) when no scan is active.
+        """
+        if not self.is_scanning_active():
+            logger.info("request_pause: no active scan; nothing to pause")
+            return
+        supervisor = self._pause_supervisor
+        if supervisor is None:
+            return
+        supervisor.arm_manual_pause()
+        logger.info("operator pause requested — pausing at next checkpoint")
+        self._set_state("PAUSING")
+        try:
+            self._RE.request_pause(defer=True)
+        except Exception:
+            logger.debug("RE.request_pause() raised", exc_info=True)
+
+    def request_resume(self) -> None:
+        """Resume a scan paused by :meth:`request_pause` (operator Resume).
+
+        Signals the parked pause supervisor (on the scan thread) to resume;
+        it re-asserts the pre-pause shot-control state and the RunEngine
+        rewinds to the checkpoint and continues.  A no-op when nothing is
+        paused.
+        """
+        supervisor = self._pause_supervisor
+        if supervisor is not None:
+            supervisor.request_resume()
+            logger.info("operator resume requested")
 
     def request_action_during_scan(self, name: str) -> None:
         """Request an action to run in the scan's pause window (G-actions v2).

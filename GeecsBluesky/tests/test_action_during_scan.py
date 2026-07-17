@@ -214,3 +214,31 @@ def test_console_less_bridge_gives_supervisor_no_ask() -> None:
     scanner._on_event = None  # no consumer
     sup = scanner._make_pause_supervisor()
     assert sup._ask is None
+
+
+def test_request_pause_arms_manual_pause_and_defers() -> None:
+    """The operator Pause button: arm a manual pause + deferred RE pause."""
+    resolver = _FakeResolver({})
+    scanner = _make_running_scanner(_FakeSession(resolver), _request(), resolver)
+    scanner.request_pause()
+    assert scanner._pauses == [True]  # deferred pause requested
+    assert scanner._current_state == ScanState.PAUSING
+    assert scanner._pause_supervisor._manual_pause is True
+
+
+def test_request_resume_signals_the_supervisor() -> None:
+    resolver = _FakeResolver({})
+    scanner = _make_running_scanner(_FakeSession(resolver), _request(), resolver)
+    scanner._pause_supervisor.arm_manual_pause()
+    assert not scanner._pause_supervisor._resume_event.is_set()
+    scanner.request_resume()
+    assert scanner._pause_supervisor._resume_event.is_set()
+
+
+def test_request_pause_no_op_without_active_scan() -> None:
+    resolver = _FakeResolver({})
+    scanner = _make_running_scanner(
+        _FakeSession(resolver), _request(), resolver, scanning=False
+    )
+    scanner.request_pause()
+    assert scanner._pauses == []  # nothing paused

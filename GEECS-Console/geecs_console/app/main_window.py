@@ -417,6 +417,7 @@ class MainWindow(QMainWindow):
         # R5 submit row
         self.stop_button: QPushButton = self._child(QPushButton, "r5_stop_button")
         self.start_button: QPushButton = self._child(QPushButton, "r5_start_button")
+        self.pause_button: QPushButton = self._child(QPushButton, "r5_pause_button")
         # R6 now panel
         self.state_pill: QLabel = self._child(QLabel, "r6_state_pill")
         self.progress_bar: QProgressBar = self._child(QProgressBar, "r6_progress")
@@ -556,6 +557,7 @@ class MainWindow(QMainWindow):
         )
         self.start_button.clicked.connect(self._on_start_clicked)
         self.stop_button.clicked.connect(self._on_stop_clicked)
+        self.pause_button.clicked.connect(self._on_pause_clicked)
         self.apply_button.clicked.connect(self._on_preset_apply)
         self.save_as_button.clicked.connect(self._on_preset_save_as)
         self.delete_button.clicked.connect(self._on_preset_delete)
@@ -605,6 +607,11 @@ class MainWindow(QMainWindow):
         self._stop_worker = BackgroundResult()
         self._stop_in_flight = False
         self._stop_button_label = self.stop_button.text()
+        #: Last lifecycle state word (lowercase) — drives the Pause/Resume
+        #: button (G-actions v2 operator pause).
+        self._scan_state_text = "idle"
+        self._pause_button_label = self.pause_button.text()
+        self._refresh_pause_button()
 
         self.events.state_changed.connect(self._on_scan_state)
         self.events.totals_known.connect(self._on_totals_known)
@@ -1479,6 +1486,31 @@ class MainWindow(QMainWindow):
         # While a stop is in flight the button stays disabled ("Stopping…")
         # until the terminal lifecycle event lands (_on_scan_state).
         self.stop_button.setEnabled(scanning and not self._stop_in_flight)
+        self._refresh_pause_button()
+
+    def _refresh_pause_button(self) -> None:
+        """Set the Pause/Resume button from the current lifecycle state.
+
+        Pause while RUNNING, Resume while PAUSED; disabled otherwise
+        (transitional PAUSING/STOPPING, idle, or terminal).  The engine's
+        operator-pause holds the scan non-modally, so the GUI stays usable
+        while paused.
+        """
+        state = self._scan_state_text
+        if state == "paused":
+            self.pause_button.setText("▶ Resume")
+            self.pause_button.setEnabled(not self._stop_in_flight)
+            self.pause_button.setToolTip("Resume the paused scan.")
+        elif state == "running":
+            self.pause_button.setText(self._pause_button_label)
+            self.pause_button.setEnabled(not self._stop_in_flight)
+            self.pause_button.setToolTip(
+                "Pause the scan at its next safe point (the machine goes to "
+                "its quiescent state; Resume or Stop from here)."
+            )
+        else:
+            self.pause_button.setText(self._pause_button_label)
+            self.pause_button.setEnabled(False)
 
     def _ensure_submitter(self) -> Optional[Submitter]:
         """Return the injected submitter, or lazily build the real engine."""
@@ -1544,6 +1576,27 @@ class MainWindow(QMainWindow):
         self._stop_worker.run_async(submitter.stop_scanning_thread, "scan-stop")
         self.append_log("stop requested")
         self._refresh_submit_enabled()
+
+    def _on_pause_clicked(self) -> None:
+        """Pause the running scan, or resume it if already paused.
+
+        Both engine calls return promptly (``request_pause`` asks the
+        RunEngine to pause at its next checkpoint; ``request_resume`` signals
+        the parked pause supervisor), so they run on the GUI thread — no
+        worker.  The actual pause/resume happens on the engine's scan
+        thread and is announced back through the lifecycle stream (the
+        PAUSED/RUNNING states flip this button via
+        :meth:`_refresh_pause_button`).
+        """
+        submitter = self._submitter
+        if submitter is None or not submitter.is_scanning_active():
+            return
+        if self._scan_state_text == "paused":
+            submitter.request_resume()
+            self.append_log("resume requested")
+        else:
+            submitter.request_pause()
+            self.append_log("pause requested")
 
     # ------------------------------------------------------------------
     # R4 presets (a preset IS a saved ScanRequest)
@@ -2052,6 +2105,7 @@ class MainWindow(QMainWindow):
         (:meth:`_on_stop_clicked` set the hold).
         """
         lowered = (state or "").lower()
+        self._scan_state_text = lowered or "idle"
         if self._stop_in_flight and lowered in _TERMINAL_SCAN_STATES:
             self._stop_in_flight = False
             self.stop_button.setText(self._stop_button_label)

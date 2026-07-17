@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.45.0] - 2026-07-16
+
+### Added
+
+- **Operator pause (bare Pause button, #552 follow-up).**
+  `BlueskyScanner.request_pause()` / `resume_scan()` and
+  `PauseSupervisor.arm_manual_pause()` / `request_resume()`: a manual
+  pause with **no action** — the supervisor drives the mode-safe state
+  (free-run → `OFF`, strict → nothing) and **parks non-modally** on a
+  resume/stop signal (the GUI stays usable while paused), then re-asserts
+  the pre-pause shot-control state and resumes.  Reuses the deferred-pause
+  checkpoints + supervisor machinery from the G-actions v2 sequence; the
+  bare-pause branch is why `on_pause` no longer immediately resumes when
+  nothing is staged.  Pinned by `tests/test_pause_supervisor.py` and
+  `tests/test_action_during_scan.py`.
+
 ## [0.44.1] - 2026-07-16
 
 ### Fixed
@@ -98,7 +114,7 @@ without importing it — dormant because it lived under a broad `except`
 
 ### Removed
 
-- **`BlueskyScanner.pause_scan` / `resume_scan`** — the old hard-pause
+- **`BlueskyScanner.pause_scan` / `request_resume`** — the old hard-pause
   API (`request_pause(defer=False)`).  With no checkpoints it was a
   resume-replays-the-whole-scan trap; with them, a hard pause still
   replays the partial row (re-firing a physical shot in strict mode).
