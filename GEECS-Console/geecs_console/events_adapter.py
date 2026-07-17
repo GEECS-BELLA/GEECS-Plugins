@@ -91,9 +91,17 @@ class ScanEventsAdapter(QObject):
             # The engine's scan thread is blocked on request.response_event;
             # emit the request so the main-thread slot renders a modal and
             # answers it (queued delivery keeps the modal off this thread).
+            # Two request shapes: the binary DialogRequest (an ``exc``) and
+            # the three-way ActionDecisionRequest (a ``verdict`` list).
             request = getattr(event, "request", None)
-            exc = getattr(request, "exc", None)
-            self.log_line.emit(f"operator question: {exc}")
+            if getattr(request, "verdict", None) is not None:
+                self.log_line.emit(
+                    f"action decision: {getattr(request, 'action_name', '')}"
+                )
+            else:
+                self.log_line.emit(
+                    f"operator question: {getattr(request, 'exc', None)}"
+                )
             if request is not None:
                 self.dialog_requested.emit(request)
         else:

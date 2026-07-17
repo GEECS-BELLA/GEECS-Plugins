@@ -4,6 +4,30 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.16.0] - 2026-07-16
+
+### Added
+
+- **G-actions v2 console half** (issue #552 PR-4; #575 dialog hardening).
+  The Actions Run/Preview dialog now drives the during-scan pause flow:
+  while a scan is active the Run button reads **"Pause scan & run (N
+  steps)"** and calls the engine's `request_action_during_scan` (pause →
+  decide → run) instead of the idle `run_action`; the window pushes live
+  scan state into open dialogs so the button flips automatically.  The
+  three-way **action-decision modal** (Execute / Ignore / Abort) renders
+  from the engine's `ActionDecisionRequest` (routed through the existing
+  `ScanDialogEvent` transport, duck-typed on the `verdict` attribute) and
+  is **dismissed on a terminal ABORTED state** — a Stop during the pause
+  window aborts the scan without the engine answering, and the engine has
+  no dialog-cancel signal (the #552 PR-3 review contract).  New
+  `Submitter` protocol member `request_action_during_scan`; new
+  `ScanState.PAUSING`/`PAUSED` render amber on the R6 pill.
+- **Actions dialog misfire hardening** (issue #575): the action name in
+  larger type on its own line, **Run disabled until the dry-run preview
+  loads** (no firing beside an empty table — this also eliminates the old
+  late-preview-clobbers-run race by construction), and the **step count on
+  the Run button** ("Run (N steps)").
+
 ## [0.15.1] - 2026-07-16
 
 ### Changed

@@ -86,6 +86,8 @@ class FakeActionSubmitter:
         )
         self.run_error = run_error
         self.run_calls = []
+        self.request_calls = []
+        self.request_error = None
         self.describe_calls = []
         self.describe_started = threading.Event()
         self.describe_release = threading.Event()
@@ -116,6 +118,16 @@ class FakeActionSubmitter:
         self.run_release.wait(timeout=5)
         if self.run_error is not None:
             raise self.run_error
+
+    def request_action_during_scan(self, name):
+        self.request_calls.append(name)
+        if self.request_error is not None:
+            raise self.request_error
+
+
+def wait_previewed(dialog, qtbot):
+    """Arm the run gate: wait for the dry-run preview to load."""
+    qtbot.waitUntil(lambda: dialog._preview_loaded, timeout=3000)
 
 
 def actions_menu(window):
@@ -217,6 +229,7 @@ class TestExecuteGating:
 
     def test_run_disabled_until_armed_then_pushed_into_open_dialog(self, window, qtbot):
         dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
         assert not dialog.run_button.isEnabled()
         window.enable_actions_action.setChecked(True)
         assert dialog.run_button.isEnabled()
@@ -252,6 +265,7 @@ class TestActionDialog:
     def test_run_calls_run_action_with_the_plan_name(self, window, qtbot):
         submitter = window._submitter
         dialog = open_dialog(window, qtbot, name="vent_line")
+        wait_previewed(dialog, qtbot)
         window.enable_actions_action.setChecked(True)
         dialog.run_button.click()
         qtbot.waitUntil(lambda: submitter.run_calls == ["vent_line"], timeout=3000)
@@ -266,6 +280,7 @@ class TestActionDialog:
         submitter = FakeActionSubmitter(run_error=RuntimeError(SCAN_IN_PROGRESS))
         window._submitter = submitter
         dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
         window.enable_actions_action.setChecked(True)
         dialog.run_button.click()
         qtbot.waitUntil(
@@ -280,6 +295,7 @@ class TestActionDialog:
         submitter = window._submitter
         submitter.run_release.clear()  # hold the engine call open
         dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
         window.enable_actions_action.setChecked(True)
         dialog.run_button.click()
         qtbot.waitUntil(lambda: submitter.run_calls == ["insert_cal"], timeout=3000)
@@ -292,22 +308,19 @@ class TestActionDialog:
             timeout=3000,
         )
 
-    def test_late_preview_never_clobbers_the_run_outcome(self, window, qtbot):
-        """Preview and run land on separate lines — a slow describe arriving
-        after a run must not overwrite the run's message (a refusal that
-        vanished this way would be a silent refusal)."""
+    def test_run_stays_disabled_until_the_preview_loads(self, window, qtbot):
+        """#575 hardening: Run cannot fire beside an empty table — even armed,
+        it waits for the dry-run preview.  This also eliminates by
+        construction the old late-preview-clobbers-run race: a run can no
+        longer start before the preview has landed."""
         submitter = window._submitter
-        submitter.describe_release.clear()  # preview stays in flight
+        submitter.describe_release.clear()  # hold the preview in flight
         dialog = open_dialog(window, qtbot)
         window.enable_actions_action.setChecked(True)
-        dialog.run_button.click()
-        qtbot.waitUntil(
-            lambda: "action 'insert_cal' done" in dialog.message_label.text(),
-            timeout=3000,
-        )
-        submitter.describe_release.set()  # now the preview lands, late
-        qtbot.waitUntil(lambda: "2 steps" in dialog.preview_label.text(), timeout=3000)
-        assert "action 'insert_cal' done" in dialog.message_label.text()
+        assert not dialog.run_button.isEnabled()  # armed, but no preview yet
+        submitter.describe_release.set()  # preview lands
+        qtbot.waitUntil(lambda: dialog.run_button.isEnabled(), timeout=3000)
+        assert "2 steps" in dialog.run_button.text()  # step count on the label
 
     def test_close_during_slow_describe_returns_fast(self, window, qtbot):
         submitter = window._submitter
@@ -324,3 +337,158 @@ class TestActionDialog:
         assert dialog in window._open_action_dialogs
         assert dialog.isVisible()
         assert dialog.windowTitle() == "Action: insert_cal"
+
+
+class TestDuringScanActions:
+    """G-actions v2 console half: the pause-scan path + three-way modal."""
+
+    def test_run_button_flips_to_pause_when_scanning(self, window, qtbot):
+        dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
+        window.enable_actions_action.setChecked(True)
+        assert dialog.run_button.text().startswith("Run")
+        window._submitter.active = True
+        window._on_scan_state("running")  # window pushes state into dialogs
+        assert dialog.run_button.text().startswith("Pause scan & run")
+
+    def test_run_during_scan_uses_request_action_during_scan(self, window, qtbot):
+        submitter = window._submitter
+        submitter.active = True
+        dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
+        window._on_scan_state("running")
+        window.enable_actions_action.setChecked(True)
+        dialog.run_button.click()
+        qtbot.waitUntil(lambda: submitter.request_calls == ["insert_cal"], timeout=3000)
+        assert submitter.run_calls == []  # NOT the idle path
+        qtbot.waitUntil(
+            lambda: "decide in the pop-up" in dialog.message_label.text(), timeout=3000
+        )
+
+    def test_shot_control_refusal_during_scan_is_surfaced(self, window, qtbot):
+        submitter = window._submitter
+        submitter.active = True
+        submitter.request_error = RuntimeError("action writes the scan's shot-control")
+        dialog = open_dialog(window, qtbot)
+        wait_previewed(dialog, qtbot)
+        window._on_scan_state("running")
+        window.enable_actions_action.setChecked(True)
+        dialog.run_button.click()
+        qtbot.waitUntil(
+            lambda: "shot-control" in dialog.message_label.text(), timeout=3000
+        )
+
+
+def _decision_request():
+    class _Req:
+        action_name = "jet_on"
+        message = "Scan paused — run jet_on?"
+        step_count = 3
+
+        def __init__(self):
+            self.verdict = ["ignore"]
+            self.response_event = threading.Event()
+
+    return _Req()
+
+
+def _click_role(monkeypatch, role):
+    """Make QMessageBox.exec click the button with *role* (offscreen)."""
+    from PySide6.QtWidgets import QMessageBox
+
+    holder = {}
+
+    def fake_exec(box):
+        for b in box.buttons():
+            if role is not None and box.buttonRole(b) == role:
+                holder["clicked"] = b
+        box.done(0)
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    monkeypatch.setattr(
+        QMessageBox, "clickedButton", lambda self: holder.get("clicked")
+    )
+
+
+class TestActionDecisionModal:
+    def test_execute_verdict(self, window, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        _click_role(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
+        req = _decision_request()
+        window._on_action_decision(req)
+        assert req.verdict[0] == "execute"
+        assert req.response_event.is_set()
+
+    def test_ignore_verdict(self, window, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        _click_role(monkeypatch, QMessageBox.ButtonRole.RejectRole)
+        req = _decision_request()
+        window._on_action_decision(req)
+        assert req.verdict[0] == "ignore"
+        assert req.response_event.is_set()
+
+    def test_abort_verdict(self, window, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        _click_role(monkeypatch, QMessageBox.ButtonRole.DestructiveRole)
+        req = _decision_request()
+        window._on_action_decision(req)
+        assert req.verdict[0] == "abort"
+        assert req.response_event.is_set()
+
+    def test_terminal_state_dismisses_dangling_modal(self, window, monkeypatch):
+        """A Stop that aborts the scan out of band tears the modal down; the
+        programmatic dismiss reads as 'abort' (#552 PR-3 contract)."""
+        from PySide6.QtWidgets import QMessageBox
+
+        def fake_exec(box):
+            window._on_scan_state("aborted")  # terminal → reject the stored box
+
+        monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+        monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
+        req = _decision_request()
+        window._on_action_decision(req)
+        assert req.verdict[0] == "abort"
+        assert req.response_event.is_set()
+
+
+class TestDialogUnblockOnFailure:
+    """A render failure must never leave the engine's scan thread parked."""
+
+    def test_action_decision_render_failure_still_unblocks_engine(
+        self, window, monkeypatch
+    ):
+        from PySide6.QtWidgets import QMessageBox
+
+        def boom(self):
+            raise RuntimeError("Qt exploded mid-render")
+
+        monkeypatch.setattr(QMessageBox, "exec", boom)
+        req = _decision_request()
+        window._on_action_decision(req)  # must not raise out
+        assert req.response_event.is_set()  # engine unblocked
+        assert req.verdict[0] == "ignore"  # safe default (resume, run nothing)
+
+    def test_operator_dialog_render_failure_aborts_and_unblocks(
+        self, window, monkeypatch
+    ):
+        from PySide6.QtWidgets import QMessageBox
+
+        def boom(self):
+            raise RuntimeError("Qt exploded mid-render")
+
+        monkeypatch.setattr(QMessageBox, "exec", boom)
+
+        class _Req:
+            exc = RuntimeError("some pre-flight warning")
+
+            def __init__(self):
+                self.abort = [False]
+                self.response_event = threading.Event()
+
+        req = _Req()
+        window._on_operator_dialog(req)
+        assert req.response_event.is_set()
+        assert req.abort[0] is True  # unshowable warning → do not proceed

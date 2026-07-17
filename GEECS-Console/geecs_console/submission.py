@@ -60,6 +60,19 @@ class Submitter(Protocol):
         """
         ...
 
+    def request_action_during_scan(self, name: str) -> None:
+        """Request action plan *name* to run in the scan's pause window.
+
+        The during-scan counterpart of :meth:`run_action` (G-actions v2):
+        validates fail-fast, refuses an action that writes the scan's
+        shot-control device(s), then asks the engine to pause at its next
+        checkpoint and stage the action.  Returns promptly — the operator's
+        execute/ignore/abort decision arrives as a separate dialog event.
+        Raises with an operator-readable message on refusal (no active
+        scan, unreachable target, or a shot-control-device write).
+        """
+        ...
+
 
 def make_bluesky_submitter(
     experiment: str,
