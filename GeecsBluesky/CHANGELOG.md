@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.44.1] - 2026-07-16
+
+### Fixed
+
+- **Console-less bridge no longer parks a pause window forever** (#552):
+  `_make_pause_supervisor` passes `ask=None` when the bridge has no
+  `on_event` consumer, so the supervisor defaults to `ignore` instead of
+  waiting on a decision that can never be delivered.  Pinned by
+  `tests/test_action_during_scan.py`.
+
 ## [0.44.0] - 2026-07-16
 
 ### Added

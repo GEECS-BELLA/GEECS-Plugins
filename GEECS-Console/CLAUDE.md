@@ -269,7 +269,22 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   describe arriving late must never clobber a refusal (pinned by test).
   Both engine methods are `Submitter` protocol members
   (`submission.py`), mapped to `BlueskyScanner`'s same-named methods.
-  A pause-the-scan flow for actions (#552) is future work.  Pinned by
+  **During-scan (G-actions v2, #552, 0.16.0):** the same dialog drives the
+  pause flow — with a scan active the Run button reads "Pause scan & run
+  (N steps)" and calls the `Submitter.request_action_during_scan` member
+  (pause → decide → run) instead of idle `run_action`; the window pushes
+  live scan state into open dialogs (`set_scanning`) so the button flips.
+  The three-way **action-decision modal** (Execute / Ignore / Abort) is
+  rendered by `_on_action_decision` from an engine `ActionDecisionRequest`
+  (routed through the same `ScanDialogEvent`/`dialog_requested` transport
+  as the binary pre-flight dialog — `_on_operator_dialog` duck-types on the
+  `verdict` attribute), and is **dismissed on a terminal ABORTED state**
+  (`self._decision_box.reject()` in `_on_scan_state`): a Stop during the
+  pause window aborts without the engine answering, and the engine has no
+  dialog-cancel signal (the #552 PR-3 review contract).  **Misfire
+  hardening (#575):** name in larger type, Run gated on the preview having
+  loaded (no firing beside an empty table — kills the old
+  late-preview-clobbers-run race), step count on the Run label.  Pinned by
   `tests/test_actions_menu.py`.
 - **Optimization (R3) — end to end**: the Optimization radio shows a
   config combo listing the YAML stems of the experiment's

@@ -204,3 +204,13 @@ def test_stop_during_pause_does_not_abort_the_re_itself() -> None:
     scanner.stop_scanning_thread()
     assert scanner._abort_requested is True  # flag set (wakes the park loop)
     assert aborts == []  # but the RE was NOT aborted from here (supervisor owns it)
+
+
+def test_console_less_bridge_gives_supervisor_no_ask() -> None:
+    """A bridge with no on_event consumer hands the supervisor ask=None, so
+    a pause window defaults to 'ignore' rather than parking forever."""
+    resolver = _FakeResolver({"jet_on": _JET_ON})
+    scanner = _make_running_scanner(_FakeSession(resolver), _request(), resolver)
+    scanner._on_event = None  # no consumer
+    sup = scanner._make_pause_supervisor()
+    assert sup._ask is None

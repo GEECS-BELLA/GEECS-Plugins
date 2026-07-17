@@ -623,7 +623,12 @@ class BlueskyScanner:
         return PauseSupervisor(
             acquisition=acquisition,
             shot_controller=lambda: getattr(self._session, "_shot_controller", None),
-            ask=self._ask_action_decision,
+            # With no event consumer, _ask_action_decision emits nowhere —
+            # so hand the supervisor a None ask, which makes it default to
+            # 'ignore' rather than park forever waiting for an answer that
+            # can never arrive (a console-less bridge that still somehow
+            # reaches a pause window).
+            ask=self._ask_action_decision if self._on_event is not None else None,
             should_abort=lambda: self._abort_requested,
             on_state=lambda s: self._set_state(s.upper()),
         )
