@@ -2127,28 +2127,45 @@ class MainWindow(QMainWindow):
         if getattr(request, "verdict", None) is not None:
             self._on_action_decision(request)
             return
-        exc = getattr(request, "exc", None)
-        title = getattr(request, "title", None) or "Operator confirmation"
-        continue_label = getattr(request, "continue_label", None) or "Continue"
-        abort_label = getattr(request, "abort_label", None) or "Abort"
+        try:
+            exc = getattr(request, "exc", None)
+            title = getattr(request, "title", None) or "Operator confirmation"
+            continue_label = getattr(request, "continue_label", None) or "Continue"
+            abort_label = getattr(request, "abort_label", None) or "Abort"
 
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle(str(title))
-        box.setText(str(exc) if exc is not None else str(title))
-        continue_button = box.addButton(
-            str(continue_label), QMessageBox.ButtonRole.AcceptRole
-        )
-        box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(continue_button)
-        box.exec()
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(str(title))
+            box.setText(str(exc) if exc is not None else str(title))
+            continue_button = box.addButton(
+                str(continue_label), QMessageBox.ButtonRole.AcceptRole
+            )
+            box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(continue_button)
+            box.exec()
 
-        aborted = box.clickedButton() is not continue_button
-        abort_flag = getattr(request, "abort", None)
-        if aborted and isinstance(abort_flag, list) and abort_flag:
-            abort_flag[0] = True
-        self.append_log(f"operator: {'abort' if aborted else 'continue'}")
+            aborted = box.clickedButton() is not continue_button
+            abort_flag = getattr(request, "abort", None)
+            if aborted and isinstance(abort_flag, list) and abort_flag:
+                abort_flag[0] = True
+            self.append_log(f"operator: {'abort' if aborted else 'continue'}")
+        except Exception:  # noqa: BLE001 — must never leave the engine parked
+            logger.exception("operator dialog render failed; aborting to be safe")
+            abort_flag = getattr(request, "abort", None)
+            if isinstance(abort_flag, list) and abort_flag:
+                abort_flag[0] = True  # a warning we cannot show → do not proceed
+        finally:
+            self._unblock_engine(request)
 
+    @staticmethod
+    def _unblock_engine(request: object) -> None:
+        """Set the request's response event so the parked engine thread runs.
+
+        Called from a ``finally`` in both dialog handlers: an exception in
+        the render path must never leave the engine's scan thread blocked
+        on ``response_event`` forever (the engine has no dialog-cancel
+        signal; #552 PR-3/PR-4 contract).
+        """
         response_event = getattr(request, "response_event", None)
         if response_event is not None and hasattr(response_event, "set"):
             response_event.set()
@@ -2171,46 +2188,49 @@ class MainWindow(QMainWindow):
             ``message``, ``step_count``, a mutable one-element ``verdict``
             list, and a ``response_event``.
         """
-        name = str(getattr(request, "action_name", "action"))
-        message = str(getattr(request, "message", "")) or f"Action '{name}'"
-        steps = int(getattr(request, "step_count", 0) or 0)
-
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setWindowTitle(f"Scan paused — action '{name}'")
-        box.setText(message)
-        execute_button = box.addButton(
-            f"Execute ({steps} step{'s' if steps != 1 else ''})",
-            QMessageBox.ButtonRole.AcceptRole,
-        )
-        ignore_button = box.addButton(
-            "Ignore & resume", QMessageBox.ButtonRole.RejectRole
-        )
-        box.addButton("Abort scan", QMessageBox.ButtonRole.DestructiveRole)
-        box.setDefaultButton(ignore_button)
-
-        self._decision_box = box
         try:
-            box.exec()
+            name = str(getattr(request, "action_name", "action"))
+            message = str(getattr(request, "message", "")) or f"Action '{name}'"
+            steps = int(getattr(request, "step_count", 0) or 0)
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle(f"Scan paused — action '{name}'")
+            box.setText(message)
+            execute_button = box.addButton(
+                f"Execute ({steps} step{'s' if steps != 1 else ''})",
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            ignore_button = box.addButton(
+                "Ignore & resume", QMessageBox.ButtonRole.RejectRole
+            )
+            box.addButton("Abort scan", QMessageBox.ButtonRole.DestructiveRole)
+            box.setDefaultButton(ignore_button)
+
+            self._decision_box = box
+            try:
+                box.exec()
+            finally:
+                self._decision_box = None
+
+            clicked = box.clickedButton()
+            if clicked is execute_button:
+                verdict = "execute"
+            elif clicked is ignore_button:
+                verdict = "ignore"
+            else:
+                # Abort, or a programmatic dismiss (terminal-state reject()):
+                # a dismiss already means the scan is ending, so "abort" is
+                # the safe read either way.
+                verdict = "abort"
+
+            verdict_list = getattr(request, "verdict", None)
+            if isinstance(verdict_list, list) and verdict_list:
+                verdict_list[0] = verdict
+            self.append_log(f"action decision: {verdict}")
+        except Exception:  # noqa: BLE001 — must never leave the engine parked
+            # The request's verdict default is "ignore" (resume, run
+            # nothing) — the safe outcome when the pop-up could not render.
+            logger.exception("action-decision dialog render failed; resuming")
         finally:
-            self._decision_box = None
-
-        clicked = box.clickedButton()
-        if clicked is execute_button:
-            verdict = "execute"
-        elif clicked is ignore_button:
-            verdict = "ignore"
-        else:
-            # Abort, or a programmatic dismiss (terminal-state reject()):
-            # a dismiss already means the scan is ending, so "abort" is the
-            # safe read either way.
-            verdict = "abort"
-
-        verdict_list = getattr(request, "verdict", None)
-        if isinstance(verdict_list, list) and verdict_list:
-            verdict_list[0] = verdict
-        self.append_log(f"action decision: {verdict}")
-
-        response_event = getattr(request, "response_event", None)
-        if response_event is not None and hasattr(response_event, "set"):
-            response_event.set()
+            self._unblock_engine(request)

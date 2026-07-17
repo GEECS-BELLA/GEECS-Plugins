@@ -452,3 +452,43 @@ class TestActionDecisionModal:
         window._on_action_decision(req)
         assert req.verdict[0] == "abort"
         assert req.response_event.is_set()
+
+
+class TestDialogUnblockOnFailure:
+    """A render failure must never leave the engine's scan thread parked."""
+
+    def test_action_decision_render_failure_still_unblocks_engine(
+        self, window, monkeypatch
+    ):
+        from PySide6.QtWidgets import QMessageBox
+
+        def boom(self):
+            raise RuntimeError("Qt exploded mid-render")
+
+        monkeypatch.setattr(QMessageBox, "exec", boom)
+        req = _decision_request()
+        window._on_action_decision(req)  # must not raise out
+        assert req.response_event.is_set()  # engine unblocked
+        assert req.verdict[0] == "ignore"  # safe default (resume, run nothing)
+
+    def test_operator_dialog_render_failure_aborts_and_unblocks(
+        self, window, monkeypatch
+    ):
+        from PySide6.QtWidgets import QMessageBox
+
+        def boom(self):
+            raise RuntimeError("Qt exploded mid-render")
+
+        monkeypatch.setattr(QMessageBox, "exec", boom)
+
+        class _Req:
+            exc = RuntimeError("some pre-flight warning")
+
+            def __init__(self):
+                self.abort = [False]
+                self.response_event = threading.Event()
+
+        req = _Req()
+        window._on_operator_dialog(req)
+        assert req.response_event.is_set()
+        assert req.abort[0] is True  # unshowable warning → do not proceed

@@ -208,12 +208,18 @@ class ActionRunDialog(QDialog):
             self._execution_enabled and self._preview_loaded and not self._run_in_flight
         )
         self.run_button.setEnabled(ready)
-        # Step count on the button (issue #575): "Run 'name' (N steps)".
-        steps = f" ({self._step_count} step{'s' if self._step_count != 1 else ''})"
+        # Step count on the button (issue #575) — only once the preview has
+        # loaded, so an in-flight describe never shows a misleading "(0
+        # steps)" on either path.
+        steps = (
+            f" ({self._step_count} step{'s' if self._step_count != 1 else ''})"
+            if self._preview_loaded
+            else ""
+        )
         if self._during_scan():
             self.run_button.setText(f"Pause scan & run{steps}")
         else:
-            self.run_button.setText(f"Run{steps if self._preview_loaded else ''}")
+            self.run_button.setText(f"Run{steps}")
 
         if not self._execution_enabled:
             self.run_button.setToolTip(
