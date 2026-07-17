@@ -250,8 +250,18 @@ class PauseSupervisor:
             # The abort outcome deliberately skips the restore: RE.abort()'s
             # finalize chain (quiesce → save-off → disarm → closeout) owns
             # the end state.
-            if drove_safe_state and entry_state and outcome == "resume":
-                self._drive_state(session, controller, entry_state)
+            if outcome == "resume":
+                if drove_safe_state and entry_state:
+                    self._drive_state(session, controller, entry_state)
+                # The scan is about to resume — flip the consumer back from
+                # PAUSED to RUNNING (state pill + the console Pause button,
+                # which otherwise stays stuck on "Resume" — only one pause
+                # per scan).  ``on_state("paused")`` was emitted at window
+                # open; this is its symmetric close.  The engine already
+                # supports repeated pauses (the supervised-run loop re-enters
+                # on_pause per deferred pause); this makes the GUI keep up.
+                if self._on_state is not None:
+                    self._on_state("running")
 
     # ------------------------------------------------------------------
     # Internals

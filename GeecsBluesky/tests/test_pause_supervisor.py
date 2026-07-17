@@ -310,3 +310,33 @@ def test_manual_pause_with_staged_action_runs_the_action_and_cleans_up(loop):
     assert sup.on_pause(_FakeSession(loop)) == "resume"
     assert steps == [("U_Valve:V", 1)]  # the action ran
     assert cleaned == [True]  # factory cleaned exactly once (the leak fix)
+
+
+def test_resume_emits_running_state_so_the_gui_can_relabel(loop) -> None:
+    """On resume the supervisor emits on_state('running') — the console flips
+    the pause button back to 'Pause' (else only one pause per scan)."""
+    emitted: list = []
+    sup = PauseSupervisor(
+        acquisition="strict",
+        shot_controller=lambda: _FakeController([], last_state="ARMED"),
+        on_state=emitted.append,
+    )
+    sup.arm_manual_pause()
+    import threading as _t
+
+    _t.Timer(0.1, sup.request_resume).start()
+    assert sup.on_pause(_FakeSession(loop)) == "resume"
+    assert emitted == ["paused", "running"]  # symmetric open/close
+
+
+def test_abort_does_not_emit_running(loop) -> None:
+    emitted: list = []
+    sup = PauseSupervisor(
+        acquisition="strict",
+        shot_controller=lambda: _FakeController([], last_state="ARMED"),
+        should_abort=lambda: True,
+        on_state=emitted.append,
+    )
+    sup.arm_manual_pause()
+    assert sup.on_pause(_FakeSession(loop)) == "abort"
+    assert "running" not in emitted  # abort → ABORTED comes from the bridge
