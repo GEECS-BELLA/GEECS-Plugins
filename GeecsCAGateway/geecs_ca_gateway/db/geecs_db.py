@@ -19,8 +19,9 @@ from __future__ import annotations
 import configparser
 import logging
 import os
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from pydantic import ValidationError
 
@@ -89,6 +90,55 @@ def _connect_mysql(mysql_connector):
     pure implementation here too.
     """
     return mysql_connector.connect(**_find_credentials(), use_pure=True)
+
+
+@contextmanager
+def _cursor() -> Iterator:
+    """Yield a cursor on a fresh GEECS DB connection, closing it afterward.
+
+    The single owner of the connection lifecycle: it resolves the (optional)
+    ``mysql-connector-python`` dependency, opens a pure-Python connection via
+    :func:`_connect_mysql`, and guarantees the connection is closed on exit —
+    so every query method is just its SQL plus its result shaping.  Multi-query
+    methods (the type + instance batches) reuse one ``with _cursor()`` block to
+    keep both statements on a single connection.
+
+    Raises
+    ------
+    ImportError
+        If ``mysql-connector-python`` is not installed.
+    """
+    try:
+        import mysql.connector
+    except ImportError as exc:
+        raise ImportError(
+            "mysql-connector-python is required for DB lookups. "
+            "Install with: pip install mysql-connector-python"
+        ) from exc
+
+    conn = _connect_mysql(mysql.connector)
+    try:
+        yield conn.cursor()
+    finally:
+        conn.close()
+
+
+def _query(sql: str, params: tuple = (), *, fetch: str = "all"):
+    """Run one statement and return its rows.
+
+    Parameters
+    ----------
+    sql:
+        A single SQL statement with ``%s`` placeholders.
+    params:
+        Positional query parameters.
+    fetch:
+        ``"all"`` (default) returns ``cursor.fetchall()``; ``"one"`` returns a
+        single ``cursor.fetchone()`` row (or ``None``).
+    """
+    with _cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchone() if fetch == "one" else cur.fetchall()
 
 
 def _num(value: object) -> Optional[float]:
@@ -243,25 +293,11 @@ class GeecsDb:
         RuntimeError
             If the device is not found in the database.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups. "
-                "Install with: pip install mysql-connector-python"
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT ipaddress, commport FROM device WHERE name = %s",
-                (device_name,),
-            )
-            row = cur.fetchone()
-        finally:
-            conn.close()
-
+        row = _query(
+            "SELECT ipaddress, commport FROM device WHERE name = %s",
+            (device_name,),
+            fetch="one",
+        )
         if row is None:
             raise GeecsDeviceNotFoundError(device_name)
 
@@ -283,25 +319,11 @@ class GeecsDb:
         GeecsDeviceNotFoundError
             If the device is not found in the database.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups. "
-                "Install with: pip install mysql-connector-python"
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT devicetype FROM device WHERE name = %s",
-                (device_name,),
-            )
-            row = cur.fetchone()
-        finally:
-            conn.close()
-
+        row = _query(
+            "SELECT devicetype FROM device WHERE name = %s",
+            (device_name,),
+            fetch="one",
+        )
         if row is None:
             raise GeecsDeviceNotFoundError(device_name)
 
@@ -335,29 +357,16 @@ class GeecsDb:
             Device name → ordered list of subscribed variable names.  Devices
             with no ``get`` variables are absent.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            query = (
-                "SELECT ed.device, edv.variablename "
-                "FROM expt_device_variable edv "
-                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
-                "WHERE ed.expt = %s AND edv.get = 'yes'"
-            )
-            if enabled_only:
-                query += " AND LOWER(ed.enabled) = 'yes'"
-            query += " ORDER BY ed.device, edv.variablename"
-            cur.execute(query, (experiment,))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
+        query = (
+            "SELECT ed.device, edv.variablename "
+            "FROM expt_device_variable edv "
+            "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+            "WHERE ed.expt = %s AND edv.get = 'yes'"
+        )
+        if enabled_only:
+            query += " AND LOWER(ed.enabled) = 'yes'"
+        query += " ORDER BY ed.device, edv.variablename"
+        rows = _query(query, (experiment,))
 
         result: dict = {}
         for device, variablename in rows:
@@ -388,29 +397,16 @@ class GeecsDb:
             Device name → ordered list of variable names.  Devices with no
             rows are absent.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            query = (
-                "SELECT DISTINCT ed.device, edv.variablename "
-                "FROM expt_device_variable edv "
-                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
-                "WHERE ed.expt = %s"
-            )
-            if enabled_only:
-                query += " AND LOWER(ed.enabled) = 'yes'"
-            query += " ORDER BY ed.device, edv.variablename"
-            cur.execute(query, (experiment,))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
+        query = (
+            "SELECT DISTINCT ed.device, edv.variablename "
+            "FROM expt_device_variable edv "
+            "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+            "WHERE ed.expt = %s"
+        )
+        if enabled_only:
+            query += " AND LOWER(ed.enabled) = 'yes'"
+        query += " ORDER BY ed.device, edv.variablename"
+        rows = _query(query, (experiment,))
 
         result: dict[str, list[str]] = {}
         for device, variablename in rows:
@@ -457,29 +453,16 @@ class GeecsDb:
             dicts, one per ``set='yes'`` row.  Devices with no such rows are
             absent.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            query = (
-                "SELECT ed.device, edv.variablename, edv.startvalue, edv.endvalue "
-                "FROM expt_device_variable edv "
-                "JOIN expt_device ed ON ed.id = edv.expt_device_id "
-                "WHERE ed.expt = %s AND edv.`set` = 'yes'"
-            )
-            if enabled_only:
-                query += " AND LOWER(ed.enabled) = 'yes'"
-            query += " ORDER BY ed.device, edv.id"
-            cur.execute(query, (experiment,))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
+        query = (
+            "SELECT ed.device, edv.variablename, edv.startvalue, edv.endvalue "
+            "FROM expt_device_variable edv "
+            "JOIN expt_device ed ON ed.id = edv.expt_device_id "
+            "WHERE ed.expt = %s AND edv.`set` = 'yes'"
+        )
+        if enabled_only:
+            query += " AND LOWER(ed.enabled) = 'yes'"
+        query += " ORDER BY ed.device, edv.id"
+        rows = _query(query, (experiment,))
 
         result: dict[str, list[dict]] = {}
         for device, variablename, startvalue, endvalue in rows:
@@ -506,16 +489,7 @@ class GeecsDb:
         from ``devicetype_variable``; a per-instance row in ``variable``
         replaces its type row **wholesale** (see :func:`_merge_variable_rows`).
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
+        with _cursor() as cur:
             cur.execute(
                 "SELECT dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, dtv.`set`, "
                 "dtv.variabletype, c.choices, dtv.tolerance, NULL "
@@ -535,8 +509,6 @@ class GeecsDb:
                 (device_name,),
             )
             instance_rows = cur.fetchall()
-        finally:
-            conn.close()
 
         return _merge_variable_rows(type_rows, instance_rows)
 
@@ -557,29 +529,16 @@ class GeecsDb:
         enabled_only:
             Restrict to devices enabled in the experiment (default true).
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
-            query = (
-                "SELECT DISTINCT d.name, d.ipaddress, d.commport "
-                "FROM expt_device ed "
-                "JOIN device d ON d.name = ed.device "
-                "WHERE ed.expt = %s"
-            )
-            if enabled_only:
-                query += " AND LOWER(ed.enabled) = 'yes'"
-            query += " ORDER BY d.name"
-            cur.execute(query, (experiment,))
-            rows = cur.fetchall()
-        finally:
-            conn.close()
+        query = (
+            "SELECT DISTINCT d.name, d.ipaddress, d.commport "
+            "FROM expt_device ed "
+            "JOIN device d ON d.name = ed.device "
+            "WHERE ed.expt = %s"
+        )
+        if enabled_only:
+            query += " AND LOWER(ed.enabled) = 'yes'"
+        query += " ORDER BY d.name"
+        rows = _query(query, (experiment,))
 
         return {name: (ip.strip(), int(port)) for name, ip, port in rows}
 
@@ -603,17 +562,8 @@ class GeecsDb:
         enabled_only:
             Restrict to devices enabled in the experiment (default true).
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
         enabled = " AND LOWER(ed.enabled) = 'yes'" if enabled_only else ""
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
+        with _cursor() as cur:
             type_query = (
                 "SELECT d.name, dtv.id, dtv.name, dtv.units, dtv.min, dtv.max, "
                 "dtv.`set`, dtv.variabletype, c.choices, dtv.tolerance, NULL "
@@ -638,8 +588,6 @@ class GeecsDb:
             ).format(enabled=enabled)
             cur.execute(instance_query, (experiment,))
             instance_rows = cur.fetchall()
-        finally:
-            conn.close()
 
         type_by_device: dict[str, list[tuple]] = {}
         for row in type_rows:
@@ -679,16 +627,7 @@ class GeecsDb:
             ``{"count": int, "sample": [{"id", "expt_device_id",
             "variablename"}, ...]}``.
         """
-        try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        conn = _connect_mysql(mysql.connector)
-        try:
-            cur = conn.cursor()
+        with _cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) FROM expt_device_variable edv "
                 "LEFT JOIN expt_device ed ON ed.id = edv.expt_device_id "
@@ -705,8 +644,6 @@ class GeecsDb:
                 (int(sample_limit),),
             )
             sample_rows = cur.fetchall()
-        finally:
-            conn.close()
 
         sample = [
             {"id": row[0], "expt_device_id": row[1], "variablename": row[2]}
@@ -733,51 +670,39 @@ class GeecsDb:
         dict
             ``(device, variable)`` → validated alarm limits.
         """
+        # Fail-open: ``ca_alarm_limits`` is an optional overlay table that need
+        # not exist on every experiment's DB.  Any failure (missing table,
+        # connect error, permissions) degrades to "no curated value alarms"
+        # rather than aborting IOC startup — a load-bearing contract
+        # (PV_CONTRACT.md, pinned by the fail-open tests).  ImportError is left
+        # to propagate: a missing connector is a deployment error, not an
+        # absent overlay.
         try:
-            import mysql.connector
-        except ImportError as exc:
-            raise ImportError(
-                "mysql-connector-python is required for DB lookups."
-            ) from exc
-
-        try:
-            conn = _connect_mysql(mysql.connector)
-        except Exception:
-            logger.warning(
-                "ca_alarm_limits lookup failed before query; starting without "
-                "curated value alarms",
-                exc_info=True,
+            rows = _query(
+                "SELECT experiment, device, `variable`, "
+                "lolo, low, high, hihi, "
+                "lolo_severity, low_severity, high_severity, hihi_severity, "
+                "hysteresis, description "
+                "FROM ca_alarm_limits "
+                "WHERE experiment = %s AND enabled = TRUE "
+                "ORDER BY device, variable",
+                (experiment,),
             )
-            return {}
-        try:
-            cur = conn.cursor()
-            try:
-                cur.execute(
-                    "SELECT experiment, device, `variable`, "
-                    "lolo, low, high, hihi, "
-                    "lolo_severity, low_severity, high_severity, hihi_severity, "
-                    "hysteresis, description "
-                    "FROM ca_alarm_limits "
-                    "WHERE experiment = %s AND enabled = TRUE "
-                    "ORDER BY device, variable",
-                    (experiment,),
+        except ImportError:
+            raise
+        except Exception as exc:
+            if _is_missing_table_error(exc):
+                logger.info(
+                    "ca_alarm_limits table is absent; starting without "
+                    "curated value alarms"
                 )
-                rows = cur.fetchall()
-            except Exception as exc:
-                if _is_missing_table_error(exc):
-                    logger.info(
-                        "ca_alarm_limits table is absent; starting without "
-                        "curated value alarms"
-                    )
-                else:
-                    logger.warning(
-                        "ca_alarm_limits lookup failed; starting without "
-                        "curated value alarms",
-                        exc_info=True,
-                    )
-                return {}
-        finally:
-            conn.close()
+            else:
+                logger.warning(
+                    "ca_alarm_limits lookup failed; starting without "
+                    "curated value alarms",
+                    exc_info=True,
+                )
+            return {}
 
         result: dict[tuple[str, str], AlarmLimits] = {}
         for row in rows:

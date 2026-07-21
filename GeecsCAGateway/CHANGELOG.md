@@ -3,6 +3,28 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.14.1] - 2026-07-20
+
+### Changed
+
+- `db/geecs_db.py`: internal refactor extracting a connection layer. A single
+  `_cursor()` context manager now owns the connector-import guard, the
+  pure-Python connection, and the guaranteed close; a thin `_query()` primitive
+  wraps single-statement lookups. All eight `GeecsDb` query methods drop their
+  repeated import-guard + connect/close boilerplate (~130 lines) and keep only
+  their SQL and result shaping; the two-statement batch methods reuse one
+  `_cursor()` block to stay on a single connection. No behavior change — the
+  full `test_geecs_db.py` suite passes unchanged, and the externally observable
+  surface (return shapes, error semantics) is identical, so `PV_CONTRACT.md` is
+  unaffected.
+- `get_ca_alarm_limits()` is no longer special-cased around its own
+  connect/execute error handling. It now goes through `_query()` like every
+  other method, with a single fail-open `try/except` at the call site that
+  preserves the exact prior contract (missing-table → INFO, other DB failure →
+  WARNING, both returning `{}` so IOC startup never aborts on the optional
+  overlay table). `ImportError` still propagates — a missing connector is a
+  deployment error, not an absent overlay.
+
 ## [0.14.0] - 2026-07-20
 
 ### Changed
