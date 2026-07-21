@@ -456,6 +456,37 @@ class TestDirtyRevertClose:
         assert prompts == []
         assert not editor.isVisible()
 
+    def test_close_discard_prompts_exactly_once(self, qtbot, tmp_path):
+        """QDialog routes a visible close through reject(); only reject prompts.
+
+        Pins the PR-#588 review finding: with both closeEvent and reject
+        prompting, a computed-dirty editor (draft ≠ snapshot survives the
+        discard) asked twice on Discard.
+        """
+        seed_catalog(tmp_path)
+        editor = make_editor(qtbot, tmp_path)
+        editor.show()
+        select_variable(editor, "jet_z")
+        editor.device_edit.setText("U_Elsewhere")
+        prompts = []
+        editor._prompt_unsaved = lambda: prompts.append(1) or "discard"
+        editor.close()
+        assert not editor.isVisible()
+        assert prompts == [1]
+
+    def test_close_save_choice_persists_the_draft(self, qtbot, tmp_path):
+        """The leave-prompt's Save option (new in the shared base) writes."""
+        seed_catalog(tmp_path)
+        editor = make_editor(qtbot, tmp_path)
+        editor.show()
+        select_variable(editor, "jet_z")
+        editor.device_edit.setText("U_Elsewhere")
+        editor._prompt_unsaved = lambda: "save"
+        editor.close()
+        assert not editor.isVisible()
+        document = catalog_document(tmp_path)
+        assert document["variables"]["jet_z"]["target"].startswith("U_Elsewhere:")
+
 
 class TestCompleters:
     MAPPING = {

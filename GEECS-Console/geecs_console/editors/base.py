@@ -173,6 +173,15 @@ class ConfigEditorDialog(QDialog):
         The :class:`EmptyCompletions` default is answered inline (no
         thread to spawn for a constant) — offline construction stays
         thread-free.
+
+        Known debt, consciously carried over from all four pre-base
+        editors rather than introduced here: the daemon thread emits a
+        *dialog-owned* signal instead of routing through the blessed
+        ``services/background.py::BackgroundResult`` worker, and an
+        Esc-closed dialog (``reject`` → ``done()``, no ``QCloseEvent``)
+        never runs the close-time disconnect.  Consolidating onto
+        ``BackgroundResult`` is the follow-up recorded on issue #533 —
+        do it here once, not per editor.
         """
         if isinstance(self._completions, EmptyCompletions):
             self.completions_applied = True
@@ -250,8 +259,11 @@ class ConfigEditorDialog(QDialog):
         box.setText(self._unsaved_prompt_text())
         save = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
         discard = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(save)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        # The keyboard default is the safe no-op (the convention three of
+        # the four pre-base editors already had) — a reflexive Enter must
+        # never write a config to disk.
+        box.setDefaultButton(cancel)
         box.exec()
         clicked = box.clickedButton()
         if clicked is save:
@@ -332,21 +344,29 @@ class ConfigEditorDialog(QDialog):
     # ------------------------------------------------------------------
 
     def reject(self) -> None:
-        """Route Esc through the unsaved-changes prompt."""
+        """Route Esc through the unsaved-changes prompt.
+
+        Visible closes land here too — see :meth:`closeEvent`.
+        """
         if not self._resolve_unsaved():
             return
         super().reject()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
-        """Prompt for unsaved changes, then disconnect the completions signal.
+        """Close via QDialog (one prompt), then disconnect the completions signal.
 
-        Only a *visible* dialog prompts — there is an operator to ask.  A
-        programmatic close of a hidden dialog (test teardown, app
-        shutdown) must never block on a modal nobody can answer.
+        :meth:`reject` is the **only** prompt owner: ``QDialog::closeEvent``
+        routes a *visible* close through the virtual ``reject()`` (ours,
+        above) and ignores the close when the dialog survives it — so
+        prompting here too would ask twice on Discard in the editors whose
+        dirty predicate is computed (draft ≠ snapshot) rather than a flag
+        the discard hook clears.  A hidden dialog (test teardown, app
+        shutdown) closes without ``reject()`` and therefore never blocks
+        on a modal nobody can answer.
         """
-        if self.isVisible() and not self._resolve_unsaved():
-            event.ignore()
-            return
+        super().closeEvent(event)
+        if not event.isAccepted():
+            return  # the operator canceled — the dialog stays open
         # A still-running completions fetch must not queue an event onto a
         # dialog being torn down.  Once only: closeEvent can run twice
         # (explicit close + owner teardown) and a second disconnect warns.
@@ -356,4 +376,3 @@ class ConfigEditorDialog(QDialog):
                 self.completions_ready.disconnect(self._apply_completions)
             except (RuntimeError, TypeError):
                 pass
-        super().closeEvent(event)

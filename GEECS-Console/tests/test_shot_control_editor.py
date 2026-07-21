@@ -378,6 +378,24 @@ class TestUnsavedChanges:
         monkeypatch.setattr(editor, "_prompt_unsaved", boom)
         assert editor.close()
 
+    def test_close_discard_prompts_exactly_once(self, qtbot, editor, monkeypatch):
+        """QDialog routes a visible close through reject(); only reject prompts.
+
+        Pins the PR-#588 review finding: with both closeEvent and reject
+        prompting, a computed-dirty editor (doc ≠ snapshot survives the
+        discard) asked twice on Discard.
+        """
+        self.make_dirty(editor)
+        editor.show()
+        qtbot.waitExposed(editor)
+        prompts = []
+        monkeypatch.setattr(
+            editor, "_prompt_unsaved", lambda: prompts.append(1) or "discard"
+        )
+        assert editor.close()
+        assert not editor.isVisible()
+        assert prompts == [1]
+
 
 class TestErgonomics:
     def test_enter_does_not_accept_the_dialog(self, qtbot, editor):

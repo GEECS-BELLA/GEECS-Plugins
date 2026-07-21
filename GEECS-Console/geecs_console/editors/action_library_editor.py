@@ -449,10 +449,23 @@ class ActionLibraryEditor(ConfigEditorDialog):
         return self._save_plan()
 
     def _discard_unsaved(self) -> None:
-        """Unsaved-changes hook: a never-saved (phantom) plan evaporates."""
+        """Unsaved-changes hook: really discard — the widgets follow the flag.
+
+        Callers (New / Duplicate) can still bail out *after* a discard (name
+        prompt canceled, collision), so the editor must be left coherent
+        here, not merely flag-cleared: a never-saved (phantom) plan
+        evaporates from the list and the editor clears; a saved plan
+        reloads clean from the store.
+        """
         if self._phantom is not None and self._current == self._phantom:
             self._phantom = None
+            self._set_dirty(False)
+            self._populate_plan_list()
+            self._load_plan(None)
+            return
         self._set_dirty(False)
+        if self._current is not None:
+            self._load_plan(self._current)
 
     def _unsaved_prompt_text(self) -> str:
         """Describe the dirty plan in the unsaved-changes prompt."""

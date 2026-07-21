@@ -127,18 +127,27 @@ class TestOffline:
         assert not dialog.isVisible()
 
     def test_editor_module_source_has_no_ca_or_execution_imports(self):
-        """Editing only: the editor never imports the CA stack (source pin)."""
-        import geecs_console.editors.action_library_editor as module
+        """Editing only: the editor never imports the CA stack (source pin).
+
+        The pin travels with the scaffolding: the shared base and the
+        completions seam it imports are checked too, so a CA import cannot
+        sneak in through the module chain the editor actually loads.
+        """
         from pathlib import Path
 
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        for forbidden in (
-            "import aioca",
-            "import caproto",
-            "from aioca",
-            "from caproto",
-        ):
-            assert forbidden not in source
+        import geecs_console.editors.action_library_editor as module
+        import geecs_console.editors.base as base_module
+        import geecs_console.services.device_completions as completions_module
+
+        for checked in (module, base_module, completions_module):
+            source = Path(checked.__file__).read_text(encoding="utf-8")
+            for forbidden in (
+                "import aioca",
+                "import caproto",
+                "from aioca",
+                "from caproto",
+            ):
+                assert forbidden not in source, checked.__name__
 
 
 class TestNoExecutionSurface:
@@ -409,6 +418,41 @@ class TestPlanLifecycle:
         editor.new_button.click()
         assert "already exists" in editor.error_label.text()
         assert editor._current is None
+
+    def test_discarded_phantom_leaves_no_ghost_on_a_canceled_prompt(self, qtbot, root):
+        """New → Discard → cancel the name prompt must leave a coherent editor.
+
+        Pins the PR-#588 review finding: the discard hook must really
+        discard (list and widgets included), because New/Duplicate can
+        still bail out afterwards — a flag-only discard left a ghost row
+        that Save would happily persist.
+        """
+        editor = make_editor(qtbot, root)
+        editor._prompt_name = lambda *args, **kwargs: "temp_plan"
+        editor.new_button.click()
+        assert editor._dirty and editor._phantom == "temp_plan"
+        editor._prompt_unsaved = lambda: "discard"
+        editor._prompt_name = lambda *args, **kwargs: None  # cancel the name
+        editor.new_button.click()
+        names = [
+            editor.plan_list.item(i).text() for i in range(editor.plan_list.count())
+        ]
+        assert "temp_plan" not in names
+        assert editor._current is None
+        assert not editor._dirty
+        # And Save cannot write the plan the operator just discarded.
+        assert not editor._save_plan()
+        assert "temp_plan" not in store_of(root).list_names()
+
+    def test_save_choice_on_switch_persists_the_plan(self, qtbot, root):
+        """The leave-prompt's Save option (new in the shared base) writes."""
+        editor = make_editor(qtbot, root)
+        select_plan(editor, "close_shutters")
+        qtbot.keyClicks(editor.description_edit, "!")
+        editor._prompt_unsaved = lambda: "save"
+        select_plan(editor, "closeout")
+        assert editor._current == "closeout"
+        assert store_of(root).load("close_shutters").description.endswith("!")
 
     def test_duplicate_plan(self, qtbot, root):
         editor = make_editor(qtbot, root)
