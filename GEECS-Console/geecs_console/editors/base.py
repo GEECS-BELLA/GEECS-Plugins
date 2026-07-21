@@ -1,12 +1,10 @@
-"""Shared scaffolding for the config-editor dialogs (issue #533).
+"""Shared scaffolding for the config-editor dialogs.
 
-The four editors (save sets, scan variables, trigger profiles, action
-plans) grew from the same template and had started to diverge in
-user-visible ways — two offered Save/Discard/Cancel on unsaved changes
-while two offered only Discard/Cancel, and Esc silently discarded edits
-in the two editors that never overrode ``reject``.  This base class is
-the one home for that scaffolding; each editor keeps only its store
-binding, its widgets, and its dialect rules.
+The one home for the dialog machinery all four editors (save sets, scan
+variables, trigger profiles, action plans) share; each editor keeps only
+its store binding, its widgets, and its dialect rules.  A new editor
+should subclass :class:`ConfigEditorDialog` rather than re-growing any
+of this.
 
 What lives here:
 
@@ -174,14 +172,12 @@ class ConfigEditorDialog(QDialog):
         thread to spawn for a constant) — offline construction stays
         thread-free.
 
-        Known debt, consciously carried over from all four pre-base
-        editors rather than introduced here: the daemon thread emits a
-        *dialog-owned* signal instead of routing through the blessed
+        Known debt: the daemon thread emits a *dialog-owned* signal
+        instead of routing through the blessed
         ``services/background.py::BackgroundResult`` worker, and an
         Esc-closed dialog (``reject`` → ``done()``, no ``QCloseEvent``)
-        never runs the close-time disconnect.  Consolidating onto
-        ``BackgroundResult`` is the follow-up recorded on issue #533 —
-        do it here once, not per editor.
+        never runs the close-time disconnect.  Consolidate onto
+        ``BackgroundResult`` here, once — not per editor.
         """
         if isinstance(self._completions, EmptyCompletions):
             self.completions_applied = True

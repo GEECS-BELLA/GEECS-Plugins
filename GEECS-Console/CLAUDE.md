@@ -255,20 +255,35 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   segfaults under offscreen pytest (observed directly when the idle scan
   probe emitted a `MainWindow` signal; the R7 device-set completion was
   the last such emission and moved to a `BackgroundResult` worker in
-  0.7.0 — issue #510).  `closeEvent` disconnects each worker's
-  `result_ready`.
-- **Actions menu (G-actions v1)**: lists the current experiment's
+  0.7.0 — issue #510).  `closeEvent` disconnects each window-owned
+  worker's `result_ready`; the actions-menu controller's worker is
+  detached inside its `dispose()` instead.
+- **Actions menu (G-actions v1)** — owned by
+  `app/actions_menu.py::ActionsMenuController` since 0.18.1 (issue #534
+  step 3): the window creates the QMenu (kept in `self._menus`) and the
+  controller owns its contents, its `BackgroundResult` fetch worker, and
+  the open dialogs; the window keeps thin `enable_actions_action` /
+  `_open_action_dialogs` properties as the test surface, and its
+  `closeEvent` calls the controller's `dispose()` (severing every
+  controller → window reference — the cycle would otherwise defer
+  dead-window teardown to the cyclic GC mid-event-processing, a
+  segfault under offscreen pytest).  Lists the current experiment's
   action-plan names — fetched from `ActionLibraryStore.list_names()` (the
   same `action_library/actions.yaml` the Action Library editor edits;
-  constructor-injectable `action_store` seam) on a `BackgroundResult`
-  worker, refreshed on experiment change, stale results dropped by
-  experiment tag; empty/offline renders one disabled "(no actions)"
-  entry.  On top sits **"Enable action execution"** — the accidental-click
-  guard: checkable, **default OFF at every launch and deliberately NOT
-  persisted** (a fresh session must never start armed; do not "fix" this
-  by adding it to `ConsoleSettings`).  Clicking a plan opens the
-  non-modal `ActionRunDialog` (`app/action_dialog.py`, kept in
-  `self._open_action_dialogs` — the GC hazard): a dry-run steps table
+  constructor-injectable `action_store` seam), refreshed on experiment
+  change, stale results dropped by experiment tag, **one fetch in
+  flight per experiment** — startup requests twice back-to-back, and
+  two concurrent fetch threads race the lazy `geecs_bluesky` import
+  inside the store's configs-root resolution, a native init that
+  aborts the process when raced (found 2026-07-20; the sibling
+  completions/idle-scan double-fetches share the hazard shape and are
+  not yet deduped); empty/offline/failed renders one disabled
+  "(no actions)" entry.  On top sits **"Enable action execution"** — the
+  accidental-click guard: checkable, **default OFF at every launch and
+  deliberately NOT persisted** (a fresh session must never start armed;
+  do not "fix" this by adding it to `ConsoleSettings`).  Clicking a plan
+  opens the non-modal `ActionRunDialog` (`app/action_dialog.py`, kept on
+  the controller — the GC hazard): a dry-run steps table
   from the engine's `describe_action(name) -> list[dict]` (keys `kind` /
   `device` / `variable` / `value` / `wait_s` / `from_plan`, execution
   order) plus Run/Close.  Run is enabled only while armed and dispatches
@@ -284,8 +299,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   **During-scan (G-actions v2, #552, 0.16.0):** the same dialog drives the
   pause flow — with a scan active the Run button reads "Pause scan & run
   (N steps)" and calls the `Submitter.request_action_during_scan` member
-  (pause → decide → run) instead of idle `run_action`; the window pushes
-  live scan state into open dialogs (`set_scanning`) so the button flips.
+  (pause → decide → run) instead of idle `run_action`; the window's
+  scan-lifecycle hub pushes live scan state into the controller
+  (`set_scanning`), which forwards it to the open dialogs so the button
+  flips.
   The three-way **action-decision modal** (Execute / Ignore / Abort) is
   rendered by `_on_action_decision` from an engine `ActionDecisionRequest`
   (routed through the same `ScanDialogEvent`/`dialog_requested` transport

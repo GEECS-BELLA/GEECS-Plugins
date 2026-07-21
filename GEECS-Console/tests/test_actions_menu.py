@@ -197,8 +197,35 @@ class TestMenuPopulation:
         ]
         assert not placeholder.isEnabled()
 
+    def test_concurrent_fetches_for_one_experiment_are_deduplicated(
+        self, window, qtbot, monkeypatch
+    ):
+        """One in-flight fetch per experiment — never two racing threads.
+
+        Startup requests twice back-to-back (the restored experiment
+        fires the experiment-changed path just before the explicit
+        construction-time call); two concurrent fetch threads would race
+        the lazy ``geecs_bluesky`` import inside the store's configs-root
+        resolution, a native-extension init that aborts when raced.
+        """
+        qtbot.waitUntil(lambda: "insert_cal" in plan_entries(window), timeout=3000)
+        controller = window._actions
+        spawned = []
+        monkeypatch.setattr(
+            controller._worker,
+            "run_async",
+            lambda func, name: spawned.append(name),
+        )
+        controller.start_fetch()
+        controller.start_fetch()  # same experiment, first still in flight
+        assert len(spawned) == 1
+        # Delivery clears the tag, so a later refresh fetches again.
+        controller._apply_action_names(("TestExp", ["insert_cal", "vent_line"]))
+        controller.start_fetch()
+        assert len(spawned) == 2
+
     def test_stale_fetch_for_previous_experiment_is_dropped(self, window):
-        window._apply_action_names(("SomeOtherExp", ["stale_plan"]))
+        window._actions._apply_action_names(("SomeOtherExp", ["stale_plan"]))
         assert "stale_plan" not in plan_entries(window)
 
 
