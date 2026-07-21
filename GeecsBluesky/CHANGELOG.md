@@ -15,7 +15,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ScanRequest` path), the "no s-file output" limitation (scalar s-files are
   exported from Tiled best-effort after a scan; TDMS still is not), and the
   reference to the deleted `test_bluesky_scanner.py` hardware script (now
-  `tests/test_scan_request_hardware.py`).
+  `tests/test_scan_request_hardware.py`).  `ROADMAP.md`'s "Data pipeline
+  transition" section updated to match (review finding): the s-file shim is
+  live via the Tiled export, and BlueskyScanner is the production path.
 
 ## [0.46.0] - 2026-07-20
 

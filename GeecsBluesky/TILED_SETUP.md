@@ -91,8 +91,11 @@ api_key = <stable key>
   setup/per-step/closeout actions, and `ScanEvent` callbacks all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
 - Scalar s-file exported from Tiled best-effort after each scan ✓
-- Hardware integration test (`tests/test_scan_request_hardware.py`) runs a
-  real `ScanRequest` end to end against the live gateway ✓
+- Hardware integration test: `tests/test_scan_request_hardware.py`
+  (replaces the deleted `test_bluesky_scanner.py`) runs a real
+  `ScanRequest` end to end against the live gateway — see its module
+  docstring for invocation; run it to verify, no standing pass is
+  recorded here
 
 ## Known Limitations
 
