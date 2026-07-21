@@ -23,14 +23,17 @@ in `DEPLOYMENT.md`.
 ### Namespace
 
 ```
-[Experiment:]Device:Variable          readback
-[Experiment:]Device:Variable:SP       setpoint (only when the variable is settable)
-[Experiment:]Device:Variable          derived readback (when declared)
-[Experiment:]Device:CONNECTED         per-device status
-[Experiment:]CAGateway:<SUFFIX>       gateway self-diagnostics
+[experiment:]device:variable          readback
+[experiment:]device:variable:SP       setpoint (only when the variable is settable)
+[experiment:]device:variable          derived readback (when declared)
+[experiment:]device:connected         per-device status
+[experiment:]cagateway:<suffix>       gateway self-diagnostics
 ```
 
-Example: `Undulator:U_S1H:Current` and `Undulator:U_S1H:Current:SP`.
+Example: `undulator:u_s1h:current` and `undulator:u_s1h:current:SP`.
+
+Every name **component** is lowercase (see normalization below); the only
+uppercase in the PV namespace is the literal `:SP` setpoint suffix.
 
 - `:` is the **reserved namespace separator**, applied only between components
   (`pv_naming.pv_name`). It never appears inside a component.
@@ -45,7 +48,7 @@ Example: `Undulator:U_S1H:Current` and `Undulator:U_S1H:Current:SP`.
 
 ### Component normalization (`pv_naming.normalize_component`)
 
-Within a single component, only `[A-Za-z0-9_]` survives. The exact
+Within a single component, only `[a-z0-9_]` survives. The exact
 transformation is:
 
 1. Leading/trailing whitespace is stripped.
@@ -53,23 +56,37 @@ transformation is:
    parentheses, slashes, anything — collapses to a **single** underscore
    (regex `[^A-Za-z0-9_]+` → `_`).
 3. Leading and trailing underscores produced by step 2 are stripped.
+4. The result is **lowercased**. Case carries no meaning anywhere in GEECS,
+   and folding it here makes every derived name case-insensitive to operator
+   input: any casing of a GEECS name resolves to the same PV.
 
 Examples (each pinned by a test):
 
 | GEECS name           | PV component     | Why it matters |
 |----------------------|------------------|----------------|
-| `Trigger.Source`     | `Trigger_Source` | **The dot is critical**: EPICS parses `.` as the record/field separator, so `Dev:Trigger.Source` would read as field `.Source` of record `Dev:Trigger` |
-| `Jet X pos`          | `Jet_X_pos`      | spaces |
-| `Beam-Current (A)`   | `Beam_Current_A` | run of ` (` collapses to one `_`; trailing `)` stripped |
+| `Trigger.Source`     | `trigger_source` | **The dot is critical**: EPICS parses `.` as the record/field separator, so `Dev:Trigger.Source` would read as field `.Source` of record `Dev:Trigger` |
+| `Jet X pos`          | `jet_x_pos`      | spaces |
+| `Beam-Current (A)`   | `beam_current_a` | run of ` (` collapses to one `_`; trailing `)` stripped |
 | `  padded  name  `   | `padded_name`    | whitespace + run collapsing |
+| `MiXeD Case`         | `mixed_case`     | case-folded — PVs are case-insensitive to operator input |
 
 This policy lives in **`geecs_ca_gateway.pv_naming`** — the one module both the
 gateway (producer) and GeecsBluesky's CA devices (consumer) import — so the two
 sides can never drift. `geecs_ca_gateway.naming` is a thin re-export.
+GeecsBluesky's event-column mangling (`safe_name`) delegates to the same
+function, so a GEECS name mangles identically into a PV component and an
+event-document column component (pinned by
+`GeecsBluesky/tests/test_utils.py::test_safe_name_agrees_with_the_pv_naming_contract`).
+
+**GEECS-native names are the canonical vocabulary.** Configs, schemas, the
+DB, and every user-facing surface speak raw GEECS names; PV names (and event
+columns) are derived one-way encodings produced only by this module. Tools
+needing the reverse direction use the manifest (below), never string surgery.
 
 ### The mapping is lossy — use the manifest
 
-`Trigger.Source` and `Trigger Source` normalize to the same PV component.
+`Trigger.Source`, `Trigger Source`, and `trigger source` normalize to the
+same PV component.
 **Never reverse-engineer a GEECS name from a PV string.** The gateway holds the
 authoritative bidirectional map in `GeecsCaGateway.manifest`
 (`PV → (device, geecs_var, kind)` where kind is `"readback"`, `"setpoint"`,
@@ -79,7 +96,9 @@ source GEECS device whose frame drives the calculation.
 ### Setpoint PVs — `:SP`
 
 A variable whose **`devicetype_variable.set`** flag is `yes` gets a companion
-setpoint PV at the literal suffix `:SP` appended to the full readback name.
+setpoint PV at the literal suffix `:SP` appended to the full readback name
+(`pv_naming.setpoint_pv`, the one place the suffix is applied; the suffix is
+deliberately uppercase — a fixed structural literal, not a name component).
 Non-settable variables (including the intrinsic timestamp variables) have
 **no** `:SP` PV.
 
@@ -104,7 +123,7 @@ too. Pinned by the inheritance-chain tests in `tests/test_geecs_db.py`.
 
 ### Per-device status PV — `CONNECTED`
 
-Every device gets exactly one status PV: `[Experiment:]Device:CONNECTED`.
+Every device gets exactly one status PV: `[experiment:]device:connected`.
 
 - Type: enum with `enum_strings = ["Disconnected", "Connected"]`
   (index 0 = Disconnected, 1 = Connected).
@@ -114,13 +133,13 @@ Every device gets exactly one status PV: `[Experiment:]Device:CONNECTED`.
 
 ### Gateway self-diagnostics — the reserved `CAGateway` namespace
 
-`[Experiment:]CAGateway:{UPTIME, HEARTBEAT, DEVICES_CONNECTED, VERSION}`
+`[experiment:]cagateway:{uptime, heartbeat, devices_connected, version}`
 (devIocStats-style; updated by a 5 s status loop; `UPTIME` in seconds,
 `VERSION` is the installed package version). The `CAGateway` device component
 is **reserved**: a real GEECS device whose PVs would land there trips the
 collision guard at startup rather than silently clobbering the status PVs.
 
-**`[Experiment:]CAGateway:RESTART`** is the one *client-writable* PV in the
+**`[experiment:]cagateway:restart`** is the one *client-writable* PV in the
 namespace (the devIocStats `SYSRESET` pattern): an enum with states
 `["Idle", "Restart"]`. Writing `Restart` (label or index 1) makes the gateway
 shut down cleanly and exit with the restart code (86); under the shipped
@@ -346,7 +365,7 @@ Resolution quirks (all DB-driven, all pinned by tests):
 A variable's DB `description` (from the per-instance `variable` table,
 resolved through the capability inheritance chain like every other field) is
 served as the standard EPICS `.DESC` field: a read-only `<pv>.DESC` string
-channel, so `caget Undulator:U_S1H:Current.DESC` returns the text and Phoebus
+channel, so `caget undulator:u_s1h:current.DESC` returns the text and Phoebus
 / the archiver pick it up automatically. Only variables with a non-empty
 description get a `.DESC` entry (no empty descriptions are served). The text
 is clipped to the EPICS **DBR_STRING 40-character** limit at both the DB
@@ -461,10 +480,10 @@ At `pvdb` build time (startup), every PV registers in the manifest:
   `from_db_metadata` also dedupes rows defensively.
 - **Genuine collisions raise**: a *different* source mapping to an existing PV
   name (e.g. `Trigger.Source` and `Trigger Source` on one device, both
-  normalizing to `Trigger_Source`) raises `ValueError` at startup. Never a
+  normalizing to `trigger_source`) raises `ValueError` at startup. Never a
   silent clobber; the gateway refuses to start until the overlay renames one.
-- **The status namespace is reserved**: per-device `…:CONNECTED` and the
-  `[Experiment:]CAGateway:*` diagnostics go through the same guard, so a GEECS
+- **The status namespace is reserved**: per-device `…:connected` and the
+  `[experiment:]cagateway:*` diagnostics go through the same guard, so a GEECS
   variable named `CONNECTED` or a device named `CAGateway` is a startup error,
   not a shadowed status PV.
 
@@ -538,12 +557,13 @@ that branch and are part of this contract's target behavior.
 
 | Contract claim | Pinned by |
 |---|---|
-| Component normalization (dot, spaces, runs, strip) | `test_naming.py::test_dot_becomes_underscore`, `::test_spaces_collapse_to_underscores`, `::test_mixed_bad_chars_collapse` |
-| `[Experiment:]Device:Variable` assembly, prefix optional, overrides | `test_naming.py::test_pv_name_for_with_experiment_prefix`, `::test_pv_name_for_without_experiment`, `::test_variable_spec_explicit_pv_wins`, `::test_device_prefix_defaults_to_name`; `test_pv_contract.py::test_pv_name_drops_falsy_parts_and_normalizes` |
+| Component normalization (dot, spaces, runs, strip, lowercase) | `test_naming.py::test_dot_becomes_underscore`, `::test_spaces_collapse_to_underscores`, `::test_mixed_bad_chars_collapse`, `::test_components_are_lowercased` |
+| Event-column mangling delegates to the same policy | `GeecsBluesky/tests/test_utils.py::test_safe_name_agrees_with_the_pv_naming_contract` |
+| `[experiment:]device:variable` assembly (lowercase), prefix optional, overrides | `test_naming.py::test_pv_name_for_with_experiment_prefix`, `::test_pv_name_for_without_experiment`, `::test_variable_spec_explicit_pv_wins`, `::test_device_prefix_defaults_to_name`; `test_pv_contract.py::test_pv_name_drops_falsy_parts_and_normalizes` |
 | Manifest as authoritative map; `:SP` only when settable | `test_gateway.py::test_experiment_prefix_and_manifest`, `::test_pvdb_contains_readback_and_setpoint` |
 | Genuine collision raises; exact duplicates tolerated | `test_gateway.py::test_pv_name_collision_raises`; `test_config_from_db.py::test_from_db_metadata_dedupes_duplicate_variables` |
 | Reserved `CAGateway`/status namespace guarded | `test_gateway.py::test_pvdb_has_connected_and_gateway_status_pvs`; `test_pv_contract.py::test_status_pv_namespace_is_collision_guarded` |
-| `CAGateway:RESTART` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
+| `cagateway:restart` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |

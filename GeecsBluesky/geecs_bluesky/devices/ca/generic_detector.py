@@ -19,7 +19,7 @@ from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.epics.core import epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.triggerable import CaTriggerable
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
@@ -92,7 +92,7 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
                 setattr(
                     self,
                     attr,
-                    epics_signal_rw(str, readback, f"{readback}:SP"),
+                    epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
 
     @property

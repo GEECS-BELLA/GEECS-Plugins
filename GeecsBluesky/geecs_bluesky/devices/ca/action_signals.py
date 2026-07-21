@@ -43,7 +43,7 @@ from typing import Any, Callable
 
 from ophyd_async.epics.core import epics_signal_r
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, wire_value
 from geecs_bluesky.utils import safe_name
 
@@ -102,7 +102,7 @@ class CaActionSignalFactory:
         key = (device, variable)
         settable = self._settables.get(key)
         if settable is None:
-            pv = f"{ca_pv(self._experiment, device, variable)}:SP"
+            pv = setpoint_pv(ca_pv(self._experiment, device, variable))
             name = safe_name(f"{device}_{variable}_sp")
             # dtype-inferred probe: proves the PV exists/connects (pre-claim
             # fail-fast) without imposing a type the PV may not have.

@@ -71,6 +71,18 @@ Never look a run up by `scan_id` alone; qualify with the day, or use
 
 ## Event-stream columns
 
+Column-name components come from `safe_name()` (`geecs_bluesky/utils.py`),
+which delegates to the shared naming contract
+(`geecs_ca_gateway.pv_naming.normalize_component`): runs of non-alphanumeric
+characters collapse to one underscore, lowercase. A GEECS name therefore
+mangles identically into an event column and a gateway PV component.
+(Before GeecsBluesky 0.46.0, `safe_name` replaced specials per-character, so
+`Wavelength (nm)` produced `wavelength__nm` — a double underscore; it now
+produces `wavelength_nm`. A column-name convention change, not a field or
+semantics change, so the schema version stays 1 — runs are self-describing
+and pre-0.46.0 runs keep their old column names, recoverable as ever via
+`geecs_scalar_headers`.)
+
 Row identity (every mode, every row — set by the plan via `ScanContext`):
 
 - `bin_number` — 1-based step index (always `1` for statistics collection)

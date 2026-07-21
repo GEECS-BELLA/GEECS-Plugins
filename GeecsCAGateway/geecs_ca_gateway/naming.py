@@ -7,5 +7,6 @@ The normalization policy itself lives in :mod:`geecs_ca_gateway.pv_naming`
 from __future__ import annotations
 
 from geecs_ca_gateway.pv_naming import normalize_component as normalize_pv_component
+from geecs_ca_gateway.pv_naming import setpoint_pv
 
-__all__ = ["normalize_pv_component"]
+__all__ = ["normalize_pv_component", "setpoint_pv"]

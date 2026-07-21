@@ -17,7 +17,7 @@ import logging
 
 from ophyd_async.epics.core import epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable
 from geecs_bluesky.devices.contributor import FreeRunContributorSupport
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
@@ -84,7 +84,7 @@ class CaTimestampedReadable(
                 setattr(
                     self,
                     attr,
-                    epics_signal_rw(str, readback, f"{readback}:SP"),
+                    epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
 
     @property

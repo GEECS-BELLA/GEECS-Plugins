@@ -8,9 +8,9 @@ It spins up an in-process ``FakeGeecsServer``, builds a gateway over it, perform
 an in-process self-check (stream → readback, and caput → GEECS → readback), then
 serves the PVs so you can poke them with real CA tools::
 
-    caget  U_ESP_JetXYZ:Position
-    camonitor U_ESP_JetXYZ:Position
-    caput  U_ESP_JetXYZ:Position:SP 4.2
+    caget  u_esp_jetxyz:position
+    camonitor u_esp_jetxyz:position
+    caput  u_esp_jetxyz:position:SP 4.2
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGee
 
 from .config import DeviceSpec, GatewayConfig, VariableSpec
 from .gateway import GeecsCaGateway
+from .pv_naming import pv_name, setpoint_pv
 
 DEVICE_NAME = "U_ESP_JetXYZ"
 
@@ -61,10 +62,10 @@ async def main() -> None:
 
         # ---- in-process self-check (proves the two data paths) --------------
         await asyncio.sleep(0.5)  # let a couple of 5 Hz stream frames land
-        rb = gateway.pvdb[f"{DEVICE_NAME}:Position"]
+        rb = gateway.pvdb[pv_name(DEVICE_NAME, "Position")]
         print(f"\n[self-check] stream → readback: {DEVICE_NAME}:Position = {rb.value}")
 
-        sp = gateway.pvdb[f"{DEVICE_NAME}:Position:SP"]
+        sp = gateway.pvdb[setpoint_pv(pv_name(DEVICE_NAME, "Position"))]
         await sp.write(4.2)  # simulate a CA caput on the setpoint
         await asyncio.sleep(0.5)  # let the change stream back as a readback
         print(

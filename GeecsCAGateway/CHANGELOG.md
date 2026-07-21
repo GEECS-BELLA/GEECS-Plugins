@@ -3,6 +3,28 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.14.0] - 2026-07-20
+
+### Changed
+
+- **PV name components are now lowercase** (`pv_naming.normalize_component`
+  case-folds): case carries no meaning anywhere in GEECS, and folding makes
+  every derived PV case-insensitive to operator input — any casing of a GEECS
+  name resolves to the same PV. Deployed PVs change on the wire
+  (`Undulator:U_S1H:Current` → `undulator:u_s1h:current`); the gateway and its
+  CA clients must be updated together. `PV_CONTRACT.md` §1 updated with the
+  case-folding step, lowercase examples, and the canonical-vocabulary
+  statement (GEECS-native names are canonical; PV names are a derived one-way
+  encoding).
+
+### Added
+
+- `pv_naming.setpoint_pv` (+ `SETPOINT_SUFFIX`): the one place the `:SP`
+  setpoint suffix is applied. The suffix itself stays uppercase — a fixed
+  structural literal, not a name component. Gateway pvdb construction and all
+  known consumers (GeecsBluesky, GEECS-Console) now use it instead of
+  hand-assembled `f"...:SP"` strings.
+
 ## [0.13.4] - 2026-07-15
 
 ### Changed

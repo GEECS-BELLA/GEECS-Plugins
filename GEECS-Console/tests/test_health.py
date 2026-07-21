@@ -51,7 +51,7 @@ class TestGateway:
         monkeypatch.setattr(
             aioca,
             "caget",
-            _caget_returning({"DEVICES_CONNECTED": 0, "HEARTBEAT": 232}, 232),
+            _caget_returning({"devices_connected": 0, "heartbeat": 232}, 232),
         )
         assert probe._check_gateway() is HealthStatus.WARN
 

@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.46.0] - 2026-07-20
+
+### Changed
+
+- **`safe_name` delegates to the shared naming contract**
+  (`geecs_ca_gateway.pv_naming.normalize_component` + the non-empty `"var"`
+  fallback), so a GEECS name mangles identically into an event-document
+  column component and a gateway PV component — one lossy encoding instead of
+  two (pinned by `test_safe_name_agrees_with_the_pv_naming_contract`).
+  Column-name change: runs of specials now collapse to one underscore
+  (`Wavelength (nm)` → `wavelength_nm`, was `wavelength__nm`). Event-schema
+  version stays 1 (column-name convention, not field/semantics); pre-0.46.0
+  runs keep their old column names and remain readable via
+  `geecs_scalar_headers` — see the EVENT_SCHEMA.md note.
+- All PV names consumed by the CA devices are lowercase (geecs-ca-gateway
+  0.14.0 naming contract); `:SP` setpoint names are now assembled via
+  `pv_naming.setpoint_pv` (re-exported through `devices/ca/_pv.py`) instead
+  of hand-built `f"...:SP"` strings (`shot_controller`, `settable`,
+  `timestamped_readable`, `generic_detector`, `action_signals`).
+
+### Requires
+
+- geecs-ca-gateway ≥ 0.14.0 (lowercase PV contract) — gateway and clients
+  must be deployed together across this boundary.
+
 ## [0.45.1] - 2026-07-16
 
 ### Fixed

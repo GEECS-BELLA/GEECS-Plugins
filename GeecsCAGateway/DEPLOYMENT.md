@@ -279,22 +279,22 @@ EPICS base work identically). Substitute your experiment/device.
 ```bash
 # 1. Gateway process up and serving? (heartbeat ticks every 5 s)
 poetry run caproto-get Undulator:CAGateway:VERSION Undulator:CAGateway:UPTIME
-poetry run caproto-monitor Undulator:CAGateway:HEARTBEAT   # Ctrl-C after a couple of ticks
+poetry run caproto-monitor undulator:cagateway:heartbeat   # Ctrl-C after a couple of ticks
 
 # 2. Is a given device live behind it?
 poetry run caproto-get Undulator:U_S1H:CONNECTED           # → Connected
 poetry run caproto-get Undulator:CAGateway:DEVICES_CONNECTED
 
 # 3. Readback streaming? (should tick with the device's ~1–5 Hz stream)
-poetry run caproto-monitor Undulator:U_S1H:Current
+poetry run caproto-monitor undulator:u_s1h:current
 
 # 3b. Derived readback loaded from the configs repo? (example: target chamber)
 poetry run caproto-get -a Undulator:TargetChamberPressure:Pressure
 
 # 4. Write path (pick a harmless settable variable; put-completion = GEECS
 #    convergence, so this blocks until the device converges)
-poetry run caproto-get Undulator:U_S1H:Current             # note the value
-poetry run caproto-put Undulator:U_S1H:Current:SP <same value>
+poetry run caproto-get undulator:u_s1h:current             # note the value
+poetry run caproto-put undulator:u_s1h:current:SP <same value>
 ```
 
 Interpretation:

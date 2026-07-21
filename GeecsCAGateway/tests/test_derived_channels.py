@@ -197,7 +197,7 @@ def test_derived_pvdb_has_numeric_readback_and_manifest() -> None:
     )
     gw = GeecsCaGateway(cfg)
 
-    pv = "Undulator:U_ChamberVac:Pressure"
+    pv = "undulator:u_chambervac:pressure"
     assert pv in gw.pvdb
     assert gw.pvdb[pv].units == "Torr"
     assert gw.pvdb[pv].precision == 4
@@ -244,8 +244,8 @@ async def test_derived_channel_updates_from_same_source_frame() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        raw = gw.pvdb["Undulator:U_DaqPad1:Analog_Input_10"]
-        pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+        raw = gw.pvdb["undulator:u_daqpad1:analog_input_10"]
+        pressure = gw.pvdb["undulator:u_chambervac:pressure"]
         try:
             assert await _wait_until(lambda: pressure.value == pytest.approx(10.0))
             assert raw.value == pytest.approx(6.0)
@@ -284,10 +284,10 @@ async def test_derived_only_input_is_subscribed_without_raw_pv() -> None:
             ],
         )
         gw = GeecsCaGateway(cfg)
-        assert "Undulator:U_DaqPad1:Analog_Input_10" not in gw.pvdb
+        assert "undulator:u_daqpad1:analog_input_10" not in gw.pvdb
         await gw.connect()
         await gw.subscribe()
-        pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+        pressure = gw.pvdb["undulator:u_chambervac:pressure"]
         try:
             assert await _wait_until(lambda: pressure.value == pytest.approx(1.0))
         finally:
@@ -335,7 +335,7 @@ async def test_cross_device_derived_channel_uses_latest_values() -> None:
         ],
     )
     gw = GeecsCaGateway(cfg)
-    permit = gw.pvdb["Undulator:LaserPermit:OK"]
+    permit = gw.pvdb["undulator:laserpermit:ok"]
     pressure_callback = gw._make_callback(cfg.devices[0])
     shutter_callback = gw._make_callback(cfg.devices[1])
 
@@ -393,7 +393,7 @@ async def test_cross_device_derived_channel_marks_stale_input_invalid() -> None:
         ],
     )
     gw = GeecsCaGateway(cfg)
-    permit = gw.pvdb["Undulator:LaserPermit:OK"]
+    permit = gw.pvdb["undulator:laserpermit:ok"]
     pressure_callback = gw._make_callback(cfg.devices[0])
     shutter_callback = gw._make_callback(cfg.devices[1])
 
@@ -446,7 +446,7 @@ async def test_cross_device_quiet_sources_mark_stale_invalid() -> None:
         ],
     )
     gw = GeecsCaGateway(cfg)
-    permit = gw.pvdb["Undulator:LaserPermit:OK"]
+    permit = gw.pvdb["undulator:laserpermit:ok"]
 
     await gw._make_callback(cfg.devices[0])({"Pressure": 1e-6})
     await gw._make_callback(cfg.devices[1])({"Ready": 1.0})
@@ -500,7 +500,7 @@ async def test_cross_device_source_disconnect_marks_dependent_derived_invalid() 
         ],
     )
     gw = GeecsCaGateway(cfg)
-    permit = gw.pvdb["Undulator:LaserPermit:OK"]
+    permit = gw.pvdb["undulator:laserpermit:ok"]
 
     await gw._make_callback(cfg.devices[0])({"Pressure": 1e-6})
     await gw._make_callback(cfg.devices[1])({"Ready": 1.0})
@@ -540,7 +540,7 @@ async def test_derived_expression_failure_marks_invalid_calc() -> None:
         ],
     )
     gw = GeecsCaGateway(cfg)
-    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    pressure = gw.pvdb["undulator:u_chambervac:pressure"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Analog Input 10": 2.0})
@@ -586,7 +586,7 @@ async def test_missing_derived_input_marks_invalid_udf() -> None:
         ],
     )
     gw = GeecsCaGateway(cfg)
-    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    pressure = gw.pvdb["undulator:u_chambervac:pressure"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Other Input": 5.0})
@@ -624,7 +624,7 @@ async def test_repeated_derived_failure_does_not_republish_invalid(monkeypatch) 
         ],
     )
     gw = GeecsCaGateway(cfg)
-    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    pressure = gw.pvdb["undulator:u_chambervac:pressure"]
     callback = gw._make_callback(cfg.devices[0])
     writes = 0
     original_write = pressure.write
@@ -677,7 +677,7 @@ async def test_derived_reconnect_clears_invalid_even_when_value_unchanged() -> N
     gw = GeecsCaGateway(cfg, reconnect_min_s=0.2, reconnect_max_s=0.4)
     await gw.connect()
     await gw.subscribe()
-    pressure = gw.pvdb["Undulator:U_ChamberVac:Pressure"]
+    pressure = gw.pvdb["undulator:u_chambervac:pressure"]
     try:
         assert await _wait_until(lambda: pressure.value == pytest.approx(1.0))
         assert int(pressure.severity) == int(AlarmSeverity.NO_ALARM)

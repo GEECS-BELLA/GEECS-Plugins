@@ -36,11 +36,11 @@ def test_pv_name_drops_falsy_parts_and_normalizes() -> None:
     part simply drops out of the ``:``-join — and ``:`` is applied only between
     components, never inside one.
     """
-    assert pv_name("", "U_S1H", "Current") == "U_S1H:Current"
-    assert pv_name(None, "U_S1H", "Current") == "U_S1H:Current"
+    assert pv_name("", "U_S1H", "Current") == "u_s1h:current"
+    assert pv_name(None, "U_S1H", "Current") == "u_s1h:current"
     assert (
         pv_name("Undulator", "U DG645", "Trigger.Source")
-        == "Undulator:U_DG645:Trigger_Source"
+        == "undulator:u_dg645:trigger_source"
     )
 
 
@@ -226,7 +226,7 @@ async def test_restart_pv_requests_clean_shutdown() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    restart = gw.pvdb["Undulator:CAGateway:RESTART"]
+    restart = gw.pvdb["undulator:cagateway:restart"]
 
     await restart.write("Idle")
     await restart.write(0)
@@ -237,5 +237,5 @@ async def test_restart_pv_requests_clean_shutdown() -> None:
 
     # index form works too (fresh gateway — the event latches)
     gw2 = GeecsCaGateway(cfg)
-    await gw2.pvdb["Undulator:CAGateway:RESTART"].write(1)
+    await gw2.pvdb["undulator:cagateway:restart"].write(1)
     assert gw2._restart_requested.is_set()

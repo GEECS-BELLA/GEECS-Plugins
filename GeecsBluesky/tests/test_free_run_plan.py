@@ -121,7 +121,7 @@ def test_free_run_scan_with_live_contributor() -> None:
         assert data["cam-shot_offset"] == 0
         assert data["cam-shot_id"] == data["ref-shot_id"]
         assert data["cam-val"] == 2.0
-        assert "async_snapshot-position__mm" in data
+        assert "async_snapshot-position_mm" in data
         assert "scan_motor-position" in data
     assert [ev["data"]["bin_number"] for ev in events] == [1, 1, 2, 2]
     assert [ev["data"]["shot_index_in_bin"] for ev in events] == [1, 2, 1, 2]

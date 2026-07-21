@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.17.2] - 2026-07-20
+
+### Changed
+
+- R7 device panel assembles `:SP` setpoint names via the naming contract's
+  `setpoint_pv` helper instead of hand-built `f"...:SP"` strings; no behavior
+  change beyond following the geecs-ca-gateway 0.14.0 lowercase PV contract
+  (every PV the console addresses is now lowercase, matching the deployed
+  gateway — operator-typed case in the R7 combo no longer matters).
+
 ## [0.17.1] - 2026-07-16
 
 ### Fixed
