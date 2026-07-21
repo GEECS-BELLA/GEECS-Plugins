@@ -859,7 +859,7 @@ class TestNowAndDevicePanel:
     def test_scan_number_expiry(self, window):
         window.set_scan_number(42)
         assert window.scan_number_label.text() == "Scan 042"
-        window._expire_scan_number()
+        window._now._expire_scan_number()
         assert window.scan_number_label.text() == "Scan 042 (previous)"
 
     def test_lifecycle_scan_number_drives_the_label(self, window):
@@ -870,7 +870,7 @@ class TestNowAndDevicePanel:
         assert window.scan_number_label.text() == before  # None -> untouched
         window.events.handle(ScanLifecycleEvent(state="running", scan_number=7))
         assert window.scan_number_label.text() == "Scan 007"
-        assert window._scan_number_timer.isActive()  # 10 s expiry armed
+        assert window._now._scan_number_timer.isActive()  # 10 s expiry armed
 
 
 class TestOpsMenu:

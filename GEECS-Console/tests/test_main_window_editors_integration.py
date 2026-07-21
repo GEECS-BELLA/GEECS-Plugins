@@ -262,13 +262,13 @@ class TestIdleScanNumber:
     def test_live_scan_number_is_never_clobbered(self, qtbot):
         window = make_window(qtbot, scan_number_lookup=lambda exp: 17)
         window.set_scan_number(5)  # live scan: starts the 10 s expiry timer
-        window._apply_idle_scan_number(("TestExp", 17))
+        window._now._apply_idle_scan_number(("TestExp", 17))
         assert window.scan_number_label.text() == "Scan 005"
 
     def test_stale_experiment_result_is_dropped(self, qtbot):
         window = make_window(qtbot, scan_number_lookup=lambda exp: None)
         qtbot.wait(50)
-        window._apply_idle_scan_number(("SomeOtherExp", 42))
+        window._now._apply_idle_scan_number(("SomeOtherExp", 42))
         assert window.scan_number_label.text() == "No scans today"
 
     def test_probe_never_touches_the_tree(self, qtbot, tmp_path):
