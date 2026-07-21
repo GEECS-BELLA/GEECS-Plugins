@@ -165,9 +165,14 @@ async def main():
     # geecs-ca-gateway >= 0.14.0 serves lowercase PV components (PV_CONTRACT.md
     # §1); older deployments serve mixed case. Probe new-contract names first,
     # fall back to the legacy ones — which contract answers doubles as a
-    # deployed-generation indicator during the transition.
+    # deployed-generation indicator during the transition. New-contract names
+    # come from the naming contract itself; only the legacy fallback needs
+    # literals (pre-0.14.0 normalize_component preserved case, so today's
+    # pv_name can no longer produce those names).
+    from geecs_ca_gateway.pv_naming import pv_name
+
     contracts = [
-        ("lowercase (>=0.14.0)", f"{experiment.lower()}:cagateway",
+        ("lowercase (>=0.14.0)", pv_name(experiment, "CAGateway"),
          {"heartbeat": "heartbeat", "connected": "devices_connected", "version": "version"}),
         ("legacy mixed-case (<0.14.0)", f"{experiment}:CAGateway",
          {"heartbeat": "HEARTBEAT", "connected": "DEVICES_CONNECTED", "version": "VERSION"}),
