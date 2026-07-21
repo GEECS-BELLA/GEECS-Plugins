@@ -4,6 +4,33 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.18.1] - 2026-07-20
+
+### Changed
+
+- Main-window slimming step 3 (issue #534): the Actions menu's contents,
+  plan-name fetch, arming switch, and dialog bookkeeping move to
+  `app/actions_menu.py::ActionsMenuController` (2,290 → 2,181 window
+  lines against a 273-line module).  The window keeps the composition,
+  the scan-lifecycle fan-out, and a thin test surface
+  (`enable_actions_action`, `_open_action_dialogs`).
+
+### Fixed
+
+- Plan-name fetches are deduplicated (one in flight per experiment):
+  startup fires the fetch twice back-to-back, and the two daemon
+  threads raced the lazy `geecs_bluesky` import inside the configs-root
+  resolution — a native-extension init that aborts the process when
+  raced (surfaced deterministically by the extraction's timing change;
+  latent before).  A failed fetch now also delivers an empty answer
+  instead of silently never clearing the in-flight tag.
+- Test hermeticity: windows built without an injected `action_store`
+  no longer reach the real configs repo (and the real user config) from
+  fetch threads — conftest neutralizes the default action store exactly
+  like the completions and idle-scan default seams.
+- Docstrings from 0.18.0 trimmed to present-tense constraints
+  (provenance lives in commits/PRs, not code).
+
 ## [0.18.0] - 2026-07-20
 
 ### Added

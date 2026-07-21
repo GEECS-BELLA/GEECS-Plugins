@@ -422,10 +422,9 @@ class TestPlanLifecycle:
     def test_discarded_phantom_leaves_no_ghost_on_a_canceled_prompt(self, qtbot, root):
         """New → Discard → cancel the name prompt must leave a coherent editor.
 
-        Pins the PR-#588 review finding: the discard hook must really
-        discard (list and widgets included), because New/Duplicate can
-        still bail out afterwards — a flag-only discard left a ghost row
-        that Save would happily persist.
+        The discard hook must really discard (list and widgets included),
+        because New/Duplicate can still bail out afterwards — a flag-only
+        discard leaves a ghost row that Save would happily persist.
         """
         editor = make_editor(qtbot, root)
         editor._prompt_name = lambda *args, **kwargs: "temp_plan"

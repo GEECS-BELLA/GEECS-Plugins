@@ -45,3 +45,24 @@ def _offline_window_defaults(monkeypatch):
         lambda experiment: EmptyCompletions(),
     )
     monkeypatch.setattr(main_window, "_idle_scan_lookup", lambda experiment: None)
+
+    class _OfflineActionStore:
+        """No-op stand-in for the default ``ActionLibraryStore``.
+
+        The real default's ``list_names`` resolves the configs repo —
+        reading the developer's actual user config and lazily importing
+        ``geecs_bluesky`` on a daemon thread per window construction.
+        Tests of the Actions menu inject their own store; every other
+        window must stay offline.
+        """
+
+        def __init__(self, experiment: str = "", experiments_root=None) -> None:
+            self.experiment = experiment
+
+        def set_experiment(self, experiment: str) -> None:
+            self.experiment = experiment
+
+        def list_names(self) -> list:
+            return []
+
+    monkeypatch.setattr(main_window, "ActionLibraryStore", _OfflineActionStore)

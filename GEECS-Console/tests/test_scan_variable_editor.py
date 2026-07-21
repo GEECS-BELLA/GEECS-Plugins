@@ -459,9 +459,9 @@ class TestDirtyRevertClose:
     def test_close_discard_prompts_exactly_once(self, qtbot, tmp_path):
         """QDialog routes a visible close through reject(); only reject prompts.
 
-        Pins the PR-#588 review finding: with both closeEvent and reject
-        prompting, a computed-dirty editor (draft ≠ snapshot survives the
-        discard) asked twice on Discard.
+        A closeEvent that prompted too would ask twice on Discard here:
+        this editor's dirty predicate is computed (draft ≠ snapshot), so
+        it survives the discard choice.
         """
         seed_catalog(tmp_path)
         editor = make_editor(qtbot, tmp_path)
