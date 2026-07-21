@@ -212,7 +212,7 @@ def setpoint_pv(experiment: str, device: str, variable: str) -> str:
     str
         The bare ``…:SP`` EPICS name.
     """
-    from geecs_ca_gateway.pv_naming import setpoint_pv as sp
+    from geecs_bluesky.devices.ca._pv import setpoint_pv as sp
 
     return sp(readback_pv(experiment, device, variable))
 

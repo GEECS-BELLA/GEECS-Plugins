@@ -5,6 +5,15 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-07-20
+
+### Changed
+
+- `derived_channels.py`: the output-PV example in the `device` field
+  description follows the geecs-ca-gateway 0.14.0 lowercase PV contract
+  (`undulator:u_chambervac:pressure`); `docs/geecs_schemas/schema_reference.md`
+  regenerated.
+
 ## [0.8.0] - 2026-07-10
 
 ### Changed

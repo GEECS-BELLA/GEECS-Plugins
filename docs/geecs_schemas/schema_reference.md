@@ -489,7 +489,7 @@ One read-only float PV computed from a numeric expression.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `device` | `str` | yes | — | Device component of the output PV, e.g. 'U_ChamberVac' for 'Undulator:U_ChamberVac:Pressure'. This may be semantic and does not need to be a real GEECS hardware device. |
+| `device` | `str` | yes | — | Device component of the output PV, e.g. 'U_ChamberVac' for 'undulator:u_chambervac:pressure'. This may be semantic and does not need to be a real GEECS hardware device. |
 | `variable` | `str` | yes | — | Variable component of the output PV, e.g. 'Pressure'. The gateway normalizes it using the same rules as raw GEECS variables. |
 | `expression` | `str` | yes | — | Numeric formula for the output value, using input symbols and the gateway's restricted arithmetic subset. Example: '10**(v - 5)'. |
 | `inputs` | `list[DerivedInput]` | yes | — | Input variables available to the expression. Inputs from one source device are frame-coherent; inputs spanning devices use latest-value semantics and require stale_after. |

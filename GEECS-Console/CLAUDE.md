@@ -96,7 +96,7 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 
 - **Health chips (R1)** are live via `GatewayTiledDbHealth` (real probe) or
   `StubHealth` (all-unknown offline/test default).  The real probe runs three
-  guarded checks — CA read of `{experiment}:CAGateway:HEARTBEAT` (OK; WARN
+  guarded checks — CA read of `{experiment}:cagateway:heartbeat` (OK; WARN
   when `DEVICES_CONNECTED == 0`; DOWN on failure; UNKNOWN with no experiment),
   HTTP GET of the `[tiled] uri`, and a cheap `GeecsDb` query — each with a
   short timeout; `poll()` **never raises** and lazily imports

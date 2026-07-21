@@ -52,8 +52,8 @@ Then the smoke tests from `DEPLOYMENT.md` §4 — from a *different* machine, so
 subnet scoping and firewalls are exercised:
 
 ```bash
-caproto-get Undulator:CAGateway:VERSION Undulator:CAGateway:DEVICES_CONNECTED
-caproto-monitor Undulator:CAGateway:HEARTBEAT    # ticks every 5 s
+caproto-get undulator:cagateway:version undulator:cagateway:devices_connected
+caproto-monitor undulator:cagateway:heartbeat    # ticks every 5 s
 ```
 
 ## Upgrade / resync with the GEECS DB
@@ -72,7 +72,7 @@ on the lab subnet (the unit's `RestartForceExitStatus=86` relaunches the
 service, which rebuilds its config from the DB):
 
 ```bash
-caproto-put Undulator:CAGateway:RESTART Restart
+caproto-put undulator:cagateway:restart Restart
 ```
 
 ## CA alarm limits table
@@ -89,14 +89,14 @@ mysql --host=<db-host> --user=<db-user> --password <db-name> \
 
 The table is optional from the gateway's perspective: if it is absent, startup
 continues with no curated value alarms. After editing rows in `ca_alarm_limits`,
-restart through the service or `Undulator:CAGateway:RESTART` so the gateway
+restart through the service or `undulator:cagateway:restart` so the gateway
 reloads the DB-backed config.
 
 To smoke-test one configured row, drive the readback into one of its alarm
 bands and read the PV with status metadata:
 
 ```bash
-caproto-get -a Undulator:U_S1H:Current
+caproto-get -a undulator:u_s1h:current
 ```
 
 For example, with `high=2.5`, `hihi=4.5`, and the default high severity of

@@ -91,7 +91,7 @@ class GatewayTiledDbHealth:
     ----------
     experiment : str, optional
         The selected experiment; used to build the prefixed gateway PV
-        (``{experiment}:CAGateway:HEARTBEAT``).  ``None`` (no experiment
+        (``{experiment}:cagateway:heartbeat``).  ``None`` (no experiment
         selected) leaves the gateway chip ``UNKNOWN`` — the prefixed PV
         cannot be built.  Mutable: set ``self.experiment`` (or call
         :meth:`set_experiment`) when the operator picks an experiment.
@@ -138,7 +138,7 @@ class GatewayTiledDbHealth:
         HealthStatus
             ``UNKNOWN`` when no experiment is selected (no prefixed PV can be
             built), ``OK`` when the heartbeat reads, ``WARN`` when it reads
-            but ``DEVICES_CONNECTED`` is 0, ``DOWN`` on any failure/timeout.
+            but ``devices_connected`` is 0, ``DOWN`` on any failure/timeout.
         """
         experiment = self.experiment
         if not experiment:

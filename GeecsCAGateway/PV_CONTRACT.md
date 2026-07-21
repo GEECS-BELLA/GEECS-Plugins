@@ -33,7 +33,8 @@ in `DEPLOYMENT.md`.
 Example: `undulator:u_s1h:current` and `undulator:u_s1h:current:SP`.
 
 Every name **component** is lowercase (see normalization below); the only
-uppercase in the PV namespace is the literal `:SP` setpoint suffix.
+uppercase in the PV namespace are the fixed structural literals — the `:SP`
+setpoint suffix and the `.DESC` description-field suffix.
 
 - `:` is the **reserved namespace separator**, applied only between components
   (`pv_naming.pv_name`). It never appears inside a component.

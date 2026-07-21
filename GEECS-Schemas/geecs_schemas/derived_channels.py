@@ -73,7 +73,7 @@ class DerivedChannel(SchemaModel):
     device: str = Field(
         description=(
             "Device component of the output PV, e.g. 'U_ChamberVac' for "
-            "'Undulator:U_ChamberVac:Pressure'. This may be semantic and does "
+            "'undulator:u_chambervac:pressure'. This may be semantic and does "
             "not need to be a real GEECS hardware device."
         )
     )

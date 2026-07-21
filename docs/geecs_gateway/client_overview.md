@@ -31,12 +31,13 @@ A PV name is the GEECS names joined by `:`, one component per level:
 ```
 [experiment:]device:variable          readback
 [experiment:]device:variable:SP       setpoint (only when the variable is settable)
-[Experiment:]Device:CONNECTED         per-device liveness
+[experiment:]device:connected         per-device liveness
 ```
 
 Example: `undulator:u_s1h:current` and its setpoint `undulator:u_s1h:current:SP`.
 Every name component is lowercase — any casing of a GEECS name resolves to
-the same PV; the only uppercase in the namespace is the literal `:SP` suffix.
+the same PV; the only uppercase in the namespace are the fixed structural
+literals `:SP` and `.DESC`.
 
 **Within a component**, only `[A-Za-z0-9_]` survive: dots, spaces, dashes,
 parentheses — any run of other characters — collapse to a single underscore
@@ -67,7 +68,7 @@ variables are served as char-array (long-string) PVs — read/write them with
 
 ## Liveness — the `CONNECTED` PV
 
-Every device has one `[Experiment:]Device:CONNECTED` PV: an enum
+Every device has one `[experiment:]device:connected` PV: an enum
 (`Disconnected` / `Connected`), `MAJOR_ALARM` while the device's TCP
 subscription is down. **Prefer it as the liveness signal** over inferring
 liveness from data — the gateway serves a device's data PVs whether or not the
