@@ -3,6 +3,27 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.14.2] - 2026-07-21
+
+### Changed
+
+- `DEPLOYMENT.md` §3 rewritten as a new-client onboarding recipe (docs only):
+  a task-vs-install table making explicit that PV access, displays, and Tiled
+  readback need nothing from GEECS-Plugins (the monorepo is only for
+  submitting scans); a "first contact" section connects with nothing but
+  `pip install caproto` +
+  `EPICS_CA_ADDR_LIST` (works over routed VPN — directed unicast name search),
+  with the off-subnet/beacon caveats moved up from §5; a new §3b covers
+  reading scans back from the Tiled catalog (`tiled[client]`, `[tiled]`
+  config.ini section, web UI at `/ui`, pointer to
+  `GeecsBluesky/TILED_SETUP.md`).
+- Removed the stale Scanner-GUI backend-toggle instructions
+  (`GEECS_USE_BLUESKY` / `GEECS_BLUESKY_ACQUISITION_MODE`): on `dev` the
+  Bluesky/CA path is the only engine and acquisition mode is declared per
+  scan in the `ScanRequest` — the section now points at GEECS-Console and
+  headless `GeecsSession.run(ScanRequest)` (`master` keeps the legacy
+  toggle).
+
 ## [0.14.1] - 2026-07-20
 
 ### Changed

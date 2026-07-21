@@ -190,11 +190,68 @@ Storage placement rules:
 
 ---
 
-## 3. Client-side recipe
+## 3. Client-side recipe — new-client onboarding
 
-Battle-tested on the Windows control machines (live sessions, 2026-07-06).
+Everything a fresh client machine (lab network or VPN) needs, in the order a
+new user wants it: raw PV access first, then the shared config file, then
+Tiled readback. Battle-tested on the Windows control machines and over
+routed VPN (live sessions since 2026-07-06).
 
-### Point CA clients at the gateway
+**A client needs nothing from GEECS-Plugins.** That is the whole point of
+the gateway: GEECS is consumed as standard EPICS PVs and standard Tiled
+HTTP, so the monorepo is only required on machines that *submit scans*:
+
+| Task | What you install | From this repo |
+|---|---|---|
+| Read / write PVs | any CA client — `pip install caproto`, pyepics, EPICS base `caget`, Phoebus | nothing |
+| Live displays | Phoebus (point `EPICS_CA_ADDR_LIST` at the gateway) | nothing |
+| Read scan data | `pip install "tiled[client]"` + the API key | nothing |
+| Submit scans | GEECS-Console / GeecsBluesky | repo checkout + poetry |
+
+### First contact — PVs with nothing but a CA client
+
+No repo checkout and no config file required; any Channel Access client
+works. The caproto CLI tools are the lightest install:
+
+```bash
+python -m venv ca && source ca/bin/activate
+pip install caproto
+
+export EPICS_CA_ADDR_LIST=192.168.6.14   # directed name search — routes over VPN
+export EPICS_CA_AUTO_ADDR_LIST=NO        # don't also broadcast on your local subnet
+
+caproto-get undulator:cagateway:version undulator:cagateway:uptime
+caproto-monitor undulator:cagateway:heartbeat   # ticks every 5 s; Ctrl-C to stop
+```
+
+```powershell
+# PowerShell equivalent (same shell that runs the client)
+$env:EPICS_CA_ADDR_LIST = "192.168.6.14"
+$env:EPICS_CA_AUTO_ADDR_LIST = "NO"
+caproto-get undulator:cagateway:version
+```
+
+If the heartbeat ticks, you are connected — continue with the §4 smoke tests
+to poke real device PVs.
+
+PV names are `experiment:device:variable` with every component lowercased
+from the GEECS names, and each settable variable additionally exposes
+`…:SP` for writes — the normative naming/typing/alarm contract is
+`PV_CONTRACT.md`. The served set is the experiment's `get='yes'` monitoring
+subset plus each device's settable control surface (§1), so a variable
+visible in GEECS Master Control is usually reachable here under its
+lowercased name.
+
+**Off-subnet (VPN) notes.** CA name search with an explicit address list is
+*directed unicast* UDP, which routes over VPN — this is why the recipe above
+works off-subnet. Server *beacons* ride UDP broadcast and do **not** cross
+routed paths, so a long-lived display (Phoebus) that was searching while the
+gateway was down can look stuck for minutes after the gateway returns;
+restart the display (§5). The Python stack issues fresh searches per polling
+cycle and recovers on its own. Keep `EPICS_CA_AUTO_ADDR_LIST=NO` — a
+broadcast on your home/VPN subnet finds nothing and is never what you want.
+
+### Point the Python stack at the gateway
 
 Preferred — the shared GEECS config file, so the gateway host lives with the
 other infrastructure addresses instead of in every shell:
@@ -216,25 +273,53 @@ loads — libca reads the env when its context is created): it sets
 as expected, and a stale export can silently shadow the config: check the env
 first when name resolution misbehaves.
 
-### Switch the Scanner GUI onto the Bluesky/CA backend
+### Running scans (dev branch)
 
-```powershell
-# PowerShell
-$env:GEECS_USE_BLUESKY = "1"                          # 1/true/yes/on → BlueskyScanner
-$env:GEECS_BLUESKY_ACQUISITION_MODE = "strict_shot_control"   # or free_run_time_sync
+The Scanner-GUI backend toggle formerly documented here
+(`GEECS_USE_BLUESKY`, `GEECS_BLUESKY_ACQUISITION_MODE`) is **gone on
+`dev`**: the Bluesky/CA path is the only engine, the legacy Scanner GUI is
+un-launchable, and acquisition mode is declared per scan in the
+`ScanRequest` itself (`acquisition: free_run | strict`) rather than by
+environment variable — a request declares intent. Scans are submitted from
+**GEECS-Console** (the PySide6 operator console) or headless via
+`geecs_bluesky.session.GeecsSession.run(ScanRequest)`. (`master` still carries the
+legacy scanner line and its env toggle.)
+
+### Tiled — reading scan data back
+
+Every Bluesky scan's documents (start/stop metadata plus the per-shot
+scalar event table) land in the Tiled catalog on the same host,
+`http://192.168.6.14:8000`. Client needs: `pip install "tiled[client]"`
+and the API key — ask the gateway operator; the key is deliberately not in
+this public repo.
+
+```ini
+# ~/.config/geecs_python_api/config.ini — the scanner reads this same section
+[tiled]
+uri = http://192.168.6.14:8000
+api_key = <ask>
 ```
 
-```bat
-:: cmd.exe — note: no quotes, no $env:
-set GEECS_USE_BLUESKY=1
-set GEECS_BLUESKY_ACQUISITION_MODE=strict_shot_control
+```python
+from tiled.client import from_uri
+
+c = from_uri("http://192.168.6.14:8000", api_key="<key>")
+run = c.values().last()        # most recent scan
+run.metadata["start"]          # scan number, device list, mode, applied defaults…
+df = run["primary"].read().to_dataframe().reset_index()   # per-shot scalar table
 ```
 
-Both variables must be set in the **same shell that launches the GUI**
-(PowerShell `$env:` and cmd `set` affect only that process tree, not the
-system). `GEECS_BLUESKY_ACQUISITION_MODE` defaults to strict; strict requires a
-reachable shot-control device with an `ARMED` state — use `free_run_time_sync`
-for free-running trigger acquisition.
+(`.read()` alone returns an xarray Dataset under the deployed Tiled's
+composite-container layout — the `.to_dataframe()` step is how the repo's
+own readers get the per-shot table.)
+
+A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
+(first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
+and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
+reference — the client recipe as well as server-side state and upgrade
+notes; if this quickstart and that file ever disagree, trust that file.
+The scan-shaped browsing workflow (day → Scan NNN → plot columns) is
+GEECS-Console's scan browser.
 
 ### Windows notes
 
@@ -272,9 +357,11 @@ for free-running trigger acquisition.
 
 ## 4. Smoke tests — "is it alive?"
 
-Copy-pasteable, using the caproto CLI tools that ship with the gateway's own
-environment (`poetry run` from `GeecsCAGateway/`; plain `caget`/`caput` from
-EPICS base work identically). Substitute your experiment/device.
+Copy-pasteable, using the caproto CLI tools. Run them from the gateway's own
+environment (`poetry run` from `GeecsCAGateway/`) or from any client venv
+with `caproto` installed (§3 first-contact recipe — drop the `poetry run`
+prefix); plain `caget`/`caput` from EPICS base work identically. Substitute
+your experiment/device.
 
 ```bash
 # 1. Gateway process up and serving? (heartbeat ticks every 5 s)
@@ -387,13 +474,10 @@ once), then `ls` the mountpoint — the listing should trigger the mount.
 After fixing, `systemctl restart geecs-ca-gateway` and confirm a derived
 PV answers.
 
-One client-side footnote for off-subnet operators (VPN/routed): CA's
-beacon mechanism — which tells clients to re-search PVs after a server
-restart — rides UDP broadcast and does not cross routed paths. Long-lived
-displays (Phoebus) that were searching while the gateway was down back
-off to very slow retries and can look stuck for minutes after the
-gateway returns; restart the display. On-subnet clients and the Python
-stack (fresh searches per polling cycle) recover on their own.
+One client-side footnote for off-subnet operators (VPN/routed): after a
+gateway restart, long-lived displays (Phoebus) can look stuck for minutes
+because CA beacons don't cross routed paths — restart the display. Details
+in §3's off-subnet notes.
 
 ### Log expectations
 
