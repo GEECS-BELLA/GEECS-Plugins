@@ -72,10 +72,10 @@ class SaveSetStore(NamedConfigStore):
         Raises
         ------
         SaveSetStoreError
-            A missing file, unparsable YAML, or a non-mapping document.
+            Unparsable YAML or a non-mapping document.  Callers resolve
+            *path* through ``_existing_path``, which owns the not-found
+            error.
         """
-        if not path.exists():
-            raise SaveSetStoreError(f"Save set {name!r} not found ({path}).")
         return self._read_mapping(
             path, describe=f"Save set {name!r}", mapping_hint=" of SaveSet fields"
         )
@@ -106,7 +106,7 @@ class SaveSetStore(NamedConfigStore):
             cannot round-trip without losing its inline actions — always
             with a message fit for the status bar.
         """
-        path = self._path(name)
+        path = self._existing_path(name)
         document = self._read_document(name, path)
         if "schema_version" in document:
             try:
