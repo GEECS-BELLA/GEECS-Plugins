@@ -282,7 +282,7 @@ un-launchable, and acquisition mode is declared per scan in the
 `ScanRequest` itself (`acquisition: free_run | strict`) rather than by
 environment variable — a request declares intent. Scans are submitted from
 **GEECS-Console** (the PySide6 operator console) or headless via
-`geecs_bluesky.GeecsSession.run(ScanRequest)`. (`master` still carries the
+`geecs_bluesky.session.GeecsSession.run(ScanRequest)`. (`master` still carries the
 legacy scanner line and its env toggle.)
 
 ### Tiled — reading scan data back
@@ -305,15 +305,21 @@ from tiled.client import from_uri
 
 c = from_uri("http://192.168.6.14:8000", api_key="<key>")
 run = c.values().last()        # most recent scan
-run.metadata["start"]          # scan number, device list, the ScanRequest…
-df = run["primary"].read()     # per-shot scalar table (pandas DataFrame)
+run.metadata["start"]          # scan number, device list, mode, applied defaults…
+df = run["primary"].read().to_dataframe().reset_index()   # per-shot scalar table
 ```
+
+(`.read()` alone returns an xarray Dataset under the deployed Tiled's
+composite-container layout — the `.to_dataframe()` step is how the repo's
+own readers get the per-shot table.)
 
 A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
 (first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
-and strips the URL). Server-side state and upgrade notes live in
-`GeecsBluesky/TILED_SETUP.md`; the scan-shaped browsing workflow (day →
-Scan NNN → plot columns) is GEECS-Console's scan browser.
+and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
+reference — the client recipe as well as server-side state and upgrade
+notes; if this quickstart and that file ever disagree, trust that file.
+The scan-shaped browsing workflow (day → Scan NNN → plot columns) is
+GEECS-Console's scan browser.
 
 ### Windows notes
 
