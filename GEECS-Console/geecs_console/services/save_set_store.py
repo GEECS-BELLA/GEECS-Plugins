@@ -20,23 +20,23 @@ instead of losing data.
 Offline-safety mirrors :class:`~geecs_console.services.presets.PresetStore`:
 listing degrades to empty with no configs root; ``load``/``save``/``delete``/
 ``rename`` raise :class:`SaveSetStoreError` with a status-bar-ready message.
-Creating the ``save_devices/`` directory with ``mkdir(parents=True,
-exist_ok=True)`` is deliberate and fine — this is a config directory in the
-configs repo, not a ``scans/ScanNNN/`` data folder, so the repo's scan-folder
-creation invariant does not apply.
+Directory creation and the scan-folder-invariant rationale live in
+:mod:`geecs_console.services.config_store`.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import ValidationError
 
-from geecs_console.services._experiment_name import check_experiment_name
-from geecs_console.services.configs import SAVE_SET_FOLDER, _configs_base
+from geecs_console.services.config_store import NamedConfigStore
+
+# The base resolves the configs root through this module's namespace, so
+# tests can monkeypatch ``save_set_store._configs_base``.
+from geecs_console.services.configs import SAVE_SET_FOLDER, _configs_base  # noqa: F401
 from geecs_schemas import SaveSet
 
 logger = logging.getLogger(__name__)
@@ -46,155 +46,13 @@ class SaveSetStoreError(RuntimeError):
     """A save-set operation cannot be carried out (surfaced in the status bar)."""
 
 
-class SaveSetStore:
-    """Load/save named save sets for one experiment.
+class SaveSetStore(NamedConfigStore):
+    """Load/save named save sets for one experiment."""
 
-    Parameters
-    ----------
-    experiment : str, optional
-        Experiment folder under ``scanner_configs/experiments``.  May be
-        empty at construction (before the operator picks one) — listing is
-        then empty and saving raises.
-    experiments_root : str or Path, optional
-        Override for the experiments root (tests point this at a tmp dir);
-        defaults to the production resolution
-        (:func:`geecs_bluesky.scanner_configs.scanner_configs_base`, resolved
-        lazily so the module stays import-safe offline).
-    """
-
-    def __init__(
-        self, experiment: str = "", experiments_root: str | Path | None = None
-    ) -> None:
-        self._experiment = experiment
-        self._experiments_root = (
-            Path(experiments_root) if experiments_root is not None else None
-        )
-
-    @property
-    def experiment(self) -> str:
-        """The experiment this store reads and writes save sets for."""
-        return self._experiment
-
-    def set_experiment(self, experiment: str) -> None:
-        """Switch the store to *experiment*.
-
-        Parameters
-        ----------
-        experiment : str
-            The new experiment folder name ("" for none selected).
-        """
-        self._experiment = experiment
-
-    # ------------------------------------------------------------------
-    # Folder resolution (mirrors PresetStore)
-    # ------------------------------------------------------------------
-
-    def _root(self) -> Optional[Path]:
-        """Return the experiments root, or ``None`` offline."""
-        if self._experiments_root is not None:
-            return self._experiments_root
-        return _configs_base()
-
-    def _folder(self) -> Optional[Path]:
-        """Return the experiment's save-set dir, or ``None`` offline/unselected.
-
-        Raises
-        ------
-        SaveSetStoreError
-            When the experiment name would escape the experiments root
-            (issue #513) — checked before any path join.
-        """
-        root = self._root()
-        if root is None or not self._experiment:
-            return None
-        check_experiment_name(self._experiment, SaveSetStoreError)
-        return root / self._experiment / SAVE_SET_FOLDER
-
-    def _folder_or_raise(self) -> Path:
-        """Return the save-set dir, raising a clear error when unresolvable.
-
-        Returns
-        -------
-        Path
-            ``<experiments root>/<experiment>/save_devices``.
-
-        Raises
-        ------
-        SaveSetStoreError
-            When the configs repo is not found, no experiment is selected,
-            or the experiment name would escape the experiments root.
-        """
-        root = self._root()
-        if root is None:
-            raise SaveSetStoreError(
-                "Configs repo not found — set GEECS_SCANNER_CONFIG_DIR or "
-                "config.ini [Paths] scanner_config_root_path."
-            )
-        if not self._experiment:
-            raise SaveSetStoreError("No experiment selected.")
-        check_experiment_name(self._experiment, SaveSetStoreError)
-        return root / self._experiment / SAVE_SET_FOLDER
-
-    def _path(self, name: str) -> Path:
-        """Return the YAML path for save set *name*, validating the name.
-
-        Parameters
-        ----------
-        name : str
-            The save-set name (the file stem — no path separators).
-
-        Returns
-        -------
-        Path
-            ``<save_devices dir>/<name>.yaml`` (an existing ``.yml`` twin is
-            preferred when the ``.yaml`` spelling is absent).
-
-        Raises
-        ------
-        SaveSetStoreError
-            On an empty name or one that would escape the save-set dir.
-        """
-        cleaned = name.strip()
-        if not cleaned:
-            raise SaveSetStoreError("Save set name must not be empty.")
-        if any(sep in cleaned for sep in ("/", "\\")) or cleaned in (".", ".."):
-            raise SaveSetStoreError(
-                f"Save set name {name!r} must be a plain file name "
-                "(no path separators)."
-            )
-        folder = self._folder_or_raise()
-        path = folder / f"{cleaned}.yaml"
-        if not path.exists():
-            twin = folder / f"{cleaned}.yml"
-            if twin.exists():
-                return twin
-        return path
-
-    # ------------------------------------------------------------------
-    # The store surface
-    # ------------------------------------------------------------------
-
-    def list_names(self) -> list[str]:
-        """List the saved save-set names, sorted.
-
-        Returns
-        -------
-        list of str
-            YAML file stems in the ``save_devices`` dir — empty when the
-            configs repo, experiment folder, or save-set dir is missing.
-
-        Raises
-        ------
-        SaveSetStoreError
-            When the experiment name would escape the experiments root
-            (issue #513); a merely *missing* folder is not an error.
-        """
-        folder = self._folder()
-        if folder is None or not folder.is_dir():
-            return []
-        return sorted(
-            path.stem for path in folder.iterdir() if path.suffix in (".yaml", ".yml")
-        )
+    FOLDER = SAVE_SET_FOLDER
+    NOUN = "Save set"
+    LABEL = "Save set"
+    ERROR = SaveSetStoreError
 
     def _read_document(self, name: str, path: Path) -> dict:
         """Read one YAML mapping, with status-bar-ready errors.
@@ -218,18 +76,9 @@ class SaveSetStore:
         """
         if not path.exists():
             raise SaveSetStoreError(f"Save set {name!r} not found ({path}).")
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            raise SaveSetStoreError(
-                f"Save set {name!r} is not valid YAML ({path}): {exc}"
-            ) from exc
-        if not isinstance(document, dict):
-            raise SaveSetStoreError(
-                f"Save set {name!r} ({path}) should be a YAML mapping of "
-                f"SaveSet fields, got {type(document).__name__}."
-            )
-        return document
+        return self._read_mapping(
+            path, describe=f"Save set {name!r}", mapping_hint=" of SaveSet fields"
+        )
 
     def load(self, name: str) -> SaveSet:
         """Load save set *name* as a validated :class:`SaveSet`.
@@ -342,45 +191,11 @@ class SaveSetStore:
             OS-level write failure.
         """
         path = self._path(name)
-        # A config dir, not a scans/ScanNNN/ data folder — parents=True is
-        # explicitly fine here (the scan-folder invariant does not apply).
-        path.parent.mkdir(parents=True, exist_ok=True)
-        document = yaml.safe_dump(
-            save_set.model_dump(mode="json"), sort_keys=False, allow_unicode=True
+        self._write_document(
+            path, save_set.model_dump(mode="json"), f"save set {name!r}"
         )
-        try:
-            path.write_text(document, encoding="utf-8")
-        except OSError as exc:
-            raise SaveSetStoreError(
-                f"Could not write save set {name!r}: {exc}"
-            ) from exc
         logger.info("saved save set %r to %s", name, path)
         return path
-
-    def delete(self, name: str) -> None:
-        """Delete save set *name*.
-
-        Parameters
-        ----------
-        name : str
-            The save-set name (file stem).
-
-        Raises
-        ------
-        SaveSetStoreError
-            Missing configs repo / experiment, a bad name, a save set that
-            does not exist, or an OS-level delete failure.
-        """
-        path = self._path(name)
-        if not path.exists():
-            raise SaveSetStoreError(f"Save set {name!r} not found ({path}).")
-        try:
-            path.unlink()
-        except OSError as exc:
-            raise SaveSetStoreError(
-                f"Could not delete save set {name!r}: {exc}"
-            ) from exc
-        logger.info("deleted save set %r (%s)", name, path)
 
     def rename(self, old: str, new: str) -> Path:
         """Rename save set *old* to *new*, keeping the document's ``name`` in step.
@@ -408,9 +223,7 @@ class SaveSetStore:
             does not exist, a target that already exists, or an OS-level
             failure.
         """
-        source = self._path(old)
-        if not source.exists():
-            raise SaveSetStoreError(f"Save set {old!r} not found ({source}).")
+        source = self._existing_path(old)
         target = self._path(new)
         if target.exists():
             raise SaveSetStoreError(

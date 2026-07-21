@@ -18,10 +18,8 @@ listing degrades to empty with no configs root; ``load``/``save``/``delete``/
 ``rename`` raise :class:`ActionLibraryStoreError` with a message fit for
 inline display.  The schema's library validator rejects dangling ``run``
 references, so this store pre-checks deletes and saves and raises the
-clearer message itself.  Creating the ``action_library/`` directory with
-``mkdir(parents=True, exist_ok=True)`` is deliberate and fine — this is a
-config directory in the configs repo, not a ``scans/ScanNNN/`` data folder,
-so the repo's scan-folder creation invariant does not apply.
+clearer message itself.  Directory creation and the scan-folder-invariant
+rationale live in :mod:`geecs_console.services.config_store`.
 
 This module is **editing only** — it never executes a plan and never touches
 Channel Access or hardware.
@@ -33,11 +31,13 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import yaml
 from pydantic import ValidationError
 
-from geecs_console.services._experiment_name import check_experiment_name
-from geecs_console.services.configs import _configs_base
+from geecs_console.services.config_store import ExperimentConfigStore
+
+# The base resolves the configs root through this module's namespace, so
+# tests can monkeypatch ``action_library_store._configs_base``.
+from geecs_console.services.configs import _configs_base  # noqa: F401
 from geecs_schemas import ActionPlan, ActionPlanLibrary
 from geecs_schemas.convert import SchemaConversionError, convert_action_library
 
@@ -45,6 +45,11 @@ logger = logging.getLogger(__name__)
 
 ACTION_FOLDER = "action_library"
 LIBRARY_FILE = "actions.yaml"
+
+# Identity sentinel for _read_mapping's empty_as: distinguishes an all-empty
+# YAML document (safe_load returns None → empty library) from a literal
+# ``{}`` mapping, which must still flow through the legacy converter.
+_EMPTY_DOCUMENT: dict = {}
 
 
 class ActionLibraryStoreError(RuntimeError):
@@ -73,44 +78,11 @@ def referencing_plans(library: ActionPlanLibrary, name: str) -> list[str]:
     )
 
 
-class ActionLibraryStore:
-    """Load/save named action plans for one experiment's library file.
+class ActionLibraryStore(ExperimentConfigStore):
+    """Load/save named action plans for one experiment's library file."""
 
-    Parameters
-    ----------
-    experiment : str, optional
-        Experiment folder under ``scanner_configs/experiments``.  May be
-        empty at construction (before the operator picks one) — listing is
-        then empty and saving raises.
-    experiments_root : str or Path, optional
-        Override for the experiments root (tests point this at a tmp dir);
-        defaults to the production resolution
-        (:func:`geecs_bluesky.scanner_configs.scanner_configs_base`,
-        resolved lazily so the module stays import-safe offline).
-    """
-
-    def __init__(
-        self, experiment: str = "", experiments_root: str | Path | None = None
-    ) -> None:
-        self._experiment = experiment
-        self._experiments_root = (
-            Path(experiments_root) if experiments_root is not None else None
-        )
-
-    @property
-    def experiment(self) -> str:
-        """The experiment this store reads and writes action plans for."""
-        return self._experiment
-
-    def set_experiment(self, experiment: str) -> None:
-        """Switch the store to *experiment*.
-
-        Parameters
-        ----------
-        experiment : str
-            The new experiment folder name ("" for none selected).
-        """
-        self._experiment = experiment
+    FOLDER = ACTION_FOLDER
+    ERROR = ActionLibraryStoreError
 
     # ------------------------------------------------------------------
     # Path resolution
@@ -122,16 +94,11 @@ class ActionLibraryStore:
         Raises
         ------
         ActionLibraryStoreError
-            When the experiment name would escape the experiments root
-            (issue #513) — checked before any path join.
+            When the experiment name would escape the experiments root —
+            checked before any path join.
         """
-        root = self._experiments_root
-        if root is None:
-            root = _configs_base()
-        if root is None or not self._experiment:
-            return None
-        check_experiment_name(self._experiment, ActionLibraryStoreError)
-        return root / self._experiment / ACTION_FOLDER / LIBRARY_FILE
+        folder = self._folder()
+        return None if folder is None else folder / LIBRARY_FILE
 
     def _library_path_or_raise(self) -> Path:
         """Return the library file path, raising a clear error when unresolvable.
@@ -147,18 +114,7 @@ class ActionLibraryStore:
             When the configs repo is not found, no experiment is selected,
             or the experiment name would escape the experiments root.
         """
-        root = self._experiments_root
-        if root is None:
-            root = _configs_base()
-        if root is None:
-            raise ActionLibraryStoreError(
-                "Configs repo not found — set GEECS_SCANNER_CONFIG_DIR or "
-                "config.ini [Paths] scanner_config_root_path."
-            )
-        if not self._experiment:
-            raise ActionLibraryStoreError("No experiment selected.")
-        check_experiment_name(self._experiment, ActionLibraryStoreError)
-        return root / self._experiment / ACTION_FOLDER / LIBRARY_FILE
+        return self._folder_or_raise() / LIBRARY_FILE
 
     @staticmethod
     def _validate_name(name: str) -> str:
@@ -216,19 +172,11 @@ class ActionLibraryStore:
         path = self._library_path_or_raise()
         if not path.exists():
             return ActionPlanLibrary(plans={})
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            raise ActionLibraryStoreError(
-                f"Action library is not valid YAML ({path}): {exc}"
-            ) from exc
-        if document is None:
+        document = self._read_mapping(
+            path, describe="Action library", empty_as=_EMPTY_DOCUMENT
+        )
+        if document is _EMPTY_DOCUMENT:
             return ActionPlanLibrary(plans={})
-        if not isinstance(document, dict):
-            raise ActionLibraryStoreError(
-                f"Action library ({path}) should be a YAML mapping, got "
-                f"{type(document).__name__}."
-            )
         if "schema_version" in document:
             try:
                 return ActionPlanLibrary.model_validate(document)
@@ -263,18 +211,9 @@ class ActionLibraryStore:
             Missing configs repo / experiment, or an OS-level write failure.
         """
         path = self._library_path_or_raise()
-        # A config dir, not a scans/ScanNNN/ data folder — parents=True is
-        # explicitly fine here (the scan-folder invariant does not apply).
-        path.parent.mkdir(parents=True, exist_ok=True)
-        document = yaml.safe_dump(
-            library.model_dump(mode="json"), sort_keys=False, allow_unicode=True
+        self._write_document(
+            path, library.model_dump(mode="json"), "the action library"
         )
-        try:
-            path.write_text(document, encoding="utf-8")
-        except OSError as exc:
-            raise ActionLibraryStoreError(
-                f"Could not write the action library: {exc}"
-            ) from exc
         logger.info("saved action library (%d plans) to %s", len(library.plans), path)
         return path
 

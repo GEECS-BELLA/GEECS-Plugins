@@ -4,6 +4,24 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.18.3] - 2026-07-20
+
+### Changed
+
+- Shared persistence base for the five per-experiment config stores
+  (issue #532): `services/config_store.py` — `ExperimentConfigStore`
+  (experiment selection, configs-root/folder resolution, the
+  experiment-name guard, YAML read/write with status-bar-ready errors;
+  all five stores) and `NamedConfigStore` (name validation, `.yml` twin
+  fallback, sorted listing, delete; the preset/save-set/trigger-profile
+  file-per-name trio).  Net −354 lines (842 duplicated removed against a
+  376-line base); every class name, error class, constant, signature,
+  and rendered message is unchanged, and the store test suites pass
+  unmodified.  The scan-folder-invariant rationale for config-dir
+  creation now lives in exactly one place (was restated ~10× across the
+  five modules); `configs._yaml_stems` delegates to the shared
+  `yaml_stems` (it was a fourth copy of the listing body).
+
 ## [0.18.2] - 2026-07-20
 
 ### Changed
