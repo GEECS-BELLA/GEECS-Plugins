@@ -23,7 +23,11 @@ semantic.
   resolution — a native-extension init that aborts the process when
   raced (surfaced deterministically by the extraction's timing change;
   latent before).  A failed fetch now also delivers an empty answer
-  instead of silently never clearing the in-flight tag.
+  instead of silently never clearing the in-flight tag — which also
+  changes one visible failure mode for the better: a fetch that raises
+  past the store's own error handling (e.g. an SMB read error) now
+  renders "(no actions)" instead of silently keeping the *previous*
+  experiment's plan names in the menu.
 - Test hermeticity: windows built without an injected `action_store`
   no longer reach the real configs repo (and the real user config) from
   fetch threads — conftest neutralizes the default action store exactly

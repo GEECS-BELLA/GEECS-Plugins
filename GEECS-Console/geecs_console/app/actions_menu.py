@@ -95,14 +95,16 @@ class ActionsMenuController(QObject):
         self._worker.result_ready.connect(
             self._apply_action_names, Qt.ConnectionType.QueuedConnection
         )
-        #: Experiment tag of an in-flight fetch, or None.  One fetch at a
-        #: time: startup can request twice back-to-back (the restored
+        #: Experiment tag of an in-flight fetch, or None.  One fetch per
+        #: *experiment*: startup requests twice back-to-back (the restored
         #: experiment fires the experiment-changed path just before the
         #: explicit construction-time call), and two concurrent fetch
         #: threads race the lazy ``geecs_bluesky`` import inside the
         #: store's configs-root resolution — a native-extension init that
-        #: aborts the process when raced.  Dedup also spares the configs
-        #: mount a redundant YAML parse.
+        #: aborts the process when raced.  An experiment *switch* while a
+        #: fetch is in flight still spawns a second thread (human-timescale
+        #: rare, and only the very first import is race-prone); dedup also
+        #: spares the configs mount a redundant YAML parse.
         self._fetch_inflight: Optional[str] = None
         self._set_action_names([])
 

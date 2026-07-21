@@ -310,9 +310,15 @@ class MainWindow(QMainWindow):
         # R7 device:variable completions, the R6 idle scan-number peek, and
         # the Actions-menu plan names.  Restoring the last experiment already
         # fired the experiment-changed path (which starts all three); these
-        # cover the explicit-experiment and no-experiment startups.  Stale
-        # results are dropped by experiment tag, so a duplicate fetch is
-        # harmless.
+        # cover the explicit-experiment and no-experiment startups.  A
+        # duplicate fetch is *result*-safe (stale results are dropped by
+        # experiment tag) but NOT thread-safe in general: two concurrent
+        # fetch threads can race the lazy first import of a native chain
+        # (geecs_bluesky's EPICS init aborts the process when raced — hence
+        # the actions controller's one-in-flight dedupe).  The completions
+        # and idle-scan pairs still double-spawn and share the hazard shape
+        # (mysql-connector / pandas chains); dedupe them the same way if
+        # this ever bites.
         self._start_device_completions_fetch()
         self._start_idle_scan_probe()
         self._actions.start_fetch()
