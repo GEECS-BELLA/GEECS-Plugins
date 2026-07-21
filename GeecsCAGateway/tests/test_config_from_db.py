@@ -179,12 +179,12 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     # __init__ only builds the pvdb — no network until connect() is called.
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
-    current = gw.pvdb["U_S1H:Current"]
+    current = gw.pvdb["u_s1h:current"]
     # display (informational) limits, not enforced control limits
     assert current.upper_disp_limit == 5.0
     assert current.lower_disp_limit == -5.0
     assert current.units == "A"
-    assert "U_S1H:Current:SP" in gw.pvdb  # settable -> setpoint exists
+    assert "u_s1h:current:SP" in gw.pvdb  # settable -> setpoint exists
 
 
 def test_from_db_metadata_dedupes_duplicate_variables() -> None:
@@ -211,7 +211,7 @@ def test_from_db_metadata_dedupes_duplicate_variables() -> None:
     assert len(spec.variables) == 1  # deduped
     # and building the gateway does not raise a spurious collision
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
-    assert "Undulator:U_GhostFilters:Transmission_Channel11_Pos1" in gw.pvdb
+    assert "undulator:u_ghostfilters:transmission_channel11_pos1" in gw.pvdb
 
 
 def test_from_db_metadata_maps_variable_types() -> None:
@@ -422,7 +422,7 @@ def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
     assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current"}
     assert {v.geecs_var for v in by_name["U_B"].variables} == {"Current", "Voltage"}
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_B:Voltage" in gw.pvdb
+    assert "undulator:u_b:voltage" in gw.pvdb
 
 
 def test_from_geecs_experiment_keeps_settable_only_devices(monkeypatch) -> None:
@@ -448,7 +448,7 @@ def test_from_geecs_experiment_keeps_settable_only_devices(monkeypatch) -> None:
     # control surface survives: only the settable variable, not the readback set
     assert {v.geecs_var for v in by_name["U_CTRL"].variables} == {"save"}
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_CTRL:save:SP" in gw.pvdb
+    assert "undulator:u_ctrl:save:SP" in gw.pvdb
     # a device exposing nothing at all is dropped (no pointless connections)
     assert "U_IDLE" not in by_name
     # --no-settable restores the strict get-list behavior

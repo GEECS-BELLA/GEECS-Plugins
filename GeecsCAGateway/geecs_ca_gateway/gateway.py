@@ -46,7 +46,7 @@ from .channels import (
 )
 from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
-from .pv_naming import pv_name
+from .pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,7 @@ class GeecsCaGateway:
                     )
 
                 if var.settable:
-                    sp_name = f"{full}:SP"
+                    sp_name = setpoint_pv(full)
                     if self._register(sp_name, dev.name, var.geecs_var, "setpoint"):
                         setter = self._make_setter(dev.name, var.geecs_var)
                         self.pvdb[sp_name] = make_setpoint_channel(var, setter)

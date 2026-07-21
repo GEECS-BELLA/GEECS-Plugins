@@ -88,14 +88,14 @@ class TestPvNames:
         # bare_pv strips the ca:// scheme raw aioca must never see.
         assert (
             readback_pv("HTU", "U_Hexapod", "Position.Axis 1")
-            == "HTU:U_Hexapod:Position_Axis_1"
+            == "htu:u_hexapod:position_axis_1"
         )
 
     def test_empty_experiment_drops_out(self):
-        assert readback_pv("", "Dev", "Var") == "Dev:Var"
+        assert readback_pv("", "Dev", "Var") == "dev:var"
 
     def test_setpoint_pv_appends_sp(self):
-        assert setpoint_pv("HTU", "Dev", "Var") == "HTU:Dev:Var:SP"
+        assert setpoint_pv("HTU", "Dev", "Var") == "htu:dev:var:SP"
 
 
 # ----------------------------------------------------------------------
@@ -172,7 +172,7 @@ class TestGatewayDevicePanel:
         panel = GatewayDevicePanel()
         panel.subscribe("HTU", "U_Hexapod", "ypos", lambda value: None)
         assert wait_for(lambda: len(fake_aioca.subscriptions) == 1)
-        assert fake_aioca.subscriptions[0].pv == "HTU:U_Hexapod:ypos"
+        assert fake_aioca.subscriptions[0].pv == "htu:u_hexapod:ypos"
         panel.unsubscribe()
 
     def test_monitor_values_reach_on_value(self, fake_aioca):
@@ -191,7 +191,7 @@ class TestGatewayDevicePanel:
         panel.subscribe("HTU", "Dev2", "Var2", lambda value: None)
         assert wait_for(lambda: len(fake_aioca.subscriptions) == 2)
         assert wait_for(lambda: fake_aioca.subscriptions[0].closed)
-        assert fake_aioca.subscriptions[1].pv == "HTU:Dev2:Var2"
+        assert fake_aioca.subscriptions[1].pv == "htu:dev2:var2"
         panel.unsubscribe()
         assert wait_for(lambda: fake_aioca.subscriptions[1].closed)
 
@@ -221,13 +221,13 @@ class TestGatewayDevicePanel:
     def test_set_puts_wire_value_to_bare_sp_pv(self, fake_aioca):
         panel = GatewayDevicePanel()
         panel.set("HTU", "Dev", "Position.Axis 1", 2.5)
-        assert fake_aioca.puts == [("HTU:Dev:Position_Axis_1:SP", 2.5, True, 10.0)]
+        assert fake_aioca.puts == [("htu:dev:position_axis_1:SP", 2.5, True, 10.0)]
 
     def test_set_string_value_goes_as_wire_string(self, fake_aioca):
         panel = GatewayDevicePanel()
         panel.set("", "Dev", "Trigger.Source", "Single shot")
         (pv, value, wait, _timeout) = fake_aioca.puts[0]
-        assert pv == "Dev:Trigger_Source:SP"
+        assert pv == "dev:trigger_source:SP"
         assert value == "Single shot"
         assert wait is True
 

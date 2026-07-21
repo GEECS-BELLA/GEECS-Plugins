@@ -42,15 +42,15 @@ from geecs_ca_gateway.pv_naming import normalize_component, pv_name  # noqa: E40
 
 def test_pv_name_policy() -> None:
     """Experiment prefix, dot-escaping, and space collapsing match the gateway."""
-    assert pv_name("Undulator", "U_S1H", "Current") == "Undulator:U_S1H:Current"
-    assert pv_name(None, "U_DG645", "Trigger.Source") == "U_DG645:Trigger_Source"
-    assert normalize_component("Beam Current (A)") == "Beam_Current_A"
+    assert pv_name("Undulator", "U_S1H", "Current") == "undulator:u_s1h:current"
+    assert pv_name(None, "U_DG645", "Trigger.Source") == "u_dg645:trigger_source"
+    assert normalize_component("Beam Current (A)") == "beam_current_a"
 
 
 def test_ca_pv_pins_the_transport_on_gateway_names() -> None:
     """ca_pv is pv_name with the explicit CA transport scheme prepended."""
-    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://Undulator:U_S1H:Current"
-    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://U_DG645:Trigger_Source"
+    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://undulator:u_s1h:current"
+    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://u_dg645:trigger_source"
 
 
 # --------------------------------------------------------------------------
@@ -108,7 +108,7 @@ async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
         assert "ca://" in signal.source, signal.source
         assert signal.source.count("ca://") == 1, signal.source
     # Write PVs (":SP") pin the transport too, not just readbacks.
-    assert settable._setpoint.source.endswith("ca://Undulator:U_S1H:Current:SP")
+    assert settable._setpoint.source.endswith("ca://undulator:u_s1h:current:SP")
 
 
 async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
@@ -122,7 +122,7 @@ async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
     assert set(desc) == {"amp-centroidx", "amp-acq_timestamp"}
     assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
     assert desc["amp-centroidx"]["source"] == (
-        "mock+ca://Undulator:UC_Amp2_IR_input:centroidx"
+        "mock+ca://undulator:uc_amp2_ir_input:centroidx"
     )
     # Exporter column headers keep the legacy "Device Variable" form.
     assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
@@ -142,7 +142,7 @@ async def test_readable_reads_value() -> None:
     set_mock_value(dev.centroidx, 42.0)
     reading = await dev.read()
     assert reading["amp-centroidx"]["value"] == 42.0
-    assert dev.centroidx.source.endswith("Undulator:UC_Amp2_IR_input:centroidx")
+    assert dev.centroidx.source.endswith("undulator:uc_amp2_ir_input:centroidx")
 
 
 async def test_readable_multiple_variables() -> None:
@@ -169,8 +169,8 @@ async def test_settable_forwards_put_to_setpoint() -> None:
     put = get_mock_put(dev._setpoint)
     put.assert_called_once()
     assert put.call_args.args[0] == 0.5
-    assert dev._setpoint.source.endswith("Undulator:U_S1H:Current:SP")
-    assert dev.readback.source.endswith("Undulator:U_S1H:Current")
+    assert dev._setpoint.source.endswith("undulator:u_s1h:current:SP")
+    assert dev.readback.source.endswith("undulator:u_s1h:current")
 
 
 async def test_settable_readback_is_the_reading() -> None:
@@ -198,7 +198,7 @@ async def test_motor_set_completes_on_arrival() -> None:
     put = get_mock_put(motor._setpoint)
     put.assert_called_once()
     assert put.call_args.args[0] == 4.5
-    assert motor._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+    assert motor._setpoint.source.endswith("undulator:u_esp_jetxyz:position_axis_1:SP")
     reading = await motor.read()
     assert reading["jet-position"]["value"] == 4.5
 
@@ -242,10 +242,10 @@ async def test_confirm_writes_target_variable_reads_confirm_variable() -> None:
     device = _emq_confirm_device()
     await device.connect(mock=True)
     assert device._setpoint.source.endswith(
-        "Undulator:U_EMQTripletBipolar:Current_Limit_Ch1:SP"
+        "undulator:u_emqtripletbipolar:current_limit_ch1:SP"
     )
     assert device._confirm_readback.source.endswith(
-        "Undulator:U_EMQTripletBipolar:Current_Ch1"
+        "undulator:u_emqtripletbipolar:current_ch1"
     )
 
 
@@ -522,9 +522,9 @@ async def test_generic_detector_save_controls_over_ca() -> None:
     await det.connect(mock=True)
 
     assert det.localsavingpath.source.endswith(
-        "Undulator:UC_Amp2_IR_input:localsavingpath"
+        "undulator:uc_amp2_ir_input:localsavingpath"
     )
-    assert det.save.source.endswith("Undulator:UC_Amp2_IR_input:save")
+    assert det.save.source.endswith("undulator:uc_amp2_ir_input:save")
     await det.save.set("on")
     put = get_mock_put(det.save)
     put.assert_called_once()
@@ -656,7 +656,7 @@ async def test_snapshot_reads_latest_values() -> None:
     reading = await snap.read()
     assert reading["s1h-current"]["value"] == 0.5
     assert set(reading) == {"s1h-current", "s1h-voltage"}
-    assert snap.current.source.endswith("Undulator:U_S1H:Current")
+    assert snap.current.source.endswith("undulator:u_s1h:current")
 
 
 # --------------------------------------------------------------------------

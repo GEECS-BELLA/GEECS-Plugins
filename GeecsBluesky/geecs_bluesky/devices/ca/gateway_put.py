@@ -57,8 +57,8 @@ def bare_pv(pv: str) -> str:
     Parameters
     ----------
     pv : str
-        A gateway PV name, bare (``Expt:Dev:Var:SP``) or in the ophyd
-        signal-URI form (``ca://Expt:Dev:Var:SP``).
+        A gateway PV name, bare (``expt:dev:var:SP``) or in the ophyd
+        signal-URI form (``ca://expt:dev:var:SP``).
 
     Returns
     -------

@@ -29,20 +29,23 @@ as the source of truth if anything here and there ever disagree.
 A PV name is the GEECS names joined by `:`, one component per level:
 
 ```
-[Experiment:]Device:Variable          readback
-[Experiment:]Device:Variable:SP       setpoint (only when the variable is settable)
-[Experiment:]Device:CONNECTED         per-device liveness
+[experiment:]device:variable          readback
+[experiment:]device:variable:SP       setpoint (only when the variable is settable)
+[experiment:]device:connected         per-device liveness
 ```
 
-Example: `Undulator:U_S1H:Current` and its setpoint `Undulator:U_S1H:Current:SP`.
+Example: `undulator:u_s1h:current` and its setpoint `undulator:u_s1h:current:SP`.
+Every name component is lowercase — any casing of a GEECS name resolves to
+the same PV; the only uppercase in the namespace are the fixed structural
+literals `:SP` and `.DESC`.
 
 **Within a component**, only `[A-Za-z0-9_]` survive: dots, spaces, dashes,
 parentheses — any run of other characters — collapse to a single underscore
-(`Trigger.Source` → `Trigger_Source`, `Jet X pos` → `Jet_X_pos`). The dot
+(`Trigger.Source` → `trigger_source`, `Jet X pos` → `jet_x_pos`). The dot
 collapse matters because EPICS reads `.` as the record/field separator.
 
 The mapping is **lossy** — `Trigger.Source` and `Trigger Source` both normalize
-to `Trigger_Source` — so never reverse-engineer a GEECS name from a PV string.
+to `trigger_source` — so never reverse-engineer a GEECS name from a PV string.
 The gateway holds the authoritative reverse map (`PV → (device, variable,
 kind)`) in its manifest, and a genuine collision is a startup error, never a
 silent clobber.
@@ -65,7 +68,7 @@ variables are served as char-array (long-string) PVs — read/write them with
 
 ## Liveness — the `CONNECTED` PV
 
-Every device has one `[Experiment:]Device:CONNECTED` PV: an enum
+Every device has one `[experiment:]device:connected` PV: an enum
 (`Disconnected` / `Connected`), `MAJOR_ALARM` while the device's TCP
 subscription is down. **Prefer it as the liveness signal** over inferring
 liveness from data — the gateway serves a device's data PVs whether or not the

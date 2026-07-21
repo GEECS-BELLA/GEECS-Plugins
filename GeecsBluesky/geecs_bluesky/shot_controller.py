@@ -24,7 +24,7 @@ from geecs_bluesky.models.shot_control import (
     ShotControlWrites,
 )
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_ca_gateway.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
 
@@ -106,7 +106,8 @@ class ShotController:
         # gateway_put.bare_pv (issue #490).
         setters = {
             var: CaPutSetter(
-                f"{pv_name(experiment, config.device, var)}:SP", timeout=put_timeout
+                setpoint_pv(pv_name(experiment, config.device, var)),
+                timeout=put_timeout,
             )
             for var in config.variables
         }
@@ -148,7 +149,7 @@ class ShotController:
         """
         factory = setter_factory or (
             lambda device, variable: CaPutSetter(
-                f"{pv_name(experiment, device, variable)}:SP", timeout=put_timeout
+                setpoint_pv(pv_name(experiment, device, variable)), timeout=put_timeout
             )
         )
         setters: dict[tuple[str, str], Any] = {}

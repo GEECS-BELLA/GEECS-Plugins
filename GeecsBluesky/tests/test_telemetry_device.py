@@ -120,7 +120,7 @@ async def test_mixed_numeric_and_string_vars_both_logged(monkeypatch) -> None:
         monkeypatch,
         "U_VisaPlungers",
         ["Pressure", "DigitalOutput.Channel 3"],
-        {"Pressure": float, "Channel_3": str},
+        {"pressure": float, "channel_3": str},
         name="telemetry_visaplungers",
     )
     await dev.connect(mock=True)  # must NOT raise a type-coercion error
@@ -155,7 +155,7 @@ async def test_failed_read_of_string_signal_degrades_to_empty_string(
         monkeypatch,
         "U_VisaPlungers",
         ["Pressure", "DigitalOutput.Channel 3"],
-        {"Pressure": float, "Channel_3": str},
+        {"pressure": float, "channel_3": str},
         name="telemetry_visaplungers",
     )
     await dev.connect(mock=True)

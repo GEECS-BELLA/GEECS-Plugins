@@ -313,7 +313,7 @@ Device connect/disconnect uses `asyncio.run_coroutine_threadsafe(...).result(tim
 
 **Devices are CA-backed only** (`devices/ca/*`): stock ophyd-async
 `epics_signal_r/rw` against the GeecsCAGateway PVs
-(`[Experiment:]Device:Variable`, setpoints at `…:SP`). Requires the `ca` extra
+(`[experiment:]device:variable` — all-lowercase components, setpoints at `…:SP`). Requires the `ca` extra
 (`aioca`) and a running gateway (≥0.3.0 for control-surface and long-string
 path PVs). The gateway is consumed as a **CA service, never as a Python
 import** (the gateway imports our transport core, so an import the other way

@@ -16,11 +16,24 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
 
 
 def test_safe_name_mangles_and_lowercases() -> None:
-    # Each non-alphanumeric char becomes "_"; adjacent specials (space + "(")
-    # collapse only via strip, so "Wavelength (nm)" keeps a double underscore.
-    assert safe_name("Wavelength (nm)") == "wavelength__nm"
+    # Runs of non-alphanumeric chars collapse to one "_" (the shared
+    # pv_naming.normalize_component policy), lowercase.
+    assert safe_name("Wavelength (nm)") == "wavelength_nm"
     assert safe_name("Position.Axis 1") == "position_axis_1"
     assert safe_name("") == "var"
+
+
+def test_safe_name_agrees_with_the_pv_naming_contract() -> None:
+    """One lossy encoding, not two: column components == PV components.
+
+    ``safe_name`` must stay a delegation to the gateway's
+    ``normalize_component`` (plus the non-empty fallback) so a GEECS name
+    mangles identically into an event column and a PV.
+    """
+    from geecs_ca_gateway.pv_naming import normalize_component
+
+    for raw in ("Position.Axis 1", "Amplitude.Ch AB", "Beam Current (A)", "ypos"):
+        assert safe_name(raw) == normalize_component(raw)
 
 
 def test_generic_detector_column_headers() -> None:
@@ -30,8 +43,8 @@ def test_generic_detector_column_headers() -> None:
         name="wavemeter",
     )
     assert det._column_headers == {
-        "wavemeter-wavelength__nm": "UC_Wavemeter Wavelength (nm)",
-        "wavemeter-power__mw": "UC_Wavemeter Power (mW)",
+        "wavemeter-wavelength_nm": "UC_Wavemeter Wavelength (nm)",
+        "wavemeter-power_mw": "UC_Wavemeter Power (mW)",
     }
 
 

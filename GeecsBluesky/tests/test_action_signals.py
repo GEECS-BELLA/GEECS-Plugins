@@ -36,7 +36,7 @@ def test_settable_pv_has_no_transport_scheme() -> None:
     factory = CaActionSignalFactory("Undulator", _Recorder(), mock=True)
     settable = factory.get_settable("U_ESP_JetXYZ", "Position.Axis 1")
     assert not settable._pv.startswith("ca://")
-    assert settable._pv == "Undulator:U_ESP_JetXYZ:Position_Axis_1:SP"
+    assert settable._pv == "undulator:u_esp_jetxyz:position_axis_1:SP"
     # the probe keeps the ophyd signal-URI form (ophyd handles the scheme)
 
 

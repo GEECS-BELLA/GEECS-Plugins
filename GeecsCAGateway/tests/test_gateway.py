@@ -26,6 +26,7 @@ from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
 pytestmark = pytest.mark.fake_server
 
 DEVICE = "U_ESP_JetXYZ"
+DEVICE_PV = "u_esp_jetxyz"  # pv_name(DEVICE) — PVs are lowercase
 LABVIEW_OFFSET = 2_082_844_800  # LabVIEW epoch (1904) → Unix epoch (1970)
 
 
@@ -142,10 +143,10 @@ def test_experiment_prefix_and_manifest() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_S1H:Current" in gw.pvdb
-    assert "Undulator:U_S1H:Current:SP" in gw.pvdb
-    assert gw.manifest["Undulator:U_S1H:Current"] == ("U_S1H", "Current", "readback")
-    assert gw.manifest["Undulator:U_S1H:Current:SP"] == ("U_S1H", "Current", "setpoint")
+    assert "undulator:u_s1h:current" in gw.pvdb
+    assert "undulator:u_s1h:current:SP" in gw.pvdb
+    assert gw.manifest["undulator:u_s1h:current"] == ("U_S1H", "Current", "readback")
+    assert gw.manifest["undulator:u_s1h:current:SP"] == ("U_S1H", "Current", "setpoint")
 
 
 def test_description_served_as_desc_field() -> None:
@@ -168,11 +169,11 @@ def test_description_served_as_desc_field() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    desc_pv = "Undulator:U_S1H:Current.DESC"
+    desc_pv = "undulator:u_s1h:current.DESC"
     assert desc_pv in gw.pvdb
     assert gw.pvdb[desc_pv].value == "S1H steering magnet current"
     # A variable with no description gets no .DESC entry.
-    assert "Undulator:U_S1H:Voltage.DESC" not in gw.pvdb
+    assert "undulator:u_s1h:voltage.DESC" not in gw.pvdb
 
 
 def test_pv_name_collision_raises() -> None:
@@ -198,11 +199,11 @@ def test_pv_name_collision_raises() -> None:
 async def test_pvdb_contains_readback_and_setpoint() -> None:
     """Settable variable yields both a readback and a ``:SP`` setpoint PV."""
     gw = GeecsCaGateway(_config("127.0.0.1", 1))
-    assert f"{DEVICE}:Position" in gw.pvdb
-    assert f"{DEVICE}:Position:SP" in gw.pvdb
+    assert f"{DEVICE_PV}:position" in gw.pvdb
+    assert f"{DEVICE_PV}:position:SP" in gw.pvdb
     # non-settable variable has no setpoint
-    assert f"{DEVICE}:acq_timestamp" in gw.pvdb
-    assert f"{DEVICE}:acq_timestamp:SP" not in gw.pvdb
+    assert f"{DEVICE_PV}:acq_timestamp" in gw.pvdb
+    assert f"{DEVICE_PV}:acq_timestamp:SP" not in gw.pvdb
 
 
 async def test_stream_updates_readback() -> None:
@@ -216,7 +217,7 @@ async def test_stream_updates_readback() -> None:
         await gw.subscribe()
         try:
             await asyncio.sleep(0.4)  # a couple of 5 Hz frames
-            assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(7.5)
+            assert gw.pvdb[f"{DEVICE_PV}:position"].value == pytest.approx(7.5)
         finally:
             await gw.close()
 
@@ -233,7 +234,7 @@ async def test_reconnect_and_validity() -> None:
     )
     await gw.connect()
     await gw.subscribe()
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     try:
         # live: value flows and severity is clear
         assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
@@ -265,7 +266,7 @@ async def test_value_alarm_limits_set_live_readback_severity() -> None:
     """Curated scalar limits set MINOR/MAJOR severity on live values."""
     cfg = _alarm_config()
     gw = GeecsCaGateway(cfg)
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Position": 7.0})
@@ -303,7 +304,7 @@ async def test_high_only_alarm_row_does_not_trigger_native_low_alarm() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Position": -1.0})
@@ -332,7 +333,7 @@ async def test_alarm_hysteresis_holds_hihi_before_stepping_down() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Position": 5.1})
@@ -351,7 +352,7 @@ async def test_invalid_liveness_overrides_value_alarm_until_live_frame() -> None
     """A disconnect still reports INVALID/COMM; the next live value recomputes."""
     cfg = _alarm_config()
     gw = GeecsCaGateway(cfg)
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     callback = gw._make_callback(cfg.devices[0])
 
     await callback({"Position": 7.0})
@@ -386,12 +387,12 @@ async def test_timestamp_vars_exposed_as_pvs_with_raw_value() -> None:
         )
         gw = GeecsCaGateway(cfg)
         # both intrinsic timestamp vars get PVs (acq even if this device won't push it)
-        assert f"{DEVICE}:systimestamp" in gw.pvdb
-        assert f"{DEVICE}:acq_timestamp" in gw.pvdb
+        assert f"{DEVICE_PV}:systimestamp" in gw.pvdb
+        assert f"{DEVICE_PV}:acq_timestamp" in gw.pvdb
         await gw.connect()
         await gw.subscribe()
         try:
-            rb = gw.pvdb[f"{DEVICE}:systimestamp"]
+            rb = gw.pvdb[f"{DEVICE_PV}:systimestamp"]
             # RAW LabVIEW value, not unix-converted
             assert await _wait_until(lambda: rb.value == pytest.approx(labview))
         finally:
@@ -418,7 +419,7 @@ async def test_pv_timestamp_from_systimestamp() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Position"]
+        rb = gw.pvdb[f"{DEVICE_PV}:position"]
         try:
             assert await _wait_until(lambda: rb.value == pytest.approx(3.3))
             assert rb.timestamp == pytest.approx(1782949690.5, abs=1e-3)
@@ -456,8 +457,8 @@ async def test_enum_readback_and_setpoint() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Enable_Output"]
-        sp = gw.pvdb[f"{DEVICE}:Enable_Output:SP"]
+        rb = gw.pvdb[f"{DEVICE_PV}:enable_output"]
+        sp = gw.pvdb[f"{DEVICE_PV}:enable_output:SP"]
         try:
             # readback: GEECS "off" string -> enum label "off"
             assert await _wait_until(lambda: _enum_label(rb) == "off")
@@ -489,7 +490,7 @@ async def test_deadband_suppresses_small_changes() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        rb = gw.pvdb[f"{DEVICE_PV}:pos"]
         try:
             assert await _wait_until(lambda: rb.value == pytest.approx(5.0))
             # within deadband (0.05 <= 0.1): suppressed, value stays 5.0
@@ -522,7 +523,7 @@ async def test_nan_readback_accepted_despite_limits() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        rb = gw.pvdb[f"{DEVICE_PV}:pos"]
         try:
             await asyncio.sleep(0.4)
             value = rb.value
@@ -555,7 +556,7 @@ async def test_uncoercible_value_warns_once_and_skips() -> None:
         try:
             await asyncio.sleep(0.5)  # several 5 Hz frames of the bad value
             # value skipped (PV stays at initial), no crash, warned exactly once
-            assert gw.pvdb[f"{DEVICE}:Pos"].value == pytest.approx(0.0)
+            assert gw.pvdb[f"{DEVICE_PV}:pos"].value == pytest.approx(0.0)
             assert (DEVICE, "Pos") in gw._coerce_warned
         finally:
             await gw.close()
@@ -571,11 +572,11 @@ async def test_setpoint_write_reaches_geecs() -> None:
         await gw.connect()
         await gw.subscribe()
         try:
-            await gw.pvdb[f"{DEVICE}:Position:SP"].write(4.2)
+            await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(4.2)
             assert device.get("Position") == pytest.approx(4.2)
             # and the change streams back into the readback
             await asyncio.sleep(0.4)
-            assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(4.2)
+            assert gw.pvdb[f"{DEVICE_PV}:position"].value == pytest.approx(4.2)
         finally:
             await gw.close()
 
@@ -685,11 +686,11 @@ def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
     )
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
-    assert "Test:U_Dev:CONNECTED" in gw.pvdb
-    assert str(gw.pvdb["Test:U_Dev:CONNECTED"].value) == "Disconnected"
-    for suffix in ("UPTIME", "HEARTBEAT", "DEVICES_CONNECTED", "VERSION"):
-        assert f"Test:CAGateway:{suffix}" in gw.pvdb
-    assert gw.manifest["Test:U_Dev:CONNECTED"] == ("U_Dev", "CONNECTED", "status")
+    assert "test:u_dev:connected" in gw.pvdb
+    assert str(gw.pvdb["test:u_dev:connected"].value) == "Disconnected"
+    for suffix in ("uptime", "heartbeat", "devices_connected", "version"):
+        assert f"test:cagateway:{suffix}" in gw.pvdb
+    assert gw.manifest["test:u_dev:connected"] == ("U_Dev", "CONNECTED", "status")
 
 
 async def test_set_connected_updates_pv_severity_and_count() -> None:
@@ -706,15 +707,15 @@ async def test_set_connected_updates_pv_severity_and_count() -> None:
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
     await gw._set_connected("U_Dev", True)
-    conn = gw.pvdb["Test:U_Dev:CONNECTED"]
+    conn = gw.pvdb["test:u_dev:connected"]
     assert str(conn.value) == "Connected"
     assert conn.alarm.severity == AlarmSeverity.NO_ALARM
-    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (1, [1])
+    assert gw.pvdb["test:cagateway:devices_connected"].value in (1, [1])
 
     await gw._set_connected("U_Dev", False)
     assert str(conn.value) == "Disconnected"
     assert conn.alarm.severity == AlarmSeverity.MAJOR_ALARM
-    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (0, [0])
+    assert gw.pvdb["test:cagateway:devices_connected"].value in (0, [0])
 
 
 # ---------------------------------------------------------------------------
@@ -756,7 +757,7 @@ async def test_setpoint_write_uses_move_budget_timeout() -> None:
     udp = _RecordingUdp(device_name=DEVICE)
     gw._udp[DEVICE] = udp
 
-    await gw.pvdb[f"{DEVICE}:Position:SP"].write(4.2)
+    await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(4.2)
 
     assert len(udp.set_calls) == 1
     variable, value, timeout = udp.set_calls[0]
@@ -772,7 +773,7 @@ async def test_set_timeout_is_configurable() -> None:
     udp = _RecordingUdp(device_name=DEVICE)
     gw._udp[DEVICE] = udp
 
-    await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+    await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(1.0)
 
     assert udp.set_calls[0][2] == pytest.approx(45.0)
 
@@ -850,7 +851,7 @@ async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
 
     gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
     with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
-        await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+        await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(1.0)
 
 
 class _ValueRecordingChannel:
@@ -937,5 +938,5 @@ async def test_run_returns_true_on_restart_request(monkeypatch) -> None:
     await asyncio.sleep(0.05)
     assert not run_task.done()  # serving; no restart requested yet
 
-    await gw.pvdb["CAGateway:RESTART"].write("Restart")
+    await gw.pvdb["cagateway:restart"].write("Restart")
     assert await asyncio.wait_for(run_task, timeout=5) is True

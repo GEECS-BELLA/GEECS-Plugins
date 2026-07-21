@@ -57,10 +57,10 @@ def test_factories_build_connected_named_devices() -> None:
     jet = s.motor("U_ESP_JetXYZ", "Position.Axis 1")
 
     assert det.name == "uc_amp2_ir_input"
-    assert det.centroidx.source.endswith("Undulator:UC_Amp2_IR_input:centroidx")
-    assert con.acq_timestamp.source.endswith("Undulator:UC_TopView:acq_timestamp")
-    assert snap.current.source.endswith("Undulator:U_S1H:Current")
-    assert jet._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+    assert det.centroidx.source.endswith("undulator:uc_amp2_ir_input:centroidx")
+    assert con.acq_timestamp.source.endswith("undulator:uc_topview:acq_timestamp")
+    assert snap.current.source.endswith("undulator:u_s1h:current")
+    assert jet._setpoint.source.endswith("undulator:u_esp_jetxyz:position_axis_1:SP")
 
 
 def test_construction_with_unreachable_tiled_server_is_prompt(
@@ -100,7 +100,7 @@ def test_shot_control_attaches_ca_controller() -> None:
     assert isinstance(controller, ShotController)
     setter = controller._setters["Trigger.Source"]
     assert isinstance(setter, CaPutSetter)
-    assert setter._pv == "Undulator:U_DG645_ShotControl:Trigger_Source:SP"
+    assert setter._pv == "undulator:u_dg645_shotcontrol:trigger_source:SP"
     assert s.shot_control(None) is None  # detaches
 
 
@@ -127,8 +127,8 @@ def test_shot_control_accepts_generalized_writes() -> None:
         setters[("U_DG645_ShotControl", "Amplitude.Ch AB")]._pv,
         setters[("U_PLC", "DO.Ch9")]._pv,
     } == {
-        "Undulator:U_DG645_ShotControl:Amplitude_Ch_AB:SP",
-        "Undulator:U_PLC:DO_Ch9:SP",
+        "undulator:u_dg645_shotcontrol:amplitude_ch_ab:SP",
+        "undulator:u_plc:do_ch9:SP",
     }
     # Empty writes detach, like an empty legacy config.
     assert s.shot_control(ShotControlWrites(name="empty", states={})) is None
@@ -141,11 +141,11 @@ def test_action_signal_factory_builds_cached_connected_signals() -> None:
     s = _session()
     factory = s.action_signal_factory()
     settable = factory.get_settable("U_PLC", "DO.Ch9")
-    assert settable._pv.endswith("Undulator:U_PLC:DO_Ch9:SP")
+    assert settable._pv.endswith("undulator:u_plc:do_ch9:SP")
     # Cached per (device, variable): the same wrapper comes back.
     assert factory.get_settable("U_PLC", "DO.Ch9") is settable
     readable = factory.get_readable("U_PLC", "DI.Ch17")
-    assert readable.source.endswith("Undulator:U_PLC:DI_Ch17")
+    assert readable.source.endswith("undulator:u_plc:di_ch17")
     assert factory.get_readable("U_PLC", "DI.Ch17") is readable
 
     # Values are coerced to wire strings on set (mock session records the
@@ -285,8 +285,8 @@ def test_shot_control_reachability_check_passes(
     assert isinstance(controller, ShotController)
     assert seen == [
         [
-            "Undulator:U_DG645_ShotControl:Trigger_ExecuteSingleShot:SP",
-            "Undulator:U_DG645_ShotControl:Trigger_Source:SP",
+            "undulator:u_dg645_shotcontrol:trigger_executesingleshot:SP",
+            "undulator:u_dg645_shotcontrol:trigger_source:SP",
         ]
     ]
 

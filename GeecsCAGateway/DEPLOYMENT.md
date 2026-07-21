@@ -278,23 +278,23 @@ EPICS base work identically). Substitute your experiment/device.
 
 ```bash
 # 1. Gateway process up and serving? (heartbeat ticks every 5 s)
-poetry run caproto-get Undulator:CAGateway:VERSION Undulator:CAGateway:UPTIME
-poetry run caproto-monitor Undulator:CAGateway:HEARTBEAT   # Ctrl-C after a couple of ticks
+poetry run caproto-get undulator:cagateway:version undulator:cagateway:uptime
+poetry run caproto-monitor undulator:cagateway:heartbeat   # Ctrl-C after a couple of ticks
 
 # 2. Is a given device live behind it?
-poetry run caproto-get Undulator:U_S1H:CONNECTED           # → Connected
-poetry run caproto-get Undulator:CAGateway:DEVICES_CONNECTED
+poetry run caproto-get undulator:u_s1h:connected           # → Connected
+poetry run caproto-get undulator:cagateway:devices_connected
 
 # 3. Readback streaming? (should tick with the device's ~1–5 Hz stream)
-poetry run caproto-monitor Undulator:U_S1H:Current
+poetry run caproto-monitor undulator:u_s1h:current
 
 # 3b. Derived readback loaded from the configs repo? (example: target chamber)
-poetry run caproto-get -a Undulator:TargetChamberPressure:Pressure
+poetry run caproto-get -a undulator:targetchamberpressure:pressure
 
 # 4. Write path (pick a harmless settable variable; put-completion = GEECS
 #    convergence, so this blocks until the device converges)
-poetry run caproto-get Undulator:U_S1H:Current             # note the value
-poetry run caproto-put Undulator:U_S1H:Current:SP <same value>
+poetry run caproto-get undulator:u_s1h:current             # note the value
+poetry run caproto-put undulator:u_s1h:current:SP <same value>
 ```
 
 Interpretation:
@@ -338,13 +338,13 @@ sudo systemctl enable --now geecs-ca-gateway
   poetry install && systemctl restart geecs-ca-gateway` — matching the
   existing GEECS master-GUI reboot pattern for device-set changes.
 - **DB edits don't need shell access**: any CA client can write the
-  `[Experiment:]CAGateway:RESTART` PV (devIocStats `SYSRESET` pattern) and
+  `[experiment:]cagateway:restart` PV (devIocStats `SYSRESET` pattern) and
   the gateway exits with code 86, which the unit's `RestartForceExitStatus`
   turns into a relaunch — serving the freshly edited device/get-list set a
   few seconds later. A Phoebus button, a GUI menu action, or a one-liner:
 
   ```bash
-  caproto-put Undulator:CAGateway:RESTART Restart
+  caproto-put undulator:cagateway:restart Restart
   ```
 - Later sharding for fault isolation = more units with different
   `--experiment`/subsystem configs; CA name resolution makes this invisible to

@@ -155,7 +155,7 @@ Recorded so the next build phase doesn't relitigate them.
   per-camera IOCs coexist transparently.
 
 - **Naming policy (retrofit-expensive — locked first):**
-  - Namespace `[Experiment:]Device:Variable`, e.g. `Undulator:U_S1H:Current`.
+  - Namespace `[experiment:]device:variable` (lowercase components), e.g. `undulator:u_s1h:current`.
     The experiment prefix future-proofs against cross-experiment collisions
     (experiments are already separated in the DB).
   - Character mapping: within a component allow only `[A-Za-z0-9_]`; `:` is the

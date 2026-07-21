@@ -187,7 +187,9 @@ def readback_pv(experiment: str, device: str, variable: str) -> str:
     Returns
     -------
     str
-        The bare EPICS name, e.g. ``"HTU:U_Hexapod:ypos"``.
+        The bare EPICS name, e.g. ``"htu:u_hexapod:ypos"`` (PV components
+        are lowercase — the naming contract case-folds, so operator-typed
+        case never matters).
     """
     from geecs_bluesky.devices.ca._pv import ca_pv
     from geecs_bluesky.devices.ca.gateway_put import bare_pv
@@ -210,7 +212,9 @@ def setpoint_pv(experiment: str, device: str, variable: str) -> str:
     str
         The bare ``…:SP`` EPICS name.
     """
-    return f"{readback_pv(experiment, device, variable)}:SP"
+    from geecs_bluesky.devices.ca._pv import setpoint_pv as sp
+
+    return sp(readback_pv(experiment, device, variable))
 
 
 # ----------------------------------------------------------------------
@@ -335,10 +339,11 @@ class GatewayDevicePanel:
             window renders it in the status bar.
         """
         from geecs_bluesky.devices.ca._pv import ca_pv
+        from geecs_bluesky.devices.ca._pv import setpoint_pv as sp
         from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut, wire_value
 
         put = GatewaySetpointPut(
-            setpoint_pv=f"{ca_pv(experiment or None, device, variable)}:SP",
+            setpoint_pv=sp(ca_pv(experiment or None, device, variable)),
             coerce=wire_value,
             timeout=self._put_timeout,
             name=f"{device}:{variable}",

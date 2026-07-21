@@ -7,7 +7,7 @@ the triage tools.
 
 | Chip | Down means | First checks |
 |---|---|---|
-| **Gateway** | The CA gateway isn't serving PVs — no readbacks, no scans | Is the gateway service running on the lab server? `caget <Expt>:CAGateway:HEARTBEAT` |
+| **Gateway** | The CA gateway isn't serving PVs — no readbacks, no scans | Is the gateway service running on the lab server? `caget <expt>:cagateway:heartbeat` |
 | **Tiled** | Runs won't be archived / browser has nothing to read | Tiled service on the lab server; the `[tiled] uri` in `config.ini` |
 | **DB** | Name completion and DB-driven variable lists unavailable | MySQL on the lab server; credentials chain in `config.ini` |
 

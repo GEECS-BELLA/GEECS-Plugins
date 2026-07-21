@@ -1,7 +1,7 @@
 """CaSettable — a writable GEECS variable driven through the CA gateway.
 
 The gateway exposes a settable GEECS variable as two PVs: a readback
-(``[Experiment:]Device:Variable``, fed by the device stream) and a setpoint
+(``[experiment:]device:variable``, fed by the device stream) and a setpoint
 (``…:SP``, forwarded to the device over UDP).  This device writes the
 setpoint and reads back the real value.
 
@@ -21,7 +21,7 @@ import logging
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
 
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ class CaSettable(StandardReadable):
         readback_pv = ca_pv(experiment, device, variable)
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
-        self._setpoint = epics_signal_rw(datatype, f"{readback_pv}:SP")
+        self._setpoint = epics_signal_rw(datatype, setpoint_pv(readback_pv))
         # Layer-1 puts ride the shared gateway-put primitive (the one owner
         # of addressing/coercion/timeout policy); the typed signal stays the
         # transport — connect-time dtype check and the mock-backend seam.
