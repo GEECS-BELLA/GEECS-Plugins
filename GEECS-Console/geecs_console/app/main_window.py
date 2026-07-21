@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 from pydantic import ValidationError
 
 from geecs_console.app.actions_menu import ActionsMenuController
+from geecs_console.app.now_panel import NowPanelController
 from geecs_console.editors.action_library_editor import open_action_library_editor
 from geecs_console.editors.save_set_editor import open_save_set_editor
 from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
@@ -89,8 +90,6 @@ logger = logging.getLogger(__name__)
 _UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
 _QSS_PATH = Path(__file__).parent / "style.qss"
 
-_SCAN_NUMBER_EXPIRY_MS = 10_000
-
 #: With "Randomized beeps" on, the fraction of shots that actually beep.
 _RANDOM_BEEP_PROBABILITY = 0.25
 
@@ -109,21 +108,6 @@ _HEALTH_DOT_COLORS = {
     HealthStatus.WARN: _COLOR_AMBER,
     HealthStatus.DOWN: _COLOR_RED,
     HealthStatus.UNKNOWN: _COLOR_GREY,
-}
-
-#: ScanState value → state-pill dot color (grey covers idle/unknown).
-_STATE_DOT_COLORS = {
-    "running": _COLOR_GREEN,
-    "done": _COLOR_GREEN,
-    "complete": _COLOR_GREEN,
-    "completed": _COLOR_GREEN,
-    "initializing": _COLOR_AMBER,
-    "stopping": _COLOR_AMBER,
-    "pausing": _COLOR_AMBER,
-    "paused": _COLOR_AMBER,
-    "aborted": _COLOR_RED,
-    "error": _COLOR_RED,
-    "failed": _COLOR_RED,
 }
 
 # Lifecycle states that settle an in-flight Stop request, releasing the Stop
@@ -264,7 +248,6 @@ class MainWindow(QMainWindow):
             else make_bluesky_submitter
         )
         self.events = ScanEventsAdapter(self)
-        self._total_shots = 0
         self._shot_count_valid = False
         self._beep_rng = rng if rng is not None else random.Random()
         self._last_beep_shots = 0
@@ -287,10 +270,22 @@ class MainWindow(QMainWindow):
         self._wire_signals()
 
         self.setWindowTitle("GEECS Console")
-        self._scan_number_timer = QTimer(self)
-        self._scan_number_timer.setSingleShot(True)
-        self._scan_number_timer.setInterval(_SCAN_NUMBER_EXPIRY_MS)
-        self._scan_number_timer.timeout.connect(self._expire_scan_number)
+        # R6 rendering lives on NowPanelController (app/now_panel.py); the
+        # widgets stay window attributes (tests, tooltips), the lookup is
+        # resolved at probe time so the module-level default stays
+        # test-patchable.
+        self._now = NowPanelController(
+            state_pill=self.state_pill,
+            progress_bar=self.progress_bar,
+            scan_number_label=self.scan_number_label,
+            log_tail=self.log_tail,
+            current_experiment=lambda: self.experiment_combo.currentText(),
+            resolve_lookup=lambda: (
+                self._scan_number_lookup
+                if self._scan_number_lookup is not None
+                else _idle_scan_lookup
+            ),
+        )
 
         # First populate quietly: a remembered experiment restored on the
         # next line makes its "No experiment selected." a lie (it used to
@@ -303,7 +298,7 @@ class MainWindow(QMainWindow):
         self._apply_health_report(HealthReport())
         self._push_experiment_to_probe(self._configs.experiment)
         self._start_health_poller()
-        self._set_state_pill("idle")
+        self._now.set_state_pill("idle")
         self._on_mode_changed()
         self._refresh_device_set_enabled()
         # Startup fetches for the selected experiment (no-ops when none):
@@ -314,13 +309,14 @@ class MainWindow(QMainWindow):
         # duplicate fetch is *result*-safe (stale results are dropped by
         # experiment tag) but NOT thread-safe in general: two concurrent
         # fetch threads can race the lazy first import of a native chain
-        # (geecs_bluesky's EPICS init aborts the process when raced — hence
-        # the actions controller's one-in-flight dedupe).  The completions
-        # and idle-scan pairs still double-spawn and share the hazard shape
-        # (mysql-connector / pandas chains); dedupe them the same way if
-        # this ever bites.
+        # (demonstrated in the actions fetch's geecs_bluesky chain, which
+        # aborted the process — hence the one-in-flight dedupe in the
+        # actions and now-panel controllers; the idle probe's own lazy
+        # chain is geecs_data_utils/pandas).  The completions pair still
+        # double-spawns and shares the hazard shape (mysql-connector
+        # chain); dedupe it the same way if this ever bites.
         self._start_device_completions_fetch()
-        self._start_idle_scan_probe()
+        self._now.start_idle_probe()
         self._actions.start_fetch()
 
     # ------------------------------------------------------------------
@@ -593,11 +589,8 @@ class MainWindow(QMainWindow):
         self._completions_worker.result_ready.connect(
             self._apply_device_completions, Qt.ConnectionType.QueuedConnection
         )
-        self._idle_scan_worker = BackgroundResult()
-        self._idle_scan_worker.result_ready.connect(
-            self._apply_idle_scan_number, Qt.ConnectionType.QueuedConnection
-        )
-        # (The actions-menu fetch worker lives on ActionsMenuController.)
+        # (The actions-menu fetch worker lives on ActionsMenuController;
+        # the idle scan-number probe worker on NowPanelController.)
         # Stop dispatch (issue #571): stop_scanning_thread may block briefly
         # (engine bookkeeping join), so it runs on a worker — never the GUI
         # thread.  No result slot: completion is announced by the terminal
@@ -802,7 +795,6 @@ class MainWindow(QMainWindow):
                 getattr(self, "_completions_worker", None),
                 self._apply_device_completions,
             ),
-            (getattr(self, "_idle_scan_worker", None), self._apply_idle_scan_number),
             (getattr(self, "_device_set_worker", None), self._apply_device_set_result),
         ):
             if worker is None:
@@ -818,6 +810,9 @@ class MainWindow(QMainWindow):
         actions = getattr(self, "_actions", None)
         if actions is not None:
             actions.dispose()
+        now = getattr(self, "_now", None)
+        if now is not None:
+            now.dispose()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -1128,7 +1123,7 @@ class MainWindow(QMainWindow):
         # New experiment: new device list, new daily scans folder, and a
         # new action-plan library.
         self._start_device_completions_fetch()
-        self._start_idle_scan_probe()
+        self._now.start_idle_probe()
         self._actions.start_fetch()
 
     def _restore_last_experiment(self) -> bool:
@@ -1907,96 +1902,24 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def append_log(self, line: str) -> None:
-        """Append one line to the compact log tail.
+        """Append one line to the compact log tail (delegates to the panel).
 
         Parameters
         ----------
         line : str
             The text to append (one log-tail row).
         """
-        self.log_tail.appendPlainText(line)
+        self._now.append_log(line)
 
     def set_scan_number(self, number: int) -> None:
-        """Show the current scan number, expiring to 'previous' after 10 s.
+        """Show the current scan number (delegates to the panel).
 
         Parameters
         ----------
         number : int
             The claimed scan number.
         """
-        self.scan_number_label.setText(f"Scan {number:03d}")
-        self._scan_number_timer.start()
-
-    def _expire_scan_number(self) -> None:
-        """Mark the displayed scan number as previous once the timer fires."""
-        text = self.scan_number_label.text()
-        if text.startswith("Scan ") and not text.endswith("(previous)"):
-            self.scan_number_label.setText(f"{text} (previous)")
-
-    def _start_idle_scan_probe(self) -> None:
-        """Peek at today's scans dir for the R6 idle display — read-only.
-
-        The lookup resolves today's daily ``scans/`` folder and lists it for
-        the highest existing ``ScanNNN`` — resolution and listdir only,
-        never creating anything on that path (repo scan-folder invariant).
-        The data root is typically a network mount, so the blocking lookup
-        runs on a short-lived daemon thread (via the
-        :class:`BackgroundResult` worker) and reports back queued to
-        :meth:`_apply_idle_scan_number`.
-        """
-        experiment = self.experiment_combo.currentText()
-        lookup = (
-            self._scan_number_lookup
-            if self._scan_number_lookup is not None
-            else _idle_scan_lookup
-        )
-
-        def probe() -> tuple[str, Optional[int]]:
-            try:
-                number = lookup(experiment)
-            except Exception as exc:  # noqa: BLE001 — a flaky mount is not a crash
-                logger.info("idle scan-number lookup failed: %s", exc)
-                number = None
-            return (experiment, number)
-
-        self._idle_scan_worker.run_async(probe, name="console-idle-scan-probe")
-
-    @Slot(object)
-    def _apply_idle_scan_number(self, payload: object) -> None:
-        """Render the idle scan-number peek (GUI-thread slot, delivered queued).
-
-        A live scan number on display (the 10 s expiry timer still running)
-        is never clobbered, and a result tagged with an experiment that is
-        no longer selected is dropped.
-
-        Parameters
-        ----------
-        payload : tuple
-            ``(experiment, int | None)`` from the daemon-thread probe.
-        """
-        experiment, number = payload
-        if experiment != self.experiment_combo.currentText():
-            return
-        if self._scan_number_timer.isActive():
-            return
-        if number is None:
-            self.scan_number_label.setText("No scans today")
-        else:
-            self.scan_number_label.setText(f"Scan {number:03d} (previous)")
-
-    def _set_state_pill(self, state: str) -> None:
-        """Render the R6 state pill: colored dot + uppercase state word.
-
-        Parameters
-        ----------
-        state : str
-            A ``ScanState`` value (e.g. ``"running"``); dot color is green
-            for running/done, amber for initializing, red for aborted or
-            error, grey otherwise (idle).
-        """
-        word = (state or "idle").strip()
-        color = _STATE_DOT_COLORS.get(word.lower(), _COLOR_GREY)
-        self.state_pill.setText(f'<span style="color:{color};">●</span> {word.upper()}')
+        self._now.set_scan_number(number)
 
     def _on_scan_state(self, state: str) -> None:
         """Update the state pill and button gating on lifecycle events.
@@ -2010,7 +1933,7 @@ class MainWindow(QMainWindow):
         if self._stop_in_flight and lowered in _TERMINAL_SCAN_STATES:
             self._stop_in_flight = False
             self.stop_button.setText(self._stop_button_label)
-        self._set_state_pill(state)
+        self._now.set_state_pill(state)
         self._refresh_submit_enabled()
 
         # Push the live scan state into open action dialogs so their Run
@@ -2028,20 +1951,14 @@ class MainWindow(QMainWindow):
 
     def _on_totals_known(self, total_shots: int) -> None:
         """Size the progress bar once the scan announces its totals."""
-        self._total_shots = total_shots
-        self.progress_bar.setMaximum(max(1, total_shots))
-        self.progress_bar.setValue(0)
+        self._now.set_totals(total_shots)
         self._last_beep_shots = 0  # new scan: re-arm the per-shot beep
 
     def _on_progress(
         self, step_index: int, total_steps: int, shots_completed: int
     ) -> None:
         """Advance the progress bar from step events; beep on shot increments."""
-        if self._total_shots:
-            self.progress_bar.setValue(min(shots_completed, self._total_shots))
-        elif total_steps:
-            self.progress_bar.setMaximum(total_steps)
-            self.progress_bar.setValue(min(step_index + 1, total_steps))
+        self._now.update_progress(step_index, total_steps, shots_completed)
         if shots_completed > self._last_beep_shots:
             self._last_beep_shots = shots_completed
             self._maybe_beep()

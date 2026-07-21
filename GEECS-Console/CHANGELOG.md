@@ -4,6 +4,25 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.18.2] - 2026-07-20
+
+### Changed
+
+- Main-window slimming step 5 (issue #534): the R6 now-panel rendering —
+  state pill, progress bar, scan number + 10 s expiry, log tail, and the
+  idle scan-number probe — moves to
+  `app/now_panel.py::NowPanelController` (2,181 → 2,103 window lines
+  against a 262-line module).  The window keeps the widget attributes,
+  thin `append_log`/`set_scan_number` delegates, the beep logic
+  (Preferences), and the scan-lifecycle hub.
+
+### Fixed
+
+- The idle scan-number probe gets the same one-in-flight-per-experiment
+  dedupe as the actions fetch (0.18.1) — startup double-spawned it, the
+  same native-first-import race shape; of the three startup fetch pairs
+  only the completions pair now remains undeduped.
+
 ## [0.18.1] - 2026-07-20
 
 ### Changed

@@ -179,8 +179,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **Scan number (R6)**: the engine's `ScanLifecycleEvent.scan_number`
   (`None` until the scan folder is claimed, then present on every lifecycle
   emission) is read duck-typed by `ScanEventsAdapter` and emitted as
-  `scan_number_known(int)`; the window connects it to `set_scan_number`
-  (10 s expiry to "(previous)").
+  `scan_number_known(int)`; the window connects it to `set_scan_number`,
+  which delegates to `NowPanelController` (10 s expiry to "(previous)").
 - **Ops menu**: four items, handlers in `main_window.py`, path resolution
   factored into `services/ops_paths.py` as small pure `-> Path | None`
   functions (unit-tested against tmp trees, no Finder).  *Open experiment
@@ -232,11 +232,19 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   no-longer-selected experiment are dropped.  An unparsable committed
   selection shows "Device format: DeviceName:Variable Name" in the status
   bar (both on commit and on a Set attempt) instead of a silent no-op.
-- **R6 idle scan number**: at startup and on experiment change a
-  `BackgroundResult` worker runs the injectable `scan_number_lookup`
-  (default: `ops_paths.todays_scan_folder` +
-  `ops_paths.highest_scan_number`) and the label shows
-  "Scan NNN (previous)" or "No scans today".  **Strictly read-only** —
+- **R6 idle scan number** — owned by
+  `app/now_panel.py::NowPanelController` since 0.18.2 (issue #534 step 5,
+  with the pill/progress/log-tail rendering and the expiry timer; the
+  window keeps the widget attributes, thin `append_log` /
+  `set_scan_number` delegates, and the scan-lifecycle hub, and its
+  `closeEvent` calls the controller's `dispose()` — same lifetime rule
+  as the actions-menu controller): at startup and on experiment change
+  the controller's `BackgroundResult` worker runs the injectable
+  `scan_number_lookup` (default: `ops_paths.todays_scan_folder` +
+  `ops_paths.highest_scan_number`, resolved at probe time so test
+  patching works), **one probe in flight per experiment** (the same
+  native-first-import race dedupe as the actions fetch), and the label
+  shows "Scan NNN (previous)" or "No scans today".  **Strictly read-only** —
   resolution + `is_dir()`/`iterdir()` only, never creating anything on the
   scans path (repo scan-folder invariant; pinned by tree-untouched tests
   in `tests/test_ops_paths.py` and
@@ -256,8 +264,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   probe emitted a `MainWindow` signal; the R7 device-set completion was
   the last such emission and moved to a `BackgroundResult` worker in
   0.7.0 — issue #510).  `closeEvent` disconnects each window-owned
-  worker's `result_ready`; the actions-menu controller's worker is
-  detached inside its `dispose()` instead.
+  worker's `result_ready`; the actions-menu and now-panel controllers'
+  workers are detached inside their `dispose()` instead.
 - **Actions menu (G-actions v1)** — owned by
   `app/actions_menu.py::ActionsMenuController` since 0.18.1 (issue #534
   step 3): the window creates the QMenu (kept in `self._menus`) and the
@@ -275,9 +283,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   flight per experiment** — startup requests twice back-to-back, and
   two concurrent fetch threads race the lazy `geecs_bluesky` import
   inside the store's configs-root resolution, a native init that
-  aborts the process when raced (found 2026-07-20; the sibling
-  completions/idle-scan double-fetches share the hazard shape and are
-  not yet deduped); empty/offline/failed renders one disabled
+  aborts the process when raced (found 2026-07-20; the now-panel idle
+  probe is deduped the same way since 0.18.2, the completions
+  double-fetch is not yet); empty/offline/failed renders one disabled
   "(no actions)" entry.  On top sits **"Enable action execution"** — the
   accidental-click guard: checkable, **default OFF at every launch and
   deliberately NOT persisted** (a fresh session must never start armed;
