@@ -264,7 +264,7 @@ class TestVariants:
 
     def test_add_variant(self, editor, store, monkeypatch):
         select_profile(editor, "HTU-Normal")
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "no_gas")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "no_gas")
         editor.add_variant_button.click()
         assert editor.variant_combo.currentText() == "no_gas"
         assert editor.is_dirty()
@@ -273,7 +273,7 @@ class TestVariants:
 
     def test_add_variant_rejects_taken_names(self, editor, monkeypatch):
         select_profile(editor, "HTU-Normal")
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "laser_off")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "laser_off")
         editor.add_variant_button.click()
         assert "taken" in editor.validation_label.text()
 
@@ -289,20 +289,20 @@ class TestVariants:
 
 class TestProfileOperations:
     def test_new_profile_is_saved_and_selected(self, editor, store, monkeypatch):
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "Fresh")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "Fresh")
         editor.new_button.click()
         assert store.load("Fresh") == TriggerProfile(name="Fresh")
         assert editor.profile_list.currentItem().text() == "Fresh"
         assert "Fresh" in editor.profile_name_label.text()
 
     def test_new_profile_refuses_existing_names(self, editor, store, monkeypatch):
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "Minimal")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "Minimal")
         editor.new_button.click()
         assert "already exists" in editor.validation_label.text()
 
     def test_duplicate_profile(self, editor, store, monkeypatch):
         select_profile(editor, "HTU-Normal")
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "HTU-Copy")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "HTU-Copy")
         editor.duplicate_button.click()
         copied = store.load("HTU-Copy")
         assert copied.name == "HTU-Copy"
@@ -311,7 +311,7 @@ class TestProfileOperations:
 
     def test_rename_profile(self, editor, store, monkeypatch):
         select_profile(editor, "Minimal")
-        monkeypatch.setattr(editor, "_prompt_text", lambda *a, **k: "Renamed")
+        monkeypatch.setattr(editor, "_prompt_name", lambda *a, **k: "Renamed")
         editor.rename_button.click()
         assert store.list_names() == ["HTU-Normal", "Renamed"]
         assert store.load("Renamed").name == "Renamed"

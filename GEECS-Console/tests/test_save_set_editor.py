@@ -3,9 +3,8 @@
 import pytest
 import yaml
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QMessageBox, QPushButton
+from PySide6.QtWidgets import QPushButton
 
-from geecs_console.editors import save_set_editor as sse
 from geecs_console.editors.save_set_editor import SaveSetEditor, open_save_set_editor
 from geecs_console.services.device_completions import GeecsDbCompletions
 from geecs_console.services.save_set_store import SaveSetStore
@@ -105,14 +104,18 @@ def select_set(editor, name):
     raise AssertionError(f"{name!r} not in the set list")
 
 
-def answer(monkeypatch, button):
-    monkeypatch.setattr(sse.QMessageBox, "question", lambda *args, **kwargs: button)
+def answer_unsaved(monkeypatch, editor, choice):
+    """Answer the unsaved-changes prompt via its instance seam."""
+    monkeypatch.setattr(editor, "_prompt_unsaved", lambda: choice)
 
 
-def type_name(monkeypatch, name):
-    monkeypatch.setattr(
-        sse.QInputDialog, "getText", lambda *args, **kwargs: (name, True)
-    )
+def answer_confirm(monkeypatch, editor, yes):
+    """Answer the yes/no confirm (deletes) via its instance seam."""
+    monkeypatch.setattr(editor, "_confirm", lambda *args, **kwargs: yes)
+
+
+def type_name(monkeypatch, editor, name):
+    monkeypatch.setattr(editor, "_prompt_name", lambda *args, **kwargs: name)
 
 
 class TestOpening:
@@ -165,7 +168,7 @@ class TestOpening:
         assert dialog.isVisible()
         # Let the completions fetch land before teardown so its queued
         # signal delivery cannot outlive the dialog.
-        qtbot.waitUntil(lambda: dialog._completions_loaded, timeout=2000)
+        qtbot.waitUntil(lambda: dialog.completions_applied, timeout=2000)
 
     def test_db_completions_with_no_experiment_is_empty(self):
         # The production provider's no-experiment early-out — no imports,
@@ -237,7 +240,7 @@ class TestUnsavedChangesPrompt:
         select_set(editor, "diag")
         row = editor.set_list.currentRow()
         editor.description_edit.setText("scribble")
-        answer(monkeypatch, QMessageBox.StandardButton.Cancel)
+        answer_unsaved(monkeypatch, editor, "cancel")
         select_set(editor, "beam")
         assert editor.set_list.currentRow() == row
         assert editor.description_edit.text() == "scribble"
@@ -245,7 +248,7 @@ class TestUnsavedChangesPrompt:
     def test_discard_switches_and_drops_the_edits(self, editor, monkeypatch):
         select_set(editor, "diag")
         editor.description_edit.setText("scribble")
-        answer(monkeypatch, QMessageBox.StandardButton.Discard)
+        answer_unsaved(monkeypatch, editor, "discard")
         select_set(editor, "beam")
         assert editor.name_label.text() == "beam"
         select_set(editor, "diag")
@@ -254,7 +257,7 @@ class TestUnsavedChangesPrompt:
     def test_save_choice_persists_before_switching(self, editor, store, monkeypatch):
         select_set(editor, "diag")
         editor.description_edit.setText("kept")
-        answer(monkeypatch, QMessageBox.StandardButton.Save)
+        answer_unsaved(monkeypatch, editor, "save")
         select_set(editor, "beam")
         assert editor.name_label.text() == "beam"
         assert store.load("diag").description == "kept"
@@ -263,10 +266,10 @@ class TestUnsavedChangesPrompt:
         editor.show()
         select_set(editor, "diag")
         editor.description_edit.setText("scribble")
-        answer(monkeypatch, QMessageBox.StandardButton.Cancel)
+        answer_unsaved(monkeypatch, editor, "cancel")
         editor.close()
         assert editor.isVisible()
-        answer(monkeypatch, QMessageBox.StandardButton.Discard)
+        answer_unsaved(monkeypatch, editor, "discard")
         editor.close()
         assert not editor.isVisible()
 
@@ -275,7 +278,7 @@ class TestListActions:
     def test_new_set_is_invalid_until_a_device_is_added(
         self, editor, store, tmp_path, monkeypatch
     ):
-        type_name(monkeypatch, "fresh")
+        type_name(monkeypatch, editor, "fresh")
         editor.new_button.click()
         assert editor.name_label.text() == "fresh"
         assert not editor.save_button.isEnabled()
@@ -288,14 +291,14 @@ class TestListActions:
         assert store.load("fresh").entries[0].device == "UC_NewCam"
 
     def test_new_name_collision_is_refused(self, editor, monkeypatch):
-        type_name(monkeypatch, "diag")
+        type_name(monkeypatch, editor, "diag")
         editor.new_button.click()
         assert "already exists" in editor.message_label.text()
         assert editor.set_list.count() == 2
 
     def test_duplicate_copies_the_open_set(self, editor, store, monkeypatch):
         select_set(editor, "diag")
-        type_name(monkeypatch, "diag-copy")
+        type_name(monkeypatch, editor, "diag-copy")
         editor.duplicate_button.click()
         assert editor.name_label.text() == "diag-copy"
         assert editor.save_button.isEnabled()  # a duplicate starts dirty & valid
@@ -304,7 +307,7 @@ class TestListActions:
 
     def test_rename_updates_file_and_form(self, editor, store, monkeypatch):
         select_set(editor, "diag")
-        type_name(monkeypatch, "diag2")
+        type_name(monkeypatch, editor, "diag2")
         editor.rename_button.click()
         assert editor.name_label.text() == "diag2"
         assert store.list_names() == ["beam", "diag2"]
@@ -312,7 +315,7 @@ class TestListActions:
 
     def test_delete_removes_the_set(self, editor, store, monkeypatch):
         select_set(editor, "diag")
-        answer(monkeypatch, QMessageBox.StandardButton.Yes)
+        answer_confirm(monkeypatch, editor, True)
         editor.delete_button.click()
         assert store.list_names() == ["beam"]
         assert editor.name_label.text() == "—"
@@ -320,7 +323,7 @@ class TestListActions:
 
     def test_delete_no_leaves_everything_alone(self, editor, store, monkeypatch):
         select_set(editor, "diag")
-        answer(monkeypatch, QMessageBox.StandardButton.No)
+        answer_confirm(monkeypatch, editor, False)
         editor.delete_button.click()
         assert store.list_names() == ["beam", "diag"]
         assert editor.name_label.text() == "diag"
@@ -361,8 +364,8 @@ class TestCompleters:
                 experiment="HTU", store=store, completions=ExplodingCompletions()
             )
         )
-        qtbot.waitUntil(lambda: editor._completions_loaded, timeout=2000)
-        assert editor._completions == {}
+        qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
+        assert editor._device_vars == {}
         assert editor._device_model.stringList() == []
 
 

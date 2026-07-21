@@ -30,32 +30,27 @@ from __future__ import annotations
 
 import copy
 import logging
-import threading
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QFile, Qt, Signal, Slot
-from PySide6.QtGui import QKeyEvent
-from PySide6.QtUiTools import QUiLoader
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QCompleter,
     QDialog,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
-    QMessageBox,
     QPushButton,
     QStyledItemDelegate,
     QTreeWidget,
     QTreeWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 from pydantic import ValidationError
 
+from geecs_console.editors.base import ConfigEditorDialog
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -157,7 +152,7 @@ class _WriteCellDelegate(QStyledItemDelegate):
         return line_edit
 
 
-class ShotControlEditor(QDialog):
+class ShotControlEditor(ConfigEditorDialog):
     """Modeless editor dialog for one experiment's trigger profiles.
 
     Parameters
@@ -177,9 +172,9 @@ class ShotControlEditor(QDialog):
         daemon thread, never the GUI thread.
     """
 
-    #: One ``{device: [variable, ...]}`` mapping (emitted from the fetch
-    #: daemon thread; delivered queued to :meth:`_apply_completions`).
-    completions_ready = Signal(object)
+    UI_PATH = _UI_PATH
+    INITIAL_SIZE = (920, 560)
+    COMPLETIONS_THREAD_NAME = "sce-completions-fetch"
 
     def __init__(
         self,
@@ -191,16 +186,7 @@ class ShotControlEditor(QDialog):
         super().__init__(parent)
         self._experiment = experiment
         self._store = store if store is not None else TriggerProfileStore(experiment)
-        self._completions = (
-            completions if completions is not None else EmptyCompletions()
-        )
-        #: The fetched completion word lists (empty until the fetch lands).
-        self._device_vars: dict[str, list[str]] = {}
-        #: True once the (async) completions fetch has been delivered on the
-        #: GUI thread — tests wait on this instead of sleeping.
-        self.completions_applied = False
-        #: Guards the one-shot signal disconnect in :meth:`closeEvent`.
-        self._completions_disconnected = False
+        self._init_completions(completions)
 
         #: The working document: a TriggerProfile ``model_dump(mode="json")``
         #: dict, kept current on every edit.  ``None`` = no profile loaded.
@@ -216,13 +202,9 @@ class ShotControlEditor(QDialog):
 
         self._load_ui()
         self._bind_widgets()
+        self._guard_enter_keys()
         self._wire_signals()
         self.setWindowTitle(f"Trigger profiles — {experiment or 'no experiment'}")
-        # Force queued: the fetch emits from a daemon thread, and a direct
-        # delivery would touch state on the wrong thread.
-        self.completions_ready.connect(
-            self._apply_completions, Qt.ConnectionType.QueuedConnection
-        )
         self._start_completions_fetch()
         self._refresh_profile_list()
         self._show_document(None)
@@ -230,29 +212,6 @@ class ShotControlEditor(QDialog):
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
-
-    def _load_ui(self) -> None:
-        """Load the hand-authored .ui into the dialog's layout."""
-        loader = QUiLoader()
-        ui_file = QFile(str(_UI_PATH))
-        ui_file.open(QFile.OpenModeFlag.ReadOnly)
-        try:
-            self._ui: QWidget = loader.load(ui_file, self)
-        finally:
-            ui_file.close()
-        if self._ui is None:
-            raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._ui)
-        self.resize(920, 560)
-
-    def _child(self, cls: type, name: str):
-        """Return the named child widget, failing loudly when missing."""
-        widget = self._ui.findChild(cls, name)
-        if widget is None:
-            raise LookupError(f"{name!r} ({cls.__name__}) not found in {_UI_PATH}")
-        return widget
 
     def _bind_widgets(self) -> None:
         """Resolve every wired widget from the loaded .ui once."""
@@ -292,12 +251,6 @@ class ShotControlEditor(QDialog):
         self.dirty_label: QLabel = self._child(QLabel, "sce_dirty_label")
         self.revert_button: QPushButton = self._child(QPushButton, "sce_revert_button")
         self.save_button: QPushButton = self._child(QPushButton, "sce_save_button")
-
-        # Enter must never accept the dialog: no default/auto-default
-        # buttons anywhere (keyPressEvent below swallows the rest).
-        for button in self._ui.findChildren(QPushButton):
-            button.setAutoDefault(False)
-            button.setDefault(False)
 
         # Keep a Python reference for the delegate's full lifetime —
         # setItemDelegate does not take ownership, and a GC'd wrapper with
@@ -356,43 +309,10 @@ class ShotControlEditor(QDialog):
         """The fetched ``{device: [variable, ...]}`` completion word lists."""
         return self._device_vars
 
-    def _start_completions_fetch(self) -> None:
-        """Fetch completions on a short-lived daemon thread (queued delivery)."""
-        provider = self._completions
-
-        def fetch() -> None:
-            """Run the provider's one blocking call off the GUI thread."""
-            try:
-                mapping = provider.device_variables()
-            except Exception as exc:  # noqa: BLE001 — providers should not raise
-                logger.info("completions fetch failed: %s", exc)
-                mapping = {}
-            self.completions_ready.emit(mapping)
-
-        threading.Thread(
-            target=fetch, name="sce-completions-fetch", daemon=True
-        ).start()
-
-    @Slot(object)
-    def _apply_completions(self, mapping: object) -> None:
-        """Store the fetched word lists (GUI-thread slot, delivered queued).
-
-        Cell editors read :attr:`device_vars` when they open, so suggestions
-        that land after the dialog is up appear on the next edit — no
-        completer replumbing needed.
-
-        Parameters
-        ----------
-        mapping : dict
-            The provider result delivered by the queued signal.
-        """
-        self.completions_applied = True
-        if not isinstance(mapping, dict):
-            return
-        self._device_vars = {
-            str(device): [str(variable) for variable in variables]
-            for device, variables in mapping.items()
-        }
+    # Completions plumbing lives on ConfigEditorDialog; no
+    # _install_completions override — cell editors read :attr:`device_vars`
+    # when they open, so suggestions that land after the dialog is up
+    # appear on the next edit, with no completer replumbing needed.
 
     def is_dirty(self) -> bool:
         """Whether the working document differs from the loaded snapshot.
@@ -404,91 +324,17 @@ class ShotControlEditor(QDialog):
         """
         return self._doc is not None and self._doc != self._snapshot
 
-    def _prompt_text(self, title: str, label: str, default: str = "") -> str:
-        """Ask the operator for one line of text ("" = cancelled).
+    def _has_unsaved(self) -> bool:
+        """Unsaved-changes hook: the working doc differs from the snapshot."""
+        return self.is_dirty()
 
-        Parameters
-        ----------
-        title : str
-            Dialog title.
-        label : str
-            Prompt label.
-        default : str, optional
-            Pre-filled text.
+    def _save_unsaved(self) -> bool:
+        """Unsaved-changes hook: persist the working document."""
+        return self._save_current()
 
-        Returns
-        -------
-        str
-            The stripped answer, or "" when cancelled/empty.
-        """
-        text, accepted = QInputDialog.getText(self, title, label, text=default)
-        return text.strip() if accepted else ""
-
-    def _confirm(self, title: str, text: str) -> bool:
-        """Ask a yes/no question (used for deletes).
-
-        Parameters
-        ----------
-        title : str
-            Dialog title.
-        text : str
-            The question.
-
-        Returns
-        -------
-        bool
-            ``True`` on Yes.
-        """
-        answer = QMessageBox.question(
-            self,
-            title,
-            text,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        return answer == QMessageBox.StandardButton.Yes
-
-    def _prompt_unsaved(self) -> str:
-        """Ask what to do with unsaved changes.
-
-        Returns
-        -------
-        str
-            ``"save"``, ``"discard"``, or ``"cancel"``.
-        """
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Unsaved changes")
-        box.setText(f"Trigger profile {self._current_name!r} has unsaved changes.")
-        save = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
-        discard = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(save)
-        box.exec()
-        clicked = box.clickedButton()
-        if clicked is save:
-            return "save"
-        if clicked is discard:
-            return "discard"
-        return "cancel"
-
-    def _resolve_unsaved(self) -> bool:
-        """Settle unsaved edits before leaving the current profile.
-
-        Returns
-        -------
-        bool
-            ``True`` when it is safe to proceed (nothing dirty, saved, or
-            discarded); ``False`` on cancel or a failed save.
-        """
-        if not self.is_dirty():
-            return True
-        choice = self._prompt_unsaved()
-        if choice == "cancel":
-            return False
-        if choice == "save":
-            return self._save_current()
-        return True  # discard
+    def _unsaved_prompt_text(self) -> str:
+        """Name the dirty profile in the unsaved-changes prompt."""
+        return f"Trigger profile {self._current_name!r} has unsaved changes."
 
     # ------------------------------------------------------------------
     # Document handling (the working dict IS model_dump(mode="json"))
@@ -791,7 +637,7 @@ class ShotControlEditor(QDialog):
         """Create (and immediately save) an empty profile."""
         if not self._resolve_unsaved():
             return
-        name = self._prompt_text("New trigger profile", "Profile name:")
+        name = self._prompt_name("New trigger profile", "Profile name:")
         if not name:
             return
         if self._store.exists(name):
@@ -813,8 +659,8 @@ class ShotControlEditor(QDialog):
             return
         if not self._resolve_unsaved():
             return
-        name = self._prompt_text(
-            "Duplicate trigger profile", "New profile name:", default=f"{source}-copy"
+        name = self._prompt_name(
+            "Duplicate trigger profile", "New profile name:", initial=f"{source}-copy"
         )
         if not name:
             return
@@ -838,8 +684,8 @@ class ShotControlEditor(QDialog):
             return
         if not self._resolve_unsaved():
             return
-        name = self._prompt_text(
-            "Rename trigger profile", "New profile name:", default=source
+        name = self._prompt_name(
+            "Rename trigger profile", "New profile name:", initial=source
         )
         if not name or name == source:
             return
@@ -892,7 +738,7 @@ class ShotControlEditor(QDialog):
         """Add an empty variant and switch the tree to it."""
         if self._doc is None:
             return
-        name = self._prompt_text("Add variant", "Variant name:")
+        name = self._prompt_name("Add variant", "Variant name:")
         if not name:
             return
         if name == BASE_LAYER or name in self._doc["variants"]:
@@ -1065,33 +911,8 @@ class ShotControlEditor(QDialog):
         if self._current_name:
             self._load_profile(self._current_name)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 — Qt override
-        """Swallow Return/Enter so it never accepts (closes) the dialog."""
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
-        """Prompt for unsaved changes before closing.
-
-        Only a *visible* dialog prompts — there is an operator to ask.  A
-        programmatic close of a hidden dialog (test teardown, app shutdown)
-        must never block on a modal nobody can answer.
-        """
-        if self.isVisible() and not self._resolve_unsaved():
-            event.ignore()
-            return
-        # A still-running completions fetch must not queue an event onto a
-        # dialog being torn down.  Once only: closeEvent can run twice
-        # (explicit close + owner teardown) and a second disconnect warns.
-        if not self._completions_disconnected:
-            self._completions_disconnected = True
-            try:
-                self.completions_ready.disconnect(self._apply_completions)
-            except (RuntimeError, TypeError):
-                pass
-        super().closeEvent(event)
+    # keyPressEvent / closeEvent / reject: ConfigEditorDialog (Esc now
+    # routes through the unsaved-changes prompt like every other close).
 
 
 def open_shot_control_editor(
