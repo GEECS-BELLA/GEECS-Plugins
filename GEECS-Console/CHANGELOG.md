@@ -4,6 +4,35 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.18.0] - 2026-07-20
+
+### Added
+
+- `editors/base.py::ConfigEditorDialog` — the shared scaffolding base for
+  the four config editors (issue #533, extracted **before** editor #5
+  exists): `.ui` loading + fail-loud `_child`, the Enter-guard (both
+  mechanisms, now uniform), the completions scaffold (queued signal,
+  daemon-thread fetch, `EmptyCompletions` inline fast-path, one-shot
+  close-time disconnect — each previously present in only some editors,
+  now in all four), the unified unsaved-changes flow, and the one
+  name-prompt/confirm convention.
+
+### Changed
+
+- **Unsaved-changes prompts are now uniform**: every editor offers
+  Save / Discard / Cancel (the scan-variable and action-library editors
+  previously offered only Discard/Cancel — the user-visible divergence
+  that motivated #533), and **Esc now routes through the prompt in all
+  four editors** (the save-set and trigger-profile editors previously
+  discarded silently on Esc).
+- One name-prompt convention (stripped text, `None` on cancel) and one
+  Yes/No delete confirm across the editors; the action-library delete
+  confirm's second button is now "No" (was "Cancel").
+- The four editors shrink 4,322 → 3,839 lines against a 365-line base
+  (net −479 including test migrations); editor tests drive the prompts
+  through the instance seams (`_prompt_unsaved`, `_prompt_name`,
+  `_confirm`) instead of module-level Qt patches.
+
 ## [0.17.2] - 2026-07-20
 
 ### Changed

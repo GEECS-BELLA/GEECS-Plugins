@@ -2,7 +2,7 @@
 
 Every editor is registered with ``qtbot.addWidget`` so pytest-qt owns the
 teardown (close + deletion) — no test ends with a shown widget that only a
-local variable references.  The modal prompt seams (``_confirm_discard``,
+local variable references.  The modal prompt seams (``_prompt_unsaved``,
 ``_confirm_delete``, ``_prompt_name``) are always stubbed, so no test — and
 no teardown ``closeEvent`` — can ever block on a real ``QMessageBox``.
 """
@@ -92,7 +92,7 @@ def make_editor(qtbot, root, experiment=EXPERIMENT, completions=None):
     editor = ActionLibraryEditor(store=store, completions=completions)
     qtbot.addWidget(editor)
     # Never let a teardown closeEvent block on a modal box.
-    editor._confirm_discard = lambda: True
+    editor._prompt_unsaved = lambda: "discard"
     editor._confirm_delete = lambda name: True
     # Let the queued completions delivery land before the test body runs, so
     # no fetch signal can arrive after teardown.
@@ -118,7 +118,7 @@ class TestOffline:
     def test_entry_point_opens_offline(self, qtbot, tmp_path):
         dialog = open_action_library_editor(None, "", configs_base=tmp_path / "nowhere")
         qtbot.addWidget(dialog)
-        dialog._confirm_discard = lambda: True
+        dialog._prompt_unsaved = lambda: "discard"
         qtbot.waitUntil(lambda: dialog.completions_applied, timeout=2000)
         assert dialog.isVisible()
         assert dialog.plan_list.count() == 0
@@ -127,18 +127,27 @@ class TestOffline:
         assert not dialog.isVisible()
 
     def test_editor_module_source_has_no_ca_or_execution_imports(self):
-        """Editing only: the editor never imports the CA stack (source pin)."""
-        import geecs_console.editors.action_library_editor as module
+        """Editing only: the editor never imports the CA stack (source pin).
+
+        The pin travels with the scaffolding: the shared base and the
+        completions seam it imports are checked too, so a CA import cannot
+        sneak in through the module chain the editor actually loads.
+        """
         from pathlib import Path
 
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        for forbidden in (
-            "import aioca",
-            "import caproto",
-            "from aioca",
-            "from caproto",
-        ):
-            assert forbidden not in source
+        import geecs_console.editors.action_library_editor as module
+        import geecs_console.editors.base as base_module
+        import geecs_console.services.device_completions as completions_module
+
+        for checked in (module, base_module, completions_module):
+            source = Path(checked.__file__).read_text(encoding="utf-8")
+            for forbidden in (
+                "import aioca",
+                "import caproto",
+                "from aioca",
+                "from caproto",
+            ):
+                assert forbidden not in source, checked.__name__
 
 
 class TestNoExecutionSurface:
@@ -337,12 +346,12 @@ class TestDirtyRevertPrompt:
         editor = make_editor(qtbot, root)
         select_plan(editor, "close_shutters")
         qtbot.keyClicks(editor.description_edit, "!")
-        editor._confirm_discard = lambda: False
+        editor._prompt_unsaved = lambda: "cancel"
         select_plan(editor, "closeout")
         assert editor._current == "close_shutters"
         assert editor.plan_list.currentItem().text() == "close_shutters"
         assert editor._dirty
-        editor._confirm_discard = lambda: True
+        editor._prompt_unsaved = lambda: "discard"
         select_plan(editor, "closeout")
         assert editor._current == "closeout"
         assert not editor._dirty
@@ -353,11 +362,11 @@ class TestDirtyRevertPrompt:
         qtbot.keyClicks(editor.description_edit, "!")
         editor.show()
         qtbot.waitExposed(editor)
-        editor._confirm_discard = lambda: False
+        editor._prompt_unsaved = lambda: "cancel"
         editor.close()
         qtbot.wait(10)
         assert editor.isVisible()
-        editor._confirm_discard = lambda: True
+        editor._prompt_unsaved = lambda: "discard"
         editor.close()
         qtbot.wait(10)
         assert not editor.isVisible()
@@ -381,7 +390,7 @@ class TestEnterKey:
 class TestPlanLifecycle:
     def test_new_plan_saves_into_store(self, qtbot, root):
         editor = make_editor(qtbot, root)
-        editor._prompt_name = lambda title, initial="": "fresh_plan"
+        editor._prompt_name = lambda *args, **kwargs: "fresh_plan"
         editor.new_button.click()
         assert editor._current == "fresh_plan"
         assert editor._dirty
@@ -394,7 +403,7 @@ class TestPlanLifecycle:
 
     def test_new_plan_discarded_when_switching_away(self, qtbot, root):
         editor = make_editor(qtbot, root)
-        editor._prompt_name = lambda title, initial="": "temp_plan"
+        editor._prompt_name = lambda *args, **kwargs: "temp_plan"
         editor.new_button.click()
         select_plan(editor, "close_shutters")
         names = [
@@ -405,15 +414,50 @@ class TestPlanLifecycle:
 
     def test_new_plan_rejects_existing_name(self, qtbot, root):
         editor = make_editor(qtbot, root)
-        editor._prompt_name = lambda title, initial="": "close_shutters"
+        editor._prompt_name = lambda *args, **kwargs: "close_shutters"
         editor.new_button.click()
         assert "already exists" in editor.error_label.text()
         assert editor._current is None
 
+    def test_discarded_phantom_leaves_no_ghost_on_a_canceled_prompt(self, qtbot, root):
+        """New → Discard → cancel the name prompt must leave a coherent editor.
+
+        Pins the PR-#588 review finding: the discard hook must really
+        discard (list and widgets included), because New/Duplicate can
+        still bail out afterwards — a flag-only discard left a ghost row
+        that Save would happily persist.
+        """
+        editor = make_editor(qtbot, root)
+        editor._prompt_name = lambda *args, **kwargs: "temp_plan"
+        editor.new_button.click()
+        assert editor._dirty and editor._phantom == "temp_plan"
+        editor._prompt_unsaved = lambda: "discard"
+        editor._prompt_name = lambda *args, **kwargs: None  # cancel the name
+        editor.new_button.click()
+        names = [
+            editor.plan_list.item(i).text() for i in range(editor.plan_list.count())
+        ]
+        assert "temp_plan" not in names
+        assert editor._current is None
+        assert not editor._dirty
+        # And Save cannot write the plan the operator just discarded.
+        assert not editor._save_plan()
+        assert "temp_plan" not in store_of(root).list_names()
+
+    def test_save_choice_on_switch_persists_the_plan(self, qtbot, root):
+        """The leave-prompt's Save option (new in the shared base) writes."""
+        editor = make_editor(qtbot, root)
+        select_plan(editor, "close_shutters")
+        qtbot.keyClicks(editor.description_edit, "!")
+        editor._prompt_unsaved = lambda: "save"
+        select_plan(editor, "closeout")
+        assert editor._current == "closeout"
+        assert store_of(root).load("close_shutters").description.endswith("!")
+
     def test_duplicate_plan(self, qtbot, root):
         editor = make_editor(qtbot, root)
         select_plan(editor, "close_shutters")
-        editor._prompt_name = lambda title, initial="": "shutters_copy"
+        editor._prompt_name = lambda *args, **kwargs: "shutters_copy"
         editor.duplicate_button.click()
         assert editor._current == "shutters_copy"
         assert editor._dirty
@@ -426,7 +470,7 @@ class TestPlanLifecycle:
     def test_rename_updates_references_and_selection(self, qtbot, root):
         editor = make_editor(qtbot, root)
         select_plan(editor, "close_shutters")
-        editor._prompt_name = lambda title, initial="": "shut_all"
+        editor._prompt_name = lambda *args, **kwargs: "shut_all"
         editor.rename_button.click()
         assert editor._current == "shut_all"
         assert editor.plan_list.currentItem().text() == "shut_all"
@@ -484,7 +528,7 @@ class TestCompletions:
         store = ActionLibraryStore(EXPERIMENT, experiments_root=root)
         editor = ActionLibraryEditor(store=store, completions=provider)
         qtbot.addWidget(editor)
-        editor._confirm_discard = lambda: True
+        editor._prompt_unsaved = lambda: "discard"
         qtbot.waitUntil(lambda: editor.completions_applied, timeout=2000)
         assert editor._device_completer_model.stringList() == ["U_A"]
 

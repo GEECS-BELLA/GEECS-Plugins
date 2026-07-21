@@ -26,32 +26,27 @@ from __future__ import annotations
 
 import copy
 import logging
-import threading
 from pathlib import Path
 from typing import Optional
 
-from PySide6.QtCore import QFile, QStringListModel, Qt, Signal, Slot
-from PySide6.QtUiTools import QUiLoader
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QCompleter,
     QDialog,
     QGroupBox,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
-    QMessageBox,
     QPushButton,
-    QVBoxLayout,
     QWidget,
 )
 from pydantic import ValidationError
 
+from geecs_console.editors.base import ConfigEditorDialog
 from geecs_console.services.device_completions import (
     CompletionsProvider,
-    EmptyCompletions,
     GeecsDbCompletions,
 )
 from geecs_console.services.save_set_store import SaveSetStore, SaveSetStoreError
@@ -86,7 +81,7 @@ def _split_names(text: str) -> list[str]:
     return [part.strip() for part in text.split(",") if part.strip()]
 
 
-class SaveSetEditor(QDialog):
+class SaveSetEditor(ConfigEditorDialog):
     """Edit the save sets of one experiment (the M5 SaveElementEditor).
 
     Left: the experiment's save-set list (New / Duplicate / Rename /
@@ -113,9 +108,8 @@ class SaveSetEditor(QDialog):
         offline/tests get empty completers unless a provider is injected.
     """
 
-    #: One completions mapping per finished provider call (emitted from the
-    #: fetch daemon thread; delivered queued to :meth:`_apply_completions`).
-    completions_ready = Signal(object)
+    UI_PATH = _UI_PATH
+    COMPLETIONS_THREAD_NAME = "sse-completions"
 
     def __init__(
         self,
@@ -132,13 +126,7 @@ class SaveSetEditor(QDialog):
             else SaveSetStore(experiment, experiments_root=configs_base)
         )
         self._experiment = experiment or self._store.experiment
-        self._completions_provider: CompletionsProvider = (
-            completions if completions is not None else EmptyCompletions()
-        )
-        self._completions: dict[str, list[str]] = {}
-        #: True once a provider fetch has been applied (tests wait on this
-        #: so the queued delivery cannot outlive the dialog).
-        self._completions_loaded = False
+        self._init_completions(completions)
 
         #: The open document as a JSON-ish dict (``model_dump(mode="json")``
         #: shape) — ``None`` when nothing is open.
@@ -154,43 +142,18 @@ class SaveSetEditor(QDialog):
 
         self._load_ui()
         self._bind_widgets()
-        self._guard_default_buttons()
+        self._guard_enter_keys()
         self._build_completers()
         self._wire_signals()
 
         self.setWindowTitle(self._title())
         self._refresh_set_list()
         self._clear_document()
-        self.completions_ready.connect(
-            self._apply_completions, Qt.ConnectionType.QueuedConnection
-        )
         self._start_completions_fetch()
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
-
-    def _load_ui(self) -> None:
-        """Load the hand-authored .ui as this dialog's content."""
-        loader = QUiLoader()
-        ui_file = QFile(str(_UI_PATH))
-        ui_file.open(QFile.OpenModeFlag.ReadOnly)
-        try:
-            self._ui: QWidget = loader.load(ui_file, self)
-        finally:
-            ui_file.close()
-        if self._ui is None:
-            raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._ui)
-
-    def _child(self, cls: type, name: str):
-        """Return the named child widget, failing loudly when missing."""
-        widget = self._ui.findChild(cls, name)
-        if widget is None:
-            raise LookupError(f"{name!r} ({cls.__name__}) not found in {_UI_PATH}")
-        return widget
 
     def _bind_widgets(self) -> None:
         """Resolve every wired widget from the loaded .ui once."""
@@ -267,18 +230,6 @@ class SaveSetEditor(QDialog):
             },
         )
 
-    def _guard_default_buttons(self) -> None:
-        """Keep Enter in a line edit from triggering dialog accept.
-
-        Every ``QPushButton`` in a ``QDialog`` is auto-default by default,
-        so pressing Enter in any line edit would "click" the first button.
-        The line edits have their own Enter behavior (add device / add
-        scalar) wired in :meth:`_wire_signals`.
-        """
-        for button in self.findChildren(QPushButton):
-            button.setAutoDefault(False)
-            button.setDefault(False)
-
     def _build_completers(self) -> None:
         """Attach the device/variable completers (empty until a fetch lands).
 
@@ -338,52 +289,19 @@ class SaveSetEditor(QDialog):
         return " ".join(parts)
 
     # ------------------------------------------------------------------
-    # Completions (injectable provider, fetched off the GUI thread)
+    # Completions (scaffold on ConfigEditorDialog)
     # ------------------------------------------------------------------
 
-    def _start_completions_fetch(self) -> None:
-        """Fetch completions once on a daemon thread.
-
-        The :class:`EmptyCompletions` default is answered inline (no thread
-        to spawn for a constant) — offline construction stays thread-free.
-        """
-        if isinstance(self._completions_provider, EmptyCompletions):
-            self._completions_loaded = True
-            return
-        threading.Thread(
-            target=self._fetch_completions,
-            name="sse-completions",
-            daemon=True,
-        ).start()
-
-    def _fetch_completions(self) -> None:
-        """Call the provider (on the daemon thread) and emit the mapping."""
-        try:
-            mapping = self._completions_provider.device_variables()
-        except Exception as exc:  # noqa: BLE001 — completions are best-effort
-            logger.info("completions provider failed: %s", exc)
-            mapping = {}
-        self.completions_ready.emit(mapping or {})
-
-    @Slot(object)
-    def _apply_completions(self, mapping: dict) -> None:
-        """Feed the completer models (GUI-thread slot, delivered queued).
-
-        Parameters
-        ----------
-        mapping : dict
-            ``{device: [variable, ...]}`` from the provider.
-        """
-        self._completions = dict(mapping)
-        self._completions_loaded = True
-        self._device_model.setStringList(sorted(self._completions))
+    def _install_completions(self) -> None:
+        """Feed the completer models from the fresh word lists."""
+        self._device_model.setStringList(sorted(self._device_vars))
         self._refresh_variable_completer()
 
     def _refresh_variable_completer(self) -> None:
         """Point the scalar completer at the selected device's variables."""
         entry = self._current_entry()
         device = entry["device"] if entry is not None else ""
-        self._variable_model.setStringList(self._completions.get(device, []))
+        self._variable_model.setStringList(self._device_vars.get(device, []))
 
     # ------------------------------------------------------------------
     # Document plumbing
@@ -500,7 +418,7 @@ class SaveSetEditor(QDialog):
             return
         item = self.set_list.item(row)
         target = item.text() if item is not None else ""
-        if not self._maybe_leave():
+        if not self._resolve_unsaved():
             self._select_row_silently(self._selected_row)
             return
         if not target:
@@ -519,40 +437,25 @@ class SaveSetEditor(QDialog):
         self._selected_row = new_row
         self._open_set(target)
 
-    def _maybe_leave(self) -> bool:
-        """Resolve unsaved changes before leaving the open document.
+    def _has_unsaved(self) -> bool:
+        """Unsaved-changes hook: an open document with unsaved edits."""
+        return self._dirty and self._document is not None
 
-        Prompts Save / Discard / Cancel when dirty.  Choosing Save runs the
-        normal save (staying put when it fails); choosing Discard on a
-        never-saved set removes it from the list entirely.
+    def _save_unsaved(self) -> bool:
+        """Unsaved-changes hook: run the normal save (staying put on failure)."""
+        return self._save()
 
-        Returns
-        -------
-        bool
-            ``True`` when it is safe to leave the current document.
-        """
-        if not self._dirty or self._document is None:
-            return True
+    def _discard_unsaved(self) -> None:
+        """Unsaved-changes hook: a never-saved set evaporates with its edits."""
         name = self._current_name()
-        choice = QMessageBox.question(
-            self,
-            "Unsaved changes",
-            f"Save set {name!r} has unsaved changes.",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if choice == QMessageBox.StandardButton.Cancel:
-            return False
-        if choice == QMessageBox.StandardButton.Save:
-            return self._save()
-        # Discard: a never-saved set evaporates with its edits.
         if name in self._unsaved:
             self._unsaved.discard(name)
             self._drop_list_item(name)
         self._dirty = False
-        return True
+
+    def _unsaved_prompt_text(self) -> str:
+        """Name the dirty save set in the unsaved-changes prompt."""
+        return f"Save set {self._current_name()!r} has unsaved changes."
 
     def _drop_list_item(self, name: str) -> None:
         """Remove *name*'s row from the set list without side effects."""
@@ -565,12 +468,9 @@ class SaveSetEditor(QDialog):
         finally:
             self._suppress_selection = False
 
-    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
-        """Prompt for unsaved changes before closing."""
-        if not self._maybe_leave():
-            event.ignore()
-            return
-        super().closeEvent(event)
+    # closeEvent / reject / keyPressEvent: ConfigEditorDialog (Esc now
+    # routes through the unsaved-changes prompt instead of silently
+    # hiding a dirty dialog).
 
     # ------------------------------------------------------------------
     # Opening / clearing documents
@@ -678,8 +578,11 @@ class SaveSetEditor(QDialog):
         """Every name the list shows (stored plus unsaved)."""
         return set(self._store.list_names()) | self._unsaved
 
-    def _prompt_name(self, title: str, initial: str = "") -> str:
+    def _prompt_set_name(self, title: str, initial: str = "") -> str:
         """Ask for a save-set name; "" when cancelled, empty, or taken.
+
+        A collision-checking wrapper over the base :meth:`_prompt_name`
+        (the instance-monkeypatchable prompt seam).
 
         Parameters
         ----------
@@ -693,11 +596,8 @@ class SaveSetEditor(QDialog):
         str
             The accepted, stripped, collision-free name — or "".
         """
-        name, accepted = QInputDialog.getText(
-            self, title, "Save set name:", text=initial
-        )
-        name = name.strip()
-        if not accepted or not name:
+        name = self._prompt_name(title, "Save set name:", initial=initial)
+        if not name:
             return ""
         if name in self._known_names():
             self._show_message(f"A save set named {name!r} already exists.", error=True)
@@ -706,9 +606,9 @@ class SaveSetEditor(QDialog):
 
     def _on_new(self) -> None:
         """Create a new (empty, not-yet-valid) save set in memory."""
-        if not self._maybe_leave():
+        if not self._resolve_unsaved():
             return
-        name = self._prompt_name("New save set")
+        name = self._prompt_set_name("New save set")
         if not name:
             return
         self._adopt_unsaved(
@@ -721,9 +621,9 @@ class SaveSetEditor(QDialog):
             self._show_message("No save set selected.")
             return
         duplicate = copy.deepcopy(self._document)
-        if not self._maybe_leave():
+        if not self._resolve_unsaved():
             return
-        name = self._prompt_name(
+        name = self._prompt_set_name(
             "Duplicate save set", initial=f"{duplicate.get('name', '')}-copy"
         )
         if not name:
@@ -737,7 +637,7 @@ class SaveSetEditor(QDialog):
             self._show_message("No save set selected.")
             return
         old = self._current_name()
-        new = self._prompt_name("Rename save set", initial=old)
+        new = self._prompt_set_name("Rename save set", initial=old)
         if not new:
             return
         if old in self._unsaved:
@@ -761,14 +661,7 @@ class SaveSetEditor(QDialog):
             self._show_message("No save set selected.")
             return
         name = self._current_name()
-        choice = QMessageBox.question(
-            self,
-            "Delete save set",
-            f"Delete save set {name!r}?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if choice != QMessageBox.StandardButton.Yes:
+        if not self._confirm("Delete save set", f"Delete save set {name!r}?"):
             return
         if name in self._unsaved:
             self._unsaved.discard(name)

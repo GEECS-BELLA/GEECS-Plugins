@@ -86,7 +86,8 @@ def make_editor(qtbot, tmp_path, experiment=EXPERIMENT, completions=None):
         completions=completions if completions is not None else EmptyCompletions(),
     )
     qtbot.addWidget(editor)
-    editor._confirm_discard = lambda: True  # teardown close must never block
+    editor._confirm_discard = lambda: True  # revert confirms (teardown safety)
+    editor._prompt_unsaved = lambda: "discard"  # teardown close must never block
     qtbot.waitUntil(lambda: editor.completions_applied, timeout=5000)
     return editor
 
@@ -126,7 +127,7 @@ class TestOpenOffline:
             None, EXPERIMENT, configs_base=tmp_path, completions=EmptyCompletions()
         )
         qtbot.addWidget(dialog)
-        dialog._confirm_discard = lambda: True
+        dialog._prompt_unsaved = lambda: "discard"
         qtbot.waitUntil(lambda: dialog.completions_applied, timeout=5000)
         assert isinstance(dialog, QDialog)
         assert dialog.isVisible()
@@ -348,7 +349,7 @@ class TestRenameDuplicateDelete:
         seed_catalog(tmp_path)
         editor = make_editor(qtbot, tmp_path)
         select_variable(editor, "jet_z")
-        editor._ask_name = lambda *args, **kwargs: "jet_z_new"
+        editor._prompt_name = lambda *args, **kwargs: "jet_z_new"
         editor.rename_button.click()
         assert list_names(editor) == ["jet_z_new", "emq1_current", "angle_offset_x"]
         assert editor.dirty
@@ -363,7 +364,7 @@ class TestRenameDuplicateDelete:
         seed_catalog(tmp_path)
         editor = make_editor(qtbot, tmp_path)
         select_variable(editor, "jet_z")
-        editor._ask_name = lambda *args, **kwargs: "emq1_current"
+        editor._prompt_name = lambda *args, **kwargs: "emq1_current"
         editor.rename_button.click()
         assert "already exists" in editor.error_label.text()
         assert "jet_z" in list_names(editor)
@@ -372,7 +373,7 @@ class TestRenameDuplicateDelete:
         seed_catalog(tmp_path)
         editor = make_editor(qtbot, tmp_path)
         select_variable(editor, "jet_z")
-        editor._ask_name = lambda *args, **kwargs: None
+        editor._prompt_name = lambda *args, **kwargs: None
         editor.rename_button.click()
         assert not editor.dirty
 
@@ -438,10 +439,10 @@ class TestDirtyRevertClose:
         editor.show()
         select_variable(editor, "jet_z")
         editor.device_edit.setText("U_Elsewhere")
-        editor._confirm_discard = lambda: False
+        editor._prompt_unsaved = lambda: "cancel"
         editor.close()
         assert editor.isVisible()  # the ignored close left it open
-        editor._confirm_discard = lambda: True
+        editor._prompt_unsaved = lambda: "discard"
         editor.close()
         assert not editor.isVisible()
 
@@ -450,10 +451,41 @@ class TestDirtyRevertClose:
         editor = make_editor(qtbot, tmp_path)
         editor.show()
         prompts = []
-        editor._confirm_discard = lambda: prompts.append(1) or True
+        editor._prompt_unsaved = lambda: prompts.append(1) or "discard"
         editor.close()
         assert prompts == []
         assert not editor.isVisible()
+
+    def test_close_discard_prompts_exactly_once(self, qtbot, tmp_path):
+        """QDialog routes a visible close through reject(); only reject prompts.
+
+        Pins the PR-#588 review finding: with both closeEvent and reject
+        prompting, a computed-dirty editor (draft ≠ snapshot survives the
+        discard) asked twice on Discard.
+        """
+        seed_catalog(tmp_path)
+        editor = make_editor(qtbot, tmp_path)
+        editor.show()
+        select_variable(editor, "jet_z")
+        editor.device_edit.setText("U_Elsewhere")
+        prompts = []
+        editor._prompt_unsaved = lambda: prompts.append(1) or "discard"
+        editor.close()
+        assert not editor.isVisible()
+        assert prompts == [1]
+
+    def test_close_save_choice_persists_the_draft(self, qtbot, tmp_path):
+        """The leave-prompt's Save option (new in the shared base) writes."""
+        seed_catalog(tmp_path)
+        editor = make_editor(qtbot, tmp_path)
+        editor.show()
+        select_variable(editor, "jet_z")
+        editor.device_edit.setText("U_Elsewhere")
+        editor._prompt_unsaved = lambda: "save"
+        editor.close()
+        assert not editor.isVisible()
+        document = catalog_document(tmp_path)
+        assert document["variables"]["jet_z"]["target"].startswith("U_Elsewhere:")
 
 
 class TestCompleters:

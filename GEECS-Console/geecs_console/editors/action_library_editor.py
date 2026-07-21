@@ -33,14 +33,11 @@ Design notes
 from __future__ import annotations
 
 import logging
-import threading
 from pathlib import Path
 from typing import Optional
 
 from pydantic import ValidationError
-from PySide6.QtCore import QFile, QStringListModel, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QKeyEvent
-from PySide6.QtUiTools import QUiLoader
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -50,19 +47,17 @@ from PySide6.QtWidgets import (
     QDialog,
     QDoubleSpinBox,
     QHeaderView,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
-    QMessageBox,
     QPushButton,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
     QWidget,
 )
 
+from geecs_console.editors.base import ConfigEditorDialog
 from geecs_console.services.action_library_store import (
     ActionLibraryStore,
     ActionLibraryStoreError,
@@ -219,7 +214,7 @@ def step_summary(step: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-class ActionLibraryEditor(QDialog):
+class ActionLibraryEditor(ConfigEditorDialog):
     """Edit the named action plans of one experiment (no execution).
 
     Parameters
@@ -236,9 +231,8 @@ class ActionLibraryEditor(QDialog):
         Standard Qt parent.
     """
 
-    #: Provider result (``{device: [variable, ...]}``), emitted from the
-    #: fetch daemon thread; delivered queued to :meth:`_apply_completions`.
-    completions_ready = Signal(object)
+    UI_PATH = _UI_PATH
+    COMPLETIONS_THREAD_NAME = "ale-completions-fetch"
 
     def __init__(
         self,
@@ -248,9 +242,7 @@ class ActionLibraryEditor(QDialog):
     ) -> None:
         super().__init__(parent)
         self._store = store if store is not None else ActionLibraryStore()
-        self._completions: CompletionsProvider = (
-            completions if completions is not None else EmptyCompletions()
-        )
+        self._init_completions(completions)
 
         self._loading = False
         self._dirty = False
@@ -262,16 +254,11 @@ class ActionLibraryEditor(QDialog):
         #: Snapshot for Revert (steps deep-ish copy + description).
         self._baseline_steps: list[dict] = []
         self._baseline_description = ""
-        #: ``{device: [variable, ...]}`` word lists once the fetch lands.
-        self._device_vars: dict[str, list[str]] = {}
-        #: True once the (async) completions fetch has been delivered on the
-        #: GUI thread — tests wait on this so no queued signal can land
-        #: after teardown.
-        self.completions_applied = False
 
         self._apply_stylesheet()
         self._load_ui()
         self._bind_widgets()
+        self._guard_enter_keys()
         self._configure_widgets()
         self._wire_signals()
         self._setup_completers()
@@ -280,10 +267,6 @@ class ActionLibraryEditor(QDialog):
         self._clear_plan_editor()
         self._update_title()
         self._refresh_enabled()
-
-        self.completions_ready.connect(
-            self._apply_completions, Qt.ConnectionType.QueuedConnection
-        )
         self._start_completions_fetch()
 
     # ------------------------------------------------------------------
@@ -297,28 +280,6 @@ class ActionLibraryEditor(QDialog):
             from geecs_console.app.main_window import load_stylesheet
 
             app.setStyleSheet(load_stylesheet())
-
-    def _load_ui(self) -> None:
-        """Load the hand-authored ``.ui`` as this dialog's content."""
-        loader = QUiLoader()
-        ui_file = QFile(str(_UI_PATH))
-        ui_file.open(QFile.OpenModeFlag.ReadOnly)
-        try:
-            self._ui: QWidget = loader.load(ui_file, self)
-        finally:
-            ui_file.close()
-        if self._ui is None:
-            raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._ui)
-
-    def _child(self, cls: type, name: str):
-        """Return the named child widget, failing loudly when missing."""
-        widget = self._ui.findChild(cls, name)
-        if widget is None:
-            raise LookupError(f"{name!r} ({cls.__name__}) not found in {_UI_PATH}")
-        return widget
 
     def _bind_widgets(self) -> None:
         """Resolve every wired widget from the loaded ``.ui`` once."""
@@ -460,39 +421,8 @@ class ActionLibraryEditor(QDialog):
             completer.setFilterMode(Qt.MatchFlag.MatchContains)
             edit.setCompleter(completer)
 
-    def _start_completions_fetch(self) -> None:
-        """Fetch completions on a short-lived daemon thread (queued delivery)."""
-        provider = self._completions
-
-        def fetch() -> None:
-            """Run the provider's one blocking call off the GUI thread."""
-            try:
-                mapping = provider.device_variables()
-            except Exception as exc:  # noqa: BLE001 — providers should not raise
-                logger.info("completions fetch failed: %s", exc)
-                mapping = {}
-            self.completions_ready.emit(mapping)
-
-        threading.Thread(
-            target=fetch, name="ale-completions-fetch", daemon=True
-        ).start()
-
-    @Slot(object)
-    def _apply_completions(self, mapping: object) -> None:
-        """Install the fetched ``{device: [variable, ...]}`` word lists (GUI thread).
-
-        Parameters
-        ----------
-        mapping : dict
-            The provider result delivered by the queued signal.
-        """
-        self.completions_applied = True
-        if not isinstance(mapping, dict):
-            return
-        self._device_vars = {
-            str(device): [str(v) for v in variables]
-            for device, variables in mapping.items()
-        }
+    def _install_completions(self) -> None:
+        """Point the device/variable completer models at the fresh word lists."""
         self._device_completer_model.setStringList(sorted(self._device_vars))
         self._refresh_variable_completer(
             self._set_variable_completer_model, self.set_device_edit.text()
@@ -506,28 +436,40 @@ class ActionLibraryEditor(QDialog):
         model.setStringList(self._device_vars.get(device, []))
 
     # ------------------------------------------------------------------
-    # Dialog-level behaviour
+    # Dialog-level behaviour (close paths on ConfigEditorDialog — the
+    # unsaved-changes prompt now offers Save alongside Discard/Cancel)
     # ------------------------------------------------------------------
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt API)
-        """Swallow Return/Enter so they never accept (close) the dialog."""
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            event.accept()
-            return
-        super().keyPressEvent(event)
+    def _has_unsaved(self) -> bool:
+        """Unsaved-changes hook: the working plan has unsaved edits."""
+        return self._dirty
 
-    def reject(self) -> None:
-        """Prompt for unsaved changes before closing via Escape/close."""
-        if self._dirty and not self._confirm_discard():
-            return
-        super().reject()
+    def _save_unsaved(self) -> bool:
+        """Unsaved-changes hook: persist the working plan."""
+        return self._save_plan()
 
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt API)
-        """Prompt for unsaved changes before the window closes."""
-        if self._dirty and not self._confirm_discard():
-            event.ignore()
+    def _discard_unsaved(self) -> None:
+        """Unsaved-changes hook: really discard — the widgets follow the flag.
+
+        Callers (New / Duplicate) can still bail out *after* a discard (name
+        prompt canceled, collision), so the editor must be left coherent
+        here, not merely flag-cleared: a never-saved (phantom) plan
+        evaporates from the list and the editor clears; a saved plan
+        reloads clean from the store.
+        """
+        if self._phantom is not None and self._current == self._phantom:
+            self._phantom = None
+            self._set_dirty(False)
+            self._populate_plan_list()
+            self._load_plan(None)
             return
-        super().closeEvent(event)
+        self._set_dirty(False)
+        if self._current is not None:
+            self._load_plan(self._current)
+
+    def _unsaved_prompt_text(self) -> str:
+        """Describe the dirty plan in the unsaved-changes prompt."""
+        return f"Action plan {self._current!r} has unsaved changes."
 
     def _update_title(self) -> None:
         """Render the window title (experiment + unsaved marker)."""
@@ -541,32 +483,11 @@ class ActionLibraryEditor(QDialog):
     # Prompt seams (tests monkeypatch these)
     # ------------------------------------------------------------------
 
-    def _prompt_name(self, title: str, initial: str = "") -> Optional[str]:
-        """Ask the operator for a plan name; ``None`` on cancel."""
-        name, accepted = QInputDialog.getText(self, title, "Plan name:", text=initial)
-        return name if accepted else None
-
-    def _confirm_discard(self) -> bool:
-        """Ask whether unsaved changes may be discarded."""
-        answer = QMessageBox.question(
-            self,
-            "Unsaved changes",
-            "The current plan has unsaved changes. Discard them?",
-            QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        return answer == QMessageBox.StandardButton.Discard
-
     def _confirm_delete(self, name: str) -> bool:
         """Ask whether plan *name* should really be deleted."""
-        answer = QMessageBox.question(
-            self,
-            "Delete plan",
-            f"Delete action plan {name!r}? This cannot be undone.",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
+        return self._confirm(
+            "Delete plan", f"Delete action plan {name!r}? This cannot be undone."
         )
-        return answer == QMessageBox.StandardButton.Yes
 
     # ------------------------------------------------------------------
     # Inline messages
@@ -626,17 +547,15 @@ class ActionLibraryEditor(QDialog):
         name = current.text() if current is not None else None
         if name == self._current:
             return
-        if self._dirty and not self._confirm_discard():
+        had_phantom = self._phantom
+        if not self._resolve_unsaved():
             self._loading = True
             try:
                 self._select_name(self._current)
             finally:
                 self._loading = False
             return
-        discarded_phantom = self._phantom is not None and self._current == self._phantom
-        self._phantom = None if discarded_phantom else self._phantom
-        self._set_dirty(False)
-        if discarded_phantom:
+        if had_phantom is not None and self._phantom is None:
             # The discarded new plan disappears with its unsaved state.
             self._populate_plan_list(select=name)
         self._load_plan(name)
@@ -730,45 +649,42 @@ class ActionLibraryEditor(QDialog):
 
     def _on_new(self) -> None:
         """Create a new plan (in memory until saved)."""
-        if self._dirty and not self._confirm_discard():
+        if not self._resolve_unsaved():
             return
-        name = self._prompt_name("New action plan")
-        if not name or not name.strip():
+        name = self._prompt_name("New action plan", "Plan name:")
+        if not name:
             return
-        name = name.strip()
         if name in self._store.list_names():
             self._show_error(f"Plan {name!r} already exists.")
             return
-        self._set_dirty(False)
         self._start_phantom(name, [default_step("wait")], "")
 
     def _on_duplicate(self) -> None:
         """Duplicate the selected plan under a new name (in memory)."""
         if self._current is None:
             return
-        if self._dirty and not self._confirm_discard():
+        steps = [dict(step) for step in self._working_steps]
+        description = self.description_edit.text()
+        if not self._resolve_unsaved():
             return
-        name = self._prompt_name("Duplicate plan", initial=f"{self._current}_copy")
-        if not name or not name.strip():
+        name = self._prompt_name(
+            "Duplicate plan", "Plan name:", initial=f"{self._current}_copy"
+        )
+        if not name:
             return
-        name = name.strip()
         if name in self._store.list_names() or name == self._phantom:
             self._show_error(f"Plan {name!r} already exists.")
             return
-        steps = [dict(step) for step in self._working_steps]
-        description = self.description_edit.text()
         self._phantom = None
-        self._set_dirty(False)
         self._start_phantom(name, steps, description)
 
     def _on_rename(self) -> None:
         """Rename the selected plan (updating every ``run`` reference)."""
         if self._current is None:
             return
-        new = self._prompt_name("Rename plan", initial=self._current)
-        if not new or not new.strip() or new.strip() == self._current:
+        new = self._prompt_name("Rename plan", "Plan name:", initial=self._current)
+        if not new or new == self._current:
             return
-        new = new.strip()
         old = self._current
         if self._phantom == old:
             if new in self._store.list_names():
@@ -1031,26 +947,37 @@ class ActionLibraryEditor(QDialog):
             }
         )
 
-    def _on_save(self) -> None:
-        """Validate and persist the current plan through the store."""
+    def _save_plan(self) -> bool:
+        """Validate and persist the current plan through the store.
+
+        Returns
+        -------
+        bool
+            ``True`` when the save landed (validation and write both OK).
+        """
         if self._current is None:
-            return
+            return False
         self._clear_error()
         try:
             plan = self._build_plan()
         except ValidationError as exc:
             self._show_error(f"Invalid plan: {exc}")
-            return
+            return False
         try:
             self._store.save(self._current, plan)
         except ActionLibraryStoreError as exc:
             self._show_error(str(exc))
-            return
+            return False
         self._phantom = None
         self._baseline_steps = [dict(step) for step in self._working_steps]
         self._baseline_description = self.description_edit.text()
         self._set_dirty(False)
         self._populate_plan_list(select=self._current)
+        return True
+
+    def _on_save(self) -> None:
+        """Save button handler."""
+        self._save_plan()
 
     def _on_revert(self) -> None:
         """Restore the plan to its last saved (or freshly created) state."""

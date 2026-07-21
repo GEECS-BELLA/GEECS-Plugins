@@ -38,18 +38,15 @@ from __future__ import annotations
 
 import copy
 import logging
-import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from pydantic import ValidationError
-from PySide6.QtCore import QFile, QStringListModel, Qt, Signal, Slot
-from PySide6.QtGui import QCloseEvent, QKeyEvent
+from PySide6.QtCore import QStringListModel, Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
     QDialog,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -58,11 +55,10 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QTableWidget,
-    QVBoxLayout,
     QWidget,
 )
-from PySide6.QtUiTools import QUiLoader
 
+from geecs_console.editors.base import ConfigEditorDialog
 from geecs_console.services.device_completions import (
     CompletionsProvider,
     EmptyCompletions,
@@ -187,7 +183,7 @@ def _format_validation_error(exc: ValidationError, drafts: dict[str, dict]) -> s
     return "\n".join(shown)
 
 
-class ScanVariableEditor(QDialog):
+class ScanVariableEditor(ConfigEditorDialog):
     """Editor dialog for one experiment's scan-variable catalog.
 
     Parameters
@@ -203,9 +199,9 @@ class ScanVariableEditor(QDialog):
         Parent widget (the main window in production).
     """
 
-    #: The provider's ``{device: [variable, ...]}`` result (emitted from the
-    #: fetch daemon thread; delivered queued to :meth:`_apply_completions`).
-    completions_ready = Signal(object)
+    UI_PATH = _UI_PATH
+    INITIAL_SIZE = (900, 560)
+    COMPLETIONS_THREAD_NAME = "sve-completions-fetch"
 
     def __init__(
         self,
@@ -215,9 +211,7 @@ class ScanVariableEditor(QDialog):
     ) -> None:
         super().__init__(parent)
         self._store = store
-        self._completions = (
-            completions if completions is not None else EmptyCompletions()
-        )
+        self._init_completions(completions)
         #: name → plain field dict (a ScanVariableSpec dump; invalid
         #: intermediate states are representable while the operator types).
         self._variables: dict[str, dict] = {}
@@ -225,15 +219,9 @@ class ScanVariableEditor(QDialog):
         self._schema_version = 1
         self._current_name: Optional[str] = None
         self._loading = False
-        self._device_vars: dict[str, list[str]] = {}
-        #: True once the (async) completions fetch has been delivered on the
-        #: GUI thread — tests wait on this so no queued signal can land
-        #: during teardown.
-        self.completions_applied = False
 
-        #: Test seams: ask for a name (rename/duplicate/new) and confirm
-        #: discarding unsaved changes.  Defaults are the modal Qt dialogs.
-        self._ask_name: Callable[[str, str, str], Optional[str]] = self._ask_name_modal
+        #: Test seam: confirm discarding the draft on Revert (the leave
+        #: prompts go through the base `_prompt_unsaved` seam instead).
         self._confirm_discard: Callable[[], bool] = self._confirm_discard_modal
 
         self._load_ui()
@@ -241,7 +229,7 @@ class ScanVariableEditor(QDialog):
         self._populate_static_combos()
         self._build_completers()
         self._wire_signals()
-        self._disable_enter_accept()
+        self._guard_enter_keys()
 
         self.setWindowTitle(
             f"Scan Variables — {store.experiment}"
@@ -250,56 +238,11 @@ class ScanVariableEditor(QDialog):
         )
 
         self._reload_from_store(initial=True)
-
-        self.completions_ready.connect(
-            self._apply_completions, Qt.ConnectionType.QueuedConnection
-        )
         self._start_completions_fetch()
 
     # ------------------------------------------------------------------
     # Construction
     # ------------------------------------------------------------------
-
-    def _load_ui(self) -> None:
-        """Load the hand-authored .ui as this dialog's only child."""
-        loader = QUiLoader()
-        ui_file = QFile(str(_UI_PATH))
-        ui_file.open(QFile.OpenModeFlag.ReadOnly)
-        try:
-            self._ui: QWidget = loader.load(ui_file, self)
-        finally:
-            ui_file.close()
-        if self._ui is None:
-            raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._ui)
-        self.resize(900, 560)
-
-    def _child(self, cls: type, name: str) -> Any:
-        """Return the named child widget, failing loudly when missing.
-
-        Parameters
-        ----------
-        cls : type
-            Expected widget class.
-        name : str
-            The ``sve_``-prefixed object name in the .ui.
-
-        Returns
-        -------
-        QWidget
-            The resolved child.
-
-        Raises
-        ------
-        LookupError
-            When the .ui does not contain the widget.
-        """
-        widget = self._ui.findChild(cls, name)
-        if widget is None:
-            raise LookupError(f"{name!r} ({cls.__name__}) not found in {_UI_PATH}")
-        return widget
 
     def _bind_widgets(self) -> None:
         """Resolve every wired widget from the loaded .ui once."""
@@ -447,35 +390,9 @@ class ScanVariableEditor(QDialog):
         self.save_button.clicked.connect(self._on_save)
         self.close_button.clicked.connect(self.close)
 
-    def _disable_enter_accept(self) -> None:
-        """Ensure Enter never accepts the dialog (no default/auto-default buttons)."""
-        for button in self.findChildren(QPushButton):
-            button.setAutoDefault(False)
-            button.setDefault(False)
-
     # ------------------------------------------------------------------
     # Modal seams (overridable in tests)
     # ------------------------------------------------------------------
-
-    def _ask_name_modal(self, title: str, label: str, initial: str) -> Optional[str]:
-        """Ask for a variable name with a modal input dialog.
-
-        Parameters
-        ----------
-        title : str
-            Dialog window title.
-        label : str
-            Prompt text.
-        initial : str
-            Prefilled name.
-
-        Returns
-        -------
-        str or None
-            The entered name, or ``None`` on cancel.
-        """
-        name, accepted = QInputDialog.getText(self, title, label, text=initial)
-        return name if accepted else None
 
     def _confirm_discard_modal(self) -> bool:
         """Ask whether to discard unsaved changes (modal).
@@ -640,7 +557,7 @@ class ScanVariableEditor(QDialog):
         old = self._current_name
         if old is None:
             return
-        new = self._ask_name("Rename scan variable", "New name:", old)
+        new = self._prompt_name("Rename scan variable", "New name:", old)
         if new is None:
             return
         new = new.strip()
@@ -859,22 +776,45 @@ class ScanVariableEditor(QDialog):
     # Save / Revert / dirty
     # ------------------------------------------------------------------
 
-    def _on_save(self) -> None:
-        """Validate the draft and write it through the store (errors inline)."""
+    def _save_draft(self) -> bool:
+        """Validate the draft and write it through the store (errors inline).
+
+        Returns
+        -------
+        bool
+            ``True`` when the save landed (validation and write both OK).
+        """
         try:
             catalog = self._draft_catalog()
         except ValidationError as exc:
             self._show_error(_format_validation_error(exc, self._variables))
-            return
+            return False
         try:
             path = self._store.save(catalog)
         except ScanVariableStoreError as exc:
             self._show_error(str(exc))
-            return
+            return False
         self._snapshot = copy.deepcopy(self._variables)
         self._update_dirty()
         self._clear_error()
         self.dirty_label.setText(f"saved → {path}")
+        return True
+
+    def _on_save(self) -> None:
+        """Save button handler."""
+        self._save_draft()
+
+    def _has_unsaved(self) -> bool:
+        """Unsaved-changes hook: the draft differs from disk."""
+        return self.dirty
+
+    def _save_unsaved(self) -> bool:
+        """Unsaved-changes hook: persist the whole draft catalog."""
+        return self._save_draft()
+
+    def _unsaved_prompt_text(self) -> str:
+        """Describe the dirty draft in the unsaved-changes prompt."""
+        return "The scan-variable catalog has unsaved changes."
 
     def _on_revert(self) -> None:
         """Discard the draft and reload the catalog from disk (prompted)."""
@@ -905,42 +845,11 @@ class ScanVariableEditor(QDialog):
         self.error_label.setText("")
 
     # ------------------------------------------------------------------
-    # Completions
+    # Completions (scaffold on ConfigEditorDialog)
     # ------------------------------------------------------------------
 
-    def _start_completions_fetch(self) -> None:
-        """Fetch completions on a short-lived daemon thread (queued delivery)."""
-        provider = self._completions
-
-        def fetch() -> None:
-            """Run the provider's one blocking call off the GUI thread."""
-            try:
-                mapping = provider.device_variables()
-            except Exception as exc:  # noqa: BLE001 — providers should not raise
-                logger.info("completions fetch failed: %s", exc)
-                mapping = {}
-            self.completions_ready.emit(mapping)
-
-        threading.Thread(
-            target=fetch, name="sve-completions-fetch", daemon=True
-        ).start()
-
-    @Slot(object)
-    def _apply_completions(self, mapping: object) -> None:
-        """Install the fetched ``{device: [variable, ...]}`` word lists (GUI thread).
-
-        Parameters
-        ----------
-        mapping : dict
-            The provider result delivered by the queued signal.
-        """
-        self.completions_applied = True
-        if not isinstance(mapping, dict):
-            return
-        self._device_vars = {
-            str(device): [str(v) for v in variables]
-            for device, variables in mapping.items()
-        }
+    def _install_completions(self) -> None:
+        """Point every device/variable completer model at the fresh word lists."""
         self._device_model.setStringList(sorted(self._device_vars))
         self._refresh_variable_model(self._variable_model, self.device_edit.text())
         self._refresh_variable_model(
@@ -976,29 +885,8 @@ class ScanVariableEditor(QDialog):
                 variables = self._device_vars[matches[0]]
         model.setStringList(variables or [])
 
-    # ------------------------------------------------------------------
-    # Close paths (Enter never accepts; unsaved changes prompt)
-    # ------------------------------------------------------------------
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 (Qt override)
-        """Swallow Return/Enter so typing in a field never closes the dialog."""
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
-    def reject(self) -> None:
-        """Route Esc through the unsaved-changes prompt."""
-        if self.dirty and not self._confirm_discard():
-            return
-        super().reject()
-
-    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 (Qt override)
-        """Prompt before closing with unsaved changes."""
-        if self.dirty and not self._confirm_discard():
-            event.ignore()
-            return
-        event.accept()
+    # Close paths (keyPressEvent / reject / closeEvent): ConfigEditorDialog
+    # — the unsaved-changes prompt now offers Save alongside Discard/Cancel.
 
 
 def open_scan_variable_editor(
