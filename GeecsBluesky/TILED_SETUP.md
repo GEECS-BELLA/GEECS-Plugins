@@ -86,18 +86,27 @@ api_key = <stable key>
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
-- Hardware integration test (`test_bluesky_scanner.py`) passes all 6 checks ✓
+- GUI path complete — `GEECS-Console` drives `BlueskyScanner` through the
+  delegated `ScanRequest` path: shot control (trigger profiles),
+  setup/per-step/closeout actions, and `ScanEvent` callbacks all flow
+  through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
+- Scalar s-file exported from Tiled best-effort after each scan ✓
+- Hardware integration test: `tests/test_scan_request_hardware.py`
+  (replaces the deleted `test_bluesky_scanner.py`) runs a real
+  `ScanRequest` end to end against the live gateway — see its module
+  docstring for invocation; run it to verify, no standing pass is
+  recorded here
 
 ## Known Limitations
 
-- **No s-file / TDMS output** — `BlueskyScanner` writes to Tiled only.
-  `ScanAnalysis` and other downstream tools still read s-files.  Data pipeline
-  transition is an open strategic question (see `ROADMAP.md`).
-- **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to use
-  the legacy file-based path.
-- **GUI path still partial** — `RunControl(use_bluesky=True)` does not yet pass
-  shot-control YAML, setup/closeout actions, or the scanner `ScanEvent` callback
-  into `BlueskyScanner`.
+- **No TDMS output** — scalar s-files are exported from Tiled best-effort
+  after a scan (needs the Tiled client extra and a readable run); legacy
+  TDMS output is not produced.  Data pipeline transition is an open
+  strategic question (see `ROADMAP.md`).
+- **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
+  use the file-based path (bridged by the s-file export).  The
+  `geecs_bluesky.analysis` contracts can run image analysis over archived
+  Tiled runs, but `ScanAnalysis` itself does not read Tiled.
 
 ---
 

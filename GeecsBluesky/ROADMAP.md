@@ -105,7 +105,10 @@ These require discussion before implementation — see brainstorm notes.
 ### Data pipeline transition
 
 `ScanAnalysis` and everything downstream reads s-files and TDMS written by the
-legacy `ScanManager`.  `BlueskyScanner` writes to Tiled only.
+legacy `ScanManager`.  `BlueskyScanner` writes to Tiled, and scalar files are
+exported from Tiled best-effort after each scan
+(`geecs_data_utils.tiled_export.write_scalar_files_from_tiled` →
+`ScanDataScan{NNN}.txt` + the `s{NNN}.txt` s-file); TDMS is not produced.
 
 Options:
 - **Tiled reader for ScanAnalysis** — add a Tiled-backed data source alongside
@@ -113,14 +116,16 @@ Options:
   contract: ImageAnalysis emits bare scalar keys, ScanAnalysis owns
   prefix/suffix naming, and analysis code must never create missing scan
   folders.
-- **BlueskyScanner also writes s-files** — transitional shim; buys time for
-  ScanAnalysis migration.  If chosen, it must match the current scanner output
-  convention (`ScanDataScan{NNN}.txt`, `ScanInfoScan{NNN}.ini`, per-device file
-  folders under `scans/Scan{NNN}/`).
+- **BlueskyScanner also writes s-files** — **taken (transitional shim)**: the
+  post-scan Tiled export above is live on all engine paths; buys time for the
+  ScanAnalysis migration.
 - **Accept cold-turkey** — new scans from Bluesky path only queryable via Tiled;
   old analysis tools stop working for new data until ported.
 
-No decision yet.  Defer until BlueskyScanner is actually the production path.
+BlueskyScanner is now the production path (the legacy backend died with
+G1/G3), and the s-file shim bridges the gap.  The strategic question that
+remains open is the end state: does ScanAnalysis grow a Tiled reader, or
+keep reading exported s-files long-term?
 
 ### GUI / RunControl integration — mostly done
 

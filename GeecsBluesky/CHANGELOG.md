@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.46.1] - 2026-07-21
+
+### Changed
+
+- **`TILED_SETUP.md` "What Works" / "Known Limitations" refreshed to match
+  `dev`** (docs only). The stale pre-cutover claims are gone: the "GUI path
+  still partial" limitation (the legacy `GEECS-Scanner-GUI` path was deleted
+  with G3 — `GEECS-Console` drives everything through the delegated
+  `ScanRequest` path), the "no s-file output" limitation (scalar s-files are
+  exported from Tiled best-effort after a scan; TDMS still is not), and the
+  reference to the deleted `test_bluesky_scanner.py` hardware script (now
+  `tests/test_scan_request_hardware.py`).  `ROADMAP.md`'s "Data pipeline
+  transition" section updated to match (review finding): the s-file shim is
+  live via the Tiled export, and BlueskyScanner is the production path.
+
 ## [0.46.0] - 2026-07-20
 
 ### Changed
