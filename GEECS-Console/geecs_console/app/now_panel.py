@@ -150,6 +150,12 @@ class NowPanelController(QObject):
         experiment.
         """
         experiment = self._current_experiment()
+        if not experiment:
+            # No experiment: answer inline (no thread for a constant) —
+            # and never leave a ""-tagged probe that the disposed state's
+            # ""-returning sentinel would fail to stale-drop.
+            self._apply_idle_scan_number((experiment, None))
+            return
         if self._probe_inflight == experiment:
             return
         self._probe_inflight = experiment
@@ -250,8 +256,10 @@ class NowPanelController(QObject):
 
         Called from the window's ``closeEvent``.  Stops the expiry timer,
         detaches the probe worker so a straggling result lands nowhere,
-        and drops the widget/closure references so the dead window is
-        freed by refcount rather than the cyclic GC.
+        and replaces the two closures — the only Python edges back to the
+        window (child-widget wrappers hold no reference to the window
+        wrapper) — so the dead window is freed by refcount rather than
+        the cyclic GC.
         """
         self._scan_number_timer.stop()
         try:

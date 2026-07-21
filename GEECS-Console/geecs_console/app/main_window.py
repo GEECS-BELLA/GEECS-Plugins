@@ -309,11 +309,12 @@ class MainWindow(QMainWindow):
         # duplicate fetch is *result*-safe (stale results are dropped by
         # experiment tag) but NOT thread-safe in general: two concurrent
         # fetch threads can race the lazy first import of a native chain
-        # (a native init in the geecs_bluesky chain aborts the process when
-        # raced — hence the one-in-flight dedupe in the actions and
-        # now-panel controllers).  The completions pair still double-spawns
-        # and shares the hazard shape (mysql-connector chain); dedupe it
-        # the same way if this ever bites.
+        # (demonstrated in the actions fetch's geecs_bluesky chain, which
+        # aborted the process — hence the one-in-flight dedupe in the
+        # actions and now-panel controllers; the idle probe's own lazy
+        # chain is geecs_data_utils/pandas).  The completions pair still
+        # double-spawns and shares the hazard shape (mysql-connector
+        # chain); dedupe it the same way if this ever bites.
         self._start_device_completions_fetch()
         self._now.start_idle_probe()
         self._actions.start_fetch()
