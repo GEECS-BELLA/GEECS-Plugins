@@ -154,20 +154,47 @@ async def read(pv):
     return await asyncio.wait_for(aioca.caget(pv), timeout=timeout)
 
 
+async def probe(prefix, names):
+    heartbeat = await read(f"{prefix}:{names['heartbeat']}")
+    connected = await read(f"{prefix}:{names['connected']}")
+    version = await read(f"{prefix}:{names['version']}")
+    return heartbeat, connected, version
+
+
 async def main():
-    prefix = f"{experiment}:CAGateway"
-    try:
-        heartbeat = await read(f"{prefix}:HEARTBEAT")
-        connected = await read(f"{prefix}:DEVICES_CONNECTED")
-        version = await read(f"{prefix}:VERSION")
+    # geecs-ca-gateway >= 0.14.0 serves lowercase PV components (PV_CONTRACT.md
+    # §1); older deployments serve mixed case. Probe new-contract names first,
+    # fall back to the legacy ones — which contract answers doubles as a
+    # deployed-generation indicator during the transition. New-contract names
+    # come from the naming contract itself; only the legacy fallback needs
+    # literals (pre-0.14.0 normalize_component preserved case, so today's
+    # pv_name can no longer produce those names).
+    from geecs_ca_gateway.pv_naming import pv_name
+
+    contracts = [
+        ("lowercase (>=0.14.0)", pv_name(experiment, "CAGateway"),
+         {"heartbeat": "heartbeat", "connected": "devices_connected", "version": "version"}),
+        ("legacy mixed-case (<0.14.0)", f"{experiment}:CAGateway",
+         {"heartbeat": "HEARTBEAT", "connected": "DEVICES_CONNECTED", "version": "VERSION"}),
+    ]
+    last_exc = None
+    for label, prefix, names in contracts:
+        try:
+            heartbeat, connected, version = await probe(prefix, names)
+        except Exception as exc:  # noqa: BLE001 — try the other contract
+            last_exc = exc
+            continue
         print(f"  [ OK ] gateway alive: heartbeat={int(heartbeat)}, "
-              f"devices_connected={int(connected)}, version={version}")
+              f"devices_connected={int(connected)}, version={version} "
+              f"[{label} naming]")
         if int(connected) == 0:
             print("  [WARN] zero devices connected — GEECS side likely down")
-    except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
-        print(f"  [DOWN] gateway PVs unreadable ({type(exc).__name__}: {exc})")
-        print("         network may be up while the gateway service is not")
-        raise SystemExit(1)
+        return
+    exc = last_exc
+    print(f"  [DOWN] gateway PVs unreadable under either naming contract "
+          f"({type(exc).__name__}: {exc})")
+    print("         network may be up while the gateway service is not")
+    raise SystemExit(1)
 
 
 asyncio.run(main())
