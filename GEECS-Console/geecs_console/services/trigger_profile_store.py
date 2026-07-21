@@ -14,27 +14,26 @@ key) are loaded through :func:`geecs_schemas.convert.convert_shot_control` —
 exactly what the resolver does — so the existing corpus opens in the editor;
 saving such a profile migrates the file to the versioned schema.
 
-Offline-safety mirrors :class:`~geecs_console.services.presets.PresetStore`
-(the store pattern this module copies): listing degrades to empty with no
-configs root; ``load``/``save``/``delete``/``rename`` raise
-:class:`TriggerProfileStoreError` with a message fit for inline display.
-Creating the ``shot_control_configurations/`` directory with
-``mkdir(parents=True, exist_ok=True)`` is deliberate and fine — this is a
-config directory in the configs repo, not a ``scans/ScanNNN/`` data folder,
-so the repo's scan-folder creation invariant does not apply.
+Offline-safety mirrors :class:`~geecs_console.services.presets.PresetStore`:
+listing degrades to empty with no configs root; ``load``/``save``/``delete``/
+``rename`` raise :class:`TriggerProfileStoreError` with a message fit for
+inline display.  Directory creation and the scan-folder-invariant rationale
+live in :mod:`geecs_console.services.config_store`.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import ValidationError
 
-from geecs_console.services._experiment_name import check_experiment_name
-from geecs_console.services.configs import TRIGGER_FOLDER, _configs_base
+from geecs_console.services.config_store import NamedConfigStore
+
+# The base resolves the configs root through this module's namespace, so
+# tests can monkeypatch ``trigger_profile_store._configs_base``.
+from geecs_console.services.configs import TRIGGER_FOLDER, _configs_base  # noqa: F401
 from geecs_schemas import TriggerProfile
 from geecs_schemas.convert import SchemaConversionError, convert_shot_control
 
@@ -45,126 +44,13 @@ class TriggerProfileStoreError(RuntimeError):
     """A trigger-profile operation cannot be carried out (shown inline)."""
 
 
-class TriggerProfileStore:
-    """Load/save named trigger profiles for one experiment.
+class TriggerProfileStore(NamedConfigStore):
+    """Load/save named trigger profiles for one experiment."""
 
-    Parameters
-    ----------
-    experiment : str, optional
-        Experiment folder under ``scanner_configs/experiments``.  May be
-        empty at construction (before the operator picks one) — listing is
-        then empty and saving raises.
-    experiments_root : str or Path, optional
-        Override for the experiments root (tests point this at a tmp dir);
-        defaults to the production resolution
-        (:func:`geecs_bluesky.scanner_configs.scanner_configs_base`, resolved
-        lazily so the module stays import-safe offline).
-    """
-
-    def __init__(
-        self, experiment: str = "", experiments_root: str | Path | None = None
-    ) -> None:
-        self._experiment = experiment
-        self._experiments_root = (
-            Path(experiments_root) if experiments_root is not None else None
-        )
-
-    @property
-    def experiment(self) -> str:
-        """The experiment this store reads and writes trigger profiles for."""
-        return self._experiment
-
-    def set_experiment(self, experiment: str) -> None:
-        """Switch the store to *experiment*.
-
-        Parameters
-        ----------
-        experiment : str
-            The new experiment folder name ("" for none selected).
-        """
-        self._experiment = experiment
-
-    # ------------------------------------------------------------------
-    # Folder resolution
-    # ------------------------------------------------------------------
-
-    def _folder(self) -> Optional[Path]:
-        """Return the shot-control dir, or ``None`` offline/unselected.
-
-        Raises
-        ------
-        TriggerProfileStoreError
-            When the experiment name would escape the experiments root
-            (issue #513) — checked before any path join.
-        """
-        root = self._experiments_root
-        if root is None:
-            root = _configs_base()
-        if root is None or not self._experiment:
-            return None
-        check_experiment_name(self._experiment, TriggerProfileStoreError)
-        return root / self._experiment / TRIGGER_FOLDER
-
-    def _folder_or_raise(self) -> Path:
-        """Return the shot-control dir, raising a clear error when unresolvable.
-
-        Returns
-        -------
-        Path
-            ``<experiments root>/<experiment>/shot_control_configurations``.
-
-        Raises
-        ------
-        TriggerProfileStoreError
-            When the configs repo is not found, no experiment is selected,
-            or the experiment name would escape the experiments root.
-        """
-        root = self._experiments_root
-        if root is None:
-            root = _configs_base()
-        if root is None:
-            raise TriggerProfileStoreError(
-                "Configs repo not found — set GEECS_SCANNER_CONFIG_DIR or "
-                "config.ini [Paths] scanner_config_root_path."
-            )
-        if not self._experiment:
-            raise TriggerProfileStoreError("No experiment selected.")
-        check_experiment_name(self._experiment, TriggerProfileStoreError)
-        return root / self._experiment / TRIGGER_FOLDER
-
-    def _path(self, name: str) -> Path:
-        """Return the YAML path for profile *name*, validating the name.
-
-        Parameters
-        ----------
-        name : str
-            The profile name (the file stem — no path separators).
-
-        Returns
-        -------
-        Path
-            ``<shot-control dir>/<name>.yaml`` (an existing ``.yml`` twin is
-            preferred when the ``.yaml`` spelling is absent).
-
-        Raises
-        ------
-        TriggerProfileStoreError
-            On an empty name or one that would escape the shot-control dir.
-        """
-        cleaned = name.strip()
-        if not cleaned:
-            raise TriggerProfileStoreError("Profile name must not be empty.")
-        if any(sep in cleaned for sep in ("/", "\\")) or cleaned in (".", ".."):
-            raise TriggerProfileStoreError(
-                f"Profile name {name!r} must be a plain file name (no path separators)."
-            )
-        folder = self._folder_or_raise()
-        path = folder / f"{cleaned}.yaml"
-        if not path.exists():
-            twin = folder / f"{cleaned}.yml"
-            if twin.exists():
-                return twin
-        return path
+    FOLDER = TRIGGER_FOLDER
+    NOUN = "Profile"
+    LABEL = "Trigger profile"
+    ERROR = TriggerProfileStoreError
 
     def _read_document(self, name: str) -> tuple[dict, Path]:
         """Read profile *name*'s raw YAML mapping (shared by load/is_legacy).
@@ -185,51 +71,11 @@ class TriggerProfileStore:
             Missing configs repo / experiment / file, unparsable YAML, or a
             document that is not a mapping.
         """
-        path = self._path(name)
-        if not path.exists():
-            raise TriggerProfileStoreError(
-                f"Trigger profile {name!r} not found ({path})."
-            )
-        try:
-            document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            raise TriggerProfileStoreError(
-                f"Trigger profile {name!r} is not valid YAML ({path}): {exc}"
-            ) from exc
-        if document is None:
-            document = {}
-        if not isinstance(document, dict):
-            raise TriggerProfileStoreError(
-                f"Trigger profile {name!r} ({path}) should be a YAML mapping, "
-                f"got {type(document).__name__}."
-            )
-        return document, path
-
-    # ------------------------------------------------------------------
-    # The store surface
-    # ------------------------------------------------------------------
-
-    def list_names(self) -> list[str]:
-        """List the saved profile names, sorted.
-
-        Returns
-        -------
-        list of str
-            YAML file stems in the shot-control dir — empty when the configs
-            repo, experiment folder, or shot-control dir is missing.
-
-        Raises
-        ------
-        TriggerProfileStoreError
-            When the experiment name would escape the experiments root
-            (issue #513); a merely *missing* folder is not an error.
-        """
-        folder = self._folder()
-        if folder is None or not folder.is_dir():
-            return []
-        return sorted(
-            path.stem for path in folder.iterdir() if path.suffix in (".yaml", ".yml")
+        path = self._existing_path(name)
+        document = self._read_mapping(
+            path, describe=f"Trigger profile {name!r}", empty_as={}
         )
+        return document, path
 
     def exists(self, name: str) -> bool:
         """Whether a profile file called *name* is on disk.
@@ -345,47 +191,11 @@ class TriggerProfileStore:
             OS-level write failure.
         """
         path = self._path(name)
-        # A config dir, not a scans/ScanNNN/ data folder — parents=True is
-        # explicitly fine here (the scan-folder invariant does not apply).
-        path.parent.mkdir(parents=True, exist_ok=True)
-        document = yaml.safe_dump(
-            profile.model_dump(mode="json"), sort_keys=False, allow_unicode=True
+        self._write_document(
+            path, profile.model_dump(mode="json"), f"trigger profile {name!r}"
         )
-        try:
-            path.write_text(document, encoding="utf-8")
-        except OSError as exc:
-            raise TriggerProfileStoreError(
-                f"Could not write trigger profile {name!r}: {exc}"
-            ) from exc
         logger.info("saved trigger profile %r to %s", name, path)
         return path
-
-    def delete(self, name: str) -> None:
-        """Delete profile *name*.
-
-        Parameters
-        ----------
-        name : str
-            The profile name (file stem).
-
-        Raises
-        ------
-        TriggerProfileStoreError
-            Missing configs repo / experiment, a bad name, a profile that
-            does not exist, or an OS-level delete failure.
-        """
-        path = self._path(name)
-        if not path.exists():
-            raise TriggerProfileStoreError(
-                f"Trigger profile {name!r} not found ({path})."
-            )
-        try:
-            path.unlink()
-        except OSError as exc:
-            raise TriggerProfileStoreError(
-                f"Could not delete trigger profile {name!r}: {exc}"
-            ) from exc
-        logger.info("deleted trigger profile %r (%s)", name, path)
 
     def rename(self, old: str, new: str) -> Path:
         """Rename profile *old* to *new*, refusing to overwrite.
@@ -414,11 +224,7 @@ class TriggerProfileStore:
             does not exist, a target that already exists, or an OS-level
             failure.
         """
-        source = self._path(old)
-        if not source.exists():
-            raise TriggerProfileStoreError(
-                f"Trigger profile {old!r} not found ({source})."
-            )
+        source = self._existing_path(old)
         target = self._folder_or_raise() / f"{new.strip()}.yaml"
         # Validate the new name (empty / path separators) with _path, but
         # target the .yaml spelling regardless of any .yml twin.

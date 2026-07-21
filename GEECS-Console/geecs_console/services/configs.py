@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
+from geecs_console.services.config_store import yaml_stems
+
 logger = logging.getLogger(__name__)
 
 SAVE_SET_FOLDER = "save_devices"
@@ -60,13 +62,9 @@ def _configs_base() -> Path | None:
         return None
 
 
-def _yaml_stems(folder: Path) -> list[str]:
-    """List the YAML file stems in *folder*, sorted; empty when absent."""
-    if not folder.is_dir():
-        return []
-    return sorted(
-        path.stem for path in folder.iterdir() if path.suffix in (".yaml", ".yml")
-    )
+# The listing helper lives with the config-store base; the private name
+# stays bound here for this module's listing surface.
+_yaml_stems = yaml_stems
 
 
 class ConsoleConfigs:
