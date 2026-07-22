@@ -50,6 +50,12 @@ def _chain_setup(setup: Callable, inner):
     yield from inner
 
 
+def _restore_movables(movables: Sequence[Any]):
+    """Finalize plan: each movable's baseline restore, in axis order."""
+    for movable in movables:
+        yield from movable.restore_baselines_plan()
+
+
 def build_step_scan_plan(
     *,
     strict: bool,
@@ -178,6 +184,17 @@ def build_step_scan_plan(
         plan = bpp.finalize_wrapper(plan, controller.disarm())
     if closeout is not None:
         plan = bpp.finalize_wrapper(plan, closeout)
+    # Relative pseudo (composite) axes return to their captured baselines at
+    # the very end (owner request, 2026-07-22) — success AND abort, after
+    # closeout so operator rituals see the scan's final state, and inside
+    # the stage wrapper so unstage has not yet dropped the baselines.
+    restorers = [
+        m
+        for m in normalize_motors(motor)
+        if callable(getattr(m, "restore_baselines_plan", None))
+    ]
+    if restorers:
+        plan = bpp.finalize_wrapper(plan, _restore_movables(restorers))
     # Outermost: stage every per-row read device so each signal gets a caching
     # CA monitor and per-shot reads are served locally instead of issuing one
     # network get per signal per row (the read-path contract —

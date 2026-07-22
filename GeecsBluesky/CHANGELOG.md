@@ -4,6 +4,34 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.0] - 2026-07-22
+
+### Added
+
+- **Relative pseudo (composite) scan axes return to their captured
+  baselines at end of scan** (owner request from the first live composite
+  scans): `CaPseudoMovable.restore_baselines_plan()` puts every component
+  back to its captured baseline — direct per-target puts, exact and
+  formula-independent (no `f(0) = 0` assumption) — and
+  `build_step_scan_plan` runs it as a finalize on success and mid-scan
+  abort (a `halt` skips finalizes by bluesky contract, same as
+  disarm/closeout), after closeout, inside the stage wrapper
+  (before `unstage()` drops the baselines).  Deliberately scoped:
+  absolute-mode pseudos are NOT restored (their pre-scan x is unknowable
+  without an inverse) and plain axes keep the legacy end-at-last-position
+  behavior.  Manual `move_variable` semantics are unchanged (fresh
+  baseline per move; "Set 0" still means "no move").
+- The restore puts ride `bps.abs_set`/`bps.wait` on the
+  `GatewaySetpointPut` movables — the RE's own set machinery — so a
+  failed restore **fails the scan visibly** instead of being swallowed
+  (review finding: `bps.wait_for` never retrieves task exceptions), and
+  the success log prints only after the waits complete.
+- Suite grows to 639 (`tests/test_pseudo_scan_restore.py`: end-of-scan
+  restore, abort-path restore through the full composition and at the
+  finalize level, failed-restore propagation, mixed-grid
+  only-the-pseudo-restored, absolute-not-restored,
+  restore-without-baselines noop).
+
 ## [0.49.0] - 2026-07-22
 
 ### Added

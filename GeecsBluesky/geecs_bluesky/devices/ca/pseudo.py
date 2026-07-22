@@ -146,6 +146,50 @@ class CaPseudoMovable(StandardReadable):
             return [b + o for b, o in zip(self._baselines, offsets)]
         return offsets
 
+    def restore_baselines_plan(self):
+        """Plan stub: return every target to its captured baseline.
+
+        The end-of-scan restore for **relative** mode (owner request,
+        2026-07-22): the scan orchestration runs this as a finalize —
+        success *and* abort (a ``halt`` skips finalizes by bluesky
+        contract, same as disarm/closeout) — so a relative composite scan
+        hands the targets back where it found them.  Direct per-target
+        puts of the captured baselines (exact, formula-independent — no
+        ``f(0) = 0`` assumption).  A no-op for absolute mode, and for a
+        run where no baselines were captured; must run before
+        ``unstage()`` drops them (the orchestration's stage wrapper is
+        outermost, so it does).
+
+        The puts go through ``bps.abs_set``/``bps.wait`` on the
+        :class:`GatewaySetpointPut` movables — the RE's own set machinery —
+        so a **failed restore fails the scan visibly** instead of being
+        swallowed (review, PR #600: ``bps.wait_for`` never retrieves task
+        exceptions), and the success log only prints after the waits
+        complete.
+        """
+        import bluesky.plan_stubs as bps
+
+        if self._mode != "relative":
+            yield from bps.null()
+            return
+        baselines = self._baselines
+        if baselines is None:
+            logger.info("%s: no baselines captured — nothing to restore", self.name)
+            yield from bps.null()
+            return
+        commanded = {
+            f"{dev}:{var}": baseline
+            for (dev, var, _), baseline in zip(self._components, baselines)
+        }
+        group = f"{self.name}-restore"
+        for put, baseline in zip(self._puts, baselines):
+            yield from bps.abs_set(put, baseline, group=group)
+        yield from bps.wait(group=group)
+        logger.info("%s: baselines restored: %s", self.name, commanded)
+        # Back at zero offset from the (still-current) baselines.
+        self._set_readback(0.0)
+        self.last_commanded = commanded
+
     def set(self, value: float) -> AsyncStatus:
         """Fan *value* out to every target; completes when all sets do.
 
