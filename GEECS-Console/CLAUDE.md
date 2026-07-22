@@ -57,14 +57,17 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   timing and granularity; they will drift, and shot counts must never be
   reconciled across them (live-investigated 2026-07-16 — a "pause shows
   extra steps" report was mostly this drift).
-- **R7 device panel** — device:variable combo (editable, with
-  `device:variable` dropdown completions from `GeecsDbCompletions` — see
-  Implemented seams), readback label, set field + button.  **Backend
-  live** (see Implemented
-  seams): gateway PVs — CA monitor on the readback, put to `:SP` riding
-  GEECS's native blocking set — never `geecs_python_api`'s ScanDevice.
-  Scalar-only at birth (composites arrive with the pseudo-variable
-  runtime, if ever).
+- **R7 movable panel** — an editable combo (catalog scan-variable names
+  first, then `device:variable` completions from `GeecsDbCompletions`),
+  readback label, set field + button — owned by
+  `app/movable_panel.py::MovablePanelController` since 0.19.0 (see
+  Implemented seams).  **Catalog-aware**: a catalog name (plain, confirm,
+  or pseudo/composite) monitors its target readback(s) and sets through
+  the engine's `Submitter.move_variable`; a raw `device:variable` string
+  keeps the historical direct path — CA monitor on the readback, put to
+  `:SP` riding GEECS's native blocking set — never `geecs_python_api`'s
+  ScanDevice.  The R3 axis combos auto-select the panel (the legacy
+  scanner behavior), composites included.
 
 ## Architecture rules
 
@@ -78,7 +81,9 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `request_builder.build_scan_request` is the only place form state becomes
   a request; keep it a pure function, keep widgets out of it.
 - **The window depends on seams, not implementations**: `Submitter`
-  (protocol over `BlueskyScanner`'s four ScanManager-compatible methods),
+  (protocol over `BlueskyScanner`'s Submitter-contract methods —
+  scan lifecycle, on-demand actions, pause/resume, and
+  `move_variable` manual moves),
   `ConsoleConfigs`, `HealthProbe`, `ScanEventsAdapter`, `PresetStore`,
   `ConsoleSettings`.  All constructor-injectable; every test drives the
   window with fakes.
@@ -120,18 +125,37 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `request.abort[0] = True`; either choice calls `request.response_event.set()`
   to unblock the engine.  Duck-typed on the `DialogRequest` attributes — no
   `geecs_bluesky` import.
-- **Device panel (R7)** is live via `GatewayDevicePanel` (real backend) or
-  `StubDevicePanel` (no-op offline/test default), behind the
-  `DevicePanelBackend` protocol in `services/device_panel.py`.  Readback is
-  a persistent `aioca.camonitor` on the gateway readback PV; because aioca
+- **Movable panel (R7)** — owned by
+  `app/movable_panel.py::MovablePanelController` since 0.19.0 (the #534
+  controller shape: no Qt parent, injected widgets + callables, its own
+  `BackgroundResult` set worker and queued `value_ready` signal, and a
+  `dispose()` the window's `closeEvent` calls).  Selection resolves
+  catalog-first (`ConsoleConfigs.scan_variable_specs()` — the same
+  catalog the R3 axis picker lists): a plain `ScanVariable` monitors its
+  target, a `PseudoScanVariable` monitors **every** component
+  (`subscribe_many`, one live readback per target, rendered compactly by
+  `format_target_readbacks`), and an unresolvable text falls back to the
+  raw `device:variable` parse.  **Sets fork by selection kind**: catalog
+  names dispatch `Submitter.move_variable(name, value)` on the set
+  worker — the engine seam (GeecsBluesky ≥ 0.48.0) with scan-identical
+  completion semantics (motor poll, confirm poll, pseudo fan-out with a
+  fresh relative baseline per move) and refusals ("scan in progress —
+  move not started" / "manual move in progress — …") surfaced verbatim;
+  raw `device:variable` strings keep the direct gateway put (no engine
+  required).  The R3 axis combos' `currentTextChanged` auto-selects the
+  panel (populate churn is signal-blocked; unresolvable names never
+  hijack it).  The transport backend stays `GatewayDevicePanel` (real) or
+  `StubDevicePanel` (offline/test default) behind `DevicePanelBackend`
+  in `services/device_panel.py`.  Readback is
+  a persistent `aioca.camonitor` per target PV; because aioca
   is asyncio-based and the monitor is long-lived, the backend owns **one
   persistent asyncio event loop in one daemon `threading.Thread`**
   (`run_forever`; camonitor open/close submitted via
   `run_coroutine_threadsafe`) — the same **no-QThread** rule as the health
   poller (a worker QThread aborted under offscreen pytest: "QThread
-  destroyed while running").  Values reach the GUI through the window's
-  `device_value_ready(object)` signal, connected **queued** to a
-  `@Slot(object)` — never paint widgets off the GUI thread.  Selection
+  destroyed while running").  Values reach the GUI through the
+  controller's `value_ready(int, object)` signal, connected **queued** to
+  a `@Slot(int, object)` — never paint widgets off the GUI thread.  Selection
   commits (dropdown pick / Enter / focus leave) resubscribe; per-keystroke
   edits only regate the Set button (no CA-monitor churn while typing); a
   generation counter drops straggler callbacks from retired monitors.  Set
@@ -492,9 +516,10 @@ directly.)
   legacy machinery kept for parity; a redesigned hook (bluesky-adaptive
   direction) is planned, at which point `services/optimization.py` and
   the `optimization` extra are deleted together.
-- `ConsoleConfigs._scan_variable_names` reaches into the resolver's private
-  `_scan_variables_catalog()` — promote a public "list variable names"
-  method on `ConfigsRepoResolver` when next touching geecs-bluesky.
+- `ConsoleConfigs.scan_variable_specs()` uses the public
+  `ConfigsRepoResolver.scan_variable_catalog()` accessor (promoted in
+  geecs-bluesky 0.49.0, closing the old reach-into-private debt note);
+  a getattr fallback to the private method keeps older engines working.
 - **Remaining M5 item — config bootstrap/repair dialog**: deliberately
   deferred.  When the configs repo (or an experiment's folder inside it)
   is missing/broken, the console currently reports and degrades to empty

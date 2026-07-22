@@ -60,6 +60,19 @@ class Submitter(Protocol):
         """
         ...
 
+    def move_variable(self, name: str, value: float) -> dict:
+        """Move one catalog scan variable (or raw ``Device:Variable``) now.
+
+        The manual-move member (maps to ``BlueskyScanner.move_variable``,
+        GeecsBluesky ≥ 0.48.0): the move carries scan-identical completion
+        semantics (motor poll, confirm poll, pseudo/composite fan-out with
+        fresh relative baselines per call).  Blocking — dispatch off the
+        GUI thread.  Returns ``{"variable", "kind", "value", "targets"}``;
+        raises ``RuntimeError`` with an operator-readable message while a
+        scan or another move is active.
+        """
+        ...
+
     def request_pause(self) -> None:
         """Pause the running scan at its next safe point (operator Pause).
 

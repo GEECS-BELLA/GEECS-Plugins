@@ -174,7 +174,7 @@ class TestDeviceComboCompletions:
 
     def test_stale_experiment_result_is_dropped(self, qtbot):
         window = make_window(qtbot)
-        window._apply_device_completions(("SomeOtherExp", ["Dev:var"]))
+        window._movable._apply_completions(("SomeOtherExp", ["Dev:var"]))
         assert window.device_combo.count() == 0
 
     def test_offline_default_is_empty_but_usable(self, qtbot):
@@ -203,32 +203,30 @@ class TestDeviceParseFeedback:
     def test_unparsable_commit_shows_format_hint(self, qtbot):
         window = make_window(qtbot)
         window.device_combo.setEditText("no-colon-here")
-        window._resubscribe_device()
-        assert (
-            window.statusBar().currentMessage()
-            == "Device format: DeviceName:Variable Name"
+        window._movable.resubscribe()
+        assert window.statusBar().currentMessage() == (
+            "Device format: DeviceName:Variable Name — or a catalog scan-variable name"
         )
 
     def test_empty_commit_stays_silent(self, qtbot):
         window = make_window(qtbot)
         window.device_combo.setEditText("")
-        window._resubscribe_device()
+        window._movable.resubscribe()
         assert window.statusBar().currentMessage() == ""
 
     def test_valid_commit_stays_silent(self, qtbot):
         window = make_window(qtbot)
         window.device_combo.setEditText("Dev:var")
-        window._resubscribe_device()
+        window._movable.resubscribe()
         assert window.statusBar().currentMessage() == ""
 
     def test_set_click_with_unparsable_device_shows_hint(self, qtbot):
         window = make_window(qtbot)
         window.device_combo.setEditText("garbage")
         window.set_field.setText("1.0")
-        window._on_device_set_clicked()
-        assert (
-            window.statusBar().currentMessage()
-            == "Device format: DeviceName:Variable Name"
+        window._movable._on_set_clicked()
+        assert window.statusBar().currentMessage() == (
+            "Device format: DeviceName:Variable Name — or a catalog scan-variable name"
         )
 
 

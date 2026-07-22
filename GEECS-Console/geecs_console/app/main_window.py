@@ -18,7 +18,7 @@ import random
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QFile, Qt, QTimer, QUrl, Signal, Slot
+from PySide6.QtCore import QFile, Qt, QTimer, QUrl, Slot
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 from pydantic import ValidationError
 
 from geecs_console.app.actions_menu import ActionsMenuController
+from geecs_console.app.movable_panel import MovablePanelController
 from geecs_console.app.now_panel import NowPanelController
 from geecs_console.editors.action_library_editor import open_action_library_editor
 from geecs_console.editors.save_set_editor import open_save_set_editor
@@ -53,7 +54,6 @@ from geecs_console.app.tooltips import ToolTipSuppressor, apply_operator_tooltip
 from geecs_console.services.background import BackgroundResult, HealthPoller
 from geecs_console.services.device_completions import (
     CompletionsProvider,
-    EmptyCompletions,
     GeecsDbCompletions,
 )
 from geecs_console.version import console_version
@@ -73,9 +73,6 @@ from geecs_console.services.settings import ConsoleSettings
 from geecs_console.services.device_panel import (
     DevicePanelBackend,
     StubDevicePanel,
-    format_readback,
-    parse_device_variable,
-    parse_set_value,
 )
 from geecs_console.services.health import (
     HealthProbe,
@@ -207,8 +204,6 @@ class MainWindow(QMainWindow):
     """
 
     #: One readback value from the device-panel backend (emitted from the CA
-    #: monitor thread; delivered queued to :meth:`_apply_device_value`).
-    device_value_ready = Signal(object)
 
     def __init__(
         self,
@@ -240,7 +235,6 @@ class MainWindow(QMainWindow):
             else ActionLibraryStore(self._configs.experiment)
         )
         self._settings = settings if settings is not None else ConsoleSettings()
-        self._device_set_in_flight = False
         self._submitter = submitter
         self._submitter_factory = (
             submitter_factory
@@ -300,7 +294,6 @@ class MainWindow(QMainWindow):
         self._start_health_poller()
         self._now.set_state_pill("idle")
         self._on_mode_changed()
-        self._refresh_device_set_enabled()
         # Startup fetches for the selected experiment (no-ops when none):
         # R7 device:variable completions, the R6 idle scan-number peek, and
         # the Actions-menu plan names.  Restoring the last experiment already
@@ -315,7 +308,7 @@ class MainWindow(QMainWindow):
         # chain is geecs_data_utils/pandas).  The completions pair still
         # double-spawns and shares the hazard shape (mysql-connector
         # chain); dedupe it the same way if this ever bites.
-        self._start_device_completions_fetch()
+        self._movable.start_completions_fetch()
         self._now.start_idle_probe()
         self._actions.start_fetch()
 
@@ -559,36 +552,37 @@ class MainWindow(QMainWindow):
         self.save_as_button.clicked.connect(self._on_preset_save_as)
         self.delete_button.clicked.connect(self._on_preset_delete)
 
-        # R7 device panel.  Selection commits (dropdown pick / Enter / focus
-        # leave) resubscribe the readback; per-keystroke edits only regate the
-        # Set button — never churn CA monitors while the operator types.
-        self.set_button.clicked.connect(self._on_device_set_clicked)
-        self.set_field.textChanged.connect(self._refresh_device_set_enabled)
-        self.set_field.returnPressed.connect(self._on_device_set_clicked)
-        self.device_combo.editTextChanged.connect(self._refresh_device_set_enabled)
-        self.device_combo.activated.connect(self._resubscribe_device)
-        device_line_edit = self.device_combo.lineEdit()
-        if device_line_edit is not None:
-            device_line_edit.editingFinished.connect(self._resubscribe_device)
-        # Force a queued connection: the signal is emitted off the GUI thread
-        # (the CA monitor thread), and an undecorated direct delivery would
-        # paint widgets there (hard crash).
-        self.device_value_ready.connect(
-            self._apply_device_value, Qt.ConnectionType.QueuedConnection
+        # R7 movable panel: selection, readback(s), completions, and manual
+        # sets/moves all live on MovablePanelController (app/movable_panel.py)
+        # — the window keeps the widget attributes and the composition (the
+        # #534 controller shape; its workers and queued value signal are
+        # controller-owned, per issue #510).
+        self._movable = MovablePanelController(
+            device_combo=self.device_combo,
+            readback_label=self.readback_label,
+            set_field=self.set_field,
+            set_button=self.set_button,
+            backend=self._device_panel,
+            current_experiment=lambda: self.experiment_combo.currentText(),
+            ensure_submitter=self._ensure_submitter,
+            # getattr-guarded: the configs seam is duck-typed and test fakes
+            # (or older injected configs) may not expose the catalog.
+            catalog_specs=lambda: getattr(self._configs, "scan_variable_specs", dict)(),
+            completions_provider=lambda experiment: (
+                self._completions_factory
+                if self._completions_factory is not None
+                else _default_completions_factory
+            )(experiment),
+            report=self._report,
         )
-        # Device-set completion, the R7 completions, and the R6 idle
-        # scan-number peek: each result is emitted by a BackgroundResult
-        # worker (never by the window itself — a daemon-thread emit on a
-        # window-owned signal races teardown, issue #510) and delivered
-        # queued to its GUI-thread apply slot.
-        self._device_set_worker = BackgroundResult()
-        self._device_set_worker.result_ready.connect(
-            self._apply_device_set_result, Qt.ConnectionType.QueuedConnection
-        )
-        self._completions_worker = BackgroundResult()
-        self._completions_worker.result_ready.connect(
-            self._apply_device_completions, Qt.ConnectionType.QueuedConnection
-        )
+        # R3 → R7 auto-select (the legacy scanner behavior): picking a scan
+        # variable re-points the movable panel at it, composites included.
+        # Commit-only (textActivated: dropdown pick / Enter) — NEVER
+        # currentTextChanged: both R3 combos are editable, and a
+        # per-keystroke connection would churn CA monitors and hijack the
+        # panel while the operator types an axis name (review, PR #598).
+        self.variable_combo.textActivated.connect(self._movable.select_from_scan_combo)
+        self.variable2_combo.textActivated.connect(self._movable.select_from_scan_combo)
         # (The actions-menu fetch worker lives on ActionsMenuController;
         # the idle scan-number probe worker on NowPanelController.)
         # Stop dispatch (issue #571): stop_scanning_thread may block briefly
@@ -666,10 +660,14 @@ class MainWindow(QMainWindow):
         self.trigger_profile_combo.addItems(listing.trigger_profiles)
         self.trigger_profile_combo.blockSignals(False)
         self.trigger_variant_combo.clear()
-        self.variable_combo.clear()
-        self.variable_combo.addItems(listing.scan_variables)
-        self.variable2_combo.clear()
-        self.variable2_combo.addItems(listing.scan_variables)
+        # Repopulation is programmatic — block signals so the R7 auto-select
+        # only follows *operator* picks (and preset applies), never the
+        # populate churn itself.
+        for combo in (self.variable_combo, self.variable2_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(listing.scan_variables)
+            combo.blockSignals(False)
 
         root = str(listing.configs_root) if listing.configs_root else "not found"
         self._status_configs.setText(f"configs: {root}")
@@ -784,29 +782,9 @@ class MainWindow(QMainWindow):
                 poller.report_ready.disconnect(self._apply_health_report)
             except (RuntimeError, TypeError):
                 pass
-        backend = getattr(self, "_device_panel", None)
-        if backend is not None:
-            try:
-                backend.unsubscribe()
-            except Exception:  # noqa: BLE001 — teardown must not raise
-                pass
-        for worker, slot in (
-            (
-                getattr(self, "_completions_worker", None),
-                self._apply_device_completions,
-            ),
-            (getattr(self, "_device_set_worker", None), self._apply_device_set_result),
-        ):
-            if worker is None:
-                continue
-            try:
-                worker.result_ready.disconnect(slot)
-            except (RuntimeError, TypeError):
-                pass
-        try:
-            self.device_value_ready.disconnect(self._apply_device_value)
-        except (RuntimeError, TypeError):
-            pass
+        movable = getattr(self, "_movable", None)
+        if movable is not None:
+            movable.dispose()
         actions = getattr(self, "_actions", None)
         if actions is not None:
             actions.dispose()
@@ -1118,11 +1096,10 @@ class MainWindow(QMainWindow):
         self._settings.last_experiment = experiment
         self._push_experiment_to_probe(experiment)
         self._populate_from_configs()
-        # The readback PV is experiment-prefixed — re-point the monitor.
-        self._resubscribe_device()
-        # New experiment: new device list, new daily scans folder, and a
-        # new action-plan library.
-        self._start_device_completions_fetch()
+        # The readback PVs are experiment-prefixed — re-point the movable
+        # panel's monitors and refresh its completions; then the new daily
+        # scans folder and the new action-plan library.
+        self._movable.on_experiment_changed()
         self._now.start_idle_probe()
         self._actions.start_fetch()
 
@@ -1631,6 +1608,10 @@ class MainWindow(QMainWindow):
             start.setValue(axis.start)
             stop.setValue(axis.stop)
             step.setValue(axis.step)
+        if form.axes:
+            # setCurrentText is programmatic (no textActivated), so follow
+            # the preset explicitly — axis 1 owns the panel.
+            self._movable.select_from_scan_combo(form.axes[0].variable)
 
         if optimization_name:
             self.optimization_combo.setCurrentText(optimization_name)
@@ -1727,175 +1708,6 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # R7 device panel
     # ------------------------------------------------------------------
-
-    def _refresh_device_set_enabled(self) -> None:
-        """Gate the Set button: valid ``device:variable``, a value, no put in flight."""
-        ready = (
-            not self._device_set_in_flight
-            and parse_device_variable(self.device_combo.currentText()) is not None
-            and bool(self.set_field.text().strip())
-        )
-        self.set_button.setEnabled(ready)
-
-    def _warn_device_format(self) -> None:
-        """Status-bar hint for an unparsable R7 device selection."""
-        self.statusBar().showMessage("Device format: DeviceName:Variable Name", 10_000)
-
-    def _start_device_completions_fetch(self) -> None:
-        """Fetch R7 ``device:variable`` completions off the GUI thread.
-
-        Mirrors the editors' completions pattern: one blocking provider call
-        on a short-lived daemon thread (via the :class:`BackgroundResult`
-        worker), marshaled back queued to :meth:`_apply_device_completions`
-        — never on the GUI thread.  No experiment (or the
-        :class:`EmptyCompletions` default in tests) answers inline with an
-        empty list, spawning no thread.
-        """
-        experiment = self.experiment_combo.currentText()
-        factory = (
-            self._completions_factory
-            if self._completions_factory is not None
-            else _default_completions_factory
-        )
-        provider = factory(experiment) if experiment else EmptyCompletions()
-        if isinstance(provider, EmptyCompletions):
-            self._apply_device_completions((experiment, []))
-            return
-
-        def fetch() -> tuple[str, list[str]]:
-            try:
-                mapping = provider.device_variables()
-            except Exception as exc:  # noqa: BLE001 — completions are best-effort
-                logger.info("device completions failed: %s", exc)
-                mapping = {}
-            words = sorted(
-                f"{device}:{variable}"
-                for device, variables in (mapping or {}).items()
-                for variable in variables
-            )
-            return (experiment, words)
-
-        self._completions_worker.run_async(fetch, name="console-device-completions")
-
-    @Slot(object)
-    def _apply_device_completions(self, payload: object) -> None:
-        """Populate the R7 combo's dropdown (GUI-thread slot, delivered queued).
-
-        Parameters
-        ----------
-        payload : tuple
-            ``(experiment, ["device:variable", ...])``; a result tagged with
-            an experiment that is no longer selected is dropped (a stale
-            fetch racing an experiment change).
-        """
-        experiment, words = payload
-        if experiment != self.experiment_combo.currentText():
-            return
-        current = self.device_combo.currentText()
-        self.device_combo.blockSignals(True)
-        self.device_combo.clear()
-        self.device_combo.addItems(list(words))
-        self.device_combo.setCurrentIndex(-1)
-        line_edit = self.device_combo.lineEdit()
-        if line_edit is not None:
-            line_edit.setText(current)
-        self.device_combo.blockSignals(False)
-
-    def _resubscribe_device(self, *_args: object) -> None:
-        """Re-point the readback monitor at the combo's current selection.
-
-        Closes the previous monitor first (the backend guarantees straggler
-        callbacks from it are dropped) and resets the label to the em-dash
-        until the new monitor's first value lands.  An unparsable selection
-        leaves the panel unsubscribed.
-        """
-        try:
-            self._device_panel.unsubscribe()
-        except Exception as exc:  # noqa: BLE001 — teardown must not break the GUI
-            self.append_log(f"Readback unsubscribe failed: {exc}")
-        self.readback_label.setText("—")
-        self._refresh_device_set_enabled()
-        parsed = parse_device_variable(self.device_combo.currentText())
-        if parsed is None:
-            # Committed text that doesn't parse gets a visible hint — a
-            # silent no-op looked like a dead panel (user report).
-            if self.device_combo.currentText().strip():
-                self._warn_device_format()
-            return
-        device, variable = parsed
-        try:
-            self._device_panel.subscribe(
-                self.experiment_combo.currentText(),
-                device,
-                variable,
-                self.device_value_ready.emit,
-            )
-        except Exception as exc:  # noqa: BLE001 — surface, don't crash
-            message = f"Readback subscribe failed for {device}:{variable}: {exc}"
-            self.statusBar().showMessage(message, 10_000)
-            self.append_log(message)
-
-    @Slot(object)
-    def _apply_device_value(self, value: object) -> None:
-        """Render one readback value (GUI-thread slot, delivered queued).
-
-        Parameters
-        ----------
-        value : object
-            The monitor value (float / int / string) from the backend.
-        """
-        self.readback_label.setText(format_readback(value))
-
-    def _on_device_set_clicked(self) -> None:
-        """Dispatch the blocking backend set through the set worker.
-
-        The blocking ``backend.set`` runs on a short-lived daemon thread via
-        the :class:`BackgroundResult` set worker, whose ``result_ready``
-        signal delivers the ``(ok, message)`` outcome queued back to
-        :meth:`_apply_device_set_result` — the worker owns the cross-thread
-        emission, never the window (issue #510).  The dispatched callable
-        catches every backend failure and returns it as a result, so the
-        in-flight flag is always re-armed.
-        """
-        parsed = parse_device_variable(self.device_combo.currentText())
-        text = self.set_field.text().strip()
-        if parsed is None:
-            if self.device_combo.currentText().strip():
-                self._warn_device_format()
-            return
-        if not text or self._device_set_in_flight:
-            return
-        device, variable = parsed
-        value = parse_set_value(text)
-        experiment = self.experiment_combo.currentText()
-        backend = self._device_panel
-
-        def run_set() -> tuple[bool, str]:
-            try:
-                backend.set(experiment, device, variable, value)
-            except Exception as exc:  # noqa: BLE001 — any failure is a status report
-                return (False, f"Set {device}:{variable} failed: {exc}")
-            return (True, f"Set {device}:{variable} = {value}")
-
-        self._device_set_in_flight = True
-        self._refresh_device_set_enabled()
-        self._device_set_worker.run_async(run_set, name="console-device-set")
-
-    @Slot(object)
-    def _apply_device_set_result(self, payload: object) -> None:
-        """Report one finished set and re-arm the button (GUI-thread slot).
-
-        Parameters
-        ----------
-        payload : tuple
-            ``(ok, message)`` from the set worker; ``ok`` is unused beyond
-            the message — failures already carry the exception text.
-        """
-        _ok, message = payload
-        self._device_set_in_flight = False
-        self.statusBar().showMessage(message, 10_000)
-        self.append_log(message)
-        self._refresh_device_set_enabled()
 
     # ------------------------------------------------------------------
     # R6 now panel

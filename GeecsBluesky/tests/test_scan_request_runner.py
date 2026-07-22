@@ -466,6 +466,13 @@ def test_new_schema_scan_variables_load(modern_resolver) -> None:
     )
 
 
+def test_public_scan_variable_catalog_accessor(modern_resolver) -> None:
+    """The public catalog accessor (0.49.0, for GEECS-Console's panel)."""
+    catalog = modern_resolver.scan_variable_catalog()
+    assert "combo" in catalog.variables
+    assert catalog.variables["jet_z"].kind == "motor"
+
+
 def test_unknown_scan_variable_lists_known_names(legacy_resolver) -> None:
     with pytest.raises(GeecsConfigurationError, match="jet_z"):
         legacy_resolver.resolve_scan_variable("nope")

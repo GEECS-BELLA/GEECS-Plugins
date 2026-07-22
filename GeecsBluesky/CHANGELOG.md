@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.49.0] - 2026-07-22
+
+### Added
+
+- `ConfigsRepoResolver.scan_variable_catalog()` — public accessor for the
+  experiment's validated scan-variable catalog (the whole `ScanVariables`
+  document).  Promoted from the private cache method for GEECS-Console's
+  movable panel, closing the console CLAUDE.md debt note ("promote a
+  public catalog accessor when next touching geecs-bluesky").
+
+### Changed
+
+- `bluesky_scanner.py` contract comment: `move_variable` is now mirrored
+  by the console Submitter protocol (GEECS-Console 0.19.0) — the "will
+  join (PR-B)" qualifier is retired.
+
 ## [0.48.0] - 2026-07-22
 
 ### Added

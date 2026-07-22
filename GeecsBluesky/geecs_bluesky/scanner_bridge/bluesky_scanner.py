@@ -449,10 +449,9 @@ class BlueskyScanner:
     # ------------------------------------------------------------------
     # On-demand actions (G-actions v1) + manual moves — the GUI contract
     # ------------------------------------------------------------------
-    # run_action and describe_action are mirrored by the console's
-    # Submitter protocol; move_variable will join it with the console
-    # movable-panel work (PR-B). Do not change these signatures without
-    # flagging it loudly.
+    # These three signatures (run_action, describe_action, move_variable)
+    # are mirrored by the console's Submitter protocol (GEECS-Console ≥
+    # 0.19.0); do not change them without flagging it loudly.
 
     def _action_resolver(self) -> ConfigResolver:
         """The resolver on-demand actions resolve against.

@@ -4,6 +4,37 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.19.0] - 2026-07-22
+
+### Added
+
+- **The R7 device panel is now the catalog-aware movable panel**, owned by
+  `app/movable_panel.py::MovablePanelController` (issue #534 controller
+  shape; the window sheds ~170 lines of inline R7 machinery).  A selection
+  resolves catalog-first against the experiment's scan-variable catalog:
+  - a plain `ScanVariable` monitors its target readback; a composite
+    `PseudoScanVariable` monitors **every** component (`subscribe_many` on
+    the `DevicePanelBackend` — one live readback per target, rendered
+    compactly by the new `format_target_readbacks`); a raw
+    `device:variable` string keeps the historical direct path;
+  - catalog sets dispatch **`Submitter.move_variable`** (new protocol
+    member, mapping to `BlueskyScanner.move_variable`, GeecsBluesky ≥
+    0.48.0) — manual moves carry scan-identical completion semantics
+    (motor poll, confirm poll, pseudo fan-out with a fresh relative
+    baseline per move); engine refusals surface verbatim; raw strings
+    keep the direct gateway `:SP` put (no engine required);
+  - the combo's dropdown lists catalog names (composites included) ahead
+    of the DB `device:variable` completions;
+  - **the R3 axis combos auto-select the panel** (the legacy scanner
+    behavior), composites included — populate churn is signal-blocked and
+    unresolvable names never hijack the panel.
+- `ConsoleConfigs.scan_variable_specs()` — the catalog as
+  `{name: ScanVariableSpec}` (offline-safe), backing both the panel and
+  the names listing.
+- Suite grows 772 → 784 (the movable-panel capability tests +
+  `subscribe_many` service tests; the pre-existing R7 suites pin the
+  extraction as behavior-preserving).
+
 ## [0.18.3] - 2026-07-20
 
 ### Changed
