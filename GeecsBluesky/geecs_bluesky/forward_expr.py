@@ -41,6 +41,8 @@ from geecs_schemas.restricted_expr import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 
 #: Names bound to the scanned value: the schema's token and its short alias.
+#: Must stay disjoint from ``_FUNCTIONS``/``_CONSTANTS`` — under the shared
+#: core, symbols shadow same-named functions/constants at evaluate time.
 SCAN_VALUE_NAMES = ("composite_var", "x")
 
 #: Callables an expression may invoke, by name.

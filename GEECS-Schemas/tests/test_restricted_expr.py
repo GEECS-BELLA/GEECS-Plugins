@@ -108,11 +108,46 @@ def test_disallowed_expression_refused_at_compile(expression) -> None:
         compile_expression(expression, {"x"}, ARITHMETIC)
 
 
-def test_evaluation_namespace_has_no_builtins() -> None:
-    """Names resolve only from the whitelist and *values* — no builtins.
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "x < x[0]",  # subscript inside a comparator
+        "1 and x.__class__",  # attribute access inside a bool-op operand
+        "x < 1 < open('f')",  # call inside a chained comparison
+        "not x.__class__",  # attribute access under a whitelisted `not`
+    ],
+)
+def test_nested_logic_positions_refused(expression) -> None:
+    """Refusal reaches comparator/bool-op/unary recursion, not just top level.
 
-    A declared-but-unbound symbol is a NameError at evaluate time, not a
-    silent fallback to a builtin; consumers guard missing inputs upstream.
+    These would compile — and *evaluate*, since empty builtins do not
+    block attribute access on a bound symbol — if the comparator or
+    bool-op operand recursion in ``_validate`` were dropped.
+    """
+    with pytest.raises(ExpressionWhitelistError):
+        compile_expression(expression, {"x"}, WITH_LOGIC)
+
+
+def test_bool_literals_count_as_numbers() -> None:
+    """``True``/``False`` literals compile (``bool`` is ``int``).
+
+    A preserved quirk both consumers inherited from their pre-core
+    validators; pinned so a future tightening (e.g. ``type(...) in
+    (int, float)``) is a deliberate, test-visible change at both eval
+    sites rather than a silent one.
+    """
+    assert compile_expression("True + x", {"x"}, ARITHMETIC).evaluate({"x": 1.0}) == 2.0
+
+
+def test_declared_but_unbound_symbol_is_nameerror() -> None:
+    """Names resolve only from the whitelist and *values*.
+
+    A declared-but-unbound symbol is a NameError at evaluate time;
+    consumers guard missing inputs upstream.  (The empty-``__builtins__``
+    eval globals are defense-in-depth behind compile-time name
+    validation — builtin names never pass ``_validate`` — and are not
+    observable black-box, so this pins the name-resolution contract,
+    not the sandbox layer.)
     """
     compiled = compile_expression("x", {"x"}, ARITHMETIC)
     with pytest.raises(NameError):
