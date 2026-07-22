@@ -528,8 +528,9 @@ def test_unknown_trigger_variant_fails_at_reinitialize() -> None:
         )
 
 
-def test_pseudo_scan_variable_fails_at_reinitialize() -> None:
-    """A pseudo (composite) variable is refused at reinitialize, not in the thread."""
+def test_pseudo_scan_variable_validates_at_reinitialize() -> None:
+    """A pseudo (composite) variable now passes reinitialize validation; a
+    bad forward formula is still refused there, not in the thread."""
     pseudo = PseudoScanVariable(
         kind="pseudo",
         targets=[{"target": "U_X:Pos", "forward": "composite_var"}],
@@ -540,8 +541,15 @@ def test_pseudo_scan_variable_fails_at_reinitialize() -> None:
         mode="step",
         axes=[{"variable": "combo", "positions": {"values": [0.0, 1.0]}}],
     )
-    with pytest.raises(NotImplementedError, match="pseudo"):
-        scanner.reinitialize(request, resolver=_resolver(variables={"combo": pseudo}))
+    scanner.reinitialize(request, resolver=_resolver(variables={"combo": pseudo}))
+
+    bad = PseudoScanVariable(
+        kind="pseudo",
+        targets=[{"target": "U_X:Pos", "forward": "import_os()"}],
+        mode="absolute",
+    )
+    with pytest.raises(GeecsConfigurationError, match="import_os"):
+        scanner.reinitialize(request, resolver=_resolver(variables={"combo": bad}))
 
 
 def test_defaults_not_applied_twice(monkeypatch) -> None:
@@ -1026,7 +1034,8 @@ def test_optimize_unknown_variable_fails_at_reinitialize() -> None:
         scanner.reinitialize(_optimize_request(), resolver=_resolver())
 
 
-def test_optimize_pseudo_variable_fails_at_reinitialize() -> None:
+def test_optimize_pseudo_variable_validates_at_reinitialize() -> None:
+    """An optimize VOCS catalog name resolving to a pseudo variable is valid."""
     pseudo = PseudoScanVariable(
         kind="pseudo",
         targets=[{"target": "U_X:Pos", "forward": "composite_var"}],
@@ -1034,10 +1043,9 @@ def test_optimize_pseudo_variable_fails_at_reinitialize() -> None:
     )
     scanner = _make_scanner(_FakeSession())
     scanner._optimization_loader = _FakeOptimizationLoader()
-    with pytest.raises(NotImplementedError, match="pseudo"):
-        scanner.reinitialize(
-            _optimize_request(), resolver=_resolver(variables={"jet_z": pseudo})
-        )
+    scanner.reinitialize(
+        _optimize_request(), resolver=_resolver(variables={"jet_z": pseudo})
+    )
 
 
 def test_optimize_request_without_loader_refused_at_reinitialize() -> None:

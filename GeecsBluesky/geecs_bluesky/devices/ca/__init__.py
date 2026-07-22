@@ -14,6 +14,7 @@ from geecs_bluesky.devices.ca.action_signals import CaActionSignalFactory
 from geecs_bluesky.devices.ca.confirm import CaConfirmSettable
 from geecs_bluesky.devices.ca.generic_detector import CaGenericDetector
 from geecs_bluesky.devices.ca.motor import CaMotor
+from geecs_bluesky.devices.ca.pseudo import CaPseudoMovable
 from geecs_bluesky.devices.ca.settable import CaSettable
 from geecs_bluesky.devices.ca.snapshot import CaSnapshotReadable
 from geecs_bluesky.devices.ca.telemetry import CaTelemetryReadable
@@ -26,6 +27,7 @@ __all__ = [
     "CaConfirmSettable",
     "CaGenericDetector",
     "CaMotor",
+    "CaPseudoMovable",
     "CaSettable",
     "CaSnapshotReadable",
     "CaTelemetryReadable",

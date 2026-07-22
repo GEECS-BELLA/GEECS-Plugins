@@ -69,6 +69,10 @@ geecs_bluesky/
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
                             #   ScanRequest names → schema models (new-schema
                             #   YAML directly, else legacy-convert)
+  forward_expr.py           # compile_forward — AST-whitelist compiler for
+                            #   pseudo-variable forward formulas (arithmetic +
+                            #   math functions; scanned value = composite_var
+                            #   or its alias x; corpus pinned by tests)
   scan_request_runner.py    # run a geecs_schemas.ScanRequest:
                             #   SaveSet→devices_config and
                             #   TriggerProfile→ShotControlWrites (ordered,
@@ -103,6 +107,9 @@ geecs_bluesky/
       snapshot.py           # CaSnapshotReadable — async readback
       settable.py           # CaSettable — put :SP, read streamed readback
       motor.py              # CaMotor — blocking :SP put + readback-tolerance poll
+      pseudo.py             # CaPseudoMovable — pseudo (composite) variable:
+                            #   one number fanned out to N targets' :SP
+                            #   (absolute / relative-with-staged-baselines)
       confirm.py            # CaConfirmSettable — set X, confirm on a
                             #   different variable Y (ScanVariable.confirm)
       action_signals.py     # CaActionSignalFactory — the production
@@ -348,6 +355,23 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
   inconsistently), so an RE abort cancels the wait but the hardware finishes
   its move. If a specific device's abort variable matters, an optional
   `stop_variable` hook on `CaMotor` is the intended future shape.
+- **`CaPseudoMovable`** — the pseudo (composite) scan variable
+  (`devices/ca/pseudo.py`, 0.47.0): `set(u)` evaluates each component's
+  compiled `forward` formula (`forward_expr.compile_forward` — AST
+  whitelist, `composite_var`/`x` as the scanned value; legacy
+  `composite_variables.yaml` corpus pinned) and puts every target's `:SP`
+  concurrently through `GatewaySetpointPut` — completion when the slowest
+  target's GEECS exe response lands; setpoint semantics per component (v1,
+  legacy `ScanDevice` parity — per-component `kind: motor` is the intended
+  additive upgrade).  `relative` mode captures per-target baselines at
+  `stage()` (lazily on first `set()` for unstaged callers, i.e. optimize),
+  drops them at `unstage()`; `absolute` mode is stateless.  **The recorded
+  event-row column is the demanded pseudo value** (soft readback child,
+  header = the catalog friendly name) — include target devices in the save
+  set when their measured positions matter.  Built by
+  `GeecsSession.pseudo_movable` via `build_movable`'s dispatch on
+  `PseudoMovableTarget` (both grid-axis and optimize paths); spec + formula
+  sources recorded in run metadata under `pseudo_variables`.
 - **`CaConfirmSettable`** — the topology-C device (`devices/ca/confirm.py`):
   writes `variable` but confirms on a *different* variable's readback
   (`ScanVariable.confirm`) — the EMQ triplet's `Current_Limit.ChN` (a
@@ -530,8 +554,10 @@ lists via `ShotControlWrites`).  Action plans compile via
 `plans/action_compiler.py` against the session's `CaActionSignalFactory`;
 every signal is prefetched/connected pre-claim (a lazy connect inside the
 RE loop would deadlock).  Names still resolve fail-fast pre-claim.
-Remaining validated-then-refused v1 gaps: pseudo scan variables,
-`all_scalars`, and optimize without an injected objective/suggester.
+Remaining validated-then-refused v1 gaps: `all_scalars`, and optimize
+without an injected objective/suggester.  (Pseudo scan variables execute
+as of 0.47.0 — see `CaPseudoMovable` in the Device Layer section; a bad
+`forward` expression still fails validation pre-claim.)
 Actions on an optimize-mode request are **not** refused — optimize has no
 action hooks yet, so the actions (request, experiment defaults, and
 save-set rituals) are skipped, logged (WARNING), and recorded in run

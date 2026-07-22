@@ -180,17 +180,32 @@ def test_unresolvable_step_axis_refused() -> None:
         validate_scan_request(request, _resolver())
 
 
-def test_pseudo_step_axis_refused() -> None:
+def test_pseudo_step_axis_validates() -> None:
+    """A pseudo axis with a compilable forward passes validation."""
     pseudo = PseudoScanVariable(
         kind="pseudo",
-        targets=[{"target": "U_X:Pos", "forward": "combo"}],
+        targets=[{"target": "U_X:Pos", "forward": "composite_var * 2"}],
         mode="absolute",
     )
     request = _request(
         mode="step",
         axes=[{"variable": "combo", "positions": {"values": [0.0, 1.0]}}],
     )
-    with pytest.raises(NotImplementedError, match="pseudo"):
+    validate_scan_request(request, _resolver(variables={"combo": pseudo}))
+
+
+def test_pseudo_step_axis_bad_forward_refused() -> None:
+    """A forward formula outside the expression whitelist fails validation."""
+    pseudo = PseudoScanVariable(
+        kind="pseudo",
+        targets=[{"target": "U_X:Pos", "forward": "combo"}],  # unknown name
+        mode="absolute",
+    )
+    request = _request(
+        mode="step",
+        axes=[{"variable": "combo", "positions": {"values": [0.0, 1.0]}}],
+    )
+    with pytest.raises(GeecsConfigurationError, match="combo"):
         validate_scan_request(request, _resolver(variables={"combo": pseudo}))
 
 

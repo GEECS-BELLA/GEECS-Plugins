@@ -241,6 +241,38 @@ def test_move_movables_uses_movable_set_not_raw_setpoint(caplog) -> None:
     assert warnings[0].exc_info is not None
 
 
+def test_move_movables_never_commands_a_non_finite_target(caplog) -> None:
+    """A NaN target (an absolute pseudo read before its first set) is skipped.
+
+    ``on_finish`` restore reads each movable's initial value; an absolute
+    :class:`CaPseudoMovable` reads NaN until its first set (position unknown
+    without an inverse).  Commanding NaN to hardware must never happen —
+    the move is skipped with a warning instead.
+    """
+    from ophyd_async.core import AsyncStatus
+
+    s = GeecsSession("Test", tiled=False, mock=True)
+
+    class _Recorder:
+        def __init__(self):
+            self.set_called_with: list[float] = []
+
+        def set(self, value: float) -> AsyncStatus:
+            self.set_called_with.append(value)
+
+            async def _ok():
+                return None
+
+            return AsyncStatus(_ok())
+
+    movable = _Recorder()
+    with caplog.at_level(logging.WARNING):
+        s._move_movables({"combo": movable}, {"combo": float("nan")})
+
+    assert movable.set_called_with == []
+    assert any("not finite" in r.getMessage() for r in caplog.records)
+
+
 def test_adaptive_scan_checkpoints_per_iteration_and_row() -> None:
     """Optimize scans carry the same deferred-pause checkpoints (issue #552).
 

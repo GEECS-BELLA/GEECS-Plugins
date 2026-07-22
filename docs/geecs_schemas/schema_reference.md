@@ -239,7 +239,7 @@ One device a pseudo variable moves, and the formula for its value.
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
 | `target` | `str` | yes | — | The device variable to move, written as 'Device:Variable', e.g. 'U_S1H:Current'. |
-| `forward` | `str` | yes | — | Formula for this device's value in terms of the scanned number, written with 'composite_var' as the scanned value — e.g. 'composite_var * -2' or '8.5 + (composite_var-10)*2.5'. |
+| `forward` | `str` | yes | — | Formula for this device's value in terms of the scanned number: plain arithmetic with 'composite_var' (or its short alias 'x') as the scanned value — e.g. 'composite_var * -2', 'x * -2', or '8.5 + (composite_var-10)*2.5'. |
 
 ## `trigger_profile`
 

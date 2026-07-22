@@ -4,6 +4,42 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.47.0] - 2026-07-21
+
+### Added
+
+- **Pseudo (composite) scan variables execute** — the last piece of the
+  legacy composite-variable capability lands on the ScanRequest path,
+  closing the "validated, then refused" v1 gap:
+  - `forward_expr.py` — `compile_forward`: an AST-whitelist compiler for
+    `PseudoComponent.forward` formulas (arithmetic, parentheses, `sqrt`/
+    trig/`exp`/`log`/`abs`, constants `pi`/`e`; the scanned value as
+    `composite_var` or its alias `x`).  The full legacy
+    `composite_variables.yaml` corpus is pinned expression-by-expression in
+    `tests/test_forward_expr.py`; anything outside the whitelist raises
+    `GeecsConfigurationError` at compile time, never evaluated.
+  - `devices/ca/pseudo.py` — `CaPseudoMovable`: one scanned number fanned
+    out to every component's gateway `:SP` concurrently (each put rides the
+    GEECS blocking set via `GatewaySetpointPut`; the move completes when
+    the slowest target's exe response lands).  `absolute` mode sets each
+    target to its formula's value; `relative` mode offsets from baselines
+    captured per run at `stage()` (or lazily on first `set()` for unstaged
+    callers — the optimize path) and dropped on `unstage()`.  The recorded
+    event-row column is the demanded pseudo value (soft readback); v1
+    completion is setpoint-semantics per component (legacy `ScanDevice`
+    parity — per-component `kind` is a future additive field).
+  - `scan_request_runner` — `resolve_movable_target` returns a typed
+    `PlainMovableTarget | PseudoMovableTarget` (forward formulas compiled
+    fail-fast pre-claim) and `build_movable` dispatches to the new
+    `GeecsSession.pseudo_movable` factory, on **both** the step/grid-axis
+    and optimize-mode movable paths.  Pseudo provenance (mode + per-target
+    forward sources) is recorded in run metadata under `pseudo_variables`;
+    the scan parameter records the catalog friendly name.
+- Suite grows 581 → 617 (evaluator corpus/rejection tests, mock-backend
+  CaPseudoMovable tests, runner execution/metadata/fail-fast tests, the
+  non-finite `_move_movables` guard; the four former refusal pins flipped
+  to execution/validation pins).
+
 ## [0.46.1] - 2026-07-21
 
 ### Changed

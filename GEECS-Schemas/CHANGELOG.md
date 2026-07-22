@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-07-21
+
+### Changed
+
+- `scan_variables.py` description sync with the pseudo-variable runtime
+  landing in geecs-bluesky 0.47.0 (documentation only, no schema shape
+  change): `PseudoComponent.forward` documents the expression language as
+  plain arithmetic with the scanned value written as `composite_var` **or
+  its new short alias `x`** (the engine's whitelist evaluator accepts
+  both; every legacy numexpr-era `relation` string remains valid
+  unchanged).  `docs/geecs_schemas/schema_reference.md` regenerated.
+
 ## [0.8.1] - 2026-07-20
 
 ### Changed

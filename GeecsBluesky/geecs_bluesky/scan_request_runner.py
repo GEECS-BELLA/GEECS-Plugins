@@ -19,8 +19,15 @@
   outermost) and optimize modes on a
   :class:`~geecs_bluesky.session.GeecsSession`.
 
+Pseudo (composite) scan variables execute: :func:`resolve_movable_target`
+compiles every component's ``forward`` formula fail-fast pre-claim and
+:func:`build_movable` builds a
+:class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoMovable` for them, on both
+the step-axis and optimize movable paths (spec + formulas recorded in run
+metadata under ``pseudo_variables``).
+
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
-pseudo scan variables, ``all_scalars``, and optimize without either an
+``all_scalars``, and optimize without either an
 injected ``objective``/``suggester`` pair or an ``optimization_binder``
 (the Xopt stack lives in ``geecs_scanner.optimization``, which this package
 must not import — the binder is the GUI bridge's injected seam for it).
@@ -34,6 +41,7 @@ from __future__ import annotations
 import itertools
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from contextlib import nullcontext
 from typing import Any, Callable
 
@@ -51,6 +59,7 @@ from geecs_bluesky.db_runtime import (
     select_telemetry_variables,
 )
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.operator_channel import OperatorChannel
 from geecs_bluesky.plans.action_compiler import compile_action_plan
@@ -812,8 +821,9 @@ def validate_scan_request(
     request needs at least one — optimize may run save-set-less because the
     optimizer's ``device_requirements`` are auto-provisioned at execution
     time, where an empty *effective* set still refuses pre-claim), every
-    named save set + entry rituals, every step-axis movable target (pseudo
-    variables refused), and every optimize VOCS catalog name (bare names
+    named save set + entry rituals, every step-axis movable target
+    (pseudo-variable forward formulas compiled here — a bad expression
+    fails now, not mid-scan), and every optimize VOCS catalog name (bare names
     only — ``Device:Variable`` strings pass through, matching the runner's
     dispatch).
 
@@ -838,10 +848,9 @@ def validate_scan_request(
     Raises
     ------
     GeecsConfigurationError
-        Unresolvable names, an unknown trigger variant, or a step/noscan
-        request without a save set.
-    NotImplementedError
-        Pseudo (composite) scan variables — validated first, refused loudly.
+        Unresolvable names, an unknown trigger variant, a step/noscan
+        request without a save set, or a pseudo scan variable whose
+        ``forward`` expression fails to compile.
     """
     defaults = resolve_experiment_defaults(resolver)
     validated, applied = apply_experiment_defaults(request, defaults)
@@ -876,35 +885,90 @@ def validate_scan_request(
     return validated, applied, defaults
 
 
-def resolve_movable_target(
-    spec: ScanVariableSpec, name: str
-) -> tuple[str, str, str, str | None]:
-    """Return ``(device, variable, kind, confirm)`` for a plain scan variable.
+@dataclass(frozen=True)
+class PlainMovableTarget:
+    """One plain scan-variable target: a single ``Device:Variable`` write."""
 
-    ``confirm`` is the entry's optional ``"Device:Variable"`` confirming
-    target (``None`` when the set variable is also the readback).
+    device: str
+    variable: str
+    kind: str
+    confirm: str | None
+
+    @property
+    def label(self) -> str:
+        """The ``Device:Variable`` string recorded as the scan parameter."""
+        return f"{self.device}:{self.variable}"
+
+
+@dataclass(frozen=True)
+class PseudoMovableTarget:
+    """One pseudo scan variable: components with compiled forward formulas."""
+
+    variable_name: str
+    mode: str
+    components: tuple[tuple[str, str, CompiledForward], ...]
+
+    @property
+    def label(self) -> str:
+        """The catalog friendly name recorded as the scan parameter."""
+        return self.variable_name
+
+    def metadata(self) -> dict[str, Any]:
+        """The provenance record for ``md["pseudo_variables"]``."""
+        return {
+            "mode": self.mode,
+            "targets": [
+                {"target": f"{device}:{variable}", "forward": forward.source}
+                for device, variable, forward in self.components
+            ],
+        }
+
+
+MovableTarget = PlainMovableTarget | PseudoMovableTarget
+
+
+def resolve_movable_target(spec: ScanVariableSpec, name: str) -> MovableTarget:
+    """Resolve a catalog entry into its movable target, fail-fast.
+
+    A plain :class:`~geecs_schemas.scan_variables.ScanVariable` becomes a
+    :class:`PlainMovableTarget` (``confirm`` is the entry's optional
+    confirming ``"Device:Variable"``, ``None`` when the set variable is also
+    the readback).  A :class:`~geecs_schemas.scan_variables.PseudoScanVariable`
+    becomes a :class:`PseudoMovableTarget` with every component's ``forward``
+    formula compiled here — so a bad expression fails at validation time,
+    pre-claim, never mid-scan.
 
     Raises
     ------
-    NotImplementedError
-        Pseudo (composite) variables — the pseudo-positioner is not built yet.
+    GeecsConfigurationError
+        A pseudo component's ``forward`` expression fails to compile.
     """
     if isinstance(spec, PseudoScanVariable):
-        raise NotImplementedError(
-            f"scan variable {name!r} is a pseudo (composite) variable; "
-            "composite pseudo-positioner execution is not built yet — "
-            "sweep the underlying Device:Variable targets directly for now"
+        components = []
+        for component in spec.targets:
+            device, _, variable = component.target.partition(":")
+            try:
+                forward = compile_forward(component.forward)
+            except GeecsConfigurationError as exc:
+                raise GeecsConfigurationError(
+                    f"pseudo scan variable {name!r}, target {component.target!r}: {exc}"
+                ) from exc
+            components.append((device, variable, forward))
+        return PseudoMovableTarget(
+            variable_name=name,
+            mode=spec.mode.value,
+            components=tuple(components),
         )
     assert isinstance(spec, ScanVariable)
     device, _, variable = spec.target.partition(":")
-    return device, variable, spec.kind, spec.confirm
+    return PlainMovableTarget(device, variable, spec.kind, spec.confirm)
 
 
-def build_movable(
-    session: Any, device: str, variable: str, kind: str, confirm: str | None
-) -> Any:
+def build_movable(session: Any, target: MovableTarget) -> Any:
     """Build the right movable for one resolved scan-variable target.
 
+    A :class:`PseudoMovableTarget` builds via :meth:`GeecsSession.pseudo_movable`
+    (one number fanned out to every component).  For a plain target,
     ``confirm`` (a ``"Device:Variable"`` string) takes precedence over
     ``kind``: a variable with a confirming target is the topology-C case
     (:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`) regardless
@@ -913,17 +977,21 @@ def build_movable(
     before: ``"motor"`` → :meth:`GeecsSession.motor`, else
     :meth:`GeecsSession.settable`.
     """
-    if confirm is not None:
-        confirm_device, _, confirm_variable = confirm.partition(":")
+    if isinstance(target, PseudoMovableTarget):
+        return session.pseudo_movable(
+            target.variable_name, list(target.components), target.mode
+        )
+    if target.confirm is not None:
+        confirm_device, _, confirm_variable = target.confirm.partition(":")
         return session.confirm_settable(
-            device,
-            variable,
+            target.device,
+            target.variable,
             confirm_device=confirm_device,
             confirm_variable=confirm_variable,
         )
-    if kind == "motor":
-        return session.motor(device, variable)
-    return session.settable(device, variable)
+    if target.kind == "motor":
+        return session.motor(target.device, target.variable)
+    return session.settable(target.device, target.variable)
 
 
 def _build_request_detectors(
@@ -1264,9 +1332,9 @@ def run_scan_request(
     Raises
     ------
     NotImplementedError
-        Pseudo scan variables, and optimize mode without an injected
-        objective/suggester or optimization_binder (the documented v1
-        gaps — validated first, refused loudly).
+        Optimize mode without an injected objective/suggester or
+        optimization_binder (a documented v1 gap — validated first,
+        refused loudly).
     GeecsConfigurationError
         Unresolvable names, a step/noscan request without a save set, or
         an optimize request with an empty effective device set (no save
@@ -1345,13 +1413,12 @@ def run_scan_request(
     warn_if_reserved_boundary_overrides(save_set)
 
     # Resolve the scan-variable movable targets up front (full movable
-    # construction happens later; only the (device, variable, kind, confirm)
-    # quadruples are needed here for the standard-scan build below).
-    axis_resolved: list[tuple[str, str, str, str | None]] = []
+    # construction happens later; only the resolved targets are needed here
+    # for the standard-scan build below).
+    axis_resolved: list[MovableTarget] = []
     for axis in request.axes:
         spec = resolver.resolve_scan_variable(axis.variable)
-        device, variable, kind, confirm = resolve_movable_target(spec, axis.variable)
-        axis_resolved.append((device, variable, kind, confirm))
+        axis_resolved.append(resolve_movable_target(spec, axis.variable))
 
     telemetry_enabled = (
         request.background_telemetry
@@ -1469,12 +1536,19 @@ def run_scan_request(
         movables: list = []
         targets: list[str] = []
         value_lists: list[list[float]] = []
-        for (device, variable, kind, confirm), axis in zip(axis_resolved, request.axes):
-            movable = build_movable(session, device, variable, kind, confirm)
+        for target, axis in zip(axis_resolved, request.axes):
+            movable = build_movable(session, target)
             created.append(movable)
             movables.append(movable)
-            targets.append(f"{device}:{variable}")
+            targets.append(target.label)
             value_lists.append(axis.positions.to_values())
+        pseudo_meta = {
+            target.variable_name: target.metadata()
+            for target in axis_resolved
+            if isinstance(target, PseudoMovableTarget)
+        }
+        if pseudo_meta:
+            md["pseudo_variables"] = pseudo_meta
 
         scan_info["scan_mode"] = "standard"
         scan_info["scan_parameter"] = ",".join(targets)
@@ -1664,14 +1738,17 @@ def _run_optimize_request(
         created.extend(detectors)
 
         variables: dict[str, Any] = {}
+        pseudo_meta: dict[str, Any] = {}
         for name in spec.variables:
             if ":" in name:
                 device, _, variable = name.partition(":")
                 movable = session.settable(device, variable)
             else:
                 var_spec = resolver.resolve_scan_variable(name)
-                device, variable, kind, confirm = resolve_movable_target(var_spec, name)
-                movable = build_movable(session, device, variable, kind, confirm)
+                target = resolve_movable_target(var_spec, name)
+                if isinstance(target, PseudoMovableTarget):
+                    pseudo_meta[target.variable_name] = target.metadata()
+                movable = build_movable(session, target)
             variables[name] = movable
             created.append(movable)
 
@@ -1679,6 +1756,8 @@ def _run_optimize_request(
             return None
 
         md: dict[str, Any] = {"scan_request_mode": request.mode.value}
+        if pseudo_meta:
+            md["pseudo_variables"] = pseudo_meta
         if request.save_sets:
             # Provenance: which named save sets were unioned for this scan.
             md["save_sets"] = list(request.save_sets)
