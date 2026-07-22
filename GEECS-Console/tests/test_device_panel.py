@@ -70,9 +70,18 @@ class TestParseSetValue:
 
 
 class TestFormatReadback:
-    def test_float_six_significant_digits(self):
-        assert format_readback(3.141592653589793) == "3.14159"
-        assert format_readback(0.5) == "0.5"
+    def test_float_fixed_decimals_width_stable(self):
+        """Fixed decimals: readback noise in trailing digits must not change
+        the string length (window-width jitter, owner report 0.19.1)."""
+        assert format_readback(3.141592653589793) == "3.1416"
+        assert format_readback(0.5) == "0.5000"
+        # The jitter pair that motivated this: same width either way.
+        assert len(format_readback(0.05)) == len(format_readback(0.0498))
+
+    def test_float_extreme_magnitudes_go_scientific(self):
+        assert format_readback(1.23456e-5) == "1.235e-05"
+        assert format_readback(4.2e7) == "4.200e+07"
+        assert format_readback(0.0) == "0.0000"
 
     def test_int_and_string_pass_through(self):
         assert format_readback(42) == "42"

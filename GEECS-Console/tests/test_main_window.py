@@ -1209,7 +1209,7 @@ class TestDevicePanel:
         threading.Thread(
             target=lambda: backend.on_value(3.141592653589793), daemon=True
         ).start()
-        qtbot.waitUntil(lambda: win.readback_label.text() == "3.14159", timeout=3000)
+        qtbot.waitUntil(lambda: win.readback_label.text() == "3.1416", timeout=3000)
 
     def test_string_readback_renders_as_is(self, device_window, qtbot):
         win, backend = device_window

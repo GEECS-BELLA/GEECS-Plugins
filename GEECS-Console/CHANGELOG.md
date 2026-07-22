@@ -4,6 +4,22 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.19.1] - 2026-07-22
+
+### Changed
+
+- **Movable-panel polish from first live use** (owner feedback on 0.19.0):
+  - **Width-stable readbacks** — `format_readback` renders floats with
+    fixed decimals (4) in the ordinary magnitude range (scientific with a
+    fixed mantissa outside it), and the readback label no longer drives
+    layout (`Ignored` horizontal size policy + minimum width): noise in a
+    streamed value's trailing digits made the window width jitter at the
+    stream rate.
+  - **R7 relocated to the middle column**, below the scan form and presets
+    (space it fits naturally); the right column keeps only the R6 now
+    panel, which gets the freed room.  Widget object names (`r7_*`)
+    unchanged — controller, tests, and tooltips untouched by the move.
+
 ## [0.19.0] - 2026-07-22
 
 ### Added
