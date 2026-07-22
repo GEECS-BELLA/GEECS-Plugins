@@ -380,7 +380,12 @@ backend reached verified live parity (Scans 007–015, 2026-07-03/04); a stale
   legacy `ScanDevice` parity — per-component `kind: motor` is the intended
   additive upgrade).  `relative` mode captures per-target baselines at
   `stage()` (lazily on first `set()` for unstaged callers, i.e. optimize),
-  drops them at `unstage()`; `absolute` mode is stateless.  **The recorded
+  drops them at `unstage()`; `absolute` mode is stateless.  **A scan
+  restores a relative pseudo axis to its captured baselines at the
+  end** (0.50.0, owner request): `restore_baselines_plan()` runs as a
+  finalize in `build_step_scan_plan` — success and abort, after
+  closeout, before unstage — with exact per-target puts; absolute
+  pseudos and plain axes are deliberately not restored.  **The recorded
   event-row column is the demanded pseudo value** (soft readback child,
   header = the catalog friendly name) — include target devices in the save
   set when their measured positions matter.  Built by
