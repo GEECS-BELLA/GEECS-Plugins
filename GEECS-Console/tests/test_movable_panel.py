@@ -129,12 +129,12 @@ class TestCatalogSelection:
         win._movable.resubscribe()
         panel.on_value(0, 0.05)
         qtbot.waitUntil(
-            lambda: win.readback_label.text() == "U_S3H 0.05 · U_S4H —",
+            lambda: win.readback_label.text() == "U_S3H 0.0500 · U_S4H —",
             timeout=3000,
         )
         panel.on_value(1, -0.0998)
         qtbot.waitUntil(
-            lambda: win.readback_label.text() == "U_S3H 0.05 · U_S4H -0.0998",
+            lambda: win.readback_label.text() == "U_S3H 0.0500 · U_S4H -0.0998",
             timeout=3000,
         )
 
@@ -268,3 +268,16 @@ class TestAutoSelect:
         win.variable_combo.textActivated.emit("ghost_variable")
         assert win.device_combo.currentText() == "Dev:Var"
         assert panel.many_calls == calls_before
+
+
+def test_r7_lives_in_the_middle_column() -> None:
+    """The movable panel sits below scan+presets in the middle third
+    (owner request, 0.19.1) — the right column keeps only the now panel."""
+    from pathlib import Path
+
+    ui = Path("geecs_console/app/ui/main_window.ui").read_text()
+    middle = ui.index('name="middle_column"')
+    right = ui.index('name="right_column"')
+    r7 = ui.index('name="r7_group"')
+    spacer = ui.index('name="middle_column_spacer"')
+    assert middle < r7 < spacer < right

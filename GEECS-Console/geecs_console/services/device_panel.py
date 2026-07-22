@@ -188,7 +188,7 @@ def parse_set_value(text: str) -> float | str:
 
 
 def format_readback(value: Any) -> str:
-    """Render one readback value for the R7 label.
+    """Render one readback value for the R7 label, width-stable.
 
     Parameters
     ----------
@@ -199,12 +199,19 @@ def format_readback(value: Any) -> str:
     Returns
     -------
     str
-        Floats with 6 significant digits, everything else stringified.
+        Floats with **fixed** decimals (4) in the ordinary magnitude range,
+        scientific with fixed mantissa digits outside it, everything else
+        stringified.  Fixed-width rendering is deliberate: noise in a
+        streamed readback's final digits must not change the string length
+        (the old 6-significant-digits format made the window width jitter
+        at ~1 Hz — owner report, 0.19.1).
     """
     if isinstance(value, bool):
         return str(value)
     if isinstance(value, float):
-        return f"{value:.6g}"
+        if value == 0.0 or 1e-3 <= abs(value) < 1e5:
+            return f"{value:.4f}"
+        return f"{value:.3e}"
     return str(value)
 
 

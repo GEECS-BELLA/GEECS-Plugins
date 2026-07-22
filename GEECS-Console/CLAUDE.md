@@ -57,7 +57,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   timing and granularity; they will drift, and shot counts must never be
   reconciled across them (live-investigated 2026-07-16 — a "pause shows
   extra steps" report was mostly this drift).
-- **R7 movable panel** — an editable combo (catalog scan-variable names
+- **R7 movable panel** (middle column, below R4/R5 since 0.19.1 — the
+  right column is R6's alone) — an editable combo (catalog scan-variable names
   first, then `device:variable` completions from `GeecsDbCompletions`),
   readback label, set field + button — owned by
   `app/movable_panel.py::MovablePanelController` since 0.19.0 (see
