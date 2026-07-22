@@ -1,11 +1,15 @@
 """Device panel seam (R7): live gateway readback + ``:SP`` setpoint puts.
 
 The protocol and a no-op stub live here alongside the real
-:class:`GatewayDevicePanel`: a persistent ``aioca.camonitor`` on the readback
-PV (values flow to the GUI through a queued Qt signal owned by the window)
-and setpoint puts through :class:`~geecs_bluesky.devices.ca.gateway_put.
-GatewaySetpointPut` — the one blessed gateway ``:SP`` put primitive, riding
-GEECS's native blocking set.
+:class:`GatewayDevicePanel`: persistent ``aioca.camonitor`` streams on the
+readback PV(s) — one per target; ``subscribe_many`` backs the movable
+panel's composite selections (values flow to the GUI through a queued Qt
+signal owned by ``MovablePanelController``) — and setpoint puts through
+:class:`~geecs_bluesky.devices.ca.gateway_put.GatewaySetpointPut` — the one
+blessed gateway ``:SP`` put primitive, riding GEECS's native blocking set.
+Catalog-level moves (composites, motors, confirm variables) do NOT go
+through this backend: the controller routes them to the engine's
+``Submitter.move_variable``.
 
 Threading model (mirrors the health-probe precedent — **no QThread**, ever):
 ``aioca`` is asyncio-based, so the real backend owns ONE persistent asyncio
@@ -19,7 +23,7 @@ daemonic and dies with the process.
 
 Every real dependency (``aioca``, the geecs-bluesky PV helpers) is imported
 lazily inside methods, keeping this module import-safe with zero network and
-without the ``ca`` extra.  Scalar-only, per the package charter.
+without the ``ca`` extra.
 """
 
 from __future__ import annotations
@@ -53,8 +57,23 @@ class DevicePanelBackend(Protocol):
         """Start a readback stream; *on_value* may fire on any thread."""
         ...
 
+    def subscribe_many(
+        self,
+        experiment: str,
+        targets: list[tuple[str, str]],
+        on_value: Callable[[int, Any], None],
+    ) -> None:
+        """Start one readback stream per ``(device, variable)`` target.
+
+        *on_value* is called with ``(target_index, value)`` and may fire on
+        any thread.  Replaces any previous subscription (single or many).
+        Backs the movable panel's composite (pseudo) selections — one live
+        readback per component.
+        """
+        ...
+
     def unsubscribe(self) -> None:
-        """Stop the current readback stream (no-op when none is active)."""
+        """Stop the current readback stream(s) (no-op when none is active)."""
         ...
 
     def set(self, experiment: str, device: str, variable: str, value: Any) -> None:
@@ -77,6 +96,25 @@ class StubDevicePanel:
         Parameters
         ----------
         experiment, device, variable : str
+            Ignored.
+        on_value : callable
+            Never called.
+        """
+        return None
+
+    def subscribe_many(
+        self,
+        experiment: str,
+        targets: list[tuple[str, str]],
+        on_value: Callable[[int, Any], None],
+    ) -> None:
+        """No-op: the stub has no readback source.
+
+        Parameters
+        ----------
+        experiment : str
+            Ignored.
+        targets : list of tuple
             Ignored.
         on_value : callable
             Never called.
@@ -217,6 +255,36 @@ def setpoint_pv(experiment: str, device: str, variable: str) -> str:
     return sp(readback_pv(experiment, device, variable))
 
 
+def format_target_readbacks(targets: list[tuple[str, str]], values: list[Any]) -> str:
+    """Render per-target readbacks for a composite selection, compactly.
+
+    Parameters
+    ----------
+    targets : list of tuple
+        The ``(device, variable)`` pairs of a composite's components.
+    values : list
+        The latest monitor value per target (``None`` = not yet delivered).
+
+    Returns
+    -------
+    str
+        One ``device value`` chunk per target joined with a middle dot —
+        device names alone when they are unique (the common composite
+        shape), ``device:variable`` when a device appears twice.
+    """
+    em_dash = "\u2014"
+    devices = [device for device, _ in targets]
+    labels = [
+        device if devices.count(device) == 1 else f"{device}:{variable}"
+        for device, variable in targets
+    ]
+    chunks = [
+        f"{label} {format_readback(value) if value is not None else em_dash}"
+        for label, value in zip(labels, values)
+    ]
+    return " \u00b7 ".join(chunks)
+
+
 # ----------------------------------------------------------------------
 # The real backend
 # ----------------------------------------------------------------------
@@ -243,7 +311,7 @@ class GatewayDevicePanel:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_lock = threading.Lock()
         self._generation = 0
-        self._pending_subscription: Any = None  # Future -> aioca Subscription
+        self._pending_subscription: Any = None  # list[Future -> Subscription]
 
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
         """Return the persistent CA event loop, starting it on first use.
@@ -280,39 +348,65 @@ class GatewayDevicePanel:
             Raw GEECS names; the PV comes from :func:`readback_pv`.
         on_value : callable
             Called with each monitor value **on the CA loop thread** — the
-            window passes a queued Qt signal's ``emit``, so values land on
+            caller passes a queued Qt signal's ``emit``, so values land on
             the GUI thread.
         """
+        self.subscribe_many(
+            experiment, [(device, variable)], lambda _index, value: on_value(value)
+        )
+
+    def subscribe_many(
+        self,
+        experiment: str,
+        targets: list[tuple[str, str]],
+        on_value: Callable[[int, Any], None],
+    ) -> None:
+        """Open one CA monitor per target; returns immediately.
+
+        Parameters
+        ----------
+        experiment : str
+            Experiment prefix for every target PV.
+        targets : list of tuple
+            ``(device, variable)`` pairs (a composite's components).
+        on_value : callable
+            Called with ``(target_index, value)`` **on the CA loop
+            thread** — route through a queued Qt signal.
+        """
         self.unsubscribe()
-        pv = readback_pv(experiment, device, variable)
         generation = self._generation
-
-        def _dispatch(value: Any) -> None:
-            # Drop stragglers from a monitor unsubscribe() already retired.
-            if generation == self._generation:
-                on_value(value)
-
-        async def _start() -> Any:
-            import aioca  # deferred: needs the `ca` extra
-
-            return aioca.camonitor(pv, _dispatch)
-
         loop = self._ensure_loop()
-        self._pending_subscription = asyncio.run_coroutine_threadsafe(_start(), loop)
+        pending: list[Any] = []
+        for index, (device, variable) in enumerate(targets):
+            pv = readback_pv(experiment, device, variable)
+
+            def _dispatch(value: Any, index: int = index) -> None:
+                # Drop stragglers from monitors unsubscribe() already retired.
+                if generation == self._generation:
+                    on_value(index, value)
+
+            async def _start(pv: str = pv, dispatch: Any = _dispatch) -> Any:
+                import aioca  # deferred: needs the `ca` extra
+
+                return aioca.camonitor(pv, dispatch)
+
+            pending.append(asyncio.run_coroutine_threadsafe(_start(), loop))
+        self._pending_subscription = pending
 
     def unsubscribe(self) -> None:
-        """Close the active monitor (if any); returns immediately, never joins."""
+        """Close the active monitor(s); returns immediately, never joins."""
         self._generation += 1
         pending, self._pending_subscription = self._pending_subscription, None
-        if pending is None or self._loop is None:
+        if not pending or self._loop is None:
             return
 
         async def _close() -> None:
-            try:
-                subscription = await asyncio.wrap_future(pending)
-                subscription.close()
-            except Exception as exc:  # noqa: BLE001 — teardown must not raise
-                logger.debug("closing readback monitor failed: %s", exc)
+            for item in pending:
+                try:
+                    subscription = await asyncio.wrap_future(item)
+                    subscription.close()
+                except Exception as exc:  # noqa: BLE001 — teardown must not raise
+                    logger.debug("closing readback monitor failed: %s", exc)
 
         asyncio.run_coroutine_threadsafe(_close(), self._loop)
 

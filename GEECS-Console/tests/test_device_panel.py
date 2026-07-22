@@ -207,6 +207,40 @@ class TestGatewayDevicePanel:
         subscription.callback(9.9)
         assert values == []
 
+    def test_subscribe_many_opens_one_monitor_per_target(self, fake_aioca):
+        panel = GatewayDevicePanel()
+        received = []
+        panel.subscribe_many(
+            "HTU",
+            [("U_S3H", "Current"), ("U_S4H", "Current")],
+            lambda index, value: received.append((index, value)),
+        )
+        assert wait_for(lambda: len(fake_aioca.subscriptions) == 2)
+        assert [s.pv for s in fake_aioca.subscriptions] == [
+            "htu:u_s3h:current",
+            "htu:u_s4h:current",
+        ]
+        fake_aioca.subscriptions[1].callback(-0.1)
+        fake_aioca.subscriptions[0].callback(0.05)
+        assert received == [(1, -0.1), (0, 0.05)]
+        panel.unsubscribe()
+        assert wait_for(lambda: all(s.closed for s in fake_aioca.subscriptions))
+
+    def test_subscribe_many_stragglers_dropped_after_unsubscribe(self, fake_aioca):
+        panel = GatewayDevicePanel()
+        received = []
+        panel.subscribe_many(
+            "HTU",
+            [("A", "x"), ("B", "y")],
+            lambda index, value: received.append((index, value)),
+        )
+        assert wait_for(lambda: len(fake_aioca.subscriptions) == 2)
+        retired = list(fake_aioca.subscriptions)
+        panel.unsubscribe()
+        for subscription in retired:
+            subscription.callback(9.9)
+        assert received == []
+
     def test_unsubscribe_without_subscribe_is_noop(self):
         GatewayDevicePanel().unsubscribe()  # must not raise, must not spin a loop
 

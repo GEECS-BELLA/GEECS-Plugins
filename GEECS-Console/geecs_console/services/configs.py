@@ -144,14 +144,25 @@ class ConsoleConfigs:
 
     def _scan_variable_names(self) -> list[str]:
         """Load the scan-variable catalog names (needs YAML, so resolver-backed)."""
+        return sorted(self.scan_variable_specs())
+
+    def scan_variable_specs(self) -> dict:
+        """The experiment's scan-variable catalog as ``{name: spec}``.
+
+        Each value is a validated
+        :class:`geecs_schemas.scan_variables.ScanVariableSpec` (a plain
+        ``ScanVariable`` or a composite ``PseudoScanVariable``) — the
+        movable panel branches on the spec's shape.  Empty when offline or
+        the catalog is missing/broken (never raises).
+        """
         resolver = self._get_resolver()
         if resolver is None:
-            return []
+            return {}
         try:
-            return sorted(resolver._scan_variables_catalog().variables)
+            return dict(resolver._scan_variables_catalog().variables)
         except Exception as exc:
             logger.info("scan-variable catalog unavailable: %s", exc)
-            return []
+            return {}
 
     # ------------------------------------------------------------------
     # Validation-on-demand (resolver-backed)

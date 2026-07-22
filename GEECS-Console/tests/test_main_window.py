@@ -1146,6 +1146,14 @@ class FakeDevicePanel:
         self.subscriptions.append((experiment, device, variable))
         self.on_value = on_value
 
+    def subscribe_many(self, experiment, targets, on_value):
+        # The controller path: record one row per target; keep the
+        # single-value `on_value` shape working for one-target tests.
+        for device, variable in targets:
+            self.subscriptions.append((experiment, device, variable))
+        self.on_value_indexed = on_value
+        self.on_value = lambda value: on_value(0, value)
+
     def unsubscribe(self):
         self.unsubscribes += 1
         self.on_value = None
@@ -1186,7 +1194,7 @@ class TestDevicePanel:
     def test_selection_commit_subscribes_with_parsed_names(self, device_window):
         win, backend = device_window
         win.device_combo.setCurrentText("U_Hexapod:ypos")
-        win._resubscribe_device()  # editingFinished path
+        win._movable.resubscribe()  # editingFinished path
         assert backend.subscriptions == [("TestExp", "U_Hexapod", "ypos")]
         assert win.readback_label.text() == "—"
 
@@ -1195,7 +1203,7 @@ class TestDevicePanel:
 
         win, backend = device_window
         win.device_combo.setCurrentText("Dev:Var")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         # Fire the value from a non-GUI thread, as the CA monitor loop would;
         # the queued signal must marshal it onto the GUI-thread slot.
         threading.Thread(
@@ -1206,17 +1214,17 @@ class TestDevicePanel:
     def test_string_readback_renders_as_is(self, device_window, qtbot):
         win, backend = device_window
         win.device_combo.setCurrentText("Dev:Var")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         backend.on_value("Connected")
         qtbot.waitUntil(lambda: win.readback_label.text() == "Connected", timeout=3000)
 
     def test_switching_selection_unsubscribes_then_resubscribes(self, device_window):
         win, backend = device_window
         win.device_combo.setCurrentText("Dev:Var")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         unsubscribes_after_first = backend.unsubscribes
         win.device_combo.setCurrentText("Dev2:Var2")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         assert backend.unsubscribes == unsubscribes_after_first + 1
         assert backend.subscriptions[-1] == ("TestExp", "Dev2", "Var2")
         assert win.readback_label.text() == "—"  # reset until the new value lands
@@ -1224,7 +1232,7 @@ class TestDevicePanel:
     def test_invalid_selection_leaves_panel_unsubscribed(self, device_window):
         win, backend = device_window
         win.device_combo.setCurrentText("not-a-pair")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         assert backend.subscriptions == []
         assert win.readback_label.text() == "—"
 
@@ -1247,7 +1255,7 @@ class TestDevicePanel:
         win, backend = device_window
         win.device_combo.setCurrentText("Dev:Trigger.Source")
         win.set_field.setText("Single shot")
-        win._on_device_set_clicked()
+        win._movable._on_set_clicked()
         qtbot.waitUntil(
             lambda: backend.set_calls
             == [("TestExp", "Dev", "Trigger.Source", "Single shot")],
@@ -1261,7 +1269,7 @@ class TestDevicePanel:
         )
         win.device_combo.setCurrentText("Dev:Var")
         win.set_field.setText("1.0")
-        win._on_device_set_clicked()
+        win._movable._on_set_clicked()
         qtbot.waitUntil(
             lambda: "Set Dev:Var failed: gateway rejected"
             in win.log_tail.toPlainText(),
@@ -1272,7 +1280,7 @@ class TestDevicePanel:
     def test_stub_set_reports_unwired(self, window, qtbot):
         window.device_combo.setCurrentText("Dev:Var")
         window.set_field.setText("1.0")
-        window._on_device_set_clicked()
+        window._movable._on_set_clicked()
         qtbot.waitUntil(
             lambda: "not wired" in window.log_tail.toPlainText(), timeout=3000
         )
@@ -1280,7 +1288,7 @@ class TestDevicePanel:
     def test_experiment_change_resubscribes_readback(self, device_window):
         win, backend = device_window
         win.device_combo.setCurrentText("Dev:Var")
-        win._resubscribe_device()
+        win._movable.resubscribe()
         win._on_experiment_changed("Bella")
         assert backend.subscriptions[-1] == ("Bella", "Dev", "Var")
 
@@ -1312,7 +1320,7 @@ class TestDevicePanel:
         win.show()
         win.device_combo.setCurrentText("Dev:Var")
         win.set_field.setText("1.0")
-        win._on_device_set_clicked()  # daemon thread now sleeping in set()
+        win._movable._on_set_clicked()  # daemon thread now sleeping in set()
         started = time.monotonic()
         assert win.close()  # must not join the 0.4 s daemon set
         assert time.monotonic() - started < 0.3
@@ -1355,11 +1363,11 @@ class TestDevicePanel:
         win.device_combo.setCurrentText("Dev:Var")
         win.set_field.setText("1.0")
         before = set(threading.enumerate())
-        win._on_device_set_clicked()  # daemon thread now blocked in set()
+        win._movable._on_set_clicked()  # daemon thread now blocked in set()
         worker = next(
             t
             for t in threading.enumerate()
-            if t not in before and t.name == "console-device-set"
+            if t not in before and t.name == "console-movable-set"
         )
         assert win.close()
         win.deleteLater()
