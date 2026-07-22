@@ -4,6 +4,21 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.47.1] - 2026-07-21
+
+### Changed
+
+- `forward_expr.py` now delegates its compile-then-restricted-eval
+  skeleton to the shared `geecs_schemas.restricted_expr` core
+  (geecs-schemas 0.9.0) — a behavior-preserving refactor so security
+  hardening of the eval sites lands once, not twice (the 0.47.0 module
+  docstring's sketched consolidation, executed).  The forward-formula
+  language is unchanged (arithmetic incl. `//`, math functions, `abs`,
+  `composite_var`/`x`, no comparisons), as are the
+  `GeecsConfigurationError` contract at compile and call time and
+  `CompiledForward.source`; pinned by the existing
+  `test_forward_expr.py` corpus + refusal suite.
+
 ## [0.47.0] - 2026-07-21
 
 ### Added

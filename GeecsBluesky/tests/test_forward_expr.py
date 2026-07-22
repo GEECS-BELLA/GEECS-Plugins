@@ -14,7 +14,12 @@ import math
 import pytest
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
-from geecs_bluesky.forward_expr import compile_forward
+from geecs_bluesky.forward_expr import (
+    _CONSTANTS,
+    _FUNCTIONS,
+    SCAN_VALUE_NAMES,
+    compile_forward,
+)
 
 # ---------------------------------------------------------------------------
 # The full production corpus (Undulator + Thomson), expression → (input, expected)
@@ -95,6 +100,17 @@ def test_complex_and_overflow_results_are_configuration_errors() -> None:
         compile_forward("x ** 0.5")(-1.0)
     with pytest.raises(GeecsConfigurationError, match="failed at"):
         compile_forward("10 ** 400")(0.0)
+
+
+def test_scan_value_names_disjoint_from_whitelist_names() -> None:
+    """The scanned-value tokens must not collide with functions/constants.
+
+    Under the shared core, symbols shadow same-named whitelist entries at
+    evaluate time — disjointness is what keeps that direction unobservable
+    here.  Adding e.g. a constant ``x`` would silently change semantics;
+    this makes it a test failure instead.
+    """
+    assert not set(SCAN_VALUE_NAMES) & (set(_FUNCTIONS) | set(_CONSTANTS))
 
 
 def test_result_is_float() -> None:

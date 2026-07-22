@@ -72,7 +72,9 @@ geecs_bluesky/
   forward_expr.py           # compile_forward — AST-whitelist compiler for
                             #   pseudo-variable forward formulas (arithmetic +
                             #   math functions; scanned value = composite_var
-                            #   or its alias x; corpus pinned by tests)
+                            #   or its alias x; corpus pinned by tests;
+                            #   skeleton = geecs_schemas.restricted_expr,
+                            #   shared with the gateway's derived channels)
   scan_request_runner.py    # run a geecs_schemas.ScanRequest:
                             #   SaveSet→devices_config and
                             #   TriggerProfile→ShotControlWrites (ordered,
