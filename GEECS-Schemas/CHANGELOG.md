@@ -10,17 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Corpus-integration tests (`test_corpus_integration.py`) no longer feed
-  new-schema files to the legacy converters.  The live configs corpus now
-  contains new-schema `SaveSet` files (top-level `schema_version`) inside
-  the legacy `save_devices/` folders (`Undulator/Amp4Out-copy.yaml`,
-  `Undulator/topview.yaml`), which made
-  `test_every_save_element_converts` and
+  new-schema files to the legacy converters.  New-schema `SaveSet` files
+  (top-level `schema_version`) are starting to appear inside the legacy
+  `save_devices/` folders of configs checkouts (first sighting:
+  `Undulator/Amp4Out-copy.yaml` + a converted `Undulator/topview.yaml`,
+  2026-07-21), which made `test_every_save_element_converts` and
   `test_every_scan_preset_converts_and_composes` fail with
-  `SchemaConversionError` on machines with the corpus checkout.  The
+  `SchemaConversionError` on machines whose corpus contains one.  The
   tests now branch on `schema_version` — new-schema files validate
   through `SaveSet.model_validate`, legacy files keep converting —
-  mirroring geecs-bluesky's `ConfigsRepoResolver`.  Test-only change; no
-  schema or converter behavior change.
+  mirroring geecs-bluesky's `ConfigsRepoResolver`, with the dispatch
+  pinned by a hermetic (corpus-independent) test class that also covers
+  empty-file normalization.  Test-only change; no schema or converter
+  behavior change.
 
 ## [0.8.2] - 2026-07-21
 
