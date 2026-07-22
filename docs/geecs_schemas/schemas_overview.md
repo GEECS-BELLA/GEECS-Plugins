@@ -166,9 +166,11 @@ closeout plans run once at the end — in the reverse order, and even if the
 scan was aborted partway. If the request lists several axes, the scan
 visits every combination as a grid — the first axis is the slow outer loop —
 taking the usual batch of shots at each grid point and recording every
-axis's position in every data row. Anything the engine can't execute yet —
-a pseudo (composite) scan variable, for example — is refused up front with
-a clear "not yet" message rather than attempted halfway.
+axis's position in every data row. A pseudo (composite) scan variable —
+one scanned number moving several devices through per-target formulas —
+scans like any other axis. Anything the engine can't execute yet — an
+`all_scalars` save-set entry, for example — is refused up front with a
+clear "not yet" message rather than attempted halfway.
 
 ## Two habits worth knowing
 

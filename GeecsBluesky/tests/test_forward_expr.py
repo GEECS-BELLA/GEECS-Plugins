@@ -83,6 +83,20 @@ def test_runtime_domain_error_is_configuration_error() -> None:
         compiled(-1.0)
 
 
+def test_complex_and_overflow_results_are_configuration_errors() -> None:
+    """Every runtime failure class is wrapped — none escape as raw errors.
+
+    ``x ** 0.5`` at negative x returns *complex* (the natural typo for
+    ``sqrt(x)`` scanned into negative values) and an int-constant power can
+    overflow the float conversion; both must surface as the same clear
+    configuration error the sqrt case does (review finding, PR #594).
+    """
+    with pytest.raises(GeecsConfigurationError, match="failed at"):
+        compile_forward("x ** 0.5")(-1.0)
+    with pytest.raises(GeecsConfigurationError, match="failed at"):
+        compile_forward("10 ** 400")(0.0)
+
+
 def test_result_is_float() -> None:
     result = compile_forward("x // 2")(5.0)
     assert isinstance(result, float)

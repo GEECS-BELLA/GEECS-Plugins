@@ -15,6 +15,14 @@ The whitelist covers the full legacy ``composite_variables.yaml`` corpus
 raise :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` naming the
 offending construct — the runner compiles every formula fail-fast pre-claim,
 so a bad expression can never burn a scan number.
+
+Known sibling: the gateway's derived-channel ``ExpressionEvaluator``
+(``geecs_ca_gateway/derived.py``) is the same compile-then-restricted-eval
+skeleton with a different whitelist (comparisons/bool-ops, ``isfinite``,
+no ``abs``).  They are deliberately separate today (different languages,
+different error contracts); if either eval site is ever hardened or its
+semantics fixed, apply the change to both — a shared stdlib-only core in
+GEECS-Schemas is the sketched consolidation home.
 """
 
 from __future__ import annotations
@@ -108,12 +116,15 @@ class CompiledForward:
             result = eval(  # noqa: S307 — AST-whitelisted at compile time
                 self._code, {"__builtins__": {}}, names
             )
-        except (ValueError, ZeroDivisionError, OverflowError) as exc:
+            # Inside the try: float() itself can raise — e.g. `x ** 0.5` at
+            # a negative x returns complex (TypeError), and an int-constant
+            # power can overflow the float conversion.
+            return float(result)
+        except (ValueError, TypeError, ZeroDivisionError, OverflowError) as exc:
             raise GeecsConfigurationError(
                 f"forward expression {self.source!r} failed at "
                 f"{SCAN_VALUE_NAMES[0]}={value}: {exc}"
             ) from exc
-        return float(result)
 
 
 def compile_forward(expression: str) -> CompiledForward:

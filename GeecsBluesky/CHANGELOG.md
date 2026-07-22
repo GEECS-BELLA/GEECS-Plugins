@@ -35,11 +35,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     and optimize-mode movable paths.  Pseudo provenance (mode + per-target
     forward sources) is recorded in run metadata under `pseudo_variables`;
     the scan parameter records the catalog friendly name.
-- Suite grows 581 → 614 (evaluator corpus/rejection tests, mock-backend
-  CaPseudoMovable tests, runner execution/metadata/fail-fast tests; the
-  four former refusal pins flipped to execution/validation pins).
+- Suite grows 581 → 617 (evaluator corpus/rejection tests, mock-backend
+  CaPseudoMovable tests, runner execution/metadata/fail-fast tests, the
+  non-finite `_move_movables` guard; the four former refusal pins flipped
+  to execution/validation pins).
 
-
+## [0.46.1] - 2026-07-21
 
 ### Changed
 
