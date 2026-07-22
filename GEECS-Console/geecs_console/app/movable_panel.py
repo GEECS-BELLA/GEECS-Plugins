@@ -316,15 +316,23 @@ class MovablePanelController(QObject):
                 return
 
             def run_move(name: str = name, value: Any = value) -> tuple[bool, str]:
+                # The WHOLE body is guarded: BackgroundResult swallows a
+                # raising job without emitting, which would leave
+                # _set_in_flight stuck True (Set dead for the session) —
+                # so even result-formatting surprises must become a report
+                # (review, PR #598).
                 try:
                     result = submitter.move_variable(name, value)
+                    targets_text = ", ".join(
+                        f"{target}={commanded:g}"
+                        for target, commanded in (result.get("targets") or {}).items()
+                    )
+                    return (
+                        True,
+                        f"Moved {name} = {result.get('value')} ({targets_text})",
+                    )
                 except Exception as exc:  # noqa: BLE001 — any failure is a report
                     return (False, f"Move {name} failed: {exc}")
-                targets_text = ", ".join(
-                    f"{target}={commanded:g}"
-                    for target, commanded in (result.get("targets") or {}).items()
-                )
-                return (True, f"Moved {name} = {result.get('value')} ({targets_text})")
 
             job = run_move
         else:
@@ -443,8 +451,11 @@ class MovablePanelController(QObject):
             self.value_ready.disconnect(self._apply_value)
         except (RuntimeError, TypeError):
             pass
-        # Sever every controller → window edge (the #534 lifetime rule).
+        # Sever every controller → window edge (the #534 lifetime rule) —
+        # the completions provider included: the window passes it as a
+        # lambda closing over itself (review, PR #598).
         self._current_experiment = _inert
         self._ensure_submitter = _inert
         self._catalog_specs = _inert
+        self._completions_provider = lambda _experiment: EmptyCompletions()
         self._report = lambda _message: None

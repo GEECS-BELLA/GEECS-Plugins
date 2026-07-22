@@ -159,7 +159,12 @@ class ConsoleConfigs:
         if resolver is None:
             return {}
         try:
-            return dict(resolver._scan_variables_catalog().variables)
+            # Public accessor since geecs-bluesky 0.49.0; fall back to the
+            # private cache method on older engines.
+            accessor = getattr(
+                resolver, "scan_variable_catalog", resolver._scan_variables_catalog
+            )
+            return dict(accessor().variables)
         except Exception as exc:
             logger.info("scan-variable catalog unavailable: %s", exc)
             return {}

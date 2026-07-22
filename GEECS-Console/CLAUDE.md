@@ -516,10 +516,10 @@ directly.)
   legacy machinery kept for parity; a redesigned hook (bluesky-adaptive
   direction) is planned, at which point `services/optimization.py` and
   the `optimization` extra are deleted together.
-- `ConsoleConfigs.scan_variable_specs()` (and the names listing built on
-  it) reaches into the resolver's private `_scan_variables_catalog()` —
-  promote a public catalog accessor on `ConfigsRepoResolver` when next
-  touching geecs-bluesky.
+- `ConsoleConfigs.scan_variable_specs()` uses the public
+  `ConfigsRepoResolver.scan_variable_catalog()` accessor (promoted in
+  geecs-bluesky 0.49.0, closing the old reach-into-private debt note);
+  a getattr fallback to the private method keeps older engines working.
 - **Remaining M5 item — config bootstrap/repair dialog**: deliberately
   deferred.  When the configs repo (or an experiment's folder inside it)
   is missing/broken, the console currently reports and degrades to empty

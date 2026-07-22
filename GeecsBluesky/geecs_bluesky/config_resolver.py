@@ -227,6 +227,22 @@ class ConfigsRepoResolver:
         self._scan_variables_cache = catalog
         return catalog
 
+    def scan_variable_catalog(self) -> ScanVariables:
+        """The experiment's validated scan-variable catalog (public accessor).
+
+        The whole :class:`~geecs_schemas.scan_variables.ScanVariables`
+        document — consumers list names or branch on each spec's shape
+        (plain vs pseudo).  Promoted from the private cache method for
+        GEECS-Console's movable panel (its CLAUDE.md carried the debt note);
+        cached per resolver, like every other catalog here.
+
+        Raises
+        ------
+        GeecsConfigurationError
+            No catalog files for the experiment, or an invalid document.
+        """
+        return self._scan_variables_catalog()
+
     def resolve_scan_variable(self, name: str) -> ScanVariableSpec:
         """Look up the scan variable *name* in the experiment catalog.
 

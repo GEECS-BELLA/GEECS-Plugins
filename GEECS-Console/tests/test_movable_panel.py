@@ -174,6 +174,28 @@ class TestCatalogMoves:
         )
         assert win.set_button.isEnabled()  # failure re-arms
 
+    def test_malformed_submitter_result_reports_instead_of_wedging(self, qtbot):
+        """A non-contract move result must re-arm Set, never wedge it.
+
+        BackgroundResult swallows a raising job without emitting, so if the
+        result formatting escaped the job's try, _set_in_flight would stay
+        True forever (PR #598 review finding).
+        """
+
+        class NoneSubmitter(FakeMoveSubmitter):
+            def move_variable(self, name, value):
+                return None  # violates the {"targets": ...} contract
+
+        win, _panel = make_window(qtbot, submitter=NoneSubmitter())
+        win.device_combo.setCurrentText("bump_x")
+        win.set_field.setText("0.1")
+        win._movable._on_set_clicked()
+        qtbot.waitUntil(
+            lambda: "Move bump_x failed" in win.log_tail.toPlainText(),
+            timeout=3000,
+        )
+        assert win.set_button.isEnabled()
+
     def test_raw_device_variable_keeps_the_direct_backend_path(self, qtbot):
         submitter = FakeMoveSubmitter()
         win, panel = make_window(qtbot, submitter=submitter)
@@ -188,10 +210,9 @@ class TestCatalogMoves:
 
 class TestAutoSelect:
     def test_scan_variable_pick_auto_selects_the_panel(self, qtbot):
-        # After populate the axis combo sits on "bump_x" (index 0), so the
-        # operator's pick of the OTHER name is what fires the change signal.
+        # textActivated = a committed operator pick (dropdown / Enter).
         win, panel = make_window(qtbot)
-        win.variable_combo.setCurrentText("jet_z")
+        win.variable_combo.textActivated.emit("jet_z")
         assert win.device_combo.currentText() == "jet_z"
         assert panel.many_calls[-1] == (
             "TestExp",
@@ -200,7 +221,39 @@ class TestAutoSelect:
 
     def test_second_axis_pick_auto_selects_too(self, qtbot):
         win, panel = make_window(qtbot)
-        win.variable2_combo.setCurrentText("jet_z")
+        win.variable2_combo.textActivated.emit("jet_z")
+        assert win.device_combo.currentText() == "jet_z"
+        assert panel.many_calls[-1] == (
+            "TestExp",
+            [("U_ESP_JetXYZ", "Position.Axis 3")],
+        )
+
+    def test_typing_in_the_axis_combo_never_hijacks_the_panel(self, qtbot):
+        """Per-keystroke text changes must not churn monitors (PR #598 review).
+
+        Both R3 combos are editable; the auto-select is wired to
+        textActivated (commit-only), so programmatic/typed text changes —
+        which fire currentTextChanged per keystroke — leave the panel and
+        its CA monitors untouched.
+        """
+        win, panel = make_window(qtbot)
+        win.device_combo.setCurrentText("Dev:Var")
+        win._movable.resubscribe()
+        calls_before = list(panel.many_calls)
+        # Simulates the keystroke path: setEditText fires currentTextChanged
+        # (editable combo) but never textActivated.
+        win.variable_combo.setEditText("jet_")
+        win.variable_combo.setEditText("jet_z")
+        assert win.device_combo.currentText() == "Dev:Var"
+        assert panel.many_calls == calls_before
+
+    def test_preset_apply_auto_selects_axis_one(self, qtbot):
+        """setCurrentText in the preset path is programmatic — the apply
+        path follows the preset explicitly, axis 1 owning the panel."""
+        win, panel = make_window(qtbot)
+        win.variable_combo.setCurrentText("jet_z")  # programmatic: no follow
+        assert win.device_combo.currentText() != "jet_z"
+        win._apply_form_state(win.form_state())
         assert win.device_combo.currentText() == "jet_z"
         assert panel.many_calls[-1] == (
             "TestExp",
@@ -212,6 +265,6 @@ class TestAutoSelect:
         win.device_combo.setCurrentText("Dev:Var")
         win._movable.resubscribe()
         calls_before = list(panel.many_calls)
-        win.variable_combo.setCurrentText("ghost_variable")
+        win.variable_combo.textActivated.emit("ghost_variable")
         assert win.device_combo.currentText() == "Dev:Var"
         assert panel.many_calls == calls_before

@@ -577,12 +577,12 @@ class MainWindow(QMainWindow):
         )
         # R3 → R7 auto-select (the legacy scanner behavior): picking a scan
         # variable re-points the movable panel at it, composites included.
-        self.variable_combo.currentTextChanged.connect(
-            self._movable.select_from_scan_combo
-        )
-        self.variable2_combo.currentTextChanged.connect(
-            self._movable.select_from_scan_combo
-        )
+        # Commit-only (textActivated: dropdown pick / Enter) — NEVER
+        # currentTextChanged: both R3 combos are editable, and a
+        # per-keystroke connection would churn CA monitors and hijack the
+        # panel while the operator types an axis name (review, PR #598).
+        self.variable_combo.textActivated.connect(self._movable.select_from_scan_combo)
+        self.variable2_combo.textActivated.connect(self._movable.select_from_scan_combo)
         # (The actions-menu fetch worker lives on ActionsMenuController;
         # the idle scan-number probe worker on NowPanelController.)
         # Stop dispatch (issue #571): stop_scanning_thread may block briefly
@@ -1608,6 +1608,10 @@ class MainWindow(QMainWindow):
             start.setValue(axis.start)
             stop.setValue(axis.stop)
             step.setValue(axis.step)
+        if form.axes:
+            # setCurrentText is programmatic (no textActivated), so follow
+            # the preset explicitly — axis 1 owns the panel.
+            self._movable.select_from_scan_combo(form.axes[0].variable)
 
         if optimization_name:
             self.optimization_combo.setCurrentText(optimization_name)
