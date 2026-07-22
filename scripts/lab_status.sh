@@ -159,11 +159,10 @@ async def main():
     # PV_CONTRACT.md §1) — never hand-assemble them here.
     from geecs_ca_gateway.pv_naming import pv_name
 
-    prefix = pv_name(experiment, "CAGateway")
     try:
-        heartbeat = await read(f"{prefix}:heartbeat")
-        connected = await read(f"{prefix}:devices_connected")
-        version = await read(f"{prefix}:version")
+        heartbeat = await read(pv_name(experiment, "CAGateway", "heartbeat"))
+        connected = await read(pv_name(experiment, "CAGateway", "devices_connected"))
+        version = await read(pv_name(experiment, "CAGateway", "version"))
     except Exception as exc:  # noqa: BLE001 — a failed probe is a finding
         print(f"  [DOWN] gateway PVs unreadable ({type(exc).__name__}: {exc})")
         print("         network may be up while the gateway service is not")
