@@ -275,7 +275,13 @@ def test_r7_lives_in_the_middle_column() -> None:
     (owner request, 0.19.1) — the right column keeps only the now panel."""
     from pathlib import Path
 
-    ui = Path("geecs_console/app/ui/main_window.ui").read_text()
+    import geecs_console.app as app_pkg
+
+    # Anchored off the package (cwd-independent) and explicitly UTF-8 —
+    # Windows' cp1252 default dies on the pause glyph (PR #599 review;
+    # console-windows CI failed exactly here).
+    ui_path = Path(app_pkg.__file__).parent / "ui" / "main_window.ui"
+    ui = ui_path.read_text(encoding="utf-8")
     middle = ui.index('name="middle_column"')
     right = ui.index('name="right_column"')
     r7 = ui.index('name="r7_group"')
