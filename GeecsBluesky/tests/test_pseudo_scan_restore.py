@@ -195,7 +195,17 @@ def test_failed_restore_fails_the_scan_visibly() -> None:
     set_mock_value(pseudo._target_readback_1, BASELINES["U_S4H"])
 
     class _DeadPut:
+        """Scan-path put() succeeds; only the restore's set() fails.
+
+        The scan body must complete cleanly so this pins the advertised
+        property — a restore failure ALONE fails an otherwise-clean scan
+        (reviewer re-check, PR #600).
+        """
+
         name = "dead-put"
+
+        async def put(self, value, timeout=None):
+            return None
 
         def set(self, value):
             async def _fail():
