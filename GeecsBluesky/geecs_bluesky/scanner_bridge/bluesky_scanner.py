@@ -447,10 +447,12 @@ class BlueskyScanner:
         return min(self._completed_shots / self._total_shots, 1.0)
 
     # ------------------------------------------------------------------
-    # On-demand actions (G-actions v1) — the GUI contract
+    # On-demand actions (G-actions v1) + manual moves — the GUI contract
     # ------------------------------------------------------------------
-    # These two signatures are mirrored by the console's Submitter protocol;
-    # do not change them without flagging it loudly.
+    # run_action and describe_action are mirrored by the console's
+    # Submitter protocol; move_variable will join it with the console
+    # movable-panel work (PR-B). Do not change these signatures without
+    # flagging it loudly.
 
     def _action_resolver(self) -> ConfigResolver:
         """The resolver on-demand actions resolve against.
@@ -488,6 +490,38 @@ class BlueskyScanner:
         :meth:`run_action` carries the scan-in-progress refusal.
         """
         return self._session.describe_action(name, self._action_resolver())
+
+    def move_variable(self, name: str, value: float, *, timeout: float = 60.0) -> dict:
+        """Move a scan variable on demand — refused while scanning.
+
+        Thin delegation to :meth:`GeecsSession.move_variable` with this
+        bridge's resolver: *name* is a catalog scan-variable name (plain,
+        confirm, or pseudo/composite) or a raw ``"Device:Variable"``
+        string.  The move carries scan-identical completion semantics (via
+        ``build_movable``), and a relative pseudo re-baselines from the
+        targets' current positions on every call.
+
+        Returns
+        -------
+        dict
+            ``{"variable", "kind", "value", "targets"}`` — see the session.
+
+        ``timeout`` is the overall wall-clock budget in seconds — raise
+        it for legitimately slow moves (long stage travel).
+
+        Raises
+        ------
+        RuntimeError
+            While a scan is active (``"scan in progress — move not
+            started"``) or another manual move is running (``"manual move
+            in progress — move not started"``) — the GUI surfaces these
+            messages verbatim.
+        """
+        if self.is_scanning_active():
+            raise RuntimeError("scan in progress — move not started")
+        return self._session.move_variable(
+            name, value, self._action_resolver(), timeout=timeout
+        )
 
     def request_pause(self) -> None:
         """Pause the running scan at its next safe point (operator Pause).

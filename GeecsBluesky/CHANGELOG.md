@@ -4,6 +4,45 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] - 2026-07-22
+
+### Added
+
+- **`move_variable(name, value)` — on-demand manual moves** (session +
+  bridge; the third member of the console Submitter contract alongside
+  `run_action`/`describe_action`).  *name* is a catalog scan-variable name
+  (plain, confirm, or pseudo/composite) or a raw `"Device:Variable"`
+  string; the move dispatches through the one `build_movable` seam, so a
+  manual move carries **scan-identical completion semantics**: blocking
+  GEECS set, `CaMotor` readback poll, `CaConfirmSettable` confirming-poll
+  (manual EMQ sets no longer bypass confirmation the way raw PV puts do),
+  and pseudo concurrent fan-out.  A fresh movable is built per call —
+  deliberately, so a relative pseudo re-baselines from the targets'
+  *current* positions on every manual bump (legacy composite manual-set
+  semantics).  Refused while a scan is active with the exact message
+  `"scan in progress — move not started"`; a non-finite value is refused
+  before any device is built.  Returns
+  `{"variable", "kind", "value", "targets"}` for operator feedback
+  (`CaPseudoMovable` now publishes `last_commanded` — the per-target
+  values of its last completed set — to back it).
+- **Mutual exclusion is symmetric** (review finding, PR #597): a manual
+  move is not a plan, so the RunEngine stays idle while it runs — a
+  session-level lock now makes the exclusion mutual.  `scan()` /
+  `optimize()` / `run_action()` refuse while a move holds it
+  (`"manual move in progress — <scan|optimization|action> not started"`),
+  and a second concurrent move is refused (the double-click race that
+  would have corrupted a relative pseudo's baselines).
+- **Timeout cancels the move** (review finding): on the wall-clock budget
+  expiring, the in-flight coroutine is cancelled and a documented
+  `TimeoutError` raised (a GEECS set already on the wire cannot be
+  recalled — stated in the contract); the bridge exposes `timeout` for
+  legitimately slow moves.  A non-numeric value is refused as
+  `GeecsConfigurationError` before any device is built.
+- Suite grows to 631 (manual-move contract: dispatch per kind incl.
+  motor, fresh movable per call, exact refusal messages both directions,
+  timeout-cancellation, non-finite/non-numeric guards, bridge
+  delegation with timeout passthrough).
+
 ## [0.47.1] - 2026-07-21
 
 ### Changed
