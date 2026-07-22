@@ -175,3 +175,89 @@ def test_restore_without_baselines_is_a_noop() -> None:
     RE = RunEngine()
     connect_mock(RE, pseudo)
     RE(pseudo.restore_baselines_plan())  # never staged/moved — must not raise
+
+
+def test_failed_restore_fails_the_scan_visibly() -> None:
+    """A restore whose put fails must raise, never end the scan clean.
+
+    Review finding (PR #600): the original ``bps.wait_for`` fan-out never
+    retrieved task exceptions, so a dead supply/gateway during the finalize
+    left the magnets displaced while the scan ended looking normal.  The
+    restore now rides ``bps.abs_set``/``bps.wait`` — the RE's own set
+    machinery — so the failure propagates.
+    """
+    import bluesky.preprocessors as bpp
+
+    pseudo = _pseudo("relative")
+    RE = RunEngine()
+    connect_mock(RE, pseudo)
+    set_mock_value(pseudo._target_readback_0, BASELINES["U_S3H"])
+    set_mock_value(pseudo._target_readback_1, BASELINES["U_S4H"])
+
+    class _DeadPut:
+        name = "dead-put"
+
+        def set(self, value):
+            async def _fail():
+                raise RuntimeError("supply unreachable")
+
+            return AsyncStatus(_fail())
+
+    def scan_body():
+        yield from bps.stage(pseudo)
+        yield from bps.mv(pseudo, 0.5)
+
+    pseudo._puts[1] = _DeadPut()  # the restore's second target put dies
+    plan = bpp.finalize_wrapper(scan_body(), pseudo.restore_baselines_plan())
+    with pytest.raises(Exception, match="supply unreachable"):
+        RE(plan)
+
+
+def test_mixed_grid_restores_only_the_pseudo_axis() -> None:
+    """Grid of (plain motor, relative pseudo): only the pseudo is restored."""
+    from geecs_bluesky.devices.ca import CaMotor
+    from tests.ca_mock_helpers import follow_setpoint
+
+    pseudo = _pseudo("relative")
+    plain = CaMotor("U_Stage", "Position (mm)", name="plain_motor")
+    ref = CaGenericDetector("U_Ref", ["Sig"], name="ref")
+    ref.configure_shot_id(rep_rate_hz=1.0)
+    config = ShotControlConfig(
+        device="U_DG645",
+        variables={
+            "Trigger.Source": {"OFF": "Single", "SCAN": "Ext", "STANDBY": "Ext"}
+        },
+    )
+    controller = ShotController(config, {"Trigger.Source": _NoopSetter()})
+    RE = RunEngine()
+    connect_mock(RE, pseudo, plain, ref)
+    follow_setpoint(plain)
+    set_mock_value(pseudo._target_readback_0, BASELINES["U_S3H"])
+    set_mock_value(pseudo._target_readback_1, BASELINES["U_S4H"])
+    set_mock_value(ref.acq_timestamp, 1000.0)
+    pacer = start_pacer(RE, [(ref, 1000.0)], initial_delay=1.0, interval=0.15)
+    plan = build_step_scan_plan(
+        strict=False,
+        motor=[plain, pseudo],
+        positions=[(1.0, 0.0), (2.0, 0.5)],
+        reference=ref,
+        detectors=[ref],
+        shots_per_step=1,
+        controller=controller,
+        experiment="",
+        scan_number=None,
+        scan_folder=None,
+        saving_detectors=[],
+    )
+    try:
+        RE(plan)
+    finally:
+        pacer.cancel()
+    # Pseudo back at baselines; the plain axis stays at its last position.
+    assert _setpoints(RE, pseudo) == (BASELINES["U_S3H"], BASELINES["U_S4H"])
+    import asyncio as _asyncio
+
+    plain_setpoint = _asyncio.run_coroutine_threadsafe(
+        plain._setpoint.get_value(), RE._loop
+    ).result(timeout=10.0)
+    assert plain_setpoint == 2.0

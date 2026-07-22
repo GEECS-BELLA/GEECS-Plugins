@@ -151,33 +151,41 @@ class CaPseudoMovable(StandardReadable):
 
         The end-of-scan restore for **relative** mode (owner request,
         2026-07-22): the scan orchestration runs this as a finalize —
-        success *and* abort — so a relative composite scan always hands the
-        targets back where it found them.  Direct per-target puts of the
-        captured baselines (exact, formula-independent — no ``f(0) = 0``
-        assumption).  A no-op for absolute mode, and for a run where no
-        baselines were captured; must run before ``unstage()`` drops them
-        (the orchestration's stage wrapper is outermost, so it does).
+        success *and* abort (a ``halt`` skips finalizes by bluesky
+        contract, same as disarm/closeout) — so a relative composite scan
+        hands the targets back where it found them.  Direct per-target
+        puts of the captured baselines (exact, formula-independent — no
+        ``f(0) = 0`` assumption).  A no-op for absolute mode, and for a
+        run where no baselines were captured; must run before
+        ``unstage()`` drops them (the orchestration's stage wrapper is
+        outermost, so it does).
+
+        The puts go through ``bps.abs_set``/``bps.wait`` on the
+        :class:`GatewaySetpointPut` movables — the RE's own set machinery —
+        so a **failed restore fails the scan visibly** instead of being
+        swallowed (review, PR #600: ``bps.wait_for`` never retrieves task
+        exceptions), and the success log only prints after the waits
+        complete.
         """
         import bluesky.plan_stubs as bps
 
         if self._mode != "relative":
             yield from bps.null()
             return
-        yield from bps.wait_for([self._restore_baselines])
-
-    async def _restore_baselines(self) -> None:
         baselines = self._baselines
         if baselines is None:
             logger.info("%s: no baselines captured — nothing to restore", self.name)
+            yield from bps.null()
             return
         commanded = {
             f"{dev}:{var}": baseline
             for (dev, var, _), baseline in zip(self._components, baselines)
         }
-        logger.info("%s: restoring baselines %s", self.name, commanded)
-        await asyncio.gather(
-            *(put.put(baseline) for put, baseline in zip(self._puts, baselines))
-        )
+        group = f"{self.name}-restore"
+        for put, baseline in zip(self._puts, baselines):
+            yield from bps.abs_set(put, baseline, group=group)
+        yield from bps.wait(group=group)
+        logger.info("%s: baselines restored: %s", self.name, commanded)
         # Back at zero offset from the (still-current) baselines.
         self._set_readback(0.0)
         self.last_commanded = commanded
