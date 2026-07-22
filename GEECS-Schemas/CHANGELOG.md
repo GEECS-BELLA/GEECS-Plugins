@@ -5,6 +5,23 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-07-21
+
+### Fixed
+
+- Corpus-integration tests (`test_corpus_integration.py`) no longer feed
+  new-schema files to the legacy converters.  The live configs corpus now
+  contains new-schema `SaveSet` files (top-level `schema_version`) inside
+  the legacy `save_devices/` folders (`Undulator/Amp4Out-copy.yaml`,
+  `Undulator/topview.yaml`), which made
+  `test_every_save_element_converts` and
+  `test_every_scan_preset_converts_and_composes` fail with
+  `SchemaConversionError` on machines with the corpus checkout.  The
+  tests now branch on `schema_version` — new-schema files validate
+  through `SaveSet.model_validate`, legacy files keep converting —
+  mirroring geecs-bluesky's `ConfigsRepoResolver`.  Test-only change; no
+  schema or converter behavior change.
+
 ## [0.8.2] - 2026-07-21
 
 ### Changed

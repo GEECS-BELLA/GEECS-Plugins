@@ -23,7 +23,9 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
+from geecs_schemas import SaveSet
 from geecs_schemas.convert import (
     convert_action_library,
     convert_assigned_actions,
@@ -68,13 +70,33 @@ def experiments() -> list[Path]:
     return sorted((CONFIGS / "scanner_configs" / "experiments").iterdir())
 
 
+def load_save_set(path: Path) -> SaveSet | None:
+    """Load one ``save_devices/`` file, whichever schema it uses.
+
+    The corpus now mixes legacy save elements with new-schema ``SaveSet``
+    files (marked by a top-level ``schema_version``), mirroring how
+    geecs_bluesky's ``ConfigsRepoResolver`` branches between the two.
+    Returns ``None`` for action-only legacy elements (no save set).
+    """
+    document = yaml.safe_load(path.read_text())
+    if "schema_version" in document:
+        return SaveSet.model_validate(document)
+    return convert_save_element(document, name=path.stem).save_set
+
+
 @skip_without_corpus
 class TestFullCorpus:
     def test_every_save_element_converts(self):
-        converted = 0
+        converted, new_schema = 0, 0
         for experiment in experiments():
             for path in sorted(experiment.glob("save_devices/*.yaml")):
-                result = convert_save_element(path)
+                document = yaml.safe_load(path.read_text())
+                if "schema_version" in document:
+                    save_set = SaveSet.model_validate(document)
+                    assert save_set.entries, path
+                    new_schema += 1
+                    continue
+                result = convert_save_element(document, name=path.stem)
                 assert result.save_set is not None or result.actions, path
                 # converted legacy elements preserve exact legacy behavior:
                 # explicit db_scalars=False on EVERY entry (the DB-first
@@ -85,7 +107,8 @@ class TestFullCorpus:
                     assert entry.at_scan_start == {}, path
                     assert entry.at_scan_end == {}, path
                 converted += 1
-        assert converted >= 70  # 71 files at the time of writing
+        assert converted >= 70  # 71 legacy files at the time of writing
+        assert new_schema >= 2  # Amp4Out-copy + topview as of 2026-07-21
 
     def test_every_scan_variable_catalog_converts(self):
         converted = 0
@@ -160,7 +183,7 @@ class TestFullCorpus:
         converted = 0
         for experiment in experiments():
             save_sets = {
-                path.stem: convert_save_element(path).save_set
+                path.stem: load_save_set(path)
                 for path in experiment.glob("save_devices/*.yaml")
             }
             for path in sorted(experiment.glob("scan_presets/*.yaml")):
