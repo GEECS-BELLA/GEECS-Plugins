@@ -1,10 +1,16 @@
 """Corpus walk: convert EVERY real config in the sibling configs checkout.
 
-Marked ``integration``: auto-skips when the sibling ``GEECS-Plugins-Configs``
-checkout is absent (e.g. in CI).  Locally this is the proof that the
-converters cover the real world, file by file, with zero skips beyond the
-documented empty/deviceless shot-control configs (which legitimately convert
-to "no trigger profile").
+The corpus walk (``TestFullCorpus``) is marked ``integration``: it auto-skips
+when the sibling ``GEECS-Plugins-Configs`` checkout is absent (e.g. in CI).
+Locally this is the proof that the converters cover the real world, file by
+file, with zero skips beyond the documented empty/deviceless shot-control
+configs (which legitimately convert to "no trigger profile").
+
+``save_devices/`` folders may mix legacy save elements with new-schema
+``SaveSet`` files (top-level ``schema_version``); ``load_save_set`` branches
+between the two exactly as geecs_bluesky's ``ConfigsRepoResolver`` does, and
+``TestSaveSetLoadDispatch`` pins that dispatch hermetically (no corpus
+needed, runs in CI).
 
 Corpus layout (as found 2026-07-07)::
 
@@ -23,8 +29,11 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
+from geecs_schemas import SaveSet
 from geecs_schemas.convert import (
+    SchemaConversionError,
     convert_action_library,
     convert_assigned_actions,
     convert_optimizer_config,
@@ -34,8 +43,6 @@ from geecs_schemas.convert import (
     convert_shot_control,
     merge_trigger_variant,
 )
-
-pytestmark = pytest.mark.integration
 
 
 def find_configs_repo() -> Path | None:
@@ -68,24 +75,86 @@ def experiments() -> list[Path]:
     return sorted((CONFIGS / "scanner_configs" / "experiments").iterdir())
 
 
+def load_save_set(path: Path):
+    """Load one ``save_devices/`` file, whichever schema it uses.
+
+    The corpus mixes legacy save elements with new-schema ``SaveSet`` files
+    (marked by a top-level ``schema_version``), mirroring how geecs_bluesky's
+    ``ConfigsRepoResolver`` branches between the two.  Empty files normalize
+    to ``{}`` (as ``load_legacy`` and the resolver's ``_load_yaml`` both do)
+    so they fail with the converter's typed error, not a bare ``TypeError``.
+
+    Returns ``(save_set, conversion)``: *conversion* is ``None`` for
+    new-schema files, and the full ``SaveElementConversion`` for legacy ones
+    (whose *save_set* is ``None`` for action-only elements).
+    """
+    document = yaml.safe_load(path.read_text()) or {}
+    if "schema_version" in document:
+        return SaveSet.model_validate(document), None
+    result = convert_save_element(document, name=path.stem)
+    return result.save_set, result
+
+
+class TestSaveSetLoadDispatch:
+    """Hermetic pin of the dual-schema dispatch (runs without the corpus)."""
+
+    def test_new_schema_file_validates_as_save_set(self, tmp_path):
+        path = tmp_path / "new.yaml"
+        path.write_text(
+            "schema_version: 1\n"
+            "name: new\n"
+            "entries:\n"
+            "- device: UC_Device\n"
+            "  images: true\n"
+        )
+        save_set, conversion = load_save_set(path)
+        assert conversion is None
+        assert [entry.device for entry in save_set.entries] == ["UC_Device"]
+
+    def test_legacy_file_goes_through_the_converter(self, tmp_path):
+        path = tmp_path / "legacy.yaml"
+        path.write_text(
+            "Devices:\n"
+            "  UC_Device:\n"
+            "    variable_list: []\n"
+            "    save_nonscalar_data: true\n"
+        )
+        save_set, conversion = load_save_set(path)
+        assert conversion is not None
+        assert [entry.device for entry in save_set.entries] == ["UC_Device"]
+        assert save_set.entries[0].db_scalars is False
+
+    def test_empty_file_fails_with_the_converter_error(self, tmp_path):
+        path = tmp_path / "empty.yaml"
+        path.write_text("")
+        with pytest.raises(SchemaConversionError, match="empty"):
+            load_save_set(path)
+
+
+@pytest.mark.integration
 @skip_without_corpus
 class TestFullCorpus:
     def test_every_save_element_converts(self):
         converted = 0
         for experiment in experiments():
             for path in sorted(experiment.glob("save_devices/*.yaml")):
-                result = convert_save_element(path)
-                assert result.save_set is not None or result.actions, path
+                save_set, conversion = load_save_set(path)
+                if conversion is None:
+                    # new-schema file living in the legacy folder: already
+                    # validated by load_save_set, nothing to convert
+                    assert save_set.entries, path
+                    continue
+                assert save_set is not None or conversion.actions, path
                 # converted legacy elements preserve exact legacy behavior:
                 # explicit db_scalars=False on EVERY entry (the DB-first
                 # True default is for new configs only), start/end override
                 # maps untouched
-                for entry in result.save_set.entries if result.save_set else []:
+                for entry in save_set.entries if save_set else []:
                     assert entry.db_scalars is False, path
                     assert entry.at_scan_start == {}, path
                     assert entry.at_scan_end == {}, path
                 converted += 1
-        assert converted >= 70  # 71 files at the time of writing
+        assert converted >= 70  # 71 legacy files at the time of writing
 
     def test_every_scan_variable_catalog_converts(self):
         converted = 0
@@ -160,7 +229,7 @@ class TestFullCorpus:
         converted = 0
         for experiment in experiments():
             save_sets = {
-                path.stem: convert_save_element(path).save_set
+                path.stem: load_save_set(path)[0]
                 for path in experiment.glob("save_devices/*.yaml")
             }
             for path in sorted(experiment.glob("scan_presets/*.yaml")):
