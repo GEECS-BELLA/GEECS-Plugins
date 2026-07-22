@@ -102,6 +102,9 @@ class CaPseudoMovable(StandardReadable):
             )
         super().__init__(name=name)
         self._baselines: list[float] | None = None
+        #: ``{"Device:Variable": commanded}`` of the last completed set
+        #: (``None`` until one succeeds) — operator feedback for manual moves.
+        self.last_commanded: dict[str, float] | None = None
         self._column_headers = {f"{name}-readback": variable_name}
 
     async def disconnect(self) -> None:
@@ -155,16 +158,16 @@ class CaPseudoMovable(StandardReadable):
             # Unstaged caller (e.g. the optimize path): capture lazily once.
             await self._capture_baselines()
         targets = self._target_values(value)
-        logger.info(
-            "%s: %s → %s",
-            self.name,
-            value,
-            {
-                f"{dev}:{var}": target
-                for (dev, var, _), target in zip(self._components, targets)
-            },
-        )
+        commanded = {
+            f"{dev}:{var}": target
+            for (dev, var, _), target in zip(self._components, targets)
+        }
+        logger.info("%s: %s → %s", self.name, value, commanded)
         await asyncio.gather(
             *(put.put(target) for put, target in zip(self._puts, targets))
         )
+        # Published after a *successful* fan-out: what each target was told
+        # to do on the last completed set (consumed by manual-move callers
+        # for operator feedback).
+        self.last_commanded = commanded
         self._set_readback(value)

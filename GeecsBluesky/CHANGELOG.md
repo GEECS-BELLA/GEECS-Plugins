@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] - 2026-07-22
+
+### Added
+
+- **`move_variable(name, value)` — on-demand manual moves** (session +
+  bridge; the third member of the console Submitter contract alongside
+  `run_action`/`describe_action`).  *name* is a catalog scan-variable name
+  (plain, confirm, or pseudo/composite) or a raw `"Device:Variable"`
+  string; the move dispatches through the one `build_movable` seam, so a
+  manual move carries **scan-identical completion semantics**: blocking
+  GEECS set, `CaMotor` readback poll, `CaConfirmSettable` confirming-poll
+  (manual EMQ sets no longer bypass confirmation the way raw PV puts do),
+  and pseudo concurrent fan-out.  A fresh movable is built per call —
+  deliberately, so a relative pseudo re-baselines from the targets'
+  *current* positions on every manual bump (legacy composite manual-set
+  semantics).  Refused while a scan is active with the exact message
+  `"scan in progress — move not started"`; a non-finite value is refused
+  before any device is built.  Returns
+  `{"variable", "kind", "value", "targets"}` for operator feedback
+  (`CaPseudoMovable` now publishes `last_commanded` — the per-target
+  values of its last completed set — to back it).
+- Suite grows to 626 (manual-move contract: dispatch per kind, fresh
+  movable per call, exact refusal messages, non-finite guard, bridge
+  delegation).
+
 ## [0.47.1] - 2026-07-21
 
 ### Changed

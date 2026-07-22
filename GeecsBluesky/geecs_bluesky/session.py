@@ -1389,6 +1389,115 @@ class GeecsSession:
         return summaries
 
     # ------------------------------------------------------------------
+    # On-demand manual moves
+    # ------------------------------------------------------------------
+
+    def move_variable(
+        self,
+        name: str,
+        value: float,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+        *,
+        timeout: float = 60.0,
+    ) -> dict:
+        """Move one scan variable to *value* on demand, outside any scan.
+
+        The manual-move counterpart of :meth:`run_action`: *name* is either
+        a catalog scan-variable name (plain, confirm, or pseudo) or a raw
+        ``"Device:Variable"`` string (plain setpoint semantics — the same
+        dispatch the optimize path uses).  The move goes through
+        :func:`~geecs_bluesky.scan_request_runner.build_movable`, so it
+        carries the exact completion semantics a scan would use: blocking
+        GEECS set per target, ``CaMotor`` readback polling, the
+        ``CaConfirmSettable`` confirming-variable poll, and a pseudo
+        variable's concurrent fan-out.
+
+        A **fresh movable is built per call** — deliberately, so a
+        *relative* pseudo variable re-baselines from where its targets are
+        *now* (each manual bump offsets from the current position, matching
+        how operators used the legacy composite manual set), rather than
+        from some earlier move's baselines.
+
+        Parameters
+        ----------
+        name : str
+            Catalog scan-variable name, or ``"Device:Variable"``.
+        value : float
+            The value to move to (the scanned number, for a pseudo).
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver,
+            as in :meth:`run`); unused for raw ``"Device:Variable"`` names.
+        timeout : float
+            Overall wall-clock budget for the move (seconds).
+
+        Returns
+        -------
+        dict
+            ``{"variable", "kind", "value", "targets"}`` — ``targets`` maps
+            each ``"Device:Variable"`` actually written to the value it was
+            commanded to (one entry for plain variables; every component,
+            baselines applied, for a pseudo).
+
+        Raises
+        ------
+        RuntimeError
+            When the RunEngine is not idle:
+            ``"scan in progress — move not started"`` (the GUI surfaces
+            this message verbatim).
+        GeecsConfigurationError
+            Unknown catalog name, a pseudo formula that fails to compile
+            or evaluate, or a non-finite *value*.
+        """
+        import asyncio
+
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            PlainMovableTarget,
+            PseudoMovableTarget,
+            build_movable,
+            resolve_movable_target,
+        )
+
+        if self.RE.state != "idle":
+            raise RuntimeError("scan in progress — move not started")
+        value = float(value)
+        if not np.isfinite(value):
+            raise GeecsConfigurationError(
+                f"refusing to move {name!r} to non-finite value {value!r}"
+            )
+        if ":" in name:
+            device, _, variable = name.partition(":")
+            target: Any = PlainMovableTarget(device, variable, "setpoint", None)
+        else:
+            if resolver is None:
+                resolver = ConfigsRepoResolver(self.experiment)
+            target = resolve_movable_target(resolver.resolve_scan_variable(name), name)
+        movable = build_movable(self, target)
+        try:
+
+            async def _move() -> None:
+                await movable.set(value)
+
+            asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(
+                timeout=timeout
+            )
+            if isinstance(target, PseudoMovableTarget):
+                kind = f"pseudo ({target.mode})"
+                targets = dict(getattr(movable, "last_commanded", None) or {})
+            else:
+                kind = "confirm" if target.confirm else target.kind
+                targets = {target.label: value}
+            logger.info("Manual move %s → %s (%s)", name, value, targets)
+            return {
+                "variable": name,
+                "kind": kind,
+                "value": value,
+                "targets": targets,
+            }
+        finally:
+            self.disconnect(movable)
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 

@@ -51,6 +51,9 @@ geecs_bluesky/
   session.py                # GeecsSession — headless scans (RE + Tiled + discipline)
                             #   + session.run(ScanRequest) — the schema front door;
                             #   writes scan.log when it claimed the scan number
+                            #   + move_variable — manual scan-variable move
+                            #   (plain/confirm/pseudo, fresh movable per
+                            #   call, refused mid-scan)
                             #   + run_action / describe_action — on-demand
                             #   ActionPlan execution & dry-run (G-actions v1)
   events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
@@ -171,6 +174,16 @@ scanner.stop_scanning_thread()      # request stop, returns promptly;
                                     # ABORTED/DONE arrives via events
 scanner.run_action(name)            # on-demand ActionPlan (refused mid-scan)
 scanner.describe_action(name)       # pure dry-run (allowed mid-scan)
+scanner.move_variable(name, value)  # manual move of a catalog scan variable
+                                    # or raw Device:Variable (refused
+                                    # mid-scan: "scan in progress — move
+                                    # not started"); scan-identical
+                                    # completion semantics via build_movable
+                                    # (motor poll, confirm poll, pseudo
+                                    # fan-out); a relative pseudo
+                                    # re-baselines from *now* each call;
+                                    # returns {variable, kind, value,
+                                    # targets} (0.48.0)
 ```
 
 `GEECS-Console` builds the scanner via `make_bluesky_submitter`
