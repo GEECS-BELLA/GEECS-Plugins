@@ -449,9 +449,10 @@ class BlueskyScanner:
     # ------------------------------------------------------------------
     # On-demand actions (G-actions v1) + manual moves — the GUI contract
     # ------------------------------------------------------------------
-    # These three signatures (run_action, describe_action, move_variable)
-    # are mirrored by the console's Submitter protocol; do not change them
-    # without flagging it loudly.
+    # run_action and describe_action are mirrored by the console's
+    # Submitter protocol; move_variable will join it with the console
+    # movable-panel work (PR-B). Do not change these signatures without
+    # flagging it loudly.
 
     def _action_resolver(self) -> ConfigResolver:
         """The resolver on-demand actions resolve against.
@@ -490,7 +491,7 @@ class BlueskyScanner:
         """
         return self._session.describe_action(name, self._action_resolver())
 
-    def move_variable(self, name: str, value: float) -> dict:
+    def move_variable(self, name: str, value: float, *, timeout: float = 60.0) -> dict:
         """Move a scan variable on demand — refused while scanning.
 
         Thin delegation to :meth:`GeecsSession.move_variable` with this
@@ -505,15 +506,22 @@ class BlueskyScanner:
         dict
             ``{"variable", "kind", "value", "targets"}`` — see the session.
 
+        ``timeout`` is the overall wall-clock budget in seconds — raise
+        it for legitimately slow moves (long stage travel).
+
         Raises
         ------
         RuntimeError
-            While a scan is active: ``"scan in progress — move not
-            started"`` (the GUI surfaces this message verbatim).
+            While a scan is active (``"scan in progress — move not
+            started"``) or another manual move is running (``"manual move
+            in progress — move not started"``) — the GUI surfaces these
+            messages verbatim.
         """
         if self.is_scanning_active():
             raise RuntimeError("scan in progress — move not started")
-        return self._session.move_variable(name, value, self._action_resolver())
+        return self._session.move_variable(
+            name, value, self._action_resolver(), timeout=timeout
+        )
 
     def request_pause(self) -> None:
         """Pause the running scan at its next safe point (operator Pause).

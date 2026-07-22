@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -187,6 +188,12 @@ class GeecsSession:
         # run, so a pause window is part of the data record — a wall-clock
         # gap between rows explains itself.
         self.RE.record_interruptions = True
+        # Held for the duration of a manual move (move_variable).  The RE
+        # is deliberately NOT occupied by manual moves (they are not
+        # plans), so this lock is what makes the exclusion *mutual*:
+        # scan()/optimize()/run_action() refuse while it is held, and
+        # move_variable refuses while the RE is busy (review, PR #597).
+        self._manual_move_lock = threading.Lock()
         # Silence upstream's RequestAbort traceback (operator aborts are
         # quiet, intentional outcomes — #563 follow-up).  RE.log is a
         # LoggerAdapter over the PROCESS-WIDE ``bluesky`` logger shared by
@@ -740,6 +747,7 @@ class GeecsSession:
         emitted (the scan number, when this call claimed one, was already
         burned; the folder holds ScanInfo and no data).
         """
+        self._refuse_if_manual_move("scan not started")
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         detectors = list(detectors)
@@ -942,6 +950,7 @@ class GeecsSession:
         quietly — nothing ran, so the variables were never moved and no
         restore is needed.
         """
+        self._refuse_if_manual_move("optimization not started")
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         if on_finish not in ("hold", "initial", "best"):
@@ -1307,6 +1316,7 @@ class GeecsSession:
 
         if self.RE.state != "idle":
             raise RuntimeError("scan in progress — action not started")
+        self._refuse_if_manual_move("action not started")
         plan, registry = self._resolve_action(name, resolver)
         # Fail-fast: unknown nested names / cycles surface here, before any
         # signal is created or connected.
@@ -1392,6 +1402,17 @@ class GeecsSession:
     # On-demand manual moves
     # ------------------------------------------------------------------
 
+    def _refuse_if_manual_move(self, verb: str) -> None:
+        """Raise when a manual move currently holds the engine.
+
+        The mutual-exclusion counterpart of the ``RE.state != "idle"``
+        checks: a manual move is not a plan, so the RE stays idle while it
+        runs — this lock is what keeps a scan, an action, or a second move
+        from starting mid-move (review, PR #597).
+        """
+        if self._manual_move_lock.locked():
+            raise RuntimeError(f"manual move in progress — {verb}")
+
     def move_variable(
         self,
         name: str,
@@ -1441,14 +1462,25 @@ class GeecsSession:
         Raises
         ------
         RuntimeError
-            When the RunEngine is not idle:
-            ``"scan in progress — move not started"`` (the GUI surfaces
-            this message verbatim).
+            When the RunEngine is not idle
+            (``"scan in progress — move not started"``) or another manual
+            move is already running
+            (``"manual move in progress — move not started"``) — the GUI
+            surfaces these messages verbatim.
         GeecsConfigurationError
             Unknown catalog name, a pseudo formula that fails to compile
-            or evaluate, or a non-finite *value*.
+            or evaluate, or a *value* that is non-finite or not a number.
+        TimeoutError
+            The move did not complete within *timeout*.  The in-flight
+            coroutine is cancelled, but a GEECS blocking set already sent
+            over the wire cannot be recalled — the device may still land
+            on the commanded value after this raises.
+        GeecsError
+            Device-level completion failures propagate (e.g.
+            ``GeecsMotorTimeoutError``, ``GeecsConfirmTimeoutError``).
         """
         import asyncio
+        import concurrent.futures
 
         from geecs_bluesky.scan_request_runner import (
             ConfigsRepoResolver,
@@ -1460,42 +1492,64 @@ class GeecsSession:
 
         if self.RE.state != "idle":
             raise RuntimeError("scan in progress — move not started")
-        value = float(value)
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise GeecsConfigurationError(
+                f"refusing to move {name!r}: {value!r} is not a number"
+            ) from exc
         if not np.isfinite(value):
             raise GeecsConfigurationError(
                 f"refusing to move {name!r} to non-finite value {value!r}"
             )
-        if ":" in name:
-            device, _, variable = name.partition(":")
-            target: Any = PlainMovableTarget(device, variable, "setpoint", None)
-        else:
-            if resolver is None:
-                resolver = ConfigsRepoResolver(self.experiment)
-            target = resolve_movable_target(resolver.resolve_scan_variable(name), name)
-        movable = build_movable(self, target)
+        if not self._manual_move_lock.acquire(blocking=False):
+            raise RuntimeError("manual move in progress — move not started")
         try:
-
-            async def _move() -> None:
-                await movable.set(value)
-
-            asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(
-                timeout=timeout
-            )
-            if isinstance(target, PseudoMovableTarget):
-                kind = f"pseudo ({target.mode})"
-                targets = dict(getattr(movable, "last_commanded", None) or {})
+            if ":" in name:
+                device, _, variable = name.partition(":")
+                target: Any = PlainMovableTarget(device, variable, "setpoint", None)
             else:
-                kind = "confirm" if target.confirm else target.kind
-                targets = {target.label: value}
-            logger.info("Manual move %s → %s (%s)", name, value, targets)
-            return {
-                "variable": name,
-                "kind": kind,
-                "value": value,
-                "targets": targets,
-            }
+                if resolver is None:
+                    resolver = ConfigsRepoResolver(self.experiment)
+                target = resolve_movable_target(
+                    resolver.resolve_scan_variable(name), name
+                )
+            movable = build_movable(self, target)
+            try:
+
+                async def _move() -> None:
+                    await movable.set(value)
+
+                future = asyncio.run_coroutine_threadsafe(_move(), self.RE._loop)
+                try:
+                    future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    # Cancel the coroutine so the abandoned move stops
+                    # holding the loop; the wire-level caveat is documented
+                    # above (a sent GEECS set cannot be recalled).
+                    future.cancel()
+                    raise TimeoutError(
+                        f"manual move of {name!r} to {value} did not "
+                        f"complete within {timeout}s (cancelled; an "
+                        "already-sent GEECS set may still land)"
+                    ) from None
+                if isinstance(target, PseudoMovableTarget):
+                    kind = f"pseudo ({target.mode})"
+                    targets = dict(getattr(movable, "last_commanded", None) or {})
+                else:
+                    kind = "confirm" if target.confirm else target.kind
+                    targets = {target.label: value}
+                logger.info("Manual move %s → %s (%s)", name, value, targets)
+                return {
+                    "variable": name,
+                    "kind": kind,
+                    "value": value,
+                    "targets": targets,
+                }
+            finally:
+                self.disconnect(movable)
         finally:
-            self.disconnect(movable)
+            self._manual_move_lock.release()
 
     # ------------------------------------------------------------------
     # Internals

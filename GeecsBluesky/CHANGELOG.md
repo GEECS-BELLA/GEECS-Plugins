@@ -25,9 +25,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `{"variable", "kind", "value", "targets"}` for operator feedback
   (`CaPseudoMovable` now publishes `last_commanded` — the per-target
   values of its last completed set — to back it).
-- Suite grows to 626 (manual-move contract: dispatch per kind, fresh
-  movable per call, exact refusal messages, non-finite guard, bridge
-  delegation).
+- **Mutual exclusion is symmetric** (review finding, PR #597): a manual
+  move is not a plan, so the RunEngine stays idle while it runs — a
+  session-level lock now makes the exclusion mutual.  `scan()` /
+  `optimize()` / `run_action()` refuse while a move holds it
+  (`"manual move in progress — <scan|optimization|action> not started"`),
+  and a second concurrent move is refused (the double-click race that
+  would have corrupted a relative pseudo's baselines).
+- **Timeout cancels the move** (review finding): on the wall-clock budget
+  expiring, the in-flight coroutine is cancelled and a documented
+  `TimeoutError` raised (a GEECS set already on the wire cannot be
+  recalled — stated in the contract); the bridge exposes `timeout` for
+  legitimately slow moves.  A non-numeric value is refused as
+  `GeecsConfigurationError` before any device is built.
+- Suite grows to 631 (manual-move contract: dispatch per kind incl.
+  motor, fresh movable per call, exact refusal messages both directions,
+  timeout-cancellation, non-finite/non-numeric guards, bridge
+  delegation with timeout passthrough).
 
 ## [0.47.1] - 2026-07-21
 
