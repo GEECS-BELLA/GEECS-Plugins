@@ -44,11 +44,13 @@ from geecs_bluesky.devices.ca import (
     CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
+    CaPseudoMovable,
     CaSettable,
     CaSnapshotReadable,
     CaTelemetryReadable,
     CaTimestampedReadable,
 )
+from geecs_bluesky.forward_expr import CompiledForward
 from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.optimize import BinData, Suggester
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
@@ -251,6 +253,16 @@ class GeecsSession:
         for name, value in targets.items():
             movable = variables.get(name)
             if movable is None:
+                continue
+            if not np.isfinite(float(value)):
+                # An absolute pseudo variable reads NaN before its first set
+                # (position unknown without an inverse) — never command a
+                # non-finite value to hardware.
+                logger.warning(
+                    "not moving %s: target %r is not finite (initial position unknown)",
+                    name,
+                    value,
+                )
                 continue
 
             async def _move(m=movable, v=float(value)) -> None:
@@ -491,6 +503,31 @@ class GeecsSession:
                 name=name or safe_name(f"{device}_{variable}"),
                 tolerance=tolerance,
                 timeout=timeout,
+            )
+        )
+
+    def pseudo_movable(
+        self,
+        variable_name: str,
+        components: Sequence[tuple[str, str, CompiledForward]],
+        mode: str,
+        *,
+        name: str | None = None,
+    ) -> CaPseudoMovable:
+        """Pseudo (composite) movable: one number fanned out to many targets.
+
+        ``components`` are ``(device, variable, compiled_forward)`` triples
+        (see :func:`geecs_bluesky.forward_expr.compile_forward`); ``mode`` is
+        the schema's ``absolute``/``relative``. See
+        :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoMovable`.
+        """
+        return self._connect(
+            CaPseudoMovable(
+                components,
+                mode,
+                variable_name=variable_name,
+                experiment=self.experiment,
+                name=name or safe_name(variable_name),
             )
         )
 

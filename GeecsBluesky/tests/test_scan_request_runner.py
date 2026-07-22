@@ -95,6 +95,7 @@ class _FakeSession:
         self.disconnected: list = []
         self.action_factories: list[_FakeActionFactory] = []
         self.confirm_settable_calls: list = []
+        self.pseudo_calls: list = []
 
     def _make(self, device: str, kind: str) -> _FakeDevice:
         self.devices.append((device, kind))
@@ -122,6 +123,12 @@ class _FakeSession:
             (device, variable, confirm_device, confirm_variable)
         )
         return self._make(f"{device}:{variable}", "confirm_settable")
+
+    def pseudo_movable(self, variable_name, components, mode, *, name=None):
+        self.pseudo_calls.append(
+            (variable_name, [(d, v, f.source) for d, v, f in components], mode)
+        )
+        return self._make(f"pseudo:{variable_name}", "pseudo_movable")
 
     def action_signal_factory(self):
         factory = _FakeActionFactory()
@@ -249,6 +256,17 @@ variables:
     mode: absolute
     targets:
       - {target: "U_S1H:Current", forward: "composite_var * 2"}
+  bump_x:
+    kind: pseudo
+    mode: relative
+    targets:
+      - {target: "U_S3H:Current", forward: "x * 1"}
+      - {target: "U_S4H:Current", forward: "x * -2"}
+  badcombo:
+    kind: pseudo
+    mode: absolute
+    targets:
+      - {target: "U_S1H:Current", forward: "nonsense_name * 2"}
 """
 
 LEGACY_ACTIONS = """\
@@ -805,14 +823,47 @@ def test_unknown_action_name_fails_validation_first(legacy_resolver) -> None:
     assert session.devices == []  # failed before any hardware was touched
 
 
-def test_pseudo_variable_raises_not_implemented(modern_resolver) -> None:
+def test_pseudo_variable_builds_movable_and_records_metadata(modern_resolver) -> None:
+    """A pseudo step axis executes: compiled components, movable, provenance."""
+    session = _FakeSession()
     request = _noscan_request(
         mode="step",
         save_sets=["NewSet"],
-        axes=[{"variable": "combo", "positions": {"start": 0, "end": 1, "step": 1}}],
+        axes=[{"variable": "bump_x", "positions": {"start": 0, "end": 1, "step": 1}}],
     )
-    with pytest.raises(NotImplementedError, match="pseudo"):
-        run_scan_request(_FakeSession(), request, modern_resolver)
+    run_scan_request(session, request, modern_resolver)
+    assert session.pseudo_calls == [
+        (
+            "bump_x",
+            [("U_S3H", "Current", "x * 1"), ("U_S4H", "Current", "x * -2")],
+            "relative",
+        )
+    ]
+    kwargs = session.scan_kwargs
+    assert kwargs["motor"].kind == "pseudo_movable"
+    assert kwargs["scan_info"]["scan_parameter"] == "bump_x"
+    assert kwargs["md"]["pseudo_variables"] == {
+        "bump_x": {
+            "mode": "relative",
+            "targets": [
+                {"target": "U_S3H:Current", "forward": "x * 1"},
+                {"target": "U_S4H:Current", "forward": "x * -2"},
+            ],
+        }
+    }
+
+
+def test_pseudo_variable_bad_expression_fails_preclaim(modern_resolver) -> None:
+    """A forward formula that fails to compile aborts before any hardware."""
+    session = _FakeSession()
+    request = _noscan_request(
+        mode="step",
+        save_sets=["NewSet"],
+        axes=[{"variable": "badcombo", "positions": {"start": 0, "end": 1, "step": 1}}],
+    )
+    with pytest.raises(GeecsConfigurationError, match="nonsense_name"):
+        run_scan_request(session, request, modern_resolver)
+    assert session.devices == []  # failed before any hardware was touched
 
 
 def test_noscan_without_save_set_is_rejected(legacy_resolver) -> None:

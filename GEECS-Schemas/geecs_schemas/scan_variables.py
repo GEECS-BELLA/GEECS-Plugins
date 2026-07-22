@@ -18,11 +18,13 @@ an ``absolute``/``relative`` mode).
 - ``kind: motor`` — blocking move *plus* readback-tolerance polling; an
   explicit opt-in for real positioners (renders to ``CaMotor``).
 - ``kind: pseudo`` — a pseudo-positioner: one scanned number fanned out to
-  several components through ``forward`` expressions.  v1 keeps the legacy
-  numexpr semantics **verbatim**: each expression is written in terms of
-  ``composite_var`` (the scanned value), and ``mode`` keeps the legacy
-  meaning — ``absolute`` sets each component to its expression's value,
-  ``relative`` offsets each component from its position at scan start.
+  several components through ``forward`` expressions.  Each expression is
+  plain arithmetic (operators, parentheses, common math functions such as
+  ``sqrt``) written in terms of ``composite_var`` — or its short alias
+  ``x`` — the scanned value; the legacy corpus's numexpr ``relation``
+  strings are all valid unchanged.  ``mode`` keeps the legacy meaning —
+  ``absolute`` sets each component to its expression's value, ``relative``
+  offsets each component from its position at scan start.
 
 Limits, units, and tolerances deliberately do **not** live here — device
 facts belong below the configs (gateway PV metadata; vision doc §4.3).
@@ -175,9 +177,10 @@ class PseudoComponent(SchemaModel):
     forward: str = Field(
         min_length=1,
         description=(
-            "Formula for this device's value in terms of the scanned number, "
-            "written with 'composite_var' as the scanned value — e.g. "
-            "'composite_var * -2' or '8.5 + (composite_var-10)*2.5'."
+            "Formula for this device's value in terms of the scanned number: "
+            "plain arithmetic with 'composite_var' (or its short alias 'x') "
+            "as the scanned value — e.g. 'composite_var * -2', 'x * -2', or "
+            "'8.5 + (composite_var-10)*2.5'."
         ),
     )
 
@@ -194,7 +197,10 @@ class PseudoScanVariable(SchemaModel):
     Notes
     -----
     Successor of a legacy ``composite_variables.yaml`` entry.  ``mode`` and
-    the numexpr expressions keep their legacy semantics verbatim in v1.
+    the arithmetic expressions keep their legacy (numexpr-era) semantics
+    verbatim; the engine evaluates them with a whitelisted expression
+    evaluator, and the shorter alias ``x`` may be used for the scanned
+    value in new entries.
     ``inverse`` (a readback formula recovering the scanned number from the
     first target's position) has no legacy counterpart and is optional.
     """
