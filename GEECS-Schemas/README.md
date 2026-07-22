@@ -70,6 +70,11 @@ fields are kept for a possible future re-enable),
 `TriggerVariant` / `TriggerState`, `DefaultActions`, and the four action
 step types.
 
+One non-model module: `geecs_schemas.restricted_expr` — the shared
+AST-whitelist core behind both GEECS expression eval sites (the gateway's
+derived channels and the engine's pseudo-variable forward formulas).
+Stdlib-only; each consumer supplies its whitelist and error wrapping.
+
 ## Converter usage
 
 Converters take a parsed dict or a YAML path (path input needs PyYAML, which

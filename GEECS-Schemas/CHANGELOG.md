@@ -5,6 +5,26 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-21
+
+### Added
+
+- `restricted_expr.py` — the shared AST-whitelist expression core behind
+  both GEECS eval sites (the gateway's derived channels and the engine's
+  pseudo-variable forward formulas): `compile_expression` parses with
+  `ast`, validates every node against a consumer-supplied
+  `ExpressionWhitelist` (functions, constants, operator sets, optional
+  bool/compare ops) **before** anything is evaluated, and returns a
+  frozen `CompiledExpression` whose `evaluate()` runs with empty
+  builtins and returns the raw result (`is_boolean` flags top-level
+  boolean intent for consumers that publish floats).  Stdlib-only
+  (`ast` + `dataclasses`) per this package's import-from-anywhere rule;
+  each consumer keeps its own whitelist, error wrapping, and result
+  coercion.  Extracted from `geecs_ca_gateway.derived.ExpressionEvaluator`
+  and `geecs_bluesky.forward_expr` so a hardening or semantics fix lands
+  once instead of twice; both consumers' behaviors stay pinned by their
+  existing test suites.
+
 ## [0.8.2] - 2026-07-21
 
 ### Changed

@@ -8,12 +8,17 @@ import json
 import math
 import os
 from pathlib import Path
-from typing import Any
 
 from geecs_schemas import (
     DerivedChannel as DerivedChannelSpec,
     DerivedChannels,
     DerivedInput as DerivedInputSpec,
+)
+from geecs_schemas.restricted_expr import (
+    CompiledExpression,
+    ExpressionWhitelist,
+    ExpressionWhitelistError,
+    compile_expression,
 )
 
 from .naming import normalize_pv_component
@@ -35,11 +40,14 @@ _ALLOWED_FUNCS = {
     )
 }
 _ALLOWED_CONSTS = {"e": math.e, "pi": math.pi, "tau": math.tau}
-_RESERVED_NAMES = set(_ALLOWED_FUNCS) | set(_ALLOWED_CONSTS)
-_ALLOWED_BINOPS = (ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod)
-_ALLOWED_UNARYOPS = (ast.UAdd, ast.USub, ast.Not)
-_ALLOWED_BOOLOPS = (ast.And, ast.Or)
-_ALLOWED_CMPOPS = (ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+_WHITELIST = ExpressionWhitelist(
+    functions=_ALLOWED_FUNCS,
+    constants=_ALLOWED_CONSTS,
+    binary_ops=(ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod),
+    unary_ops=(ast.UAdd, ast.USub, ast.Not),
+    bool_ops=(ast.And, ast.Or),
+    compare_ops=(ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE),
+)
 GATEWAY_CONFIG_FOLDER = "gateway"
 DERIVED_CHANNELS_FILENAME = "derived_channels.yaml"
 
@@ -132,18 +140,32 @@ def default_derived_channels_path(experiment: str) -> Path | None:
 
 
 class ExpressionEvaluator:
-    """Compile and evaluate a restricted numeric/status expression."""
+    """Compile and evaluate a restricted numeric/status expression.
+
+    The compile-then-restricted-eval skeleton is the shared
+    :mod:`geecs_schemas.restricted_expr` core; this class supplies the
+    derived-channel whitelist (comparisons/bool-ops, ``isfinite``,
+    ``tau``), the per-expression symbol set, and the gateway's error and
+    result contracts (``DerivedExpressionError``; booleans published as
+    ``1.0``/``0.0``).
+    """
 
     def __init__(self, expression: str, symbols: set[str]) -> None:
         self.expression = expression
         self.symbols = symbols
         try:
-            tree = ast.parse(expression, mode="eval")
-        except SyntaxError as exc:
+            # Function names double as extra symbols: a bare function name
+            # used as a value is compile-legal (it fails at evaluate time
+            # in float()) — longstanding behavior, kept.
+            self._compiled: CompiledExpression = compile_expression(
+                expression,
+                symbols | set(_ALLOWED_FUNCS),
+                _WHITELIST,
+                filename="<derived-channel>",
+            )
+        except ExpressionWhitelistError as exc:
             raise DerivedExpressionError(str(exc)) from exc
-        self._validate_node(tree)
-        self._coerce_bool_result = self._is_boolean_expression(tree.body)
-        self._code = compile(tree, "<derived-channel>", "eval")
+        self._coerce_bool_result = self._compiled.is_boolean
 
     def evaluate(self, values: dict[str, float]) -> float:
         """Evaluate the expression with numeric input values.
@@ -154,70 +176,7 @@ class ExpressionEvaluator:
         missing = self.symbols - values.keys()
         if missing:
             raise KeyError(f"missing derived-channel input(s): {sorted(missing)}")
-        namespace: dict[str, Any] = {}
-        namespace.update(_ALLOWED_FUNCS)
-        namespace.update(_ALLOWED_CONSTS)
-        namespace.update(values)
-        result = eval(self._code, {"__builtins__": {}}, namespace)  # noqa: S307
+        result = self._compiled.evaluate(values)
         if self._coerce_bool_result:
             return float(bool(result))
         return float(result)
-
-    @staticmethod
-    def _is_boolean_expression(node: ast.AST) -> bool:
-        """Return whether the expression's top-level result is boolean intent."""
-        return isinstance(node, (ast.BoolOp, ast.Compare)) or (
-            isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not)
-        )
-
-    def _validate_node(self, node: ast.AST) -> None:
-        if isinstance(node, ast.Expression):
-            self._validate_node(node.body)
-            return
-        if isinstance(node, ast.Constant):
-            if not isinstance(node.value, (int, float)):
-                raise DerivedExpressionError("only numeric constants are allowed")
-            return
-        if isinstance(node, ast.Name):
-            if node.id not in self.symbols and node.id not in _RESERVED_NAMES:
-                raise DerivedExpressionError(f"unknown name in expression: {node.id}")
-            return
-        if isinstance(node, ast.BinOp):
-            if not isinstance(node.op, _ALLOWED_BINOPS):
-                raise DerivedExpressionError("unsupported binary operator")
-            self._validate_node(node.left)
-            self._validate_node(node.right)
-            return
-        if isinstance(node, ast.BoolOp):
-            if not isinstance(node.op, _ALLOWED_BOOLOPS):
-                raise DerivedExpressionError("unsupported boolean operator")
-            for value in node.values:
-                self._validate_node(value)
-            return
-        if isinstance(node, ast.Compare):
-            self._validate_node(node.left)
-            for op in node.ops:
-                if not isinstance(op, _ALLOWED_CMPOPS):
-                    raise DerivedExpressionError("unsupported comparison operator")
-            for comparator in node.comparators:
-                self._validate_node(comparator)
-            return
-        if isinstance(node, ast.UnaryOp):
-            if not isinstance(node.op, _ALLOWED_UNARYOPS):
-                raise DerivedExpressionError("unsupported unary operator")
-            self._validate_node(node.operand)
-            return
-        if isinstance(node, ast.Call):
-            if (
-                not isinstance(node.func, ast.Name)
-                or node.func.id not in _ALLOWED_FUNCS
-            ):
-                raise DerivedExpressionError("only whitelisted math calls are allowed")
-            if node.keywords:
-                raise DerivedExpressionError("keyword arguments are not allowed")
-            for arg in node.args:
-                self._validate_node(arg)
-            return
-        raise DerivedExpressionError(
-            f"unsupported expression element: {type(node).__name__}"
-        )

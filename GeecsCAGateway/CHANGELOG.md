@@ -3,6 +3,22 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.14.3] - 2026-07-21
+
+### Changed
+
+- `derived.py`'s `ExpressionEvaluator` now delegates its
+  compile-then-restricted-eval skeleton to the shared
+  `geecs_schemas.restricted_expr` core (geecs-schemas 0.9.0) — a
+  behavior-preserving refactor so security hardening of the eval sites
+  lands once, not twice.  The derived-channel language is unchanged
+  (comparisons/bool-ops with `1.0`/`0.0` publication, `isfinite`,
+  `tau`, no `abs`/`//`; bare function names still compile-legal), as are
+  the `DerivedExpressionError` contract and the class's public surface;
+  pinned by the existing derived-channel suite.  Rejection message
+  phrasing for invalid expressions changed slightly (now the core's
+  wording).
+
 ## [0.14.2] - 2026-07-21
 
 ### Changed
