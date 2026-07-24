@@ -183,6 +183,9 @@ class GeecsCaGateway:
         # PVs plus gateway uptime/heartbeat, so Phoebus/alarm layers see
         # liveness explicitly instead of inferring it from INVALID severity.
         self._connected: dict[str, ChannelData] = {}
+        # device name -> LAST_SET_ERROR channel (most recent failed-set message;
+        # sticky — the :SP channel alarm carries the current/cleared state).
+        self._set_errors: dict[str, ChannelData] = {}
         self._gateway_status: dict[str, ChannelData] = {}
         self._status_task: asyncio.Task | None = None
         self._started_at: float | None = None
@@ -254,6 +257,20 @@ class GeecsCaGateway:
                 )
                 self.pvdb[conn_pv] = conn
                 self._connected[dev.name] = conn
+
+            # Per-device last-set-error PV: the most recent failed GEECS set's
+            # message, as a long-string (char-array) channel — the messages
+            # exceed the 40-char DBR_STRING cap. Sticky by design: the :SP
+            # channel's WRITE/INVALID alarm says whether the *latest* set
+            # failed; this PV is the forensic record of what the failure said.
+            if any(v.settable for v in dev.variables):
+                err_pv = dev.pv_name_for(VariableSpec(geecs_var="LAST_SET_ERROR"))
+                if self._register(err_pv, dev.name, "LAST_SET_ERROR", "status"):
+                    err_channel = make_readback_channel(
+                        VariableSpec(geecs_var="LAST_SET_ERROR", dtype="path")
+                    )
+                    self.pvdb[err_pv] = err_channel
+                    self._set_errors[dev.name] = err_channel
 
         self._build_derived_pvs()
         self._build_gateway_status_pvs()
@@ -359,20 +376,41 @@ class GeecsCaGateway:
         the client's default exe timeout: GEECS sets block until the device
         reports convergence, and a legitimate slow move (~10-30 s stage travel)
         must not be failed as a dead connection mid-flight.
+
+        Any failure is recorded on the device's ``LAST_SET_ERROR`` PV before it
+        propagates (and fails the caput) — put-completion is invisible to
+        no-callback writers, so the message must survive somewhere readable.
         """
 
         async def setter(value: Any) -> Any:
-            udp = self._udp.get(device_name)
-            if udp is None:
-                # UDP bind failed at startup (see connect()) — fail the caput
-                # with a clear cause rather than a KeyError.
-                raise GeecsConnectionError(
-                    f"{device_name}: no UDP client (bind failed at startup); "
-                    f"cannot forward set of {geecs_var!r}"
-                )
-            return await udp.set(geecs_var, value, timeout=self._set_timeout)
+            try:
+                udp = self._udp.get(device_name)
+                if udp is None:
+                    # UDP bind failed at startup (see connect()) — fail the
+                    # caput with a clear cause rather than a KeyError.
+                    raise GeecsConnectionError(
+                        f"{device_name}: no UDP client (bind failed at startup); "
+                        f"cannot forward set of {geecs_var!r}"
+                    )
+                return await udp.set(geecs_var, value, timeout=self._set_timeout)
+            except Exception as exc:
+                await self._record_set_error(device_name, exc)
+                raise
 
         return setter
+
+    async def _record_set_error(self, device: str, exc: Exception) -> None:
+        """Write a failed set's message onto the device's ``LAST_SET_ERROR`` PV."""
+        channel = self._set_errors.get(device)
+        if channel is None:
+            return
+        message = str(exc) or type(exc).__name__
+        try:
+            await channel.write(message[: channel.max_length])
+        except Exception:
+            # Recording is best-effort — the caput still fails with the real
+            # cause; never let bookkeeping mask it.
+            logger.debug("failed to record set error for %s", device, exc_info=True)
 
     def _warn_once(self, device: str, geecs_var: str, message: str) -> None:
         """Log a per-(device, variable) warning once, to avoid ~5 Hz spam."""

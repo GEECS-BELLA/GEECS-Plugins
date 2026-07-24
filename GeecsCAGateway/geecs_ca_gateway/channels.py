@@ -321,6 +321,45 @@ def make_description_channel(description: str) -> ChannelData:
     return read_only(ChannelString)(value=description[:_DESC_MAX_LENGTH])
 
 
+async def _forward_set(channel: ChannelData, setter: Setter, geecs_value: Any) -> None:
+    """Forward one GEECS set, mirroring its outcome onto the channel alarm.
+
+    A failed forward stamps ``WRITE``/``INVALID`` on the setpoint channel and
+    re-raises (failing the CA put) — published, so monitor-based clients that
+    never wait for put-completion (plain ``caput``, default Phoebus writes)
+    still observe the failure.  The next successful forward clears the alarm;
+    the clear is not published here because the value store that follows
+    publishes it.  Both directions write on transition only, so a repeated
+    failure does not re-publish an identical alarm state.
+
+    Only the GEECS forward outcome is mirrored: value-shape errors raised
+    *before* the setter (an unknown enum label, an uncastable scalar) are
+    client errors, not device state, and leave the alarm untouched.
+    """
+    try:
+        await setter(geecs_value)
+    except Exception:
+        alarm = channel.alarm
+        if (alarm.severity, alarm.status) != (
+            AlarmSeverity.INVALID_ALARM,
+            AlarmStatus.WRITE,
+        ):
+            await alarm.write(
+                status=AlarmStatus.WRITE, severity=AlarmSeverity.INVALID_ALARM
+            )
+        raise
+    alarm = channel.alarm
+    if (alarm.severity, alarm.status) != (
+        AlarmSeverity.NO_ALARM,
+        AlarmStatus.NO_ALARM,
+    ):
+        await alarm.write(
+            status=AlarmStatus.NO_ALARM,
+            severity=AlarmSeverity.NO_ALARM,
+            publish=False,
+        )
+
+
 def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
     """Build a writable channel that forwards CA puts to GEECS.
 
@@ -330,7 +369,10 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
         The variable being exposed (dtype, metadata, enum choices).
     setter : Setter
         Async callable invoked with the value to send to GEECS.  If it raises,
-        the value is not stored and the CA put fails — the correct semantics.
+        the value is not stored and the CA put fails — the correct semantics —
+        and the channel alarm goes ``WRITE``/``INVALID`` until the next
+        successful set (:func:`_forward_set`), so the failure is observable
+        without put-completion.
     """
     if spec.dtype == "enum":
         choices = list(spec.choices)
@@ -340,7 +382,7 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
 
             async def write(self, value: Any, **kwargs: Any) -> Any:
                 """Forward the put (as the GEECS string), then store it."""
-                await setter(enum_geecs_value(choices, value))
+                await _forward_set(self, setter, enum_geecs_value(choices, value))
                 return await super().write(value, **kwargs)
 
         return _GeecsEnumSetpoint(value=0, enum_strings=choices)
@@ -353,7 +395,7 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
             async def write(self, value: Any, **kwargs: Any) -> Any:
                 """Forward the put (decoded to text), then store it."""
                 text = _to_text(value)
-                await setter(text)
+                await _forward_set(self, setter, text)
                 return await super().write(text, **kwargs)
 
         return _GeecsPathSetpoint(
@@ -370,7 +412,7 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
 
         async def write(self, value: Any, **kwargs: Any) -> Any:
             """Forward the put to GEECS, then store the value locally."""
-            await setter(cast_value(dtype, value))
+            await _forward_set(self, setter, cast_value(dtype, value))
             return await super().write(value, **kwargs)
 
     return _GeecsSetpoint(**_metadata_kwargs(spec))

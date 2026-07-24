@@ -242,6 +242,14 @@ subset plus each device's settable control surface (§1), so a variable
 visible in GEECS Master Control is usually reachable here under its
 lowercased name.
 
+**Always write with put-completion** (`caput -c`, caproto-put's default,
+aioca `wait=True`, ophyd-async `set()`). A fire-and-forget write returns
+before the GEECS exchange starts, so a rejected set (e.g. out of the
+device's limits) *looks* successful to that client. A failed set also stamps
+the `:SP` PV with a `WRITE`/`INVALID` alarm and records its message on
+`experiment:device:last_set_error` (read with `caget -S`) — see
+`PV_CONTRACT.md` §7.
+
 **Off-subnet (VPN) notes.** CA name search with an explicit address list is
 *directed unicast* UDP, which routes over VPN — this is why the recipe above
 works off-subnet. Server *beacons* ride UDP broadcast and do **not** cross
