@@ -220,10 +220,39 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
 - The setpoint PV reflects the last *successfully forwarded* put, not the
   device readback. Read state from the readback PV; the `:SP` value is the
   commanded value.
-- Write safety: GEECS enforces DB value limits server-side and returns an error
-  the setter propagates, so an out-of-range `caput` fails correctly. The
-  DB-derived limits on the PV are **display** limits (a UX hint), not
-  gateway-enforced control limits — see §4.
+- Write safety — **layered, gateway mirror + GEECS backstop**. `:SP` channels
+  serve the DB `min`/`max` span as standard EPICS **control (drive) limits**
+  (`DBR_CTRL` metadata — Phoebus sliders bound themselves, ophyd-style
+  clients can validate before putting) and enforce them **pre-forward**: an
+  out-of-range put fails at the CA layer (`CannotExceedLimits`) before any
+  UDP traffic reaches the device. **Rejection, never clamping** — a native
+  EPICS `ao` record clamps to `DRVL`/`DRVH`, but clamping here would move
+  hardware to a value the client never commanded; failing the put is the
+  deliberate choice (and caproto's native semantics). The pre-forward
+  ordering is equally deliberate — enforcement inside the value store would
+  run *after* the forward, so with DB limits tighter than the device's, the
+  hardware would move and the put would then fail.
+  - Pre-forward rejection is a *client* error (§7): no `:SP` alarm, no
+    `LAST_SET_ERROR` entry — those mirror device-side outcomes only.
+  - Control limits are served only for well-formed spans (both bounds
+    present, `lo < hi`). Missing, one-sided, or degenerate (`lo == hi`)
+    DB rows leave the `:SP` unenforced — a bad row must never brick an
+    axis. (`lo == hi` is also caproto's "limits disabled" sentinel.)
+  - **GEECS device-side enforcement remains the guaranteed backstop and
+    the authority** — unchanged, and it also covers limits the DB doesn't
+    express (interlocks, local mode, drift between a DB edit and the next
+    gateway restart). A put inside the DB span that the device rejects
+    fails with the device's error and drives the §7 alarm/`LAST_SET_ERROR`
+    machinery exactly as before.
+  - **Drift cuts both ways.** A DB span looser than the device's is
+    harmless (the backstop catches it). A DB span *wrong-tight* — or
+    widened after the gateway started — hard-blocks valid sets at the CA
+    layer until the gateway restarts (restart *is* the DB-resync
+    mechanism, §"self-diagnostics"/`RESTART`). Fix the row, bounce the
+    gateway.
+  - Readback PVs keep the same span as **display** limits only, never
+    control limits — see §4 (faithful out-of-range readbacks, e.g. NaN,
+    must publish).
 
 ---
 
@@ -378,11 +407,13 @@ Resolution quirks (all DB-driven, all pinned by tests):
   only the dropdown is lost.
 - `int` exists as a dtype (served as `ChannelInteger`) but is reachable only
   via an explicit `dtypes=` override — the DB never produces it.
-- Metadata: DB `units` → EGU; DB `min`/`max` → **display** limits only, never
-  enforced control limits. caproto enforces control limits on write and would
-  reject faithful-but-out-of-range readbacks — notably `NaN` from a failed
-  online analysis, which the contract requires be *reported*, not clamped.
-  GEECS remains the authority on valid set values (§2).
+- Metadata: DB `units` → EGU; DB `min`/`max` → limits, split by channel kind.
+  **Readbacks: display limits only, never control limits** — caproto enforces
+  control limits on write and would reject faithful-but-out-of-range
+  readbacks, notably `NaN` from a failed online analysis, which the contract
+  requires be *reported*, not clamped. **Setpoints: the span is additionally
+  served and enforced as control (drive) limits** when well-formed (§2).
+  GEECS device-side enforcement remains the guaranteed backstop on sets (§2).
 
 ### Description — the `.DESC` field
 
@@ -534,11 +565,17 @@ three ways, so no client class is blind to it:
    until overwritten by the next failure (§1).
 
 Scope: the alarm/error PVs mirror **GEECS forward outcomes** only. A put the
-gateway rejects before any UDP exchange (an uncastable value) fails the caput
-but leaves them untouched; an unresolvable enum label forwards verbatim (§4)
-and alarms only when GEECS rejects it. Fire-and-forget writes can never see
-the put fail — that is CA protocol semantics; use put-completion (§2) or
-monitor the alarm.
+gateway rejects before any UDP exchange (an uncastable value, or an
+out-of-control-limits value — §2) fails the caput but leaves them untouched;
+an unresolvable enum label forwards verbatim (§4) and alarms only when GEECS
+rejects it. Fire-and-forget writes can never see
+the put fail — that is CA protocol semantics; use put-completion (§2). The
+alarm/`LAST_SET_ERROR` surface is a net for *device-side* failures only —
+a pre-forward control-limit rejection is visible to put-completion writers
+(and the gateway log) alone, so a fire-and-forget out-of-range write
+vanishes without a PV trace. Accepted trade-off: the served `DBR_CTRL`
+metadata lets well-behaved clients (sliders, ophyd-style limit checks)
+refuse the value before ever putting.
 
 ### Per-device startup fault tolerance
 
@@ -637,7 +674,8 @@ that branch and are part of this contract's target behavior.
 | Deadband 0.0 from DB (`tolerance` never a deadband) | `test_pv_contract.py::test_db_tolerance_is_not_used_as_monitor_deadband` |
 | Zero deadband: every change posts, exact repeats suppressed | `test_pv_contract.py::test_zero_deadband_posts_changes_suppresses_exact_repeats` |
 | Explicit non-zero deadband suppression | `test_gateway.py::test_deadband_suppresses_small_changes` |
-| Display (not control) limits; NaN readback reported | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
+| Limits split by kind (readback display-only + NaN reported; `:SP` control limits) | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
+| Out-of-ctrl-limit put rejected pre-forward (no UDP, no alarm/`LAST_SET_ERROR`); degenerate spans stay unlimited; device backstop still alarms behind the gate | `test_pv_contract.py::test_out_of_ctrl_limit_put_rejected_before_forward`, `::test_missing_or_degenerate_db_span_stays_unlimited`; `test_gateway.py::test_ctrl_limit_gate_layers_with_device_side_rejection` |
 | Optional `ca_alarm_limits` table; curated scalar alarms attach only to served numeric readbacks | `test_geecs_db.py::test_get_ca_alarm_limits_returns_validated_rows`, `::test_get_ca_alarm_limits_missing_table_is_fail_open`; `test_config_from_db.py::test_alarm_limits_validate_order_and_presence`, `::test_from_geecs_experiment_attaches_numeric_alarm_limits` |
 | Value alarm severity/status on live readbacks; disconnect INVALID wins until next live frame | `test_gateway.py::test_value_alarm_limits_set_live_readback_severity`, `::test_invalid_liveness_overrides_value_alarm_until_live_frame` |
 | INVALID on drop, auto-recovery; CONNECTED MAJOR while down | `test_gateway.py::test_reconnect_and_validity`, `::test_set_connected_updates_pv_severity_and_count` |

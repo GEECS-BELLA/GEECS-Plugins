@@ -173,8 +173,10 @@ Recorded so the next build phase doesn't relitigate them.
 
 - **Authorization/write-safety is NOT foundational here.** GEECS enforces the DB
   value limits server-side and returns an error the setter propagates (→ CA put
-  fails correctly), so the gateway inherits range safety; the DB-derived CA
-  control limits are a UX hint with GEECS as backstop. A client commanding an
+  fails correctly), so the gateway inherits range safety; since 0.16.0 the
+  gateway additionally *mirrors* the DB span as enforced `DBR_CTRL` drive
+  limits on `:SP` PVs (pre-forward rejection, `PV_CONTRACT.md` §2), with
+  GEECS remaining the guaranteed backstop. A client commanding an
   in-range value is "how things are" today — not a regression. Residual: serve CA
   only on the intended subnet (`EPICS_CAS_INTF_ADDR_LIST`); optional read-only
   mode. *Operational-envelope interlocks* are a genuine future EPICS/Bluesky
