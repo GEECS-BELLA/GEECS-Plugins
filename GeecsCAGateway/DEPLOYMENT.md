@@ -146,8 +146,9 @@ export EPICS_CAS_BEACON_ADDR_LIST="192.168.6.255"  # beacon to the lab subnet
 ```
 
 Serving CA only on the intended subnet is the write-safety residual from
-`DESIGN.md` — GEECS enforces value limits server-side, but there is no CA-level
-auth.
+`DESIGN.md` — value limits are enforced at both layers (gateway `DBR_CTRL`
+drive limits + the GEECS device-side backstop, `PV_CONTRACT.md` §2), but
+there is no CA-level auth.
 
 ---
 
@@ -244,11 +245,15 @@ lowercased name.
 
 **Always write with put-completion** (`caput -c`, caproto-put's default,
 aioca `wait=True`, ophyd-async `set()`). A fire-and-forget write returns
-before the GEECS exchange starts, so a rejected set (e.g. out of the
-device's limits) *looks* successful to that client. A failed set also stamps
-the `:SP` PV with a `WRITE`/`INVALID` alarm and records its message on
-`experiment:device:last_set_error` (read with `caget -S`) — see
-`PV_CONTRACT.md` §7.
+before anything is checked or forwarded, so any rejected set *looks*
+successful to that client. Rejections come in two layers
+(`PV_CONTRACT.md` §2/§7): out-of-DB-range values fail at the CA layer
+itself (`:SP` PVs serve and enforce the DB span as `DBR_CTRL` drive
+limits — visible to put-completion writers and the gateway log only),
+while *device-side* failures (interlocks, local mode, device limits the
+DB doesn't express) additionally stamp the `:SP` PV with a
+`WRITE`/`INVALID` alarm and record their message on
+`experiment:device:last_set_error` (read with `caget -S`).
 
 **Off-subnet (VPN) notes.** CA name search with an explicit address list is
 *directed unicast* UDP, which routes over VPN — this is why the recipe above

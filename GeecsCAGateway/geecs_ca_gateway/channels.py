@@ -34,8 +34,17 @@ from caproto import (
 
 # Not re-exported at caproto top level; it is the exact class caproto's own
 # verify_value raises, reused so pre-forward rejections are indistinguishable
-# from caproto-native control-limit rejections to CA clients.
-from caproto._data import CannotExceedLimits
+# from caproto-native control-limit rejections to CA clients. Guarded because
+# the private module may move under the uncapped caproto pin — the fallback
+# subclasses the same public base, so client-observable failure is unchanged.
+try:
+    from caproto._data import CannotExceedLimits
+except ImportError:  # pragma: no cover — future caproto moved the private module
+    from caproto import CaprotoValueError
+
+    class CannotExceedLimits(CaprotoValueError):  # type: ignore[no-redef]
+        """Control-limit rejection (local stand-in for caproto's own class)."""
+
 
 from .config import DType, VariableSpec
 

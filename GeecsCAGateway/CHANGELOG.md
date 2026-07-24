@@ -9,9 +9,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
 
 - **Control (drive) limits on setpoint PVs** (PV_CONTRACT §2): `:SP`
   channels now serve the DB `min`/`max` span as enforced `DBR_CTRL` limits —
-  mirroring GEECS's own enforcement at the gateway per standard EPICS
-  gateway practice — and reject out-of-range puts **pre-forward**
-  (`CannotExceedLimits`, no UDP traffic, no device perturbation; the check
+  mirroring GEECS's own enforcement at the gateway the way native EPICS
+  drive limits (`DRVL`/`DRVH`) express a record's valid span — and reject
+  out-of-range puts **pre-forward** (`CannotExceedLimits`; rejection, never
+  the EPICS record's clamp-to-limit — clamping would move hardware to an
+  uncommanded value; no UDP traffic, no device perturbation; the check
   runs before the GEECS forward because caproto's own `verify_value` runs
   after it). Pre-forward rejection is a client error: no `:SP` alarm, no
   `LAST_SET_ERROR` (those keep mirroring device-side outcomes only).

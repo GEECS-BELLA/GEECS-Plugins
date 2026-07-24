@@ -224,11 +224,14 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   serve the DB `min`/`max` span as standard EPICS **control (drive) limits**
   (`DBR_CTRL` metadata — Phoebus sliders bound themselves, ophyd-style
   clients can validate before putting) and enforce them **pre-forward**: an
-  out-of-range put fails at the CA layer (`CannotExceedLimits`, the same
-  rejection a native IOC would produce) before any UDP traffic reaches the
-  device. The ordering is deliberate — enforcement inside the value store
-  would run *after* the forward, so with DB limits tighter than the
-  device's, the hardware would move and the put would then fail.
+  out-of-range put fails at the CA layer (`CannotExceedLimits`) before any
+  UDP traffic reaches the device. **Rejection, never clamping** — a native
+  EPICS `ao` record clamps to `DRVL`/`DRVH`, but clamping here would move
+  hardware to a value the client never commanded; failing the put is the
+  deliberate choice (and caproto's native semantics). The pre-forward
+  ordering is equally deliberate — enforcement inside the value store would
+  run *after* the forward, so with DB limits tighter than the device's, the
+  hardware would move and the put would then fail.
   - Pre-forward rejection is a *client* error (§7): no `:SP` alarm, no
     `LAST_SET_ERROR` entry — those mirror device-side outcomes only.
   - Control limits are served only for well-formed spans (both bounds
@@ -241,6 +244,12 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
     gateway restart). A put inside the DB span that the device rejects
     fails with the device's error and drives the §7 alarm/`LAST_SET_ERROR`
     machinery exactly as before.
+  - **Drift cuts both ways.** A DB span looser than the device's is
+    harmless (the backstop catches it). A DB span *wrong-tight* — or
+    widened after the gateway started — hard-blocks valid sets at the CA
+    layer until the gateway restarts (restart *is* the DB-resync
+    mechanism, §"self-diagnostics"/`RESTART`). Fix the row, bounce the
+    gateway.
   - Readback PVs keep the same span as **display** limits only, never
     control limits — see §4 (faithful out-of-range readbacks, e.g. NaN,
     must publish).
@@ -560,8 +569,13 @@ gateway rejects before any UDP exchange (an uncastable value, or an
 out-of-control-limits value — §2) fails the caput but leaves them untouched;
 an unresolvable enum label forwards verbatim (§4) and alarms only when GEECS
 rejects it. Fire-and-forget writes can never see
-the put fail — that is CA protocol semantics; use put-completion (§2) or
-monitor the alarm.
+the put fail — that is CA protocol semantics; use put-completion (§2). The
+alarm/`LAST_SET_ERROR` surface is a net for *device-side* failures only —
+a pre-forward control-limit rejection is visible to put-completion writers
+(and the gateway log) alone, so a fire-and-forget out-of-range write
+vanishes without a PV trace. Accepted trade-off: the served `DBR_CTRL`
+metadata lets well-behaved clients (sliders, ophyd-style limit checks)
+refuse the value before ever putting.
 
 ### Per-device startup fault tolerance
 
