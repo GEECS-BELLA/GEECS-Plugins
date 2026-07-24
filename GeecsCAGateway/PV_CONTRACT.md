@@ -122,15 +122,29 @@ ground truth; an instance row with no surviving type link (NULL or dangling
 `devicetype_variable_id`) defines an instance-only variable and is served
 too. Pinned by the inheritance-chain tests in `tests/test_geecs_db.py`.
 
-### Per-device status PV — `CONNECTED`
+### Per-device status PVs — `CONNECTED`, `LAST_SET_ERROR`
 
-Every device gets exactly one status PV: `[experiment:]device:connected`.
+Every device gets a connection-state PV: `[experiment:]device:connected`.
 
 - Type: enum with `enum_strings = ["Disconnected", "Connected"]`
   (index 0 = Disconnected, 1 = Connected).
 - Severity: `NO_ALARM` while connected; **`MAJOR_ALARM`** with status `COMM`
   while the device's TCP subscription is down.
 - Client-read-only.
+
+Every device with at least one settable variable additionally gets
+`[experiment:]device:last_set_error` — the most recent failed GEECS set's
+message (e.g. `U_S1H/Current: Error occurred during setCurrent - -100.0 -
+value not in range (5.000000,-5.000000)`).
+
+- Type: long-string (char-array, capacity 512, UTF-8) — the messages exceed
+  the 40-char `DBR_STRING` cap; read with `caget -S`.
+- **Sticky**: it is *not* cleared by a later successful set — the `:SP`
+  channel's `WRITE`/`INVALID` alarm carries the current/cleared state (§7),
+  this PV is the forensic record of what the last failure said. Empty string
+  until the first failure. One PV per device (GEECS serializes one command
+  per device), so the message names the variable.
+- Client-read-only; timestamped at failure time.
 
 ### Gateway self-diagnostics — the reserved `CAGateway` namespace
 
@@ -188,7 +202,16 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   physical move.
 - If the GEECS set fails (rejection, error, timeout), the setter raises, the
   value is **not** stored, and the CA put fails. Correct put semantics: a
-  failed put leaves the setpoint PV unchanged.
+  failed put leaves the setpoint PV unchanged. The failure is also published
+  as channel state — `:SP` alarm `WRITE`/`INVALID` plus the device's
+  `LAST_SET_ERROR` message PV — because a **no-callback write cannot see the
+  put fail** (see §7, set-failure observability).
+- **Write with put-completion** (`caput -c`, aioca `wait=True`, ophyd-async
+  `set()`) whenever you care about the outcome. A plain fire-and-forget
+  `caput` returns before the GEECS exchange even starts; its failure surfaces
+  only in the CA client library's asynchronous exception handler and the
+  alarm/error PVs above. This is Channel Access protocol semantics, not a
+  gateway limitation.
 - **Set timeout: 30 s default, configurable** (`GeecsCaGateway(set_timeout_s=…)`).
   This deliberately matches `CaMotor._DEFAULT_MOVE_TIMEOUT` (30 s) in
   GeecsBluesky — "a slow axis is not a dead one". A legitimate 10–30 s stage
@@ -492,6 +515,31 @@ At `pvdb` build time (startup), every PV registers in the manifest:
 
 ## 7. Failure semantics
 
+### Set-failure observability — alarm + `LAST_SET_ERROR`
+
+Live-verified against real hardware (U_S1H `Current`, 2026-07-23): an
+out-of-range set is ACKed `accepted` by the device, then fails in the exe
+reply (`error,… value not in range …`). The gateway surfaces that outcome
+three ways, so no client class is blind to it:
+
+1. **Put-completion** (callback writers): the caput fails with
+   `ECA_PUTFAIL`; the exception text carries the GEECS message. The value is
+   not stored (§2).
+2. **`:SP` channel alarm** (monitor clients): a failed set stamps the
+   setpoint channel `WRITE`/`INVALID`; the next successful set clears it to
+   `NO_ALARM`. Transitions only — repeated identical failures do not
+   re-publish. Alarm-sensitive Phoebus widgets show the failure with no
+   screen changes.
+3. **`device:last_set_error`** (any reader): the failure message, sticky
+   until overwritten by the next failure (§1).
+
+Scope: the alarm/error PVs mirror **GEECS forward outcomes** only. A put the
+gateway rejects before any UDP exchange (an uncastable value) fails the caput
+but leaves them untouched; an unresolvable enum label forwards verbatim (§4)
+and alarms only when GEECS rejects it. Fire-and-forget writes can never see
+the put fail — that is CA protocol semantics; use put-completion (§2) or
+monitor the alarm.
+
 ### Per-device startup fault tolerance
 
 - One device failing its UDP bind at `connect()` (e.g. an unroutable IP making
@@ -568,6 +616,9 @@ that branch and are part of this contract's target behavior.
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |
+| Failed set alarms `:SP` WRITE/INVALID, success clears; pre-forward client errors don't alarm | `test_pv_contract.py::test_setpoint_put_failure_stamps_write_invalid_alarm`, `::test_client_value_error_does_not_alarm_setpoint` |
+| Failure alarm published, transition-only; clear rides the value publish | `test_pv_contract.py::test_failed_set_alarm_is_published_on_transition_only` |
+| Out-of-range set end-to-end: ACK accepted + exe error ⇒ put fails, alarm, sticky `LAST_SET_ERROR`; PV only on settable devices | `test_gateway.py::test_out_of_range_set_fails_put_alarms_sp_and_records_error`, `::test_last_set_error_pv_exists_only_for_settable_devices` |
 | 30 s configurable set budget; 10 s get budget | `test_gateway.py::test_setpoint_write_uses_move_budget_timeout`, `::test_set_timeout_is_configurable`, `::test_get_uses_standard_exe_timeout` |
 | Timestamp ladder, LabVIEW→Unix, implausible rejected | `test_gateway.py::test_extract_timestamp_converts_labview_to_unix`, `::test_extract_timestamp_ladder_prefers_first_present`, `::test_extract_timestamp_none_when_absent_or_implausible`; `test_config_from_db.py::test_timestamp_ladder_default_prefers_acq_then_sys` |
 | PV stamped with device time; timestamp PVs carry raw LabVIEW value | `test_gateway.py::test_pv_timestamp_from_systimestamp`, `::test_timestamp_vars_exposed_as_pvs_with_raw_value` |

@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from caproto import AlarmSeverity, AlarmStatus
 
 from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
@@ -111,6 +112,105 @@ async def test_setpoint_put_failure_leaves_value_unstored() -> None:
     with pytest.raises(_Boom):
         await channel.write(4.2)
     assert channel.value == before  # not stored — put fails atomically
+
+
+async def test_setpoint_put_failure_stamps_write_invalid_alarm() -> None:
+    """A failed GEECS set alarms the ``:SP`` WRITE/INVALID; success clears it.
+
+    Contract §7 (set-failure observability): put-completion is invisible to
+    no-callback writers, so the failure must also surface as channel state —
+    the ``:SP`` alarm goes ``WRITE``/``INVALID`` on a failed set and returns
+    to ``NO_ALARM`` on the next successful one.
+    """
+    fail = True
+
+    async def setter(value: Any) -> Any:
+        if fail:
+            raise RuntimeError("GEECS set failed")
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    with pytest.raises(RuntimeError):
+        await channel.write(4.2)
+    assert channel.alarm.severity == AlarmSeverity.INVALID_ALARM
+    assert channel.alarm.status == AlarmStatus.WRITE
+
+    fail = False
+    await channel.write(1.0)
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    assert channel.alarm.status == AlarmStatus.NO_ALARM
+    assert channel.value == pytest.approx(1.0)
+
+
+async def test_failed_set_alarm_is_published_on_transition_only() -> None:
+    """The failure alarm is *published*; identical repeats and clears are not.
+
+    Contract §7: monitor clients are the audience for the failure alarm, so
+    the failed-set ``WRITE``/``INVALID`` write must publish (a state change a
+    subscriber never receives would make the whole feature a no-op — this
+    test fails if the failure path passes ``publish=False``). A repeated
+    identical failure must not re-publish, and the success-path clear rides
+    the value publish that follows (``publish=False`` here).
+    """
+    fail = True
+
+    async def setter(value: Any) -> Any:
+        if fail:
+            raise RuntimeError("GEECS set failed")
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    calls: list[dict[str, Any]] = []
+    original_write = channel.alarm.write
+
+    async def counting_write(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return await original_write(**kwargs)
+
+    channel.alarm.write = counting_write  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.2)
+    assert len(calls) == 1
+    assert calls[0].get("publish", True) is True  # the failure IS published
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.3)
+    assert len(calls) == 1  # repeated identical failure: no re-publish
+
+    fail = False
+    await channel.write(1.0)
+    assert len(calls) == 2  # the clear...
+    assert calls[1]["publish"] is False  # ...rides the value publish instead
+
+
+async def test_client_value_error_does_not_alarm_setpoint() -> None:
+    """A value-shape error the gateway rejects pre-forward does not alarm.
+
+    Contract §7: the ``WRITE``/``INVALID`` alarm mirrors GEECS *forward*
+    outcomes only — a put that fails before any UDP exchange (here an
+    uncastable scalar) fails the caput but leaves the alarm untouched.
+    (Unknown enum labels are different: they forward verbatim so GEECS
+    itself rejects them — §4 — and that rejection *does* alarm.)
+    """
+    forwarded: list[Any] = []
+
+    async def setter(value: Any) -> Any:
+        forwarded.append(value)
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    with pytest.raises(ValueError):
+        await channel.write("not-a-number")
+    assert forwarded == []  # never reached GEECS
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
 
 
 # ---------------------------------------------------------------------------

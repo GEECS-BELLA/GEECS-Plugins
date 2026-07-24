@@ -63,21 +63,42 @@ class FakeGeecsDevice:
     variables:
         Initial state dict mapping variable name → value.
         Values may be float, int, bool, or str.
+    limits:
+        Optional per-variable ``(lo, hi)`` set limits. A numeric set outside
+        the span is ACKed ``accepted`` but fails in the exe response with the
+        real hardware's out-of-range error phrasing (observed live on
+        ``U_S1H`` ``Current``, 2026-07-23) — the value is not stored.
     """
 
     name: str
     variables: dict[str, Any] = field(default_factory=dict)
+    limits: dict[str, tuple[float, float]] = field(default_factory=dict)
 
     def get(self, var: str) -> Any:
         """Return the current value of ``var``, or ``None`` if not found."""
         return self.variables.get(var)
 
     def set(self, var: str, value: Any) -> bool:
-        """Set ``var`` to ``value``; return ``False`` if the variable is unknown."""
+        """Set ``var`` to ``value``; return ``False`` on any set failure."""
+        return self.try_set(var, value) is None
+
+    def try_set(self, var: str, value: Any) -> str | None:
+        """Set ``var`` to ``value``; return the error detail, ``None`` on success."""
         if var not in self.variables:
-            return False
+            return "unknown variable"
+        span = self.limits.get(var)
+        if span is not None and isinstance(value, (int, float)):
+            lo, hi = span
+            if not lo <= value <= hi:
+                # Real GEECS phrasing, including the (hi, lo) span order:
+                # "Error occurred during setCurrent -  -100.000000000000 -
+                #  value not in range (5.000000,-5.000000)"
+                return (
+                    f"Error occurred during set{var} - {value} - "
+                    f"value not in range ({hi:.6f},{lo:.6f})"
+                )
         self.variables[var] = value
-        return True
+        return None
 
     def build_subscription_payload(self, var_names: list[str], shot: int) -> str:
         """Format the 5-Hz push message for the requested variables."""
@@ -89,11 +110,13 @@ class FakeGeecsDevice:
             parts.append(f"{v} nval,{val} nvar")
         return f"{self.name}>>{shot}>>" + ",".join(parts)
 
-    def build_exe_response(self, var: str, error: bool = False) -> str:
+    def build_exe_response(
+        self, var: str, error: bool = False, detail: str = "unknown variable"
+    ) -> str:
         """Build a GEECS exe-response string for ``var``."""
         val = self.variables.get(var, 0.0)
         if error:
-            return f"{self.name}>>{var}>>{val}>>error,unknown variable"
+            return f"{self.name}>>{var}>>{val}>>error,{detail}"
         return f"{self.name}>>{var}>>{val}>>ok,"
 
 
@@ -136,10 +159,10 @@ class _GeecsUdpProtocol(asyncio.DatagramProtocol):
         if op_and_var.startswith("set"):
             var = op_and_var[3:]
             value = coerce_scalar(value_str)
-            ok = self._device.set(var, value)
+            error_detail = self._device.try_set(var, value)
         elif op_and_var.startswith("get"):
             var = op_and_var[3:]
-            ok = var in self._device.variables
+            error_detail = None if var in self._device.variables else "unknown variable"
         else:
             logger.warning("unknown UDP op: %r", op_and_var)
             return
@@ -150,7 +173,11 @@ class _GeecsUdpProtocol(asyncio.DatagramProtocol):
         self._transport.sendto(b"accepted", (client_ip, client_cmd_port))
 
         # 2) Exe response on the client's exe port (cmd_port + 1)
-        exe_msg = self._device.build_exe_response(var, error=not ok)
+        exe_msg = self._device.build_exe_response(
+            var,
+            error=error_detail is not None,
+            detail=error_detail or "unknown variable",
+        )
         self._transport.sendto(exe_msg.encode("ascii"), (client_ip, client_exe_port))
         logger.debug("UDP tx exe → %s:%s  %r", client_ip, client_exe_port, exe_msg)
 

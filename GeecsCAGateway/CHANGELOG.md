@@ -3,6 +3,29 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.15.0] - 2026-07-23
+
+### Added
+
+- **Set-failure observability** (PV_CONTRACT §7): a failed GEECS set — e.g.
+  an out-of-bounds value the device ACKs `accepted` but rejects in the exe
+  reply (live-verified on U_S1H `Current`, 2026-07-23) — now surfaces as
+  published channel state, not only as put-completion failure, so
+  fire-and-forget CA writers (plain `caput`, default Phoebus writes) are no
+  longer blind to it:
+  - the `:SP` channel alarm goes `WRITE`/`INVALID` on a failed set and
+    clears to `NO_ALARM` on the next successful one (transition-only
+    publishes; pre-forward client errors such as an uncastable value do
+    not alarm);
+  - every device with a settable variable gains a
+    `[experiment:]device:last_set_error` long-string PV holding the most
+    recent failure message, sticky until the next failure.
+- `FakeGeecsDevice` gains per-variable `limits` — an out-of-range set is
+  ACKed but fails in the exe reply with the real hardware's
+  `value not in range (hi,lo)` phrasing, for offline pinning of the above.
+- `DEPLOYMENT.md` §3: always write with put-completion; documented why a
+  plain caput cannot see set failures (CA protocol semantics).
+
 ## [0.14.3] - 2026-07-21
 
 ### Changed

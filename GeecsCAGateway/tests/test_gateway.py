@@ -20,7 +20,9 @@ from caproto import AlarmSeverity, AlarmStatus
 from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.alarms import AlarmLimits
+from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
+from geecs_ca_gateway.exceptions import GeecsCommandFailedError
 from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
 
 pytestmark = pytest.mark.fake_server
@@ -467,6 +469,81 @@ async def test_enum_readback_and_setpoint() -> None:
             assert device.get("Enable_Output") == "on"
             # readback follows back to "on"
             assert await _wait_until(lambda: _enum_label(rb) == "on")
+        finally:
+            await gw.close()
+
+
+def _text(value: Any) -> str:
+    """A char-array channel value as a str (the package's own decode helper)."""
+    return _to_text(value)
+
+
+def test_last_set_error_pv_exists_only_for_settable_devices() -> None:
+    """Devices with a settable variable get a LAST_SET_ERROR PV; others don't."""
+    gw = GeecsCaGateway(_config("127.0.0.1", 1))  # Position is settable
+    assert f"{DEVICE_PV}:last_set_error" in gw.pvdb
+
+    readonly_cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[VariableSpec(geecs_var="Position", dtype="float")],
+            )
+        ]
+    )
+    assert f"{DEVICE_PV}:last_set_error" not in GeecsCaGateway(readonly_cfg).pvdb
+
+
+async def test_out_of_range_set_fails_put_alarms_sp_and_records_error() -> None:
+    """A GEECS-rejected set fails the put, alarms the :SP, records the message.
+
+    Pins the live-verified out-of-bounds behavior (U_S1H ``Current``,
+    2026-07-23): the device ACKs ``accepted`` but the exe reply is
+    ``error,… value not in range …``. The gateway must surface that as a
+    failed caput + ``WRITE``/``INVALID`` alarm on the ``:SP`` + the message
+    on ``LAST_SET_ERROR`` — never as a silent success. A subsequent in-range
+    set succeeds, clears the alarm, and leaves the error record sticky.
+    """
+    device = FakeGeecsDevice(
+        DEVICE,
+        variables={"Current": 0.0},
+        limits={"Current": (-5.0, 5.0)},
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(geecs_var="Current", dtype="float", settable=True)
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        sp = gw.pvdb[f"{DEVICE_PV}:current:SP"]
+        err = gw.pvdb[f"{DEVICE_PV}:last_set_error"]
+        try:
+            with pytest.raises(GeecsCommandFailedError, match="value not in range"):
+                await sp.write(-100.0)
+            assert device.get("Current") == pytest.approx(0.0)  # hardware untouched
+            assert sp.value != pytest.approx(-100.0)  # not stored
+            assert int(sp.alarm.severity) == int(AlarmSeverity.INVALID_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.WRITE)
+            assert "value not in range" in _text(err.value)
+
+            await sp.write(2.5)
+            assert device.get("Current") == pytest.approx(2.5)
+            assert sp.value == pytest.approx(2.5)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.NO_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.NO_ALARM)
+            # Sticky forensic record — the alarm carries the cleared state.
+            assert "value not in range" in _text(err.value)
         finally:
             await gw.close()
 
