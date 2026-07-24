@@ -32,6 +32,11 @@ from caproto import (
     ChannelString,
 )
 
+# Not re-exported at caproto top level; it is the exact class caproto's own
+# verify_value raises, reused so pre-forward rejections are indistinguishable
+# from caproto-native control-limit rejections to CA clients.
+from caproto._data import CannotExceedLimits
+
 from .config import DType, VariableSpec
 
 logger = logging.getLogger(__name__)
@@ -239,8 +244,26 @@ def _metadata_kwargs(
     *,
     initial_severity: AlarmSeverity | None = None,
     initial_status: AlarmStatus | None = None,
+    control_limits: bool = False,
 ) -> dict[str, Any]:
-    """Caproto kwargs (value + EGU/precision/limits) for a scalar channel."""
+    """Caproto kwargs (value + EGU/precision/limits) for a scalar channel.
+
+    Parameters
+    ----------
+    spec : VariableSpec
+        The variable being exposed.
+    initial_severity, initial_status : optional
+        Initial alarm state for the channel.
+    control_limits : bool
+        Additionally serve ``spec.lo``/``spec.hi`` as *control* limits
+        (``DBR_CTRL``) — **setpoint channels only**. Readbacks must stay
+        display-limits-only: caproto enforces control limits on every write,
+        including the gateway's own stream mirroring, and would reject
+        faithful-but-out-of-range readbacks (e.g. NaN from a failed
+        analysis). Only well-formed spans (both bounds present, ``lo < hi``)
+        are served — a degenerate or one-sided DB row must not brick an axis
+        (``lo == hi`` is caproto's "limits disabled" sentinel).
+    """
     kwargs: dict[str, Any] = {"value": _initial(spec.dtype)}
     if initial_severity is not None or initial_status is not None:
         kwargs["alarm"] = ChannelAlarm(
@@ -252,13 +275,20 @@ def _metadata_kwargs(
     if spec.dtype in ("float", "int"):
         if spec.egu:
             kwargs["units"] = spec.egu
-        # Display (informational) limits only — NOT control limits, which caproto
-        # *enforces* on write and would reject faithful-but-out-of-range readbacks
-        # (e.g. NaN from a failed analysis). GEECS is the authority on valid values.
+        # Display (informational) limits on every scalar channel; control
+        # limits only where `control_limits` says so (see the docstring).
         if spec.lo is not None:
             kwargs["lower_disp_limit"] = spec.lo
         if spec.hi is not None:
             kwargs["upper_disp_limit"] = spec.hi
+        if (
+            control_limits
+            and spec.lo is not None
+            and spec.hi is not None
+            and spec.lo < spec.hi
+        ):
+            kwargs["lower_ctrl_limit"] = spec.lo
+            kwargs["upper_ctrl_limit"] = spec.hi
     return kwargs
 
 
@@ -419,11 +449,29 @@ def make_setpoint_channel(spec: VariableSpec, setter: Setter) -> ChannelData:
         """Scalar channel whose CA puts are forwarded to a GEECS device."""
 
         async def write(self, value: Any, **kwargs: Any) -> Any:
-            """Forward the put to GEECS, then store the value locally."""
-            await _forward_set(self, setter, cast_value(dtype, value))
+            """Forward the put to GEECS, then store the value locally.
+
+            Control limits are checked **before** the GEECS forward, not
+            merely via caproto's own ``verify_value`` (which runs inside
+            ``super().write`` — i.e. *after* the UDP set has gone out; with
+            DB limits tighter than the device's, the hardware would move and
+            the put would then fail). The pre-forward check is the same
+            semantics caproto applies: equal limits mean disabled.
+            """
+            geecs_value = cast_value(dtype, value)
+            if dtype in ("float", "int"):
+                lo, hi = self.lower_ctrl_limit, self.upper_ctrl_limit
+                if lo != hi and not lo <= geecs_value <= hi:
+                    # Pre-forward rejection: a client error, not a device
+                    # outcome — no UDP, no :SP alarm, no LAST_SET_ERROR.
+                    raise CannotExceedLimits(
+                        f"Cannot write data {geecs_value}. Limits are set to "
+                        f"{lo} and {hi}."
+                    )
+            await _forward_set(self, setter, geecs_value)
             return await super().write(value, **kwargs)
 
-    return _GeecsSetpoint(**_metadata_kwargs(spec))
+    return _GeecsSetpoint(**_metadata_kwargs(spec, control_limits=True))
 
 
 #: Enum states of the ``CAGateway:RESTART`` control PV.

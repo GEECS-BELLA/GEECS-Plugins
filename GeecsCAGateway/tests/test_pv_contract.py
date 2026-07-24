@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 from caproto import AlarmSeverity, AlarmStatus
+from caproto._data import CannotExceedLimits
 
 from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
@@ -211,6 +212,64 @@ async def test_client_value_error_does_not_alarm_setpoint() -> None:
         await channel.write("not-a-number")
     assert forwarded == []  # never reached GEECS
     assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+
+
+async def test_out_of_ctrl_limit_put_rejected_before_forward() -> None:
+    """An out-of-range put fails at the CA layer, BEFORE any UDP forward.
+
+    Contract §2: ``:SP`` channels enforce the DB span as control limits
+    pre-forward. The ordering is the load-bearing part — with DB limits
+    tighter than the device's, a post-forward check would move the hardware
+    and then fail the put. And per §7 it is a *client* error: no ``:SP``
+    alarm, nothing on ``LAST_SET_ERROR`` (the setter — where the gateway's
+    error recording hangs — is never invoked).
+    """
+    forwarded: list[Any] = []
+
+    async def setter(value: Any) -> Any:
+        forwarded.append(value)
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True, lo=-5, hi=5),
+        setter,
+    )
+    with pytest.raises(CannotExceedLimits, match="Limits are set to"):
+        await channel.write(100.0)
+    assert forwarded == []  # the device never saw the put
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    assert float(channel.value) != 100.0  # not stored
+
+    await channel.write(2.5)  # in-range put forwards and stores as before
+    assert forwarded == [2.5]
+    assert float(channel.value) == 2.5
+
+
+async def test_missing_or_degenerate_db_span_stays_unlimited() -> None:
+    """No/one-sided/degenerate DB spans serve an unenforced ``:SP``.
+
+    Contract §2: control limits are served only for well-formed spans (both
+    bounds, ``lo < hi``). A variable with no DB limits, one bound, or a
+    degenerate ``lo == hi`` row keeps an unlimited setpoint — a bad DB row
+    must never brick an axis at the CA layer.
+    """
+    for spec_kwargs in (
+        {},  # no bounds
+        {"lo": -5.0},  # one-sided
+        {"lo": 0.0, "hi": 0.0},  # degenerate (real rows: U_TRAServer01)
+    ):
+        forwarded: list[Any] = []
+
+        async def setter(value: Any) -> Any:
+            forwarded.append(value)
+
+        channel = make_setpoint_channel(
+            VariableSpec(
+                geecs_var="Current", dtype="float", settable=True, **spec_kwargs
+            ),
+            setter,
+        )
+        await channel.write(1e6)  # any value forwards
+        assert forwarded == [1e6], f"blocked with {spec_kwargs!r}"
 
 
 # ---------------------------------------------------------------------------

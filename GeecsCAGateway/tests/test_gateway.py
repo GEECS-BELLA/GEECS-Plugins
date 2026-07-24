@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from caproto import AlarmSeverity, AlarmStatus
+from caproto._data import CannotExceedLimits
 from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.alarms import AlarmLimits
@@ -543,6 +544,63 @@ async def test_out_of_range_set_fails_put_alarms_sp_and_records_error() -> None:
             assert int(sp.alarm.severity) == int(AlarmSeverity.NO_ALARM)
             assert int(sp.alarm.status) == int(AlarmStatus.NO_ALARM)
             # Sticky forensic record — the alarm carries the cleared state.
+            assert "value not in range" in _text(err.value)
+        finally:
+            await gw.close()
+
+
+async def test_ctrl_limit_gate_layers_with_device_side_rejection() -> None:
+    """DB ctrl limits gate at CA; device-side rejection still alarms behind it.
+
+    Layered enforcement end-to-end: a put outside the DB span fails with
+    ``CannotExceedLimits`` before any UDP traffic (no alarm, no
+    ``LAST_SET_ERROR`` — a client error, §2/§7); a put *inside* the DB span
+    but outside the device's own (tighter) limits reaches the device, is
+    rejected in the exe reply, and drives the 0.15.0 machinery — put fails,
+    ``WRITE``/``INVALID`` alarm, message recorded.
+    """
+    device = FakeGeecsDevice(
+        DEVICE,
+        variables={"Current": 0.0},
+        limits={"Current": (-3.0, 3.0)},  # device enforces tighter than DB
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(
+                            geecs_var="Current",
+                            dtype="float",
+                            settable=True,
+                            lo=-5.0,
+                            hi=5.0,  # DB span, served as :SP ctrl limits
+                        )
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        sp = gw.pvdb[f"{DEVICE_PV}:current:SP"]
+        err = gw.pvdb[f"{DEVICE_PV}:last_set_error"]
+        try:
+            # Outside the DB span: rejected at the CA layer, pre-forward.
+            with pytest.raises(CannotExceedLimits):
+                await sp.write(100.0)
+            assert device.get("Current") == pytest.approx(0.0)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.NO_ALARM)
+            assert _text(err.value) == ""  # no device outcome to record
+
+            # Inside the DB span, outside the device's: device-side path.
+            with pytest.raises(GeecsCommandFailedError, match="value not in range"):
+                await sp.write(4.0)
+            assert device.get("Current") == pytest.approx(0.0)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.INVALID_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.WRITE)
             assert "value not in range" in _text(err.value)
         finally:
             await gw.close()

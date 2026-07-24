@@ -172,7 +172,14 @@ def test_dtypes_override() -> None:
 
 
 def test_pvdb_built_from_db_spec_has_limits() -> None:
-    """A gateway built from the DB spec carries CA control limits on channels."""
+    """DB limits split by channel kind: display on readback, control on :SP.
+
+    The readback must stay display-limits-only (caproto enforces control
+    limits on every write, including the gateway's own stream mirroring —
+    the 9396c61f NaN-readback lesson); the setpoint additionally serves the
+    span as enforced ``DBR_CTRL`` limits so out-of-range client puts fail at
+    the CA layer.
+    """
     spec = DeviceSpec.from_db_metadata(
         "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
     )
@@ -180,11 +187,18 @@ def test_pvdb_built_from_db_spec_has_limits() -> None:
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
     current = gw.pvdb["u_s1h:current"]
-    # display (informational) limits, not enforced control limits
+    # readback: display (informational) limits, control limits DISABLED (0/0)
     assert current.upper_disp_limit == 5.0
     assert current.lower_disp_limit == -5.0
     assert current.units == "A"
-    assert "u_s1h:current:SP" in gw.pvdb  # settable -> setpoint exists
+    assert current.lower_ctrl_limit == current.upper_ctrl_limit == 0
+
+    sp = gw.pvdb["u_s1h:current:SP"]  # settable -> setpoint exists
+    # setpoint: same span served as BOTH display and enforced control limits
+    assert sp.lower_disp_limit == -5.0
+    assert sp.upper_disp_limit == 5.0
+    assert sp.lower_ctrl_limit == -5.0
+    assert sp.upper_ctrl_limit == 5.0
 
 
 def test_from_db_metadata_dedupes_duplicate_variables() -> None:

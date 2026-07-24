@@ -3,6 +3,27 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.16.0] - 2026-07-24
+
+### Added
+
+- **Control (drive) limits on setpoint PVs** (PV_CONTRACT §2): `:SP`
+  channels now serve the DB `min`/`max` span as enforced `DBR_CTRL` limits —
+  mirroring GEECS's own enforcement at the gateway per standard EPICS
+  gateway practice — and reject out-of-range puts **pre-forward**
+  (`CannotExceedLimits`, no UDP traffic, no device perturbation; the check
+  runs before the GEECS forward because caproto's own `verify_value` runs
+  after it). Pre-forward rejection is a client error: no `:SP` alarm, no
+  `LAST_SET_ERROR` (those keep mirroring device-side outcomes only).
+  Served only for well-formed spans (both bounds, `lo < hi`; DB audit
+  2026-07-24: 1480/1550 settable Undulator variables qualify) — missing,
+  one-sided, or degenerate rows leave the `:SP` unenforced so a bad DB row
+  can never brick an axis. **GEECS device-side enforcement remains the
+  guaranteed backstop** (interlocks, DB-edit drift): values inside the DB
+  span that the device rejects still fail with the device's error and the
+  0.15.0 alarm machinery. Readbacks are untouched — display limits only
+  (the 9396c61f NaN-readback behavior, now pinned per channel kind).
+
 ## [0.15.0] - 2026-07-23
 
 ### Added
