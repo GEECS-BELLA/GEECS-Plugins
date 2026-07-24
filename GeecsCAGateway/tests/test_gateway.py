@@ -20,6 +20,7 @@ from caproto import AlarmSeverity, AlarmStatus
 from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from geecs_ca_gateway.alarms import AlarmLimits
+from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_ca_gateway.exceptions import GeecsCommandFailedError
 from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
@@ -473,12 +474,8 @@ async def test_enum_readback_and_setpoint() -> None:
 
 
 def _text(value: Any) -> str:
-    """A char-array channel value as a str."""
-    if isinstance(value, (bytes, bytearray)):
-        return value.decode()
-    if not isinstance(value, str) and hasattr(value, "__len__"):
-        return bytes(bytearray(int(v) for v in value)).decode()
-    return str(value)
+    """A char-array channel value as a str (the package's own decode helper)."""
+    return _to_text(value)
 
 
 def test_last_set_error_pv_exists_only_for_settable_devices() -> None:

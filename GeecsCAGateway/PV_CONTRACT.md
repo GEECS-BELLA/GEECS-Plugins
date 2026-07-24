@@ -617,6 +617,7 @@ that branch and are part of this contract's target behavior.
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |
 | Failed set alarms `:SP` WRITE/INVALID, success clears; pre-forward client errors don't alarm | `test_pv_contract.py::test_setpoint_put_failure_stamps_write_invalid_alarm`, `::test_client_value_error_does_not_alarm_setpoint` |
+| Failure alarm published, transition-only; clear rides the value publish | `test_pv_contract.py::test_failed_set_alarm_is_published_on_transition_only` |
 | Out-of-range set end-to-end: ACK accepted + exe error ⇒ put fails, alarm, sticky `LAST_SET_ERROR`; PV only on settable devices | `test_gateway.py::test_out_of_range_set_fails_put_alarms_sp_and_records_error`, `::test_last_set_error_pv_exists_only_for_settable_devices` |
 | 30 s configurable set budget; 10 s get budget | `test_gateway.py::test_setpoint_write_uses_move_budget_timeout`, `::test_set_timeout_is_configurable`, `::test_get_uses_standard_exe_timeout` |
 | Timestamp ladder, LabVIEW→Unix, implausible rejected | `test_gateway.py::test_extract_timestamp_converts_labview_to_unix`, `::test_extract_timestamp_ladder_prefers_first_present`, `::test_extract_timestamp_none_when_absent_or_implausible`; `test_config_from_db.py::test_timestamp_ladder_default_prefers_acq_then_sys` |

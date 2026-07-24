@@ -145,6 +145,50 @@ async def test_setpoint_put_failure_stamps_write_invalid_alarm() -> None:
     assert channel.value == pytest.approx(1.0)
 
 
+async def test_failed_set_alarm_is_published_on_transition_only() -> None:
+    """The failure alarm is *published*; identical repeats and clears are not.
+
+    Contract §7: monitor clients are the audience for the failure alarm, so
+    the failed-set ``WRITE``/``INVALID`` write must publish (a state change a
+    subscriber never receives would make the whole feature a no-op — this
+    test fails if the failure path passes ``publish=False``). A repeated
+    identical failure must not re-publish, and the success-path clear rides
+    the value publish that follows (``publish=False`` here).
+    """
+    fail = True
+
+    async def setter(value: Any) -> Any:
+        if fail:
+            raise RuntimeError("GEECS set failed")
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    calls: list[dict[str, Any]] = []
+    original_write = channel.alarm.write
+
+    async def counting_write(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return await original_write(**kwargs)
+
+    channel.alarm.write = counting_write  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.2)
+    assert len(calls) == 1
+    assert calls[0].get("publish", True) is True  # the failure IS published
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.3)
+    assert len(calls) == 1  # repeated identical failure: no re-publish
+
+    fail = False
+    await channel.write(1.0)
+    assert len(calls) == 2  # the clear...
+    assert calls[1]["publish"] is False  # ...rides the value publish instead
+
+
 async def test_client_value_error_does_not_alarm_setpoint() -> None:
     """A value-shape error the gateway rejects pre-forward does not alarm.
 

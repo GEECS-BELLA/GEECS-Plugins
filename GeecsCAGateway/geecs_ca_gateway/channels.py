@@ -16,6 +16,7 @@ string (:func:`enum_geecs_value`).
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Awaitable, Callable
 
 from caproto import (
@@ -32,6 +33,8 @@ from caproto import (
 )
 
 from .config import DType, VariableSpec
+
+logger = logging.getLogger(__name__)
 
 #: Async callable that pushes a value to a GEECS device (``udp.set``-shaped).
 Setter = Callable[[Any], Awaitable[Any]]
@@ -344,9 +347,14 @@ async def _forward_set(channel: ChannelData, setter: Setter, geecs_value: Any) -
             AlarmSeverity.INVALID_ALARM,
             AlarmStatus.WRITE,
         ):
-            await alarm.write(
-                status=AlarmStatus.WRITE, severity=AlarmSeverity.INVALID_ALARM
-            )
+            try:
+                await alarm.write(
+                    status=AlarmStatus.WRITE, severity=AlarmSeverity.INVALID_ALARM
+                )
+            except Exception:
+                # Alarm bookkeeping is best-effort — the caput must fail with
+                # the real set error, never a publish-side one.
+                logger.debug("failed to publish set-failure alarm", exc_info=True)
         raise
     alarm = channel.alarm
     if (alarm.severity, alarm.status) != (
