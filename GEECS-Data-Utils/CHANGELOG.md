@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.5] — 2026-07-25
+
+### Fixed
+
+- **`decode_imaq_image_string`: tail-anchored fallback for wrappers without the
+  repeated-name payload anchor** (rolled forward from master, released there as
+  0.12.1). Some cameras (observed live: `UC_Amp2_IR_input`) flatten frames
+  without repeating the device-name string before the pixel block, so every
+  frame failed with "payload not divisible by rows". Dispatch is structural:
+  when the name never repeats, geometry and pixel type (IMAQ type code, header
+  offset +36) come from the IMAQ struct and the pixel block is the last
+  `rows * stride` bytes (stride 64-byte aligned); anchored wrappers keep the
+  strict loud-error path. Verified against a captured live frame.
+
 ## [0.13.4] — 2026-07-16
 
 ### Changed
