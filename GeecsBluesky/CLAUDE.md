@@ -495,6 +495,15 @@ wire-level exceptions) and never the transport or the server.  See
 `GeecsCAGateway/README.md` and `GeecsCAGateway/DESIGN.md` for the protocol
 details that used to be documented here.
 
+**Images: two paths, deliberately separate.** Per-shot *scan data* stays on
+the file path — the LabVIEW device writes files, this package's asset
+registry/handlers reference them, Tiled serves them post-hoc. *Live* frames
+are NTNDArray PVs over pvAccess served by `GeecsPvaGateway/` (distributed,
+per camera server, same `pv_naming` namespace). ophyd-async speaks PVA
+natively, so a live-image signal is a stock EPICS signal when a use case
+wants one — never a bespoke transport, and never 2 MB frames through the
+document stream.
+
 ## Test Infrastructure
 
 `FakeGeecsServer` / `FakeGeecsDevice` (the in-process UDP/TCP server that

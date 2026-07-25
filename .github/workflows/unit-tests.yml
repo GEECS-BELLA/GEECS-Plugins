@@ -43,6 +43,14 @@ jobs:
         working-directory: GeecsBluesky
         run: poetry run pytest tests -m "not integration and not fake_server" --tb=short -q
 
+      - name: Install GeecsPvaGateway dependencies
+        working-directory: GeecsPvaGateway
+        run: poetry install --with dev
+
+      - name: Run GeecsPvaGateway tests
+        working-directory: GeecsPvaGateway
+        run: poetry run pytest tests --tb=short -q
+
   console-windows:
     # GEECS-Console is the operator-facing PySide6 GUI and control-room
     # machines run Windows — this job pins that the console suite passes

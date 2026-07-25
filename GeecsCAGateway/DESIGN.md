@@ -148,7 +148,8 @@ Recorded so the next build phase doesn't relitigate them.
   the mature PVA-server route if/when needed. (`p4p` is the PVA Python library,
   not "the new pyepics"; pyepics stays CA-only and current.)
 
-- **Images are a separate, distributed, PVA workstream — not this gateway.** A
+- **Images are a separate, distributed, PVA workstream — not this gateway.**
+  (Implemented 2026-07: `GeecsPvaGateway/`, one instance per camera server.) A
   central gateway funneling ~100 cameras is a bandwidth bottleneck. Images belong
   on distributed per-camera IOCs (areaDetector-style, PVA/NTNDArray) where data
   stays at the edge. CA name resolution lets the central scalar gateway and

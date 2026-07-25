@@ -127,6 +127,16 @@ class GeecsTcpSubscriber:
             self._writer = None
         self._reader = None
 
+    async def wait_disconnected(self) -> None:
+        """Return when the push listener exits (socket drop or ``close()``).
+
+        Lets a caller supervise the subscription: await this after
+        :meth:`subscribe`, and reconnect when it returns. Returns immediately
+        if no listener is running.
+        """
+        if self._listen_task is not None:
+            await asyncio.shield(self._listen_task)
+
     async def __aenter__(self) -> "GeecsTcpSubscriber":
         """Connect and return ``self``."""
         await self.connect()
@@ -195,7 +205,8 @@ class GeecsTcpSubscriber:
                 # latin-1 is a lossless byte<->str map: binary payloads (image
                 # frames) survive exactly, and ASCII scalar frames are unchanged.
                 msg = payload.decode("latin-1")
-                logger.debug("TCP rx: %r", msg)
+                # Truncated repr: image frames are multi-MB, scalar frames tiny.
+                logger.debug("TCP rx (%d bytes): %.200r", len(msg), msg)
 
                 parsed = _parse_subscription(msg, pattern, text_variables)
                 self._warn_missing_variables(subscribed, parsed)
