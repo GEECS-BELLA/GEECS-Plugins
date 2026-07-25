@@ -1,0 +1,39 @@
+[tool.poetry]
+name = "geecs-pva-gateway"
+version = "0.1.0"
+description = "Distributed pvAccess gateway serving GEECS camera images as NTNDArray PVs"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{ include = "geecs_pva_gateway" }]
+
+[tool.poetry.scripts]
+geecs-pva-gateway = "geecs_pva_gateway.__main__:main"
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+p4p = ">=4.2"
+numpy = ">=2.0,<3.0"
+# The PVA peer of GeecsCAGateway: same access-layer doctrine, same DB-driven
+# config, same naming contract — different protocol. Runs distributed on the
+# camera servers (one instance per host, serving that host's cameras) instead
+# of centrally; the central CA gateway never proxies pixels (DESIGN.md).
+geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-asyncio = ">=0.23"
+pytest-timeout = "^2.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+# Default run needs no lab network; DB integration tests are opt-in.
+addopts = "-m 'not integration'"
+markers = [
+    "fake_server: tests that open local TCP/PVA sockets",
+    "integration: tests that touch external lab services such as the GEECS database",
+]

@@ -188,8 +188,10 @@ ca_addr_list`, applied by geecs_bluesky at import) is documented in
 
 - **Never let producer and consumer naming drift** — the policy lives only in
   `pv_naming.py`; GeecsBluesky imports the same module. No copies.
-- **Scalars/controls only; images stay off CA** (distributed PVA workstream,
-  DESIGN.md). Don't add image PVs here.
+- **Scalars/controls only; images stay off CA** (DESIGN.md). Don't add image
+  PVs here — they are served by `GeecsPvaGateway/`, the distributed PVA peer
+  running on the camera servers (it imports this package's transport, DB, and
+  `pv_naming`; same one-namespace coexistence as GeecsBluesky).
 - Follow the repo-wide conventions (root `CLAUDE.md`): Pydantic v2, NumPy
   docstrings, type hints, `poetry version` + `CHANGELOG.md` on every
   code-changing PR.

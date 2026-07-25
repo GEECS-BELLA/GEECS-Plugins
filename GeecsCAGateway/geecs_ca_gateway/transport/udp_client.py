@@ -14,7 +14,7 @@ Local-IP detection
 GEECS devices sit on a private network reached via a PPP/VPN link on the lab
 machines.  Binding a UDP socket to ``""`` raises ``EADDRNOTAVAIL`` on macOS
 when the only route to the destination goes through a PPP interface.
-:func:`_detect_local_ip` probes which interface the OS would use and we bind
+:func:`detect_local_ip` probes which interface the OS would use and we bind
 explicitly to that address.  This has no effect on ordinary Ethernet/Wi-Fi
 connections (where the probed IP happens to be the default one anyway).
 """
@@ -151,7 +151,7 @@ def _make_exe_matcher(variable: str, op: str) -> Callable[[bytes], bool]:
 # ---------------------------------------------------------------------------
 
 
-def _detect_local_ip(remote_host: str, remote_port: int = 80) -> str:
+def detect_local_ip(remote_host: str, remote_port: int = 80) -> str:
     """Return the local IP the OS would use to reach *remote_host*.
 
     Uses a no-op UDP ``connect`` (no packets sent) so it works even when
@@ -165,6 +165,10 @@ def _detect_local_ip(remote_host: str, remote_port: int = 80) -> str:
         return local_ip
     except OSError:
         return ""
+
+
+# Historical private name, kept for in-package callers.
+_detect_local_ip = detect_local_ip
 
 
 # ---------------------------------------------------------------------------

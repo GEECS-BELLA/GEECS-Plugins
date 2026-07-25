@@ -173,6 +173,13 @@ convention (areaDetector `FilePath` does the same). Clients should read/write
 them as long strings (`caget -S`, ophyd-async handles it natively). Plain
 `string` variables stay native 40-char string PVs.
 
+**Images are not served by this gateway.** Image-typed variables are exposed
+as **NTNDArray PVs over pvAccess** by `GeecsPvaGateway/` — distributed
+instances on the camera servers, minting names with this same `pv_naming`
+policy (`undulator:uc_amp2_ir_input:image`), so the namespace is one flat
+contract across both protocols. See that package's README/CLAUDE.md for the
+image-side behavior (gated subscriptions, latest-wins delivery, timestamps).
+
 ---
 
 ## 2. Readbacks vs setpoints

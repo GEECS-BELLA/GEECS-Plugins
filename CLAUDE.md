@@ -16,8 +16,9 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
 | `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
 | `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
+| `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
-| `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |
+| `GEECS-PythonAPI/` | Legacy device TCP layer — **deprecated, slated for deletion; never build on it** (GeecsCAGateway owns all GEECS transport) |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
@@ -130,6 +131,9 @@ ImageAnalysis        →  GEECS-Data-Utils
 GeecsCAGateway       →  GEECS-Schemas (schema-only vocabulary for optional
                         derived-channel overlays; otherwise the GEECS access layer:
                         wire protocol, DB, PV naming, CA server)
+GeecsPvaGateway      →  GeecsCAGateway (transport, DB, pv_naming),
+                        GEECS-Data-Utils (IMAQ decode) — the distributed
+                        PVA image server on the camera servers
 GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway, GEECS-Schemas
                         (+ ImageAnalysis, optional via the `analysis` extra —
                         post-run image analysis over archived Tiled runs)
@@ -159,8 +163,8 @@ Two declaration quirks worth knowing (both verified against the pyprojects):
 - **`GEECS-PythonAPI` declares a dependency on `ImageAnalysis` but never imports
   it** — a stale/unused entry in `GEECS-PythonAPI/pyproject.toml`. It's an
   architecturally backwards edge (the low-level device layer pointing at the
-  high-level analysis package) and is a candidate for removal whenever the
-  python-api refactor next touches its dependencies. It is intentionally omitted
+  high-level analysis package); it disappears with the package's planned
+  deletion. It is intentionally omitted
   from the graph above because no code relies on it.
 - **`ScanAnalysis`'s dependency on `GEECS-PythonAPI` is currently commented out**
   in its `pyproject.toml`, so ScanAnalysis does not depend on python-api. (An
@@ -198,14 +202,16 @@ Two declaration quirks worth knowing (both verified against the pyprojects):
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
 equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/config.ini`.
 
-## GEECS-PythonAPI — Handle With Care
+## GEECS-PythonAPI — Deprecated, Never Build On It
 
-This package provides TCP device connections and the experiment database query
-layer. It is **being refactored** — do not add new features or restructure it.
-Other packages use it primarily for:
-- `ScanDevice` — subscribe to a device variable stream
-- Database dict lookup — enumerate all devices in an experiment
-- `config.ini` — shared config file all packages read from
+This package (legacy TCP device connections + DB query layer) is **deprecated
+and slated for deletion** (owner decision, 2026-07-25). All of its transport
+functionality lives in `GeecsCAGateway` (`transport/`, `db/`) — new code uses
+that, exclusively. Do not add features, do not adopt it in new call sites, do
+not "fix" it opportunistically. Known hazard: importing its `interface` module
+with a config present can hang forever in headless sessions (import-time
+tkinter file dialog). Legacy consumers on `master` (Scanner-GUI, existing
+scripts) keep working until deletion; that's the only supported use.
 
 ## Release & Versioning
 
@@ -233,7 +239,8 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
-`GeecsBluesky/`, `GeecsCAGateway/`, `GEECS-Schemas/`, `GEECS-Console/`.
+`GeecsBluesky/`, `GeecsCAGateway/`, `GeecsPvaGateway/`, `GEECS-Schemas/`,
+`GEECS-Console/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
@@ -315,9 +322,10 @@ revisit. Speculative cleanup is not.
   base class for editor windows). Wait for a specific feature ("add a new
   scan mode," "add a new editor") to drive the refactor with bounded scope.
 
-- **`GEECS-PythonAPI` is being refactored elsewhere.** Don't add features here
-  or restructure it. Other packages use it through `ScanDevice` and the
-  database dict lookup; treat that as the public surface.
+- **`GEECS-PythonAPI` is deprecated and slated for deletion** (owner decision
+  2026-07-25; see the package section above). It stays in-tree only for
+  legacy `master`-line consumers until deletion. Don't add features, don't
+  adopt it in new call sites, don't lint-fix it opportunistically.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

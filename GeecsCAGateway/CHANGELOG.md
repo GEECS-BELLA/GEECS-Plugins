@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.17.0] - 2026-07-25
+
+### Added
+
+- **`GeecsTcpSubscriber.wait_disconnected()`** — returns when the push listener
+  exits (socket drop or `close()`), so external supervisors (GeecsPvaGateway's
+  per-camera reconnect loop) can await disconnection without reaching into
+  private task handles.
+
+### Changed
+
+- The subscriber's per-frame debug log is truncated (`%.200r` + byte count) —
+  it previously logged the full payload repr, which becomes multi-MB per frame
+  once image payloads ride this transport (owed from PR #605 review, finding 2).
+
 ## [0.16.1] - 2026-07-25
 
 ### Fixed
