@@ -13,8 +13,11 @@ All notable changes to `geecs-ca-gateway` are documented here, following
   every byte >0x7f became U+FFFD. latin-1 is the lossless byte↔str map, so a
   `text_variables` subscriber recovers the exact wire bytes via
   `value.encode("latin-1")`. Prerequisite for the distributed PVA image-server
-  workstream (DESIGN.md: images stay off CA, data stays at the edge); no
-  externally observable gateway behavior changes.
+  workstream (DESIGN.md: images stay off CA, data stays at the edge). Served
+  PVs are unchanged for ASCII frames; text values carrying bytes >0x7f (never
+  observed in production) now decode as latin-1 characters instead of U+FFFD
+  replacement chars. The UDP get/exe path keeps its ASCII decode — the TCP
+  push stream is the only binary-bearing path.
 
 ## [0.16.0] - 2026-07-24
 
