@@ -212,8 +212,8 @@ async def test_dropped_device_connection_reconnects():
 
 
 @pytest.mark.timeout(30)
-async def test_pv_name_collision_raises():
-    """Two sources normalizing to one PV name refuse to start, loudly."""
+async def test_cross_camera_pv_name_collision_raises():
+    """Two cameras normalizing to one PV name refuse to start, loudly."""
     specs = [
         CameraSpec(
             device="UC_Cam-A",
@@ -231,6 +231,25 @@ async def test_pv_name_collision_raises():
         ),
     ]
     gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=specs))
+    with pytest.raises(ValueError, match="collision"):
+        await gateway.run(isolate=True)
+
+
+@pytest.mark.timeout(30)
+async def test_within_camera_pv_name_collision_raises():
+    """Two variables of ONE camera normalizing to one name refuse to start.
+
+    These collapse in a per-camera dict before a cross-worker guard sees
+    them, so the guard must inspect per-variable entries.
+    """
+    spec = CameraSpec(
+        device="UC_Cam",
+        host="127.0.0.1",
+        port=1,
+        experiment="testexp",
+        image_variables=["processed image", "processed_image"],
+    )
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
     with pytest.raises(ValueError, match="collision"):
         await gateway.run(isolate=True)
 

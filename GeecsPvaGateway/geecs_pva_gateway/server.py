@@ -79,20 +79,27 @@ class _CameraWorker:
         self._supervisors: dict[str, asyncio.Task] = {}
         self._latest: dict[str, tuple[str, float]] = {}
         self._publishing: set[str] = set()
+        self._stopping = False
 
-    def providers(self) -> dict[str, SharedPV]:
-        """``{pv_name: SharedPV}`` for this camera's image variables."""
-        return {self._spec.pv_name_for(var): pv for var, pv in self._pvs.items()}
+    @property
+    def device(self) -> str:
+        """The GEECS device name this worker serves."""
+        return self._spec.device
 
-    def provider_sources(self) -> dict[str, tuple[str, str]]:
-        """``{pv_name: (device, variable)}`` — for collision reporting."""
-        return {
-            self._spec.pv_name_for(var): (self._spec.device, var)
-            for var in self._spec.image_variables
-        }
+    def provider_entries(self) -> list[tuple[str, str, SharedPV]]:
+        """``[(pv_name, variable, SharedPV), ...]`` — one row per variable.
+
+        A list, not a dict: two variables of this camera that normalize to the
+        same PV name must both surface so the collision guard can see them
+        rather than one silently shadowing the other.
+        """
+        return [(self._spec.pv_name_for(var), var, pv) for var, pv in self._pvs.items()]
 
     async def stop(self) -> None:
         """Cancel all supervisors (gateway shutdown)."""
+        # Latch first: a client connecting mid-shutdown must not spawn a
+        # supervisor this method has already passed.
+        self._stopping = True
         # Snapshot: client disconnects mutate the dict concurrently.
         tasks = list(self._supervisors.values())
         self._supervisors.clear()
@@ -113,6 +120,8 @@ class _CameraWorker:
         self._loop.call_soon_threadsafe(self._release, var)
 
     def _retain(self, var: str) -> None:
+        if self._stopping:
+            return
         self._clients[var] += 1
         existing = self._supervisors.get(var)
         if self._clients[var] == 1 and (existing is None or existing.done()):
@@ -235,18 +244,20 @@ class GeecsPvaGateway:
         self._workers = [_CameraWorker(spec, loop) for spec in self._config.cameras]
 
         # PV naming is lossy (normalization), so guard against two variables
-        # or devices landing on one name — shadowing would be silent.
+        # landing on one name — within a camera or across cameras — since
+        # shadowing would be silent. Iterate per-variable entries (not a
+        # per-camera dict, which would collapse the within-camera case).
         providers: dict[str, SharedPV] = {}
         owners: dict[str, tuple[str, str]] = {}
         for worker in self._workers:
-            sources = worker.provider_sources()
-            for name, pv in worker.providers().items():
+            for name, var, pv in worker.provider_entries():
+                source = (worker.device, var)
                 if name in owners:
                     raise ValueError(
                         f"PV name collision after normalization: {name!r} from "
-                        f"{sources[name]} and {owners[name]}"
+                        f"{source} and {owners[name]}"
                     )
-                owners[name] = sources[name]
+                owners[name] = source
                 providers[name] = pv
 
         prefix = pv_name(self._config.experiment, "pvagateway", self._instance_token())

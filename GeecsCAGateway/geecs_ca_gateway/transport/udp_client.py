@@ -14,7 +14,7 @@ Local-IP detection
 GEECS devices sit on a private network reached via a PPP/VPN link on the lab
 machines.  Binding a UDP socket to ``""`` raises ``EADDRNOTAVAIL`` on macOS
 when the only route to the destination goes through a PPP interface.
-:func:`_detect_local_ip` probes which interface the OS would use and we bind
+:func:`detect_local_ip` probes which interface the OS would use and we bind
 explicitly to that address.  This has no effect on ordinary Ethernet/Wi-Fi
 connections (where the probed IP happens to be the default one anyway).
 """
