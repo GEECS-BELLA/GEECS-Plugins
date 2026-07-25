@@ -39,6 +39,9 @@ fetches `nssm.exe`, and registers the `GeecsPvaGateway` service (auto-start,
 restart on any exit, online-rotating logs). Then place `Configurations.INI` in
 the profile (rule 1) and `nssm start GeecsPvaGateway`. Note `launch.bat` is
 copied at bootstrap time — launcher changes need a re-bootstrap, wheels don't.
+A **re**-bootstrap removes the existing service first (so pip never upgrades
+in-use files): if a later step fails, the box has no service until the
+bootstrap is re-run to completion — the failure is loud, fix and re-run.
 
 ## Rollout (fleet upgrade without touching boxes)
 
@@ -48,8 +51,10 @@ not shipped explicitly stays at its installed version):
 
 ```bash
 for p in GEECS-Data-Utils GeecsCAGateway GeecsPvaGateway; do (cd $p && poetry build); done
-# copy the changed wheels to the share, then list them in CURRENT
-# (one filename per line, dependencies first):
+# copy the changed wheels to the share and update their lines in CURRENT.
+# CURRENT is a LOCKFILE, not a delta: it always lists the COMPLETE pinned
+# set (one filename per line, dependencies first), so a box that missed a
+# rollout converges to the same state on its next restart:
 #   \\fileserver\software\pva-wheels\CURRENT:
 #     geecs_data_utils-0.13.5-py3-none-any.whl
 #     geecs_ca_gateway-0.17.0-py3-none-any.whl
