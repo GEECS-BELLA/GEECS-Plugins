@@ -17,9 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     with `USERPROFILE` overridden to a service-owned profile dir, solving the
     session-0 mapped-drive and LocalSystem-home problems without service
     account passwords.
-  - `deploy/launch.bat` — pull-on-restart: pins to the wheel named by
-    `CURRENT` on the wheel share when reachable, falls through to the
-    installed version otherwise.
+  - `deploy/launch.bat` — pull-on-restart: installs the wheels listed in
+    `CURRENT` on the share (`--no-deps`: monorepo wheels carry unresolvable
+    path metadata; external deps freeze at bootstrap), falling through to the
+    installed versions when the share is unreachable.
   - `deploy/fleet_status.bob` — Phoebus fleet screen (version / heartbeat /
     confirm-dialog restart per host).
   - `DEPLOYMENT.md` rewritten as the scripted runbook (bootstrap, rollout,
