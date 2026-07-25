@@ -8,7 +8,7 @@ import logging
 import sys
 
 from geecs_pva_gateway.config import PvaGatewayConfig
-from geecs_pva_gateway.server import GeecsPvaGateway, __version__
+from geecs_pva_gateway.server import RESTART_EXIT_CODE, GeecsPvaGateway, __version__
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -65,6 +65,8 @@ def main(argv: list[str] | None = None) -> int:
         asyncio.run(gateway.run())
     except KeyboardInterrupt:
         pass
+    if gateway.restart_requested:
+        return RESTART_EXIT_CODE
     return 0
 
 

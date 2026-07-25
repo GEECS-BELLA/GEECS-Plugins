@@ -321,3 +321,27 @@ async def test_instance_identity_pvs():
     finally:
         await _shutdown(task)
         await cam.stop()
+
+
+@pytest.mark.timeout(30)
+async def test_restart_pv_shuts_down_cleanly():
+    """A put to the :restart PV ends run() cleanly with restart_requested set."""
+    cam = FakeCamera()
+    await cam.start()
+    gateway, task = await _start_gateway(cam)
+    try:
+        assert not gateway.restart_requested
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, lambda: ctx.put("testexp:pvagateway:127_0_0_1:restart", 1)
+            )
+        finally:
+            ctx.close()
+        await asyncio.wait_for(task, 10)  # run() returns on its own — no cancel
+        assert gateway.restart_requested
+    finally:
+        if not task.done():
+            await _shutdown(task)
+        await cam.stop()

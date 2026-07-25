@@ -1,63 +1,65 @@
 # GeecsPvaGateway — Windows camera server deployment
 
-One instance per camera server, serving that host's cameras. Everything below
-was exercised on the pilot box (Win10 22H2, Python 3.11) on 2026-07-25.
+One NSSM service per camera server, serving that host's cameras. The pilot box
+(Win10 22H2, 192.168.6.100) is the canary; every step below is scripted in
+`deploy/`.
 
-## One-time bootstrap (per box)
+## The two session-0 rules (hard-won; violating them hangs or breaks silently)
 
-1. **Python 3.11** (python.org installer is fine; the service gets its own
-   venv, independent of anything LabVIEW uses).
+1. **Services cannot see per-user mapped drives** (`Z:` does not exist in
+   session 0), and LocalSystem's `~` is not a user's home. The service
+   therefore runs with **`USERPROFILE` overridden** to a service-owned profile
+   dir, and the GEECS config chain resolves entirely inside it:
+   - `{root}\profile\.config\geecs_python_api\config.ini`
+   - `{root}\profile\user data\Configurations.INI` (local copy — DB
+     credentials; never referenced via a drive letter)
+2. **Windows never kills orphaned processes** — lifecycle belongs to NSSM,
+   not to whoever launched something. Never run the service from an SSH
+   session and walk away.
 
-2. **Install the package** (from a clone or a built wheel):
+## One-time bootstrap (per box, elevated PowerShell, from a repo checkout)
 
-   ```bat
-   py -3.11 -m venv C:\geecs\pva-gateway\venv
-   C:\geecs\pva-gateway\venv\Scripts\pip install <wheel-or-source-path>
-   ```
+```powershell
+.\GeecsPvaGateway\deploy\bootstrap.ps1 -Experiment Undulator -Source .\GeecsPvaGateway
+# optional pull-on-restart: add  -WheelShare \\fileserver\software\pva-wheels
+```
 
-3. **GEECS DB credentials — the session-0 rule.** Services cannot see per-user
-   mapped drives (`Z:` does not exist in session 0), so the config chain must
-   resolve locally:
-   - `%USERPROFILE%\.config\geecs_python_api\config.ini` with a `[Paths]
-     geecs_data` pointing at a **local** directory that contains
-     `user data\Configurations.INI` (copy it from the share once), or a UNC
-     path readable by the service account.
-   - Symptom of getting this wrong: the process hangs forever at import in a
-     headless session (a tkinter file dialog nobody can see) or fails DB
-     resolution.
+This creates `C:\geecs\pva-gateway\{venv,profile,logs}`, installs the package,
+copies `launch.bat`, opens the PVA firewall ports (TCP 5075 / UDP 5076),
+fetches `nssm.exe`, and registers the `GeecsPvaGateway` service (auto-start,
+restart on any exit, rotating logs). Then place the two config files in the
+profile (see rule 1) and `nssm start GeecsPvaGateway`.
 
-4. **Firewall** (inbound, one-time):
+## Rollout (fleet upgrade without touching boxes)
 
-   ```powershell
-   New-NetFirewallRule -Name pva-server-tcp -DisplayName 'PVA Server TCP 5075' -Direction Inbound -Protocol TCP -Action Allow -LocalPort 5075
-   New-NetFirewallRule -Name pva-server-udp -DisplayName 'PVA Search UDP 5076' -Direction Inbound -Protocol UDP -Action Allow -LocalPort 5076
-   ```
+```bash
+cd GeecsPvaGateway && poetry build           # dist/geecs_pva_gateway-X.Y.Z-*.whl
+# copy the wheel to the share, then point CURRENT at it:
+#   \\fileserver\software\pva-wheels\geecs_pva_gateway-X.Y.Z-py3-none-any.whl
+#   \\fileserver\software\pva-wheels\CURRENT   (one line: the wheel filename)
+```
 
-5. **NSSM service** (lifecycle belongs to the service manager — Windows never
-   kills orphaned processes, and a quick restart can hit TIME_WAIT on 5075, so
-   let NSSM own restarts):
+Then restart instances **via the `:restart` PV** — canary first:
 
-   ```bat
-   nssm install GeecsPvaGateway C:\geecs\pva-gateway\venv\Scripts\geecs-pva-gateway.exe --experiment Undulator
-   nssm set GeecsPvaGateway AppStdout C:\geecs\pva-gateway\logs\service.log
-   nssm set GeecsPvaGateway AppStderr C:\geecs\pva-gateway\logs\service.log
-   nssm set GeecsPvaGateway AppExit Default Restart
-   nssm start GeecsPvaGateway
-   ```
+```bash
+pvput undulator:pvagateway:192_168_6_100:restart 1
+```
 
-   The service is a tenant beside the LabVIEW device apps — leave priority
-   default (the gateway idles unless someone is watching).
+The server exits with code 86, NSSM relaunches `launch.bat`, which re-pins to
+the `CURRENT` wheel and re-resolves the DB config. Watch the instance's
+`version` PV flip on the fleet screen (`deploy/fleet_status.bob` — one row per
+host: version, heartbeat, and a confirm-dialog restart button); roll the rest
+when the canary soaks clean. An unreachable share falls through to the
+installed version — a restart never bricks an instance.
 
 ## Smoke test
-
-On the box (or anywhere on the lab network):
 
 ```bat
 C:\geecs\pva-gateway\venv\Scripts\geecs-pva-gateway.exe --experiment Undulator --list
 ```
 
-prints the served PV names. From any machine with p4p (VPN: pass the server
-IP so name search unicasts):
+prints the host's served PV names (DB-scoped: this box's cameras only). From
+any machine with p4p (over VPN, pass the server IP so name search unicasts):
 
 ```python
 from p4p.client.thread import Context
@@ -69,11 +71,21 @@ First read after idle takes one gating round-trip (subscribe + next device
 push, ~1–2 s at 1 Hz) — that is the unwatched-variables-are-free trade
 (gating is per image variable; an unwatched camera holds zero connections).
 
+## Instance PVs
+
+| PV | Meaning |
+|---|---|
+| `{exp}:pvagateway:{host}:version` | Installed package version (fleet skew check) |
+| `{exp}:pvagateway:{host}:heartbeat` | Counter, +1 per 5 s (liveness) |
+| `{exp}:pvagateway:{host}:restart` | Write 1 → clean exit 86 → NSSM relaunch |
+
+`{host}` is the served endpoint IP, normalized (`192.168.6.100` →
+`192_168_6_100`).
+
 ## Fleet notes
 
-- Rollout shape (endorsed, built at ladder rung C): versioned wheel on the
-  data share + a pinned current-version file; services pip-install it at
-  startup, so restart ⇒ current. Canary one box, watch its
-  `{experiment}:pvagateway:{host}:version`/`heartbeat` PVs, then roll the rest.
-- Per-instance identity PVs make version skew visible on one Phoebus table.
-- SSH is for bootstrap/debugging only; keep sshd `Manual`+stopped otherwise.
+- The service is a tenant beside the LabVIEW device apps; it idles unless
+  someone is watching (per-variable gating), so default priority is fine.
+- SSH is for bootstrap and debugging only; keep sshd `Manual`+stopped
+  otherwise. Quick service restarts can hit TIME_WAIT on 5075 — NSSM's
+  5 s throttle rides through it.

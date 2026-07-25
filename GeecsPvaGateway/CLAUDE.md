@@ -24,7 +24,12 @@ geecs_pva_gateway/
                 #   (enabled devices on this host's IP with image-typed vars)
   server.py     # GeecsPvaGateway + per-camera worker: gated + supervised
                 #   subscription, decode off-loop, latest-wins posting,
-                #   version/heartbeat instance PVs
+                #   version/heartbeat/restart instance PVs (restart -> exit 86)
+deploy/
+  bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
+                  #   USERPROFILE override -> service-owned profile)
+  launch.bat      # pull-on-restart launcher (pin to CURRENT wheel on share)
+  fleet_status.bob# Phoebus fleet screen: version/heartbeat/restart per host
 tests/
   test_config.py  # scoping/naming units (fake DB rows, no network)
   test_server.py  # end-to-end over a binary wire-format fake camera +
@@ -52,8 +57,10 @@ tests/
   the event loop → `pv.post(image, timestamp=...)`. A stalled consumer drops
   stale frames; nothing ever backlogs. Completeness lives in the GEECS file
   path, not this stream.
-- **Identity PVs**: `{experiment}:pvagateway:{host_token}:version|heartbeat`
-  per instance — the fleet screen reads these (version skew, liveness).
+- **Identity/control PVs**: `{experiment}:pvagateway:{host_token}:version|
+  heartbeat|restart` per instance — the fleet screen reads the first two
+  (version skew, liveness); writing `:restart` exits 86 for the service
+  manager to relaunch (rollout mechanism, `deploy/`).
 
 ## Ground rules
 

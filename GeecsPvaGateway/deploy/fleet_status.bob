@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fleet health for GeecsPvaGateway instances: one row per camera server.
+     To add a host: copy the three widgets of a row, bump every y by 30, and
+     replace the host token (IP with dots -> underscores, e.g. 192_168_6_100).
+     Rollout = write 1 to :restart (confirmation dialog) — the service
+     relaunches and re-pins to the current wheel; watch version converge. -->
+<display version="2.0.0">
+  <name>PVA Gateway Fleet</name>
+  <width>640</width>
+  <height>200</height>
+  <widget type="label" version="2.0.0">
+    <name>title</name>
+    <text>GeecsPvaGateway fleet — Undulator</text>
+    <x>10</x><y>10</y><width>400</width><height>25</height>
+    <font><font family="Liberation Sans" style="BOLD" size="16.0"></font></font>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>hdr_host</name>
+    <text>host</text>
+    <x>10</x><y>45</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>hdr_version</name>
+    <text>version</text>
+    <x>170</x><y>45</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>hdr_heartbeat</name>
+    <text>heartbeat</text>
+    <x>330</x><y>45</y><width>100</width><height>20</height>
+  </widget>
+
+  <!-- row: 192.168.6.100 (canary) -->
+  <widget type="label" version="2.0.0">
+    <name>host_100</name>
+    <text>192.168.6.100</text>
+    <x>10</x><y>70</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_100</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_100:version</pv_name>
+    <x>170</x><y>70</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_100</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_100:heartbeat</pv_name>
+    <x>330</x><y>70</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_100</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_6_100:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>70</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (re-pins to the current wheel)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.6.100?</confirm_message>
+  </widget>
+</display>

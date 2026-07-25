@@ -3,6 +3,28 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] — 2026-07-25
+
+### Added
+
+- **Deployment machinery (PR ladder rung C).**
+  - Writable `{exp}:pvagateway:{host}:restart` PV: any put triggers a clean
+    shutdown with exit code 86 (`RESTART_EXIT_CODE`) — the fleet rollout
+    mechanism (NSSM relaunches, which re-resolves DB config and re-pins the
+    wheel). Mirrors the CA gateway's `CAGateway:RESTART` pattern.
+  - `deploy/bootstrap.ps1` — one-time per-box setup: layout, venv + install,
+    firewall, NSSM fetch + service registration. The service runs LocalSystem
+    with `USERPROFILE` overridden to a service-owned profile dir, solving the
+    session-0 mapped-drive and LocalSystem-home problems without service
+    account passwords.
+  - `deploy/launch.bat` — pull-on-restart: pins to the wheel named by
+    `CURRENT` on the wheel share when reachable, falls through to the
+    installed version otherwise.
+  - `deploy/fleet_status.bob` — Phoebus fleet screen (version / heartbeat /
+    confirm-dialog restart per host).
+  - `DEPLOYMENT.md` rewritten as the scripted runbook (bootstrap, rollout,
+    smoke, instance-PV table).
+
 ## [0.1.0] — 2026-07-25
 
 ### Added
