@@ -184,21 +184,94 @@ async def test_dropped_device_connection_reconnects():
     await cam.start()
     gateway, task = await _start_gateway(cam)
     try:
-        got_frames = threading.Event()
         count = [0]
 
         def on_update(value) -> None:
             if value.shape == IMG.shape:
                 count[0] += 1
-                if count[0] >= 8:  # more than one connection's worth (3)
-                    got_frames.set()
 
         ctx = Context("pva", conf=gateway.conf(), useenv=False)
         try:
-            ctx.monitor("testexp:uc_testcam:image", on_update)
-            await asyncio.get_running_loop().run_in_executor(None, got_frames.wait, 15)
-            assert got_frames.is_set()
-            assert cam.total_connections >= 2  # reconnected after the drop
+            # Bind the subscription: unbound, it is GC'd and the monitor closes.
+            sub = ctx.monitor("testexp:uc_testcam:image", on_update)
+            # Each connection drops itself after 3 frames; >= 3 connections
+            # proves the supervisor reconnects repeatedly. (Frame counts are
+            # unreliable here: p4p monitors squash rapid updates client-side.)
+            for _ in range(200):
+                if cam.total_connections >= 3:
+                    break
+                await asyncio.sleep(0.1)
+            assert cam.total_connections >= 3
+            assert count[0] >= 1  # real frames flowed across reconnects
+            sub.close()
+        finally:
+            ctx.close()
+    finally:
+        await _shutdown(task)
+        await cam.stop()
+
+
+@pytest.mark.timeout(30)
+async def test_pv_name_collision_raises():
+    """Two sources normalizing to one PV name refuse to start, loudly."""
+    specs = [
+        CameraSpec(
+            device="UC_Cam-A",
+            host="127.0.0.1",
+            port=1,
+            experiment="testexp",
+            image_variables=["image"],
+        ),
+        CameraSpec(
+            device="UC_Cam_A",
+            host="127.0.0.1",
+            port=2,
+            experiment="testexp",
+            image_variables=["image"],
+        ),
+    ]
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=specs))
+    with pytest.raises(ValueError, match="collision"):
+        await gateway.run(isolate=True)
+
+
+@pytest.mark.timeout(30)
+async def test_gating_is_per_variable():
+    """Watching one variable subscribes only that variable's connection."""
+    cam = FakeCamera()
+    await cam.start()
+    spec = CameraSpec(
+        device=DEVICE.decode(),
+        host="127.0.0.1",
+        port=cam.port,
+        experiment="testexp",
+        image_variables=["bakground image", "image"],
+    )
+    gateway = GeecsPvaGateway(PvaGatewayConfig(experiment="testexp", cameras=[spec]))
+    task = asyncio.create_task(gateway.run(isolate=True))
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        try:
+            gateway.conf()
+            break
+        except AssertionError:
+            continue
+    try:
+        ctx = Context("pva", conf=gateway.conf(), useenv=False)
+        try:
+            sub1 = ctx.monitor("testexp:uc_testcam:image", lambda v: None)
+            await asyncio.wait_for(cam.connected.wait(), 5)
+            await asyncio.sleep(0.3)  # settle: would a second conn appear?
+            assert cam.connections == 1  # only the watched variable subscribes
+
+            sub2 = ctx.monitor("testexp:uc_testcam:bakground_image", lambda v: None)
+            for _ in range(100):
+                if cam.connections == 2:
+                    break
+                await asyncio.sleep(0.05)
+            assert cam.connections == 2  # each watched variable has its own
+            sub1.close()
+            sub2.close()
         finally:
             ctx.close()
     finally:

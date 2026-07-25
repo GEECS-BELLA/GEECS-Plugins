@@ -163,8 +163,8 @@ Two declaration quirks worth knowing (both verified against the pyprojects):
 - **`GEECS-PythonAPI` declares a dependency on `ImageAnalysis` but never imports
   it** — a stale/unused entry in `GEECS-PythonAPI/pyproject.toml`. It's an
   architecturally backwards edge (the low-level device layer pointing at the
-  high-level analysis package) and is a candidate for removal whenever the
-  python-api refactor next touches its dependencies. It is intentionally omitted
+  high-level analysis package); it disappears with the package's planned
+  deletion. It is intentionally omitted
   from the graph above because no code relies on it.
 - **`ScanAnalysis`'s dependency on `GEECS-PythonAPI` is currently commented out**
   in its `pyproject.toml`, so ScanAnalysis does not depend on python-api. (An
@@ -322,9 +322,10 @@ revisit. Speculative cleanup is not.
   base class for editor windows). Wait for a specific feature ("add a new
   scan mode," "add a new editor") to drive the refactor with bounded scope.
 
-- **`GEECS-PythonAPI` is being refactored elsewhere.** Don't add features here
-  or restructure it. Other packages use it through `ScanDevice` and the
-  database dict lookup; treat that as the public surface.
+- **`GEECS-PythonAPI` is deprecated and slated for deletion** (owner decision
+  2026-07-25; see the package section above). It stays in-tree only for
+  legacy `master`-line consumers until deletion. Don't add features, don't
+  adopt it in new call sites, don't lint-fix it opportunistically.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

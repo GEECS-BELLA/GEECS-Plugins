@@ -66,7 +66,8 @@ print(img.shape, img.dtype)
 ```
 
 First read after idle takes one gating round-trip (subscribe + next device
-push, ~1–2 s at 1 Hz) — that is the unwatched-cameras-are-free trade.
+push, ~1–2 s at 1 Hz) — that is the unwatched-variables-are-free trade
+(gating is per image variable; an unwatched camera holds zero connections).
 
 ## Fleet notes
 

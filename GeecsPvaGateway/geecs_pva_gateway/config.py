@@ -15,11 +15,12 @@ from pydantic import BaseModel, Field
 
 from geecs_ca_gateway.config import effective_vartype
 from geecs_ca_gateway.pv_naming import pv_name
+from geecs_ca_gateway.transport.udp_client import detect_local_ip
 
 logger = logging.getLogger(__name__)
 
 
-def local_ip_addresses() -> set[str]:
+def local_ip_addresses(probe_target: str | None = None) -> set[str]:
     """Return this machine's IPv4 addresses (hostname lookup + route probe)."""
     addresses: set[str] = set()
     try:
@@ -27,14 +28,10 @@ def local_ip_addresses() -> set[str]:
             addresses.add(info[4][0])
     except OSError:
         pass
-    # Route probe: the address the OS would source from for lab traffic. No
-    # packet is sent (UDP connect only binds the route).
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.connect(("192.168.6.1", 1))
-            addresses.add(sock.getsockname()[0])
-    except OSError:
-        pass
+    if probe_target:
+        # The address the OS would source from toward the lab (no packet sent).
+        addresses.add(detect_local_ip(probe_target))
+        addresses.discard("")
     return addresses
 
 
@@ -88,7 +85,13 @@ class PvaGatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
-        hosts = {host} if host else local_ip_addresses()
+        if host:
+            hosts = {host}
+        else:
+            # Probe toward any device endpoint so the lab-facing interface's
+            # address is included even when hostname lookup misses it.
+            any_ip = next(iter(endpoints.values()), ("", 0))[0]
+            hosts = local_ip_addresses(probe_target=any_ip or None)
 
         cameras: list[CameraSpec] = []
         for device, (ip, port) in sorted(endpoints.items()):

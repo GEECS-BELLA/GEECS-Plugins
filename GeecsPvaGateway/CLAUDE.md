@@ -33,11 +33,15 @@ tests/
 
 ## Architecture (one asyncio loop)
 
-- **Per-camera worker**: owns the device's image `SharedPV`s and one
-  `GeecsTcpSubscriber` (loopback in production). The subscription is
-  **gated** — p4p `onFirstConnect`/`onLastDisconnect` refcount client
-  channels; zero clients ⇒ no GEECS subscription ⇒ the LabVIEW device does no
-  flatten/send work for unwatched cameras.
+- **Per-camera worker, per-variable subscriptions**: the worker owns the
+  device's image `SharedPV`s; each image variable gets its own
+  `GeecsTcpSubscriber` (loopback in production), **gated per variable** — p4p
+  `onFirstConnect`/`onLastDisconnect` refcount client channels; zero clients
+  on a variable ⇒ no subscription, no flatten/send in LabVIEW, no decode
+  here. Watching `image` never costs anything for `processed image`.
+- **Collision guard**: PV naming is lossy (normalization), so `run()` refuses
+  to start if two (device, variable) sources land on one PV name — same
+  doctrine as the CA gateway's manifest guard.
 - **Supervision**: while gated on, a supervisor loop reconnects with
   exponential backoff (0.5→30 s) whenever `wait_disconnected()` returns —
   actual socket drops only; silence is not a drop (same doctrine as the CA

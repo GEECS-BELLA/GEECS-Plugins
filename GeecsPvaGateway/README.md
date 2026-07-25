@@ -18,9 +18,10 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
   machine and that expose image-typed variables. No per-host config file.
 - PV names follow the shared contract (`geecs_ca_gateway.pv_naming`):
   `undulator:uc_amp2_ir_input:image`.
-- Subscriptions are **gated**: a camera's GEECS TCP subscription starts with
-  its first PVA client and stops with its last — unwatched cameras cost the
-  LabVIEW device nothing.
+- Subscriptions are **gated per variable**: each image variable's GEECS TCP
+  subscription starts with its first PVA client and stops with its last —
+  unwatched variables (and whole unwatched cameras) cost the LabVIEW device
+  nothing.
 - Frames are **latest-wins**: a slow consumer drops stale frames, never
   backlogs. The archival record is the GEECS file path, not this stream.
 

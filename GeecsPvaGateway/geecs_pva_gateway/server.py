@@ -1,11 +1,12 @@
 """The PVA gateway: GEECS camera frames in, NTNDArray PVs out.
 
-One process serves every camera in its config: per camera a gated GEECS TCP
-subscription (started on the first PVA client, stopped on the last, so an
-unwatched camera costs the LabVIEW device nothing), IMAQ decode off the event
-loop, and latest-wins posting (a stalled consumer drops stale frames, never
-backlogs). Instance identity PVs (`version`, `heartbeat`) support fleet
-monitoring.
+One process serves every camera in its config. Gating is per image variable: a
+variable's GEECS TCP subscription starts with its first PVA client and stops
+with its last, so an unwatched variable costs the LabVIEW device nothing —
+each watched variable holds its own subscription connection. Decode runs off
+the event loop; delivery is latest-wins (a stalled consumer drops stale
+frames, never backlogs). Instance identity PVs (`version`, `heartbeat`)
+support fleet monitoring.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ import asyncio
 import logging
 import socket
 import time
-from importlib.metadata import PackageNotFoundError, version as _dist_version
 
 import numpy as np
 from p4p.nt import NTNDArray, NTScalar
@@ -25,6 +25,7 @@ from geecs_ca_gateway.pv_naming import normalize_component, pv_name
 from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
+from geecs_pva_gateway import __version__
 from geecs_pva_gateway.config import CameraSpec, PvaGatewayConfig
 
 logger = logging.getLogger(__name__)
@@ -35,11 +36,6 @@ _TIMESTAMP_VARS = ("acq_timestamp", "systimestamp")
 _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0
 _HEARTBEAT_PERIOD_S = 5.0
-
-try:
-    __version__ = _dist_version("geecs-pva-gateway")
-except PackageNotFoundError:  # running from a source tree without install
-    __version__ = "0.0.0+source"
 
 
 def _frame_timestamp(update: dict) -> float:
@@ -52,34 +48,35 @@ def _frame_timestamp(update: dict) -> float:
 
 
 class _Gate:
-    """p4p handler that refcounts client connections into the worker."""
+    """p4p handler that refcounts one variable's client connections."""
 
-    def __init__(self, worker: "_CameraWorker") -> None:
+    def __init__(self, worker: "_CameraWorker", var: str) -> None:
         self._worker = worker
+        self._var = var
 
     def onFirstConnect(self, pv: SharedPV) -> None:  # noqa: N802 (p4p API)
-        self._worker.retain()
+        self._worker.retain(self._var)
 
     def onLastDisconnect(self, pv: SharedPV) -> None:  # noqa: N802 (p4p API)
-        self._worker.release()
+        self._worker.release(self._var)
 
 
 class _CameraWorker:
-    """One camera device: N image PVs, one gated + supervised subscription."""
+    """One camera device: per-variable PVs, gated + supervised subscriptions."""
 
     def __init__(self, spec: CameraSpec, loop: asyncio.AbstractEventLoop) -> None:
         self._spec = spec
         self._loop = loop
         self._pvs: dict[str, SharedPV] = {
             var: SharedPV(
-                handler=_Gate(self),
+                handler=_Gate(self, var),
                 nt=NTNDArray(),
                 initial=np.zeros((1, 1), dtype=np.uint16),
             )
             for var in spec.image_variables
         }
-        self._clients = 0
-        self._supervisor: asyncio.Task | None = None
+        self._clients: dict[str, int] = dict.fromkeys(spec.image_variables, 0)
+        self._supervisors: dict[str, asyncio.Task] = {}
         self._latest: dict[str, tuple[str, float]] = {}
         self._publishing: set[str] = set()
 
@@ -87,58 +84,69 @@ class _CameraWorker:
         """``{pv_name: SharedPV}`` for this camera's image variables."""
         return {self._spec.pv_name_for(var): pv for var, pv in self._pvs.items()}
 
+    def provider_sources(self) -> dict[str, tuple[str, str]]:
+        """``{pv_name: (device, variable)}`` — for collision reporting."""
+        return {
+            self._spec.pv_name_for(var): (self._spec.device, var)
+            for var in self._spec.image_variables
+        }
+
     async def stop(self) -> None:
-        """Cancel the supervisor (used at gateway shutdown)."""
-        if self._supervisor is not None:
-            self._supervisor.cancel()
+        """Cancel all supervisors (gateway shutdown)."""
+        # Snapshot: client disconnects mutate the dict concurrently.
+        tasks = list(self._supervisors.values())
+        self._supervisors.clear()
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
             try:
-                await self._supervisor
+                await task
             except asyncio.CancelledError:
                 pass
-            self._supervisor = None
 
     # -- gating; retain/release arrive on p4p worker threads ---------------
 
-    def retain(self) -> None:
-        self._loop.call_soon_threadsafe(self._retain)
+    def retain(self, var: str) -> None:
+        self._loop.call_soon_threadsafe(self._retain, var)
 
-    def release(self) -> None:
-        self._loop.call_soon_threadsafe(self._release)
+    def release(self, var: str) -> None:
+        self._loop.call_soon_threadsafe(self._release, var)
 
-    def _retain(self) -> None:
-        self._clients += 1
-        if self._clients == 1 and (self._supervisor is None or self._supervisor.done()):
-            logger.info("first client for %s: subscribing", self._spec.device)
-            self._supervisor = self._loop.create_task(
-                self._run(), name=f"camera[{self._spec.device}]"
+    def _retain(self, var: str) -> None:
+        self._clients[var] += 1
+        existing = self._supervisors.get(var)
+        if self._clients[var] == 1 and (existing is None or existing.done()):
+            logger.info("first client for %s %s: subscribing", self._spec.device, var)
+            self._supervisors[var] = self._loop.create_task(
+                self._run(var), name=f"camera[{self._spec.device}:{var}]"
             )
 
-    def _release(self) -> None:
-        self._clients = max(0, self._clients - 1)
-        if self._clients == 0 and self._supervisor is not None:
-            logger.info("last client for %s: unsubscribing", self._spec.device)
-            self._supervisor.cancel()
-            self._supervisor = None
+    def _release(self, var: str) -> None:
+        self._clients[var] = max(0, self._clients[var] - 1)
+        if self._clients[var] == 0 and var in self._supervisors:
+            logger.info("last client for %s %s: unsubscribing", self._spec.device, var)
+            self._supervisors.pop(var).cancel()
 
-    # -- subscription supervisor -------------------------------------------
+    # -- subscription supervisor (one per watched variable) ----------------
 
-    async def _run(self) -> None:
-        """Keep the GEECS subscription alive; reconnect with backoff on drops."""
+    async def _run(self, var: str) -> None:
+        """Keep one variable's subscription alive; reconnect on socket drops."""
         backoff = _RECONNECT_MIN_S
         while True:
             subscriber = GeecsTcpSubscriber(self._spec.host, self._spec.port)
             try:
                 await subscriber.connect()
                 await subscriber.subscribe(
-                    list(self._spec.image_variables) + list(_TIMESTAMP_VARS),
-                    self._on_frame,
-                    text_variables=set(self._spec.image_variables),
+                    [var, *_TIMESTAMP_VARS],
+                    lambda update: self._on_frame(var, update),
+                    text_variables={var},
                 )
                 backoff = _RECONNECT_MIN_S
                 await subscriber.wait_disconnected()
                 logger.warning(
-                    "subscription to %s (%s:%s) dropped; reconnecting",
+                    "subscription to %s %s (%s:%s) dropped; reconnecting",
                     self._spec.device,
+                    var,
                     self._spec.host,
                     self._spec.port,
                 )
@@ -147,8 +155,9 @@ class _CameraWorker:
                 raise
             except Exception:
                 logger.warning(
-                    "connect/subscribe to %s (%s:%s) failed; retry in %.1fs",
+                    "connect/subscribe to %s %s (%s:%s) failed; retry in %.1fs",
                     self._spec.device,
+                    var,
                     self._spec.host,
                     self._spec.port,
                     backoff,
@@ -160,18 +169,16 @@ class _CameraWorker:
 
     # -- frame pipeline ----------------------------------------------------
 
-    def _on_frame(self, update: dict) -> None:
+    def _on_frame(self, var: str, update: dict) -> None:
         """Push-frame callback (event loop): stash latest, schedule publish."""
-        ts = _frame_timestamp(update)
-        for var in self._spec.image_variables:
-            blob = update.get(var)
-            if not blob or not isinstance(blob, str):
-                continue
-            # Latest-wins slot: an unconsumed frame is replaced, never queued.
-            self._latest[var] = (blob, ts)
-            if var not in self._publishing:
-                self._publishing.add(var)
-                self._loop.create_task(self._publish(var))
+        blob = update.get(var)
+        if not blob or not isinstance(blob, str):
+            return
+        # Latest-wins slot: an unconsumed frame is replaced, never queued.
+        self._latest[var] = (blob, _frame_timestamp(update))
+        if var not in self._publishing:
+            self._publishing.add(var)
+            self._loop.create_task(self._publish(var))
 
     async def _publish(self, var: str) -> None:
         try:
@@ -181,16 +188,15 @@ class _CameraWorker:
                     image = await self._loop.run_in_executor(
                         None, decode_imaq_image_string, blob
                     )
-                except ValueError:
+                    self._pvs[var].post(image, timestamp=ts)
+                except Exception:
                     logger.warning(
-                        "decode failed for %s %s (%d bytes)",
+                        "decode/post failed for %s %s (%d bytes)",
                         self._spec.device,
                         var,
                         len(blob),
                         exc_info=True,
                     )
-                    continue
-                self._pvs[var].post(image, timestamp=ts)
         finally:
             self._publishing.discard(var)
 
@@ -228,9 +234,20 @@ class GeecsPvaGateway:
         loop = asyncio.get_running_loop()
         self._workers = [_CameraWorker(spec, loop) for spec in self._config.cameras]
 
+        # PV naming is lossy (normalization), so guard against two variables
+        # or devices landing on one name — shadowing would be silent.
         providers: dict[str, SharedPV] = {}
+        owners: dict[str, tuple[str, str]] = {}
         for worker in self._workers:
-            providers.update(worker.providers())
+            sources = worker.provider_sources()
+            for name, pv in worker.providers().items():
+                if name in owners:
+                    raise ValueError(
+                        f"PV name collision after normalization: {name!r} from "
+                        f"{sources[name]} and {owners[name]}"
+                    )
+                owners[name] = sources[name]
+                providers[name] = pv
 
         prefix = pv_name(self._config.experiment, "pvagateway", self._instance_token())
         heartbeat_pv = SharedPV(nt=NTScalar("I"), initial=0)
