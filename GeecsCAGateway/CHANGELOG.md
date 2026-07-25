@@ -3,6 +3,19 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.16.1] - 2026-07-25
+
+### Fixed
+
+- **`GeecsTcpSubscriber` decodes push payloads as latin-1 instead of
+  `ascii, errors="replace"`.** ASCII scalar frames are byte-identical under
+  latin-1, but binary payloads (image frames) were irreversibly corrupted —
+  every byte >0x7f became U+FFFD. latin-1 is the lossless byte↔str map, so a
+  `text_variables` subscriber recovers the exact wire bytes via
+  `value.encode("latin-1")`. Prerequisite for the distributed PVA image-server
+  workstream (DESIGN.md: images stay off CA, data stays at the edge); no
+  externally observable gateway behavior changes.
+
 ## [0.16.0] - 2026-07-24
 
 ### Added
