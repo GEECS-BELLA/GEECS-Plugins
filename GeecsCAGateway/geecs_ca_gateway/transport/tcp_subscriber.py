@@ -192,7 +192,9 @@ class GeecsTcpSubscriber:
                 if msg_len <= 0:
                     continue
                 payload = await self._reader.readexactly(msg_len)
-                msg = payload.decode("ascii", errors="replace")
+                # latin-1 is a lossless byte<->str map: binary payloads (image
+                # frames) survive exactly, and ASCII scalar frames are unchanged.
+                msg = payload.decode("latin-1")
                 logger.debug("TCP rx: %r", msg)
 
                 parsed = _parse_subscription(msg, pattern, text_variables)

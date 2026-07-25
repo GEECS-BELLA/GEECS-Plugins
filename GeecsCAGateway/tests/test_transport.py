@@ -5,6 +5,7 @@ All tests run against ``FakeGeecsServer`` on localhost — no real hardware requ
 
 import asyncio
 import logging
+import struct
 
 import pytest
 
@@ -239,6 +240,45 @@ class TestTcpSubscriber:
         # Numeric variables are still coerced as before.
         assert received[0]["Position (mm)"] == pytest.approx(5.0)
         assert isinstance(received[0]["Position (mm)"], float)
+
+    async def test_binary_payload_survives_byte_for_byte(self) -> None:
+        """Bytes >0x7f in a push value survive the wire exactly (image frames).
+
+        The listener decodes payloads as latin-1, the lossless byte<->str map;
+        ``value.encode("latin-1")`` must recover the original bytes. The fake
+        server is ASCII-only, so this test pushes a hand-built frame.
+        """
+        blob = bytes(range(256)) * 4
+        body = b"U_Cam>>42>>image nval," + blob + b" nvar"
+        frame = struct.pack(">i", len(body)) + body
+
+        received: list[dict] = []
+        got_frame = asyncio.Event()
+
+        async def handle(
+            reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+        ) -> None:
+            header = await reader.readexactly(4)
+            await reader.readexactly(struct.unpack(">i", header)[0])  # Wait>> cmd
+            writer.write(frame)
+            await writer.drain()
+            await got_frame.wait()
+            writer.close()
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+
+        def on_update(update: dict) -> None:
+            received.append(update)
+            got_frame.set()
+
+        async with GeecsTcpSubscriber("127.0.0.1", port) as sub:
+            await sub.subscribe(["image"], on_update, text_variables={"image"})
+            await asyncio.wait_for(got_frame.wait(), timeout=2)
+        server.close()
+        await server.wait_closed()
+
+        assert received[0]["image"].encode("latin-1") == blob
 
 
 # ---------------------------------------------------------------------------
