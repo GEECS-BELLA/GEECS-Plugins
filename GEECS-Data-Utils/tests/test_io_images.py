@@ -188,6 +188,21 @@ def test_decode_tail_fallback_without_name_repeat():
     np.testing.assert_array_equal(out, img)
 
 
+def test_decode_anchored_truncated_frame_still_raises():
+    """An anchored camera's truncated frame stays a loud error, never a tail guess.
+
+    Sized so a tail block *would* fit in the message — pinning that dispatch is
+    structural (name repeated -> strict) rather than a length guard.
+    """
+    width, height, border = 6, 4, 1
+    alloc = np.zeros((6, 32), dtype="<u2")  # 64-byte-aligned rows, 384 bytes
+    blob = _wrap_flatten(
+        alloc.tobytes()[:-5], _imaq_struct(width, height, border, pixel_type=7)
+    )
+    with pytest.raises(ValueError, match="payload"):
+        decode_imaq_image_string(blob)
+
+
 def test_decode_tail_fallback_unsupported_type_raises():
     """No name anchor and an unknown pixel type is rejected, not misdecoded."""
     blob = _wrap_flatten_no_name_repeat(
