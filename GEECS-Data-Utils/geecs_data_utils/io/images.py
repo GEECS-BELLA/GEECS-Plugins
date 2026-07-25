@@ -22,6 +22,9 @@ from imageio.v3 import imread
 # the IMAQ image cluster. Used to locate the (little-endian) IMAQ struct header.
 _IMAQ_CLASS_MARKER = b"LV_ImageDTClassInfo"
 
+# IMAQ Vision image-type code (header offset +36) -> pixel dtype, grayscale set.
+_IMAQ_DTYPE_BY_TYPE = {0: "<u1", 1: "<i2", 7: "<u2"}
+
 
 def read_imaq_png_image(file_path: Union[Path, str]) -> np.ndarray:
     """
@@ -157,6 +160,11 @@ def decode_imaq_image_string(blob: Union[str, bytes]) -> np.ndarray:
       ints (a native Windows memory dump), and stride/depth are inferred from the
       payload length. The IMAQ border and row padding are cropped out.
 
+    Wrapper variants that do not repeat the device name before the pixel data
+    (e.g. UC_Amp2_IR_input) are decoded by tail-anchoring instead: geometry and
+    pixel type come from the IMAQ struct, and the pixel block is the last
+    ``rows * stride`` bytes of the message (stride 64-byte aligned).
+
     Parameters
     ----------
     blob : str or bytes
@@ -195,16 +203,14 @@ def decode_imaq_image_string(blob: Union[str, bytes]) -> np.ndarray:
     # struct begins 8 bytes after the class marker (LabVIEW refnum + cluster
     # size). Offsets 40/48/56 confirmed against square and non-square frames.
     base = data.index(_IMAQ_CLASS_MARKER) + len(_IMAQ_CLASS_MARKER) + 8
+    pixel_type = struct.unpack_from("<i", data, base + 36)[0]
     width = struct.unpack_from("<i", data, base + 40)[0]
     height = struct.unpack_from("<i", data, base + 48)[0]
     border = struct.unpack_from("<i", data, base + 56)[0]
 
     rows = height + 2 * border  # allocated rows incl. border
     if rows <= 0 or len(payload) % rows:
-        raise ValueError(
-            f"IMAQ header parse failed (w={width} h={height} border={border}); "
-            f"payload {len(payload)} not divisible by {rows} rows"
-        )
+        return _decode_imaq_tail(data, pixel_type, width, height, border)
     stride = len(payload) // rows  # padded bytes per row
     cols = width + 2 * border
 
@@ -213,9 +219,42 @@ def decode_imaq_image_string(blob: Union[str, bytes]) -> np.ndarray:
         if cols * bpp <= stride and stride % bpp == 0:
             break
     else:
-        raise ValueError(f"width {width}+border doesn't fit stride {stride}")
+        return _decode_imaq_tail(data, pixel_type, width, height, border)
 
     dtype = {1: "<u1", 2: "<u2", 4: "<u4"}[bpp]
     full = np.frombuffer(payload, dtype=dtype, count=rows * (stride // bpp))
     full = full.reshape(rows, stride // bpp)
+    return full[border : border + height, border : border + width]
+
+
+def _decode_imaq_tail(
+    data: bytes, pixel_type: int, width: int, height: int, border: int
+) -> np.ndarray:
+    """Decode an IMAQ frame whose wrapper lacks the repeated-name payload anchor.
+
+    Geometry and pixel type come from the IMAQ struct; the pixel block is the
+    last ``rows * stride`` bytes of the message, with the row stride rounded up
+    to IMAQ's 64-byte alignment.
+    """
+    dtype = _IMAQ_DTYPE_BY_TYPE.get(pixel_type)
+    rows = height + 2 * border
+    cols = width + 2 * border
+    if dtype is None or rows <= 0 or cols <= 0:
+        raise ValueError(
+            f"IMAQ header parse failed (w={width} h={height} border={border} "
+            f"type={pixel_type}); payload has no name anchor and no supported "
+            f"tail layout"
+        )
+    bpp = np.dtype(dtype).itemsize
+    stride = (cols * bpp + 63) // 64 * 64
+    block = rows * stride
+    if block > len(data):
+        raise ValueError(
+            f"IMAQ header parse failed (w={width} h={height} border={border} "
+            f"type={pixel_type}); payload shorter than tail block "
+            f"({len(data)} < {block})"
+        )
+    full = np.frombuffer(
+        data, dtype=dtype, count=block // bpp, offset=len(data) - block
+    ).reshape(rows, stride // bpp)
     return full[border : border + height, border : border + width]

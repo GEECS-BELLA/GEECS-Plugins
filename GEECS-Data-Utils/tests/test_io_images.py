@@ -97,13 +97,25 @@ def _wrap_flatten(payload_body: bytes, struct_bytes: bytes = b"") -> bytes:
     return prefixed_name + wrapper + prefixed_name + payload_body
 
 
-def _imaq_struct(width: int, height: int, border: int) -> bytes:
-    """IMAQ struct with width/height/border at the confirmed little-endian offsets."""
+def _imaq_struct(width: int, height: int, border: int, pixel_type: int = 0) -> bytes:
+    """IMAQ struct with type/width/height/border at the confirmed little-endian offsets."""
     sb = bytearray(64)
+    struct.pack_into("<i", sb, 36, pixel_type)
     struct.pack_into("<i", sb, 40, width)
     struct.pack_into("<i", sb, 48, height)
     struct.pack_into("<i", sb, 56, border)
     return bytes(sb)
+
+
+def _wrap_flatten_no_name_repeat(payload_body: bytes, struct_bytes: bytes) -> bytes:
+    """Wrapper variant that does not repeat the device name before the payload.
+
+    Mirrors cameras like UC_Amp2_IR_input, whose wrapper carries a
+    compression-mode field where the repeated name would sit.
+    """
+    prefixed_name = struct.pack(">I", len(NAME)) + NAME
+    wrapper = b"nivissvc.*" + _IMAQ_CLASS_MARKER + b"\x00" * 8 + struct_bytes
+    return prefixed_name + wrapper + b"lessCompression" + payload_body
 
 
 def test_decode_uncompressed_16bit_with_border_and_stride():
@@ -152,4 +164,34 @@ def test_decode_uncompressed_bad_size_raises():
     """A payload size inconsistent with the parsed header is rejected loudly."""
     blob = _wrap_flatten(b"\x00" * 25, _imaq_struct(width=6, height=4, border=1))
     with pytest.raises(ValueError, match="payload"):
+        decode_imaq_image_string(blob)
+
+
+def test_decode_tail_fallback_without_name_repeat():
+    """A wrapper lacking the repeated-name anchor decodes via header + tail."""
+    width, height, border = 6, 4, 1
+    rows = height + 2 * border  # 6 allocated rows
+    stride_px = 32  # <u2 rows at IMAQ's 64-byte alignment (cols*2=16 -> 64)
+
+    img = np.arange(1, height * width + 1, dtype="<u2").reshape(height, width)
+    alloc = np.zeros((rows, stride_px), dtype="<u2")
+    alloc[border : border + height, border : border + width] = img
+
+    blob = _wrap_flatten_no_name_repeat(
+        alloc.tobytes(), _imaq_struct(width, height, border, pixel_type=7)
+    )
+    assert blob.count(NAME) == 1  # the main path's payload anchor is absent
+
+    out = decode_imaq_image_string(blob)
+    assert out.shape == (height, width)
+    assert out.dtype == np.dtype("<u2")
+    np.testing.assert_array_equal(out, img)
+
+
+def test_decode_tail_fallback_unsupported_type_raises():
+    """No name anchor and an unknown pixel type is rejected, not misdecoded."""
+    blob = _wrap_flatten_no_name_repeat(
+        b"\x00" * 63, _imaq_struct(width=4, height=5, border=0, pixel_type=99)
+    )
+    with pytest.raises(ValueError, match="tail"):
         decode_imaq_image_string(blob)
