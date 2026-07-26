@@ -28,22 +28,25 @@ Prereqs: **Python 3.11** installed (`py -3.11` must work) and internet access
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
     -Experiment Undulator -Source .\GeecsPvaGateway `
-    -ConfigSource "Z:\path\to\user data\Configurations.INI"
+    -ConfigSource "\\fileserver\software\path\to\user data\Configurations.INI"
 # optional pull-on-restart: add  -WheelShare \\fileserver\software\pva-wheels
 ```
 
 `-ConfigSource` copies the DB-credentials INI into the service profile so the
-box is start-ready in one command. From a console session, point it at the
-share; over SSH (no mapped drives, no share credentials), scp a copy to the
-box first and point at that. Omit it to place the file by hand.
+box is start-ready in one command. Use a **UNC path**, not a drive letter —
+mapped drives are invisible both over SSH and in an elevated console (UAC
+token-splitting), the two places this script runs. Over SSH the machine also
+has no share credentials, so scp a copy to the box first and point at that.
+Omit the flag to place the file by hand.
 
 This stops any existing service, creates `C:\geecs\pva-gateway\{venv,profile,
 logs}`, **generates config.ini**, installs the package (use the source dir, not
 a wheel — monorepo wheels carry unresolvable path metadata, see Rollout),
 copies `launch.bat`, opens the PVA firewall ports (TCP 5075 / UDP 5076),
 fetches `nssm.exe`, and registers the `GeecsPvaGateway` service (auto-start,
-restart on any exit, online-rotating logs). Then place `Configurations.INI` in
-the profile (rule 1) and `nssm start GeecsPvaGateway`. Note `launch.bat` is
+restart on any exit, online-rotating logs). If you omitted `-ConfigSource`,
+place `Configurations.INI` in the profile (rule 1); then
+`nssm start GeecsPvaGateway`. Note `launch.bat` is
 copied at bootstrap time — launcher changes need a re-bootstrap, wheels don't.
 A **re**-bootstrap removes the existing service first (so pip never upgrades
 in-use files): if a later step fails, the box has no service until the
@@ -100,8 +103,8 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
 `nssm start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
-From
-any machine with p4p (over VPN, pass the server IP so name search unicasts):
+From any machine with p4p (over VPN, set the address list per **Client
+access** below so name search unicasts):
 
 ```python
 from p4p.client.thread import Context

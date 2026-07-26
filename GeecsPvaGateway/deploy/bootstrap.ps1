@@ -23,6 +23,13 @@ function Assert-Native([string]$What) {
     if ($LASTEXITCODE) { throw "$What failed (exit $LASTEXITCODE)" }
 }
 
+# Validate inputs before any destructive step (the service is removed below).
+if ($ConfigSource -and -not (Test-Path $ConfigSource -PathType Leaf)) {
+    throw "-ConfigSource is not a readable file: $ConfigSource (mapped drives " +
+    "are not visible over SSH or in an elevated session - use a UNC path or " +
+    "a local copy)"
+}
+
 # Stop/remove any existing service FIRST, so pip never upgrades files a
 # running service holds open. Guarded lookup: bare `nssm stop` on a fresh box
 # writes stderr, which PS 5.1 + EAP=Stop turns into a terminating error.
@@ -53,9 +60,6 @@ if (-not (Test-Path $configIni)) {
     )
 }
 if ($ConfigSource) {
-    if (-not (Test-Path $ConfigSource)) {
-        throw "-ConfigSource not readable: $ConfigSource (mapped drives are not visible over SSH — use a local copy there)"
-    }
     Copy-Item $ConfigSource "$Root\profile\user data\Configurations.INI" -Force
 }
 
@@ -117,7 +121,7 @@ Assert-Native "nssm install"
 & $nssm set GeecsPvaGateway Start SERVICE_AUTO_START
 
 Write-Host ""
-if (Test-Path "$Root\profile\user data\Configurations.INI") {
+if (Test-Path "$Root\profile\user data\Configurations.INI" -PathType Leaf) {
     Write-Host "Bootstrap done (config.ini generated, Configurations.INI in place)."
     Write-Host "Start with:  $nssm start GeecsPvaGateway"
 } else {
