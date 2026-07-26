@@ -27,17 +27,26 @@ Prereqs: **Python 3.11** installed (`py -3.11` must work) and internet access
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
-    -Experiment Undulator -Source .\GeecsPvaGateway
+    -Experiment Undulator -Source .\GeecsPvaGateway `
+    -ConfigSource "\\fileserver\software\path\to\user data\Configurations.INI"
 # optional pull-on-restart: add  -WheelShare \\fileserver\software\pva-wheels
 ```
+
+`-ConfigSource` copies the DB-credentials INI into the service profile so the
+box is start-ready in one command. Use a **UNC path**, not a drive letter —
+mapped drives are invisible both over SSH and in an elevated console (UAC
+token-splitting), the two places this script runs. Over SSH the machine also
+has no share credentials, so scp a copy to the box first and point at that.
+Omit the flag to place the file by hand.
 
 This stops any existing service, creates `C:\geecs\pva-gateway\{venv,profile,
 logs}`, **generates config.ini**, installs the package (use the source dir, not
 a wheel — monorepo wheels carry unresolvable path metadata, see Rollout),
 copies `launch.bat`, opens the PVA firewall ports (TCP 5075 / UDP 5076),
 fetches `nssm.exe`, and registers the `GeecsPvaGateway` service (auto-start,
-restart on any exit, online-rotating logs). Then place `Configurations.INI` in
-the profile (rule 1) and `nssm start GeecsPvaGateway`. Note `launch.bat` is
+restart on any exit, online-rotating logs). If you omitted `-ConfigSource`,
+place `Configurations.INI` in the profile (rule 1); then
+`nssm start GeecsPvaGateway`. Note `launch.bat` is
 copied at bootstrap time — launcher changes need a re-bootstrap, wheels don't.
 A **re**-bootstrap removes the existing service first (so pip never upgrades
 in-use files): if a later step fails, the box has no service until the
@@ -94,8 +103,8 @@ cmd /c "set USERPROFILE=C:\geecs\pva-gateway\profile&& C:\geecs\pva-gateway\venv
 
 prints the host's served PV names (DB-scoped: this box's cameras only). After
 `nssm start`, the `version`/`heartbeat` PVs answering is the end-to-end check.
-From
-any machine with p4p (over VPN, pass the server IP so name search unicasts):
+From any machine with p4p (over VPN, set the address list per **Client
+access** below so name search unicasts):
 
 ```python
 from p4p.client.thread import Context
@@ -106,6 +115,26 @@ print(img.shape, img.dtype)
 First read after idle takes one gating round-trip (subscribe + next device
 push, ~1–2 s at 1 Hz) — that is the unwatched-variables-are-free trade
 (gating is per image variable; an unwatched camera holds zero connections).
+
+## Client access
+
+Nothing central to configure — PVA clients find whichever camera server owns a
+PV. Two regimes:
+
+- **On the lab subnet** (control-room machines): zero config. PVA name search
+  is UDP broadcast; the firewall ports bootstrap opens are the whole story.
+- **Routed/VPN clients** (e.g. a laptop over the VPN): broadcast does not
+  traverse, so list every camera server's IP for unicast search —
+  space-separated, one entry per server, appended as boxes come online:
+  - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="192.168.6.100 …"` (+
+    `EPICS_PVA_AUTO_ADDR_LIST=NO`)
+  - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=192.168.6.100 …` in the
+    settings file (env vars don't reach a macOS `open`-launched app)
+
+The CA variables (`EPICS_CA_*`) are the scalar gateway's and are unaffected.
+If the fleet ever outgrows a hand-kept list, the standard escalation is a PVA
+nameserver — but that reintroduces a central hop; don't reach for it while a
+one-line list works.
 
 ## Instance PVs
 

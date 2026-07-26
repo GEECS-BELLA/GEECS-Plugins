@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.1] — 2026-07-25
+
+### Added
+
+- `bootstrap.ps1 -ConfigSource <path>`: copies `Configurations.INI` into the
+  service profile during bootstrap, making a box start-ready in one command
+  (console: point at the share; SSH: point at a scp'd local copy).
+- `DEPLOYMENT.md` "Client access" section: on-subnet clients need nothing
+  (UDP broadcast search); routed/VPN clients list camera-server IPs in
+  `EPICS_PVA_ADDR_LIST` / Phoebus `epics_pva_addr_list`.
+
 ## [0.2.0] — 2026-07-25
 
 ### Added

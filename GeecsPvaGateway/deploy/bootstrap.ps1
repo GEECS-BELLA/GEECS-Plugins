@@ -10,13 +10,24 @@ param(
     [Parameter(Mandatory = $true)][string]$Experiment,
     [Parameter(Mandatory = $true)][string]$Source,
     [string]$Root = "C:\geecs\pva-gateway",
-    [string]$WheelShare = ""
+    [string]$WheelShare = "",
+    # Path to a readable Configurations.INI (share path from a console session
+    # with the drive mapped, or a local copy when driving over SSH). Copied
+    # into the service profile so the box is start-ready after bootstrap.
+    [string]$ConfigSource = ""
 )
 $ErrorActionPreference = "Stop"
 
 function Assert-Native([string]$What) {
     # PS 5.1's EAP=Stop ignores native exit codes; check them explicitly.
     if ($LASTEXITCODE) { throw "$What failed (exit $LASTEXITCODE)" }
+}
+
+# Validate inputs before any destructive step (the service is removed below).
+if ($ConfigSource -and -not (Test-Path $ConfigSource -PathType Leaf)) {
+    throw "-ConfigSource is not a readable file: $ConfigSource (mapped drives " +
+    "are not visible over SSH or in an elevated session - use a UNC path or " +
+    "a local copy)"
 }
 
 # Stop/remove any existing service FIRST, so pip never upgrades files a
@@ -47,6 +58,9 @@ if (-not (Test-Path $configIni)) {
         "[Experiment]",
         "expt = $Experiment"
     )
+}
+if ($ConfigSource) {
+    Copy-Item $ConfigSource "$Root\profile\user data\Configurations.INI" -Force
 }
 
 # Python env + package
@@ -107,6 +121,11 @@ Assert-Native "nssm install"
 & $nssm set GeecsPvaGateway Start SERVICE_AUTO_START
 
 Write-Host ""
-Write-Host "Bootstrap done. Before starting, place the DB credentials file at:"
-Write-Host "  $Root\profile\user data\Configurations.INI"
-Write-Host "(config.ini was generated.)  Then:  $nssm start GeecsPvaGateway"
+if (Test-Path "$Root\profile\user data\Configurations.INI" -PathType Leaf) {
+    Write-Host "Bootstrap done (config.ini generated, Configurations.INI in place)."
+    Write-Host "Start with:  $nssm start GeecsPvaGateway"
+} else {
+    Write-Host "Bootstrap done. Before starting, place the DB credentials file at:"
+    Write-Host "  $Root\profile\user data\Configurations.INI"
+    Write-Host "(or re-run with -ConfigSource <path>).  Then:  $nssm start GeecsPvaGateway"
+}
