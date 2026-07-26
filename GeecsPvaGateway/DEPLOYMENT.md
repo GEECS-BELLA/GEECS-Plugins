@@ -73,8 +73,8 @@ pvput undulator:pvagateway:192_168_6_100:restart 1
 ```
 
 The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
-the three packages (`GEECS-Data-Utils`, `GeecsCAGateway`, `GeecsPvaGateway`)
-from the share clone and re-resolves the DB config. Watch the instance's
+the four intra-repo packages (`GEECS-Schemas`, `GEECS-Data-Utils`,
+`GeecsCAGateway`, `GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
 `version` PV flip on the fleet screen (`deploy/fleet_status.bob` — one row per
 host: version, heartbeat, and a confirm-dialog restart button); roll the rest
 when the canary soaks clean. An unreachable share falls through to the

@@ -9,7 +9,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Pull-on-restart installs from the lab's shared GEECS-Plugins clone instead
   of a wheel drop** (owner decision: reuse the "Active Version" pattern GEECS
-  itself launches from). `launch.bat` reinstalls the three packages from
+  itself launches from). `launch.bat` reinstalls the four intra-repo packages (incl. the
+  transitive `GEECS-Schemas`) from
   `GEECS_PVA_SOURCE` (`--no-deps --no-build-isolation`; poetry-core installed
   at bootstrap so restarts need no internet); the clone's checked-out commit
   is the fleet pin — rollout = `git pull` there + restart PVs, rollback =

@@ -3,9 +3,10 @@
 # Run from an elevated PowerShell inside the repo checkout:
 #   powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
 #       -Experiment Undulator -Source .\GeecsPvaGateway
-# -Source accepts the package source dir (recommended: resolves the monorepo
-# path deps) or a wheel. -SourceShare (optional) enables pull-on-restart from
-# the lab's shared GEECS-Plugins clone (UNC path, machine-account readable):
+# -Source accepts the package source dir (path deps resolve inside a
+# checkout; monorepo wheels do not work — unresolvable path metadata).
+# -SourceShare (optional) enables pull-on-restart from the lab's shared
+# GEECS-Plugins clone (UNC path, machine-account readable):
 #   -SourceShare "\\fileserver\software\...\Active Version\GEECS-Plugins"
 param(
     [Parameter(Mandatory = $true)][string]$Experiment,
@@ -107,7 +108,7 @@ if (-not (Test-Path $nssm)) {
 }
 
 # Service: launch.bat under LocalSystem, restart on any exit (the :restart PV
-# exits 86; NSSM relaunches -> DB re-resolve + wheel re-pin).
+# exits 86; NSSM relaunches -> DB re-resolve + reinstall from the source clone).
 & $nssm install GeecsPvaGateway "$Root\launch.bat"
 Assert-Native "nssm install"
 & $nssm set GeecsPvaGateway AppDirectory $Root

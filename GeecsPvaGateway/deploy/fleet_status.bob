@@ -3,7 +3,7 @@
      To add a host: copy the three widgets of a row, bump every y by 30, and
      replace the host token (IP with dots -> underscores, e.g. 192_168_6_100).
      Rollout = write 1 to :restart (confirmation dialog) — the service
-     relaunches and re-pins to the current wheel; watch version converge. -->
+     relaunches and reinstalls from the source clone; watch version converge. -->
 <display version="2.0.0">
   <name>PVA Gateway Fleet</name>
   <width>640</width>
@@ -57,7 +57,7 @@
     </actions>
     <text>restart</text>
     <x>440</x><y>70</y><width>80</width><height>20</height>
-    <tooltip>Relaunch this instance (re-pins to the current wheel)</tooltip>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
     <confirm_dialog>true</confirm_dialog>
     <confirm_message>Restart the PVA gateway on 192.168.6.100?</confirm_message>
   </widget>
