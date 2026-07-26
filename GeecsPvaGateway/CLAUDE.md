@@ -28,7 +28,8 @@ geecs_pva_gateway/
 deploy/
   bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
                   #   USERPROFILE override -> service-owned profile)
-  launch.bat      # pull-on-restart launcher (pin to CURRENT wheel on share)
+  launch.bat      # pull-on-restart launcher (reinstall from the shared
+                  #   GEECS-Plugins clone; its checked-out commit = fleet pin)
   fleet_status.bob# Phoebus fleet screen: version/heartbeat/restart per host
 tests/
   test_config.py  # scoping/naming units (fake DB rows, no network)

@@ -39,7 +39,7 @@ _HEARTBEAT_PERIOD_S = 5.0
 
 # Process exit code meaning "restart requested via the :restart PV" — the
 # service manager relaunches, which re-resolves DB config and (with the
-# pull-on-restart launcher) picks up the pinned wheel version. Mirrors the
+# pull-on-restart launcher) reinstalls from the source clone. Mirrors the
 # CA gateway's CAGateway:RESTART -> exit 86 -> systemd relaunch pattern.
 RESTART_EXIT_CODE = 86
 
