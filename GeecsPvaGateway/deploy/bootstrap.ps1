@@ -56,7 +56,10 @@ if (-not (Test-Path "$Root\venv")) {
 }
 & "$Root\venv\Scripts\python" -m pip install --quiet --upgrade pip
 Assert-Native "pip self-upgrade"
-& "$Root\venv\Scripts\python" -m pip install --quiet $Source
+# --no-cache-dir: pip's wheel cache can serve a stale same-URL build of a
+# monorepo path dep (bit the canary: cached morning build shadowed a newer
+# same-day version).
+& "$Root\venv\Scripts\python" -m pip install --quiet --no-cache-dir $Source
 Assert-Native "package install from $Source"
 & "$Root\venv\Scripts\geecs-pva-gateway.exe" --version
 Assert-Native "installed-entrypoint check"
