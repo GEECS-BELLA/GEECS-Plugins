@@ -37,6 +37,12 @@ _RECONNECT_MIN_S = 0.5
 _RECONNECT_MAX_S = 30.0
 _HEARTBEAT_PERIOD_S = 5.0
 
+# Process exit code meaning "restart requested via the :restart PV" — the
+# service manager relaunches, which re-resolves DB config and (with the
+# pull-on-restart launcher) picks up the pinned wheel version. Mirrors the
+# CA gateway's CAGateway:RESTART -> exit 86 -> systemd relaunch pattern.
+RESTART_EXIT_CODE = 86
+
 
 def _frame_timestamp(update: dict) -> float:
     """Frame time from the GEECS timestamp ladder, else receive time."""
@@ -59,6 +65,18 @@ class _Gate:
 
     def onLastDisconnect(self, pv: SharedPV) -> None:  # noqa: N802 (p4p API)
         self._worker.release(self._var)
+
+
+class _RestartHandler:
+    """p4p handler for the writable :restart PV — any put requests restart."""
+
+    def __init__(self, on_restart) -> None:
+        self._on_restart = on_restart
+
+    def put(self, pv: SharedPV, op) -> None:
+        logger.warning("restart requested via :restart PV")
+        op.done()
+        self._on_restart()
 
 
 class _CameraWorker:
@@ -217,11 +235,17 @@ class GeecsPvaGateway:
         self._config = config
         self._workers: list[_CameraWorker] = []
         self._server: Server | None = None
+        self._restart_event: asyncio.Event | None = None
 
     def conf(self) -> dict:
         """Client configuration for the running server (test isolation)."""
         assert self._server is not None
         return self._server.conf()
+
+    @property
+    def restart_requested(self) -> bool:
+        """True once a client has written the :restart PV."""
+        return self._restart_event is not None and self._restart_event.is_set()
 
     @property
     def pv_names(self) -> list[str]:
@@ -260,10 +284,18 @@ class GeecsPvaGateway:
                 owners[name] = source
                 providers[name] = pv
 
+        self._restart_event = asyncio.Event()
         prefix = pv_name(self._config.experiment, "pvagateway", self._instance_token())
         heartbeat_pv = SharedPV(nt=NTScalar("I"), initial=0)
         providers[f"{prefix}:version"] = SharedPV(nt=NTScalar("s"), initial=__version__)
         providers[f"{prefix}:heartbeat"] = heartbeat_pv
+        providers[f"{prefix}:restart"] = SharedPV(
+            handler=_RestartHandler(
+                lambda: loop.call_soon_threadsafe(self._restart_event.set)
+            ),
+            nt=NTScalar("i"),
+            initial=0,
+        )
 
         for name in sorted(providers):
             logger.info("serving %s", name)
@@ -271,10 +303,15 @@ class GeecsPvaGateway:
         self._server = Server(providers=[providers], isolate=isolate)
         try:
             beats = 0
-            while True:
-                await asyncio.sleep(_HEARTBEAT_PERIOD_S)
-                beats += 1
-                heartbeat_pv.post(beats)
+            while not self._restart_event.is_set():
+                try:
+                    await asyncio.wait_for(
+                        self._restart_event.wait(), _HEARTBEAT_PERIOD_S
+                    )
+                except TimeoutError:
+                    beats += 1
+                    heartbeat_pv.post(beats)
+            logger.warning("shutting down for restart (exit %d)", RESTART_EXIT_CODE)
         finally:
             for worker in self._workers:
                 await worker.stop()
