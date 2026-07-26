@@ -91,7 +91,13 @@ Constraints, all by design:
   the share needs user credentials, pull-on-restart silently no-ops on every
   box, visible only as the version PV never flipping. Validate once on the
   canary: set `GEECS_PVA_SOURCE`, hit `:restart`, and look for the
-  `pull-on-restart: reinstalling from …` line in the service log.
+  `pull-on-restart: reinstalling from …` line in the service log. If the ACL
+  can't be opened to machine accounts, the fallback is running the service as
+  the lab's shared domain account — `nssm set GeecsPvaGateway ObjectName
+  DOMAIN\user <password>`, an operator-typed step per box (passwords never in
+  scripts), coupled to that password never rotating. The `USERPROFILE`
+  override stays either way: mapped drives are per-logon-session and invisible
+  to services under *any* account.
 - **Don't `git pull` the share clone mid-rollout-restart** — the reinstall
   reads the clone live; pull first, then restart boxes.
 
