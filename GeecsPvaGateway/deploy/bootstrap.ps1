@@ -4,13 +4,14 @@
 #   powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
 #       -Experiment Undulator -Source .\GeecsPvaGateway
 # -Source accepts the package source dir (recommended: resolves the monorepo
-# path deps) or a wheel. -WheelShare (optional) enables pull-on-restart, e.g.
-#   -WheelShare \\fileserver\software\pva-wheels
+# path deps) or a wheel. -SourceShare (optional) enables pull-on-restart from
+# the lab's shared GEECS-Plugins clone (UNC path, machine-account readable):
+#   -SourceShare "\\fileserver\software\...\Active Version\GEECS-Plugins"
 param(
     [Parameter(Mandatory = $true)][string]$Experiment,
     [Parameter(Mandatory = $true)][string]$Source,
     [string]$Root = "C:\geecs\pva-gateway",
-    [string]$WheelShare = "",
+    [string]$SourceShare = "",
     # Path to a readable Configurations.INI (share path from a console session
     # with the drive mapped, or a local copy when driving over SSH). Copied
     # into the service profile so the box is start-ready after bootstrap.
@@ -70,6 +71,10 @@ if (-not (Test-Path "$Root\venv")) {
 }
 & "$Root\venv\Scripts\python" -m pip install --quiet --upgrade pip
 Assert-Native "pip self-upgrade"
+# poetry-core lets pull-on-restart build from the source clone with
+# --no-build-isolation (no internet needed at restart time).
+& "$Root\venv\Scripts\python" -m pip install --quiet poetry-core
+Assert-Native "poetry-core install"
 # --no-cache-dir: pip's wheel cache can serve a stale same-URL build of a
 # monorepo path dep (bit the canary: cached morning build shadowed a newer
 # same-day version).
@@ -110,7 +115,7 @@ Assert-Native "nssm install"
     "USERPROFILE=$Root\profile" `
     "GEECS_PVA_ROOT=$Root" `
     "GEECS_PVA_EXPERIMENT=$Experiment" `
-    "GEECS_PVA_WHEEL_SHARE=$WheelShare"
+    "GEECS_PVA_SOURCE=$SourceShare"
 & $nssm set GeecsPvaGateway AppStdout "$Root\logs\service.log"
 & $nssm set GeecsPvaGateway AppStderr "$Root\logs\service.log"
 & $nssm set GeecsPvaGateway AppRotateFiles 1

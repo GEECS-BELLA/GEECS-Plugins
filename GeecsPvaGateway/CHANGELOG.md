@@ -3,6 +3,19 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.0] — 2026-07-25
+
+### Changed
+
+- **Pull-on-restart installs from the lab's shared GEECS-Plugins clone instead
+  of a wheel drop** (owner decision: reuse the "Active Version" pattern GEECS
+  itself launches from). `launch.bat` reinstalls the three packages from
+  `GEECS_PVA_SOURCE` (`--no-deps --no-build-isolation`; poetry-core installed
+  at bootstrap so restarts need no internet); the clone's checked-out commit
+  is the fleet pin — rollout = `git pull` there + restart PVs, rollback =
+  `git checkout <rev>` + restarts. Replaces the never-deployed wheel/CURRENT
+  machinery; bootstrap's `-WheelShare` becomes `-SourceShare`.
+
 ## [0.2.1] — 2026-07-25
 
 ### Added

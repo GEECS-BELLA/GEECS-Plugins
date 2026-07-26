@@ -29,7 +29,8 @@ Prereqs: **Python 3.11** installed (`py -3.11` must work) and internet access
 powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
     -Experiment Undulator -Source .\GeecsPvaGateway `
     -ConfigSource "\\fileserver\software\path\to\user data\Configurations.INI"
-# optional pull-on-restart: add  -WheelShare \\fileserver\software\pva-wheels
+# optional pull-on-restart from the lab's shared GEECS-Plugins clone:
+#   add  -SourceShare "\\fileserver\software\...\Active Version\GEECS-Plugins"
 ```
 
 `-ConfigSource` copies the DB-credentials INI into the service profile so the
@@ -40,44 +41,30 @@ has no share credentials, so scp a copy to the box first and point at that.
 Omit the flag to place the file by hand.
 
 This stops any existing service, creates `C:\geecs\pva-gateway\{venv,profile,
-logs}`, **generates config.ini**, installs the package (use the source dir, not
-a wheel — monorepo wheels carry unresolvable path metadata, see Rollout),
-copies `launch.bat`, opens the PVA firewall ports (TCP 5075 / UDP 5076),
-fetches `nssm.exe`, and registers the `GeecsPvaGateway` service (auto-start,
-restart on any exit, online-rotating logs). If you omitted `-ConfigSource`,
-place `Configurations.INI` in the profile (rule 1); then
-`nssm start GeecsPvaGateway`. Note `launch.bat` is
-copied at bootstrap time — launcher changes need a re-bootstrap, wheels don't.
+logs}`, **generates config.ini**, installs the package from source (path deps
+resolve inside a checkout — a console session can use the share clone as
+`-Source`; over SSH use a local GitHub clone), copies `launch.bat`, opens the
+PVA firewall ports (TCP 5075 / UDP 5076), fetches `nssm.exe`, and registers
+the `GeecsPvaGateway` service (auto-start, restart on any exit, online-rotating
+logs). If you omitted `-ConfigSource`, place `Configurations.INI` in the
+profile (rule 1); then `nssm start GeecsPvaGateway`. Note `launch.bat` is
+copied at bootstrap time — launcher changes need a re-bootstrap, package
+updates don't.
 A **re**-bootstrap removes the existing service first (so pip never upgrades
 in-use files): if a later step fails, the box has no service until the
 bootstrap is re-run to completion — the failure is loud, fix and re-run.
 
 ## Rollout (fleet upgrade without touching boxes)
 
-Build a wheel for **every intra-repo package that changed** (path deps do not
-resolve from wheels — pull-on-restart installs with `--no-deps`, so anything
-not shipped explicitly stays at its installed version):
+The fleet installs from the lab's **shared GEECS-Plugins clone** (the "Active
+Version" pattern GEECS itself launches from): `GEECS_PVA_SOURCE` points every
+service at it, and the clone's checked-out commit **is** the fleet pin — no
+wheels, no version files. Rollout:
 
 ```bash
-for p in GEECS-Data-Utils GeecsCAGateway GeecsPvaGateway; do (cd $p && poetry build); done
-# copy the changed wheels to the share and update their lines in CURRENT.
-# CURRENT is a LOCKFILE, not a delta: it always lists the COMPLETE pinned
-# set (one filename per line, dependencies first), so a box that missed a
-# rollout converges to the same state on its next restart:
-#   \\fileserver\software\pva-wheels\CURRENT:
-#     geecs_data_utils-0.13.5-py3-none-any.whl
-#     geecs_ca_gateway-0.17.0-py3-none-any.whl
-#     geecs_pva_gateway-0.2.0-py3-none-any.whl
+# in the share clone (e.g. ...\Active Version\GEECS-Plugins):
+git pull            # advance the pin (or: git checkout <rev> to roll back)
 ```
-
-Two constraints inherited from the monorepo, both by design:
-
-- **External (PyPI) deps are frozen at bootstrap** — `--no-deps` never touches
-  them. A numpy/p4p bump is a re-bootstrap, not a rollout.
-- **The wheel share must be readable by the boxes' *machine accounts*** —
-  LocalSystem authenticates to shares as the computer account, not a user. If
-  the share needs user credentials, pull-on-restart silently no-ops on every
-  box, visible only as the version PV never flipping.
 
 Then restart instances **via the `:restart` PV** — canary first:
 
@@ -85,12 +72,28 @@ Then restart instances **via the `:restart` PV** — canary first:
 pvput undulator:pvagateway:192_168_6_100:restart 1
 ```
 
-The server exits with code 86, NSSM relaunches `launch.bat`, which re-pins to
-the `CURRENT` wheels and re-resolves the DB config. Watch the instance's
+The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
+the three packages (`GEECS-Data-Utils`, `GeecsCAGateway`, `GeecsPvaGateway`)
+from the share clone and re-resolves the DB config. Watch the instance's
 `version` PV flip on the fleet screen (`deploy/fleet_status.bob` — one row per
 host: version, heartbeat, and a confirm-dialog restart button); roll the rest
 when the canary soaks clean. An unreachable share falls through to the
 installed versions — a restart never bricks an instance.
+
+Constraints, all by design:
+
+- **External (PyPI) deps are frozen at bootstrap** — the reinstall is
+  `--no-deps` (monorepo path-dep metadata never resolves outside a checkout)
+  with `--no-build-isolation` (builds use the venv's poetry-core, so restarts
+  need no internet). A numpy/p4p bump is a re-bootstrap, not a rollout.
+- **The share clone must be readable by the boxes' *machine accounts*** —
+  LocalSystem authenticates to shares as the computer account, not a user. If
+  the share needs user credentials, pull-on-restart silently no-ops on every
+  box, visible only as the version PV never flipping. Validate once on the
+  canary: set `GEECS_PVA_SOURCE`, hit `:restart`, and look for the
+  `pull-on-restart: reinstalling from …` line in the service log.
+- **Don't `git pull` the share clone mid-rollout-restart** — the reinstall
+  reads the clone live; pull first, then restart boxes.
 
 ## Smoke test
 

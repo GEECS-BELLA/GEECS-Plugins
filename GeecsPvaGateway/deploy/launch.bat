@@ -1,32 +1,28 @@
 @echo off
 rem GeecsPvaGateway service launcher: pull-on-restart, then serve.
 rem NSSM runs this with USERPROFILE, GEECS_PVA_ROOT, GEECS_PVA_EXPERIMENT and
-rem (optionally) GEECS_PVA_WHEEL_SHARE set (see bootstrap.ps1). A restart —
-rem :restart PV (exit 86), crash, or reboot — re-pins to the wheels listed in
-rem CURRENT on the share; an unreachable share falls through to the installed
-rem versions. NOTE: LocalSystem authenticates to shares as the MACHINE
-rem account — the share must be readable by it or the check silently fails
-rem every restart (visible only as version-PV skew; see DEPLOYMENT.md).
+rem (optionally) GEECS_PVA_SOURCE set (see bootstrap.ps1). GEECS_PVA_SOURCE is
+rem the UNC path of the shared GEECS-Plugins clone (the lab's "Active
+rem Version" clone): a restart — :restart PV (exit 86), crash, or reboot —
+rem reinstalls the three packages from it, so the clone's checked-out commit
+rem IS the fleet pin. Rollout = git pull in the clone + restart PVs; rollback
+rem = git checkout <rev> there + restarts. An unreachable share falls through
+rem to the installed versions (a restart never bricks an instance).
+rem NOTE: LocalSystem authenticates to shares as the MACHINE account — the
+rem share must be readable by it or the check silently fails every restart
+rem (visible only as version-PV skew; see DEPLOYMENT.md).
 rem
-rem CURRENT lists one wheel filename per line (intra-repo deps first, e.g.
-rem geecs_data_utils, geecs_ca_gateway, then geecs_pva_gateway). Wheels are
-rem installed together with --no-deps: monorepo wheels carry unresolvable
-rem build-machine path metadata, and external (PyPI) deps are frozen at
-rem bootstrap time by design.
-setlocal enabledelayedexpansion
+rem --no-deps: monorepo path-dep metadata never resolves outside a checkout;
+rem external (PyPI) deps are frozen at bootstrap by design.
+rem --no-build-isolation: build with the venv's poetry-core (installed at
+rem bootstrap), so a restart needs no internet.
 
 if "%GEECS_PVA_ROOT%"=="" set GEECS_PVA_ROOT=C:\geecs\pva-gateway
 
-if not "%GEECS_PVA_WHEEL_SHARE%"=="" (
-    if exist "%GEECS_PVA_WHEEL_SHARE%\CURRENT" (
-        set WHEELS=
-        for /f "usebackq delims=" %%w in ("%GEECS_PVA_WHEEL_SHARE%\CURRENT") do (
-            set WHEELS=!WHEELS! "%GEECS_PVA_WHEEL_SHARE%\%%w"
-        )
-        if not "!WHEELS!"=="" (
-            echo pull-on-restart: pinning to !WHEELS!
-            "%GEECS_PVA_ROOT%\venv\Scripts\python" -m pip install --quiet --upgrade --no-deps !WHEELS!
-        )
+if not "%GEECS_PVA_SOURCE%"=="" (
+    if exist "%GEECS_PVA_SOURCE%\GeecsPvaGateway\pyproject.toml" (
+        echo pull-on-restart: reinstalling from %GEECS_PVA_SOURCE%
+        "%GEECS_PVA_ROOT%\venv\Scripts\python" -m pip install --quiet --upgrade --no-deps --no-build-isolation "%GEECS_PVA_SOURCE%\GEECS-Data-Utils" "%GEECS_PVA_SOURCE%\GeecsCAGateway" "%GEECS_PVA_SOURCE%\GeecsPvaGateway"
     )
 )
 
