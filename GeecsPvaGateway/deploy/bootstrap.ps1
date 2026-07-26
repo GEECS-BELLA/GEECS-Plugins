@@ -85,7 +85,7 @@ Assert-Native "package install from $Source"
 Assert-Native "installed-entrypoint check"
 
 # Launcher (pull-on-restart logic; note: copied once here, NOT part of the
-# wheel rollout loop — a launch.bat change needs re-running this bootstrap)
+# pull-on-restart loop — a launch.bat change needs re-running this bootstrap)
 Copy-Item "$PSScriptRoot\launch.bat" "$Root\launch.bat" -Force
 
 # Firewall (idempotent): PVA server TCP + search UDP
