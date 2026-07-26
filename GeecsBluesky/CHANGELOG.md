@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.50.1] - 2026-07-25
+
+### Changed
+
+- Docs-only: `CLAUDE.md` gained the two-image-paths note in PR #606 (scan
+  data = files + Tiled, unchanged; live pixels = GeecsPvaGateway's NTNDArray
+  PVs, ophyd-async-native when a use case wants a live-image signal). This
+  entry retroactively records that change per the docs-only-bump convention —
+  no code changes.
+
 ## [0.50.0] - 2026-07-22
 
 ### Added
