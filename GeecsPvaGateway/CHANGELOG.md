@@ -21,12 +21,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   camera-hosting endpoints from the experiment DB (enabled devices with
   image-typed variables, grouped by endpoint IP), one
   version/heartbeat/restart row each. Now generated, not hand-edited.
-
-### Fixed
-
-- Both bootstrap downloads (`python installer`, `nssm.zip`) now pass
-  `curl -f`, so an HTTP-level failure (404, proxy/captive-portal page) fails
-  the download step loudly instead of surfacing later as a corrupt file.
 - `DEPLOYMENT.md`: console-first onboarding is now the documented preferred
   path (script, `-Source`, and `-ConfigSource` all straight off the share as
   UNC paths — no local staging; SSH documented as the fallback needing a
@@ -34,6 +28,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   PVA broadcast discovery is subnet-local — the fleet spans several lab
   subnets, so clients wanting cameras fleet-wide carry the full address
   list even on-site.
+
+### Fixed
+
+- Both bootstrap downloads (`python installer`, `nssm.zip`) now pass
+  `curl -f`, so an HTTP-level failure (404, proxy/captive-portal page) fails
+  the download step loudly instead of surfacing later as a corrupt file.
 
 ## [0.3.0] — 2026-07-25
 
