@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Fleet health for GeecsPvaGateway instances: one row per camera server.
-     To add a host: copy the three widgets of a row, bump every y by 30, and
-     replace the host token (IP with dots -> underscores, e.g. 192_168_6_100).
+<!-- Fleet health for GeecsPvaGateway instances: one row per camera server
+     (host list = enabled experiment devices with image-typed variables,
+     grouped by endpoint IP; regenerate when the fleet changes).
      Rollout = write 1 to :restart (confirmation dialog) — the service
      relaunches and reinstalls from the source clone; watch version converge. -->
 <display version="2.0.0">
   <name>PVA Gateway Fleet</name>
   <width>640</width>
-  <height>200</height>
+  <height>480</height>
   <widget type="label" version="2.0.0">
     <name>title</name>
     <text>GeecsPvaGateway fleet — Undulator</text>
@@ -30,27 +30,27 @@
     <x>330</x><y>45</y><width>100</width><height>20</height>
   </widget>
 
-  <!-- row: 192.168.6.100 (canary) -->
+  <!-- row: 192.168.6.66 -->
   <widget type="label" version="2.0.0">
-    <name>host_100</name>
-    <text>192.168.6.100</text>
+    <name>host_6_66</name>
+    <text>192.168.6.66</text>
     <x>10</x><y>70</y><width>150</width><height>20</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
-    <name>version_100</name>
-    <pv_name>pva://undulator:pvagateway:192_168_6_100:version</pv_name>
+    <name>version_6_66</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_66:version</pv_name>
     <x>170</x><y>70</y><width>150</width><height>20</height>
   </widget>
   <widget type="textupdate" version="2.0.0">
-    <name>heartbeat_100</name>
-    <pv_name>pva://undulator:pvagateway:192_168_6_100:heartbeat</pv_name>
+    <name>heartbeat_6_66</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_66:heartbeat</pv_name>
     <x>330</x><y>70</y><width>100</width><height>20</height>
   </widget>
   <widget type="action_button" version="3.0.0">
-    <name>restart_100</name>
+    <name>restart_6_66</name>
     <actions>
       <action type="write_pv">
-        <pv_name>pva://undulator:pvagateway:192_168_6_100:restart</pv_name>
+        <pv_name>pva://undulator:pvagateway:192_168_6_66:restart</pv_name>
         <value>1</value>
         <description>Restart</description>
       </action>
@@ -59,6 +59,390 @@
     <x>440</x><y>70</y><width>80</width><height>20</height>
     <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
     <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.6.66?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.6.73 -->
+  <widget type="label" version="2.0.0">
+    <name>host_6_73</name>
+    <text>192.168.6.73</text>
+    <x>10</x><y>100</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_6_73</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_73:version</pv_name>
+    <x>170</x><y>100</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_6_73</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_73:heartbeat</pv_name>
+    <x>330</x><y>100</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_6_73</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_6_73:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>100</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.6.73?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.6.80 -->
+  <widget type="label" version="2.0.0">
+    <name>host_6_80</name>
+    <text>192.168.6.80</text>
+    <x>10</x><y>130</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_6_80</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_80:version</pv_name>
+    <x>170</x><y>130</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_6_80</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_80:heartbeat</pv_name>
+    <x>330</x><y>130</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_6_80</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_6_80:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>130</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.6.80?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.6.100 -->
+  <widget type="label" version="2.0.0">
+    <name>host_6_100</name>
+    <text>192.168.6.100</text>
+    <x>10</x><y>160</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_6_100</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_100:version</pv_name>
+    <x>170</x><y>160</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_6_100</name>
+    <pv_name>pva://undulator:pvagateway:192_168_6_100:heartbeat</pv_name>
+    <x>330</x><y>160</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_6_100</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_6_100:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>160</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
     <confirm_message>Restart the PVA gateway on 192.168.6.100?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.7.161 -->
+  <widget type="label" version="2.0.0">
+    <name>host_7_161</name>
+    <text>192.168.7.161</text>
+    <x>10</x><y>190</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_7_161</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_161:version</pv_name>
+    <x>170</x><y>190</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_7_161</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_161:heartbeat</pv_name>
+    <x>330</x><y>190</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_7_161</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_161:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>190</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.161?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.7.162 -->
+  <widget type="label" version="2.0.0">
+    <name>host_7_162</name>
+    <text>192.168.7.162</text>
+    <x>10</x><y>220</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_7_162</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_162:version</pv_name>
+    <x>170</x><y>220</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_7_162</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_162:heartbeat</pv_name>
+    <x>330</x><y>220</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_7_162</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_162:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>220</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.162?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.7.163 -->
+  <widget type="label" version="2.0.0">
+    <name>host_7_163</name>
+    <text>192.168.7.163</text>
+    <x>10</x><y>250</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_7_163</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_163:version</pv_name>
+    <x>170</x><y>250</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_7_163</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_163:heartbeat</pv_name>
+    <x>330</x><y>250</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_7_163</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_163:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>250</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.163?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.7.164 -->
+  <widget type="label" version="2.0.0">
+    <name>host_7_164</name>
+    <text>192.168.7.164</text>
+    <x>10</x><y>280</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_7_164</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_164:version</pv_name>
+    <x>170</x><y>280</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_7_164</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_164:heartbeat</pv_name>
+    <x>330</x><y>280</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_7_164</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_164:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>280</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.164?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.7.203 -->
+  <widget type="label" version="2.0.0">
+    <name>host_7_203</name>
+    <text>192.168.7.203</text>
+    <x>10</x><y>310</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_7_203</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_203:version</pv_name>
+    <x>170</x><y>310</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_7_203</name>
+    <pv_name>pva://undulator:pvagateway:192_168_7_203:heartbeat</pv_name>
+    <x>330</x><y>310</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_7_203</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_7_203:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>310</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.7.203?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.8.197 -->
+  <widget type="label" version="2.0.0">
+    <name>host_8_197</name>
+    <text>192.168.8.197</text>
+    <x>10</x><y>340</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_8_197</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_197:version</pv_name>
+    <x>170</x><y>340</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_8_197</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_197:heartbeat</pv_name>
+    <x>330</x><y>340</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_8_197</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_8_197:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>340</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.8.197?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.8.199 -->
+  <widget type="label" version="2.0.0">
+    <name>host_8_199</name>
+    <text>192.168.8.199</text>
+    <x>10</x><y>370</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_8_199</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_199:version</pv_name>
+    <x>170</x><y>370</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_8_199</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_199:heartbeat</pv_name>
+    <x>330</x><y>370</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_8_199</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_8_199:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>370</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.8.199?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.8.201 -->
+  <widget type="label" version="2.0.0">
+    <name>host_8_201</name>
+    <text>192.168.8.201</text>
+    <x>10</x><y>400</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_8_201</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_201:version</pv_name>
+    <x>170</x><y>400</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_8_201</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_201:heartbeat</pv_name>
+    <x>330</x><y>400</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_8_201</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_8_201:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>400</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.8.201?</confirm_message>
+  </widget>
+
+  <!-- row: 192.168.8.207 -->
+  <widget type="label" version="2.0.0">
+    <name>host_8_207</name>
+    <text>192.168.8.207</text>
+    <x>10</x><y>430</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>version_8_207</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_207:version</pv_name>
+    <x>170</x><y>430</y><width>150</width><height>20</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>heartbeat_8_207</name>
+    <pv_name>pva://undulator:pvagateway:192_168_8_207:heartbeat</pv_name>
+    <x>330</x><y>430</y><width>100</width><height>20</height>
+  </widget>
+  <widget type="action_button" version="3.0.0">
+    <name>restart_8_207</name>
+    <actions>
+      <action type="write_pv">
+        <pv_name>pva://undulator:pvagateway:192_168_8_207:restart</pv_name>
+        <value>1</value>
+        <description>Restart</description>
+      </action>
+    </actions>
+    <text>restart</text>
+    <x>440</x><y>430</y><width>80</width><height>20</height>
+    <tooltip>Relaunch this instance (reinstalls from the source clone)</tooltip>
+    <confirm_dialog>true</confirm_dialog>
+    <confirm_message>Restart the PVA gateway on 192.168.8.207?</confirm_message>
   </widget>
 </display>

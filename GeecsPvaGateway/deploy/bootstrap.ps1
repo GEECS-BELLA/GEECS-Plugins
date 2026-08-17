@@ -1,5 +1,6 @@
 # One-time GeecsPvaGateway bootstrap for a Windows camera server.
-# Prereqs: Python 3.11 (`py -3.11` must work), internet for pip + nssm.cc.
+# Prereqs: internet (pip, nssm.cc, and — when `py -3.11` is missing —
+# python.org for a silent all-users Python 3.11 install).
 # Run from an elevated PowerShell inside the repo checkout:
 #   powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
 #       -Experiment Undulator -Source .\GeecsPvaGateway
@@ -63,6 +64,33 @@ if (-not (Test-Path $configIni)) {
 }
 if ($ConfigSource) {
     Copy-Item $ConfigSource "$Root\profile\user data\Configurations.INI" -Force
+}
+
+# Python 3.11 — installed silently if absent, so a bare box needs no manual
+# prep. 3.11.9 is the last 3.11 release with a binary installer (later 3.11.x
+# are source-only security releases). All-users install (the service runs as
+# LocalSystem); the py launcher lands in C:\Windows, on PATH immediately.
+$py311 = $false
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    # cmd swallows the probe's stderr: PS 5.1 + EAP=Stop turns redirected
+    # native stderr into a terminating error (same quirk as nssm above).
+    $null = & cmd /c "py -3.11 -c pass 2>nul"
+    $py311 = -not $LASTEXITCODE
+}
+if (-not $py311) {
+    Write-Host "Python 3.11 not found - installing from python.org ..."
+    $pyInstaller = "$env:TEMP\python-3.11.9-amd64.exe"
+    curl.exe -L -s -o $pyInstaller `
+        https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
+    Assert-Native "python installer download"
+    $proc = Start-Process $pyInstaller -Wait -PassThru -ArgumentList `
+        "/quiet InstallAllUsers=1 InstallLauncherAllUsers=1 PrependPath=0 Include_test=0"
+    # 3010 = success, reboot required (fine: nothing below needs the reboot)
+    if ($proc.ExitCode -notin 0, 3010) {
+        throw "python silent install failed (exit $($proc.ExitCode))"
+    }
+    & py -3.11 -c "pass"
+    Assert-Native "python 3.11 verification after install"
 }
 
 # Python env + package

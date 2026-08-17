@@ -3,6 +3,29 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.3.1] — 2026-07-31
+
+### Added
+
+- `bootstrap.ps1` installs Python 3.11 itself when `py -3.11` is missing
+  (silent all-users install of 3.11.9 — the last 3.11 with a binary
+  installer — from python.org), so a bare camera server needs no manual
+  Python setup before onboarding.
+
+### Changed
+
+- `fleet_status.bob` grew from the canary-only row to the full fleet: all 13
+  camera-hosting endpoints from the experiment DB (enabled devices with
+  image-typed variables, grouped by endpoint IP), one
+  version/heartbeat/restart row each.
+- `DEPLOYMENT.md`: console-first onboarding is now the documented preferred
+  path (script, `-Source`, and `-ConfigSource` all straight off the share as
+  UNC paths — no local staging; SSH documented as the fallback needing a
+  local clone + local INI copy), and the client-access section notes that
+  PVA broadcast discovery is subnet-local — the fleet spans several lab
+  subnets, so clients wanting cameras fleet-wide carry the full address
+  list even on-site.
+
 ## [0.3.0] — 2026-07-25
 
 ### Changed

@@ -22,22 +22,40 @@ One NSSM service per camera server, serving that host's cameras. The pilot box
 
 ## One-time bootstrap (per box, elevated PowerShell, from a repo checkout)
 
-Prereqs: **Python 3.11** installed (`py -3.11` must work) and internet access
-(pip + nssm.cc).
+Prereqs: internet access only (pip + nssm.cc; and python.org when Python 3.11
+is absent — the bootstrap detects a missing `py -3.11` and silently installs
+3.11.9 all-users, so a bare box needs no manual Python setup).
+
+**Preferred onboarding path: a console session, everything from the share.**
+A console (RDP/local) session has the operator's share credentials, so the
+script, `-Source`, and `-ConfigSource` can all be the share clone — no local
+checkout, no file copying (use UNC paths throughout; see the drive-letter
+caveat below):
+
+```powershell
+powershell -ExecutionPolicy Bypass `
+    -File "\\fileserver\...\Active Version\GEECS-Plugins\GeecsPvaGateway\deploy\bootstrap.ps1" `
+    -Experiment Undulator `
+    -Source "\\fileserver\...\Active Version\GEECS-Plugins\GeecsPvaGateway" `
+    -SourceShare "\\fileserver\...\Active Version\GEECS-Plugins" `
+    -ConfigSource "\\fileserver\software\path\to\user data\Configurations.INI"
+```
+
+Driving over SSH instead works but needs local staging — an SSH session has
+no share credentials (key auth mints none), so `-Source` must be a local
+GitHub clone and `-ConfigSource` a local copy scp'd to the box:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
     -Experiment Undulator -Source .\GeecsPvaGateway `
-    -ConfigSource "\\fileserver\software\path\to\user data\Configurations.INI"
-# optional pull-on-restart from the lab's shared GEECS-Plugins clone:
-#   add  -SourceShare "\\fileserver\software\...\Active Version\GEECS-Plugins"
+    -SourceShare "\\fileserver\...\Active Version\GEECS-Plugins" `
+    -ConfigSource C:\path\to\local\Configurations.INI
 ```
 
 `-ConfigSource` copies the DB-credentials INI into the service profile so the
-box is start-ready in one command. Use a **UNC path**, not a drive letter —
-mapped drives are invisible both over SSH and in an elevated console (UAC
-token-splitting), the two places this script runs. Over SSH the machine also
-has no share credentials, so scp a copy to the box first and point at that.
+box is start-ready in one command. Use **UNC paths**, not drive letters, for
+every share argument — mapped drives are invisible both over SSH and in an
+elevated console (UAC token-splitting), the two places this script runs.
 Omit the flag to place the file by hand.
 
 This stops any existing service, creates `C:\geecs\pva-gateway\{venv,profile,
@@ -130,11 +148,16 @@ push, ~1–2 s at 1 Hz) — that is the unwatched-variables-are-free trade
 Nothing central to configure — PVA clients find whichever camera server owns a
 PV. Two regimes:
 
-- **On the lab subnet** (control-room machines): zero config. PVA name search
-  is UDP broadcast; the firewall ports bootstrap opens are the whole story.
-- **Routed/VPN clients** (e.g. a laptop over the VPN): broadcast does not
-  traverse, so list every camera server's IP for unicast search —
-  space-separated, one entry per server, appended as boxes come online:
+- **On the server's own subnet**: zero config. PVA name search is UDP
+  broadcast; the firewall ports bootstrap opens are the whole story. Caveat:
+  broadcast is **subnet-local**, and the camera-server fleet spans several lab
+  subnets — a control-room machine only auto-discovers the servers on *its*
+  subnet. Any client that needs cameras across the whole fleet should carry
+  the full address list below, on-site or not.
+- **Routed/VPN clients** (a laptop over the VPN, or any lab machine reaching
+  servers on another subnet): broadcast does not traverse, so list every
+  camera server's IP for unicast search — space-separated, one entry per
+  server, appended as boxes come online:
   - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="192.168.6.100 …"` (+
     `EPICS_PVA_AUTO_ADDR_LIST=NO`)
   - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=192.168.6.100 …` in the
