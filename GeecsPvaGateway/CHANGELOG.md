@@ -3,7 +3,7 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.3.1] — 2026-07-31
+## [0.4.0] — 2026-07-31
 
 ### Added
 
@@ -11,13 +11,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (silent all-users install of 3.11.9 — the last 3.11 with a binary
   installer — from python.org), so a bare camera server needs no manual
   Python setup before onboarding.
+- `deploy/gen_fleet_status.py`: checked-in generator for `fleet_status.bob`;
+  its `HOSTS` list is the fleet roster of record (DB snapshot documented in
+  the docstring) — update the list, rerun, commit both files.
 
 ### Changed
 
 - `fleet_status.bob` grew from the canary-only row to the full fleet: all 13
   camera-hosting endpoints from the experiment DB (enabled devices with
   image-typed variables, grouped by endpoint IP), one
-  version/heartbeat/restart row each.
+  version/heartbeat/restart row each. Now generated, not hand-edited.
+
+### Fixed
+
+- Both bootstrap downloads (`python installer`, `nssm.zip`) now pass
+  `curl -f`, so an HTTP-level failure (404, proxy/captive-portal page) fails
+  the download step loudly instead of surfacing later as a corrupt file.
 - `DEPLOYMENT.md`: console-first onboarding is now the documented preferred
   path (script, `-Source`, and `-ConfigSource` all straight off the share as
   UNC paths — no local staging; SSH documented as the fallback needing a

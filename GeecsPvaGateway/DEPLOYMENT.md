@@ -158,10 +158,24 @@ PV. Two regimes:
   servers on another subnet): broadcast does not traverse, so list every
   camera server's IP for unicast search — space-separated, one entry per
   server, appended as boxes come online:
-  - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="192.168.6.100 …"` (+
+  - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="<fleet list>"` (+
     `EPICS_PVA_AUTO_ADDR_LIST=NO`)
-  - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=192.168.6.100 …` in the
+  - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=<fleet list>` in the
     settings file (env vars don't reach a macOS `open`-launched app)
+
+  The roster of record for `<fleet list>` is `HOSTS` in
+  `deploy/gen_fleet_status.py` (the fleet-screen generator) — currently:
+
+  ```
+  192.168.6.66 192.168.6.73 192.168.6.80 192.168.6.100 192.168.7.161
+  192.168.7.162 192.168.7.163 192.168.7.164 192.168.7.203 192.168.8.197
+  192.168.8.199 192.168.8.201 192.168.8.207
+  ```
+
+  (one line, space-separated, in the actual setting). Note the fleet screen
+  itself is a cross-subnet client: a Phoebus instance without this list shows
+  the rows on other subnets as disconnected — which mid-rollout reads as
+  "rollout failed" when it's only a display setting.
 
 The CA variables (`EPICS_CA_*`) are the scalar gateway's and are unaffected.
 If the fleet ever outgrows a hand-kept list, the standard escalation is a PVA

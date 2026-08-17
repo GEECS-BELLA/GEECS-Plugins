@@ -14,9 +14,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Source,
     [string]$Root = "C:\geecs\pva-gateway",
     [string]$SourceShare = "",
-    # Path to a readable Configurations.INI (share path from a console session
-    # with the drive mapped, or a local copy when driving over SSH). Copied
-    # into the service profile so the box is start-ready after bootstrap.
+    # Path to a readable Configurations.INI (UNC share path from a console
+    # session — mapped drives are invisible here — or a local copy when
+    # driving over SSH). Copied into the service profile so the box is
+    # start-ready after bootstrap.
     [string]$ConfigSource = ""
 )
 $ErrorActionPreference = "Stop"
@@ -80,7 +81,9 @@ if (Get-Command py -ErrorAction SilentlyContinue) {
 if (-not $py311) {
     Write-Host "Python 3.11 not found - installing from python.org ..."
     $pyInstaller = "$env:TEMP\python-3.11.9-amd64.exe"
-    curl.exe -L -s -o $pyInstaller `
+    # -f: fail on HTTP errors — otherwise a 404/proxy page downloads "fine"
+    # and the failure surfaces later as a corrupt installer with no hint why.
+    curl.exe -L -s -f -o $pyInstaller `
         https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
     Assert-Native "python installer download"
     $proc = Start-Process $pyInstaller -Wait -PassThru -ArgumentList `
@@ -129,7 +132,7 @@ foreach ($rule in @(
 
 # NSSM (single exe; fetched once)
 if (-not (Test-Path $nssm)) {
-    curl.exe -L -s -o "$env:TEMP\nssm.zip" https://nssm.cc/release/nssm-2.24.zip
+    curl.exe -L -s -f -o "$env:TEMP\nssm.zip" https://nssm.cc/release/nssm-2.24.zip
     Assert-Native "nssm download"
     Expand-Archive "$env:TEMP\nssm.zip" -DestinationPath "$env:TEMP\nssm" -Force
     Copy-Item "$env:TEMP\nssm\nssm-2.24\win64\nssm.exe" $nssm
