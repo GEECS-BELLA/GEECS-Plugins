@@ -1,5 +1,6 @@
 # One-time GeecsPvaGateway bootstrap for a Windows camera server.
-# Prereqs: Python 3.11 (`py -3.11` must work), internet for pip + nssm.cc.
+# Prereqs: internet (pip, nssm.cc, and — when `py -3.11` is missing —
+# python.org for a silent all-users Python 3.11 install).
 # Run from an elevated PowerShell inside the repo checkout:
 #   powershell -ExecutionPolicy Bypass -File .\GeecsPvaGateway\deploy\bootstrap.ps1 `
 #       -Experiment Undulator -Source .\GeecsPvaGateway
@@ -13,9 +14,10 @@ param(
     [Parameter(Mandatory = $true)][string]$Source,
     [string]$Root = "C:\geecs\pva-gateway",
     [string]$SourceShare = "",
-    # Path to a readable Configurations.INI (share path from a console session
-    # with the drive mapped, or a local copy when driving over SSH). Copied
-    # into the service profile so the box is start-ready after bootstrap.
+    # Path to a readable Configurations.INI (UNC share path from a console
+    # session — mapped drives are invisible here — or a local copy when
+    # driving over SSH). Copied into the service profile so the box is
+    # start-ready after bootstrap.
     [string]$ConfigSource = ""
 )
 $ErrorActionPreference = "Stop"
@@ -65,6 +67,35 @@ if ($ConfigSource) {
     Copy-Item $ConfigSource "$Root\profile\user data\Configurations.INI" -Force
 }
 
+# Python 3.11 — installed silently if absent, so a bare box needs no manual
+# prep. 3.11.9 is the last 3.11 release with a binary installer (later 3.11.x
+# are source-only security releases). All-users install (the service runs as
+# LocalSystem); the py launcher lands in C:\Windows, on PATH immediately.
+$py311 = $false
+if (Get-Command py -ErrorAction SilentlyContinue) {
+    # cmd swallows the probe's stderr: PS 5.1 + EAP=Stop turns redirected
+    # native stderr into a terminating error (same quirk as nssm above).
+    $null = & cmd /c "py -3.11 -c pass 2>nul"
+    $py311 = -not $LASTEXITCODE
+}
+if (-not $py311) {
+    Write-Host "Python 3.11 not found - installing from python.org ..."
+    $pyInstaller = "$env:TEMP\python-3.11.9-amd64.exe"
+    # -f: fail on HTTP errors — otherwise a 404/proxy page downloads "fine"
+    # and the failure surfaces later as a corrupt installer with no hint why.
+    curl.exe -L -s -f -o $pyInstaller `
+        https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe
+    Assert-Native "python installer download"
+    $proc = Start-Process $pyInstaller -Wait -PassThru -ArgumentList `
+        "/quiet InstallAllUsers=1 InstallLauncherAllUsers=1 PrependPath=0 Include_test=0"
+    # 3010 = success, reboot required (fine: nothing below needs the reboot)
+    if ($proc.ExitCode -notin 0, 3010) {
+        throw "python silent install failed (exit $($proc.ExitCode))"
+    }
+    & py -3.11 -c "pass"
+    Assert-Native "python 3.11 verification after install"
+}
+
 # Python env + package
 if (-not (Test-Path "$Root\venv")) {
     py -3.11 -m venv "$Root\venv"
@@ -101,7 +132,7 @@ foreach ($rule in @(
 
 # NSSM (single exe; fetched once)
 if (-not (Test-Path $nssm)) {
-    curl.exe -L -s -o "$env:TEMP\nssm.zip" https://nssm.cc/release/nssm-2.24.zip
+    curl.exe -L -s -f -o "$env:TEMP\nssm.zip" https://nssm.cc/release/nssm-2.24.zip
     Assert-Native "nssm download"
     Expand-Archive "$env:TEMP\nssm.zip" -DestinationPath "$env:TEMP\nssm" -Force
     Copy-Item "$env:TEMP\nssm\nssm-2.24\win64\nssm.exe" $nssm
