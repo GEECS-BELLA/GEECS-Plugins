@@ -101,6 +101,7 @@ nav:
               - Controls: geecs_python_api/api/controls.md
       - GEECS Gateway:
           - Client Overview: geecs_gateway/client_overview.md
+          - Camera Images (PVA): geecs_gateway/image_pvs.md
       - GEECS Schemas:
           - Scanner Configs Overview: geecs_schemas/schemas_overview.md
           - Running a Scan: geecs_schemas/running_a_scan.md

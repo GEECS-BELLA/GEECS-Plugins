@@ -139,14 +139,22 @@ From any machine with p4p (over VPN, set the address list per **Client
 access** below so name search unicasts):
 
 ```python
+import time
 from p4p.client.thread import Context
-img = Context("pva").get("undulator:uc_amp2_ir_input:image", timeout=5)
-print(img.shape, img.dtype)
+
+ctx = Context("pva")
+sub = ctx.monitor("undulator:uc_amp2_ir_input:image", lambda v: print(v.shape, v.dtype))
+time.sleep(5)
+sub.close()
 ```
 
-First read after idle takes one gating round-trip (subscribe + next device
-push, ~1–2 s at 1 Hz) — that is the unwatched-variables-are-free trade
-(gating is per image variable; an unwatched camera holds zero connections).
+The first update is the cached value — the `(1, 1)` startup placeholder, or
+the last frame from a previous watch; the first *fresh* frame lands one
+gating round-trip later (subscribe + next device push, ~1–2 s at 1 Hz) —
+that is the unwatched-variables-are-free trade (gating is per image
+variable; an unwatched camera holds zero connections). A bare `get` returns
+the cached value immediately and never waits for the round-trip — hold a
+monitor instead, as above.
 
 ## Client access
 

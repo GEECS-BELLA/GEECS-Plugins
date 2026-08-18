@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-pva-gateway"
-version = "0.4.1"
+version = "0.4.2"
 description = "Distributed pvAccess gateway serving GEECS camera images as NTNDArray PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"

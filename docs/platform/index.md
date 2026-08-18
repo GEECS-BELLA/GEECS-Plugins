@@ -23,12 +23,15 @@ scan and its data are described.
 
     ---
 
-    The GEECS access layer as an EPICS soft-IOC: a caproto Channel Access
-    server that mirrors GEECS devices as PVs, so Phoebus, an Archiver
-    Appliance, or ophyd-async / Bluesky can talk to GEECS like any other
-    IOC — no bespoke bridge required.
+    The GEECS access layer as EPICS services: a central Channel Access
+    server mirroring GEECS devices as scalar/control PVs, plus distributed
+    pvAccess gateways on the camera servers serving live images as
+    NTNDArray PVs — so Phoebus, an Archiver Appliance, or ophyd-async /
+    Bluesky can talk to GEECS like any other IOC, no bespoke bridge
+    required.
 
-    [:octicons-arrow-right-24: Client overview](../geecs_gateway/client_overview.md)
+    [:octicons-arrow-right-24: Client overview](../geecs_gateway/client_overview.md) ·
+    [Camera images (PVA)](../geecs_gateway/image_pvs.md)
 
 -   :material-file-tree:{ .lg .middle } **GEECS Schemas**
 

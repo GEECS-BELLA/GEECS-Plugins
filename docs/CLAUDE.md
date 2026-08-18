@@ -17,13 +17,15 @@ short section-index landing page (`docs/<group>/index.md`, surfaced via the
 `navigation.indexes` theme feature) that orients the reader and links to the
 constituent packages:
 
-- **Acquisition** — running scans on the beamline. Currently the Scanner
-  GUI; future acquisition backends (e.g. a Bluesky-driven scanner) join here.
+- **Acquisition** — running scans on the beamline: the GEECS Console (the
+  Bluesky-backed acquisition front-end, including its Scan Browser).
 - **Analysis** — turning acquired data into results: Image Analysis, Scan
   Analysis, and the Data Utils path/loading layer they build on.
 - **Platform** — the access-and-contract layer everything sits on: the
-  Python API (device transport + DB), the GEECS Gateway (EPICS soft-IOC),
-  and GEECS Schemas (the typed scan-config contract).
+  Python API (device transport + DB), the GEECS Gateway (the EPICS access
+  layer — central CA soft-IOC for scalars plus the distributed PVA image
+  gateways on the camera servers), and GEECS Schemas (the typed
+  scan-config contract).
 
 Inside a group, each package is its own nav **section** (`navigation.sections`)
 and follows roughly Diátaxis: Overview (explanation), Tutorial (when
