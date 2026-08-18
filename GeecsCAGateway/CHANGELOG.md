@@ -3,7 +3,7 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-## [0.17.1] - 2026-07-31
+## [0.17.1] - 2026-08-18
 
 ### Changed
 

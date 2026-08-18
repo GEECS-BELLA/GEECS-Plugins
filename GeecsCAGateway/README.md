@@ -68,5 +68,5 @@ Deliberately deferred (the honest gap list — details in `DESIGN.md`):
 - **Sharding + systemd** — one central process today; target shape sketched in
   `DEPLOYMENT.md` §5.
 - **Images stay off CA** — scalars/controls only, by design; images are served
-  fleet-wide over pvAccess by the sibling `GeecsPvaGateway/` (NTNDArray, one
-  instance per camera server).
+  over pvAccess by the sibling `GeecsPvaGateway/` (NTNDArray; deployment
+  state lives with that package).

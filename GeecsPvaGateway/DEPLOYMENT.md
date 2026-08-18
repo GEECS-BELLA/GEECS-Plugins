@@ -1,7 +1,7 @@
 # GeecsPvaGateway — Windows camera server deployment
 
 One NSSM service per camera server, serving that host's cameras. **Deployed
-fleet-wide for Undulator since 2026-07-31** (every camera-hosting box runs an
+fleet-wide for Undulator since 2026-08** (every active camera server runs an
 instance; 192.168.6.100 was the original pilot and remains the canary-of-habit
 for rollouts). Every step below is scripted in `deploy/`.
 
@@ -162,17 +162,19 @@ PV. Two regimes:
 - **Routed/VPN clients** (a laptop over the VPN, or any lab machine reaching
   servers on another subnet): broadcast does not traverse, so list every
   camera server's IP for unicast search — space-separated, one entry per
-  deployed server:
+  fleet server:
   - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="<fleet list>"` (+
     `EPICS_PVA_AUTO_ADDR_LIST=NO`)
   - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=<fleet list>` in the
     settings file (env vars don't reach a macOS `open`-launched app)
 
   The roster of record for `<fleet list>` is `HOSTS` in
-  `deploy/gen_fleet_status.py` (the fleet-screen generator). `HOSTS` lists
-  the **deployed gateway instances** — when a camera-hosting box is retired
-  or added, update `HOSTS`, regenerate the screen, and update this list —
-  currently:
+  `deploy/gen_fleet_status.py` (the fleet-screen generator): the DB-derived
+  camera-hosting endpoints that **should** run a gateway. When a box is
+  added, or a box is retired/confirmed deprecated, update `HOSTS`,
+  regenerate the screen, and update this list. Roster entries whose box is
+  not (yet) running an instance show as disconnected rows on the fleet
+  screen — prune them once their deprecation is confirmed. Currently:
 
   ```
   192.168.6.66 192.168.6.73 192.168.6.80 192.168.6.100 192.168.7.161

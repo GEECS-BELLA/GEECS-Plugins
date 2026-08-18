@@ -16,8 +16,8 @@ The central CA gateway and these instances are peers in one flat namespace:
 CA/PVA search finds whichever server owns a PV; nothing proxies pixels.
 
 This is **load-bearing production infrastructure, not a prototype**: deployed
-fleet-wide for Undulator since 2026-07-31 (one NSSM instance per camera-hosting
-box; Phoebus camera screens and any p4p/ophyd-async client consume it live).
+fleet-wide for Undulator since 2026-08 (one NSSM instance per active camera
+server; Phoebus camera screens and any p4p/ophyd-async client consume it live).
 Treat its externally observable behavior — PV names, NTNDArray shape,
 instance-PV semantics — as a contract.
 

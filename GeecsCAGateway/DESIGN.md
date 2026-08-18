@@ -144,16 +144,16 @@ Recorded so the next build phase doesn't relitigate them.
 - **Protocol: Channel Access for scalars; pvAccess adopted per-device-class
   where it pays.** CA is the stable, universally-supported substrate for
   scalars/controls. PVA/structured data (NTScalar/NTTable/NTNDArray) is
-  additive — **adopted first for images, now in production**
-  (`GeecsPvaGateway/` serves NTNDArray via `p4p` fleet-wide on the camera
-  servers). Scalars-over-PVA remains a future per-class decision.
+  additive — **adopted first for images, now in production** (NTNDArray via
+  `p4p`; deployment state lives with `GeecsPvaGateway/`). Scalars-over-PVA
+  remains a future per-class decision.
   `channels.py` is the only caproto-typed layer, kept swappable. (`p4p` is the
   PVA Python library, not "the new pyepics"; pyepics stays CA-only and
   current.)
 
 - **Images are a separate, distributed, PVA workstream — not this gateway.**
-  (Shipped and deployed fleet-wide 2026-07: `GeecsPvaGateway/`, one NSSM
-  instance per camera server, Undulator.) A
+  (Shipped 2026-07 and in production: `GeecsPvaGateway/`, one instance per
+  camera server; deployment state lives with that package.) A
   central gateway funneling ~100 cameras is a bandwidth bottleneck. Images belong
   on distributed per-camera IOCs (areaDetector-style, PVA/NTNDArray) where data
   stays at the edge. CA name resolution lets the central scalar gateway and
