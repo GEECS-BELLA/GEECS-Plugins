@@ -3,6 +3,17 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.2] — 2026-08-18
+
+### Fixed
+
+- `DEPLOYMENT.md` smoke test corrected from a bare p4p `get` to a held
+  `monitor`: a bare `get` returns the cached value immediately (startup
+  placeholder or stale last frame) and never waits out the gating
+  round-trip, so the old snippet read `(1, 1)` on a healthy fresh instance
+  — verified empirically during review of the docs-site image page, which
+  now documents the same behavior.
+
 ## [0.4.1] — 2026-08-18
 
 ### Changed

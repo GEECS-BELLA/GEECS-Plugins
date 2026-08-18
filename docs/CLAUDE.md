@@ -18,7 +18,7 @@ short section-index landing page (`docs/<group>/index.md`, surfaced via the
 constituent packages:
 
 - **Acquisition** — running scans on the beamline: the GEECS Console (the
-  Bluesky-backed acquisition front-end) and the legacy Scanner GUI.
+  Bluesky-backed acquisition front-end, including its Scan Browser).
 - **Analysis** — turning acquired data into results: Image Analysis, Scan
   Analysis, and the Data Utils path/loading layer they build on.
 - **Platform** — the access-and-contract layer everything sits on: the

@@ -76,20 +76,27 @@ ships in the package (`GeecsPvaGateway/deploy/fleet_status.bob`).
 **Python (p4p)** — note `Context("pva")`, not `"ca"`:
 
 ```python
+import time
+
 from p4p.client.thread import Context
 
 ctx = Context("pva")
 sub = ctx.monitor("undulator:uc_tubein:image", lambda v: print(v.shape, v.dtype))
+time.sleep(5)  # hold the gate open — the first update is the current cached
+               # value; the first real frame lands ~1-2 s later (1 Hz camera)
+sub.close()
 ```
 
 !!! tip "Use a held `monitor`, not a bare `get`"
 
     Subscriptions are gated on client interest: the gateway only subscribes
     to the camera while at least one client channel is open, and the first
-    frame arrives one gating round-trip later (subscribe + next device push,
-    ~1–2 s at 1 Hz). A bare `get` connects and disconnects in milliseconds —
-    it typically sees only the `(1, 1)` startup placeholder. Hold a
-    `monitor` open for at least one push interval.
+    *fresh* frame arrives one gating round-trip after connecting (subscribe +
+    next device push, ~1–2 s at 1 Hz). A bare `get` returns immediately with
+    whatever is cached — the `(1, 1)` startup placeholder on a fresh
+    instance, or a **stale last frame** from a previous watch — and never
+    waits for that round-trip. Hold a `monitor` open for at least one push
+    interval.
 
 **ophyd-async** consumes the same PVs as standard PVA signals — live camera
 frames become readable device signals with no GEECS-specific code.
