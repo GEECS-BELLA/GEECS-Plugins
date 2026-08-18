@@ -3,6 +3,18 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.1] — 2026-07-31
+
+### Changed
+
+- Docs truth-up after the fleet rollout completed (2026-07-31, 9 boxes at
+  uniform 0.4.0): `DEPLOYMENT.md` drops the canary/pilot phase framing
+  (fleet-wide is the current state; per-host restart example; machine-account
+  share access stated as production-validated with the domain-account
+  fallback demoted to contingency; `HOSTS` defined as the deployed-instance
+  roster), and `CLAUDE.md` gains the load-bearing-production statement plus
+  the missing `gen_fleet_status.py` / `test_entrypoint.py` layout entries.
+
 ## [0.4.0] — 2026-07-31
 
 ### Added

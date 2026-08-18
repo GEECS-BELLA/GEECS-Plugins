@@ -15,6 +15,12 @@ LabVIEW camera device --loopback TCP push--> this gateway --NTNDArray--> Phoebus
 The central CA gateway and these instances are peers in one flat namespace:
 CA/PVA search finds whichever server owns a PV; nothing proxies pixels.
 
+This is **load-bearing production infrastructure, not a prototype**: deployed
+fleet-wide for Undulator since 2026-07-31 (one NSSM instance per camera-hosting
+box; Phoebus camera screens and any p4p/ophyd-async client consume it live).
+Treat its externally observable behavior — PV names, NTNDArray shape,
+instance-PV semantics — as a contract.
+
 ## Package Layout
 
 ```
@@ -27,14 +33,19 @@ geecs_pva_gateway/
                 #   version/heartbeat/restart instance PVs (restart -> exit 86)
 deploy/
   bootstrap.ps1   # one-time per-box setup (venv, firewall, NSSM service with
-                  #   USERPROFILE override -> service-owned profile)
+                  #   USERPROFILE override -> service-owned profile; installs
+                  #   Python 3.11 itself when `py -3.11` is missing)
   launch.bat      # pull-on-restart launcher (reinstall from the shared
                   #   GEECS-Plugins clone; its checked-out commit = fleet pin)
-  fleet_status.bob# Phoebus fleet screen: version/heartbeat/restart per host
+  gen_fleet_status.py # generator for fleet_status.bob; its HOSTS list is the
+                  #   fleet roster of record — edit + rerun, never hand-edit
+  fleet_status.bob# GENERATED Phoebus fleet screen: version/heartbeat/restart
+                  #   per host
 tests/
   test_config.py  # scoping/naming units (fake DB rows, no network)
   test_server.py  # end-to-end over a binary wire-format fake camera +
                   #   isolate=True PVA server
+  test_entrypoint.py # CLI exit codes (incl. the restart code 86 contract)
 ```
 
 ## Architecture (one asyncio loop)

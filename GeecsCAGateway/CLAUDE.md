@@ -103,7 +103,8 @@ One asyncio event loop runs everything:
   and **timestamp-ladder variables are posted last** so a client triggering on
   `acq_timestamp` observes the completed frame (PV_CONTRACT.md §3).
 - **channels/naming**: `channels.py` is the only caproto-typed layer (kept
-  swappable per DESIGN.md's PVA-later plan). Readback channels deny client
+  swappable per DESIGN.md's per-device-class PVA plan — images already run
+  on PVA via `GeecsPvaGateway/`; scalars stay CA). Readback channels deny client
   writes (access rights READ); setpoint channels forward to GEECS *before*
   storing, so a failed set fails the caput. `pv_naming.py` is the one shared
   naming module; full names are assembled by `DeviceSpec.pv_name_for`.
