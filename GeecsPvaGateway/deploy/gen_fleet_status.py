@@ -1,9 +1,12 @@
 """Regenerate ``fleet_status.bob`` from the fleet host list below.
 
-``HOSTS`` is the roster of record for the camera-server fleet: every endpoint
-IP hosting a GeecsPvaGateway instance, one screen row each. It is a snapshot
-of the experiment DB — enabled devices with image-typed variables, grouped by
-endpoint IP — derived with :class:`geecs_pva_gateway.config.PvaGatewayConfig`
+``HOSTS`` is the roster of record for the camera-server fleet: the endpoint
+IPs that *should* run a GeecsPvaGateway instance, one screen row each. It
+starts life as a snapshot of the experiment DB — enabled devices with
+image-typed variables, grouped by endpoint IP — and is then curated by hand:
+prune entries when a box is retired or confirmed deprecated (a roster entry
+with no running instance shows as a permanently disconnected screen row).
+The DB derivation uses :class:`geecs_pva_gateway.config.PvaGatewayConfig`
 building blocks::
 
     endpoints = GeecsDb.get_experiment_devices("Undulator", enabled_only=True)
@@ -18,7 +21,7 @@ from pathlib import Path
 
 EXPERIMENT = "Undulator"
 
-# DB snapshot 2026-07-31: 13 endpoints, 49 cameras.
+# DB snapshot 2026-08: 13 endpoints, 49 cameras.
 HOSTS = [
     "192.168.6.66",
     "192.168.6.73",

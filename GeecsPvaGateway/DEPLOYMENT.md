@@ -1,8 +1,9 @@
 # GeecsPvaGateway — Windows camera server deployment
 
-One NSSM service per camera server, serving that host's cameras. The pilot box
-(Win10 22H2, 192.168.6.100) is the canary; every step below is scripted in
-`deploy/`.
+One NSSM service per camera server, serving that host's cameras. **Deployed
+fleet-wide for Undulator since 2026-08** (every active camera server runs an
+instance; 192.168.6.100 was the original pilot and remains the canary-of-habit
+for rollouts). Every step below is scripted in `deploy/`.
 
 ## The two session-0 rules (hard-won; violating them hangs or breaks silently)
 
@@ -84,19 +85,21 @@ wheels, no version files. Rollout:
 git pull            # advance the pin (or: git checkout <rev> to roll back)
 ```
 
-Then restart instances **via the `:restart` PV** — canary first:
+Then restart instances **via the `:restart` PV**, one host at a time
+(restarting one box first and watching it come back clean before the rest is
+cheap insurance):
 
 ```bash
-pvput undulator:pvagateway:192_168_6_100:restart 1
+pvput undulator:pvagateway:<ip_token>:restart 1   # e.g. 192_168_6_100
 ```
 
 The server exits with code 86, NSSM relaunches `launch.bat`, which reinstalls
 the four intra-repo packages (`GEECS-Schemas`, `GEECS-Data-Utils`,
 `GeecsCAGateway`, `GeecsPvaGateway`) from the share clone and re-resolves the DB config. Watch the instance's
 `version` PV flip on the fleet screen (`deploy/fleet_status.bob` — one row per
-host: version, heartbeat, and a confirm-dialog restart button); roll the rest
-when the canary soaks clean. An unreachable share falls through to the
-installed versions — a restart never bricks an instance.
+host: version, heartbeat, and a confirm-dialog restart button); the rollout is
+done when the version column reads uniform. An unreachable share falls through
+to the installed versions — a restart never bricks an instance.
 
 Constraints, all by design:
 
@@ -105,13 +108,15 @@ Constraints, all by design:
   with `--no-build-isolation` (builds use the venv's poetry-core, so restarts
   need no internet). A numpy/p4p bump is a re-bootstrap, not a rollout.
 - **The share clone must be readable by the boxes' *machine accounts*** —
-  LocalSystem authenticates to shares as the computer account, not a user. If
-  the share needs user credentials, pull-on-restart silently no-ops on every
-  box, visible only as the version PV never flipping. Validate once on the
-  canary: set `GEECS_PVA_SOURCE`, hit `:restart`, and look for the
-  `pull-on-restart: reinstalling from …` line in the service log. If the ACL
-  can't be opened to machine accounts, the fallback is running the service as
-  the lab's shared domain account — `nssm set GeecsPvaGateway ObjectName
+  LocalSystem authenticates to shares as the computer account, not a user.
+  **Validated in production**: the whole fleet reinstalls from the share as
+  LocalSystem on every restart (canary drill first, then every box during the
+  2026-08 rollout). If a future share/ACL change breaks it, the symptom is
+  pull-on-restart silently no-oping on every box — visible only as the
+  version PV never flipping after a rollout; re-check for the
+  `pull-on-restart: reinstalling from …` line in a service log. Fallback if
+  machine-account access can't be restored: run the service as the lab's
+  shared domain account — `nssm set GeecsPvaGateway ObjectName
   DOMAIN\user <password>`, an operator-typed step per box (passwords never in
   scripts), coupled to that password never rotating. The `USERPROFILE`
   override stays either way: mapped drives are per-logon-session and invisible
@@ -157,14 +162,19 @@ PV. Two regimes:
 - **Routed/VPN clients** (a laptop over the VPN, or any lab machine reaching
   servers on another subnet): broadcast does not traverse, so list every
   camera server's IP for unicast search — space-separated, one entry per
-  server, appended as boxes come online:
+  fleet server:
   - Python/p4p/ophyd-async: `EPICS_PVA_ADDR_LIST="<fleet list>"` (+
     `EPICS_PVA_AUTO_ADDR_LIST=NO`)
   - Phoebus: `org.phoebus.pv.pva/epics_pva_addr_list=<fleet list>` in the
     settings file (env vars don't reach a macOS `open`-launched app)
 
   The roster of record for `<fleet list>` is `HOSTS` in
-  `deploy/gen_fleet_status.py` (the fleet-screen generator) — currently:
+  `deploy/gen_fleet_status.py` (the fleet-screen generator): the DB-derived
+  camera-hosting endpoints that **should** run a gateway. When a box is
+  added, or a box is retired/confirmed deprecated, update `HOSTS`,
+  regenerate the screen, and update this list. Roster entries whose box is
+  not (yet) running an instance show as disconnected rows on the fleet
+  screen — prune them once their deprecation is confirmed. Currently:
 
   ```
   192.168.6.66 192.168.6.73 192.168.6.80 192.168.6.100 192.168.7.161

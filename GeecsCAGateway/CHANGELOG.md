@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.17.1] - 2026-08-18
+
+### Changed
+
+- Docs truth-up (no code changes): `DESIGN.md` — the protocol bullet's
+  "pvAccess later, starting with images" hedge updated to reflect that
+  PVA-for-images shipped and is deployed fleet-wide (`GeecsPvaGateway`);
+  the "Reconnect supervisor" honest-gap entry marked DONE (supervisors
+  landed long ago) with the real residual documented — half-open sockets
+  freeze readbacks without alarming (issue #611); the alarm-limits gap
+  updated for the 0.7.0 curated overlay. `README.md` — same two gap-list
+  corrections (curated alarms exist; images served by the PVA sibling, not
+  merely absent). `CLAUDE.md` — "PVA-later plan" phrasing updated to the
+  per-device-class reality.
+
 ## [0.17.0] - 2026-07-25
 
 ### Added

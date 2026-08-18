@@ -60,10 +60,13 @@ fake-server tests. Bluesky GUI scans and Phoebus displays consume it live.
 
 Deliberately deferred (the honest gap list — details in `DESIGN.md`):
 
-- **Full alarm metadata** — no value-based alarms (HIHI/…) yet; severity means
-  liveness only (`PV_CONTRACT.md` §5).
+- **Automatic alarm metadata** — value-based alarms (HIHI/…) exist only via
+  the curated `ca_alarm_limits` overlay (0.7.0, `PV_CONTRACT.md` §5); DB
+  `min`/`max` are display metadata, never auto-interpreted as alarm limits.
 - **Archive-rate control** — MDEL/ADEL split when the Archiver Appliance
   lands; the value deadband stays 0.0.
 - **Sharding + systemd** — one central process today; target shape sketched in
   `DEPLOYMENT.md` §5.
-- **Images stay off CA** — scalars/controls only, by design.
+- **Images stay off CA** — scalars/controls only, by design; images are served
+  over pvAccess by the sibling `GeecsPvaGateway/` (NTNDArray; deployment
+  state lives with that package).
