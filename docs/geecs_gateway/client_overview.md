@@ -1,10 +1,12 @@
 # GEECS Gateway — client orientation
 
-The **GeecsCAGateway** is the GEECS access layer: a caproto Channel Access
-soft-IOC that mirrors GEECS devices as EPICS PVs, so any EPICS-ecosystem
-consumer — Phoebus displays, an Archiver Appliance, ophyd-async / Bluesky — can
-talk to GEECS the same way it talks to any IOC, without growing its own bespoke
-bridge.
+The **GeecsCAGateway** is the scalar/control half of the GEECS access layer: a
+caproto Channel Access soft-IOC that mirrors GEECS devices as EPICS PVs, so any
+EPICS-ecosystem consumer — Phoebus displays, an Archiver Appliance,
+ophyd-async / Bluesky — can talk to GEECS the same way it talks to any IOC,
+without growing its own bespoke bridge. (Camera *images* are served separately,
+as pvAccess NTNDArray PVs in the same namespace — see
+[Camera images (PVA)](image_pvs.md).)
 
 ```
 GEECS device  --TCP push stream-->  readback PV   (caget / camonitor)
@@ -93,7 +95,8 @@ The timestamp variables are themselves float readback PVs carrying the **raw
 LabVIEW-epoch** value; the same raw value is stamped on saved external assets
 (images), which is how saved files tie back to acquisition. A non-positive
 `acq_timestamp` means "no acquisition yet" (the `0.0` pre-acquisition
-placeholder), never a shot at the epoch.
+placeholder), never a shot at the epoch. (For *live* images — as opposed to
+the saved files referenced here — see [Camera images (PVA)](image_pvs.md).)
 
 ## Curated alarm limits (gateway 0.7.0)
 
