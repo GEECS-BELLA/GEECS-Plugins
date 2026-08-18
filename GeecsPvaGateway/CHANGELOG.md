@@ -16,7 +16,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   load-bearing-production statement plus
   the missing `gen_fleet_status.py` / `test_entrypoint.py` layout entries.
 
-## [0.4.0] — 2026-07-31
+## [0.4.0] — 2026-08-17
 
 ### Added
 
