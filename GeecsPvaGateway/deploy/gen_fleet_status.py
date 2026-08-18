@@ -21,7 +21,7 @@ from pathlib import Path
 
 EXPERIMENT = "Undulator"
 
-# DB snapshot 2026-07-31: 13 endpoints, 49 cameras.
+# DB snapshot 2026-08: 13 endpoints, 49 cameras.
 HOSTS = [
     "192.168.6.66",
     "192.168.6.73",

@@ -110,8 +110,8 @@ Constraints, all by design:
 - **The share clone must be readable by the boxes' *machine accounts*** —
   LocalSystem authenticates to shares as the computer account, not a user.
   **Validated in production**: the whole fleet reinstalls from the share as
-  LocalSystem on every restart (canary drill 2026-07-30, then every box during
-  rollout). If a future share/ACL change breaks it, the symptom is
+  LocalSystem on every restart (canary drill first, then every box during the
+  2026-08 rollout). If a future share/ACL change breaks it, the symptom is
   pull-on-restart silently no-oping on every box — visible only as the
   version PV never flipping after a rollout; re-check for the
   `pull-on-restart: reinstalling from …` line in a service log. Fallback if
