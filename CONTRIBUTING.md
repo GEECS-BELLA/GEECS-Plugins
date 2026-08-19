@@ -50,7 +50,10 @@ that personal branch — the `/get-started` skill sets this up, and
 `/land` targets it — so they can merge their own work at their own
 pace. Promotion from `users/<name>` into `dev` (after M6: `master`) is
 a separate PR that **only a human maintainer merges**; agents never
-merge into the mainline on a newcomer's behalf.
+merge into the mainline on a newcomer's behalf. To keep the personal
+branch from going stale, the agent merges the development base forward
+*into* `users/<name>` periodically — that direction is routine
+maintenance, not a mainline merge.
 
 `master` is merged forward into `dev` periodically, so analysis work
 flows into the vision world automatically; nothing merges the other way

@@ -2,13 +2,14 @@
 name: get-started
 description: >
   Onboard a new developer in guide mode. Use when the user invokes
-  /get-started, says they are new ("I'm new here", "help me get started",
-  "first time in this repo", "how do I begin"), or when a session opens
-  with a newcomer-shaped prompt — a broad build request with no file
-  paths, package names, or repo vocabulary. Switches the session into
-  patient, hand-holding tutoring: environment check, orientation, a
-  small first win, and the repo's guardrails applied on the user's
-  behalf.
+  /get-started or says they are new ("I'm new here", "help me get
+  started", "first time in this repo", "how do I begin"). A merely
+  newcomer-shaped prompt (a broad build request with no file paths,
+  package names, or repo vocabulary) from a user not known to be new is
+  NOT a trigger — offer the skill in one line instead of switching
+  stance uninvited. Switches the session into patient, hand-holding
+  tutoring: environment check, orientation, a small first win, and the
+  repo's guardrails applied on the user's behalf.
 ---
 
 # /get-started — guide mode for new developers
@@ -90,6 +91,10 @@ them; the human-facing reference is
 3. **Offline smoke test** (no lab network needed): from
    `GeecsCAGateway/`, `poetry run python -m geecs_ca_gateway.demo` —
    an in-process fake device server; proves the toolchain end to end.
+   Success is the two `[self-check]` lines — the demo then *serves
+   until interrupted*, so run it with a short timeout or in the
+   background; a timeout after the self-check lines is a pass, not a
+   failure.
 4. **Lab-network smoke test** — only after `/lab-status` says the lab
    is reachable (never let a DB call hang blind):
    `GeecsDb.get_all_experiment_variables("<expt>")` from the

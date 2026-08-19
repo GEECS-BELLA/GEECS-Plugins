@@ -13,7 +13,7 @@ The path is short: configure your environment, instantiate a `GeecsDevice`, set 
 
 You need:
 
-1. A working `~/.config/geecs_python_api/config.ini` pointing at the right experiment and database. The Scanner GUI sets this up the first time you run it. If you've never run the GUI on this machine, copy a known-good config from a colleague.
+1. A working `~/.config/geecs_python_api/config.ini` pointing at the right experiment and database. The Scanner GUI sets this up the first time you run it. If you've never run the GUI on this machine, copy a known-good config from a colleague. The full key-by-key reference is in [Getting started](../tutorials/getting_started.md).
 2. Network reachability to the GEECS database server and to the device(s) you want to talk to.
 3. The device's name as it appears in the GEECS database. The Scanner GUI's "available devices" list is one way to find this; querying the database directly is another.
 

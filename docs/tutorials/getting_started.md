@@ -129,7 +129,10 @@ poetry install
 poetry run python -m geecs_ca_gateway.demo
 ```
 
-If this runs and reports success, your toolchain is healthy end to end.
+Success looks like two `[self-check]` lines confirming the round trip;
+the demo then keeps serving its fake PVs until you stop it with
+`Ctrl-C` — it is a server, so it won't exit on its own. If the
+self-check lines appeared, your toolchain is healthy end to end.
 
 **On the lab network (or VPN)** — prove the config → database chain with
 a three-line query:
