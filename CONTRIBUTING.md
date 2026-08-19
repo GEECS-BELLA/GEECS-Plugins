@@ -8,8 +8,11 @@ live in the root and per-package `CLAUDE.md` files, which are the canonical
 instructions for AI-assisted development — if you work with Claude/Codex,
 those files are loaded automatically, and repo-checked skills under
 `.claude/skills/` (e.g. `/land`, `/check`, `/triage`, `/scan-audit`,
-`/env-doctor`)
-encode the recurring workflows.
+`/env-doctor`, `/get-started`)
+encode the recurring workflows. New to the repo entirely? Start with
+[Getting started](docs/tutorials/getting_started.md) (published on the
+docs site), or launch Claude Code from the repo root and type
+`/get-started`.
 
 ## Setup
 
@@ -39,6 +42,15 @@ renamed `dev`):
   `master` for analysis work *unless it imports something that only
   exists on `dev`* (e.g. `geecs_data_utils.tiled_catalog`) — then target
   `dev`.
+
+**Personal branches for new developers.** A developer new to the repo
+gets a long-lived personal integration branch off the development base
+(currently `dev`), named `users/<name>`. Their feature branches PR into
+that personal branch — the `/get-started` skill sets this up, and
+`/land` targets it — so they can merge their own work at their own
+pace. Promotion from `users/<name>` into `dev` (after M6: `master`) is
+a separate PR that **only a human maintainer merges**; agents never
+merge into the mainline on a newcomer's behalf.
 
 `master` is merged forward into `dev` periodically, so analysis work
 flows into the vision world automatically; nothing merges the other way

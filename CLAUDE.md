@@ -327,6 +327,15 @@ revisit. Speculative cleanup is not.
   legacy `master`-line consumers until deletion. Don't add features, don't
   adopt it in new call sites, don't lint-fix it opportunistically.
 
+- **`extras/` is a legacy dump pending pruning** — ~26 MB of unrelated
+  one-off projects and third-party snapshots. Never build there, never cite
+  its contents as reference implementations, and don't prune it
+  opportunistically: what's still load-bearing needs the owner's judgment.
+
+- **`LogMaker4GoogleDocs` needs a refactor.** It works in production
+  (Google Doc log uploads) and is optional everywhere, but don't extend it
+  or use it as a style reference until that refactor happens.
+
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are
 possible.

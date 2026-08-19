@@ -39,6 +39,7 @@ nav:
 
   - Tutorials:
       - Overview: tutorials/index.md
+      - Getting started: tutorials/getting_started.md
       - Acquisition: tutorials/acquisition.md
       - Analysis: tutorials/analysis.md
 
