@@ -2,13 +2,15 @@
 
 This page is for contributors who want to add a new skill to the repository. Read the [Skills Overview](overview.md) first if you haven't — it covers what a skill is and why the pattern exists.
 
+Not every skill needs this treatment: instruction-only skills like `/land` and `/get-started` are a codified procedure with no wrapped tool, and `/check` and `/lab-status` wrap shell scripts rather than Python packages. This page describes the full two-layer pattern for skills that do deterministic data work; take from it what your skill actually needs.
+
 ## The two-layer pattern
 
-Every skill has exactly two parts:
+A CLI-backed skill has exactly two parts:
 
 **A Python CLI tool** that does the deterministic work. It accepts well-typed arguments, produces structured output (JSON to stdout, markdown to disk), and has no dependency on any agent or LLM. It can be run by a human, a script, or a CI job. It can be tested with pytest against fixtures. It has a version and a changelog.
 
-**A markdown slash command** in `.claude/commands/<name>.md` that wraps invocation of the CLI and describes to the agent how to interpret and act on the output. The markdown file is the UX layer for agentic use; it documents the argument forms, the expected output shape, and what the agent should do at each stage.
+**A markdown skill file** at `.claude/skills/<name>/SKILL.md` that wraps invocation of the CLI and describes to the agent how to interpret and act on the output. The markdown file is the UX layer for agentic use; it opens with YAML frontmatter (the skill's `name` and a `description` of when to use it — this is what triggers the skill even when the user doesn't type the slash command), then documents the argument forms, the expected output shape, and what the agent should do at each stage.
 
 The separation matters for the same reason the scanner engine's typed event stream matters: the CLI is the stable contract. The agent is a consumer of that contract, not part of its implementation. When you upgrade the LLM, the CLI doesn't change. When you want to run the CLI in a notebook, you don't need the agent. When you want to test the skill end-to-end, you test the CLI against real or synthetic inputs and separately test that the command file's instructions produce sensible agent behavior on known CLI output.
 
@@ -25,7 +27,7 @@ The separation matters for the same reason the scanner engine's typed event stre
 
 The agent uses both. It runs the CLI twice: once with `--format json` to get the structured data it reasons over, and once without to produce the human-readable file that persists on disk. This is the standard contract: **JSON to stdout for the agent, markdown to disk for the human**.
 
-**The slash command** lives at `.claude/commands/triage.md`. It defines five stages:
+**The skill file** lives at `.claude/skills/triage/SKILL.md`. It defines five stages:
 
 1. Environment check — verify the poetry env is ready before running anything.
 2. Generate the report — run both CLI invocations described above.
@@ -56,8 +58,9 @@ Keeping these two forms of output separate — machine-readable JSON for the age
 - Write the human-readable default output to a predictable location on disk (next to the data it analyzed).
 - Have tests that run against synthetic fixtures without network access.
 
-**Step 2: write the slash command.** Create `.claude/commands/<name>.md`. The file should cover:
+**Step 2: write the skill file.** Create `.claude/skills/<name>/SKILL.md`. The file should cover:
 
+- YAML frontmatter with the skill's `name` and a `description` that says when to use it (and, if a sibling skill covers adjacent ground, when to use that one instead — see how `/triage` and `/scan-audit` point at each other).
 - What arguments the underlying CLI accepts, with examples for each common form.
 - How to check that the environment is ready before running.
 - What the agent should do with each part of the CLI output.
