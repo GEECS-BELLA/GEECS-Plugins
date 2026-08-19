@@ -39,12 +39,12 @@ workflow skills — they operate on the repository itself. `/lab-status`,
 the experiment: the network, the hardware, and the data a scan left
 behind. `/triage` is the reference implementation of the CLI-backed
 pattern and is documented in depth below;
-[Writing a skill](writing_a_skill.md) uses it as the template for new
+[Writing a Skill](writing_a_skill.md) uses it as the template for new
 skills.
 
 ### /triage — diagnose scan failures and draft bug reports
 
-`/triage` walks one or more scan logs, groups errors into stable fingerprints, classifies each fingerprint as a bug candidate, hardware issue, config issue, or operator error, and then — for each bug candidate — locates the relevant source code, reasons about why the failure happens, and drafts a GitHub issue for your review before filing anything.
+`/triage` walks one or more scan logs, groups errors into stable fingerprints, classifies each fingerprint as a bug candidate, hardware issue, config issue, or operator error (falling back to unknown when nothing matches), and then — for each bug candidate — locates the relevant source code, reasons about why the failure happens, and drafts a GitHub issue for your review before filing anything.
 
 **When to use it:**
 

@@ -18,7 +18,7 @@ The separation matters for the same reason the scanner engine's typed event stre
 
 `/triage` is the reference implementation. Walking through it concretely is more useful than abstract guidelines.
 
-**The CLI** lives in `GEECS-LogTriage/`. Its entry point is `geecs_log_triage.cli:main`, registered in `pyproject.toml` as `geecs-log-triage`. The CLI walks one or more scan folders, parses each `scan.log` file, normalizes errors into stable fingerprints via `ErrorFingerprint` (exception type + file + function, hashed to a short string), classifies each fingerprint as `bug_candidate`, `hardware_issue`, `config_issue`, or `operator_error`, and assembles a `TriageReport` Pydantic model.
+**The CLI** lives in `GEECS-LogTriage/`. Its entry point is `geecs_log_triage.cli:main`, registered in `pyproject.toml` as `geecs-log-triage`. The CLI walks one or more scan folders, parses each `scan.log` file, normalizes errors into stable fingerprints via `ErrorFingerprint` (exception type + file + function, hashed to a short string), classifies each fingerprint as `bug_candidate`, `hardware_issue`, `config_issue`, or `operator_error` (with `unknown` as the fallback), and assembles a `TriageReport` Pydantic model.
 
 **Output shape.** The CLI has two output modes controlled by `--format`:
 
