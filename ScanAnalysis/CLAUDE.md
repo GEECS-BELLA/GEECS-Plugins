@@ -69,6 +69,7 @@ DiagnosticAnalysisConfig          # One YAML per diagnostic (image_analysis.conf
   image_analyzer: ImageAnalyzerSpec  # Analyzer class path (+ optional kwargs)
   image: CameraConfig | Line1DConfig | None  # Routed by `type: camera | line`
   output_name: Optional[str]      # Output stem override (defaults to name)
+  metric_suffix: Optional[str]    # Scalar-key-only suffix (no dir/file effect)
   scan: dict                      # Validated by ScanAnalysis into ScanRuntimeConfig
 
 ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.py)
@@ -95,6 +96,17 @@ ResolvedDiagnosticConfig          # What the loader hands the factory
 There is no `scan.type` field: the factory picks the wrapper class from
 the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
 anything else → `Array2DScanAnalyzer`.
+
+**Output-naming contract (#412)** — image analyzers emit **bare** scalar
+keys (`x_fwhm`, not `UC_TopView_x_fwhm`); the ScanAnalyzer wrapper applies
+the diagnostic's `output_name` prefix (defaults to `name`) and
+`metric_suffix` when storing per-shot results. `output_name` also names
+the per-analyzer output directory under `analysis/Scan<NNN>/`; override
+it to run two analyzer variants over the same camera with distinct
+output trees and s-file columns (`output_name: UC_TopView_left` /
+`UC_TopView_right`). `metric_suffix` affects scalar keys only, never
+directory or file names. This keeps ImageAnalysis reusable standalone —
+`ImageAnalysis/CLAUDE.md` points here for the full contract.
 
 ### The `image_analyzer` field (`image_analysis.config`)
 
@@ -127,15 +139,17 @@ reference example. The former `analyzer_config_models.py` +
 ScanAnalyzer  (base.py)
   ├── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
   │     ├── Array2DScanAnalyzer  (array2D_scan_analysis.py)
+  │     │     └── HIMGWithAveraging  (Undulator/HIMG_with_average_saving.py)
   │     └── Array1DScanAnalyzer  (array1d_scan_analysis.py)
   └── ScatterPlotterAnalysis  (scatter_plotter_analysis.py)
         └── ICTPlotAnalysis  (Undulator/ict_plot_analysis.py)
 ```
 
-### `ScanAnalyzer.run_analysis(scan_folder) -> list[Path | str]`
+### `ScanAnalyzer.run_analysis(scan_tag) -> Optional[list[Path | str]]`
 
 The main entry point. Returns a list of **display files** (paths to summary
-figures) that the task queue stores and optionally uploads to GDocs.
+figures) that the task queue stores and optionally uploads to GDocs, or
+`None` when there was nothing to analyze.
 
 ### `SingleDeviceScanAnalyzer`
 
@@ -234,11 +248,10 @@ Called by `run_worklist()` after an analyzer completes, if `gdoc_slot is not Non
 
 ```python
 upload_summary_to_gdoc(
+    scan_tag,               # ScanTag; carries scan number + experiment
     display_files,          # List of paths; uploads display_files[-1]
-    scan_number,
     gdoc_slot,              # 0=row0/col0, 1=row0/col1, 2=row1/col0, 3=row1/col1
-    document_id,            # None → reads from experiment INI
-    experiment,
+    document_id=None,       # None → reads from experiment INI
 )
 ```
 
