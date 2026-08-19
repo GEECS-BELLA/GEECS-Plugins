@@ -18,6 +18,8 @@ Inherits from `StandardAnalyzer` and adds beam-specific outputs while delegating
 
 Worked example: [Grenouille Analysis notebook](examples/grenouille_analysis.ipynb).
 
+**`FrogSpectralPhaseAnalyzer`** (`analyzers/frog_spectral_phase_analyzer.py`) — consumes the retrieved lineout TSV files written by `GrenouilleAnalyzer`, fits the spectral phase as a polynomial in angular-frequency detuning, and reports dispersion terms (GD, GDD, TOD).
+
 ### Magnetic spectrometer (energy spectra)
 
 **`MagSpecManualCalibAnalyzer`** (`analyzers/magspec_manual_calib_analyzer.py`) — magnetic spectrometer images with pixel-to-energy conversion using device-specific calibrations. Configured via YAML with `analysis.energy_range` and per-device calibration parameters.
@@ -50,18 +52,14 @@ If you're writing a new analyzer, start by inheriting from one of these. The `St
 
 ## What each analyzer needs
 
-Every analyzer takes a YAML config (one per device) describing its processing pipeline and analysis parameters. Configs are typically stored alongside your experiment configuration so they're version-controlled with your scan setup. A diagnostic config has an `image:` section (the per-shot processing pipeline — `type: camera` selects the `CameraConfig` schema, `type: line` the `Line1DConfig` schema for 1D signals) and a `scan:` section (how the analyzer runs at the scan orchestration level). The general structure:
+Every analyzer takes a YAML config (one per device) describing its processing pipeline and analysis parameters. Configs are typically stored alongside your experiment configuration so they're version-controlled with your scan setup. A diagnostic config typically has an `image:` section (the per-shot processing pipeline, `type: camera` or `type: line`) and a `scan:` section (how the analyzer runs at the scan orchestration level) — HASO-style analyzers omit `image:` and pass constructor kwargs through the verbose `image_analyzer:` form instead. The skeleton:
 
 ```yaml
 name: U_DeviceName
 image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
 image:
-  type: camera
-  bit_depth: 16
-  roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
-  background: {method: constant, constant_level: 5.0}
-  pipeline:
-    steps: [background, roi]
+  type: camera   # or "line" for a 1D signal
+  # processing step blocks (roi, background, ...) + pipeline.steps
   analysis:
     # analyzer-specific parameters
 scan:
@@ -69,7 +67,7 @@ scan:
   mode: per_shot
 ```
 
-The exact shape of the `analysis` block depends on the analyzer. The simplest way to learn the schema is to look at an existing config or run the analyzer once and let the Pydantic validation tell you what it expects. The [Analysis tutorial](../tutorials/analysis.md) walks through editing one of these configs field by field.
+The annotated version of this file — every section explained, with a full worked example — is in the [Image Analysis Overview](overview.md#how-a-diagnostic-is-described); the [Analysis tutorial](../tutorials/analysis.md) walks through editing one field by field. The exact shape of the `analysis` block depends on the analyzer — look at an existing config or run the analyzer once and let the Pydantic validation tell you what it expects.
 
 ## When an analyzer is part of a scan
 
