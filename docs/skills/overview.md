@@ -1,12 +1,50 @@
 # Skills
 
-A **skill** in this repository is a markdown command file under `.claude/commands/` that wraps a CLI tool and is invoked as a slash command from a [Claude Code](https://claude.ai/code) session. The pattern works because of a clean layering: a deterministic Python CLI does the structured, reproducible work — parsing logs, querying databases, walking scan folders — and the agent handles the parts that benefit from language understanding: summarizing findings, locating relevant source code, drafting GitHub issues, asking clarifying questions. Each layer is independently testable and independently useful. The CLI can be run by a script or a human without an agent; the agent can be swapped out without changing the CLI. The same separation that makes the scan engine's typed event stream robust applies here: a well-defined contract between a deterministic core and a flexible consumer.
+A **skill** in this repository is a markdown instruction file at
+`.claude/skills/<name>/SKILL.md`, invoked as a slash command from a
+[Claude Code](https://claude.ai/code) session. Each `SKILL.md` starts with
+YAML frontmatter declaring the skill's name and a trigger description —
+that description is what tells the agent when to reach for the skill even
+if you don't type the slash command yourself.
+
+Skills come in two shapes. The first wraps a deterministic tool: a Python
+CLI or shell script does the structured, reproducible work — parsing logs,
+running the test suites, probing the network — and the agent handles the
+parts that benefit from language understanding: summarizing findings,
+locating relevant source code, drafting GitHub issues, asking clarifying
+questions. Each layer is independently testable and independently useful.
+The CLI can be run by a script or a human without an agent; the agent can
+be swapped out without changing the CLI. The same separation that makes the
+scan engine's typed event stream robust applies here: a well-defined
+contract between a deterministic core and a flexible consumer. The second
+shape is instruction-only: a workflow ritual or diagnostic playbook (how to
+land a PR, how to repair a Poetry environment) where the value is the
+codified procedure itself rather than a wrapped tool.
 
 ## Shipped skills
 
+| Skill | What it does |
+|---|---|
+| `/land` | Land a change as a PR the GEECS-Plugins way: branch off the right base, scope check, version bump + changelog, tests the way CI runs them, adversarial review, CI watch, merge |
+| `/check` | Run repo lint + unit tests the way CI does, scoped to what changed; wraps `scripts/check.sh` |
+| `/env-doctor` | Diagnose and fix a package's Poetry environment when poetry, pytest, or an import fails for setup-shaped reasons |
+| `/lab-status` | Probe lab-network and hardware reachability with bounded timeouts before doing anything that needs them; wraps `scripts/lab_status.sh` |
+| `/scan-audit` | Scan timing and cadence audit for the Bluesky path: "why was the scan slow", "did every shot land", per-shot cadence analysis of a scan folder |
+| `/triage` | Generate a structured error report from scan logs, then analyze bug candidates against the codebase and draft GitHub issues |
+| `/get-started` | Onboard a new developer in guide mode: environment check, orientation, a small first win, with the repo's guardrails applied on the user's behalf |
+
+`/land`, `/check`, `/env-doctor`, and `/get-started` are development
+workflow skills — they operate on the repository itself. `/lab-status`,
+`/scan-audit`, and `/triage` are lab operations skills — they operate on
+the experiment: the network, the hardware, and the data a scan left
+behind. `/triage` is the reference implementation of the CLI-backed
+pattern and is documented in depth below;
+[Writing a Skill](writing_a_skill.md) uses it as the template for new
+skills.
+
 ### /triage — diagnose scan failures and draft bug reports
 
-`/triage` walks one or more scan logs, groups errors into stable fingerprints, classifies each fingerprint as a bug candidate, hardware issue, config issue, or operator error, and then — for each bug candidate — locates the relevant source code, reasons about why the failure happens, and drafts a GitHub issue for your review before filing anything.
+`/triage` walks one or more scan logs, groups errors into stable fingerprints, classifies each fingerprint as a bug candidate, hardware issue, config issue, or operator error (falling back to unknown when nothing matches), and then — for each bug candidate — locates the relevant source code, reasons about why the failure happens, and drafts a GitHub issue for your review before filing anything.
 
 **When to use it:**
 
@@ -57,9 +95,9 @@ The `TriageReport` JSON can be piped into any downstream tool — a notebook, a 
 
 ## Installation
 
-The skill file ships with the repository at `.claude/commands/triage.md`. If Claude Code is configured to read project-level commands (the default when you open the monorepo root), `/triage` is available immediately after cloning. No extra installation step is needed for the slash command itself.
+The skill files ship with the repository under `.claude/skills/`. If Claude Code is configured to read project-level skills (the default when you open the monorepo root), every skill above is available immediately after cloning. No extra installation step is needed for the slash commands themselves.
 
-The underlying CLI requires a one-time setup:
+The CLI underlying `/triage` requires a one-time setup:
 
 ```bash
 cd GEECS-LogTriage
