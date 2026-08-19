@@ -140,8 +140,8 @@ scan_analysis/
 ```
 
 The common pattern: `LiveTaskRunner` reads a group YAML →
-`load_analysis_group` → resolves refs → `create_scan_analyzer(r.diagnostic,
-id=r.id, priority=r.priority)` builds
+`load_analysis_group` → resolves refs →
+`create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)` builds
 each → `Array2DScanAnalyzer` (or 1D) wraps the underlying `ImageAnalyzer`
 → `run_analysis(scan_tag)` does the work.
 
