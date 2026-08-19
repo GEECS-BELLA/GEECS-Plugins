@@ -12,17 +12,15 @@ scan_analysis/
   task_queue.py                    # Task claiming, heartbeat, YAML status system
   gdoc_upload.py                   # GDoc upload integration (optional logmaker dep)
   config/
-    aliases.py                     # ImageAnalyzerSpec + ALIAS_REGISTRY (string / dict / verbose)
-    diagnostic_models.py           # Unified diagnostic + group Pydantic models
-    diagnostic_factory.py          # create_diagnostic_analyzer(ResolvedDiagnosticConfig)
+    diagnostic_models.py           # Scan-side runtime + group Pydantic models
+    diagnostic_factory.py          # create_scan_analyzer(DiagnosticAnalysisConfig)
     analysis_group_loader.py       # discover_analyzers/groups + load_analysis_group
-    analyzer_config_models.py      # Scatter-only: PlotParameterConfig + ScatterAnalyzerConfig
-    analyzer_factory.py            # Scatter-only: create_analyzer dispatch
   analyzers/
     common/
       single_device_scan_analyzer.py   # SingleDeviceScanAnalyzer base
-      array2d_scan_analysis.py         # Array2DScanAnalyzer
+      array2D_scan_analysis.py         # Array2DScanAnalyzer
       array1d_scan_analysis.py         # Array1DScanAnalyzer
+      scatter_plotter_analysis.py      # ScatterPlotterAnalysis + PlotParameter
 ```
 
 ## Config System (YAML → Pydantic → Factory → Instances)
@@ -34,19 +32,23 @@ one YAML per diagnostic under `analyzers/<namespace>/<id>.yaml`, carrying
 both an `image:` section (consumed by ImageAnalysis) and a `scan:` section
 (consumed by ScanAnalysis). Diagnostics are assembled into analysis groups
 under `groups/<namespace>/<group>.yaml`, which `LiveWatch` and the task
-queue consume directly. Scatter analyzers stay on their own
-`ScatterAnalyzerConfig` shape because they don't consume images.
+queue consume directly. Scatter analyzers sit outside the YAML config
+system entirely — they are plain Python subclasses of
+`ScatterPlotterAnalysis` (see below) because they don't consume images.
 
 ### Public loader / factory API
 
 ```python
 from scan_analysis.config import (
-    load_analysis_group, create_diagnostic_analyzer,
+    load_analysis_group, create_scan_analyzer,
     discover_analyzers, discover_groups,
 )
 
 group = load_analysis_group("baseline", config_dir=...)
-analyzers = [create_diagnostic_analyzer(r) for r in group.analyzers]
+analyzers = [
+    create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)
+    for r in group.analyzers
+]
 for a in analyzers:
     a.run_analysis(scan_tag)
 ```
@@ -54,60 +56,80 @@ for a in analyzers:
 `task_queue.load_analyzers_from_config(group_name, config_dir=...)` is a
 thin wrapper around the same two calls.
 
-### Unified diagnostic schema (`diagnostic_models.py`)
+### Unified diagnostic schema
+
+The top-level `DiagnosticAnalysisConfig` lives in **`image_analysis.config`**
+(it owns the `image_analyzer` + `image:` shape and carries `scan:` as a
+weakly-typed dict). `scan_analysis.config` re-exports it and owns the
+scan-side models in `diagnostic_models.py`:
 
 ```
-DiagnosticAnalysisConfig          # One YAML per diagnostic
-  id: str                         # Filename stem; unique per namespace
-  image: ImageAnalyzerConfig      # Consumed by ImageAnalysis (camera/line + processing)
-  scan: ScanRuntimeConfig         # Consumed by ScanAnalysis (priority, gdoc, etc.)
+DiagnosticAnalysisConfig          # One YAML per diagnostic (image_analysis.config)
+  name: str                       # Device/channel name for input-data discovery
+  image_analyzer: ImageAnalyzerSpec  # Analyzer class path (+ optional kwargs)
+  image: CameraConfig | Line1DConfig | None  # Routed by `type: camera | line`
+  output_name: Optional[str]      # Output stem override (defaults to name)
+  scan: dict                      # Validated by ScanAnalysis into ScanRuntimeConfig
 
-ScanRuntimeConfig
-  type: Literal["array2d", "array1d", "scatter"]
-  analysis_mode: Literal["per_shot", "per_bin"]  # default per_shot
-  priority: int                   # Lower = runs first (200 default)
-  gdoc_slot: Optional[int]        # 0-3 → table cell; None → hyperlink
-  is_active: bool
-  background_source: Optional[BackgroundSource]   # scan_number | from_current_scan
+ScanRuntimeConfig                 # Validates the scan: dict (diagnostic_models.py)
+  priority: int                   # Lower = runs first (100 default)
+  mode: Literal["per_shot", "per_bin"]  # default per_shot
+  save: bool                      # Write per-shot/bin outputs to the analysis tree
+  gdoc_slot: Optional[int]        # 0-3 → table cell; None → hyperlink upload
+  device: Optional[str]           # Data-subfolder override (defaults to name)
+  file_tail: Optional[str]        # Filename suffix matching this device's files
+  renderer_kwargs: dict           # Extra renderer options (colormap mode, ...)
+  background_source: Optional[BackgroundSource]
+                                  # scan_number | from_current_scan | autodetect
 
 AnalysisGroupConfig               # One YAML per group under groups/
-  analyzers: List[AnalyzerRef]    # Each ref points at a diagnostic id
+  analyzers: List[AnalyzerRef]    # Bare stem strings or {ref, enabled, priority}
 
 ResolvedDiagnosticConfig          # What the loader hands the factory
+  id: str                         # Diagnostic filename stem (task-queue ID)
+  enabled: bool                   # Refs with enabled: false are excluded
+  priority: int                   # Group override, else the diagnostic's own
   diagnostic: DiagnosticAnalysisConfig
-  ref: AnalyzerRef                # Group-level overrides (priority etc.)
 ```
 
-### Alias registry (`aliases.py`)
+There is no `scan.type` field: the factory picks the wrapper class from
+the type of `diag.image` — `Line1DConfig` → `Array1DScanAnalyzer`,
+anything else → `Array2DScanAnalyzer`.
 
-`image_analyzer:` values in a diagnostic accept three forms (resolved by
-`resolve_image_analyzer_value`):
+### The `image_analyzer` field (`image_analysis.config`)
+
+`ImageAnalyzerSpec` and `resolve_image_analyzer_value` live in
+`image_analysis.config` and are re-exported by `scan_analysis.config`.
+The field accepts two forms (the former alias registry — `beam`,
+`standard`, … — was removed along with `aliases.py`):
 
 ```yaml
-image_analyzer: beam                              # alias
-image_analyzer: {beam: {camera_config_name: U_Cam}}  # alias-with-overrides
-image_analyzer:                                   # verbose, escape hatch
-  class_path: image_analysis.analyzers.beam.BeamAnalyzer
-  kwargs: {camera_config_name: U_Cam}
+image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer  # bare class path
+image_analyzer:                       # verbose, for constructor kwargs
+  class_path: image_analysis.analyzers.HASO_himg_has_processor.HASOHimgHasProcessor
+  kwargs: {mask_top: 125}
 ```
 
-`ALIAS_REGISTRY` holds the production aliases (beam, standard, mode_imager,
-…) keyed to `ImageAnalyzerSpec(class_path, default_kwargs)`.
+### Scatter (`analyzers/common/scatter_plotter_analysis.py`)
 
-### Scatter (`analyzer_config_models.py` + `analyzer_factory.py`)
-
-Scatter analyzers use a separate `ScatterAnalyzerConfig` and the
-scatter-only `create_analyzer` function. They read scalar columns from
-the s-file and produce a single summary plot — no image data flows
-through them, so the unified `image:` / `scan:` shape doesn't apply.
+Scatter analyzers read scalar columns from the s-file and produce a
+summary plot — no image data flows through them, so the unified
+`image:` / `scan:` shape doesn't apply. They are configured directly in
+Python: subclass `ScatterPlotterAnalysis` and pass one or more
+`PlotParameter` named tuples (sfile key, legend/axis labels, color).
+`analyzers/Undulator/ict_plot_analysis.py` (`ICTPlotAnalysis`) is the
+reference example. The former `analyzer_config_models.py` +
+`analyzer_factory.py` scatter-config module pair was removed.
 
 ## Analyzer Class Hierarchy
 
 ```
 ScanAnalyzer  (base.py)
-  └── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
-        ├── Array2DScanAnalyzer  (array2d_scan_analysis.py)
-        └── Array1DScanAnalyzer  (array1d_scan_analysis.py)
+  ├── SingleDeviceScanAnalyzer  (single_device_scan_analyzer.py)
+  │     ├── Array2DScanAnalyzer  (array2D_scan_analysis.py)
+  │     └── Array1DScanAnalyzer  (array1d_scan_analysis.py)
+  └── ScatterPlotterAnalysis  (scatter_plotter_analysis.py)
+        └── ICTPlotAnalysis  (Undulator/ict_plot_analysis.py)
 ```
 
 ### `ScanAnalyzer.run_analysis(scan_folder) -> list[Path | str]`
@@ -119,7 +141,8 @@ figures) that the task queue stores and optionally uploads to GDocs.
 
 - Holds an `ImageAnalyzer` instance
 - `_run_analysis_core()` → resolves the device data folder, then dispatches
-  to one of two streaming pipelines based on `analysis_mode`:
+  to one of two streaming pipelines based on `analysis_mode` (the
+  constructor kwarg fed from `scan.mode` in the diagnostic YAML):
   - **`per_shot`** (default): fused per-shot tasks call
     `ImageAnalyzer.analyze_image_file(path, aux)` atomically. One image
     is loaded and analyzed per task; per-shot data never has to shuttle
@@ -225,41 +248,20 @@ upload_summary_to_gdoc(
 - **logmaker optional:** If `logmaker_4_googledocs` is not installed, calls are
   silently skipped.
 
-## Typical Config YAML
-
-```yaml
-experiment: Undulator
-description: Standard Undulator analysis
-version: "1.0"
-
-analyzers:
-  - type: array2d
-    device_name: UC_GaiaMode
-    priority: 0
-    gdoc_slot: 0
-    image_analyzer:
-      analyzer_class: image_analysis.offline_analyzers.beam_analyzer.BeamAnalyzer
-      camera_config_name: UC_GaiaMode
-
-  - type: array1d
-    device_name: U_BCaveICT
-    priority: 100
-    image_analyzer:
-      analyzer_class: image_analysis.offline_analyzers.ict_1d_analyzer.ICT1DAnalyzer
-      camera_config_name: U_BCaveICT
-```
-
 ## Key Design Decisions
 
-- **`priority`** — Lower number runs first. Use 0 for fast diagnostics, 100 for
-  slow ones.
-- **`gdoc_slot`** — Omit to use hyperlink mode (future PR). Set 0-3 to insert
-  into 2×2 table cell.
-- **`is_active: false`** — Disable an analyzer without removing it from config.
-- **`analyzer_class`** — Fully qualified path; resolved at runtime. Adding a new
-  analyzer class requires no factory changes.
-- **`camera_config_name`** — Points to a YAML in the configs repo. The name
-  (without extension) is used for lookup.
+- **`priority`** — Lower number runs first. Default 100; use low numbers
+  for fast diagnostics.
+- **`gdoc_slot`** — Set 0-3 to insert into a 2×2 table cell. Omit (None) to
+  upload display files as hyperlinks instead, when the runner has gdoc
+  upload enabled.
+- **`enabled: false`** on a group ref — Disable an analyzer without
+  removing it from the group config.
+- **`image_analyzer`** — Fully qualified class path; resolved at runtime.
+  Adding a new analyzer class requires no factory changes.
+- **Embedded `image:` config** — The per-device image-processing config
+  (ROI, background, pipeline) lives inside the diagnostic YAML itself;
+  there is no separate camera-config lookup.
 
 ## Filesystem invariants
 
@@ -300,28 +302,35 @@ pinned by tests in `tests/test_task_queue.py::TestScanFolderCreationInvariant`.
    `scan:` section:
 
    ```yaml
-   id: MyDevice                       # filename stem; unique per namespace
+   name: MyDevice                      # device/channel name for data discovery
+   image_analyzer: image_analysis.analyzers.beam_analyzer.BeamAnalyzer
    image:                              # consumed by ImageAnalysis
-     image_analyzer: beam              # alias, alias-dict, or {class_path, kwargs}
-     camera_config_name: MyDevice
+     type: camera                      # camera → Array2D; line → Array1D
+     roi: {x_min: 0, x_max: 650, y_min: 350, y_max: 650}
+     background: {method: constant, constant_level: 5.0}
+     pipeline:
+       steps: [background, roi]
    scan:                               # consumed by ScanAnalysis
-     type: array2d                     # or array1d / scatter
-     device_name: MyDevice
      priority: 50
+     mode: per_shot                    # or per_bin
      gdoc_slot: 0                      # optional
      # background_source:              # optional, for cross-scan or dynamic bg
      #   scan_number: 42
    ```
 
 3. Add the diagnostic to one or more groups under
-   `groups/<namespace>/<group>.yaml`:
+   `groups/<namespace>/<group>.yaml` — bare filename stem, or a dict
+   with per-group overrides:
 
    ```yaml
    analyzers:
-     - id: MyDevice
+     - MyDevice
+     - {ref: OtherDevice, priority: 5}
    ```
 
-4. No Python changes needed in ScanAnalysis itself. The diagnostic
-   factory (`create_diagnostic_analyzer`) resolves the `image_analyzer`
-   spec, instantiates the `ImageAnalyzer`, and wraps it in the right
-   `Array{1,2}DScanAnalyzer`.
+4. No Python changes needed in ScanAnalysis itself. The factory
+   (`create_scan_analyzer`) resolves the `image_analyzer` class path,
+   builds the inner `ImageAnalyzer` via
+   `image_analysis.config.create_image_analyzer`, and wraps it in
+   `Array1DScanAnalyzer` or `Array2DScanAnalyzer` based on the type of
+   the `image:` section.
