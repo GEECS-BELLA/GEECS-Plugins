@@ -7,8 +7,10 @@ description: >
   layer collecting as "1 skipped" (missing ca/tiled extras), "Command not
   found: pytest" inside a package dir, ModuleNotFoundError for an intra-repo
   package, pre-commit aborting a commit with "files were modified by this
-  hook", or a fresh worktree failing imports. Also consult before running any
-  package's test suite to pick the right env (root vs package).
+  hook", a fresh worktree failing imports, or a missing/incomplete
+  ~/.config/geecs_python_api/config.ini (GeecsPathsConfig errors,
+  "config.ini not found"). Also consult before running any package's
+  test suite to pick the right env (root vs package).
 ---
 
 # /env-doctor — diagnose and fix a package's Poetry environment
@@ -75,6 +77,14 @@ diagnose the package the current task is about.
 6. **Pre-commit.** `pre-commit` runs from the root env. Committing with
    plain `git commit` gets aborted by the auto-fixers ("files were
    modified by this hook") — use `./scripts/commit.sh -m "..."`.
+
+7. **GEECS config file.** Anything touching scan data or the GEECS DB
+   needs `~/.config/geecs_python_api/config.ini` with at least
+   `[Paths] geecs_data` and `[Experiment] expt`. Symptoms:
+   `GeecsPathsConfig` errors, "config.ini not found", or path
+   resolution failing with a perfectly healthy poetry env. Fix: create
+   it from the reference in `docs/tutorials/getting_started.md` —
+   values come from a teammate; never invent data paths.
 
 Report what was wrong and what you fixed; if everything checks out, say
 so and move the diagnosis back to the code.

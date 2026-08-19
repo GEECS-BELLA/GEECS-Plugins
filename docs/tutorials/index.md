@@ -2,6 +2,8 @@
 
 The suite's two halves — acquisition and analysis — each get their own
 end-to-end tutorial. Pick the one that matches what you're trying to do.
+No development environment yet? Do [Getting started](getting_started.md)
+first — toolchain, config file, and a smoke test.
 
 <div class="grid cards" markdown>
 

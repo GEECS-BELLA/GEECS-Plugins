@@ -31,6 +31,12 @@ canonical copy; read it now and pick the base matching the content of the
 change (`dev` for vision-world work; `master` only for analysis/legacy
 work with no dev-only imports).
 
+**Personal-branch exception:** if the developer works on a personal
+integration branch (`users/<name>`, per that CONTRIBUTING section or
+session memory), feature PRs target the personal branch instead of a
+mainline base — and never merge `users/<name>` into a mainline branch
+yourself; that promotion PR is merged by a human maintainer.
+
 **Roll-forward rule (until M6):** after merging an analysis/legacy PR
 into `master`, merge `master` forward into `dev` (`git merge
 origin/master --no-edit --no-verify` — `--no-verify` because pre-commit's
