@@ -70,7 +70,7 @@ pre-commit run --all-files
 interrogate .
 
 # Run specific docstring checks
-pydocstyle geecs_scanner/
+pydocstyle geecs_console/
 
 # Run ruff with docstring rules
 ruff check --select D .
@@ -117,7 +117,7 @@ All tools are configured in `pyproject.toml`:
 
 ## Package-Specific Guidelines
 
-### GEECS Scanner GUI
+### GEECS Console
 - Document GUI components and their interactions
 - Include examples of programmatic usage
 - Note threading considerations for GUI operations

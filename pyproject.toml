@@ -69,8 +69,7 @@ markers = [
 ]
 # Exclude pre-existing test stubs that require optional/unavailable deps
 norecursedirs = [
-    "tests/ScannerTools",
-    ".git", ".venv", "dist", "build", "__pycache__",
+        ".git", ".venv", "dist", "build", "__pycache__",
 ]
 
 # -------------------------------

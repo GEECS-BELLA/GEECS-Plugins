@@ -69,16 +69,18 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
 ```mermaid
 flowchart LR
-    GUI[Scanner GUI<br/>PyQt5 acquisition]
-    Engine[Scanner Engine<br/>headless scan core]
+    Console[GEECS Console<br/>PySide6 operator GUI]
+    Engine[GeecsBluesky<br/>RunEngine scan core]
+    Core[GEECS-Core<br/>transport + DB + GeecsDevice]
+    GW[CA/PVA Gateways<br/>GEECS as EPICS PVs]
     SA[Scan Analysis<br/>per-scan workflows]
     IA[Image Analysis<br/>per-image pipelines]
     DU[Data Utils<br/>paths + s-files]
-    API[GEECS Python API<br/>device transport]
     GDoc[LogMaker<br/>e-log upload]
 
-    GUI --> Engine
-    Engine --> API
+    Console --> Engine
+    Engine -->|CA service| GW
+    GW --> Core
     Engine --> DU
     SA --> IA
     SA --> DU

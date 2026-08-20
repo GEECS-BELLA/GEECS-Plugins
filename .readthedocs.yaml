@@ -10,6 +10,11 @@ mkdocs:
 
 python:
   install:
+    # geecs-bluesky backs the mkdocstrings pages over geecs_bluesky.events
+    # (docs/geecs_console/api/scan_events.md); its intra-repo path deps
+    # resolve relative to the checkout, same as the local docs env.
+    - method: pip
+      path: GeecsBluesky
     - method: pip
       path: ImageAnalysis
     - requirements: docs/requirements.txt

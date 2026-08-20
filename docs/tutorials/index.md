@@ -12,7 +12,7 @@ first — toolchain, config file, and a smoke test.
     ---
 
     Configure an experiment, build a save element, and run your first
-    NOSCAN and 1D scan with the Scanner GUI. Lands the data on disk.
+    NOSCAN and 1D scan with the GEECS Console. Lands the data on disk.
 
     [:octicons-arrow-right-24: Acquisition tutorial](acquisition.md)
 

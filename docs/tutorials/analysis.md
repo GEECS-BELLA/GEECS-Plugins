@@ -14,9 +14,9 @@ Python required.
 
 You should already have:
 
-- **`~/.config/geecs_python_api/config.ini`** set up. The Scanner GUI's
-  first-launch wizard creates it; copy from a working teammate if needed —
-  the full key-by-key reference is in [Getting started](getting_started.md).
+- **`~/.config/geecs_python_api/config.ini`** set up. Copy from a working
+  teammate if needed — the full key-by-key reference (and how to create it
+  from scratch) is in [Getting started](getting_started.md).
   Minimal contents look like:
 
     ```ini

@@ -3,10 +3,10 @@
 This is the engine's event vocabulary (target-architecture vision §2): every
 state transition, step boundary, and operator question a scan engine emits is
 one of these types, delivered through an ``on_event`` callback injected by the
-consumer.  Front-ends (the Scanner GUI, headless scripts, tests) import these
-types *from the engine*; ``geecs_scanner.engine.scan_events`` and
-``geecs_scanner.engine.dialog_request`` are re-export shims kept for
-compatibility (see ``GeecsBluesky/CLAUDE.md``, engine consolidation).
+consumer.  Front-ends (GEECS-Console, headless scripts, tests) import these
+types *from the engine*.  (The ``geecs_scanner.engine.*`` re-export shims
+that aliased these classes died with GEECS-Scanner-GUI's deletion,
+2026-08-20 — see ``GeecsBluesky/CLAUDE.md``, engine consolidation.)
 
 The event sequence for a successful 1D scan looks like::
 
