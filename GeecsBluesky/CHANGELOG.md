@@ -4,6 +4,40 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.0] - 2026-08-20
+
+### Added
+
+- **The Xopt/evaluator optimization stack relocated here** from
+  `geecs_scanner.optimization` (queueserver prep — the worker preamble
+  will invoke the loader, and this package is what the worker imports;
+  also the last thing keeping GEECS-Scanner-GUI in-tree):
+  `geecs_bluesky/optimization/` — `BaseOptimizer`, `BaseEvaluator` + the
+  concrete evaluators, generator factory, `SessionOptimizationBridge`,
+  config models, vocs utils, inspection helpers — ~4,100 LOC moved with
+  their 120 hermetic tests (`tests/optimization/`, skipped whole when the
+  `optimize` extra is absent, as in CI). The legacy pydantic models it
+  needs (`ActionSequence`/`ActionLibrary`, `SaveDeviceConfig`) travel
+  along as `optimization/_legacy_models_*.py`; the legacy engine
+  re-imports them via shims.
+- The `optimize` extra now carries the stack's dependencies: `xopt` (as
+  before) plus `gest-api` (imported directly, previously undeclared),
+  `scananalysis`, and `imageanalysis`.
+
+### Changed
+
+- `SessionOptimizationBridge`'s device-name canonicalization queries the
+  gateway's `GeecsDb` (experiment from `config.ini` via
+  `GeecsPathsConfig`) instead of the legacy
+  `geecs_scanner.engine.DatabaseDictLookup` — the stack's last
+  legacy-engine (and transitively geecs-python-api) thread is gone.
+  Same best-effort semantics: any failure falls back to verbatim
+  requirement names.
+- Error/docstring texts that claimed the stack "cannot be imported" from
+  this package now point at `geecs_bluesky.optimization` + the
+  `optimize` extra. The loader/binder seams are unchanged — behavior is
+  identical; only the stack's home moved.
+
 ## [0.51.0] - 2026-08-20
 
 ### Changed

@@ -7,7 +7,7 @@ from typing import Optional
 from geecs_data_utils import ScanConfig
 from pydantic import BaseModel, ConfigDict, Field
 
-from geecs_scanner.engine.models.save_devices import SaveDeviceConfig
+from geecs_bluesky.optimization._legacy_models_save_devices import SaveDeviceConfig
 from geecs_scanner.engine.models.scan_options import ScanOptions
 
 

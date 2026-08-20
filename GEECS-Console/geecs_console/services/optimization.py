@@ -3,9 +3,9 @@
 The engine (GeecsBluesky ≥ 0.31.0) runs optimize-mode ScanRequests through a
 GUI-injected ``optimization_loader`` — on the delegated path the loader is
 called with the request's resolved
-:class:`~geecs_schemas.OptimizationSpec` — because the config-driven
-Xopt/evaluator stack lives in ``geecs_scanner.optimization``, which
-geecs_bluesky must never import (dependency direction).  This module is the
+:class:`~geecs_schemas.OptimizationSpec` — the config-driven
+Xopt/evaluator stack lives in ``geecs_bluesky.optimization`` (relocated out
+of the legacy ``geecs_scanner`` package 2026-08-20).  This module is the
 console's implementation of that seam:
 
 - :func:`optimizer_config_from_spec` — pure mapping from the schema
@@ -19,8 +19,8 @@ console's implementation of that seam:
   ``SessionOptimizationBridge`` (the same bridge the legacy GUI used).
 - :func:`make_optimization_loader` — availability-gated factory used by
   :func:`geecs_console.submission.make_bluesky_submitter`.  Returns the
-  loader when ``geecs-scanner-gui`` is importable (installed via the
-  console's optional ``optimization`` extra), else ``None`` — the engine
+  loader when the stack's heavy dependencies are installed (``xopt``, via
+  the console's optional ``optimization`` extra), else ``None`` — the engine
   then refuses optimize submissions at ``reinitialize`` with its explicit
   needs-a-loader message, which the window already surfaces in the status
   bar.  The check is a light ``find_spec`` so submitter construction never
@@ -35,8 +35,7 @@ console's implementation of that seam:
 The stack behind the loader (evaluators → ScanAnalysis/ImageAnalysis
 analyzers) is the legacy machinery kept for old-GUI parity; a redesigned
 hook (bluesky-adaptive direction) is a planned follow-up, so this module is
-written to be deletable — nothing else in the console imports
-``geecs_scanner``.
+written to be deletable.
 """
 
 from __future__ import annotations
@@ -55,8 +54,8 @@ logger = logging.getLogger(__name__)
 #: thread imports exactly these so a later loader call is a pure
 #: ``sys.modules`` cache hit.
 _HEAVY_MODULES = (
-    "geecs_scanner.optimization.base_optimizer",
-    "geecs_scanner.optimization.session_bridge",
+    "geecs_bluesky.optimization.base_optimizer",
+    "geecs_bluesky.optimization.session_bridge",
 )
 
 
@@ -64,7 +63,7 @@ def optimizer_config_from_spec(spec: Any) -> dict:
     """Map an ``OptimizationSpec`` onto the ``BaseOptimizerConfig`` dict shape.
 
     Pure and import-light (duck-typed off the spec's attributes), so the
-    mapping is testable without ``geecs-scanner-gui`` installed.
+    mapping is testable without the ``optimization`` extra installed.
 
     Parameters
     ----------
@@ -130,7 +129,7 @@ def load_console_optimization(spec: Any) -> Any:
 
     Returns
     -------
-    geecs_scanner.optimization.session_bridge.SessionOptimizationBridge
+    geecs_bluesky.optimization.session_bridge.SessionOptimizationBridge
         The bridge exposing ``bind(devices=..., scan_tag=...,
         scan_folder=...) -> (objective, suggester)``, ``finish()``, and
         ``device_requirements`` (auto-generated from the evaluator's
@@ -139,21 +138,23 @@ def load_console_optimization(spec: Any) -> Any:
         (GeecsBluesky ≥ 0.38.0), so an optimize request needs no save
         sets naming the objective's diagnostics.
     """
-    from geecs_scanner.optimization.base_optimizer import BaseOptimizer
-    from geecs_scanner.optimization.session_bridge import SessionOptimizationBridge
+    from geecs_bluesky.optimization.base_optimizer import BaseOptimizer
+    from geecs_bluesky.optimization.session_bridge import SessionOptimizationBridge
 
     optimizer = BaseOptimizer.from_config(optimizer_config_from_spec(spec))
     return SessionOptimizationBridge(optimizer)
 
 
 def optimization_available() -> bool:
-    """Whether the optimization stack (``geecs-scanner-gui``) is importable.
+    """Whether the optimization stack's heavy dependencies are installed.
 
-    A light ``find_spec`` probe — nothing heavy is imported.  Installed via
-    the console's optional ``optimization`` extra.
+    The stack's *code* (``geecs_bluesky.optimization``) always ships with
+    geecs-bluesky; the console's optional ``optimization`` extra adds the
+    dependency tree (xopt → torch/botorch, ScanAnalysis).  A light
+    ``find_spec`` probe on ``xopt`` — nothing heavy is imported.
     """
     try:
-        return importlib.util.find_spec("geecs_scanner.optimization") is not None
+        return importlib.util.find_spec("xopt") is not None
     except (ImportError, ModuleNotFoundError):
         return False
 
@@ -168,8 +169,9 @@ def make_optimization_loader() -> Optional[Callable[[Any], Any]]:
     """
     if not optimization_available():
         logger.info(
-            "geecs-scanner-gui is not installed (console 'optimization' "
-            "extra) — optimize-mode submissions will be refused by the engine"
+            "the optimization stack's dependencies are not installed "
+            "(console 'optimization' extra) — optimize-mode submissions "
+            "will be refused by the engine"
         )
         return None
     return load_console_optimization
@@ -204,7 +206,7 @@ def warm_up_optimization_stack() -> Optional[threading.Thread]:
     """
     if not optimization_available():
         logger.debug(
-            "optimization stack warm-up skipped — geecs-scanner-gui is not "
+            "optimization stack warm-up skipped — its dependencies are not "
             "installed (console 'optimization' extra)"
         )
         return None

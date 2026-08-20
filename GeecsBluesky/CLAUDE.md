@@ -147,6 +147,14 @@ geecs_bluesky/
                             #   mysql.connector INFO chatter filtered out
   shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
   optimize.py               # suggester protocol, RandomSuggester, XoptSuggester, BinData
+  optimization/             # the config-driven Xopt/evaluator stack (relocated
+                            #   from geecs_scanner.optimization 2026-08-20):
+                            #   BaseOptimizer, evaluators, generator factory,
+                            #   SessionOptimizationBridge, config models,
+                            #   _legacy_models_* (ActionSequence/SaveDeviceConfig
+                            #   — the legacy engine re-imports them via shims).
+                            #   Heavy deps ride the `optimize` extra; tests
+                            #   skip whole without it
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
   data_paths.py             # local ↔ device-server path mapping, asset roots
   scanner_configs.py        # configs-repo resolution + shot-control YAML loading
@@ -765,16 +773,17 @@ Remaining items are features/tuning, not architecture — see
   `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
   tree as any scan — see `plans/optimize.py`), both headless (suggester +
   objective in hand) and from the GUI: `BlueskyScanner` handles optimization
-  through a GUI-injected `optimization_loader`
+  through an injected `optimization_loader`
   (`geecs_console.services.optimization` builds it from
-  `geecs_scanner.optimization`, the console's `optimization` extra), which
+  `geecs_bluesky.optimization` — the Xopt/evaluator stack relocated INTO
+  this package 2026-08-20, heavy deps behind the `optimize` extra), which
   runs the config-driven Xopt 3.1 / evaluator / ScanAnalysis stack against
   the session's bin rows on the delegated ScanRequest path (loader
   argument: the request's resolved `OptimizationSpec`; see the
   engine-consolidation section).  The evaluator seam is
-  `EvaluatorDataSource` in `geecs_scanner.optimization.base_evaluator`;
-  this package stays free of any geecs_scanner import (dependency
-  direction, pinned by an AST-level test).
+  `EvaluatorDataSource` in `geecs_bluesky.optimization.base_evaluator`;
+  the package stays free of any geecs_scanner import (pinned by an
+  AST-level test, which now also guards the relocated stack).
 - **Action sequences run per request.**  `GeecsSession.run(request)` /
   the bridge's delegated path execute setup/per_step/closeout ActionPlans
   (0.23.0 / 0.28.0); legacy save elements' actions are executed when the

@@ -45,15 +45,9 @@ geecs_scanner/
     models/
       scan_execution_config.py # Top-level validated scan config (GUI → engine handoff)
       scan_options.py          # Runtime knobs: rep rate, sync, save mode, etc.
-      save_devices.py          # Device list + setup/closeout action config
-      actions.py               # Action sequence Pydantic models
-  optimization/
-    base_optimizer.py         # Xopt wrapper
-    base_evaluator.py         # Objective function base class + EvaluatorDataSource
-    session_bridge.py         # The optimization_loader seam BlueskyScanner injects
-    config_models.py          # Pydantic models for optimization configs
-    evaluators/               # Image/beam analysis evaluators
-    generators/               # Xopt algorithms: random, genetic, BAX
+      # save_devices.py / actions.py moved to geecs_bluesky.optimization
+      # (_legacy_models_*) 2026-08-20; __init__.py re-exports them here
+  # optimization/ relocated whole to geecs_bluesky/optimization/ 2026-08-20
   utils/
     application_paths.py      # Path management (config + data folders)
     config_utils.py           # get_full_config_path, visa_config_generator
@@ -97,9 +91,12 @@ uncaught exceptions to the logger, then creates and shows `GEECSScannerWindow`.
 > crashes at engine construction with a generic kwarg `TypeError` — during
 > main-window init, before any submission) and `reinitialize` accepts only
 > a `geecs_schemas.ScanRequest`. This GUI is un-launchable from `dev` by
-> owner decision; `master`'s legacy line is untouched. The package stays
-> in-tree only for its `optimization` module (the console's `optimization`
-> extra) until M6 deletes it whole. The flow below is the historical
+> owner decision; `master`'s legacy line is untouched. The `optimization`
+> module relocated to `geecs_bluesky.optimization` (2026-08-20), so the
+> package is now fully dead code: nothing on `dev` consumes it, and it
+> stays in-tree only until M6 deletes it whole (`engine/models`' action/
+> save-device pydantic models moved with the stack; `engine/models/
+> __init__.py` re-exports them from the new home for the legacy tests). The flow below is the historical
 > record — see `GeecsBluesky/CLAUDE.md` for the current architecture.
 
 ```

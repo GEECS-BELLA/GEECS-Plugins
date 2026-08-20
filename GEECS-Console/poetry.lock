@@ -17,19 +17,6 @@ epicscorelibs = ">=7.0.3.99.4.0"
 numpy = "*"
 
 [[package]]
-name = "altgraph"
-version = "0.17.5"
-description = "Python graph (network) package"
-optional = true
-python-versions = "*"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "altgraph-0.17.5-py2.py3-none-any.whl", hash = "sha256:f3a22400bce1b0c701683820ac4f3b159cd301acab067c51c653e06961600597"},
-    {file = "altgraph-0.17.5.tar.gz", hash = "sha256:c87b395dd12fabde9c99573a9749d67da8d29ef9de0125c7f536699b4a9bc9e7"},
-]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.4"
 description = "Document parameters, class attributes, return types, and variables inline, with Annotated."
@@ -967,56 +954,6 @@ docs = ["ipython", "matplotlib", "numpydoc", "sphinx"]
 tests = ["pytest", "pytest-cov", "pytest-xdist"]
 
 [[package]]
-name = "cython"
-version = "3.2.8"
-description = "The Cython compiler for writing C extensions in the Python language."
-optional = true
-python-versions = ">=3.8"
-groups = ["main"]
-markers = "sys_platform == \"darwin\" and extra == \"optimization\""
-files = [
-    {file = "cython-3.2.8-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:51a1d2df1545c480f377f1bb2aea514e28956c87908f351bedc3772b3737c598"},
-    {file = "cython-3.2.8-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4f1bbec7a7bd2c3836314e84f68e3f9a4c20e11cd164a01990a9ca34f595d5dd"},
-    {file = "cython-3.2.8-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:eb25b2afedc6a3585c5ae50db79ba0c3d6277ee8e1d6ce0223528db2c4981d9b"},
-    {file = "cython-3.2.8-cp310-cp310-win_amd64.whl", hash = "sha256:ad9a80e5dda71cf30b9c9577902f0c080aa14a215d7c178d669cda21cf5ab801"},
-    {file = "cython-3.2.8-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a7761e1a97081b707a9ea4fb7c8ecdeddcc6b5ae00dda0f0b7bbf933c1b599f9"},
-    {file = "cython-3.2.8-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:84def174fbf8886fb026e04716908276c074d8c231e66db803abd04afcdcb998"},
-    {file = "cython-3.2.8-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:a134a19bba6ce7b1dd21dedc5cb2d4ea39a4177e42e535e333786eb9d0ba61a7"},
-    {file = "cython-3.2.8-cp311-cp311-win_amd64.whl", hash = "sha256:6c9bf89ac1d43a9e1c3bfee61e7b4dd8d1ef7a610001aa7779f0cb824bad8ae7"},
-    {file = "cython-3.2.8-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:f2547a31fbd3b1610a8859a16edee2a141f7781691cb98a2c6fd54870c5f7541"},
-    {file = "cython-3.2.8-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:ab1fe11ebd61e497a848622cdd157a4324ac06e7935b1219715408844e15dd13"},
-    {file = "cython-3.2.8-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f3bce1f079734753649f8a3d3a95832297207feb120d0ef4fd5db4c813cc6c04"},
-    {file = "cython-3.2.8-cp312-cp312-win_amd64.whl", hash = "sha256:8297efe129e6421c34ddbeb09ed5627ef6c0fc4868bf7f9bdf6c147f595ccaed"},
-    {file = "cython-3.2.8-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0d78205f525287de94effa2f2fab6b9edafdab44ef8c58ecf52fcb1013225d68"},
-    {file = "cython-3.2.8-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:474d9c5378032c0237b70c7af4d2122eb00719fec2cab296ddc9cf2907d55d58"},
-    {file = "cython-3.2.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e2221be06b6aa92486d7c3644c18cb3643b3e794600f0d6c8555a523e959a069"},
-    {file = "cython-3.2.8-cp313-cp313-win_amd64.whl", hash = "sha256:0961ba91f59492d1bef974cc6b45993c743162776188bcb79e029b442d5d4fcc"},
-    {file = "cython-3.2.8-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1c7f4143d0f9fb7b26444e00ebf7c8845f585d56f37b73bd3fb3dac269af8732"},
-    {file = "cython-3.2.8-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:6f788a2fec204bdd9291d5d542a4856db101dba59f8d83789d3f1eb2895971a0"},
-    {file = "cython-3.2.8-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1c3a33c2ff250d0277d0ee8b080ba0a0391a00e48af4a96fb09dbebbd1ac4b0e"},
-    {file = "cython-3.2.8-cp314-cp314-win_amd64.whl", hash = "sha256:89b0fdc2ca0b502afedc4dd4ddbc4f9cb5a135245afacf9483e556e8ad3ada3b"},
-    {file = "cython-3.2.8-cp38-cp38-macosx_11_0_arm64.whl", hash = "sha256:61767412d252558104f14c006bc89eefe00496d4f57dd951dd13666bda2ff43b"},
-    {file = "cython-3.2.8-cp38-cp38-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d63a43813fef3f3e8fb14502b8526d9bb9ad2eabd0c899b22f6409c4a97d265f"},
-    {file = "cython-3.2.8-cp38-cp38-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:75770f79cf67f89f7d0b08590ffc114c7a1b47352ef0ee5a3494d5fc098299f0"},
-    {file = "cython-3.2.8-cp38-cp38-win_amd64.whl", hash = "sha256:d497b1048c61a94cff61baaa1db1c441254935671311f9fb0f84c8912e532d60"},
-    {file = "cython-3.2.8-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:127bc4039be48c6eebe7f1d68c33d23eb3a0c5ae95e1d730bdd048837751438b"},
-    {file = "cython-3.2.8-cp39-abi3-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl", hash = "sha256:e480ae9f195cd29e5ce334e3d434c83dbac0783c0cc88f2407e31ba997724192"},
-    {file = "cython-3.2.8-cp39-abi3-manylinux2014_armv7l.manylinux_2_17_armv7l.manylinux_2_31_armv7l.whl", hash = "sha256:3142407b9d63f233c766e17000e2aac782411bf0409b9adc97cb7c320aecd199"},
-    {file = "cython-3.2.8-cp39-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:41c118fd91d320cd72af26e29232ff3f1a0a170c47d477c9a176d766067a4718"},
-    {file = "cython-3.2.8-cp39-abi3-musllinux_1_2_armv7l.whl", hash = "sha256:6335c6e8737a39734e20d25f89f425bf3274c104fc7efc05aacc7ed1a4858c9d"},
-    {file = "cython-3.2.8-cp39-abi3-musllinux_1_2_i686.whl", hash = "sha256:1034facc082cb882e1e5beb61e136ae8e282df2eafa11e9771e9b0a15c860801"},
-    {file = "cython-3.2.8-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:8896ff6b133f346ebcf22aa23706c4031e8d9d5ae184433dfc67dc1053318b69"},
-    {file = "cython-3.2.8-cp39-abi3-win32.whl", hash = "sha256:3fd6464433d925cba66ae31bf5780c8a469a06da1d109180cffb39ee3c88ae20"},
-    {file = "cython-3.2.8-cp39-abi3-win_arm64.whl", hash = "sha256:4e9447d9b652396a285cdfbd4f9f0721842c63c6df281720e87dcc4b9ea65af5"},
-    {file = "cython-3.2.8-cp39-cp39-macosx_11_0_arm64.whl", hash = "sha256:2d6858eb212b9272c5daed9d76e1c82b857e4963b2b892acf7ece4f8bb22aee6"},
-    {file = "cython-3.2.8-cp39-cp39-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:70db7a0c5fe5aebf272a56ddfc177bf608d6355571fd714b38f5ce14cba3b17c"},
-    {file = "cython-3.2.8-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c85c2ceb6bc6d3bc442241038c4e8bdd9883a3afd655a9b47e1222e10fe9edf1"},
-    {file = "cython-3.2.8-cp39-cp39-win_amd64.whl", hash = "sha256:7cae933e6b82c198b42e934472a41d2a14c5e115da6ea794c33039c2694ce4e5"},
-    {file = "cython-3.2.8-py3-none-any.whl", hash = "sha256:f635e113677666de13a2ec2979e9b1d5b90617cdfd1a691d3559be81e2dd6cb9"},
-    {file = "cython-3.2.8.tar.gz", hash = "sha256:f4f23a56b25221a06f91817fe8f3114ab8b48a4fac73187dbb64bc2c4a87961f"},
-]
-
-[[package]]
 name = "dask"
 version = "2026.7.0"
 description = "Parallel PyData with Task Scheduling"
@@ -1381,7 +1318,7 @@ tqdm = ["tqdm"]
 
 [[package]]
 name = "geecs-bluesky"
-version = "0.31.0"
+version = "0.51.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1399,9 +1336,9 @@ ophyd-async = ">=0.19.3,<1.0"
 tiled = {version = ">=0.2", extras = ["client"], optional = true}
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/console-optimization-loader/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
-optimize = ["xopt (>=3.1,<4.0)"]
+optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/ScanAnalysis", "xopt (>=3.1,<4.0)"]
 tiled = ["tiled[client] (>=0.2)"]
 
 [package.source]
@@ -1410,7 +1347,7 @@ url = "../GeecsBluesky"
 
 [[package]]
 name = "geecs-ca-gateway"
-version = "0.13.1"
+version = "0.17.1"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1431,7 +1368,7 @@ url = "../GeecsCAGateway"
 
 [[package]]
 name = "geecs-data-utils"
-version = "0.13.1"
+version = "0.13.5"
 description = "Utilities for working with data generated by GEECS."
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1462,71 +1399,8 @@ type = "directory"
 url = "../GEECS-Data-Utils"
 
 [[package]]
-name = "geecs-pythonapi"
-version = "0.6.0"
-description = "Python interface to GEECS control system"
-optional = true
-python-versions = ">=3.11,<3.12"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = []
-develop = true
-
-[package.dependencies]
-geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
-ImageAnalysis = {path = "../ImageAnalysis", develop = true}
-matplotlib = "^3.7.2"
-mysql-connector-python = "^9.7.0"
-nptdms = "^1.7.0"
-numexpr = "^2.8.1"
-numpy = ">=2.0,<3.0"
-opencv-python = "^4.7"
-pandas = "^2.0"
-progressbar2 = "^4.2.0"
-pypng = "^0.20220715.0"
-python-dotenv = "^1.0.0"
-scikit-image = ">=0.21,<1.0"
-scipy = {version = ">=1.11,<2.0", markers = "python_version >= \"3.11\""}
-screeninfo = "^0.8.1"
-
-[package.source]
-type = "directory"
-url = "../GEECS-PythonAPI"
-
-[[package]]
-name = "geecs-scanner-gui"
-version = "0.34.0"
-description = ""
-optional = true
-python-versions = ">=3.11,<3.12"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = []
-develop = true
-
-[package.dependencies]
-geecs-bluesky = {path = "../GeecsBluesky", develop = true, extras = ["ca", "tiled"]}
-geecs_data_utils = {path = "../GEECS-Data-Utils", develop = true}
-geecs-pythonapi = {path = "../GEECS-PythonAPI", develop = true}
-imageanalysis = {path = "../ImageAnalysis", develop = true}
-numexpr = "*"
-pillow = "^11.1.0"
-pint = ">=0.24"
-pyinstaller = "^6.12.0"
-PyQt5 = {version = "^5.15.9", markers = "sys_platform == \"win32\""}
-pyqt5-tools = {version = "^5.15.9.3.3", markers = "sys_platform == \"win32\""}
-pyyaml = "^6.0.2"
-scananalysis = {path = "../ScanAnalysis", develop = true}
-simpleaudio = {version = "*", markers = "sys_platform == \"darwin\""}
-xopt = "^3.1"
-
-[package.source]
-type = "directory"
-url = "../GEECS-Scanner-GUI"
-
-[[package]]
 name = "geecs-schemas"
-version = "0.8.0"
+version = "0.9.0"
 description = "Versioned Pydantic schemas for GEECS scanner configs (scan requests, save sets, scan variables, trigger profiles, action plans) plus legacy-YAML converters."
 optional = false
 python-versions = ">=3.11,<3.12"
@@ -1920,7 +1794,7 @@ all = ["mypy (>=1.11.2)", "pytest (>=8.3.2)", "ruff (>=0.6.2)"]
 
 [[package]]
 name = "imageanalysis"
-version = "1.11.0"
+version = "1.11.1"
 description = "Central sub-repository for online and offline analysis of BELLA exeriments' images."
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -2467,7 +2341,7 @@ files = [
 
 [[package]]
 name = "logmaker4googledocs"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 optional = true
 python-versions = ">=3.9"
@@ -2557,22 +2431,6 @@ files = [
 docs = ["sphinx (>=1.6.0)", "sphinx_bootstrap_theme"]
 flake8 = ["flake8"]
 tests = ["psutil", "pytest (!=3.3.0)", "pytest-cov"]
-
-[[package]]
-name = "macholib"
-version = "1.16.4"
-description = "Mach-O header analysis and editing"
-optional = true
-python-versions = "*"
-groups = ["main"]
-markers = "sys_platform == \"darwin\" and extra == \"optimization\""
-files = [
-    {file = "macholib-1.16.4-py2.py3-none-any.whl", hash = "sha256:da1a3fa8266e30f0ce7e97c6a54eefaae8edd1e5f86f3eb8b95457cae90265ea"},
-    {file = "macholib-1.16.4.tar.gz", hash = "sha256:f408c93ab2e995cd2c46e34fe328b130404be143469e41bc366c807448979362"},
-]
-
-[package.dependencies]
-altgraph = ">=0.17"
 
 [[package]]
 name = "markdown-it-py"
@@ -3232,7 +3090,7 @@ description = "Fast numerical expression evaluator for NumPy"
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
-markers = "platform_machine != \"wasm32\" or extra == \"optimization\""
+markers = "platform_machine != \"wasm32\""
 files = [
     {file = "numexpr-2.14.1-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:d0fab3fd06a04f6b86102552b26aa5d85e20ac7d8296c15764c726eeabae6cc8"},
     {file = "numexpr-2.14.1-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:64ae5dfd62d74a3ef82fe0b37f80527247f3626171ad82025900f46ffca4b39a"},
@@ -3967,19 +3825,6 @@ toolz = "*"
 complete = ["blosc", "numpy (>=1.20.0)", "pandas (>=1.3)", "pyzmq"]
 
 [[package]]
-name = "pefile"
-version = "2024.8.26"
-description = "Python PE parsing module"
-optional = true
-python-versions = ">=3.6.0"
-groups = ["main"]
-markers = "sys_platform == \"win32\" and extra == \"optimization\""
-files = [
-    {file = "pefile-2024.8.26-py3-none-any.whl", hash = "sha256:76f8b485dcd3b1bb8166f1128d395fa3d87af26360c2358fb75b80019b957c6f"},
-    {file = "pefile-2024.8.26.tar.gz", hash = "sha256:3ff6c5d8b43e8c37bb6e6dd5085658d658a7a0bdcd20b6a07b1fcfc1c4e9d632"},
-]
-
-[[package]]
 name = "pexpect"
 version = "4.9.0"
 description = "Pexpect allows easy control of interactive console applications."
@@ -4162,26 +4007,6 @@ files = [
 [package.extras]
 dev = ["pre-commit", "tox"]
 testing = ["coverage", "pytest", "pytest-benchmark"]
-
-[[package]]
-name = "progressbar2"
-version = "4.5.0"
-description = "A Python Progressbar library to provide visual (yet text based) progress to long running operations."
-optional = true
-python-versions = ">=3.8"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "progressbar2-4.5.0-py3-none-any.whl", hash = "sha256:625c94a54e63915b3959355e6d4aacd63a00219e5f3e2b12181b76867bf6f628"},
-    {file = "progressbar2-4.5.0.tar.gz", hash = "sha256:6662cb624886ed31eb94daf61e27583b5144ebc7383a17bae076f8f4f59088fb"},
-]
-
-[package.dependencies]
-python-utils = ">=3.8.1"
-
-[package.extras]
-docs = ["sphinx (>=1.8.5)", "sphinx-autodoc-typehints (>=1.6.0)"]
-tests = ["dill (>=0.3.6)", "flake8 (>=3.7.7)", "freezegun (>=0.3.11)", "pytest (>=4.6.9)", "pytest-cov (>=2.6.1)", "pytest-mypy", "pywin32 ; sys_platform == \"win32\"", "sphinx (>=1.8.5)"]
 
 [[package]]
 name = "prompt-toolkit"
@@ -4660,103 +4485,6 @@ files = [
 windows-terminal = ["colorama (>=0.4.6)"]
 
 [[package]]
-name = "pyinstaller"
-version = "6.21.0"
-description = "PyInstaller bundles a Python application and all its dependencies into a single package."
-optional = true
-python-versions = "<3.16,>=3.8"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "pyinstaller-6.21.0-py3-none-macosx_10_13_universal2.whl", hash = "sha256:327d132389f37912609e01be62810cf96b5aa95b613903e4b8692e0d12fb0eda"},
-    {file = "pyinstaller-6.21.0-py3-none-manylinux2014_aarch64.whl", hash = "sha256:7071d4b094d5b40deeef5fa3d3b98a1b846087f7562b49209663d5f9281fe251"},
-    {file = "pyinstaller-6.21.0-py3-none-manylinux2014_i686.whl", hash = "sha256:6b6374d652107dd4a2eeece903ff82bb4045bb5e1006c5a158a6dcdbefe84bf2"},
-    {file = "pyinstaller-6.21.0-py3-none-manylinux2014_ppc64le.whl", hash = "sha256:4e3108b3f02384560da70e39b8bf22b0ad597d02bd68a40d76ea91c1cfa00cad"},
-    {file = "pyinstaller-6.21.0-py3-none-manylinux2014_s390x.whl", hash = "sha256:697532279f535ad572bda613db4f821540e235c7854ca6da4d3bf0373f4415ee"},
-    {file = "pyinstaller-6.21.0-py3-none-manylinux2014_x86_64.whl", hash = "sha256:605169523a6b5ace39f13dfbff21add9f2bc43df99c7daf9394fefb2c45e8b6f"},
-    {file = "pyinstaller-6.21.0-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:5fa56746c1e76f93634d018502301378a2d0c382553d37d8c3c34ff436c12dd1"},
-    {file = "pyinstaller-6.21.0-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:42395ec76df8e8120c36b13339d9db8cab83e316a12839ee303cc00fc941bb74"},
-    {file = "pyinstaller-6.21.0-py3-none-win32.whl", hash = "sha256:c6b28d30d8fd99ce162ff3aab5013ed44dbfb747566b1f01b9bed7964d7c14e9"},
-    {file = "pyinstaller-6.21.0-py3-none-win_amd64.whl", hash = "sha256:7fae06c494ce0ebfe6bd3055c0e409def884f63af2e3705d06bd431ad9237fc7"},
-    {file = "pyinstaller-6.21.0-py3-none-win_arm64.whl", hash = "sha256:f13c95c9c03fb567217135919f93815c305813126780b0ed6e0123cb8acaf025"},
-    {file = "pyinstaller-6.21.0.tar.gz", hash = "sha256:bb9fab705983e393a2d1cac77d6972513057ad800215fd861dc15ff5272e98fd"},
-]
-
-[package.dependencies]
-altgraph = "*"
-macholib = {version = ">=1.8", markers = "sys_platform == \"darwin\""}
-packaging = ">=22.0"
-pefile = {version = ">=2022.5.30", markers = "sys_platform == \"win32\""}
-pyinstaller-hooks-contrib = ">=2026.6"
-pywin32-ctypes = {version = ">=0.2.1", markers = "sys_platform == \"win32\""}
-setuptools = ">=42.0.0"
-
-[package.extras]
-completion = ["argcomplete"]
-hook-testing = ["execnet (>=1.5.0)", "psutil", "pytest (>=2.7.3)"]
-
-[[package]]
-name = "pyinstaller-hooks-contrib"
-version = "2026.6"
-description = "Community maintained hooks for PyInstaller"
-optional = true
-python-versions = ">=3.8"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "pyinstaller_hooks_contrib-2026.6-py3-none-any.whl", hash = "sha256:fd13b8ac126b35361175edacd41a0d97080b75dd5f4b594ecefefff969509dd3"},
-    {file = "pyinstaller_hooks_contrib-2026.6.tar.gz", hash = "sha256:bef5002c32f4f50bd55b005da12cff64eca8783e7eaf86a06a62410164bab725"},
-]
-
-[package.dependencies]
-packaging = ">=22.0"
-
-[[package]]
-name = "pyobjc-core"
-version = "12.2.1"
-description = "Python<->ObjC Interoperability Module"
-optional = true
-python-versions = ">=3.10"
-groups = ["main"]
-markers = "sys_platform == \"darwin\" and extra == \"optimization\""
-files = [
-    {file = "pyobjc_core-12.2.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:aa5c889961d79d7704f17eeb27f80ee791335819c1bb14babeff7b9ea665b5f0"},
-    {file = "pyobjc_core-12.2.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:24b76a63caf0b5369d4a377c7c0438cd70df81539057af3db839bfaa3579e04a"},
-    {file = "pyobjc_core-12.2.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:a64232bb27ed101d4adc7d42b0e64a6d3331aac7bee7861c037a6777a163f10b"},
-    {file = "pyobjc_core-12.2.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:af101222762665a4125157906cb4b23f5d5a63d3851d5e0504f72a1eaaa2cfd2"},
-    {file = "pyobjc_core-12.2.1-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:efe465e3ecc6fc73f7c7622620345d134a8d34564ab1c29d8247e45f4ed55071"},
-    {file = "pyobjc_core-12.2.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:2b8fc0531c27277325e113ac00b8a72a82e6145f0a88175b9425d8de814ff69a"},
-    {file = "pyobjc_core-12.2.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:9bef500f979e22d54f9da3aaebf6a48f873234b324858bd69256055a318955c7"},
-    {file = "pyobjc_core-12.2.1-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:047c226eeb58a2993ace5e8904e71cc9426ee20d064c617f8fbf32717d37093e"},
-    {file = "pyobjc_core-12.2.1-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:1188613805336270279570467e4455b74cb6c0f60913ac74c917ee1c37cfaecb"},
-    {file = "pyobjc_core-12.2.1.tar.gz", hash = "sha256:7a7b9b018402342cf32bf1956366896350fbe5c0478cb3ef59778f77abed7f07"},
-]
-
-[[package]]
-name = "pyobjc-framework-cocoa"
-version = "12.2.1"
-description = "Wrappers for the Cocoa frameworks on macOS"
-optional = true
-python-versions = ">=3.10"
-groups = ["main"]
-markers = "sys_platform == \"darwin\" and extra == \"optimization\""
-files = [
-    {file = "pyobjc_framework_cocoa-12.2.1-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:05443c1494532779cccff83e9792fdd6f0a4800cac56620132bf28e0bf966e9d"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:dc6da84f4fc62cc25463bbb85e77a57b8d5ac6caf9a60702daf2edb601332f15"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:28b9b8bab1c36efb94744786918752d0c1842f5fbb67e7d5ca97b5f736512080"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:3b74a78fa7803e547b32e5e8ec1b49987b52fe318383e793bc6cd49b80efbd9f"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:dc2eaca2f13c7bcd8e41e51a372e47825dea9dd3126108760eed7ba883d2945c"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:b386c324d64ae565c1f6b7dfb77be68f640a1c7c23caa6966ab661131f519561"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:a6c584e2af0813cb2f6103b184e632665a26f58c1bd5b08ffd6e95a19c617f7b"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:b6023657b8d6cc049a21bd6b4752425f2f53c42f9f0b02d64c7608cc484bf103"},
-    {file = "pyobjc_framework_cocoa-12.2.1-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:c685ccd8e266a07cf912a2c5a13b1f2eff2a868a1aff163b4801b4687bd425e1"},
-    {file = "pyobjc_framework_cocoa-12.2.1.tar.gz", hash = "sha256:b94b37fe5730e5ae1fb0052912cd174e6ec329b0bfba4a012ae5db1014b5864b"},
-]
-
-[package.dependencies]
-pyobjc-core = ">=12.2.1"
-
-[[package]]
 name = "pyparsing"
 version = "3.3.2"
 description = "pyparsing - Classes and methods to define and execute parsing grammars"
@@ -5074,27 +4802,6 @@ files = [
 cli = ["click (>=5.0)"]
 
 [[package]]
-name = "python-utils"
-version = "4.0.0"
-description = "Python Utils is a module with some convenient utilities not included with the standard Python install"
-optional = true
-python-versions = ">=3.10"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "python_utils-4.0.0-py3-none-any.whl", hash = "sha256:96b969a878bbc147e69db60aac7c618ff97f7e5e03e9d78ade85d764af71faa5"},
-    {file = "python_utils-4.0.0.tar.gz", hash = "sha256:51d84b297d9877205a76e65f970e3275d1aa9c1cf3d508af2c459247eb4fe701"},
-]
-
-[package.dependencies]
-typing-extensions = ">3.10.0.2"
-
-[package.extras]
-docs = ["furo", "myst-parser", "sphinx"]
-loguru = ["loguru"]
-tests = ["blessings", "loguru", "pytest", "pytest-asyncio", "pytest-cov"]
-
-[[package]]
 name = "pytz"
 version = "2026.2"
 description = "World timezone definitions, modern and historical"
@@ -5104,19 +4811,6 @@ groups = ["main"]
 files = [
     {file = "pytz-2026.2-py2.py3-none-any.whl", hash = "sha256:04156e608bee23d3792fd45c94ae47fae1036688e75032eea2e3bf0323d1f126"},
     {file = "pytz-2026.2.tar.gz", hash = "sha256:0e60b47b29f21574376f218fe21abc009894a2321ea16c6754f3cad6eb7cdd6a"},
-]
-
-[[package]]
-name = "pywin32-ctypes"
-version = "0.2.3"
-description = "A (partial) reimplementation of pywin32 using ctypes/cffi"
-optional = true
-python-versions = ">=3.6"
-groups = ["main"]
-markers = "sys_platform == \"win32\" and extra == \"optimization\""
-files = [
-    {file = "pywin32-ctypes-0.2.3.tar.gz", hash = "sha256:d162dc04946d704503b2edc4d55f3dba5c1d539ead017afa00142c38b9885755"},
-    {file = "pywin32_ctypes-0.2.3-py3-none-any.whl", hash = "sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8"},
 ]
 
 [[package]]
@@ -5598,7 +5292,7 @@ crt = ["botocore[crt] (>=1.37.4,<2.0a.0)"]
 
 [[package]]
 name = "scananalysis"
-version = "1.15.0"
+version = "1.15.1"
 description = "Modules for performing analyses routines on full scans"
 optional = true
 python-versions = ">=3.11,<3.12"
@@ -5864,23 +5558,6 @@ doc = ["intersphinx_registry", "jupyterlite-pyodide-kernel", "jupyterlite-sphinx
 test = ["Cython", "array-api-strict (>=2.3.1)", "asv", "gmpy2", "hypothesis (>=6.30)", "meson", "mpmath", "ninja ; sys_platform != \"emscripten\"", "pooch", "pytest (>=8.0.0)", "pytest-cov", "pytest-timeout", "pytest-xdist", "scikit-umfpack", "threadpoolctl"]
 
 [[package]]
-name = "screeninfo"
-version = "0.8.1"
-description = "Fetch location and size of physical screens."
-optional = true
-python-versions = ">=3.6.2,<4.0.0"
-groups = ["main"]
-markers = "extra == \"optimization\""
-files = [
-    {file = "screeninfo-0.8.1-py3-none-any.whl", hash = "sha256:e97d6b173856edcfa3bd282f81deb528188aff14b11ec3e195584e7641be733c"},
-    {file = "screeninfo-0.8.1.tar.gz", hash = "sha256:9983076bcc7e34402a1a9e4d7dabf3729411fd2abb3f3b4be7eba73519cd2ed1"},
-]
-
-[package.dependencies]
-Cython = {version = "*", markers = "sys_platform == \"darwin\""}
-pyobjc-framework-Cocoa = {version = "*", markers = "sys_platform == \"darwin\""}
-
-[[package]]
 name = "semver"
 version = "3.0.4"
 description = "Python helper for Semantic Versioning (https://semver.org)"
@@ -5953,24 +5630,6 @@ files = [
     {file = "shiboken6-6.11.1-cp310-abi3-manylinux_2_39_aarch64.whl", hash = "sha256:1bd2f4314414df2d122d9f646e03b731bc6d6b5f77a5f53f99a4fe4e97d84e6f"},
     {file = "shiboken6-6.11.1-cp310-abi3-win_amd64.whl", hash = "sha256:c2c6863aa80ec18c0f82cea3417837b279cdc60024ac17123461dc9042577df7"},
     {file = "shiboken6-6.11.1-cp310-abi3-win_arm64.whl", hash = "sha256:7c8d9af17db4495d4fa5b1c393f218311c4855546b9dfa6a0bd21bcd66b55e9d"},
-]
-
-[[package]]
-name = "simpleaudio"
-version = "1.0.4"
-description = "Simple, asynchronous audio playback for Python 3."
-optional = true
-python-versions = "*"
-groups = ["main"]
-markers = "sys_platform == \"darwin\" and extra == \"optimization\""
-files = [
-    {file = "simpleaudio-1.0.4-cp37-cp37m-macosx_10_6_intel.whl", hash = "sha256:05b63da515f5fc7c6f40e4d9673d22239c5e03e2bda200fc09fd21c185d73713"},
-    {file = "simpleaudio-1.0.4-cp37-cp37m-win32.whl", hash = "sha256:f1a4fe3358429b2ea3181fd782e4c4fff5c123ca86ec7fc29e01ee9acd8a227a"},
-    {file = "simpleaudio-1.0.4-cp37-cp37m-win_amd64.whl", hash = "sha256:86f1b0985629852afe67259ac6c24905ca731cb202a6e96b818865c56ced0c27"},
-    {file = "simpleaudio-1.0.4-cp38-cp38-macosx_10_9_x86_64.whl", hash = "sha256:f68820297ad51577e3a77369e7e9b23989d30d5ae923bf34c92cf983c04ade04"},
-    {file = "simpleaudio-1.0.4-cp38-cp38-win32.whl", hash = "sha256:67348e3d3ccbae73bd126beed7f1e242976889620dbc6974c36800cd286430fc"},
-    {file = "simpleaudio-1.0.4-cp38-cp38-win_amd64.whl", hash = "sha256:f346a4eac9cdbb1b3f3d0995095b7e86c12219964c022f4d920c22f6ca05fb4c"},
-    {file = "simpleaudio-1.0.4.tar.gz", hash = "sha256:691c88649243544db717e7edf6a9831df112104e1aefb5f6038a5d071e8cf41d"},
 ]
 
 [[package]]
@@ -6946,9 +6605,9 @@ files = [
 cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and python_version < \"3.14\"", "cffi (>=2.0.0b) ; platform_python_implementation != \"PyPy\" and python_version >= \"3.14\""]
 
 [extras]
-optimization = ["geecs-scanner-gui"]
+optimization = ["gest-api", "imageanalysis", "scananalysis", "xopt"]
 
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "1a768194c5a13534d3615fd53d51d95b365f73047046d92779c8331f01994ca4"
+content-hash = "402a79ad29117714ba94c88f4620848ca41d52cbb6945884eee0f14f30133028"

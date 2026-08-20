@@ -149,11 +149,12 @@ class BlueskyScanner:
         object exposing ``bind(devices=..., scan_tag=..., scan_folder=...)
         -> (objective, suggester)`` (plus the optional duck-typed
         ``device_requirements`` mapping and ``finish()`` bookkeeping).
-        Lives on the GUI side because the config-driven optimizer stack
-        (Xopt, evaluators, ScanAnalysis analyzers) belongs to
-        ``geecs_scanner.optimization`` — this package cannot import it
-        (dependency direction).  Without a loader, optimize-mode
-        ScanRequests are refused at :meth:`reinitialize`.
+        Injected by the client because the heavy optimizer stack
+        (Xopt, evaluators, ScanAnalysis analyzers) lives in
+        ``geecs_bluesky.optimization`` (relocated out of geecs_scanner
+        2026-08-20; heavy deps behind the ``optimize`` extra).  Without a
+        loader, optimize-mode ScanRequests are refused at
+        :meth:`reinitialize`.
     """
 
     def __init__(
@@ -287,9 +288,9 @@ class BlueskyScanner:
             ):
                 raise NotImplementedError(
                     "optimize-mode ScanRequest execution through BlueskyScanner "
-                    "needs the GUI-injected optimization_loader (the config-"
-                    "driven Xopt/evaluator stack lives in geecs_scanner."
-                    "optimization, which this package cannot import); construct "
+                    "needs an injected optimization_loader (the config-driven "
+                    "Xopt/evaluator stack is geecs_bluesky.optimization, whose "
+                    "heavy dependencies ride the `optimize` extra); construct "
                     "the scanner with optimization_loader=..., or run headless "
                     "via GeecsSession.run(request, resolver, objective=..., "
                     "suggester=...)"

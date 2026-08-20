@@ -10,7 +10,7 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
-| `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt). The legacy in-package scan engine was deleted (G1) and the engine's exec_config submission path followed (G3) — un-launchable on `dev`, kept in-tree only for its optimization module. Deleted whole at the M6 cutover (GEECS-Console replaces it) |
+| `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt). The legacy in-package scan engine was deleted (G1) and the engine's exec_config submission path followed (G3) — un-launchable on `dev`; its optimization module relocated to GeecsBluesky (2026-08-20), leaving the package fully dead in-tree. Deleted whole at the M6 cutover (GEECS-Console replaces it) |
 | `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
@@ -136,14 +136,18 @@ GeecsPvaGateway      →  GeecsCAGateway (transport, DB, pv_naming),
                         PVA image server on the camera servers
 GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway, GEECS-Schemas
                         (+ ImageAnalysis, optional via the `analysis` extra —
-                        post-run image analysis over archived Tiled runs)
+                        post-run image analysis over archived Tiled runs;
+                        + ScanAnalysis/ImageAnalysis/xopt, optional via the
+                        `optimize` extra — the relocated Xopt/evaluator
+                        stack in geecs_bluesky.optimization)
 GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
                         GEECS-Data-Utils, GeecsBluesky
 GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils
-                        (+ GEECS-Scanner-GUI, optional via the
-                        `optimization` extra — the Xopt/evaluator stack)
+                        (its `optimization` extra installs the heavy deps
+                        for geecs_bluesky.optimization — xopt/ScanAnalysis —
+                        no geecs-scanner-gui dependency remains)
 ```
 
 `GeecsCAGateway` is the self-contained GEECS access layer: the UDP/TCP wire

@@ -1,10 +1,10 @@
 """The optimization_loader seam: spec→config mapping, gating, and injection.
 
-Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
-installed in CI; on dev machines that installed it, the real-probe test
+Hermetic — the ``optimization`` extra's dependencies (xopt) are NOT
+installed in CI; on dev machines that installed them, the real-probe test
 skips (the environment, not the code, decides its premise).  The mapping
 tests are pure, the loader construction test injects fake
-``geecs_scanner`` modules into ``sys.modules``, and the availability gate
+``geecs_bluesky.optimization`` submodules into ``sys.modules``, and the availability gate
 is monkeypatched.  The round-trip test pins :func:`optimizer_config_from_spec` as the exact
 inverse of ``geecs_schemas.convert.convert_optimizer_config``.
 """
@@ -136,17 +136,19 @@ def test_load_console_optimization_builds_the_session_bridge(monkeypatch) -> Non
         def __init__(self, optimizer) -> None:
             built["optimizer"] = optimizer
 
-    base_optimizer = types.ModuleType("geecs_scanner.optimization.base_optimizer")
+    base_optimizer = types.ModuleType("geecs_bluesky.optimization.base_optimizer")
     base_optimizer.BaseOptimizer = _FakeOptimizer
-    session_bridge = types.ModuleType("geecs_scanner.optimization.session_bridge")
+    session_bridge = types.ModuleType("geecs_bluesky.optimization.session_bridge")
     session_bridge.SessionOptimizationBridge = _FakeBridge
-    optimization_pkg = types.ModuleType("geecs_scanner.optimization")
-    scanner_pkg = types.ModuleType("geecs_scanner")
+    # The real geecs_bluesky parent stays in sys.modules; only the
+    # optimization submodules are faked — the loader's dotted imports hit
+    # these sys.modules entries before any real import runs (which would
+    # otherwise require the heavy xopt tree).
+    optimization_pkg = types.ModuleType("geecs_bluesky.optimization")
     for name, module in {
-        "geecs_scanner": scanner_pkg,
-        "geecs_scanner.optimization": optimization_pkg,
-        "geecs_scanner.optimization.base_optimizer": base_optimizer,
-        "geecs_scanner.optimization.session_bridge": session_bridge,
+        "geecs_bluesky.optimization": optimization_pkg,
+        "geecs_bluesky.optimization.base_optimizer": base_optimizer,
+        "geecs_bluesky.optimization.session_bridge": session_bridge,
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
 
