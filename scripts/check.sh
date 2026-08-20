@@ -156,34 +156,45 @@ fi
 # `language: system` hooks (jupyter-notebook-clear-output) resolve their
 # executable from the invoking environment: the root env has jupyter, a
 # system pre-commit typically does not — which turns into a phantom
-# "Executable `jupyter` not found" lint failure. The guard is self-verifying
-# (env exists AND pre-commit runs in it), so environments without a usable
-# root env fall back to a PATH pre-commit as before.
-if command -v poetry >/dev/null 2>&1 \
-    && poetry env info --path >/dev/null 2>&1 \
-    && poetry run pre-commit --version >/dev/null 2>&1; then
-    PC=(poetry run pre-commit)
-elif command -v pre-commit >/dev/null 2>&1; then
-    PC=(pre-commit)
-    # A PATH pre-commit runs `language: system` hooks in its own environment.
-    # If that environment cannot find jupyter, the notebook-clearing hook dies
-    # with "Executable `jupyter` not found" on every .ipynb — a phantom
-    # failure unrelated to the change. Skip that one hook loudly instead;
-    # CI's pre-commit workflow still enforces it.
-    if ! command -v jupyter >/dev/null 2>&1; then
-        export SKIP="${SKIP:+$SKIP,}jupyter-notebook-clear-output"
-        echo "   note : no 'jupyter' on PATH — skipping jupyter-notebook-clear-output (CI still runs it)"
+# "Executable `jupyter` not found" lint failure. The env must be probed for
+# its OWN bin/pre-commit — `poetry run pre-commit --version` would lie,
+# because `poetry run` falls through to the caller's PATH for binaries the
+# env lacks. Called lazily, only by the branches that actually lint, so
+# suite-only modes still work on machines with no pre-commit anywhere.
+select_lint_runner() {
+    local root_env="" jupyter_ok=1
+    if command -v poetry >/dev/null 2>&1; then
+        root_env="$(poetry env info --path 2>/dev/null || true)"
     fi
-else
-    echo "check.sh: no pre-commit found (neither the root poetry env nor PATH) — run 'poetry install' at the repo root" >&2
-    exit 2
-fi
+    if [ -n "$root_env" ] && [ -x "$root_env/bin/pre-commit" ]; then
+        PC=(poetry run pre-commit)
+        # `poetry run` PATH = env bin + caller PATH, so either may supply jupyter.
+        if [ ! -x "$root_env/bin/jupyter" ] && ! command -v jupyter >/dev/null 2>&1; then
+            jupyter_ok=0
+        fi
+    elif command -v pre-commit >/dev/null 2>&1; then
+        PC=(pre-commit)
+        command -v jupyter >/dev/null 2>&1 || jupyter_ok=0
+    else
+        echo "check.sh: no pre-commit found (neither the root poetry env nor PATH) — run 'poetry install' at the repo root" >&2
+        exit 2
+    fi
+    # Whichever runner won: if it cannot find jupyter, the notebook-clearing
+    # hook dies with "Executable `jupyter` not found" on every .ipynb — a
+    # phantom failure unrelated to the change. Skip that one hook loudly
+    # instead; CI's pre-commit workflow still enforces it.
+    if [ "$jupyter_ok" -eq 0 ]; then
+        export SKIP="${SKIP:+$SKIP,}jupyter-notebook-clear-output"
+        echo "   note : effective pre-commit cannot find 'jupyter' — skipping jupyter-notebook-clear-output (CI still runs it)"
+    fi
+}
 
 LINT_OK=1
 echo "== lint"
 if [ -n "$EXPLICIT_PKGS" ]; then
     echo "   (explicit packages — lint skipped; run --lint or --all for it)"
 elif [ "$MODE" = "all" ]; then
+    select_lint_runner
     "${PC[@]}" run --all-files || LINT_OK=0
 elif [ "${#CHANGED[@]}" -gt 0 ]; then
     # Only lint files that still exist (deletions have nothing to lint).
@@ -194,6 +205,7 @@ elif [ "${#CHANGED[@]}" -gt 0 ]; then
         fi
     done
     if [ "${#lint_files[@]}" -gt 0 ]; then
+        select_lint_runner
         "${PC[@]}" run --files ${lint_files[@]+"${lint_files[@]}"} || LINT_OK=0
     else
         echo "   (nothing to lint)"
