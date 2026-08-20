@@ -438,11 +438,16 @@ class TestShotNumberOptIn:
         msg = "U_TestDevice>>42>>Other nval,1 nvar"
         assert self._parse(msg, include_shot=True) == {}
 
-    def test_non_integer_shot_field_omits_key(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_non_integer_shot_field_omits_key(self) -> None:
+        """Bad counter -> key omitted; the listener loop owns the warn-once."""
         msg = "U_TestDevice>>abc>>Position (mm) nval,5.0 nvar"
-        with caplog.at_level("WARNING"):
-            parsed = self._parse(msg, include_shot=True)
+        parsed = self._parse(msg, include_shot=True)
         assert parsed == {"Position (mm)": 5.0}
-        assert "non-integer shot" in caplog.text
+
+    async def test_reserved_name_in_variables_raises(self) -> None:
+        """include_shot + a variable literally named "shot number" fails loud."""
+        sub = GeecsTcpSubscriber("127.0.0.1", 1)
+        with pytest.raises(ValueError, match="shot number"):
+            await sub.subscribe(
+                ["Position (mm)", "shot number"], lambda _: None, include_shot=True
+            )

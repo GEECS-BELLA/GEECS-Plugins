@@ -174,9 +174,15 @@ class GeecsTcpSubscriber:
             counter under the reserved key ``"shot number"`` (an ``int``).  The
             key is only attached to frames where at least one subscribed
             variable matched, so the default callback-gating behavior is
-            unchanged.  Do not subscribe a GEECS variable literally named
-            ``"shot number"`` together with this option.
+            unchanged.  Subscribing a GEECS variable literally named
+            ``"shot number"`` together with this option raises ``ValueError``
+            (the counter would silently overwrite the variable's value).
         """
+        if include_shot and "shot number" in variables:
+            raise ValueError(
+                'include_shot=True reserves the key "shot number"; it cannot '
+                "also be a subscribed variable name"
+            )
         if self._writer is None:
             raise RuntimeError(
                 "GeecsTcpSubscriber not connected — call connect() first"
@@ -205,6 +211,7 @@ class GeecsTcpSubscriber:
         assert self._reader is not None
         subscribed = tuple(variables)
         pattern = _compile_frame_pattern(subscribed)
+        warned_bad_shot = False
         try:
             while True:
                 # Read 4-byte header
@@ -222,6 +229,22 @@ class GeecsTcpSubscriber:
                 parsed = _parse_subscription(
                     msg, pattern, text_variables, include_shot=include_shot
                 )
+                if (
+                    include_shot
+                    and parsed
+                    and "shot number" not in parsed
+                    and not warned_bad_shot
+                ):
+                    # A malformed shot field is a device-configuration property
+                    # and recurs on every ~5 Hz frame — warn once, like
+                    # _warn_missing_variables.
+                    warned_bad_shot = True
+                    logger.warning(
+                        "non-integer shot field in push frames from %s:%s; "
+                        '"shot number" will be omitted (warning once)',
+                        self._host,
+                        self._port,
+                    )
                 self._warn_missing_variables(subscribed, parsed)
                 if parsed:
                     try:
@@ -283,7 +306,8 @@ def _parse_subscription(
     With ``include_shot=True``, the frame's shot counter (the field between the
     first and second ``>>``) is added under the reserved key ``"shot number"``
     — but only when at least one subscribed variable matched and the counter
-    parses as an integer, so empty frames still return ``{}``.
+    parses as an integer (otherwise the key is silently omitted; the listener
+    loop warns once per subscription), so empty frames still return ``{}``.
     """
     if pattern is None:
         return {}
@@ -303,5 +327,5 @@ def _parse_subscription(
         try:
             result["shot number"] = int(msg[i1 + 2 : i2])
         except ValueError:
-            logger.warning("non-integer shot field in push frame: %.40r", msg)
+            pass
     return result
