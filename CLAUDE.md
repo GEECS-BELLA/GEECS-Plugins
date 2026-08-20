@@ -169,7 +169,8 @@ causes silent skips, not errors.
 
 1. **GEECS-Console** (via **GeecsBluesky**'s scan engine) runs a scan →
    writes per-shot data files to a date-structured folder on the data server
-   (the legacy master-line GEECS-Scanner-GUI writes the same layout)
+   (the legacy GEECS-Scanner-GUI — tag `legacy-scanner-final` — wrote the
+   same layout)
 2. **GEECS-Data-Utils** `ScanPaths` / `ScanData` resolves the folder, loads
    scalar summary data from s-files or TDMS
 3. **ImageAnalysis** `StandardAnalyzer` / `BeamAnalyzer` / etc. processes
@@ -204,9 +205,10 @@ equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/con
 PyQt5 DAQ front-end) were **deleted from `dev`** at the end of the geecs-core
 arc. Their successors: `geecs_core.client.GeecsDevice` for device
 get/set/subscribe, `GEECS-Console` + `GeecsBluesky` for scans, and
-`geecs_bluesky.optimization` for the Xopt stack. Both packages remain on
-`master` for the legacy production line until the M6 cutover; never adopt
-them in new code there either. The `~/.config/geecs_python_api/config.ini`
+`geecs_bluesky.optimization` for the Xopt stack. Their final state is
+preserved at the tag `legacy-scanner-final` (the M6 cutover merged the
+vision line into `master`, 2026-08-20); never adopt them in new code. The
+`~/.config/geecs_python_api/config.ini`
 path they named is a permanent fleet contract and deliberately keeps its
 name (see `GEECS-Core/DESIGN.md`).
 

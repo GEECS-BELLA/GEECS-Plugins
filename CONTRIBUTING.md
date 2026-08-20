@@ -24,45 +24,40 @@ docs site), or launch Claude Code from the repo root and type
   `GEECS-Console` → set `QT_QPA_PLATFORM=offscreen` for tests.
 - Install pre-commit hooks once: `poetry run pre-commit install`.
 
-## Branch topology (until the M6 cutover)
+## Branch topology (post-M6: one mainline)
 
 This section is the **single canonical copy** of the branch layout — the
-PR template and the `/land` skill point here rather than repeating it, so
-at M6 only this section (and the pointers' one-line reminders) needs
-editing. Two lines (collapsed from three on 2026-07-13 — `feat/vision-v1`
-was retired into `dev`, and `feat/greenfield-epics-bluesky-gui` was
-renamed `dev`):
+PR template and the `/land` skill point here rather than repeating it.
+The M6 cutover (2026-08-20, PR #631) collapsed the two-line layout to
+one mainline:
 
-- `dev` — the vision world, and the default target for development:
-  GeecsBluesky, GeecsCAGateway, GEECS-Schemas, GEECS-Console, the scan
-  browser, Planning docs, repo tooling, the docs site.
-- `master` — the legacy-scanner line, kept deployable through the M6 gap:
-  the pure-legacy GEECS-Scanner-GUI plus **living analysis development**
-  (ImageAnalysis, ScanAnalysis, and their data-utils needs). Target
-  `master` for analysis work *unless it imports something that only
-  exists on `dev`* (e.g. `geecs_data_utils.tiled_catalog`) — then target
-  `dev`.
+- **`master` is the mainline and the default target for every PR** —
+  engine, console, gateways, schemas, analysis, docs, tooling.
+- **Merges into `master` are ALWAYS performed by the human maintainer.**
+  Agents prepare the PR — branch, commit, adversarial review, CI watch —
+  and then hand the merge to the maintainer; they never click merge on a
+  master-targeted PR. (Bulk integration merges whose constituent PRs
+  were each already reviewed do not get a fresh adversarial re-review —
+  say so in the PR body.)
+- `dev` is **retired** — frozen at the cutover, kept only so pre-cutover
+  PRs based on it don't auto-close. Do not target it or branch from it.
+- The final legacy-scanner state (GEECS-Scanner-GUI, GEECS-PythonAPI) is
+  preserved at the tag **`legacy-scanner-final`** — anyone still on the
+  legacy line checks out the tag, never a branch.
 
 **Personal branches for new developers.** A developer new to the repo
-gets a long-lived personal integration branch off the development base
-(currently `dev`), named `users/<name>`. Their feature branches PR into
-that personal branch — the `/get-started` skill sets this up, and
-`/land` targets it — so they can merge their own work at their own
-pace. Promotion from `users/<name>` into `dev` (after M6: `master`) is
-a separate PR that **only a human maintainer merges**; agents never
-merge into the mainline on a newcomer's behalf. To keep the personal
-branch from going stale, the agent merges the development base forward
+gets a long-lived personal integration branch off `master`, named
+`users/<name>`. Their feature branches PR into that personal branch —
+the `/get-started` skill sets this up, and `/land` targets it — so they
+can merge their own work at their own pace. Promotion from
+`users/<name>` into `master` is a separate PR that **only the
+maintainer merges** (the general master-merge rule above). To keep the
+personal branch from going stale, the agent merges `master` forward
 *into* `users/<name>` periodically — that direction is routine
 maintenance, not a mainline merge.
 
-`master` is merged forward into `dev` periodically, so analysis work
-flows into the vision world automatically; nothing merges the other way
-until the M6 cutover (tag `master` first, then merge `dev` in). (At M6
-this section collapses to "everything targets `master`" — also prune the
-branch names from `pick_base()` in `scripts/check.sh` then; harmless if
-forgotten, it skips deleted branches and falls back to the default
-branch. Grep hits for the *old* branch names — Planning/ notes,
-CHANGELOGs — are historical record, not instruction: leave them.)
+(Grep hits for the old branch names — Planning/ notes, CHANGELOGs — are
+historical record, not instruction: leave them.)
 
 ## Planning/ is development scratch, not documentation
 
@@ -70,9 +65,10 @@ CHANGELOGs — are historical record, not instruction: leave them.)
 open questions, deferred items, strategy that code and CLAUDE.md files
 don't yet record. When a plan is executed (or abandoned), delete its
 directory in the PR that finishes the work; anything still load-bearing
-moves to the owning package's `CLAUDE.md` or the docs site first. The
-whole folder is purged before `dev` merges to `master` at M6 — a
-planning doc that reaches `master` is a bug. (Audited 2026-07-13: five
+moves to the owning package's `CLAUDE.md` or the docs site first.
+(Post-M6 the folder lives on the mainline like everything else — the old
+"purged before reaching master" rule died with the two-branch layout;
+delete-when-executed is the whole discipline. Audited 2026-07-13: five
 executed/superseded plans deleted; the survivors each hold live
 deferred-work or strategy content.)
 
@@ -125,9 +121,9 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
   `GeecsCAGateway/PV_CONTRACT.md` + its pinned test in the same PR;
   event-data changes update `GeecsBluesky/EVENT_SCHEMA.md`.
 - The legacy packages (`GEECS-PythonAPI`, `GEECS-Scanner-GUI`) are deleted
-  on `dev` (2026-08-20); they live on only in `master`'s legacy line until
-  the M6 cutover — no new features there either. Successors:
-  `geecs_core.client.GeecsDevice` and GEECS-Console.
+  (2026-08-20); their final state is preserved at the tag
+  `legacy-scanner-final`. Successors: `geecs_core.client.GeecsDevice` and
+  GEECS-Console.
 
 ## Tests
 

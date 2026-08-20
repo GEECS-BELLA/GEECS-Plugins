@@ -64,13 +64,12 @@ contains() {  # contains "list of words" word
 
 pick_base() {
     # The named candidates mirror CONTRIBUTING.md § Branch topology (the
-    # canonical copy) and die with it at M6. Deleted branches are skipped by
-    # the rev-parse guard, so this degrades to origin/HEAD (the default
-    # branch) with no edit required — pruning the stale names is cleanup,
-    # not a correctness fix.
+    # canonical copy; post-M6 the mainline is master). Deleted branches are
+    # skipped by the rev-parse guard, so this degrades to origin/HEAD (the
+    # default branch) with no edit required.
     best=""
     best_n=999999
-    for c in origin/dev origin/HEAD origin/master; do
+    for c in origin/HEAD origin/master; do
         git rev-parse --verify -q "$c" >/dev/null || continue
         mb="$(git merge-base HEAD "$c" 2>/dev/null)" || continue
         n="$(git rev-list --count "$mb..HEAD")"
@@ -109,7 +108,7 @@ elif [ "$MODE" = "all" ]; then
 else
     [ -n "$BASE" ] || BASE="$(pick_base)"
     if [ -z "$BASE" ]; then
-        echo "check.sh: no base branch found (no origin/feat/* or origin/master); use --base" >&2
+        echo "check.sh: no base branch found (no origin/HEAD or origin/master); use --base" >&2
         exit 2
     fi
     MB="$(git merge-base HEAD "$BASE")"

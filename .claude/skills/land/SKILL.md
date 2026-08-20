@@ -5,7 +5,9 @@ description: >
   scope check, version bump + CHANGELOG, tests run the way CI runs them,
   commit.sh, PR body with the hardware-verification section, adversarial
   review by a fresh-context subagent (correctness + redundancy +
-  placement) with dispositioned findings, CI watch, merge, roll-forward.
+  placement) with dispositioned findings, CI watch — then hand
+  master-targeted merges to the maintainer (personal-branch PRs merge
+  directly).
   Use when the user says "land this", "open a PR",
   "commit and push this", "prep this branch for review", or when a change
   in the working tree is finished and needs to become a merged PR.
@@ -25,11 +27,10 @@ and the topology in `CONTRIBUTING.md`.
 
 ## Pick the base branch
 
-The branch topology (which work targets which base, until the M6 cutover)
-lives in **CONTRIBUTING.md § "Branch topology"** — that is the single
-canonical copy; read it now and pick the base matching the content of the
-change (`dev` for vision-world work; `master` only for analysis/legacy
-work with no dev-only imports).
+The branch topology lives in **CONTRIBUTING.md § "Branch topology"** —
+that is the single canonical copy; read it now. Post-M6 the default base
+for everything is `master` (personal-branch developers target their
+`users/<name>` instead).
 
 **Personal-branch exception:** if the developer works on a personal
 integration branch (`users/<name>`, per that CONTRIBUTING section or
@@ -37,11 +38,9 @@ session memory), feature PRs target the personal branch instead of a
 mainline base — and never merge `users/<name>` into a mainline branch
 yourself; that promotion PR is merged by a human maintainer.
 
-**Roll-forward rule (until M6):** after merging an analysis/legacy PR
-into `master`, merge `master` forward into `dev` (`git merge
-origin/master --no-edit --no-verify` — `--no-verify` because pre-commit's
-auto-fixers abort merge commits) and push. Nothing merges `dev` →
-`master` until the M6 cutover.
+**Master merges are maintainer-only** — the rule (and any future
+amendments) lives in CONTRIBUTING.md § "Branch topology"; step 8 below
+carries the mechanics.
 
 ## Steps
 
@@ -70,21 +69,32 @@ auto-fixers abort merge commits) and push. Nothing merges `dev` →
    "OWED: <what to verify, expected numbers>" so the code-complete vs
    hardware-verified distinction is never implicit.
 7. **Adversarial review** (runs during the CI wait; see the section
-   below): spawn a fresh-context reviewer subagent on the PR's diff,
+   below — exception: a bulk integration merge whose constituent PRs
+   were each already reviewed skips the re-review and says so in the PR
+   body, per CONTRIBUTING § "Branch topology"): spawn a fresh-context
+   reviewer subagent on the PR's diff,
    post its report as a PR comment **either way** — a "no surviving
    findings" report is itself the audit record distinguishing
    "reviewed, clean" from "review skipped" — and disposition every
    finding — fix it, or waive it with a stated reason — before merging.
    No PR merges with an undispositioned finding.
-8. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
-   `--merge --delete-branch`. Then do the roll-forward merge if the base
-   was the engine branch (rule above). Remove the worktree after merge
-   unless it hosts an open stacked branch — and always confirm with the
-   user before removing any worktree.
+8. **Merge**: wait for CI (`gh pr checks <n> --watch`). If the base is
+   `master`, STOP here and hand the merge to the maintainer (rule above)
+   — report the PR as ready-to-merge; after they merge, delete the
+   feature branch **unless a stacked child PR is based on it** (deleting
+   the base auto-closes the child, unreopenable). If the base is a
+   `users/<name>` personal branch, merge with `--merge --delete-branch`
+   yourself. Remove the worktree after merge unless it hosts an open
+   stacked branch — and always confirm with the user before removing any
+   worktree.
 9. **Stacked PRs**: base on the parent PR's branch and say "merge #N
    first" in the body — but beware: GitHub auto-closes (unreopenable) a
-   PR whose base branch is deleted. Prefer merging the parent first and
-   retargeting before it merges, or re-file (precedent: #538 → #539).
+   PR whose base branch is deleted, and under the hand-off flow the
+   maintainer may merge the parent at any moment. Retarget the child to
+   the parent's base BEFORE reporting the parent ready-to-merge, and
+   flag any stacked child in the parent's ready-to-merge report.
+   For a `users/<name>`-based parent you control the timing, so merging
+   the parent first works too; otherwise re-file (precedent: #538 → #539).
 
 ## The adversarial review step
 
