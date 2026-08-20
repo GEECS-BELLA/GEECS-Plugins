@@ -574,6 +574,11 @@ class BaseOptimizer:
                 scan_folder = None
             else:
                 scan_folder = Path(scan_folder)
+                # Scanner-side only, and dormant: no live caller passes a
+                # scan_data_manager (scan_folder stays None) — a future
+                # caller on a scans/ScanNNN path must go through
+                # claim_scan_number instead (cross-package scan-folder
+                # invariant, root CLAUDE.md).
                 scan_folder.mkdir(parents=True, exist_ok=True)
 
                 for key, block in list(overrides.items()):

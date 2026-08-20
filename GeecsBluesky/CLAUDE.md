@@ -18,8 +18,9 @@ legacy `GEECS-Scanner-GUI` breaks on `dev` at **engine construction**
 gets a generic kwarg `TypeError`, uncaught) before any submission could
 even reach the curated `reinitialize` error (accepted and deliberate;
 `master`'s legacy scanner line is untouched — the fallback story is
-unchanged).  GEECS-Scanner-GUI stays in-tree only for its `optimization`
-module (the console's `optimization` extra) until M6 deletes it whole.
+unchanged).  GEECS-Scanner-GUI is fully dead code — its `optimization`
+module relocated into this package 2026-08-20 — awaiting the M6
+whole-package deletion.
 
 ## Two acquisition modes (the core architecture)
 

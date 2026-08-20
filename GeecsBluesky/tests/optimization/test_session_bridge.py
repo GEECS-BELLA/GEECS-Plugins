@@ -25,6 +25,13 @@ from geecs_bluesky.optimization.session_bridge import (
     _expected_native_file,
 )
 
+# Captured at import time, BEFORE the autouse _no_real_database fixture
+# patches the module attribute — the seam-body tests below exercise the
+# real function.
+from geecs_bluesky.optimization.session_bridge import (  # noqa: E402
+    _load_experiment_device_names as _real_load_experiment_device_names,
+)
+
 
 @pytest.fixture(autouse=True)
 def _no_real_database(monkeypatch):
@@ -612,3 +619,50 @@ class TestPlanContextWait:
         assert "sleep" in commands, "plan idles via RE-friendly Msg('sleep')"
         assert sleep_threads, "the bounded wait did poll (behavior preserved)"
         assert all(t is not driver_thread for t in sleep_threads)
+
+
+# ---------------------------------------------------------------------------
+# _load_experiment_device_names: the seam's own body (review #622 finding 2)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadExperimentDeviceNames:
+    """The production seam body, with its two lazy imports faked at source."""
+
+    @staticmethod
+    def _patch_sources(monkeypatch, experiment, devices: dict):
+        import geecs_data_utils
+        from geecs_ca_gateway.db import geecs_db as db_module
+
+        calls = {"db": 0}
+
+        class _FakePaths:
+            def __init__(self) -> None:
+                self.experiment = experiment
+
+        @classmethod
+        def _fake_devices(cls, expt, **kwargs):
+            calls["db"] += 1
+            assert expt == experiment
+            return devices
+
+        monkeypatch.setattr(geecs_data_utils, "GeecsPathsConfig", _FakePaths)
+        monkeypatch.setattr(db_module.GeecsDb, "get_experiment_devices", _fake_devices)
+        return calls
+
+    def test_builds_casefolded_map_from_db_device_keys(self, monkeypatch):
+        calls = self._patch_sources(
+            monkeypatch,
+            "Undulator",
+            {"UC_Amp4_IR_input": ("1.2.3.4", 5000), "U_S1H": ("1.2.3.5", 5001)},
+        )
+        assert _real_load_experiment_device_names() == {
+            "uc_amp4_ir_input": "UC_Amp4_IR_input",
+            "u_s1h": "U_S1H",
+        }
+        assert calls["db"] == 1
+
+    def test_no_configured_experiment_returns_empty_without_db_query(self, monkeypatch):
+        calls = self._patch_sources(monkeypatch, None, {"never": ("x", 1)})
+        assert _real_load_experiment_device_names() == {}
+        assert calls["db"] == 0

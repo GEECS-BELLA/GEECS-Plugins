@@ -31,7 +31,7 @@ Examples
 
 See Also
 --------
-geecs_scanner.engine.models.actions : Action sequence definitions
+geecs_bluesky.optimization._legacy_models_actions : Action sequence definitions
 """
 
 from __future__ import annotations

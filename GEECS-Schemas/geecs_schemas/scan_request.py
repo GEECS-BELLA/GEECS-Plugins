@@ -213,7 +213,7 @@ class EvaluatorSpec(SchemaModel):
     module: str = Field(
         description=(
             "Python import path of the evaluator module, e.g. "
-            "'geecs_scanner.optimization.evaluators.beam_sum_counts_evaluator'."
+            "'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'."
         )
     )
     class_name: str = Field(

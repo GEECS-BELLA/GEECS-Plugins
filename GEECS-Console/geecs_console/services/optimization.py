@@ -151,10 +151,16 @@ def optimization_available() -> bool:
     The stack's *code* (``geecs_bluesky.optimization``) always ships with
     geecs-bluesky; the console's optional ``optimization`` extra adds the
     dependency tree (xopt → torch/botorch, ScanAnalysis).  A light
-    ``find_spec`` probe on ``xopt`` — nothing heavy is imported.
+    ``find_spec`` probe on the stack's two import roots (``xopt`` AND
+    ``scan_analysis`` — an env with only one would die mid-scan instead
+    of getting the clean needs-a-loader refusal); nothing heavy is
+    imported.
     """
     try:
-        return importlib.util.find_spec("xopt") is not None
+        return (
+            importlib.util.find_spec("xopt") is not None
+            and importlib.util.find_spec("scan_analysis") is not None
+        )
     except (ImportError, ModuleNotFoundError):
         return False
 

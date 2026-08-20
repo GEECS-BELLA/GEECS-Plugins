@@ -110,7 +110,7 @@ Which analysis code turns raw shots into the number being optimized.
 
 | Field | Type | Required | Default | What it does |
 |---|---|---|---|---|
-| `module` | `str` | yes | — | Python import path of the evaluator module, e.g. 'geecs_scanner.optimization.evaluators.beam_sum_counts_evaluator'. |
+| `module` | `str` | yes | — | Python import path of the evaluator module, e.g. 'geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator'. |
 | `class_name` | `str` | yes | — | Name of the evaluator class inside that module. |
 | `kwargs` | `dict` | no | empty | Settings passed to the evaluator when it is created — e.g. which diagnostics/analyzers it should read. Free-form: each evaluator documents its own options. |
 

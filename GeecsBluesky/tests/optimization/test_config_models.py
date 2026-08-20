@@ -368,3 +368,42 @@ class TestGeneratorFactory:
         vocs = VOCS(variables={"x": [0.0, 1.0]}, objectives={"f": "MINIMIZE"})
         gen = build_generator_from_config({"name": "random"}, vocs)
         assert gen is not None
+
+
+# ---------------------------------------------------------------------------
+# Legacy evaluator module-path rewrite (the relocation compat seam)
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluatorModulePathRewrite:
+    """Deployed optimizer YAMLs predate the 2026-08-20 relocation."""
+
+    def test_legacy_prefix_rewrites_to_new_home(self, caplog):
+        import logging
+
+        from geecs_bluesky.optimization.config_models import EvaluatorConfig
+
+        with caplog.at_level(logging.INFO):
+            config = EvaluatorConfig.model_validate(
+                {
+                    "module": (
+                        "geecs_scanner.optimization.evaluators"
+                        ".beam_sum_counts_evaluator"
+                    ),
+                    "class": "BeamSumCountsEvaluator",
+                }
+            )
+        assert config.module == (
+            "geecs_bluesky.optimization.evaluators.beam_sum_counts_evaluator"
+        )
+        assert "rewritten" in caplog.text
+
+    def test_new_and_foreign_paths_pass_through(self):
+        from geecs_bluesky.optimization.config_models import EvaluatorConfig
+
+        for path in (
+            "geecs_bluesky.optimization.evaluators.beam_size_evaluator",
+            "my.experiment.evaluators",
+        ):
+            config = EvaluatorConfig.model_validate({"module": path, "class": "X"})
+            assert config.module == path

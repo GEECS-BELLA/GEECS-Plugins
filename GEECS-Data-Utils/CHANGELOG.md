@@ -3,6 +3,13 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.13.6] - 2026-08-20
+
+### Changed
+
+- Docs-only: `native_files.py` cross-reference updated to the optimization
+  stack's new home (`geecs_bluesky.optimization.session_bridge`).
+
 ## [0.13.5] — 2026-07-25
 
 ### Fixed

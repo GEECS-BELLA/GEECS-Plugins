@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -21,6 +22,8 @@ from image_analysis.config import load_diagnostic
 
 if TYPE_CHECKING:
     from geecs_bluesky.optimization._legacy_models_save_devices import SaveDeviceConfig
+
+logger = logging.getLogger(__name__)
 
 
 # Per-analyzer device-requirements template. Every optimizer-driven analyzer
@@ -119,6 +122,42 @@ class EvaluatorConfig(BaseModel):
     kwargs: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @field_validator("module")
+    @classmethod
+    def _rewrite_relocated_module_prefix(cls, value: str) -> str:
+        """Rewrite the pre-relocation evaluator module prefix.
+
+        The evaluator module path is *config data*: every optimizer YAML
+        deployed before 2026-08-20 (and every stored ``xopt_dump`` /
+        seed file) says ``geecs_scanner.optimization...``, the stack's
+        home before it relocated into this package.  Rewriting at the one
+        validation seam keeps all of them loadable — no configs-repo
+        flag day.
+
+        Parameters
+        ----------
+        value : str
+            The configured evaluator module path.
+
+        Returns
+        -------
+        str
+            The path, with a legacy ``geecs_scanner.optimization.``
+            prefix rewritten to ``geecs_bluesky.optimization.``.
+        """
+        legacy_prefix = "geecs_scanner.optimization."
+        if value.startswith(legacy_prefix):
+            new = "geecs_bluesky.optimization." + value[len(legacy_prefix) :]
+            logger.info(
+                "Evaluator module path %r rewritten to %r (the optimization "
+                "stack relocated to geecs_bluesky 2026-08-20; update the "
+                "optimizer config at leisure)",
+                value,
+                new,
+            )
+            return new
+        return value
 
 
 class GeneratorConfig(BaseModel):

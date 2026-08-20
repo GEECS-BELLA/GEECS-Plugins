@@ -8,12 +8,6 @@ and use plain-Python evaluators, so they do not depend on ImageAnalysis.
 
 from __future__ import annotations
 
-# Import the engine package first to resolve the pre-existing engine<->
-# optimization import cycle (config_models eagerly rebuilds engine models) so
-# ``base_optimizer`` can be imported at module scope below. The package-level
-# tests/conftest.py patches GeecsDatabase.collect_exp_info before collection, so
-# this import does not touch the lab network.
-
 import numpy as np
 import pytest
 from xopt import VOCS
