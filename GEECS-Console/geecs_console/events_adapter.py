@@ -69,7 +69,16 @@ class ScanEventsAdapter(QObject):
             scan_number = getattr(event, "scan_number", None)
             if scan_number is not None:
                 self.scan_number_known.emit(int(scan_number))
-            self.log_line.emit(f"scan {state_text}")
+            # Post-claim, EVERY lifecycle emission carries the scan number
+            # (the bridge stamps it) — narrate it on each state line, which
+            # also renders the bridge's deliberate RUNNING re-emission as
+            # new information rather than a duplicate.  Consecutive-dup
+            # suppression itself lives at the tail's convergence point
+            # (NowPanelController.append_log), not here.
+            if scan_number is not None:
+                self.log_line.emit(f"scan {state_text} (Scan{int(scan_number):03d})")
+            else:
+                self.log_line.emit(f"scan {state_text}")
         elif kind == "ScanStepEvent":
             step_index = int(getattr(event, "step_index", 0))
             total_steps = int(getattr(event, "total_steps", 0))

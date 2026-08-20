@@ -102,3 +102,30 @@ class TestStepAndErrors:
 
         adapter.handle(SomethingNewEvent())
         assert recorded["log"] == ["SomethingNewEvent"]
+
+
+class TestScanNumberNarration:
+    """Post-claim lifecycle lines carry the scan number — every state, not
+    just RUNNING (the bridge stamps the number on each post-claim
+    emission).  Dedupe deliberately does NOT live here: the adapter emits
+    every event's line; suppression happens at the tail's convergence
+    point (NowPanelController.append_log — PR #624 review finding 1)."""
+
+    def test_rerun_running_with_scan_number_narrates_the_number(
+        self, adapter, recorded
+    ):
+        adapter.handle(ScanLifecycleEvent(state="running"))
+        adapter.handle(ScanLifecycleEvent(state="running", scan_number=4))
+        assert recorded["log"] == ["scan running", "scan running (Scan004)"]
+        assert recorded["state"] == ["running", "running"]
+
+    def test_terminal_state_carries_the_number_too(self, adapter, recorded):
+        adapter.handle(ScanLifecycleEvent(state="done", scan_number=4))
+        assert recorded["log"] == ["scan done (Scan004)"]
+
+    def test_adapter_does_not_dedupe(self, adapter, recorded):
+        """Identical consecutive events both emit — suppression is the
+        now panel's job, where direct window lines interleave."""
+        adapter.handle(ScanLifecycleEvent(state="running"))
+        adapter.handle(ScanLifecycleEvent(state="running"))
+        assert recorded["log"] == ["scan running", "scan running"]
