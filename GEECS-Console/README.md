@@ -24,9 +24,10 @@ repo available (`GEECS_SCANNER_CONFIG_DIR` or config.ini
 - **`geecs_python_api` is NEVER imported** — not at day 1, not ever
   (decided 2026-07-10, `Planning/cutover_strategy/00_overview.md`).  Manual
   set/readback goes through gateway PVs (CA monitor on the readback, put to
-  `:SP`); DB autocompletes go through `GeecsDb` from `geecs_ca_gateway`
-  (an allowed transitive of `geecs-bluesky`).  A test pins this.
-- Day-1 dependencies: **PySide6 + geecs-bluesky + geecs-schemas** only.
+  `:SP`); DB autocompletes go through `GeecsDb` from `geecs_core`
+  (a declared direct dependency).  A test pins this.
+- Core dependencies: **PySide6 + geecs-bluesky + geecs-schemas +
+  geecs-core** (plus geecs-data-utils for the scan browser).
 - PySide6, never PyQt (LGPL; this repo is public).
 - The GUI submits `ScanRequest` objects — there is no other submission shape.
 

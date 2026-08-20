@@ -50,7 +50,10 @@ geecs_core/
    machinery, PV serving → the gateway packages. Scan orchestration, ophyd
    devices → GeecsBluesky. Anything analysis- or scan-folder-shaped →
    ScanAnalysis/data-utils. When in doubt, leave it out — this package's value
-   is what it refuses to contain.
+   is what it refuses to contain. One recorded exception: `db/alarms.py`
+   carries CA alarm *evaluation* logic whose only consumer is the CA gateway —
+   it rides here because `AlarmLimits` is `GeecsDb.get_ca_alarm_limits`'s
+   return type and splitting the model from its own methods would be worse.
 
 Two supporting conventions:
 
