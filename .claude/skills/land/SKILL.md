@@ -93,8 +93,8 @@ carries the mechanics.
    maintainer may merge the parent at any moment. Retarget the child to
    the parent's base BEFORE reporting the parent ready-to-merge, and
    flag any stacked child in the parent's ready-to-merge report.
-   Prefer merging the parent first and
-   retargeting before it merges, or re-file (precedent: #538 → #539).
+   For a `users/<name>`-based parent you control the timing, so merging
+   the parent first works too; otherwise re-file (precedent: #538 → #539).
 
 ## The adversarial review step
 

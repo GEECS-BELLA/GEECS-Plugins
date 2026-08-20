@@ -158,7 +158,7 @@ data share, and database all line up.
 The full workflow contract is `CONTRIBUTING.md` at the repo root; the
 short version for a new developer:
 
-- Work on a branch, never directly on `dev` or `master`. New developers
+- Work on a branch, never directly on `master`. New developers
   get a personal branch (`users/<yourname>`) that feature work merges
   into; moving work from there into the mainline is a reviewed pull
   request.
