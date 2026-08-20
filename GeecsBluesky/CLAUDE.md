@@ -13,10 +13,10 @@ duck-typed `exec_config` path was deleted root-and-stem (G3, executed
 early 2026-07-16 by owner decision — the cutover doc had re-timed it to
 M6): `reinitialize` raises `TypeError` for anything but a `ScanRequest`,
 and the `shot_control_information` constructor kwarg is gone.
-GEECS-Scanner-GUI itself was **deleted from `dev`** (2026-08-20, geecs-core
-arc) after its `optimization` module relocated into this package;
-`master`'s legacy scanner line is untouched — the fallback story is
-unchanged until the M6 cutover.
+GEECS-Scanner-GUI itself was **deleted** (2026-08-20, geecs-core arc)
+after its `optimization` module relocated into this package; the legacy
+scanner line's final state is preserved at the tag `legacy-scanner-final`
+(the M6 cutover merged the vision line into `master` the same day).
 
 ## Two acquisition modes (the core architecture)
 

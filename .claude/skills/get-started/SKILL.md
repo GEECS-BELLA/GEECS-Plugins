@@ -160,8 +160,8 @@ their successors are `geecs_core.client.GeecsDevice` and GEECS-Console.
 The canonical branch topology lives in `CONTRIBUTING.md` § "Branch
 topology" — read it at run time; the newcomer-specific shape is:
 
-- Create the user a **personal integration branch** off the default
-  development base (currently `dev`): `users/<name>`. Record it in
+- Create the user a **personal integration branch** off `master`:
+  `users/<name>`. Record it in
   memory. All their work happens on feature branches off it, in
   worktrees under `.claude/worktrees/` as usual.
 - Land finished work **per `/land`**, with the PR base set to the

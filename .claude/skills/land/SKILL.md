@@ -5,7 +5,9 @@ description: >
   scope check, version bump + CHANGELOG, tests run the way CI runs them,
   commit.sh, PR body with the hardware-verification section, adversarial
   review by a fresh-context subagent (correctness + redundancy +
-  placement) with dispositioned findings, CI watch, merge, roll-forward.
+  placement) with dispositioned findings, CI watch — then hand
+  master-targeted merges to the maintainer (personal-branch PRs merge
+  directly).
   Use when the user says "land this", "open a PR",
   "commit and push this", "prep this branch for review", or when a change
   in the working tree is finished and needs to become a merged PR.
@@ -25,11 +27,10 @@ and the topology in `CONTRIBUTING.md`.
 
 ## Pick the base branch
 
-The branch topology (which work targets which base, until the M6 cutover)
-lives in **CONTRIBUTING.md § "Branch topology"** — that is the single
-canonical copy; read it now and pick the base matching the content of the
-change (`dev` for vision-world work; `master` only for analysis/legacy
-work with no dev-only imports).
+The branch topology lives in **CONTRIBUTING.md § "Branch topology"** —
+that is the single canonical copy; read it now. Post-M6 the default base
+for everything is `master` (personal-branch developers target their
+`users/<name>` instead).
 
 **Personal-branch exception:** if the developer works on a personal
 integration branch (`users/<name>`, per that CONTRIBUTING section or
@@ -37,11 +38,11 @@ session memory), feature PRs target the personal branch instead of a
 mainline base — and never merge `users/<name>` into a mainline branch
 yourself; that promotion PR is merged by a human maintainer.
 
-**Roll-forward rule (until M6):** after merging an analysis/legacy PR
-into `master`, merge `master` forward into `dev` (`git merge
-origin/master --no-edit --no-verify` — `--no-verify` because pre-commit's
-auto-fixers abort merge commits) and push. Nothing merges `dev` →
-`master` until the M6 cutover.
+**Master merges are human-only (rule set at M6, 2026-08-20):** for a
+PR whose base is `master`, the agent does everything up to and including
+the adversarial-review disposition and the CI watch — and then **hands
+the merge to the maintainer** instead of running `gh pr merge`. Only
+PRs into a `users/<name>` personal branch may be agent-merged.
 
 ## Steps
 
@@ -76,11 +77,13 @@ auto-fixers abort merge commits) and push. Nothing merges `dev` →
    "reviewed, clean" from "review skipped" — and disposition every
    finding — fix it, or waive it with a stated reason — before merging.
    No PR merges with an undispositioned finding.
-8. **Merge**: wait for CI (`gh pr checks <n> --watch`), merge with
-   `--merge --delete-branch`. Then do the roll-forward merge if the base
-   was the engine branch (rule above). Remove the worktree after merge
-   unless it hosts an open stacked branch — and always confirm with the
-   user before removing any worktree.
+8. **Merge**: wait for CI (`gh pr checks <n> --watch`). If the base is
+   `master`, STOP here and hand the merge to the maintainer (rule above)
+   — report the PR as ready-to-merge; after they merge, delete the
+   feature branch. If the base is a `users/<name>` personal branch,
+   merge with `--merge --delete-branch` yourself. Remove the worktree
+   after merge unless it hosts an open stacked branch — and always
+   confirm with the user before removing any worktree.
 9. **Stacked PRs**: base on the parent PR's branch and say "merge #N
    first" in the body — but beware: GitHub auto-closes (unreopenable) a
    PR whose base branch is deleted. Prefer merging the parent first and
