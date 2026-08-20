@@ -206,11 +206,14 @@ class TestLifecycle:
                 assert dev.get("Position (mm)") is not None
                 udp = dev._udp
                 assert udp is not None
+                cmd_transport = udp._cmd_transport
+                exe_transport = udp._exe_transport
+                assert cmd_transport is not None and exe_transport is not None
             finally:
                 dev.close()
             assert dev._udp is None
-            assert udp._cmd_transport is None or udp._cmd_transport.is_closing()
-            assert udp._exe_transport is None or udp._exe_transport.is_closing()
+            assert cmd_transport.is_closing()
+            assert exe_transport.is_closing()
 
     def test_close_is_idempotent_and_fails_loud_after(self, served_device) -> None:
         srv, _ = served_device
