@@ -17,7 +17,8 @@ scan and its data are described.
     reads is documented in the
     [Getting Started tutorial](../tutorials/getting_started.md).
 
-    [:octicons-arrow-right-24: Getting started](../tutorials/getting_started.md)
+    [:octicons-arrow-right-24: Overview](../geecs_core/overview.md) ·
+    [Example notebook](../geecs_core/examples/geecs_device_basics.ipynb)
 
 -   :material-transit-connection-variant:{ .lg .middle } **GEECS Gateway**
 
@@ -46,9 +47,3 @@ scan and its data are described.
     [Schema reference](../geecs_schemas/schema_reference.md)
 
 </div>
-
-!!! note "Python API is under refactoring"
-
-    The Python API is being reworked. Treat `ScanDevice` and the
-    experiment-database lookup as the stable public surface; other
-    internals may move.

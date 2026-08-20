@@ -51,7 +51,8 @@ follow that split; the bottom row is for navigation and troubleshooting.
     [:octicons-arrow-right-24: GEECS Console](geecs_console/overview.md) ·
     [Image Analysis](image_analysis/overview.md) ·
     [Scan Analysis](scan_analysis/overview.md) ·
-    [Data Utils](geecs_data_utils/overview.md)
+    [Data Utils](geecs_data_utils/overview.md) ·
+    [GEECS-Core](geecs_core/overview.md)
 
 -   :material-bug-outline:{ .lg .middle } **Troubleshooting & internals**
 
@@ -112,10 +113,11 @@ s-file appending. Runs interactively or as a `LiveTaskRunner` that processes
 scans automatically as they complete. Optional integration with Google Doc
 e-logs via `LogMaker4GoogleDocs`.
 
-**GEECS-Core** — the GEECS access library: device communication (UDP/TCP
-transport and the entry-level `GeecsDevice` client), the experiment database,
-and the PV naming contract. The shared `config.ini` it reads is documented in
-the [Getting Started tutorial](tutorials/getting_started.md).
+**[GEECS-Core](geecs_core/overview.md)** — the GEECS access library: device
+communication (UDP/TCP transport and the entry-level `GeecsDevice` client),
+the experiment database, and the PV naming contract. The shared `config.ini`
+it reads is documented in the
+[Getting Started tutorial](tutorials/getting_started.md).
 
 **[GEECS Data Utils](geecs_data_utils/overview.md)** — path resolution and
 data loading for scan folders. Resolves `(experiment, date, scan_number)` to
