@@ -4,6 +4,17 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.19.2] - 2026-08-20
+
+### Fixed
+
+- `configure_logging` sets the operator's `--log-level` on the stderr and
+  `console.log` handlers explicitly (they were NOTSET): the engine's
+  per-scan scan.log capture (GeecsBluesky 0.51.0) lowers the *root* level
+  to INFO for a scan's duration, and NOTSET handlers would silently
+  inherit that — printing INFO against an explicit `--log-level WARNING`
+  (PR #620 review finding 1).
+
 ## [0.19.1] - 2026-07-22
 
 ### Changed

@@ -138,7 +138,13 @@ geecs_bluesky/
                             #   before aioca import (called by geecs_bluesky/__init__)
   scan_log.py               # shared per-scan scan.log handler (scan_log() ctx
                             #   manager) — bridge delegates; GeecsSession
-                            #   attaches it when it claimed the scan number
+                            #   attaches it when it claimed the scan number.
+                            #   Root-logger capture (0.51.0): scan.log records
+                            #   the whole process story (bluesky/ophyd_async/
+                            #   geecs_data_utils included), with a pre-claim
+                            #   buffer started at submission so the file opens
+                            #   with connects/telemetry drops; httpx +
+                            #   mysql.connector INFO chatter filtered out
   shot_controller.py        # ShotController — arm/disarm/quiesce/fire plan stubs (gateway :SP)
   optimize.py               # suggester protocol, RandomSuggester, XoptSuggester, BinData
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback

@@ -1224,21 +1224,34 @@ class GeecsSession:
         str or None
             The Bluesky run uid (``None`` when nothing was persisted).
         """
+        from geecs_bluesky.scan_log import (
+            begin_pre_scan_capture,
+            discard_pre_scan_capture,
+        )
         from geecs_bluesky.scan_request_runner import (
             ConfigsRepoResolver,
             run_scan_request,
         )
 
-        if resolver is None:
-            resolver = ConfigsRepoResolver(self.experiment)
-        return run_scan_request(
-            self,
-            request,
-            resolver,
-            objective=objective,
-            suggester=suggester,
-            device_requirements=device_requirements,
-        )
+        # Buffer pre-claim log lines (validation, device connects, telemetry
+        # drops) so scan.log opens with them; the bridge path starts its
+        # buffer earlier, at reinitialize.  A buffer not consumed by a
+        # scan.log attach (failure before the claim) is discarded — it must
+        # never leak into a later scan's file.
+        begin_pre_scan_capture()
+        try:
+            if resolver is None:
+                resolver = ConfigsRepoResolver(self.experiment)
+            return run_scan_request(
+                self,
+                request,
+                resolver,
+                objective=objective,
+                suggester=suggester,
+                device_requirements=device_requirements,
+            )
+        finally:
+            discard_pre_scan_capture()
 
     # ------------------------------------------------------------------
     # On-demand actions (G-actions v1)
