@@ -15,11 +15,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from caproto import AlarmSeverity, AlarmStatus
+from caproto._data import CannotExceedLimits
 
 from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_ca_gateway.gateway import GeecsCaGateway
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_core.pv_naming import pv_name
 
 DEVICE = "U_ESP_JetXYZ"
 
@@ -36,11 +38,11 @@ def test_pv_name_drops_falsy_parts_and_normalizes() -> None:
     part simply drops out of the ``:``-join — and ``:`` is applied only between
     components, never inside one.
     """
-    assert pv_name("", "U_S1H", "Current") == "U_S1H:Current"
-    assert pv_name(None, "U_S1H", "Current") == "U_S1H:Current"
+    assert pv_name("", "U_S1H", "Current") == "u_s1h:current"
+    assert pv_name(None, "U_S1H", "Current") == "u_s1h:current"
     assert (
         pv_name("Undulator", "U DG645", "Trigger.Source")
-        == "Undulator:U_DG645:Trigger_Source"
+        == "undulator:u_dg645:trigger_source"
     )
 
 
@@ -111,6 +113,163 @@ async def test_setpoint_put_failure_leaves_value_unstored() -> None:
     with pytest.raises(_Boom):
         await channel.write(4.2)
     assert channel.value == before  # not stored — put fails atomically
+
+
+async def test_setpoint_put_failure_stamps_write_invalid_alarm() -> None:
+    """A failed GEECS set alarms the ``:SP`` WRITE/INVALID; success clears it.
+
+    Contract §7 (set-failure observability): put-completion is invisible to
+    no-callback writers, so the failure must also surface as channel state —
+    the ``:SP`` alarm goes ``WRITE``/``INVALID`` on a failed set and returns
+    to ``NO_ALARM`` on the next successful one.
+    """
+    fail = True
+
+    async def setter(value: Any) -> Any:
+        if fail:
+            raise RuntimeError("GEECS set failed")
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    with pytest.raises(RuntimeError):
+        await channel.write(4.2)
+    assert channel.alarm.severity == AlarmSeverity.INVALID_ALARM
+    assert channel.alarm.status == AlarmStatus.WRITE
+
+    fail = False
+    await channel.write(1.0)
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    assert channel.alarm.status == AlarmStatus.NO_ALARM
+    assert channel.value == pytest.approx(1.0)
+
+
+async def test_failed_set_alarm_is_published_on_transition_only() -> None:
+    """The failure alarm is *published*; identical repeats and clears are not.
+
+    Contract §7: monitor clients are the audience for the failure alarm, so
+    the failed-set ``WRITE``/``INVALID`` write must publish (a state change a
+    subscriber never receives would make the whole feature a no-op — this
+    test fails if the failure path passes ``publish=False``). A repeated
+    identical failure must not re-publish, and the success-path clear rides
+    the value publish that follows (``publish=False`` here).
+    """
+    fail = True
+
+    async def setter(value: Any) -> Any:
+        if fail:
+            raise RuntimeError("GEECS set failed")
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    calls: list[dict[str, Any]] = []
+    original_write = channel.alarm.write
+
+    async def counting_write(**kwargs: Any) -> Any:
+        calls.append(kwargs)
+        return await original_write(**kwargs)
+
+    channel.alarm.write = counting_write  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.2)
+    assert len(calls) == 1
+    assert calls[0].get("publish", True) is True  # the failure IS published
+
+    with pytest.raises(RuntimeError):
+        await channel.write(4.3)
+    assert len(calls) == 1  # repeated identical failure: no re-publish
+
+    fail = False
+    await channel.write(1.0)
+    assert len(calls) == 2  # the clear...
+    assert calls[1]["publish"] is False  # ...rides the value publish instead
+
+
+async def test_client_value_error_does_not_alarm_setpoint() -> None:
+    """A value-shape error the gateway rejects pre-forward does not alarm.
+
+    Contract §7: the ``WRITE``/``INVALID`` alarm mirrors GEECS *forward*
+    outcomes only — a put that fails before any UDP exchange (here an
+    uncastable scalar) fails the caput but leaves the alarm untouched.
+    (Unknown enum labels are different: they forward verbatim so GEECS
+    itself rejects them — §4 — and that rejection *does* alarm.)
+    """
+    forwarded: list[Any] = []
+
+    async def setter(value: Any) -> Any:
+        forwarded.append(value)
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True),
+        setter,
+    )
+    with pytest.raises(ValueError):
+        await channel.write("not-a-number")
+    assert forwarded == []  # never reached GEECS
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+
+
+async def test_out_of_ctrl_limit_put_rejected_before_forward() -> None:
+    """An out-of-range put fails at the CA layer, BEFORE any UDP forward.
+
+    Contract §2: ``:SP`` channels enforce the DB span as control limits
+    pre-forward. The ordering is the load-bearing part — with DB limits
+    tighter than the device's, a post-forward check would move the hardware
+    and then fail the put. And per §7 it is a *client* error: no ``:SP``
+    alarm, nothing on ``LAST_SET_ERROR`` (the setter — where the gateway's
+    error recording hangs — is never invoked).
+    """
+    forwarded: list[Any] = []
+
+    async def setter(value: Any) -> Any:
+        forwarded.append(value)
+
+    channel = make_setpoint_channel(
+        VariableSpec(geecs_var="Current", dtype="float", settable=True, lo=-5, hi=5),
+        setter,
+    )
+    with pytest.raises(CannotExceedLimits, match="Limits are set to"):
+        await channel.write(100.0)
+    assert forwarded == []  # the device never saw the put
+    assert channel.alarm.severity == AlarmSeverity.NO_ALARM
+    assert float(channel.value) != 100.0  # not stored
+
+    await channel.write(2.5)  # in-range put forwards and stores as before
+    assert forwarded == [2.5]
+    assert float(channel.value) == 2.5
+
+
+async def test_missing_or_degenerate_db_span_stays_unlimited() -> None:
+    """No/one-sided/degenerate DB spans serve an unenforced ``:SP``.
+
+    Contract §2: control limits are served only for well-formed spans (both
+    bounds, ``lo < hi``). A variable with no DB limits, one bound, or a
+    degenerate ``lo == hi`` row keeps an unlimited setpoint — a bad DB row
+    must never brick an axis at the CA layer.
+    """
+    for spec_kwargs in (
+        {},  # no bounds
+        {"lo": -5.0},  # one-sided
+        {"lo": 0.0, "hi": 0.0},  # degenerate (real rows: U_TRAServer01)
+    ):
+        forwarded: list[Any] = []
+
+        async def setter(value: Any) -> Any:
+            forwarded.append(value)
+
+        channel = make_setpoint_channel(
+            VariableSpec(
+                geecs_var="Current", dtype="float", settable=True, **spec_kwargs
+            ),
+            setter,
+        )
+        await channel.write(1e6)  # any value forwards
+        assert forwarded == [1e6], f"blocked with {spec_kwargs!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +385,7 @@ async def test_restart_pv_requests_clean_shutdown() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    restart = gw.pvdb["Undulator:CAGateway:RESTART"]
+    restart = gw.pvdb["undulator:cagateway:restart"]
 
     await restart.write("Idle")
     await restart.write(0)
@@ -237,5 +396,5 @@ async def test_restart_pv_requests_clean_shutdown() -> None:
 
     # index form works too (fresh gateway — the event latches)
     gw2 = GeecsCaGateway(cfg)
-    await gw2.pvdb["Undulator:CAGateway:RESTART"].write(1)
+    await gw2.pvdb["undulator:cagateway:restart"].write(1)
     assert gw2._restart_requested.is_set()

@@ -128,11 +128,11 @@ scan_analysis/
 ├── config/
 │   ├── diagnostic_models.py      # AnalyzerRef, AnalysisGroupConfig,
 │   │                             #   ResolvedDiagnosticConfig, ScanRuntimeConfig
-│   ├── diagnostic_factory.py     # create_diagnostic_analyzer(resolved)
+│   ├── diagnostic_factory.py     # create_scan_analyzer(diag, ...)
 │   └── analysis_group_loader.py  # discover_analyzers/groups + load_analysis_group
 └── analyzers/
     ├── common/
-    │   ├── array2d_scan_analysis.py   # Wraps an ImageAnalyzer for 2D shots
+    │   ├── array2D_scan_analysis.py   # Wraps an ImageAnalyzer for 2D shots
     │   ├── array1d_scan_analysis.py   # Same for 1D
     │   ├── single_device_scan_analyzer.py
     │   └── scatter_plotter_analysis.py
@@ -140,7 +140,8 @@ scan_analysis/
 ```
 
 The common pattern: `LiveTaskRunner` reads a group YAML →
-`load_analysis_group` → resolves refs → `create_diagnostic_analyzer` builds
+`load_analysis_group` → resolves refs →
+`create_scan_analyzer(r.diagnostic, id=r.id, priority=r.priority)` builds
 each → `Array2DScanAnalyzer` (or 1D) wraps the underlying `ImageAnalyzer`
 → `run_analysis(scan_tag)` does the work.
 

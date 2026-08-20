@@ -1,0 +1,31 @@
+{
+  "description": "",
+  "schema_version": 1,
+  "steps": [
+    {
+      "do": "run",
+      "plan": "close_gaia_internal_shutters"
+    },
+    {
+      "device": "U_148_PLC",
+      "do": "set",
+      "value": "off",
+      "variable": "DO.Ch9",
+      "wait_for_execution": true
+    },
+    {
+      "do": "wait",
+      "seconds": 3.0
+    },
+    {
+      "device": "U_148_PLC",
+      "do": "check",
+      "expected": "off",
+      "variable": "DI.Ch17"
+    },
+    {
+      "do": "run",
+      "plan": "open_gaia_internal_shutters"
+    }
+  ]
+}

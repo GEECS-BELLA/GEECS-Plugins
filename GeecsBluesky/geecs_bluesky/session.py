@@ -29,26 +29,36 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
 import numpy as np
 from bluesky import RunEngine
+from bluesky.utils import RequestAbort, RunEngineInterrupted
 
 from geecs_bluesky.data_paths import asset_resource_root_paths, device_server_save_path
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.devices.ca import (
+    CaActionSignalFactory,
+    CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
+    CaPseudoMovable,
     CaSettable,
     CaSnapshotReadable,
+    CaTelemetryReadable,
     CaTimestampedReadable,
 )
-from geecs_bluesky.models.shot_control import ShotControlConfig
+from geecs_bluesky.forward_expr import CompiledForward
+from geecs_bluesky.models.shot_control import ShotControlConfig, ShotControlWrites
 from geecs_bluesky.optimize import BinData, Suggester
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan_number, geecs_run_wrapper
+from geecs_bluesky.plans.step_scan import normalize_motors
+from geecs_bluesky.scan_log import scan_log
 from geecs_bluesky.scanner_configs import load_shot_control_config
 from geecs_bluesky.shot_controller import ShotController
 from geecs_bluesky.tiled_integration import subscribe_tiled
@@ -68,6 +78,42 @@ def _positions(start: float, end: float, step: float) -> list[float]:
     return list(np.linspace(start, end, n))
 
 
+def _stop_gated(plan: Any, should_abort: Callable[[], bool]) -> tuple[Any, list[bool]]:
+    """Wrap *plan* so a stop that landed in the idle window still takes effect.
+
+    ``RE.abort()`` on an idle engine raises ``TransitionError`` (a no-op to
+    a guarded caller), so a stop request that lands *after* the caller's
+    last pre-run check but *before* the engine reports ``running`` would
+    otherwise be lost — the flag is set, nobody reads it, the scan runs
+    (issue #571).  The gate re-reads *should_abort* as the plan's very
+    first instruction.  That closes the race completely: the engine sets
+    ``self._state = "running"`` before fetching the plan's first message
+    (bluesky 1.15.0, ``run_engine.py::_run``), so a stopper that observed
+    the engine ``idle`` set the flag strictly before this check runs, and
+    a stopper that observed it ``running`` used ``RE.abort()`` directly —
+    which is valid from ``running`` (``_abort_coro`` cancels the plan
+    task; no pause required first).
+
+    On trip the gate yields nothing: the engine processes zero messages,
+    opens no run, and settles back to idle; the second element of the
+    returned pair reads ``True`` so the caller can report the quiet
+    aborted outcome.
+    """
+    tripped = [False]
+
+    def gated():
+        if should_abort():
+            tripped[0] = True
+            # Never started, close for hygiene (generators only).
+            close = getattr(plan, "close", None)
+            if callable(close):
+                close()
+            return
+        return (yield from plan)
+
+    return gated(), tripped
+
+
 def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
     """Recursively replace non-finite floats (NaN/inf) with ``None``.
 
@@ -83,6 +129,24 @@ def _json_safe(value: Any) -> Any:  # Any: mirrors json.dumps's input surface
     if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
     return value
+
+
+class _RequestAbortLogFilter(logging.Filter):
+    """Drop upstream bluesky's ``RequestAbort`` traceback record.
+
+    The RunEngine logs ``"Run aborted"`` with a full traceback from two
+    sites: the ``RequestAbort`` path (an operator-requested abort — the
+    *mechanism* of aborting, not an error; the session logs its own single
+    INFO line) and a genuine-exception path.  Filtering on the exception
+    *type* silences only the former — a real failure's "Run aborted"
+    traceback still gets through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D102 — base doc
+        exc = record.exc_info
+        if exc and exc[0] is not None and issubclass(exc[0], RequestAbort):
+            return False
+        return True
 
 
 class GeecsSession:
@@ -120,7 +184,34 @@ class GeecsSession:
         self._mock = mock
         # context_managers=[] so sessions also work off the main thread.
         self.RE = RunEngine(context_managers=[])
+        # #552 (owner decision 13): pause/resume land as documents in the
+        # run, so a pause window is part of the data record — a wall-clock
+        # gap between rows explains itself.
+        self.RE.record_interruptions = True
+        # Held for the duration of a manual move (move_variable).  The RE
+        # is deliberately NOT occupied by manual moves (they are not
+        # plans), so this lock is what makes the exclusion *mutual*:
+        # scan()/optimize()/run_action() refuse while it is held, and
+        # move_variable refuses while the RE is busy (review, PR #597).
+        self._manual_move_lock = threading.Lock()
+        # Silence upstream's RequestAbort traceback (operator aborts are
+        # quiet, intentional outcomes — #563 follow-up).  RE.log is a
+        # LoggerAdapter over the PROCESS-WIDE ``bluesky`` logger shared by
+        # every RunEngine, so this covers all engines in the process (a
+        # RequestAbort is the abort mechanism whoever raised it) — and the
+        # guard keeps repeated session construction from stacking
+        # duplicate filters on that global logger.
+        _re_logger = getattr(self.RE.log, "logger", None)
+        if _re_logger is not None and not any(
+            isinstance(f, _RequestAbortLogFilter) for f in _re_logger.filters
+        ):
+            _re_logger.addFilter(_RequestAbortLogFilter())
         self._last_run_uid: str | None = None
+        #: ``True`` when the most recent :meth:`scan`/:meth:`optimize` ended
+        #: in an operator-requested abort (``RE.abort()``/``RE.stop()``) —
+        #: those calls return the aborted outcome instead of raising, and
+        #: callers distinguish completed vs aborted through this flag.
+        self.last_run_aborted: bool = False
         self.RE.subscribe(self._remember_uid, name="start")
         if tiled:
             subscribe_tiled(self.RE, tiled_uri, tiled_api_key)
@@ -155,16 +246,34 @@ class GeecsSession:
         )
 
     def _move_movables(self, variables: dict[str, Any], targets: dict) -> None:
-        """Drive movables to *targets* outside a plan (best-effort)."""
+        """Drive movables to *targets* outside a plan (best-effort).
+
+        Goes through each movable's own ``set()`` (the Bluesky ``Movable``
+        protocol), not the raw ``:SP`` signal directly — a bypass here would
+        skip ``CaMotor``'s readback poll and, worse, ``CaConfirmSettable``'s
+        confirming-variable poll: the exact "the limit register converged but
+        nothing physically moved" failure this device exists to catch would
+        go silently unconfirmed on every optimize on_finish move.
+        """
         import asyncio
 
         for name, value in targets.items():
             movable = variables.get(name)
             if movable is None:
                 continue
+            if not np.isfinite(float(value)):
+                # An absolute pseudo variable reads NaN before its first set
+                # (position unknown without an inverse) — never command a
+                # non-finite value to hardware.
+                logger.warning(
+                    "not moving %s: target %r is not finite (initial position unknown)",
+                    name,
+                    value,
+                )
+                continue
 
             async def _move(m=movable, v=float(value)) -> None:
-                await m._setpoint.set(v)
+                await m.set(v)
 
             try:
                 asyncio.run_coroutine_threadsafe(_move(), self.RE._loop).result(
@@ -238,6 +347,105 @@ class GeecsSession:
             )
         )
 
+    def telemetry(
+        self,
+        device: str,
+        variables: list[str],
+        *,
+        name: str | None = None,
+    ) -> CaTelemetryReadable | None:
+        """Soft Tier-2 telemetry readable; ``None`` if the device is unreachable.
+
+        Builds a :class:`~geecs_bluesky.devices.ca.telemetry.CaTelemetryReadable`
+        (read-only, fault-tolerant read) and connects it.  A connect failure
+        means the device is dead/unreachable at scan start — the background
+        telemetry contract says such a device is **dropped with a log line,
+        never an error** — so this returns ``None`` after warning instead of
+        propagating (unlike the strict device factories, whose failures fail
+        loudly).
+
+        The telemetry readable infers each variable's dtype from its PV
+        (numeric stays float, enum/string is captured as a label), so a device
+        is dropped here only when it is genuinely unreachable — never for a
+        variable *type* mismatch.  A single non-numeric ``get='yes'`` variable
+        no longer takes the device's other columns down with it.
+        """
+        det = CaTelemetryReadable(
+            device,
+            variables,
+            experiment=self.experiment,
+            name=name,
+        )
+        try:
+            return self._connect(det)
+        except Exception:
+            logger.warning(
+                "Dropping background-telemetry device %s: unreachable at scan "
+                "start (soft tier — never aborts the scan)",
+                device,
+                exc_info=True,
+            )
+            return None
+
+    def telemetry_batch(
+        self,
+        selected: dict[str, list[str]],
+    ) -> list[CaTelemetryReadable]:
+        """Build and connect all Tier-2 telemetry readables **concurrently**.
+
+        The per-device :meth:`telemetry` factory connects sequentially — at
+        ~87 telemetry devices that alone cost ~9 s of the operator's
+        start-to-execution latency (each connect is a network round trip;
+        measured live 2026-07-13).  This batch variant constructs every
+        readable first, then awaits all connects in one ``asyncio.gather``
+        on the RunEngine loop, so wall time is the slowest single device
+        rather than the sum.
+
+        Per-device semantics are identical to :meth:`telemetry`: a device
+        unreachable at scan start is dropped with a warning, never an error
+        (the soft-tier contract).
+
+        Parameters
+        ----------
+        selected:
+            ``{device: [variables]}`` — the telemetry selection
+            (:func:`~geecs_bluesky.db_runtime.select_telemetry_variables`).
+
+        Returns
+        -------
+        list of CaTelemetryReadable
+            The connected readables, in *selected* order (dropped devices
+            omitted).
+        """
+        import asyncio
+
+        devices = [
+            CaTelemetryReadable(device, variables, experiment=self.experiment)
+            for device, variables in selected.items()
+        ]
+
+        async def _connect_all() -> list:
+            return await asyncio.gather(
+                *(d.connect(mock=self._mock) for d in devices),
+                return_exceptions=True,
+            )
+
+        results = asyncio.run_coroutine_threadsafe(
+            _connect_all(), self.RE._loop
+        ).result(timeout=30.0)
+        connected: list[CaTelemetryReadable] = []
+        for device_obj, result in zip(devices, results):
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "Dropping background-telemetry device %s: unreachable at "
+                    "scan start (soft tier — never aborts the scan)",
+                    device_obj._geecs_device_name,
+                    exc_info=result,
+                )
+            else:
+                connected.append(device_obj)
+        return connected
+
     def motor(
         self,
         device: str,
@@ -274,40 +482,126 @@ class GeecsSession:
             )
         )
 
+    def confirm_settable(
+        self,
+        device: str,
+        variable: str,
+        *,
+        confirm_device: str,
+        confirm_variable: str,
+        tolerance: float = 0.05,
+        timeout: float = 10.0,
+        name: str | None = None,
+    ) -> CaConfirmSettable:
+        """Settable that confirms completion on a *different* variable.
+
+        The topology-C case (``ScanVariable.confirm``): ``variable`` is
+        written, but ``confirm_variable`` (possibly on a different device) is
+        polled for the actual physical result. See
+        :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
+        """
+        return self._connect(
+            CaConfirmSettable(
+                device,
+                variable,
+                confirm_device=confirm_device,
+                confirm_variable=confirm_variable,
+                experiment=self.experiment,
+                name=name or safe_name(f"{device}_{variable}"),
+                tolerance=tolerance,
+                timeout=timeout,
+            )
+        )
+
+    def pseudo_movable(
+        self,
+        variable_name: str,
+        components: Sequence[tuple[str, str, CompiledForward]],
+        mode: str,
+        *,
+        name: str | None = None,
+    ) -> CaPseudoMovable:
+        """Pseudo (composite) movable: one number fanned out to many targets.
+
+        ``components`` are ``(device, variable, compiled_forward)`` triples
+        (see :func:`geecs_bluesky.forward_expr.compile_forward`); ``mode`` is
+        the schema's ``absolute``/``relative``. See
+        :class:`~geecs_bluesky.devices.ca.pseudo.CaPseudoMovable`.
+        """
+        return self._connect(
+            CaPseudoMovable(
+                components,
+                mode,
+                variable_name=variable_name,
+                experiment=self.experiment,
+                name=name or safe_name(variable_name),
+            )
+        )
+
+    def action_signal_factory(self) -> CaActionSignalFactory:
+        """Build the SettableFactory for compiled action plans (CA-backed).
+
+        Returns a fresh per-scan factory: ``get_settable`` puts wire strings
+        to the variable's gateway ``:SP`` (put-completion rides the GEECS
+        blocking set — the ``wait_for_execution`` semantics), ``get_readable``
+        reads the streamed readback natively typed.  Signals are cached per
+        ``(device, variable)`` and connected in this session's RE loop at
+        creation; pre-connect everything a plan will touch **before** running
+        it (see ``scan_request_runner.prefetch_action_signals``) and pass the
+        factory to :meth:`disconnect` with the scan's other devices.
+        """
+        return CaActionSignalFactory(self.experiment, self._connect, mock=self._mock)
+
     # ------------------------------------------------------------------
     # Shot control
     # ------------------------------------------------------------------
 
     def shot_control(
-        self, config: str | dict | ShotControlConfig | None
+        self, config: str | dict | ShotControlConfig | ShotControlWrites | None
     ) -> ShotController | None:
-        """Attach shot control from a configs-repo name, dict, or config.
+        """Attach shot control from a configs-repo name, dict, config, or writes.
 
         A configs-repo *name* (e.g. ``"HTU-LaserOFF"``) is loaded and
         validated; ``None`` or an empty/blank config (e.g. ``{}``) detaches.
-        The controller drives the device through the gateway's ``:SP`` PVs;
-        their reachability is verified here (short CA connect) so a typo'd
-        device name fails now, not ~10 s per caput mid-plan.
+        A :class:`~geecs_bluesky.models.shot_control.ShotControlWrites`
+        (generalized per-state ordered write lists, possibly multi-device —
+        the TriggerProfile shape) builds the ordered controller; anything
+        else takes the legacy single-device
+        :class:`~geecs_bluesky.models.shot_control.ShotControlConfig` path
+        unchanged.  Either way the controller drives the gateway's ``:SP``
+        PVs; their reachability is verified here (short CA connect) so a
+        typo'd device name fails now, not ~10 s per caput mid-plan.
         """
         import asyncio
 
-        if isinstance(config, str):
-            config = load_shot_control_config(config, self.experiment)
+        controller: ShotController | None = None
+        attached_to = ""
+        if isinstance(config, ShotControlWrites):
+            if config.states:
+                controller = ShotController.from_writes(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = controller.describe_target
         else:
-            config = ShotControlConfig.from_information(config)
-        if config is None:
+            if isinstance(config, str):
+                config = load_shot_control_config(config, self.experiment)
+            else:
+                config = ShotControlConfig.from_information(config)
+            if config is not None:
+                controller = ShotController.over_ca(
+                    config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
+                )
+                attached_to = config.device
+        if controller is None:
             self._shot_controller = None
             logger.info("Shot control detached")
             return None
-        controller = ShotController.over_ca(
-            config, experiment=self.experiment, rep_rate_hz=self.rep_rate_hz
-        )
         if not self._mock:
             asyncio.run_coroutine_threadsafe(
                 controller.connect_setters(), self.RE._loop
             ).result(timeout=20.0)
         self._shot_controller = controller
-        logger.info("Shot control attached: %s", config.device)
+        logger.info("Shot control attached: %s", attached_to)
         return self._shot_controller
 
     # ------------------------------------------------------------------
@@ -336,15 +630,67 @@ class GeecsSession:
             md=md,
         )
 
+    def _run_supervised(self, plan: Any, pause_supervisor: Any | None) -> str:
+        """Run *plan* on the RE, handling supervised pause windows (#552).
+
+        With no *pause_supervisor* this is exactly ``self.RE(plan)`` —
+        every interrupt propagates as before (headless default).  With one,
+        a deferred pause landing at a plan checkpoint hands control to
+        ``pause_supervisor.on_pause(self)`` on this (scan) thread: a
+        ``"resume"`` verdict re-enters ``RE.resume()`` (which may pause
+        again — the window can repeat), an ``"abort"`` verdict runs
+        ``RE.abort()`` (the plan's finalize chain executes) and reports
+        ``"aborted"``.
+
+        Returns
+        -------
+        str
+            ``"completed"`` (the plan ran to its own end) or ``"aborted"``
+            (an abort verdict from a pause window).
+
+        Raises
+        ------
+        RunEngineInterrupted
+            Unsupervised pause (propagated, today's contract), or the
+            engine settling to idle from an operator stop — the caller's
+            existing handling owns both.
+        """
+        try:
+            self.RE(plan)
+            return "completed"
+        except RunEngineInterrupted:
+            if pause_supervisor is None or self.RE.state != "paused":
+                raise
+        while True:
+            verdict = pause_supervisor.on_pause(self)
+            if verdict == "abort":
+                # The pause supervisor is the *sole* abort owner while
+                # paused (stop_scanning_thread deliberately skips its own
+                # RE.abort() when the RE is paused — #552 review): abort
+                # here, from the RE's own thread context, so the finalize
+                # chain runs to completion exactly once.
+                logger.info("pause window verdict: abort — stopping the scan")
+                self.RE.abort()
+                return "aborted"
+            try:
+                self.RE.resume()
+                return "completed"
+            except RunEngineInterrupted:
+                if self.RE.state != "paused":
+                    # An operator stop landed during the resumed stretch —
+                    # the caller's settled-to-idle handling owns it.
+                    raise
+                continue
+
     def scan(
         self,
         *,
         detectors: Sequence[Any],
-        motor: Any | None = None,
+        motor: Any | Sequence[Any] | None = None,
         start: float | None = None,
         end: float | None = None,
         step: float | None = None,
-        positions: Sequence[float | None] | None = None,
+        positions: Sequence[Any] | None = None,
         shots_per_step: int = 1,
         mode: str = _FREE_RUN,
         description: str = "",
@@ -353,6 +699,11 @@ class GeecsSession:
         scan_number: int | None = None,
         scan_folder: str | None = None,
         scan_info: dict | None = None,
+        setup: Any | None = None,
+        per_step: Any | None = None,
+        closeout: Any | None = None,
+        should_abort: Callable[[], bool] | None = None,
+        pause_supervisor: Any | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -366,14 +717,50 @@ class GeecsSession:
         overrides individual ScanInfo ini fields (``scan_parameter``,
         ``start``, ``end``, ``step``, ``shots``, ``background``,
         ``scan_mode``) for legacy-format fidelity.
+
+        *motor* may be a **sequence** of movables for a multi-axis grid scan
+        (outermost axis first); *positions* is then the explicit list of
+        grid points as tuples aligned with the motors (one bin per grid
+        point; only changed axes are re-moved).  All motors' readbacks are
+        recorded in every event row, exactly like the single-motor case.
+
+        ``setup`` / ``per_step`` / ``closeout`` are optional plan-stub
+        callables (typically compiled ActionPlans): setup runs in the plan
+        preamble before the first step, per_step at every step boundary
+        (after the move, before the shots), closeout in a finalize wrapper
+        that runs even on abort, after the trigger disarm.  See
+        :func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`.
+
+        An operator-requested abort (``RE.abort()``/``RE.stop()`` while the
+        plan runs) is an intentional outcome, not a failure: the run uid (of
+        the partial run, when one started) is returned normally with
+        :attr:`last_run_aborted` set ``True`` and one INFO line logged.  A
+        *pause* still propagates :class:`~bluesky.utils.RunEngineInterrupted`
+        (the operator may resume).
+
+        ``should_abort`` (optional) is a stop probe re-read as the plan's
+        first instruction (:func:`_stop_gated`): it closes the window where
+        a stop lands after the caller's last check but before the engine
+        reports ``running`` (``RE.abort()`` is a no-op on an idle engine).
+        A trip is the same quiet aborted outcome — ``None`` returned,
+        :attr:`last_run_aborted` set — but nothing ran: no run document was
+        emitted (the scan number, when this call claimed one, was already
+        burned; the folder holds ScanInfo and no data).
         """
+        self._refuse_if_manual_move("scan not started")
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         detectors = list(detectors)
         if not detectors:
             raise ValueError("scan() needs at least one detector")
+        motors = normalize_motors(motor)
         if positions is None:
-            if motor is not None:
+            if len(motors) > 1:
+                raise ValueError(
+                    "multi-axis scans need explicit positions (a list of "
+                    "grid-point tuples, outermost axis first)"
+                )
+            if motors:
                 if None in (start, end, step):
                     raise ValueError("motor scans need start/end/step or positions")
                 positions = _positions(float(start), float(end), float(step))
@@ -392,9 +779,11 @@ class GeecsSession:
                 "(pre-claimed) or neither to claim a new scan"
             )
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -431,13 +820,66 @@ class GeecsSession:
             scan_folder=scan_folder,
             saving_detectors=saving_detectors,
             extra_md={"description": description, **(md or {})},
+            setup=setup,
+            per_step=per_step,
+            closeout=closeout,
         )
 
-        self._last_run_uid = None
-        self.RE(plan)
+        stop_gate = [False]
+        if should_abort is not None:
+            plan, stop_gate = _stop_gated(plan, should_abort)
 
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
+        self._last_run_uid = None
+        self.last_run_aborted = False
+        # Headless scans get the same per-scan scan.log as bridge scans
+        # (Gate-2 finding).  Attach only when this call claimed the number:
+        # a pre-claimed number means the caller (e.g. the GUI bridge) owns
+        # the scan.log handler, and a second one would duplicate every line.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            try:
+                supervised_outcome = self._run_supervised(plan, pause_supervisor)
+            except RunEngineInterrupted:
+                if self.RE.state == "paused":
+                    # A pause is not a settled outcome — the operator may
+                    # still resume; keep today's propagation behavior.
+                    raise
+                # The engine settled back to idle: an operator-requested
+                # abort/stop.  The plan's finalize chain (save-off, disarm)
+                # already ran inside the engine's cleanup, so this is an
+                # intentional outcome, not a failure — report it quietly.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s aborted by operator; cleanup completed "
+                    "(trigger disarmed, saving stopped)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return self._last_run_uid
+
+            if supervised_outcome == "aborted":
+                # Abort verdict from a pause window: RE.abort() already ran
+                # the plan's finalize chain — an intentional outcome.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s aborted from the pause window; cleanup "
+                    "completed (trigger disarmed, saving stopped)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return self._last_run_uid
+
+            if stop_gate[0]:
+                # The stop landed in the idle window (after the caller's
+                # last pre-run check, before the engine reported running):
+                # the gate skipped the whole plan — zero messages, no run.
+                self.last_run_aborted = True
+                logger.info(
+                    "Scan %s stopped before the plan started; nothing ran "
+                    "(no data recorded)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                )
+                return None
+
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
         return self._last_run_uid
 
     def optimize(
@@ -456,6 +898,8 @@ class GeecsSession:
         on_finish: str = "hold",
         scan_number: int | None = None,
         scan_folder: str | None = None,
+        should_abort: Callable[[], bool] | None = None,
+        pause_supervisor: Any | None = None,
     ) -> tuple[str | None, list[dict]]:
         """Run an optimization **as a scan** (iteration = bin); return (uid, history).
 
@@ -492,7 +936,21 @@ class GeecsSession:
         scan_number, scan_folder:
             Pre-claimed scan number/folder (as in :meth:`scan`).  When omitted
             and *save_data* is true, they are claimed here.
+
+        Notes
+        -----
+        An operator-requested abort is an intentional outcome, not a
+        failure: ``(uid, history)`` for the completed iterations is
+        returned normally with :attr:`last_run_aborted` set ``True``, the
+        ``on_finish`` restore-to-initial still runs (abort restores
+        *initial*, never best), and one INFO line is logged.  A *pause*
+        still propagates :class:`~bluesky.utils.RunEngineInterrupted`.
+        ``should_abort`` is the pre-plan-start stop gate, exactly as on
+        :meth:`scan` (:func:`_stop_gated`); a trip returns ``(None, [])``
+        quietly — nothing ran, so the variables were never moved and no
+        restore is needed.
         """
+        self._refuse_if_manual_move("optimization not started")
         if mode not in (_FREE_RUN, _STRICT):
             raise ValueError(f"mode={mode!r} invalid; use 'free_run' or 'strict'")
         if on_finish not in ("hold", "initial", "best"):
@@ -517,9 +975,11 @@ class GeecsSession:
             name: self._read_movable(movable) for name, movable in variables.items()
         }
 
+        claimed_here = False
         if save_data:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
+                claimed_here = True
             if scan_number is not None:
                 self._write_scan_info(
                     scan_number,
@@ -631,48 +1091,478 @@ class GeecsSession:
 
             run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
 
-        token = self.RE.subscribe(_collect)
-        self._last_run_uid = None
-        try:
-            self.RE(run_plan)
-        except BaseException:
-            if on_finish in ("initial", "best"):
-                self._move_movables(variables, initial_values)
-            raise
-        finally:
-            self.RE.unsubscribe(token)
-        _observe_previous(len(history) + 1)  # final bin
+        stop_gate = [False]
+        if should_abort is not None:
+            run_plan, stop_gate = _stop_gated(run_plan, should_abort)
 
-        if on_finish in ("initial", "best"):
-            target = initial_values
-            if on_finish == "best":
-                finite = [h for h in history if np.isfinite(h["objective"])]
-                if finite:
-                    target = max(finite, key=lambda h: h["objective"])["inputs"]
-                else:
-                    logger.warning(
-                        "on_finish='best' but no finite objectives; restoring initial"
-                    )
-            self._move_movables(variables, target)
-            logger.info("optimize on_finish=%s -> %s", on_finish, target)
-
-        if save_data and scan_folder is not None and history:
-            import json
-
+        # Headless optimizations get the same per-scan scan.log as bridge
+        # runs (see scan()): attach only when this call claimed the number.
+        with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
+            token = self.RE.subscribe(_collect)
+            self._last_run_uid = None
+            self.last_run_aborted = False
+            aborted = False
             try:
-                path = Path(scan_folder) / "optimization.json"
-                # Failed objectives are NaN in-process; serialize them as
-                # null (allow_nan=False makes any regression fail loudly
-                # instead of writing invalid JSON).
-                path.write_text(
-                    json.dumps(_json_safe(history), indent=2, allow_nan=False)
+                outcome = self._run_supervised(run_plan, pause_supervisor)
+                aborted = outcome == "aborted"
+            except RunEngineInterrupted:
+                if self.RE.state == "paused":
+                    # A pause is not a settled outcome (the operator may
+                    # resume) — keep today's restore-and-propagate behavior.
+                    if on_finish in ("initial", "best"):
+                        self._move_movables(variables, initial_values)
+                    raise
+                aborted = True
+            except BaseException:
+                if on_finish in ("initial", "best"):
+                    self._move_movables(variables, initial_values)
+                raise
+            finally:
+                self.RE.unsubscribe(token)
+            if stop_gate[0]:
+                # Stop landed in the idle window: the gate skipped the whole
+                # plan — no iterations, no moves, nothing to restore.
+                self.last_run_aborted = True
+                logger.info(
+                    "Optimization scan %s stopped before the plan started; "
+                    "nothing ran (no data recorded)",
+                    scan_number if scan_number is not None else "(unsaved)",
                 )
-                logger.info("Optimization history written to %s", path)
-            except Exception:
-                logger.warning("Could not write optimization history", exc_info=True)
-        if save_data and self._last_run_uid and scan_number is not None:
-            self._export_scalar_files(scan_number)
-        return self._last_run_uid, history
+                return None, history
+            if aborted:
+                # Operator-requested abort: the engine settled back to idle
+                # and its cleanup (finalize disarm) already ran.  Restore the
+                # variables exactly as the exception path always has (abort
+                # restores *initial*, never best — docstring contract), then
+                # return the aborted outcome quietly instead of raising.
+                self.last_run_aborted = True
+                if on_finish in ("initial", "best"):
+                    self._move_movables(variables, initial_values)
+                logger.info(
+                    "Optimization scan %s aborted by operator; cleanup "
+                    "completed (%d iteration(s) recorded%s)",
+                    scan_number if scan_number is not None else "(unsaved)",
+                    len(history),
+                    (
+                        "; variables restored to initial values"
+                        if on_finish in ("initial", "best")
+                        else ""
+                    ),
+                )
+                return self._last_run_uid, history
+            _observe_previous(len(history) + 1)  # final bin
+
+            if on_finish in ("initial", "best"):
+                target = initial_values
+                if on_finish == "best":
+                    finite = [h for h in history if np.isfinite(h["objective"])]
+                    if finite:
+                        target = max(finite, key=lambda h: h["objective"])["inputs"]
+                    else:
+                        logger.warning(
+                            "on_finish='best' but no finite objectives; restoring initial"
+                        )
+                self._move_movables(variables, target)
+                logger.info("optimize on_finish=%s -> %s", on_finish, target)
+
+            if save_data and scan_folder is not None and history:
+                import json
+
+                try:
+                    path = Path(scan_folder) / "optimization.json"
+                    # Failed objectives are NaN in-process; serialize them as
+                    # null (allow_nan=False makes any regression fail loudly
+                    # instead of writing invalid JSON).
+                    path.write_text(
+                        json.dumps(_json_safe(history), indent=2, allow_nan=False)
+                    )
+                    logger.info("Optimization history written to %s", path)
+                except Exception:
+                    logger.warning(
+                        "Could not write optimization history", exc_info=True
+                    )
+            if save_data and self._last_run_uid and scan_number is not None:
+                self._export_scalar_files(scan_number)
+            return self._last_run_uid, history
+
+    def run(
+        self,
+        request: Any,  # geecs_schemas.ScanRequest (imported lazily below)
+        resolver: Any | None = None,  # scan_request_runner.ConfigResolver
+        *,
+        objective: Any | None = None,
+        suggester: Any | None = None,
+        device_requirements: Any | None = None,
+    ) -> str | None:
+        """Run one :class:`~geecs_schemas.scan_request.ScanRequest`; return the uid.
+
+        The schema submission front door: names resolve through *resolver*
+        (default: :class:`~geecs_bluesky.config_resolver.ConfigsRepoResolver`
+        over this session's experiment) and the request is mapped onto
+        :meth:`scan` / :meth:`optimize` by
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see its
+        docstring for the documented v1 gaps).
+
+        Parameters
+        ----------
+        request :
+            The scan request to run.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver).
+        objective, suggester :
+            Ready-made optimization callables, required for ``optimize``
+            mode (the evaluator/generator specs are instantiated by the
+            caller's stack, not here).
+        device_requirements :
+            Optional optimizer device requirements (duck-typed
+            ``{"Devices": {name: cfg}}``) auto-provisioned into the
+            effective device set on ``optimize`` mode — see
+            :func:`~geecs_bluesky.scan_request_runner.run_scan_request`.
+
+        Returns
+        -------
+        str or None
+            The Bluesky run uid (``None`` when nothing was persisted).
+        """
+        from geecs_bluesky.scan_log import (
+            begin_pre_scan_capture,
+            discard_pre_scan_capture,
+        )
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            run_scan_request,
+        )
+
+        # Buffer pre-claim log lines (validation, device connects, telemetry
+        # drops) so scan.log opens with them; the bridge path starts its
+        # buffer earlier, at reinitialize.  A buffer not consumed by a
+        # scan.log attach (failure before the claim) is discarded — it must
+        # never leak into a later scan's file.
+        begin_pre_scan_capture()
+        try:
+            if resolver is None:
+                resolver = ConfigsRepoResolver(self.experiment)
+            return run_scan_request(
+                self,
+                request,
+                resolver,
+                objective=objective,
+                suggester=suggester,
+                device_requirements=device_requirements,
+            )
+        finally:
+            discard_pre_scan_capture()
+
+    # ------------------------------------------------------------------
+    # On-demand actions (G-actions v1)
+    # ------------------------------------------------------------------
+
+    def _resolve_action(
+        self,
+        name: str,
+        resolver: Any | None,  # config_resolver.ConfigResolver
+    ) -> tuple[Any, Any]:
+        """Resolve *name* to ``(plan, registry)`` through *resolver*.
+
+        Defaults to the configs-repo resolver over this session's
+        experiment (matching :meth:`run`).  Raises
+        :class:`~geecs_bluesky.exceptions.GeecsConfigurationError` for an
+        unknown top-level name; nested ``run`` references are validated by
+        the callers' flatten walk.
+        """
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            build_action_registry,
+        )
+
+        if resolver is None:
+            resolver = ConfigsRepoResolver(self.experiment)
+        plan = resolver.resolve_action_plan(name)
+        return plan, build_action_registry(resolver)
+
+    def run_action(
+        self,
+        name: str,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+    ) -> None:
+        """Execute the named ActionPlan on demand, outside any scan.
+
+        The engine half of G-actions v1: resolve *name* from the action
+        library (fail-fast for unknown names, including nested ``run``
+        references), compile it against this session's
+        :class:`~geecs_bluesky.devices.ca.action_signals.CaActionSignalFactory`,
+        prefetch/connect every signal **pre-run** (a lazy connect inside
+        the RunEngine loop would deadlock), and execute the compiled steps
+        as a plan on this session's RunEngine — inheriting the RE's abort
+        machinery and the legacy ActionManager step semantics pinned in
+        :mod:`~geecs_bluesky.plans.action_compiler`.
+
+        During-scan behavior for v1 is refusal; the richer
+        pause/decide/resume flow is issue #552 (the compiled-steps
+        execution stays factored — steps flatten/compile independently of
+        dispatch — so #552 can reuse it).
+
+        Parameters
+        ----------
+        name : str
+            Action-plan name in the experiment's action library.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver,
+            as in :meth:`run`).
+
+        Raises
+        ------
+        RuntimeError
+            When the RunEngine is not idle:
+            ``"scan in progress — action not started"`` (the GUI surfaces
+            this message verbatim).
+        GeecsConfigurationError
+            Unknown plan name, or an unreachable action target.
+        ActionPlanNotFoundError, ActionPlanCycleError, ActionCheckFailedError
+            Bad nested reference / cycle / failed ``check`` step.
+        """
+        from geecs_bluesky.plans.action_compiler import (
+            compile_action_plan,
+            flatten_action_steps,
+        )
+        from geecs_schemas.action_plan import CheckStep, SetStep
+
+        if self.RE.state != "idle":
+            raise RuntimeError("scan in progress — action not started")
+        self._refuse_if_manual_move("action not started")
+        plan, registry = self._resolve_action(name, resolver)
+        # Fail-fast: unknown nested names / cycles surface here, before any
+        # signal is created or connected.
+        steps = flatten_action_steps(plan, registry=registry)
+        factory = self.action_signal_factory()
+        try:
+            for step, _origin in steps:
+                if not isinstance(step, (SetStep, CheckStep)):
+                    continue
+                try:
+                    if isinstance(step, SetStep):
+                        factory.get_settable(step.device, step.variable)
+                    else:
+                        factory.get_readable(step.device, step.variable)
+                except Exception as exc:
+                    raise GeecsConfigurationError(
+                        f"action {name!r}: cannot reach "
+                        f"{step.device}:{step.variable} — {exc}"
+                    ) from exc
+            logger.info("Running action %r (%d steps)", name, len(steps))
+            self.RE(compile_action_plan(plan, registry=registry, settables=factory))
+            logger.info("Action %r completed", name)
+        finally:
+            self.disconnect(factory)
+
+    def describe_action(
+        self,
+        name: str,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+    ) -> list[dict]:
+        """Dry-run the named ActionPlan: resolve + inspect, no CA, no execution.
+
+        Pure by contract — no signal is created, connected, or read; only
+        the configs repo is touched.  Nested ``run`` steps are resolved and
+        flattened in execution order (fail-fast for unknown names and
+        cycles, exactly like :meth:`run_action`).
+
+        Parameters
+        ----------
+        name : str
+            Action-plan name in the experiment's action library.
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver).
+
+        Returns
+        -------
+        list of dict
+            One dict per concrete step, in execution order, with keys
+            ``kind`` (``"set"`` / ``"wait"`` / ``"check"``), ``device``,
+            ``variable``, ``value`` (the written value for ``set``, the
+            expected value for ``check``), ``wait_s``, and ``from_plan``
+            (the nested plan a step was flattened from; ``None`` for the
+            named plan's own steps).  Keys that do not apply are ``None``.
+        """
+        from geecs_bluesky.plans.action_compiler import flatten_action_steps
+        from geecs_schemas.action_plan import CheckStep, SetStep, WaitStep
+
+        plan, registry = self._resolve_action(name, resolver)
+        summaries: list[dict] = []
+        for step, origin in flatten_action_steps(plan, registry=registry):
+            entry: dict = {
+                "kind": step.do,
+                "device": None,
+                "variable": None,
+                "value": None,
+                "wait_s": None,
+                "from_plan": origin,
+            }
+            if isinstance(step, SetStep):
+                entry.update(
+                    device=step.device, variable=step.variable, value=step.value
+                )
+            elif isinstance(step, CheckStep):
+                entry.update(
+                    device=step.device, variable=step.variable, value=step.expected
+                )
+            elif isinstance(step, WaitStep):
+                entry["wait_s"] = step.seconds
+            summaries.append(entry)
+        return summaries
+
+    # ------------------------------------------------------------------
+    # On-demand manual moves
+    # ------------------------------------------------------------------
+
+    def _refuse_if_manual_move(self, verb: str) -> None:
+        """Raise when a manual move currently holds the engine.
+
+        The mutual-exclusion counterpart of the ``RE.state != "idle"``
+        checks: a manual move is not a plan, so the RE stays idle while it
+        runs — this lock is what keeps a scan, an action, or a second move
+        from starting mid-move (review, PR #597).
+        """
+        if self._manual_move_lock.locked():
+            raise RuntimeError(f"manual move in progress — {verb}")
+
+    def move_variable(
+        self,
+        name: str,
+        value: float,
+        resolver: Any | None = None,  # config_resolver.ConfigResolver
+        *,
+        timeout: float = 60.0,
+    ) -> dict:
+        """Move one scan variable to *value* on demand, outside any scan.
+
+        The manual-move counterpart of :meth:`run_action`: *name* is either
+        a catalog scan-variable name (plain, confirm, or pseudo) or a raw
+        ``"Device:Variable"`` string (plain setpoint semantics — the same
+        dispatch the optimize path uses).  The move goes through
+        :func:`~geecs_bluesky.scan_request_runner.build_movable`, so it
+        carries the exact completion semantics a scan would use: blocking
+        GEECS set per target, ``CaMotor`` readback polling, the
+        ``CaConfirmSettable`` confirming-variable poll, and a pseudo
+        variable's concurrent fan-out.
+
+        A **fresh movable is built per call** — deliberately, so a
+        *relative* pseudo variable re-baselines from where its targets are
+        *now* (each manual bump offsets from the current position, matching
+        how operators used the legacy composite manual set), rather than
+        from some earlier move's baselines.
+
+        Parameters
+        ----------
+        name : str
+            Catalog scan-variable name, or ``"Device:Variable"``.
+        value : float
+            The value to move to (the scanned number, for a pseudo).
+        resolver :
+            Optional name resolver (defaults to the configs-repo resolver,
+            as in :meth:`run`); unused for raw ``"Device:Variable"`` names.
+        timeout : float
+            Overall wall-clock budget for the move (seconds).
+
+        Returns
+        -------
+        dict
+            ``{"variable", "kind", "value", "targets"}`` — ``targets`` maps
+            each ``"Device:Variable"`` actually written to the value it was
+            commanded to (one entry for plain variables; every component,
+            baselines applied, for a pseudo).
+
+        Raises
+        ------
+        RuntimeError
+            When the RunEngine is not idle
+            (``"scan in progress — move not started"``) or another manual
+            move is already running
+            (``"manual move in progress — move not started"``) — the GUI
+            surfaces these messages verbatim.
+        GeecsConfigurationError
+            Unknown catalog name, a pseudo formula that fails to compile
+            or evaluate, or a *value* that is non-finite or not a number.
+        TimeoutError
+            The move did not complete within *timeout*.  The in-flight
+            coroutine is cancelled, but a GEECS blocking set already sent
+            over the wire cannot be recalled — the device may still land
+            on the commanded value after this raises.
+        GeecsError
+            Device-level completion failures propagate (e.g.
+            ``GeecsMotorTimeoutError``, ``GeecsConfirmTimeoutError``).
+        """
+        import asyncio
+        import concurrent.futures
+
+        from geecs_bluesky.scan_request_runner import (
+            ConfigsRepoResolver,
+            PlainMovableTarget,
+            PseudoMovableTarget,
+            build_movable,
+            resolve_movable_target,
+        )
+
+        if self.RE.state != "idle":
+            raise RuntimeError("scan in progress — move not started")
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise GeecsConfigurationError(
+                f"refusing to move {name!r}: {value!r} is not a number"
+            ) from exc
+        if not np.isfinite(value):
+            raise GeecsConfigurationError(
+                f"refusing to move {name!r} to non-finite value {value!r}"
+            )
+        if not self._manual_move_lock.acquire(blocking=False):
+            raise RuntimeError("manual move in progress — move not started")
+        try:
+            if ":" in name:
+                device, _, variable = name.partition(":")
+                target: Any = PlainMovableTarget(device, variable, "setpoint", None)
+            else:
+                if resolver is None:
+                    resolver = ConfigsRepoResolver(self.experiment)
+                target = resolve_movable_target(
+                    resolver.resolve_scan_variable(name), name
+                )
+            movable = build_movable(self, target)
+            try:
+
+                async def _move() -> None:
+                    await movable.set(value)
+
+                future = asyncio.run_coroutine_threadsafe(_move(), self.RE._loop)
+                try:
+                    future.result(timeout=timeout)
+                except concurrent.futures.TimeoutError:
+                    # Cancel the coroutine so the abandoned move stops
+                    # holding the loop; the wire-level caveat is documented
+                    # above (a sent GEECS set cannot be recalled).
+                    future.cancel()
+                    raise TimeoutError(
+                        f"manual move of {name!r} to {value} did not "
+                        f"complete within {timeout}s (cancelled; an "
+                        "already-sent GEECS set may still land)"
+                    ) from None
+                if isinstance(target, PseudoMovableTarget):
+                    kind = f"pseudo ({target.mode})"
+                    targets = dict(getattr(movable, "last_commanded", None) or {})
+                else:
+                    kind = "confirm" if target.confirm else target.kind
+                    targets = {target.label: value}
+                logger.info("Manual move %s → %s (%s)", name, value, targets)
+                return {
+                    "variable": name,
+                    "kind": kind,
+                    "value": value,
+                    "targets": targets,
+                }
+            finally:
+                self.disconnect(movable)
+        finally:
+            self._manual_move_lock.release()
 
     # ------------------------------------------------------------------
     # Internals
@@ -705,7 +1595,7 @@ class GeecsSession:
         """Attach external asset definitions (best-effort; needs the DB)."""
         try:
             from geecs_bluesky.assets import get_asset_definitions
-            from geecs_ca_gateway.db.geecs_db import GeecsDb
+            from geecs_core.db.geecs_db import GeecsDb
 
             device_type = GeecsDb.get_device_type(device_name)
             definitions = get_asset_definitions(device_type)
@@ -752,10 +1642,17 @@ class GeecsSession:
             )
             return
         real = [p for p in positions if p is not None]
+        if real and isinstance(real[0], (list, tuple)):
+            # Multi-axis grid: the legacy 1-D ini fields (Start/End/Step)
+            # describe the outermost (slowest) axis; the full grid lives in
+            # the run metadata (scan_axes / grid_shape).
+            real = [p[0] for p in real]
         o = overrides or {}
-        scan_var = (
-            o.get("scan_parameter") or getattr(motor, "name", None) or "Shotnumber"
+        motors = normalize_motors(motor)
+        default_var = (
+            ",".join(getattr(m, "name", str(m)) for m in motors) if motors else None
         )
+        scan_var = o.get("scan_parameter") or default_var or "Shotnumber"
         start = o.get("start", real[0] if real else 0)
         end = o.get("end", real[-1] if real else 0)
         step = o.get("step", (real[1] - real[0]) if len(real) > 1 else 0)

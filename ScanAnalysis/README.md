@@ -51,9 +51,7 @@ expt = ExperimentNameInMasterControl
 
 For the `GEECS user data location` information, you will need to copy the existing user data folder from the server into the local path that you defined in the config.ini above.  For example, if you set your GEECS user data path to be in `C:\GEECS\user data`, then you will need to make the `GEECS` folder in `C:` and copy the user data from the server.  (For example, HTU's server data was located in `Z:\software\control-all-loasis\HTU\user data`)
 
-Lastly, if this is the first time an experiment is being configured, you'll need to map the experiment name to the server address that data is saved at.  This can be done in the `GEECSPython_API` package (also within GEECS-Plugins)
-1. Go to `GEECS-PythonAPI/geecs_python_api/controls/interface/geecs_paths_config.py`
-2. Add your experiment and server address to `EXPERIMENT_TO_SERVER_DICT` on line 9, matching the formatting of the other entries in the dict.
+Lastly, if this is the first time an experiment is being configured, you'll need to map the experiment name to the server address that data is saved at.  This lives in `GEECS-Data-Utils` (`geecs_data_utils/geecs_paths_config.py`) — add your experiment and server address there, matching the formatting of the other entries.
 
 This should at least get the GUI up and running, but to create and test analyzers in python we'll need to do a bit more work.
 
@@ -192,5 +190,5 @@ The gui's themselves are developed using `pyqt5`, which is a python package for 
 
 1. Be in an active terminal within the poetry virtual environment
 2. `pyqt5-tools designer`  (*If you aren't in the virtual environment, use `poetry run pyqt5-tools designer`)
-3. Do whatever you want, saving and closing the designer after you are done.  (GUI files are located in `geecs_scanner\app\gui\`)
+3. Do whatever you want, saving and closing the designer after you are done.
 4. For any changed file, you'll need to update the python backend code.  To do so, first `cd` into the `gui\` directory.  Then, for anything you changed execute the following:  `pyuic5 -o .\<GUIFile>_ui.py .\<GUIFile>.ui`  (*replacing `<GUIFile>` with the `.ui` file you created/edited)  (**as with step 2, if not in the virtual environment type `poetry run` before this command)

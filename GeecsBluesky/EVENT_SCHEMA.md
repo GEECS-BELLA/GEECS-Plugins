@@ -40,7 +40,11 @@ Added by the run wrapper (`geecs_run_wrapper`) when a scan number is claimed:
 is irreversible, so this map is the only way to recover legacy headers; it backs
 the Tiled→s-file exporter (`geecs_data_utils.tiled_export`). Only true device
 signals appear — derived companion columns (`-acq_timestamp`, `-shot_id`, …) are
-excluded by construction.
+excluded by construction. A **pseudo scan variable's** motor column is the one
+exception to the `Device Variable` header shape: its recorded value is the
+demanded pseudo number (no physical readback of its own), so its header is the
+catalog friendly name verbatim (e.g. `ALine_e_beam_angle_offset_x`), and the
+per-target formulas live in `pseudo_variables` (below).
 
 Strict mode adds:
 
@@ -56,12 +60,43 @@ Free-run mode adds:
 | `device_t0s` | device → t0 `acq_timestamp` captured by the t0-sync stage |
 | `t0_sync_window_s` | Acceptance window used by the t0-sync stage |
 
+ScanRequest runs (`GeecsSession.run`) may also add, for provenance:
+
+| Key | Meaning |
+|---|---|
+| `applied_defaults` | Experiment-defaults fields that filled a silent request |
+| `action_plans` | Assembled per-slot action execution order |
+| `background_telemetry` | `{device: [variables]}` recorded as Tier-2 telemetry (M3c get-side; present only when telemetry ran) |
+| `pseudo_variables` | `{name: {mode, targets: [{target, forward}]}}` for every pseudo scan axis/movable — the mode and per-target formula sources the move used (0.47.0) |
+| `save_sets` | The named save sets unioned for this scan |
+| `skipped_action_plans` | Actions skipped on an optimize-mode request (no action hooks yet) |
+| `provisioned_device_requirements` | What the optimizer's `device_requirements` added to the effective device set (0.38.0) |
+| `dropped_unserved_variables` / `dropped_unserved_devices` | What the unserved-variables pre-flight removed (0.36.0) |
+
 **`scan_id` note:** `scan_id` has no uniqueness contract in Bluesky — the
 day-scoped number resets to 1 each day, which is fine (`uid` is the real key).
 Never look a run up by `scan_id` alone; qualify with the day, or use
 `scan_number` + the start-doc `time`.
 
 ## Event-stream columns
+
+Column-name components come from `safe_name()` (`geecs_bluesky/utils.py`),
+which delegates to the shared naming contract
+(`geecs_core.pv_naming.normalize_component`): runs of non-alphanumeric
+characters collapse to one underscore, lowercase. A GEECS name therefore
+mangles identically into an event column and a gateway PV component.
+(Before GeecsBluesky 0.46.0, `safe_name` replaced specials per-character, so
+`Wavelength (nm)` produced `wavelength__nm` — a double underscore; it now
+produces `wavelength_nm`. A column-name convention change, not a field or
+semantics change, so the schema version stays 1 — runs are self-describing
+and pre-0.46.0 runs keep their old column names, recoverable as ever via
+`geecs_scalar_headers`. One caveat: asset readback
+(`assets/tiled_readback.py`) recomputes `safe_name(device)` at read time
+rather than consulting stored headers, so a pre-0.46.0 run whose *device
+name* contains adjacent special characters would not resolve its asset
+columns under the new policy — no real GEECS device name does, they are
+identifier-clean `U_*` strings, but if one ever did, route the lookup
+through the run's own column names.)
 
 Row identity (every mode, every row — set by the plan via `ScanContext`):
 
@@ -91,6 +126,31 @@ truthfully-labeled data for realignment downstream by `shot_id`).
 
 **Per snapshot device** (asynchronous, no `acq_timestamp`) — every row: its
 data variables, sampled at row emission. No companion columns.
+
+**Background-telemetry columns** (Tier 2, best-effort) — every live experiment
+device with a `get='yes'` variable *not* in the save set is recorded as soft
+snapshot columns read from the gateway monitor cache. They are distinguished
+from Tier-1 save-set data by a **device-name prefix**: the ophyd device is
+`telemetry_<device>`, so every column it contributes is keyed
+`telemetry_<device>-<safe_var>`. Telemetry is **dtype-tolerant**: each column's
+type is inferred from its PV — numeric variables stay numeric (float) so
+downstream telemetry analysis keeps working, while enum/string/path variables
+(e.g. `U_VisaPlungers` `DigitalOutput.Channel N`) are recorded as their
+string/label value. A telemetry column set may therefore mix float and string
+columns; do not assume every telemetry column is float. Typing is
+**per-variable** — one non-numeric variable is captured as a string and never
+drops the device's other (numeric) columns. Telemetry is read-only, sampled
+once per row, **never waited on** — a value that cannot be read (a device that
+went dead mid-scan) degrades to a dtype-appropriate null cell (NaN for a
+numeric column, `""` for a string column), and a device unreachable at scan
+start is dropped with a log line, never a dialog or abort. No telemetry
+variable — and no telemetry device — is dropped for a *type* reason; only a
+genuinely unreachable device degrades to a dropped device. Telemetry columns
+are **not** added to
+`geecs_scalar_headers` (they are Tier 2, not legacy s-file scalars). The
+start-doc `background_telemetry` key (present only when telemetry ran) records
+the `{device: [variables]}` actually selected. This is an additive
+device-name convention, not a new schema field — it does not bump the version.
 
 **Free-run tail flush:** after the last shot, free-run runs emit one final
 event on a separate `flush` stream (one extra read of all devices) so a

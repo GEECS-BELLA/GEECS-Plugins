@@ -44,12 +44,13 @@ for a solo, spare-time maintainer.
 
 ## Architecture
 
-The GeecsBluesky transport core is already ophyd-free (`transport/` imports no
-ophyd). The gateway is a **sibling presentation** over that same core, parallel
-to the ophyd `SignalBackend`:
+The transport core (then in GeecsBluesky, now `geecs_core.transport`) is
+ophyd-free (`transport/` imports no ophyd). The gateway is a **sibling
+presentation** over that same core, parallel to the ophyd `SignalBackend`:
 
 ```
-                 geecs_bluesky.transport (async core, ophyd-free)
+                 geecs_core.transport (async core, ophyd-free;
+                 lived in geecs_bluesky at the time of this snapshot)
                    GeecsUdpClient · GeecsTcpSubscriber
                     /                              \
    backends/geecs_signal_backend.py         GeecsCAGateway (this package)
@@ -141,21 +142,26 @@ Recorded so the next build phase doesn't relitigate them.
   of correct semantics (naming, timestamps, alarm/validity, types), since every
   tool consumes them.
 
-- **Protocol: Channel Access now; pvAccess later, per-device-class.** CA is the
-  stable, universally-supported substrate. PVA/structured data
-  (NTScalar/NTTable/NTNDArray) is additive, adopted where it pays — starting with
-  images. `channels.py` is the only caproto-typed layer, kept swappable; `p4p` is
-  the mature PVA-server route if/when needed. (`p4p` is the PVA Python library,
-  not "the new pyepics"; pyepics stays CA-only and current.)
+- **Protocol: Channel Access for scalars; pvAccess adopted per-device-class
+  where it pays.** CA is the stable, universally-supported substrate for
+  scalars/controls. PVA/structured data (NTScalar/NTTable/NTNDArray) is
+  additive — **adopted first for images, now in production** (NTNDArray via
+  `p4p`; deployment state lives with `GeecsPvaGateway/`). Scalars-over-PVA
+  remains a future per-class decision.
+  `channels.py` is the only caproto-typed layer, kept swappable. (`p4p` is the
+  PVA Python library, not "the new pyepics"; pyepics stays CA-only and
+  current.)
 
-- **Images are a separate, distributed, PVA workstream — not this gateway.** A
+- **Images are a separate, distributed, PVA workstream — not this gateway.**
+  (Shipped 2026-07 and in production: `GeecsPvaGateway/`, one instance per
+  camera server; deployment state lives with that package.) A
   central gateway funneling ~100 cameras is a bandwidth bottleneck. Images belong
   on distributed per-camera IOCs (areaDetector-style, PVA/NTNDArray) where data
   stays at the edge. CA name resolution lets the central scalar gateway and
   per-camera IOCs coexist transparently.
 
 - **Naming policy (retrofit-expensive — locked first):**
-  - Namespace `[Experiment:]Device:Variable`, e.g. `Undulator:U_S1H:Current`.
+  - Namespace `[experiment:]device:variable` (lowercase components), e.g. `undulator:u_s1h:current`.
     The experiment prefix future-proofs against cross-experiment collisions
     (experiments are already separated in the DB).
   - Character mapping: within a component allow only `[A-Za-z0-9_]`; `:` is the
@@ -173,8 +179,10 @@ Recorded so the next build phase doesn't relitigate them.
 
 - **Authorization/write-safety is NOT foundational here.** GEECS enforces the DB
   value limits server-side and returns an error the setter propagates (→ CA put
-  fails correctly), so the gateway inherits range safety; the DB-derived CA
-  control limits are a UX hint with GEECS as backstop. A client commanding an
+  fails correctly), so the gateway inherits range safety; since 0.16.0 the
+  gateway additionally *mirrors* the DB span as enforced `DBR_CTRL` drive
+  limits on `:SP` PVs (pre-forward rejection, `PV_CONTRACT.md` §2), with
+  GEECS remaining the guaranteed backstop. A client commanding an
   in-range value is "how things are" today — not a regression. Residual: serve CA
   only on the intended subnet (`EPICS_CAS_INTF_ADDR_LIST`); optional read-only
   mode. *Operational-envelope interlocks* are a genuine future EPICS/Bluesky
@@ -192,11 +200,16 @@ Recorded so the next build phase doesn't relitigate them.
 
 ## Honest gaps / next steps
 
-- **Reconnect supervisor** — `GeecsTcpSubscriber._listen_loop` exits on a dropped
-  connection; surviving a device power-cycle needs a supervising retry loop. This
-  is the piece that earns "as robust as the legacy SVE tool."
-- **Fuller metadata contract** — alarm limits (HIHI/…) and archive deadbands,
-  beyond the units/precision/control-limits already wired.
+- **Reconnect supervisor** — DONE: per-device supervising retry loops with
+  exponential backoff (see `gateway.py::_supervise`; readbacks go INVALID and
+  `CONNECTED` MAJOR while down). Known residual: a *half-open* socket (peer
+  died without FIN/RST — e.g. a host power-cycle) is invisible to the
+  supervisor and freezes readbacks without alarming; workaround is the
+  `cagateway:restart` PV, tracked as issue #611.
+- **Fuller metadata contract** — curated value-based alarm limits (HIHI/…)
+  landed in 0.7.0 (`ca_alarm_limits` overlay, PV_CONTRACT.md §5); archive
+  deadbands remain future, beyond the units/precision/control-limits already
+  wired.
 - **Archive-rate control belongs in an archive event mask, not the value
   deadband.** Through 0.5.0 the readback monitor deadband inherited the DB
   `tolerance` to pre-limit future Archiver Appliance volume — but that
@@ -213,6 +226,7 @@ Recorded so the next build phase doesn't relitigate them.
 - **Sharding + systemd** for production fault isolation.
 - **A `GatewayConfig.from_geecs_experiment(name)`** that enumerates a whole
   experiment's devices from the DB dict.
-- **Extract `transport/` + `db/`** into a shared base package that both the ophyd
-  backend and this gateway depend on (currently a `path`-dep on GeecsBluesky).
+- ~~**Extract `transport/` + `db/`** into a shared base package that both the
+  ophyd backend and this gateway depend on.~~ **DONE 2026-08-20**: the shared
+  base package is `GEECS-Core` (`geecs_core`) — see its `DESIGN.md`.
 ```

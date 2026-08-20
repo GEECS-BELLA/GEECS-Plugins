@@ -1,35 +1,43 @@
-"""BlueskyScanner — drop-in RunEngine backend for GEECS Scanner GUI.
+"""BlueskyScanner — the GUI/console bridge onto the RunEngine scan engine.
 
-Provides the same interface as ``ScanManager`` so that ``RunControl`` can
-route scan requests to either the legacy ScanManager or this Bluesky backend,
-controlled by a single flag.
+The one submission shape is :class:`geecs_schemas.ScanRequest`:
+``reinitialize(request)`` validates every referenced name fail-fast and
+stores the request; ``start_scan_thread`` runs it through
+:func:`~geecs_bluesky.scan_request_runner.run_scan_request` (the one engine
+definition — actions, entry rituals, multi-axis grids, db_scalars,
+telemetry, optimize).  The legacy ``exec_config`` duck-typed path was
+deleted (G3, 2026-07-16, by owner decision — the old GUI path is
+abandoned on this branch); submitting anything but a ``ScanRequest``
+raises ``TypeError``.
 
-Supported scan modes (MVP):
-    STANDARD — step scan, dispatched by ``acquisition_mode``:
-        ``strict_shot_control`` → :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan`
-        ``free_run_time_sync``  → :func:`~geecs_bluesky.plans.free_run_step_scan.geecs_free_run_step_scan`
-    NOSCAN   — statistics collection: the same step-scan plan with no scan
-               variable moved (``motor=None``, one no-move bin), so it honours
-               the same ``acquisition_mode`` dispatch
+What this class adds on top of the runner is the operator-facing seams:
+lifecycle/step/dialog event emission (``on_event``), the pre-flight
+operator-dialog pipeline (gateway liveness + free-run staleness), progress
+totals for the GUI progress bar, thread management (start/stop/pause), and
+the on-demand action-plan surface (``run_action`` / ``describe_action``).
+These six methods — ``reinitialize``, ``start_scan_thread``,
+``stop_scanning_thread``, ``is_scanning_active``, ``run_action``,
+``describe_action`` — are the console's ``Submitter`` protocol.
 
-The RunEngine is created once on ``__init__`` and its internal event loop
-persists for the lifetime of this object.  Devices are created from the GEECS
-database and connected in the RE's loop at the start of each scan, then
-disconnected when the scan finishes or is aborted.
+The RunEngine is created once on ``__init__`` (owned by the underlying
+:class:`~geecs_bluesky.session.GeecsSession`) and its internal event loop
+persists for the lifetime of this object.
 
 Usage (standalone)::
 
     from geecs_bluesky.scanner_bridge import BlueskyScanner
-    from geecs_scanner.engine.models.scan_execution_config import ScanExecutionConfig
-    from geecs_data_utils import ScanConfig, ScanMode
+    from geecs_schemas import ScanRequest
 
-    scanner = BlueskyScanner()
-    exec_config = ScanExecutionConfig(scan_config=ScanConfig(
-        scan_mode=ScanMode.STANDARD,
-        device_var="U_ESP_JetXYZ:Position.Axis 1",
-        start=4.0, end=6.0, step=0.5, wait_time=5.0,
-    ))
-    scanner.reinitialize(exec_config=exec_config)
+    scanner = BlueskyScanner(experiment_dir="Undulator")
+    request = ScanRequest.model_validate({
+        "mode": "step",
+        "shots_per_step": 5,
+        "acquisition": "free_run",
+        "save_sets": ["baseline"],
+        "axes": [{"variable": "jet_z",
+                  "positions": {"start": 4.0, "end": 6.0, "step": 0.5}}],
+    })
+    scanner.reinitialize(request)
     scanner.start_scan_thread()
     while scanner.is_scanning_active():
         time.sleep(0.5)
@@ -41,148 +49,92 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import queue
 import threading
-import time
-from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Callable
 
-import numpy as np
-
-
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
-from geecs_bluesky.exceptions import (
-    GeecsConfigurationError,
-    GeecsDeviceDownError,
-    GeecsStaleDevicesError,
+from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.scan_log import begin_pre_scan_capture, discard_pre_scan_capture
+
+# Bound at module level (not via the events module) because hermetic tests
+# monkeypatch these names — the `is None` guards downstream are that seam.
+from geecs_bluesky.events import (
+    ActionDecisionRequest,
+    DialogRequest,
+    ScanDialogEvent,
+    ScanEvent,
+    ScanLifecycleEvent,
+    ScanState,
+    ScanStepEvent,
 )
-from geecs_bluesky.models.shot_control import ShotControlConfig
-from geecs_bluesky.plans.run_wrapper import claim_scan, claim_scan_number
+from geecs_bluesky.operator_channel import (
+    ANSWER_ABORT,
+    EventStreamOperator,
+    NullOperator,
+    OperatorChannel,
+    OperatorQuestion,
+)
+from geecs_bluesky.preflight import (
+    LABVIEW_EPOCH_OFFSET,
+    FreeRunStalenessCheck,
+    GatewayLivenessCheck,
+    PreflightContext,
+    run_preflight,
+)
+from geecs_bluesky.scan_request_runner import (
+    ConfigResolver,
+    ConfigsRepoResolver,
+    run_scan_request,
+    trigger_writes_from_profile,
+    validate_scan_request,
+)
 from geecs_bluesky.session import GeecsSession
-from geecs_bluesky.utils import safe_name
-
-# ScanConfig / ScanMode are only imported for type hints; duck-typing is used at
-# runtime so this module can be imported without geecs_data_utils installed.
-try:
-    from geecs_data_utils import ScanConfig as _ScanConfig  # noqa: F401
-except Exception:
-    _ScanConfig = None  # type: ignore[assignment,misc]
-
-try:
-    from geecs_scanner.engine.scan_events import (
-        ScanDialogEvent,
-        ScanEvent,
-        ScanLifecycleEvent,
-        ScanState,
-        ScanStepEvent,
-    )
-except Exception:
-    ScanDialogEvent = None  # type: ignore[assignment]
-    ScanEvent = Any  # type: ignore[misc,assignment]
-    ScanLifecycleEvent = None  # type: ignore[assignment]
-    ScanState = None  # type: ignore[assignment]
-    ScanStepEvent = None  # type: ignore[assignment]
-
-# DialogRequest lives in a separate geecs_scanner module (it pulls in
-# geecs_python_api), so it gets its own defensive import: without it no
-# operator dialogs can be raised and pre-flight checks fall back to today's
-# fail-loud behavior (proceed; t0 sync aborts on genuinely dead devices).
-try:
-    from geecs_scanner.engine.dialog_request import DialogRequest
-except Exception:
-    DialogRequest = None  # type: ignore[assignment,misc]
+from geecs_schemas import (
+    OptimizationSpec,
+    ScanRequest,
+    ScanRequestMode,
+)
 
 logger = logging.getLogger(__name__)
 
-_CONNECT_TIMEOUT = 20.0
-_DISCONNECT_TIMEOUT = 10.0
-_THREAD_JOIN_TIMEOUT = 15.0
+# Bookkeeping-only join budget for stop_scanning_thread: long enough to
+# reap a thread whose plan cleanup is finishing, short enough that a stop
+# during initialization (the scan thread may sit in a 20 s device connect)
+# never blocks the caller — completion is announced via the lifecycle
+# event stream, not by this join (issue #571).
+_STOP_JOIN_TIMEOUT = 2.0
 
-# Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch
-# (1970-01-01).  Device ``acq_timestamp`` values are LabVIEW-epoch.
-_LABVIEW_EPOCH_OFFSET = 2_082_844_800
+# LabVIEW→Unix epoch offset; owned by geecs_bluesky.preflight, aliased here
+# because tests and external callers reference it at this path.
+_LABVIEW_EPOCH_OFFSET = LABVIEW_EPOCH_OFFSET
 
-# Pre-flight read budget for a device's gateway ``CONNECTED`` PV.  Read from
-# the scan thread via run_coroutine_threadsafe on the RE loop; on timeout or
-# error the device is treated as live (fail-open) — an old gateway without
-# status PVs must never block a scan.
+# CONNECTED-PV read budget; on timeout/error the device counts as live
+# (fail-open — an old gateway without status PVs must never block a scan).
 _LIVENESS_READ_TIMEOUT_S = 2.0
 
-# Free-run pre-flight freshness (free-run mode ONLY — liveness itself comes
-# from the gateway ``CONNECTED`` PV): a synchronous device whose cached
-# ``acq_timestamp`` is older than this (wall-clock seconds; control machines
-# are NTP-synced) — or that has no cached frame at all — is considered stale.
-# The trigger free-runs before a free-run scan, so live devices have frames
-# no older than one trigger period; all-CONNECTED-but-all-stale therefore
-# means the trigger is off / not free-running.
+# Free-run pre-flight freshness (free-run ONLY): a sync device with no cached
+# frame newer than this is stale; all-CONNECTED-but-all-stale means the
+# trigger is off / not free-running.
 _STALE_SYNC_THRESHOLD_S = 10.0
 
-# Grace period before re-checking: a just-connected persistent monitor may not
-# have delivered its first frame yet, so one stale verdict gets a second look
-# after roughly one trigger period.
+# One stale verdict gets a second look after ~one trigger period (a fresh
+# monitor may not have delivered its first frame yet).
 _STALE_RECHECK_WAIT_S = 2.0
 
-# How long the scan thread waits for the operator to answer a pre-flight
-# dialog.  On timeout the scan proceeds with today's default behavior
-# (fail-loud at t0 sync) — a headless or unattended scan must never hang on a
-# dialog nobody will answer.
+# Pre-flight dialog wait; on timeout the scan proceeds (fail-loud at t0
+# sync) — an unattended scan must never hang on an unanswered dialog.
 _PREFLIGHT_DIALOG_TIMEOUT_S = 30.0
-
-_STRICT_MODE = "strict_shot_control"
-_FREE_RUN_MODE = "free_run_time_sync"
-_VALID_ACQUISITION_MODES = (_STRICT_MODE, _FREE_RUN_MODE)
-
-
-def _cfg_field(cfg: Any, key: str, default: Any) -> Any:
-    """Read *key* from a device config that may be a dict or a Pydantic model."""
-    if isinstance(cfg, dict):
-        return cfg.get(key, default)
-    return getattr(cfg, key, default)
-
-
-class _ScanLogContextFilter(logging.Filter):
-    """Add scan id context to records written to one scan log."""
-
-    def __init__(self, scan_id: str) -> None:
-        super().__init__()
-        self._scan_id = scan_id
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.scan_id = self._scan_id
-        return True
-
-
-# ---------------------------------------------------------------------------
-# Plan helpers
-# ---------------------------------------------------------------------------
-
-
-def _build_positions(scan_config: Any) -> list[float]:
-    """Convert ScanConfig start/end/step to an explicit list of positions."""
-    start = float(scan_config.start)
-    end = float(scan_config.end)
-    step = float(scan_config.step)
-    if step == 0 or start == end:
-        return [start]
-    n = max(2, round(abs(end - start) / abs(step)) + 1)
-    return list(np.linspace(start, end, n))
 
 
 class BlueskyScanner:
-    """RunEngine-backed scan executor compatible with the ``ScanManager`` API.
+    """RunEngine-backed scan executor: the GUI/console ``Submitter`` engine.
 
     Parameters
     ----------
     experiment_dir:
-        Experiment name (currently unused; reserved for future path integration).
-    shot_control_information:
-        Shot-controller YAML config dict with keys ``"device"`` (GEECS device
-        name) and ``"variables"`` (mapping of variable name → state → value,
-        where states are ``"OFF"``, ``"SCAN"``, ``"STANDBY"``,
-        ``"SINGLESHOT"``, ``"ARMED"``).  Required for
-        ``strict_shot_control`` acquisition, which uses ``ARMED`` +
-        ``SINGLESHOT`` for plan-owned shots.
+        Experiment name (configs-repo folder / PV prefix); the default
+        :class:`~geecs_bluesky.scan_request_runner.ConfigsRepoResolver`
+        resolves request names against it.
     tiled_uri:
         URI of the Tiled catalog server (e.g. ``"http://192.168.6.14:8000"``).
         When provided, a :class:`~bluesky.callbacks.tiled_writer.TiledWriter`
@@ -191,26 +143,27 @@ class BlueskyScanner:
     tiled_api_key:
         API key for the Tiled server, if authentication is enabled.
     optimization_loader:
-        Callable injected by the GUI layer for OPTIMIZATION scans:
-        ``optimization_loader(optimizer_config_path)`` returns a bridge object
-        exposing ``variable_names`` (``"Device:Variable"`` VOCS keys) and
-        ``bind(devices=..., scan_tag=..., scan_folder=...) -> (objective,
-        suggester)`` for
-        :meth:`GeecsSession.optimize`.  Lives on the GUI side because the
-        config-driven optimizer stack (Xopt, evaluators, ScanAnalysis
-        analyzers) belongs to ``geecs_scanner.optimization`` — this package
-        cannot import it (dependency direction).  Without a loader,
-        optimization-mode requests are logged and skipped.
+        Callable injected by the GUI layer for optimize-mode requests;
+        called with the request's resolved
+        :class:`~geecs_schemas.OptimizationSpec` and returns a bridge
+        object exposing ``bind(devices=..., scan_tag=..., scan_folder=...)
+        -> (objective, suggester)`` (plus the optional duck-typed
+        ``device_requirements`` mapping and ``finish()`` bookkeeping).
+        Injected by the client because the heavy optimizer stack
+        (Xopt, evaluators, ScanAnalysis analyzers) lives in
+        ``geecs_bluesky.optimization`` (relocated out of geecs_scanner
+        2026-08-20; heavy deps behind the ``optimize`` extra).  Without a
+        loader, optimize-mode ScanRequests are refused at
+        :meth:`reinitialize`.
     """
 
     def __init__(
         self,
         experiment_dir: str = "",
-        shot_control_information: dict | None = None,
         tiled_uri: str | None = None,
         tiled_api_key: str | None = None,
         on_event: Callable[[ScanEvent], None] | None = None,
-        optimization_loader: Callable[[str], Any] | None = None,
+        optimization_loader: Callable[[OptimizationSpec], Any] | None = None,
     ) -> None:
         self._experiment_dir = experiment_dir
         # The session owns the RunEngine (created with context_managers=[] so
@@ -224,28 +177,23 @@ class BlueskyScanner:
         self._RE = self._session.RE
         self._RE.subscribe(self._on_document)
 
-        # GUI compatibility shims
-        self.dialog_queue: queue.Queue = (
-            queue.Queue()
-        )  # always empty; RE uses bps.pause()
-        self.restore_failures: list = []  # no legacy device restore needed
-        self.last_reinit_error: str | None = None
         self._on_event = on_event
         self._current_state = self._scan_state("IDLE")
         self._abort_requested = False
+        self._scan_finished = False
 
         self._scan_thread: threading.Thread | None = None
-        self._scan_config: Any = None
-        self._rep_rate_hz: float = 1.0
-        self._shots_per_step: int = 10
-        self._acquisition_mode: str = _STRICT_MODE
-        self._devices_config: dict[str, Any] = {}
         self._optimization_loader = optimization_loader
+        # The one submission shape: set by reinitialize(ScanRequest); the
+        # scan thread delegates the stored request to run_scan_request.
+        self._scan_request: ScanRequest | None = None
+        self._request_resolver: ConfigResolver | None = None
+        # The active run's pause supervisor (#552); set for the duration of
+        # a delegated run, None otherwise — request_action_during_scan
+        # refuses when it is None.
+        self._pause_supervisor: Any | None = None
 
-        # Devices are CA-backed only (the direct UDP/TCP backend was removed
-        # once the CA backend reached verified parity; the GeecsCAGateway is
-        # the one component that speaks GEECS wire protocol). Catch a stale
-        # environment loudly rather than silently changing behavior.
+        # Catch a stale env loudly rather than silently changing behavior.
         legacy_backend = os.environ.get("GEECS_BLUESKY_DEVICE_BACKEND")
         if legacy_backend and legacy_backend.strip().lower() != "ca":
             raise ValueError(
@@ -257,20 +205,17 @@ class BlueskyScanner:
         self._total_shots: int = 0
         self._total_steps: int = 0
         self._completed_shots: int = 0
-        # uid of the most recent run's start document (for the Tiled exporter)
-        self._last_run_uid: str | None = None
-
-        # Devices held open between reinitialize() and scan completion
-        self._motor: Any | None = None
-        self._detectors: list = []
-
-        # Shot control — validated from the shot_control_information YAML/dict
-        self._shot_control: ShotControlConfig | None = (
-            ShotControlConfig.from_information(shot_control_information)
-        )
-
-        # Lock for serialising _motor create/destroy across threads
-        self._device_lock = threading.Lock()
+        # The claimed day-scoped scan number for the current scan (None until
+        # claimed); stamped onto every lifecycle event via _set_state.
+        self._scan_number: int | None = None
+        # Ownership tracking for the shared session RunEngine (issue #511):
+        # the start-document uid of the run *this scanner* owns, plus the
+        # descriptor uids belonging to it.  Foreign runs (e.g. a headless
+        # GeecsSession scan driven directly on self._session) flow through
+        # the same _on_document subscription and must not mutate GUI
+        # progress; see _on_document for the claiming/matching rules.
+        self._active_run_uid: str | None = None
+        self._active_descriptor_uids: set[str] = set()
 
         logger.info("BlueskyScanner initialised (RunEngine ready)")
 
@@ -278,104 +223,106 @@ class BlueskyScanner:
     # ScanManager-compatible public API
     # ------------------------------------------------------------------
 
-    def reinitialize(self, exec_config: Any, **_kwargs: Any) -> bool:
-        """Store the scan configuration for the next run.
+    def reinitialize(
+        self, request: ScanRequest, resolver: ConfigResolver | None = None
+    ) -> bool:
+        """Validate a ScanRequest fail-fast and store it for the next run.
 
-        Parameters
-        ----------
-        exec_config : ScanExecutionConfig
-            Validated scan configuration produced by the GUI.  Provides device
-            list, scan parameters, and execution options.
+        The one accepted submission shape is
+        :class:`~geecs_schemas.scan_request.ScanRequest`; names are resolved
+        through a :class:`~geecs_bluesky.scan_request_runner.ConfigResolver`
+        (pass ``resolver=`` to override; defaults to
+        :class:`~geecs_bluesky.scan_request_runner.ConfigsRepoResolver`).
+        Anything else raises ``TypeError`` — the legacy duck-typed
+        ``exec_config`` path was removed (G3).
+
+        The scan thread hands the stored request to
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request` (see
+        :meth:`_run_delegated_request`), so the full schema surface —
+        actions, entry rituals, multi-axis grids, db_scalars, telemetry —
+        runs through the one engine definition.  This method only (a)
+        resolves every referenced name so the GUI gets an immediate error,
+        discarding the results, and (b) stores state.  The **original**
+        pre-defaults request is stored — ``run_scan_request`` applies
+        experiment defaults itself, so storing a post-defaults copy would
+        apply them twice.  ``acquisition`` comes from the request —
+        deliberately no env override, a request declares intent.  Optimize
+        mode requires the GUI-injected ``optimization_loader`` (refused
+        here otherwise — the loader cannot appear later); the scan thread
+        hands the request's resolved ``OptimizationSpec`` to the loader and
+        threads the returned bridge's ``bind`` into the delegated runner
+        (see :meth:`_run_delegated_request`).
 
         Returns
         -------
         bool
             Always ``True`` (no hardware initialisation done here).
+
+        Raises
+        ------
+        TypeError
+            When *request* is not a ``ScanRequest`` — the legacy
+            exec_config path was removed; submit a
+            ``geecs_schemas.ScanRequest``.
         """
-        self._scan_config = exec_config.scan_config
+        if not isinstance(request, ScanRequest):
+            raise TypeError(
+                "the legacy exec_config path was removed (G3); reinitialize "
+                "accepts only a geecs_schemas.ScanRequest, got "
+                f"{type(request).__name__} — submit a ScanRequest"
+            )
+        if resolver is None:
+            resolver = ConfigsRepoResolver(self._experiment_dir)
 
-        # Derive shots from rep_rate × wait_time (ScanOptions has no shots_per_step field)
-        rep_rate = getattr(exec_config.options, "rep_rate_hz", 1.0)
-        self._rep_rate_hz = float(rep_rate or 1.0)
-        wait_time = getattr(self._scan_config, "wait_time", 10.0)
-        self._shots_per_step = max(1, round(self._rep_rate_hz * wait_time))
+        # From here every log line belongs to the upcoming scan's story:
+        # buffer root-logger records so scan.log can open with them once
+        # the folder is claimed (a refused submission discards the buffer).
+        # Guarded on the scan state: a protocol-violating mid-scan
+        # reinitialize must not steal the active scan's capture or snapshot
+        # the scan-lowered root level as "original".
+        if not self.is_scanning_active():
+            begin_pre_scan_capture()
+        try:
+            if request.mode is ScanRequestMode.OPTIMIZE and (
+                self._optimization_loader is None
+            ):
+                raise NotImplementedError(
+                    "optimize-mode ScanRequest execution through BlueskyScanner "
+                    "needs an injected optimization_loader (the config-driven "
+                    "Xopt/evaluator stack is geecs_bluesky.optimization, whose "
+                    "heavy dependencies ride the `optimize` extra); construct "
+                    "the scanner with optimization_loader=..., or run headless "
+                    "via GeecsSession.run(request, resolver, objective=..., "
+                    "suggester=...)"
+                )
 
-        self._acquisition_mode = self._resolve_acquisition_mode(exec_config.options)
+            # Fail-fast validation through THE one definition of "what must
+            # resolve" (scan_request_runner.validate_scan_request, issue #529);
+            # results are discarded — run_scan_request re-resolves at execution
+            # time (it runs the same function as its own first phase, so this
+            # submission-time check can never drift from execution).
+            validate_scan_request(request, resolver)
+        except Exception:
+            discard_pre_scan_capture()
+            raise
 
-        # Build a plain-dict device map compatible with _build_detectors
-        save_config = exec_config.save_config
-        devices_pydantic = getattr(save_config, "Devices", None) or {}
-        self._devices_config = {
-            name: (dev.model_dump() if hasattr(dev, "model_dump") else dict(dev))
-            for name, dev in devices_pydantic.items()
-        }
-
+        # Store the ORIGINAL pre-defaults request (see docstring).
+        self._scan_request = request
+        self._request_resolver = resolver
         self._completed_shots = 0
         self._total_shots = 0
         self._total_steps = 0
-        self._session.rep_rate_hz = self._rep_rate_hz
-
-        # Disconnect any leftover devices from a previous scan
-        self._disconnect_devices_sync()
+        self._scan_number = None
 
         logger.info(
-            "BlueskyScanner reinitialised — mode=%s, shots_per_step=%d, devices=%s",
-            self._acquisition_mode,
-            self._shots_per_step,
-            list(self._devices_config),
+            "BlueskyScanner reinitialised from ScanRequest — mode=%s, "
+            "acquisition=%s, shots_per_step=%d, save_sets=%s",
+            request.mode.value,
+            request.acquisition.value,
+            int(request.shots_per_step),
+            list(request.save_sets),
         )
         return True
-
-    @staticmethod
-    def _resolve_acquisition_mode(options: Any, env: dict | None = None) -> str:
-        """Resolve the acquisition mode from options, with an env override.
-
-        Precedence: ``GEECS_BLUESKY_ACQUISITION_MODE`` env var (quick
-        switching) > ``options.acquisition_mode`` > default
-        ``strict_shot_control``.  An unrecognised value raises instead of
-        silently changing scan semantics.  *env* is injectable for testing.
-        """
-        env = os.environ if env is None else env
-        raw = (
-            env.get("GEECS_BLUESKY_ACQUISITION_MODE")
-            or getattr(options, "acquisition_mode", None)
-            or _STRICT_MODE
-        )
-        mode = str(raw).strip().lower()
-        if mode not in _VALID_ACQUISITION_MODES:
-            raise GeecsConfigurationError(
-                f"Unknown acquisition_mode {raw!r}; expected one of "
-                f"{', '.join(_VALID_ACQUISITION_MODES)}"
-            )
-        return mode
-
-    @staticmethod
-    def _classify_device_roles(
-        devices_config: dict[str, Any], mode: str
-    ) -> list[tuple[str, str]]:
-        """Assign each configured device a role from the acquisition mode.
-
-        Roles: ``"snapshot"`` (asynchronous), ``"triggered"`` (synchronous in
-        strict mode), ``"reference"`` (first synchronous device in free-run
-        mode — the pacemaker), ``"contributor"`` (later synchronous devices in
-        free-run mode).  Returns ``(device_name, role)`` pairs in config order.
-        """
-        free_run = mode == _FREE_RUN_MODE
-        roles: list[tuple[str, str]] = []
-        reference_assigned = False
-        for name, cfg in devices_config.items():
-            synchronous = bool(_cfg_field(cfg, "synchronous", False))
-            if not synchronous:
-                role = "snapshot"
-            elif not free_run:
-                role = "triggered"
-            elif not reference_assigned:
-                role = "reference"
-                reference_assigned = True
-            else:
-                role = "contributor"
-            roles.append((name, role))
-        return roles
 
     @property
     def current_state(self):
@@ -391,10 +338,11 @@ class BlueskyScanner:
             return
 
         self._completed_shots = 0
+        self._scan_number = None
         self._abort_requested = False
+        self._scan_finished = False
         self._scan_thread = threading.Thread(
             target=self._run_scan,
-            args=(self._scan_config,),
             daemon=True,
             name="bluesky-scan",
         )
@@ -402,61 +350,108 @@ class BlueskyScanner:
         logger.info("BlueskyScanner scan thread started")
 
     def stop_scanning_thread(self) -> None:
-        """Abort the running scan and wait for the thread to finish.
+        """Request the running scan to stop; return promptly.
 
-        The abort flag is honoured even before the plan reaches the
-        RunEngine (``RE.abort()`` on an idle engine is a no-op, so a stop
-        clicked during device connect relies on the flag — see
-        :meth:`_abort_before_acquisition`).  If the scan thread does not
-        exit within the join timeout, the thread handle is *kept* so
-        :meth:`is_scanning_active` keeps reporting ``True``: clearing it
-        would let a second ``start_scan_thread`` run the still-busy
-        RunEngine and let ``reinitialize`` disconnect devices under a live
+        Safe to call from any thread, including a GUI worker: this method
+        never blocks on the scan winding down.  Completion is announced
+        the native way — the scan thread's cleanup emits the terminal
+        ABORTED/DONE :class:`ScanLifecycleEvent` through the event stream
+        the GUI already consumes (a STOPPING event is emitted here first).
+
+        How the stop lands, by phase (issue #571):
+
+        - **Running plan**: ``RE.abort()`` directly — valid from
+          ``running`` *and* ``paused``, and thread-safe (bluesky 1.15.0
+          ``run_engine.py``: ``abort()`` dispatches ``_abort_coro`` onto
+          the engine loop via ``__interrupter_helper``'s
+          ``call_soon_threadsafe``; from ``running`` it cancels the plan
+          task and returns without waiting on the plan's cleanup — no
+          ``request_pause()`` needed first).
+        - **Initialization** (idle engine — ``RE.abort()`` would raise
+          ``TransitionError``): the ``_abort_requested`` flag is read by
+          the delegated runner's init-stage checkpoints
+          (``run_scan_request(should_abort=...)``, all pre-claim) and,
+          for a stop landing between the last checkpoint and plan start,
+          by the session's in-plan stop gate.
+
+        If the scan thread does not exit within the short bookkeeping
+        join, the handle is *kept* so :meth:`is_scanning_active` keeps
+        reporting ``True``: clearing it would let a second
+        ``start_scan_thread`` run the still-busy RunEngine under a live
         scan.
+
+        With no active scan (e.g. the click raced the scan's natural
+        completion) this is a logged no-op — no STOPPING event, so the
+        already-emitted terminal state stays the last word.
         """
         logger.info("BlueskyScanner: abort requested")
+        if not self.is_scanning_active():
+            # Nothing to stop — the scan may have just finished naturally
+            # (the click raced the last shot).  Emitting STOPPING here
+            # would repaint the state pill *after* the terminal DONE/
+            # ABORTED event and leave it stuck amber (#573 review); leave
+            # the state stream alone and just reap a dead thread handle.
+            thread = self._scan_thread
+            if thread is not None and not thread.is_alive():
+                self._scan_thread = None
+            logger.info("BlueskyScanner: no active scan; nothing to stop")
+            return
         self._abort_requested = True
         self._set_state("STOPPING")
         try:
-            # RE.abort() on an idle engine raises a TransitionError; the
-            # pre-RE abort path is covered by the _abort_requested flag.
-            if self._RE.state != "idle":
+            if self._RE.state == "paused":
+                # A pause window (#552) is active: the scan thread is in
+                # the supervisor, which reads _abort_requested and issues
+                # RE.abort() from the RE's own thread context.  A second
+                # abort here would race it and cancel the cleanup task
+                # partway (finalize chain truncated).  Only set the flag.
+                pass
+            elif self._RE.state != "idle":
+                # Idle engine: skip — the init-stage stop is covered by the
+                # should_abort checkpoints + the session's stop gate (above).
                 self._RE.abort(reason="stop_scanning_thread called")
         except Exception:
             logger.debug("RE.abort() raised (may not be running)", exc_info=True)
         thread = self._scan_thread
         if thread is not None:
-            thread.join(timeout=_THREAD_JOIN_TIMEOUT)
+            # Bookkeeping-only: never a completion wait (see docstring).
+            thread.join(timeout=_STOP_JOIN_TIMEOUT)
             if thread.is_alive():
-                logger.error(
-                    "BlueskyScanner: scan thread did not stop within %.0f s — "
-                    "keeping the thread handle; the scanner still reports "
-                    "active and must not be restarted or reinitialized until "
-                    "the thread exits",
-                    _THREAD_JOIN_TIMEOUT,
+                logger.info(
+                    "BlueskyScanner: scan thread still finishing after the "
+                    "%.0f s bookkeeping join (normal for a stop during "
+                    "initialization); the scanner keeps reporting active "
+                    "and the terminal lifecycle event will announce "
+                    "completion",
+                    _STOP_JOIN_TIMEOUT,
                 )
             else:
                 self._scan_thread = None
 
-    def pause_scan(self) -> None:
-        """Request the RunEngine to pause between plans steps."""
-        logger.info("BlueskyScanner: pause requested")
-        try:
-            self._RE.request_pause()
-        except Exception:
-            logger.debug("RE.request_pause() raised", exc_info=True)
-
-    def resume_scan(self) -> None:
-        """Resume a paused RunEngine."""
-        logger.info("BlueskyScanner: resume requested")
-        try:
-            self._RE.resume()
-        except Exception:
-            logger.debug("RE.resume() raised", exc_info=True)
+    # The old pause_scan/resume_scan were deleted (issue #552 PR-1): they
+    # issued a HARD pause (request_pause(defer=False)) whose resume replays
+    # the partial row — in strict mode refiring a physical shot.  The safe
+    # operator pause is request_pause/request_resume below (deferred pause
+    # at a checkpoint, driven through the pause supervisor); never
+    # reintroduce a bare RE.resume() API under the old names.
 
     def is_scanning_active(self) -> bool:
-        """Return ``True`` if a scan thread is currently running."""
-        return bool(self._scan_thread and self._scan_thread.is_alive())
+        """Return ``True`` if a scan thread is currently running.
+
+        ``False`` as soon as the scan's cleanup has completed — *before* the
+        terminal DONE/ABORTED lifecycle event is emitted — so an event-driven
+        GUI that re-checks this from its terminal-state handler never races
+        the scan thread's last few instructions (the thread emits the event
+        and exits milliseconds later; ``is_alive()`` alone reported ``True``
+        in that window, leaving Start disabled until an operator clicked
+        Stop).  A thread that is genuinely stuck mid-plan still reports
+        active: the flag is only set once the ``finally`` cleanup ran.
+        """
+        # getattr: hermetic tests build bare scanners via __new__.
+        thread = getattr(self, "_scan_thread", None)
+        return bool(
+            thread and thread.is_alive() and not getattr(self, "_scan_finished", False)
+        )
 
     def estimate_current_completion(self) -> float:
         """Return fraction complete (0.0–1.0) based on shots emitted."""
@@ -465,15 +460,357 @@ class BlueskyScanner:
         return min(self._completed_shots / self._total_shots, 1.0)
 
     # ------------------------------------------------------------------
+    # On-demand actions (G-actions v1) + manual moves — the GUI contract
+    # ------------------------------------------------------------------
+    # These three signatures (run_action, describe_action, move_variable)
+    # are mirrored by the console's Submitter protocol (GEECS-Console ≥
+    # 0.19.0); do not change them without flagging it loudly.
+
+    def _action_resolver(self) -> ConfigResolver:
+        """The resolver on-demand actions resolve against.
+
+        The stored ScanRequest resolver when one is active (so converter
+        state, e.g. extracted element plans, is shared), else a fresh
+        configs-repo resolver over this scanner's experiment.
+        """
+        return self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+
+    def run_action(self, name: str) -> None:
+        """Execute the named ActionPlan on demand — refused while scanning.
+
+        Thin delegation to :meth:`GeecsSession.run_action` with this
+        bridge's resolver.  V1 during-scan behavior is refusal (the
+        pause/decide/resume flow is issue #552).
+
+        Raises
+        ------
+        RuntimeError
+            While a scan is active: ``"scan in progress — action not
+            started"`` (the GUI surfaces this message verbatim).
+        """
+        if self.is_scanning_active():
+            raise RuntimeError("scan in progress — action not started")
+        self._session.run_action(name, self._action_resolver())
+
+    def describe_action(self, name: str) -> list[dict]:
+        """Dry-run the named ActionPlan (no CA, no execution) — see the session.
+
+        Thin delegation to :meth:`GeecsSession.describe_action` with this
+        bridge's resolver.  Deliberately NOT refused while scanning: the
+        dry-run is pure (zero CA), and "what would this action do?" is
+        exactly the question an operator asks while a scan runs.  Only
+        :meth:`run_action` carries the scan-in-progress refusal.
+        """
+        return self._session.describe_action(name, self._action_resolver())
+
+    def move_variable(self, name: str, value: float, *, timeout: float = 60.0) -> dict:
+        """Move a scan variable on demand — refused while scanning.
+
+        Thin delegation to :meth:`GeecsSession.move_variable` with this
+        bridge's resolver: *name* is a catalog scan-variable name (plain,
+        confirm, or pseudo/composite) or a raw ``"Device:Variable"``
+        string.  The move carries scan-identical completion semantics (via
+        ``build_movable``), and a relative pseudo re-baselines from the
+        targets' current positions on every call.
+
+        Returns
+        -------
+        dict
+            ``{"variable", "kind", "value", "targets"}`` — see the session.
+
+        ``timeout`` is the overall wall-clock budget in seconds — raise
+        it for legitimately slow moves (long stage travel).
+
+        Raises
+        ------
+        RuntimeError
+            While a scan is active (``"scan in progress — move not
+            started"``) or another manual move is running (``"manual move
+            in progress — move not started"``) — the GUI surfaces these
+            messages verbatim.
+        """
+        if self.is_scanning_active():
+            raise RuntimeError("scan in progress — move not started")
+        return self._session.move_variable(
+            name, value, self._action_resolver(), timeout=timeout
+        )
+
+    def request_pause(self) -> None:
+        """Pause the running scan at its next safe point (operator Pause).
+
+        The bare-pause counterpart of :meth:`request_action_during_scan`:
+        no action is staged.  Marks the pause supervisor for a manual
+        pause, emits ``PAUSING``, and asks the RunEngine to pause at its
+        next checkpoint (deferred).  The supervisor drives the mode-safe
+        state (free-run → ``OFF``, jet off; strict → nothing) and holds —
+        non-modal, the GUI stays usable — until :meth:`request_resume` or a
+        Stop.  A no-op (logged) when no scan is active.
+        """
+        if not self.is_scanning_active():
+            logger.info("request_pause: no active scan; nothing to pause")
+            return
+        supervisor = self._pause_supervisor
+        if supervisor is None:
+            return
+        supervisor.arm_manual_pause()
+        logger.info("operator pause requested — pausing at next checkpoint")
+        self._set_state("PAUSING")
+        try:
+            self._RE.request_pause(defer=True)
+        except Exception:
+            logger.debug("RE.request_pause() raised", exc_info=True)
+
+    def request_resume(self) -> None:
+        """Resume a scan paused by :meth:`request_pause` (operator Resume).
+
+        Signals the parked pause supervisor (on the scan thread) to resume;
+        it re-asserts the pre-pause shot-control state and the RunEngine
+        rewinds to the checkpoint and continues.  A no-op when nothing is
+        paused.
+        """
+        supervisor = self._pause_supervisor
+        if supervisor is not None:
+            supervisor.request_resume()
+            logger.info("operator resume requested")
+
+    def request_action_during_scan(self, name: str) -> None:
+        """Request an action to run in the scan's pause window (G-actions v2).
+
+        The during-scan counterpart of :meth:`run_action` (issue #552).
+        Validated fail-fast on the calling (GUI) thread — unknown name,
+        cycle, or unreachable target raises here, before anything pauses —
+        then **refused if the action writes to the active scan's
+        shot-control device(s)** (owner decision 11: an action must not
+        perturb the trigger the scan is driving).  On success the action's
+        flattened steps + a connected signal factory are staged on the
+        pause supervisor, PAUSING is emitted, and the RunEngine is asked to
+        pause at its next checkpoint (deferred); the supervisor then runs
+        the operator's execute/ignore/abort decision on the scan thread.
+
+        Raises
+        ------
+        RuntimeError
+            No scan is active (``"no scan in progress — use run_action"``),
+            or one is already awaiting the pause window.
+        GeecsConfigurationError
+            Unknown plan, unreachable target, or an action targeting the
+            scan's shot-control device(s).
+        ActionPlanNotFoundError, ActionPlanCycleError
+            Bad nested reference / cycle.
+        """
+        from geecs_bluesky.pause_supervisor import PendingAction
+        from geecs_bluesky.plans.action_compiler import flatten_action_steps
+        from geecs_schemas.action_plan import CheckStep, SetStep
+
+        if not self.is_scanning_active():
+            raise RuntimeError("no scan in progress — use run_action")
+        supervisor = self._pause_supervisor
+        if supervisor is None:
+            raise RuntimeError("no scan in progress — use run_action")
+
+        resolver = self._action_resolver()
+        plan, registry = self._session._resolve_action(name, resolver)
+        steps = flatten_action_steps(plan, registry=registry)
+
+        # Case-insensitive: GEECS configs disagree on device-name case, so
+        # the guard folds both sides (same rule as merge_save_sets /
+        # merge_optimizer_device_requirements) — a case-mismatched name
+        # must not slip a shot-control write past decision 11.  CheckStep
+        # (read-only) does not perturb the trigger, so only SetStep counts.
+        guarded = {d.casefold() for d in self._guarded_shot_control_devices()}
+        touched = {
+            step.device
+            for step, _ in steps
+            if isinstance(step, SetStep) and step.device.casefold() in guarded
+        }
+        if touched:
+            raise GeecsConfigurationError(
+                f"action {name!r} writes to the scan's shot-control "
+                f"device(s) {sorted(touched)} — refused during a scan so it "
+                "cannot perturb the trigger (run it between scans instead)"
+            )
+
+        # Pre-connect every signal the steps touch (a lazy connect inside
+        # the paused RE loop would deadlock), exactly as run_action does.
+        factory = self._session.action_signal_factory()
+        for step, _ in steps:
+            if not isinstance(step, (SetStep, CheckStep)):
+                continue
+            try:
+                if isinstance(step, SetStep):
+                    factory.get_settable(step.device, step.variable)
+                else:
+                    factory.get_readable(step.device, step.variable)
+            except Exception as exc:
+                self._session.disconnect(factory)
+                raise GeecsConfigurationError(
+                    f"action {name!r}: cannot reach "
+                    f"{step.device}:{step.variable} — {exc}"
+                ) from exc
+
+        pending = PendingAction(
+            name=name,
+            steps=steps,
+            factory=factory,
+            cleanup=lambda: self._session.disconnect(factory),
+        )
+        if not supervisor.set_pending(pending):
+            self._session.disconnect(factory)
+            raise RuntimeError("an action is already awaiting the pause window")
+
+        logger.info("action %r requested during scan — pausing", name)
+        self._set_state("PAUSING")
+        try:
+            self._RE.request_pause(defer=True)
+        except Exception:
+            # The scan may have ended between the active-check and here —
+            # withdraw the staged action so nothing lingers.
+            supervisor.take_unconsumed_pending()
+            self._session.disconnect(factory)
+            self._set_state("RUNNING")
+            raise
+
+    def _guarded_shot_control_devices(self) -> set[str]:
+        """Device names the active scan's shot control drives (decision 11).
+
+        Derived from the stored request's trigger profile (the writes the
+        ShotController replays), so an action targeting any of them is
+        refused during the scan.  Empty when the scan has no trigger
+        profile (nothing to perturb).
+        """
+        request = self._scan_request
+        if request is None or not getattr(request, "trigger_profile", None):
+            return set()
+        resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+        try:
+            profile = resolver.resolve_trigger_profile(request.trigger_profile)
+            writes = trigger_writes_from_profile(profile, request.trigger_variant)
+        except GeecsConfigurationError:
+            # An unresolvable trigger profile is a scan-setup problem the
+            # runner already surfaced; the guard degrades to "nothing to
+            # protect" rather than masking it (narrow catch on purpose —
+            # a programming error must not be swallowed here).
+            logger.debug("could not resolve trigger devices for guard", exc_info=True)
+            return set()
+        devices: set[str] = set()
+        for ordered in writes.states.values():
+            devices.update(device for device, _var, _val in ordered)
+        return devices
+
+    def _make_pause_supervisor(self) -> Any:
+        """Build the pause supervisor for the delegated run (#552)."""
+        from geecs_bluesky.pause_supervisor import PauseSupervisor
+
+        request = self._scan_request
+        acquisition = getattr(
+            getattr(request, "acquisition", None), "value", "free_run"
+        )
+        return PauseSupervisor(
+            acquisition=acquisition,
+            shot_controller=lambda: getattr(self._session, "_shot_controller", None),
+            # With no event consumer, _ask_action_decision emits nowhere —
+            # so hand the supervisor a None ask, which makes it default to
+            # 'ignore' rather than park forever waiting for an answer that
+            # can never arrive (a console-less bridge that still somehow
+            # reaches a pause window).
+            ask=self._ask_action_decision if self._on_event is not None else None,
+            should_abort=lambda: self._abort_requested,
+            on_state=lambda s: self._set_state(s.upper()),
+        )
+
+    def _ask_action_decision(self, request: "ActionDecisionRequest") -> None:
+        """Deliver the three-way decision to the GUI (queued dialog event).
+
+        Emits the request inside a ``ScanDialogEvent`` (the same transport
+        as the pre-flight binary dialogs); the consumer renders the three
+        choices and answers via ``request.response_event`` / ``verdict``.
+        Headless / no-consumer installs never reach here — the supervisor's
+        ``ask`` is ``None`` there.
+        """
+        if self._on_event is None or ScanDialogEvent is None:
+            return
+        try:
+            self._on_event(ScanDialogEvent(request=request))
+        except Exception:
+            logger.debug("action-decision dialog emit raised; ignoring", exc_info=True)
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _on_document(self, name: str, doc: dict) -> None:
+        """Route RunEngine documents into GUI progress — owned runs only.
+
+        The session RunEngine is shared: a foreign run (e.g. a headless
+        ``GeecsSession`` scan driven directly on ``self._session``) flows
+        through this same subscription.  A start document is claimed as
+        *ours* only while this scanner is RUNNING — every scan path sets
+        RUNNING before handing its plan to the (serial) RunEngine, so a
+        start document arriving while the scanner is idle/done is foreign.
+        Event documents carry a ``descriptor`` uid rather than the run
+        start uid, so descriptors of the claimed run are collected and
+        events are matched through them; foreign events never touch
+        ``_completed_shots`` or emit ``ScanStepEvent`` s (issue #511).
+
+        Residual limitation: a foreign run squeezed onto the RunEngine
+        after this scanner enters RUNNING but before its own plan opens
+        its run would still be mis-claimed.  The RunEngine executes plans
+        serially, so that window is only the bridge's pre-plan setup; a
+        full fix would need the plan to hand its run uid out-of-band.
+        """
         if name == "start":
-            self._last_run_uid = doc.get("uid")
+            if self._current_state != self._scan_state("RUNNING"):
+                return  # foreign run — this scanner has no scan in flight
+            self._active_run_uid = doc.get("uid")
+            self._active_descriptor_uids = set()
+            self._note_claimed_scan_number(doc.get("scan_number"))
+        elif name == "descriptor":
+            uid = doc.get("uid")
+            if (
+                uid is not None
+                and self._active_run_uid is not None
+                and doc.get("run_start") == self._active_run_uid
+            ):
+                self._active_descriptor_uids.add(uid)
         elif name == "event":
+            if doc.get("descriptor") not in self._active_descriptor_uids:
+                return  # event from a run this scanner does not own
             self._completed_shots += 1
             self._emit_step_progress(doc)
+        elif name == "stop":
+            if (
+                self._active_run_uid is not None
+                and doc.get("run_start") == self._active_run_uid
+            ):
+                self._active_run_uid = None
+                self._active_descriptor_uids = set()
+
+    def _note_claimed_scan_number(self, scan_number: Any) -> None:
+        """Carry an engine-claimed scan number into the lifecycle stream.
+
+        The bridge never pre-claims — ``session.scan`` claims the number
+        inside the engine (the runner itself claims pre-bind on optimize)
+        and stamps it into the run start document (``geecs_run_wrapper``
+        metadata, ``EVENT_SCHEMA.md``).  The INITIALIZING/RUNNING lifecycle
+        events were already emitted (pre-claim, ``scan_number=None``) by
+        then, so pick the number up here and re-emit RUNNING carrying it —
+        consumers get the number while the scan runs, not only on
+        DONE/ABORTED.  The RUNNING guard keeps a headless run on the shared
+        RunEngine (not this scanner's scan) from flipping the GUI state.
+        """
+        if scan_number is None or self._scan_number is not None:
+            return
+        if self._current_state != self._scan_state("RUNNING"):
+            return
+        try:
+            self._scan_number = int(scan_number)
+        except (TypeError, ValueError):
+            logger.debug(
+                "start document carried a non-integer scan_number %r; ignoring",
+                scan_number,
+            )
+            return
+        self._set_state("RUNNING")
 
     def _emit_step_progress(self, doc: dict) -> None:
         """Emit a :class:`ScanStepEvent` for one Bluesky event document.
@@ -527,41 +864,36 @@ class BlueskyScanner:
         return getattr(ScanState, state_name)
 
     def _set_state(self, state_name: str, total_shots: int = 0) -> None:
-        """Update lifecycle state and emit a GUI scan lifecycle event if possible."""
+        """Update lifecycle state and emit a GUI scan lifecycle event if possible.
+
+        Every emission carries the claimed scan number (``None`` until the
+        scan folder is claimed), so consumers can display "Scan NNN" from
+        the lifecycle stream alone.
+        """
         state = self._scan_state(state_name)
         self._current_state = state
         if self._on_event is None or ScanLifecycleEvent is None:
             return
         try:
-            self._on_event(ScanLifecycleEvent(state=state, total_shots=total_shots))
+            self._on_event(
+                ScanLifecycleEvent(
+                    state=state,
+                    total_shots=total_shots,
+                    scan_number=self._scan_number,
+                )
+            )
         except Exception:
             logger.debug("on_event callback raised; ignoring", exc_info=True)
-
-    def _disconnect_device(self, device) -> None:
-        try:
-            asyncio.run_coroutine_threadsafe(
-                device.disconnect(), self._RE._loop
-            ).result(timeout=_DISCONNECT_TIMEOUT)
-        except Exception:
-            logger.debug("disconnect raised for %s", device, exc_info=True)
-
-    def _disconnect_devices_sync(self) -> None:
-        """Disconnect motor, detectors, and shot controller (called from non-scan threads)."""
-        with self._device_lock:
-            if self._motor is not None:
-                self._disconnect_device(self._motor)
-                self._motor = None
-            for det in self._detectors:
-                self._disconnect_device(det)
-            self._detectors = []
 
     def _abort_before_acquisition(self) -> bool:
         """Return ``True`` (logging loudly) if a stop arrived before the plan ran.
 
         ``RE.abort()`` cannot stop a scan that has not reached the RunEngine
-        yet, so the scan thread checks this flag between thread start and
-        the ``RE(plan)`` invocation (after device connect, before the scan
-        folder is claimed).
+        yet.  This is the scan thread's entry check (a stop that landed
+        before the thread even started); the later initialization stages
+        are covered by the ``should_abort`` hook the delegated runner
+        consults between resolution, device connect, preflight, and the
+        claim (see :meth:`_run_delegated_request`).
         """
         if not self._abort_requested:
             return False
@@ -615,914 +947,245 @@ class BlueskyScanner:
             return True
         return str(value) != GATEWAY_DISCONNECTED
 
-    @staticmethod
-    def _find_stale_sync_devices(
-        sync_devices: list,
-    ) -> list[tuple[Any, float | None]]:
-        """Return ``(device, age_seconds_or_None)`` for stale sync devices.
+    def _operator_channel(self) -> OperatorChannel:
+        """Return the operator channel matching this scanner's wiring.
 
-        A device is stale when its persistent-monitor cache (``_last_acq``,
-        LabVIEW-epoch seconds) is ``None`` (no frame seen since connect) or
-        older than :data:`_STALE_SYNC_THRESHOLD_S` against the NTP-synced
-        wall clock.  ``None`` age means "never acquired".
-        """
-        now_labview = time.time() + _LABVIEW_EPOCH_OFFSET
-        stale: list[tuple[Any, float | None]] = []
-        for device in sync_devices:
-            last = device._last_acq
-            if last is None:
-                stale.append((device, None))
-                continue
-            age = now_labview - float(last)
-            if age > _STALE_SYNC_THRESHOLD_S:
-                stale.append((device, age))
-        return stale
+        With an ``on_event`` consumer: an
+        :class:`~geecs_bluesky.operator_channel.EventStreamOperator`
+        reproducing the legacy dialog channel end to end (DialogRequest in a
+        ScanDialogEvent, GUI answers via ``request.response_event``).
+        Headless (``on_event=None``): a
+        :class:`~geecs_bluesky.operator_channel.NullOperator` that returns
+        each question's default immediately.
 
-    def _request_operator_decision(
-        self,
-        exc: Exception,
-        *,
-        title: str,
-        continue_label: str,
-        abort_label: str = "Abort Scan",
-        context: str | None = None,
-    ) -> str:
-        """Emit a ``ScanDialogEvent`` and wait for the operator's answer.
-
-        Reuses the legacy dialog channel end to end: the request is a
-        :class:`~geecs_scanner.engine.dialog_request.DialogRequest`, carried
-        by a ``ScanDialogEvent`` through the same ``on_event`` callback the
-        lifecycle events use; the GUI renders it on the Qt main thread and
-        answers by writing ``request.abort[0]`` and setting
-        ``request.response_event``, on which this (scan) thread blocks.
-
-        Returns
-        -------
-        str
-            ``"continue"`` or ``"abort"`` when the consumer answered;
-            ``"default"`` when there is no consumer (headless), the event
-            types are unavailable, or no answer arrived within
-            :data:`_PREFLIGHT_DIALOG_TIMEOUT_S` — callers must then preserve
-            today's behavior (proceed, fail loudly later).
+        Built per call (not cached) so the module-level ``ScanDialogEvent``
+        / ``DialogRequest`` / ``_PREFLIGHT_DIALOG_TIMEOUT_S`` names are read
+        at ask time — the hermetic tests monkeypatch them to simulate a
+        consumer-less environment and shortened timeouts.
         """
         if self._on_event is None or ScanDialogEvent is None or DialogRequest is None:
-            return "default"
-        request = DialogRequest(
-            exc=exc,
-            context=context,
-            title=title,
-            continue_label=continue_label,
-            abort_label=abort_label,
+            return NullOperator()
+        return EventStreamOperator(
+            self._on_event,
+            dialog_event_type=ScanDialogEvent,
+            request_type=DialogRequest,
+            default_timeout=_PREFLIGHT_DIALOG_TIMEOUT_S,
         )
-        try:
-            self._on_event(ScanDialogEvent(request=request))
-        except Exception:
-            logger.debug("on_event callback raised; ignoring", exc_info=True)
-            return "default"
-        if not request.response_event.wait(timeout=_PREFLIGHT_DIALOG_TIMEOUT_S):
-            logger.warning(
-                "Pre-flight dialog %r got no response within %.0f s — "
-                "proceeding with default behavior",
-                title,
-                _PREFLIGHT_DIALOG_TIMEOUT_S,
-            )
-            return "default"
-        return "abort" if request.abort[0] else "continue"
 
     def _drop_devices(self, detectors: list, drop_ids: set[int]) -> list:
-        """Disconnect and remove the given devices (operator chose drop)."""
+        """Remove the given devices from the scan (operator chose drop).
+
+        The dropped devices are left **connected**: the delegated runner's
+        ``finally`` owns disconnection of everything it created, so the
+        drop is logged and the device stays connected for that cleanup.
+        """
         for device in detectors:
             if id(device) in drop_ids:
                 logger.warning(
                     "Pre-flight: dropping device %s from this scan "
-                    "(operator chose drop-and-continue); disconnecting it",
+                    "(operator chose drop-and-continue)",
                     self._device_label(device),
                 )
-                self._disconnect_device(device)
-        remaining = [d for d in detectors if id(d) not in drop_ids]
-        with self._device_lock:
-            self._detectors = [d for d in self._detectors if id(d) not in drop_ids]
-        return remaining
+        return [d for d in detectors if id(d) not in drop_ids]
 
     def _preflight_check_sync_liveness(
         self, detectors: list, *, strict: bool = False
     ) -> list | None:
-        """Pre-flight: catch dead sync devices before the claim.
+        """Pre-flight: catch dead sync devices before the claim (pipeline).
 
-        Two stages, both *before* the scan folder is claimed (so an abort
-        here burns no scan number), both asking the operator through the
-        legacy dialog channel when something is wrong.
-
-        **Stage 1 — gateway liveness (both modes).**  Each synchronous
-        device's ``connected_status`` (the gateway's per-device ``CONNECTED``
-        PV) is read; a device reporting ``Disconnected`` is genuinely down —
-        its TCP stream to the gateway is dead.  This is the authoritative
-        signal: the gateway serves every DB device's data PVs regardless of
-        device state, so CA-connect success never implied liveness (an OFF
-        camera's PVs connect fine).  Outcomes:
-
-        - a disconnected *reference* (free-run pacemaker) → abort-only v1
-          (the second button is a clearly-labeled "Try Anyway" because the
-          dialog channel always offers two options; promotion is deferred);
-        - any other disconnected device(s), either mode → drop-and-continue
-          (disconnected devices removed from the list) vs abort;
-        - an unreadable ``CONNECTED`` PV (old gateway, timeout) → fail-open:
-          logged at DEBUG, treated as live.
-
-        **Stage 2 — free-run staleness (free-run mode ONLY).**  With every
-        device CONNECTED, cached ``acq_timestamp`` freshness now answers one
-        remaining question: *is the trigger free-running?* (a free-run scan
-        requires it).  All devices CONNECTED but all frames stale → the
-        "trigger may be off" dialog (Start Anyway / Abort).  The residual
-        case — a CONNECTED-but-stale contributor while the reference frames —
-        keeps the drop-or-abort dialog: the fresh reference proves the
-        trigger is running, so this is a per-device acquisition problem
-        (e.g. camera acquisition stopped while its TCP stream stays up), for
-        which drop is the right offer and trigger-off wording would be wrong.
-        A CONNECTED-but-stale *reference* keeps the abort-only dialog.
-
-        Strict mode runs stage 1 only: frames are not needed before a strict
-        scan (the trigger may legitimately sit OFF; ``ARMED`` starts it), and
-        with ``CONNECTED`` authoritative there is no differential-staleness
-        inference left to make.  (The previous staleness heuristic burned
-        every refire post-claim on an OFF camera — live-observed 2026-07-07,
-        Scan006 — because CA-connect could not see the device was down.)
-
-        Headless / no consumer / no answer → today's behavior is preserved:
-        proceed and fail loudly downstream (t0 sync in free-run, the
-        liveness-gated refire path in strict).
+        Thin call into :mod:`geecs_bluesky.preflight` (liveness + free-run
+        staleness), pre-claim so an abort burns no scan number.  Headless /
+        no answer → proceed and fail loudly downstream.  The module-level
+        knobs are read at call time — the hermetic tests monkeypatch them.
+        Dropped devices stay connected (the runner's ``finally`` owns
+        disconnection of everything it created).
 
         Returns
         -------
         list or None
-            The (possibly reduced) detector list to proceed with, or ``None``
-            when the operator chose to abort.
+            The (possibly reduced) detector list, or ``None`` on abort.
         """
-        sync_devices = [d for d in detectors if hasattr(d, "_last_acq")]
-        if not sync_devices:
-            return detectors
-
-        # ---- Stage 1: gateway liveness (mode-independent) ----------------
-        dead = [d for d in sync_devices if not self._read_gateway_liveness(d)]
-        if dead:
-            dead_ids = {id(d) for d in dead}
-            details = ", ".join(
-                f"{self._device_label(d)} (gateway reports DISCONNECTED)" for d in dead
-            )
-            reference = sync_devices[0]
-
-            if not strict and id(reference) in dead_ids:
-                # v1: a dead reference (pacemaker) is abort-only — promotion
-                # is deliberately out of scope. (Strict mode has no pacemaker;
-                # a dead first device there is just another droppable device.)
-                exc = GeecsDeviceDownError(
-                    f"The free-run reference (pacemaker) device is down: "
-                    f"{details}. The gateway's CONNECTED PV says its TCP "
-                    "stream is dead — the scan cannot pace without it; "
-                    "aborting is recommended. Trying anyway will fail at "
-                    "t0 sync.",
-                    device_name=self._device_label(reference),
-                )
-                decision = self._request_operator_decision(
-                    exc,
-                    title="Reference Device Disconnected",
-                    continue_label="Try Anyway",
-                )
-                if decision == "abort":
-                    logger.warning(
-                        "Pre-flight: operator aborted (reference disconnected)"
-                    )
-                    return None
-                logger.warning(
-                    "Pre-flight: proceeding with a DISCONNECTED reference "
-                    "(%s) — t0 sync will fail loudly",
-                    details,
-                )
-                # The operator explicitly opted in; skip further pre-flight
-                # dialogs rather than stack a staleness dialog on top.
-                return detectors
-
-            exc = GeecsDeviceDownError(
-                f"Synchronous device(s) are down: {details}. The gateway's "
-                "CONNECTED PV says their TCP stream is dead (an off/crashed "
-                "GEECS device — its data PVs still connect, so this is the "
-                "authoritative check). Drop them and continue the scan "
-                "without their data, or abort."
-            )
-            decision = self._request_operator_decision(
-                exc,
-                title="Disconnected Device(s)",
-                continue_label="Drop && Continue",
-            )
-            if decision == "abort":
-                logger.warning("Pre-flight: operator aborted (disconnected devices)")
-                return None
-            if decision == "default":
-                logger.warning(
-                    "Pre-flight: device(s) %s are DISCONNECTED per the "
-                    "gateway but no operator answer — proceeding unchanged; "
-                    "the scan will fail loudly downstream (t0 sync in "
-                    "free-run, device-down abort in strict)",
-                    details,
-                )
-                return detectors
-            detectors = self._drop_devices(detectors, dead_ids)
-            sync_devices = [d for d in detectors if hasattr(d, "_last_acq")]
-            if not sync_devices:
-                return detectors
-
-        # ---- Stage 2: free-run trigger/staleness check --------------------
-        if strict:
-            # Frames are not needed before a strict scan (the trigger may
-            # legitimately sit OFF; ARMED starts it) and CONNECTED already
-            # answered liveness — nothing left to check.
-            return detectors
-
-        stale = self._find_stale_sync_devices(sync_devices)
-        if stale and _STALE_RECHECK_WAIT_S > 0:
-            # A just-connected monitor may not have delivered its first frame
-            # yet; give the free-running trigger one more period.
-            time.sleep(_STALE_RECHECK_WAIT_S)
-            stale = self._find_stale_sync_devices(sync_devices)
-        if not stale:
-            return detectors
-
-        def _describe(device: Any, age: float | None) -> str:
-            if age is None:
-                return f"{self._device_label(device)} (no frames since connect)"
-            return f"{self._device_label(device)} (last frame {age:.0f} s ago)"
-
-        details = ", ".join(_describe(dev, age) for dev, age in stale)
-        stale_ids = {id(dev) for dev, _age in stale}
-        reference = sync_devices[0]
-
-        if len(stale) == len(sync_devices):
-            # Every sync device is CONNECTED but frameless — unambiguous now:
-            # the trigger is off / not free-running.
-            exc = GeecsStaleDevicesError(
-                f"All synchronous devices are CONNECTED per the gateway but "
-                f"none has a fresh frame ({details}). The trigger appears to "
-                "be off / not free-running — free-run scans need the trigger "
-                "free-running before start. Starting anyway will fail at "
-                "t0 sync if nothing is firing."
-            )
-            decision = self._request_operator_decision(
-                exc,
-                title="Trigger May Be Off",
-                continue_label="Start Anyway",
-            )
-            if decision == "abort":
-                logger.warning("Pre-flight: operator aborted (all sync stale)")
-                return None
-            logger.warning(
-                "Pre-flight: proceeding with all sync devices stale (%s) — "
-                "t0 sync will fail loudly if the trigger is really off",
-                details,
-            )
-            return detectors
-
-        if id(reference) in stale_ids:
-            # v1: a frameless reference (pacemaker) is abort-only, same as a
-            # disconnected one — promotion is deliberately out of scope.
-            exc = GeecsStaleDevicesError(
-                f"The free-run reference (pacemaker) device is CONNECTED but "
-                f"has no fresh frames: {details}. The scan cannot pace "
-                "without it; aborting is recommended. Trying anyway will "
-                "fail at t0 sync if it is really not acquiring."
-            )
-            decision = self._request_operator_decision(
-                exc,
-                title="Reference Device Not Acquiring",
-                continue_label="Try Anyway",
-            )
-            if decision == "abort":
-                logger.warning("Pre-flight: operator aborted (stale reference)")
-                return None
-            logger.warning(
-                "Pre-flight: proceeding with a stale reference (%s) — "
-                "t0 sync will fail loudly if it is really not acquiring",
-                details,
-            )
-            return detectors
-
-        # Residual case: CONNECTED-but-stale contributor(s) while the
-        # reference frames.  The fresh reference proves the trigger is
-        # running, so this is a per-device acquisition problem (camera
-        # acquisition stopped while its TCP stream stays up) — offer to drop.
-        exc = GeecsStaleDevicesError(
-            f"Synchronous device(s) are CONNECTED but not producing frames: "
-            f"{details}. The reference is framing, so the trigger is "
-            "running — these devices are not acquiring. Drop them and "
-            "continue the scan without their data, or abort."
+        ctx = PreflightContext(
+            detectors=detectors,
+            strict=strict,
+            read_liveness=self._read_gateway_liveness,
+            drop_devices=self._drop_devices,
+            device_label=self._device_label,
+            dialog_timeout=_PREFLIGHT_DIALOG_TIMEOUT_S,
         )
-        decision = self._request_operator_decision(
-            exc,
-            title="Device(s) Not Acquiring",
-            continue_label="Drop && Continue",
-        )
-        if decision == "abort":
-            logger.warning("Pre-flight: operator aborted (stale sync devices)")
-            return None
-        if decision == "default":
-            logger.warning(
-                "Pre-flight: stale sync device(s) %s but no operator answer — "
-                "proceeding unchanged; t0 sync will fail loudly if they are "
-                "really not acquiring",
-                details,
-            )
-            return detectors
-        return self._drop_devices(detectors, stale_ids)
+        checks = [
+            GatewayLivenessCheck(),
+            FreeRunStalenessCheck(
+                threshold_s=_STALE_SYNC_THRESHOLD_S,
+                recheck_wait_s=_STALE_RECHECK_WAIT_S,
+            ),
+        ]
+        return run_preflight(checks, ctx, self._operator_channel())
 
-    @staticmethod
-    def _log_claimed_scan_failure(
-        scan_number: int | None, scan_folder: str | None
-    ) -> None:
-        """Log loudly that a claimed scan folder was left behind by a failure.
-
-        The folder is never deleted (scan-folder lifecycle invariant: once a
-        ``scans/ScanNNN/`` folder exists it must not be removed or
-        recreated), so the claimed-but-failed state is surfaced here instead
-        of being silent.
-        """
-        if scan_number is None and scan_folder is None:
-            return
-        logger.error(
-            "Scan %s failed or aborted after its folder was claimed at %s; "
-            "the folder is left in place (never deleted) and may be missing "
-            "ScanInfo or data",
-            scan_number,
-            scan_folder,
-        )
-
-    def _run_scan(self, scan_config: Any) -> None:
-        """Scan thread body: create devices, run plan, clean up."""
+    def _run_scan(self) -> None:
+        """Scan thread body: delegate the stored request, then clean up state."""
         failed = False
         try:
             if self._abort_before_acquisition():
                 return
-            mode = scan_config.scan_mode
-            # Support both ScanMode enum and plain strings
-            mode_val = mode.value if hasattr(mode, "value") else str(mode).lower()
-            logger.info("BlueskyScanner: starting %s scan", mode_val)
-
-            if mode_val == "standard":
-                self._run_standard_scan(scan_config)
-            elif mode_val == "noscan":
-                self._run_noscan(scan_config)
-            elif mode_val == "optimization":
-                self._run_optimization(scan_config)
-            else:
-                logger.warning(
-                    "BlueskyScanner: scan mode %r not yet supported; skipping", mode_val
+            if self._scan_request is None:
+                raise GeecsConfigurationError(
+                    "start_scan_thread ran with no stored ScanRequest — call "
+                    "reinitialize(request) first"
                 )
-        except Exception:
-            failed = True
-            logger.exception("BlueskyScanner scan thread raised an exception")
+            self._run_delegated_request()
+        except Exception as exc:
+            if self._abort_requested:
+                # Operator-requested abort: anything unwinding out of the
+                # scan here is part of the stop, not a failure — one INFO
+                # line, no traceback (ABORTED state is set below either way).
+                logger.info(
+                    "BlueskyScanner: scan thread exiting after operator abort (%s)",
+                    exc,
+                )
+            else:
+                failed = True
+                logger.exception("BlueskyScanner scan thread raised an exception")
         finally:
-            self._disconnect_devices_sync()
+            # Cleanup is complete: mark inactive BEFORE emitting the terminal
+            # state, so a consumer reacting to DONE/ABORTED observes
+            # is_scanning_active() == False (see its docstring).  The runner's
+            # own ``finally`` disconnected everything it created.
+            # A pre-scan log buffer not consumed by a scan.log attach
+            # (failure before the claim) must not leak into a later scan.
+            discard_pre_scan_capture()
+            self._scan_finished = True
             if self._abort_requested or failed:
                 self._set_state("ABORTED")
             else:
                 self._set_state("DONE")
             logger.info("BlueskyScanner: scan thread finished")
 
-    @contextmanager
-    def _scan_log(self, scan_number: int | None, scan_folder: str | None):
-        """Attach a per-scan log file for Bluesky scanner runs."""
-        if scan_number is None or scan_folder is None:
-            yield
-            return
+    def _run_delegated_request(self) -> None:
+        """Run the stored ScanRequest through the engine's one definition.
 
-        folder = Path(scan_folder)
-        if not folder.is_dir():
-            logger.warning("Scan folder %s does not exist; skipping scan.log", folder)
-            yield
-            return
+        Delegates to
+        :func:`~geecs_bluesky.scan_request_runner.run_scan_request`.
+        Bridge-specific facts: the two seams are passed as runner hooks
+        (:meth:`_delegated_preflight`, :meth:`_on_delegated_scan_start`);
+        the bridge must NOT pre-claim — the claim happens inside the runner
+        (``session.scan``, or the runner itself pre-bind on optimize),
+        which also owns the ``scan.log`` attach; exceptions propagate to
+        :meth:`_run_scan`'s cleanup (ABORTED state + disconnect).
 
-        scan_id = f"Scan{scan_number:03d}"
-        handler = logging.FileHandler(folder / "scan.log", encoding="utf-8")
-        handler.setLevel(logging.INFO)
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s.%(msecs)03d %(levelname)s %(name)s "
-                "[%(threadName)s] scan=%(scan_id)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-        handler.addFilter(_ScanLogContextFilter(scan_id))
-
-        # Capture the whole scan story, not just this package: during
-        # optimization scans the evaluator (geecs_scanner.optimization) and
-        # its analyzers (scan_analysis, image_analysis) do the per-bin work,
-        # and their file-mapping / objective lines belong in scan.log too.
-        capture_loggers = [
-            logging.getLogger(name)
-            for name in (
-                "geecs_bluesky",
-                "geecs_scanner.optimization",
-                "scan_analysis",
-                "image_analysis",
-            )
-        ]
-        old_levels = [lg.level for lg in capture_loggers]
-        for lg in capture_loggers:
-            if lg.level == logging.NOTSET or lg.level > logging.INFO:
-                lg.setLevel(logging.INFO)
-            lg.addHandler(handler)
+        Optimize-mode requests hand the resolved ``OptimizationSpec`` to
+        the GUI-injected ``optimization_loader`` (presence enforced at
+        :meth:`reinitialize`); the returned bridge's
+        ``bind`` becomes the runner's ``optimization_binder``, its
+        ``device_requirements`` (duck-typed, like ``finish``) are handed
+        to the runner for auto-provisioning into the effective device set
+        (the objective's diagnostics acquire and save without being named
+        in the save sets), and its optional ``finish()`` bookkeeping (e.g.
+        the legacy ``xopt_dump.yaml``) runs after a successful run.
+        """
+        request = self._scan_request
+        resolver = self._request_resolver or ConfigsRepoResolver(self._experiment_dir)
+        optimization_binder = None
+        opt_bridge: Any | None = None
+        if request.mode is ScanRequestMode.OPTIMIZE:
+            if self._optimization_loader is None:
+                # reinitialize refused already; guard direct/stale callers.
+                raise GeecsConfigurationError(
+                    "optimize-mode ScanRequest reached the scan thread "
+                    "without an optimization_loader"
+                )
+            opt_bridge = self._optimization_loader(request.optimization)
+            optimization_binder = opt_bridge.bind
+        self._pause_supervisor = self._make_pause_supervisor()
         try:
-            logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
-            yield
-            logger.info("scan %s: finished", scan_id)
+            run_scan_request(
+                self._session,
+                request,
+                resolver,
+                preflight=self._delegated_preflight,
+                on_scan_start=self._on_delegated_scan_start,
+                optimization_binder=optimization_binder,
+                device_requirements=(
+                    getattr(opt_bridge, "device_requirements", None)
+                    if opt_bridge is not None
+                    else None
+                ),
+                operator_channel=self._delegated_operator_channel(),
+                # Stop clicked during initialization: the runner consults
+                # this between init stages (all pre-claim) and the session's
+                # stop gate re-reads it at plan start — RE.abort() alone
+                # cannot reach a scan not yet in the RunEngine (issue #571).
+                should_abort=lambda: self._abort_requested,
+                # The during-scan operator-action pause window (#552): a
+                # deferred pause at a plan checkpoint hands the scan thread
+                # to this supervisor (safe state → decide → act → restore).
+                pause_supervisor=self._pause_supervisor,
+            )
         finally:
-            for lg, old_level in zip(capture_loggers, old_levels):
-                lg.removeHandler(handler)
-                lg.setLevel(old_level)
-            handler.close()
-
-    def _run_standard_scan(self, scan_config: Any) -> None:
-        """Step scan: move a scan device through positions, collect shots each step."""
-        if not scan_config.device_var:
-            logger.error("STANDARD scan requires device_var; got None")
-            return
-
-        if ":" not in scan_config.device_var:
-            logger.error(
-                "device_var must be 'DeviceName:VariableName', got: %r",
-                scan_config.device_var,
-            )
-            return
-
-        device_name, variable = scan_config.device_var.split(":", 1)
-        ophyd_name = safe_name(f"{device_name}_{variable}")
-
-        logger.info(
-            "Creating motor: %s / %s → name=%r", device_name, variable, ophyd_name
-        )
-        motor = self._session.motor(device_name, variable, name=ophyd_name)
-        with self._device_lock:
-            self._motor = motor
-
-        positions = _build_positions(scan_config)
-        extra_md: dict[str, Any] = {"device_var": scan_config.device_var}
-        if scan_config.additional_description:
-            extra_md["description"] = scan_config.additional_description
-        self._execute_scan(scan_config, motor, positions, extra_md)
-
-    def _run_noscan(self, scan_config: Any) -> None:
-        """Statistics collection: N shots at fixed settings, no scan variable moved.
-
-        Routed through the same plan as a motor scan with ``motor=None`` and a
-        single no-move bin, so it works identically in both acquisition modes
-        (strict and free-run) instead of being a separate code path.
-        """
-        extra_md: dict[str, Any] = {}
-        if getattr(scan_config, "additional_description", None):
-            extra_md["description"] = scan_config.additional_description
-        self._execute_scan(scan_config, motor=None, positions=[None], extra_md=extra_md)
-
-    def _merge_optimization_device_requirements(self, requirements: Any) -> None:
-        """Merge optimizer ``device_requirements`` into the save-device set.
-
-        Legacy parity: ``ScanManager`` feeds ``optimizer.device_requirements``
-        (shape ``{"Devices": {name: cfg}}``, auto-generated by the optimizer
-        config from the evaluator's analyzers with a synchronous +
-        ``save_nonscalar_data=True`` + ``acq_timestamp`` template) through
-        ``device_manager.load_from_dictionary``, so every device the
-        objective needs is acquired and natively saved without being on the
-        GUI save list.  Mirrored here on ``self._devices_config`` before
-        :meth:`_build_session_devices` runs:
-
-        - a required device absent from the GUI list is added with the
-          requirement's own config (flags default to the legacy
-          ``DeviceConfig`` defaults when the requirement omits them); it is
-          appended after the GUI devices, so the free-run reference
-          (pacemaker) choice is unchanged;
-        - a device already on the GUI list keeps its GUI config and only
-          gains required variables it was missing (the legacy
-          ``subscribe_var_values`` extension).
-
-        Device names are matched **case-insensitively** (``str.casefold``):
-        GEECS itself is case-inconsistent about device-name spelling (the DB
-        may say ``UC_Amp4_IR_input`` while native files say
-        ``UC_Amp4_IR_Input``), so optimizer configs drift.  On a
-        case-insensitive hit the requirement merges into the *existing*
-        entry under the GUI's spelling — the GUI/DB spelling is the one
-        whose CA PVs actually connect (CA names are case-sensitive) — and
-        the difference is logged at INFO.  Live-observed 2026-07-06: a
-        wrong-case duplicate entry NotConnectedError'd on every PV.
-
-        *requirements* is duck-typed off the bridge object (``Any``): a
-        ``{"Devices": ...}`` mapping, or ``None``/empty when the bridge
-        exposes no requirements (unchanged behavior).
-        """
-        devices = (
-            requirements.get("Devices") if isinstance(requirements, dict) else None
-        )
-        if not devices:
-            return
-        for device_name, req in devices.items():
-            req_vars = list(_cfg_field(req, "variable_list", []) or [])
-            configured_name = device_name
-            existing = self._devices_config.get(device_name)
-            if existing is None:
-                folded = device_name.casefold()
-                match = next(
-                    (
-                        name
-                        for name in self._devices_config
-                        if name.casefold() == folded
-                    ),
-                    None,
-                )
-                if match is not None:
-                    configured_name = match
-                    existing = self._devices_config[match]
-                    logger.info(
-                        "Optimization: required device %s differs only in "
-                        "case from configured device %s; merging under the "
-                        "GUI spelling %s (CA PV names are case-sensitive)",
-                        device_name,
-                        match,
-                        match,
-                    )
-            if existing is None:
-                entry = {
-                    "synchronous": bool(_cfg_field(req, "synchronous", False)),
-                    "save_nonscalar_data": bool(
-                        _cfg_field(req, "save_nonscalar_data", False)
-                    ),
-                    "variable_list": req_vars,
-                }
-                self._devices_config[device_name] = entry
+            # A pause requested but never delivered (the scan ended first)
+            # is the normal end-of-plan outcome recorded on #552 — withdraw
+            # it, report it, release its factory.
+            leftover = self._pause_supervisor.take_unconsumed_pending()
+            if leftover is not None:
                 logger.info(
-                    "Optimization: auto-provisioned required device %s "
-                    "(synchronous=%s, save_nonscalar=%s, variables=%s) — "
-                    "verify the spelling matches the GEECS database; "
-                    "CA PV names are case-sensitive",
-                    device_name,
-                    entry["synchronous"],
-                    entry["save_nonscalar_data"],
-                    req_vars,
+                    "action %r was requested but the scan ended before the "
+                    "pause landed — it was NOT run",
+                    leftover.name,
                 )
-            else:
-                current = list(_cfg_field(existing, "variable_list", []) or [])
-                missing = [v for v in req_vars if v not in current]
-                if not missing:
-                    continue
-                merged = current + missing
-                if isinstance(existing, dict):
-                    existing["variable_list"] = merged
-                else:
-                    existing.variable_list = merged
-                logger.info(
-                    "Optimization: added required variable(s) %s to "
-                    "configured device %s (GUI settings preserved)",
-                    missing,
-                    configured_name,
-                )
+                try:
+                    leftover.cleanup()
+                except Exception:  # noqa: BLE001 — best-effort
+                    logger.debug("leftover-action cleanup raised", exc_info=True)
+            self._pause_supervisor = None
+        if opt_bridge is not None and not getattr(
+            self._session, "last_run_aborted", False
+        ):
+            # Post-run bookkeeping owned by the bridge; skipped on failure
+            # (exceptions propagate) and on an operator abort (the quiet
+            # aborted-outcome return).
+            finish = getattr(opt_bridge, "finish", None)
+            if callable(finish):
+                finish()
 
-    def _run_optimization(self, scan_config: Any) -> None:
-        """Optimization as a scan, driven by the GUI's config-based optimizer stack.
+    def _delegated_operator_channel(self) -> OperatorChannel:
+        """Operator channel for the runner's own pre-flight questions.
 
-        The GUI-injected ``optimization_loader`` owns everything Xopt/evaluator
-        (see the constructor docstring); this method maps the scan request onto
-        :meth:`GeecsSession.optimize`: VOCS variables become session settables,
-        save devices become the detectors, iterations come from the configured
-        step count and shots-per-iteration from ``rep_rate × wait_time`` —
-        exactly the legacy optimization-scan shape (iteration = bin).
+        The delegated runner asks its config-level questions itself (today:
+        the unserved-variables check, which runs before detectors exist so
+        it cannot go through :meth:`_delegated_preflight`).  This wraps
+        :meth:`_operator_channel` so an "abort" answer to a runner-asked
+        question also sets the scanner's abort flag — the scan thread's
+        cleanup then reports ABORTED instead of DONE, matching the
+        detector-level pipeline's behavior.
         """
-        if self._optimization_loader is None:
-            logger.warning(
-                "BlueskyScanner: optimization scan requested but no "
-                "optimization_loader was injected; skipping"
-            )
-            return
-        config_path = getattr(scan_config, "optimizer_config_path", None)
-        if not config_path:
-            logger.error("optimization scan requires optimizer_config_path; got None")
-            return
+        inner = self._operator_channel()
+        scanner = self
 
-        bridge = self._optimization_loader(str(config_path))
+        class _AbortNotingChannel:
+            def ask(self, question: OperatorQuestion) -> str:
+                answer = inner.ask(question)
+                if answer == ANSWER_ABORT:
+                    scanner._abort_requested = True
+                return answer
 
-        # Legacy parity: merge the optimizer config's device requirements
-        # into the save-device set before detectors are built, so the
-        # objective's diagnostics acquire and save even when they are not on
-        # the GUI save list.  Duck-typed off the bridge (like ``on_finish``/
-        # ``finish``) — geecs_bluesky never imports geecs_scanner.
-        self._merge_optimization_device_requirements(
-            getattr(bridge, "device_requirements", None)
-        )
+        return _AbortNotingChannel()
 
-        strict = self._acquisition_mode != _FREE_RUN_MODE
-        if strict and self._shot_control is None:
-            raise GeecsConfigurationError(
-                "strict_shot_control requires shot_control_information with a "
-                "non-empty ARMED state. Use acquisition_mode="
-                "'free_run_time_sync' for free-running trigger acquisition."
-            )
-        self._session.shot_control(self._shot_control)
+    def _delegated_preflight(self, detectors: list, strict: bool) -> list | None:
+        """Runner preflight hook: the operator-dialog pipeline, sans disconnect.
 
-        detectors = self._build_session_devices()
-        if not detectors:
-            logger.error(
-                "optimization scan has no detector devices; aborting before "
-                "claiming a scan folder"
-            )
-            return
-
-        # Connect the VOCS settables only after the detector check, so an
-        # early exit cannot leak their persistent CA monitors.  Each settable
-        # joins self._detectors as soon as it is connected — the scan
-        # thread's cleanup then disconnects it even when a later step fails.
-        variables: dict[str, Any] = {}
-        for key in bridge.variable_names:
-            device_name, variable = key.split(":", 1)
-            settable = self._session.settable(
-                device_name, variable, name=safe_name(f"{device_name}_{variable}")
-            )
-            variables[key] = settable
-            with self._device_lock:
-                self._detectors.append(settable)
-
-        if self._abort_before_acquisition():
-            return
-
-        # Claim only after everything above that can fail has succeeded.  The
-        # claim still precedes the bridge bind (its analyzers get the real
-        # ScanTag for native-file loading) and the scan log (so the log wraps
-        # the whole run).
-        scan_tag, scan_folder = claim_scan(self._experiment_dir)
-        scan_number = scan_tag.number if scan_tag is not None else None
-
-        try:
-            objective, suggester = bridge.bind(
-                devices=list(variables.values()) + detectors,
-                scan_tag=scan_tag,
-                scan_folder=scan_folder,
-            )
-
-            max_iterations = len(_build_positions(scan_config))
-            n_shots = max_iterations * self._shots_per_step
-            self._total_shots = n_shots
-            self._total_steps = max_iterations
-            self._set_state("INITIALIZING", total_shots=n_shots)
-            logger.info(
-                "Optimization: up to %d iteration(s) × %d shots = %d events, "
-                "variables=%s",
-                max_iterations,
-                self._shots_per_step,
-                n_shots,
-                list(variables),
-            )
-
-            run_md: dict[str, Any] = {
-                "operator": "",
-                "scan_mode": "optimization",
-                "wait_time": getattr(scan_config, "wait_time", None),
-                "optimizer_config_path": str(config_path),
-            }
-            with self._scan_log(scan_number, scan_folder):
-                self._set_state("RUNNING")
-                self._session.optimize(
-                    variables=variables,
-                    detectors=detectors,
-                    objective=objective,
-                    suggester=suggester,
-                    shots_per_iteration=self._shots_per_step,
-                    max_iterations=max_iterations,
-                    mode="strict" if strict else "free_run",
-                    description=getattr(scan_config, "additional_description", "")
-                    or "",
-                    md=run_md,
-                    scan_number=scan_number,
-                    scan_folder=scan_folder,
-                    # Bridges map optimizer-config end-of-run policy (e.g. the
-                    # legacy move_to_best_on_finish flag) onto the session's.
-                    on_finish=getattr(bridge, "on_finish", "hold"),
-                )
-                # Post-run bookkeeping owned by the bridge (e.g. the legacy
-                # xopt_dump.yaml written into the scan folder).
-                finish = getattr(bridge, "finish", None)
-                if callable(finish):
-                    finish()
-        except BaseException:
-            self._log_claimed_scan_failure(scan_number, scan_folder)
-            raise
-
-    def _execute_scan(
-        self,
-        scan_config: Any,
-        motor: Any | None,
-        positions: list[float | None],
-        extra_md: dict[str, Any] | None = None,
-    ) -> None:
-        """Translate the GUI scan request into a session scan (the thin adapter).
-
-        The session owns the discipline; this method only maps
-        ``exec_config`` shapes onto :meth:`GeecsSession.scan` arguments.
-        Everything that can fail (device connect, mode validation, shot
-        control) runs *before* the scan folder is claimed, so an early exit
-        never leaves an empty claimed ``ScanNNN/`` folder behind; the claim
-        still precedes the per-scan log so the log wraps the whole run.
+        Dropped devices are not disconnected here — the runner's
+        ``finally`` owns disconnection of everything it created.  On abort
+        (``None``) the abort flag is set so the scan thread's cleanup
+        reports ABORTED.
         """
-        detectors = self._build_session_devices()
-        if not detectors and motor is None:
-            logger.info(
-                "Statistics collection with no detectors: nothing to collect. "
-                "Add detector devices to enable collection."
-            )
-            return
-
-        strict = self._acquisition_mode != _FREE_RUN_MODE
-        if strict and self._shot_control is None:
-            raise GeecsConfigurationError(
-                "strict_shot_control requires shot_control_information with a "
-                "non-empty ARMED state. Use acquisition_mode="
-                "'free_run_time_sync' for free-running trigger acquisition."
-            )
-        self._session.shot_control(self._shot_control)
-
         checked = self._preflight_check_sync_liveness(detectors, strict=strict)
         if checked is None:
-            # Mirror the _abort_before_acquisition path: setting the flag
-            # makes the scan thread's cleanup report ABORTED and
-            # disconnect every connected device — before any claim.
             self._abort_requested = True
-            return
-        detectors = checked
+        return checked
 
-        if self._abort_before_acquisition():
-            return
-
-        scan_number, scan_folder = claim_scan_number(self._experiment_dir)
-
-        n_shots = len(positions) * self._shots_per_step
-        self._total_shots = n_shots
-        self._total_steps = len(positions)
-        self._set_state("INITIALIZING", total_shots=n_shots)
-        logger.info(
-            "%s: %d step(s) × %d shots/step = %d total events",
-            "Statistics collection" if motor is None else "Step scan",
-            len(positions),
-            self._shots_per_step,
-            n_shots,
-        )
-
-        scan_mode = getattr(scan_config.scan_mode, "value", str(scan_config.scan_mode))
-        run_md: dict[str, Any] = {
-            "operator": "",
-            "scan_mode": scan_mode,
-            "wait_time": getattr(scan_config, "wait_time", None),
-            **(extra_md or {}),
-        }
-        scan_info = {
-            "scan_parameter": scan_config.device_var or "Shotnumber",
-            "start": scan_config.start,
-            "end": scan_config.end,
-            "step": scan_config.step,
-            # Legacy-format quirk preserved: the GUI ini records wait_time here.
-            "shots": scan_config.wait_time,
-            "background": bool(getattr(scan_config, "background", False)),
-            "scan_mode": scan_mode,
-        }
-
-        try:
-            with self._scan_log(scan_number, scan_folder):
-                self._set_state("RUNNING")
-                self._session.scan(
-                    detectors=detectors,
-                    motor=motor,
-                    positions=positions,
-                    shots_per_step=self._shots_per_step,
-                    mode="strict" if strict else "free_run",
-                    description=getattr(scan_config, "additional_description", "")
-                    or "",
-                    md=run_md,
-                    scan_number=scan_number,
-                    scan_folder=scan_folder,
-                    scan_info=scan_info,
-                )
-        except BaseException:
-            self._log_claimed_scan_failure(scan_number, scan_folder)
-            raise
-
-    def _build_session_devices(self) -> list:
-        """Create CA devices from the GUI device table via the session factories.
-
-        The returned list is ordered with the free-run reference first
-        (``session.scan`` anchors contributors to ``detectors[0]``).  Devices
-        that fail to construct/connect are logged and skipped — except the
-        free-run reference (pacemaker): silently skipping it would let a
-        non-Triggerable contributor land in ``detectors[0]`` and inherit
-        pacemaker duty, and ``trigger_and_read`` would then record unpaced
-        duplicate rows of cached frames.  Instead, the next synchronous
-        device is promoted to the reference role (built Triggerable via
-        ``session.detector``); if no synchronous device connects at all,
-        this raises rather than acquire garbage.
-
-        An empty ``variable_list`` does not disqualify a synchronous device:
-        ``acq_timestamp`` is always created as a dedicated child, and native
-        file saving may be the element's whole purpose (image-only camera) —
-        matching the legacy scanner, which force-appends ``acq_timestamp`` to
-        every synchronous device.  Only an asynchronous snapshot device with
-        no variables is skipped (it would record nothing).
-
-        Raises
-        ------
-        GeecsConfigurationError
-            In free-run mode, when synchronous devices are configured but
-            none of them could be connected as the reference (pacemaker).
-            Devices that did connect are left in ``self._detectors`` so the
-            scan thread's cleanup disconnects them.
-        """
-        roles = self._classify_device_roles(
-            self._devices_config, self._acquisition_mode
-        )
-        free_run = self._acquisition_mode == _FREE_RUN_MODE
-        reference_configured = any(role == "reference" for _name, role in roles)
-        reference: list = []
-        others: list = []
-        failures: list[str] = []
-        promote_next_contributor = False
-        for device_name, role in roles:
-            cfg = self._devices_config[device_name]
-            variables = list(_cfg_field(cfg, "variable_list", []) or [])
-            save = bool(_cfg_field(cfg, "save_nonscalar_data", False))
-            if promote_next_contributor and role == "contributor":
-                role = "reference"
-                promote_next_contributor = False
-                logger.warning(
-                    "Promoting %s to free-run reference (pacemaker) — the "
-                    "configured reference device was unavailable",
-                    device_name,
-                )
-            if not variables and role == "snapshot":
-                # An asynchronous device with no variables records nothing at
-                # all. Synchronous devices are still built: acq_timestamp is
-                # always created as a dedicated child (and native saving may
-                # be the whole point, e.g. an image-only camera element) —
-                # matching the legacy scanner, which force-appends
-                # acq_timestamp to every synchronous device.
-                logger.warning(
-                    "Skipping asynchronous device %s: empty variable_list "
-                    "(nothing to record)",
-                    device_name,
-                )
-                continue
-            name = safe_name(device_name)
-            try:
-                if role == "snapshot":
-                    if save:
-                        logger.warning(
-                            "Ignoring save_nonscalar_data for asynchronous "
-                            "snapshot device %s",
-                            device_name,
-                        )
-                    det = self._session.snapshot(device_name, variables, name=name)
-                elif role == "contributor":
-                    det = self._session.contributor(
-                        device_name, variables, save_images=save, name=name
-                    )
-                else:  # "reference" or "triggered"
-                    det = self._session.detector(
-                        device_name, variables, save_images=save, name=name
-                    )
-                (reference if role == "reference" else others).append(det)
-                logger.info(
-                    "Detector ready: %s (role=%s, %d variables, save_nonscalar=%s)",
-                    device_name,
-                    role,
-                    len(variables),
-                    save,
-                )
-            except Exception as exc:
-                failures.append(f"{device_name}: {exc.__class__.__name__}: {exc}")
-                if role == "reference":
-                    # Reclassify rather than silently skip: the next
-                    # contributor must take over pacemaker duty (Triggerable).
-                    promote_next_contributor = True
-                    logger.warning(
-                        "Free-run reference %s failed to connect; the next "
-                        "synchronous device will be promoted to reference",
-                        device_name,
-                    )
-                logger.warning(
-                    "Failed to create/connect detector %s — skipping",
-                    device_name,
-                    exc_info=True,
-                )
-        if free_run and reference_configured and not reference:
-            # Keep whatever connected so the caller's cleanup disconnects it.
-            with self._device_lock:
-                self._detectors = list(others)
-            detail = "; ".join(failures) if failures else "no failure recorded"
-            raise GeecsConfigurationError(
-                "free_run_time_sync scan: the reference (pacemaker) device "
-                "failed to connect and no other synchronous device could be "
-                "promoted to reference — aborting instead of acquiring "
-                f"unpaced data. Device failures: {detail}"
-            )
-        detectors = reference + others
-        with self._device_lock:
-            self._detectors = list(detectors)
-        return detectors
+    def _on_delegated_scan_start(self, total_steps: int, total_shots: int) -> None:
+        """Runner totals hook: prime GUI progress and emit lifecycle states."""
+        self._total_steps = total_steps
+        self._total_shots = total_shots
+        self._set_state("INITIALIZING", total_shots=total_shots)
+        self._set_state("RUNNING")

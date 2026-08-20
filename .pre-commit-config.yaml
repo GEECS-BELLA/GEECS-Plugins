@@ -47,7 +47,20 @@ repos:
       - id: pydocstyle
         additional_dependencies: [tomli]
         args: [--convention=numpy, --add-ignore=D401,D200,D400]
-        exclude: "(^extras/|.*/third_party_sdks/|.*_ui\\.py$|.*/tests/)"
+        # Legacy trees exempt until their proper audit/cleanup (owner
+        # decision on PR #574, 2026-07-16). Also excludes stray
+        # .ipynb_checkpoints and top-level tests/ (the .*/tests/ pattern
+        # only matches nested tests dirs).
+        exclude: |
+          (?x)^(
+            extras/|
+            .*/third_party_sdks/|
+            .*_ui\.py$|
+            .*/tests/|
+            tests/|
+            .*/\.ipynb_checkpoints/|
+            LogMaker4GoogleDocs/
+          )
 
   - repo: local
     hooks:

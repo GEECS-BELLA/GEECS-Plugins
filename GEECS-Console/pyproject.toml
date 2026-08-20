@@ -1,0 +1,68 @@
+[tool.poetry]
+name = "geecs-console"
+version = "0.20.2"
+description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{ include = "geecs_console" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+pyside6 = ">=6.7"
+
+# The scan engine: BlueskyScanner (the Submitter), the ScanEvent vocabulary,
+# configs-repo resolution.  Path-dep pattern mirrors GEECS-Scanner-GUI's.
+geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "ca"] }
+
+# The config vocabulary: ScanRequest is the one submission object this GUI
+# builds.  Pydantic-only — the request builder imports nothing heavier.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+# GeecsDb (device completions, health panel) — declared directly rather
+# than ridden as a transitive of geecs-bluesky.
+geecs-core = { path = "../GEECS-Core", develop = true }
+
+# The scan browser's data layer: ScanCatalog / tiled_schema / tiled_drift
+# (plus the read-only ScanPaths resolution ops_paths already used
+# transitively).  Declared directly because geecs_console.browser imports
+# it at module level; the tiled extra backs TiledScanCatalog.
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
+
+# B4 plotting (scan browser): Qt-native, imported lazily with
+# PYQTGRAPH_QT_LIB=PySide6 pinned before the first import.
+pyqtgraph = "^0.13"
+
+# The Xopt/evaluator optimization stack lives in geecs_bluesky.optimization
+# (relocated out of geecs_scanner 2026-08-20 — the legacy package is gone
+# from this install).  The stack's code ships with geecs-bluesky itself;
+# this opt-in extra installs its heavy dependencies (xopt→torch/botorch,
+# ScanAnalysis).  Poetry cannot express a second extras-variant of the
+# geecs-bluesky path dep above, so these MIRROR geecs-bluesky's `optimize`
+# extra — keep the two lists in sync.  Without the extra, optimize-mode
+# submissions are refused by the engine and every other mode is
+# unaffected.  Slated for deletion when the redesigned optimization hook
+# (bluesky-adaptive direction) replaces the stack.
+xopt = { version = "^3.1", optional = true }
+gest-api = { version = ">=0.1", optional = true }
+scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
+imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
+
+[tool.poetry.extras]
+optimization = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+pytest-qt = ">=4.4"
+ruff = ">=0.9"
+pydocstyle = ">=6.3"
+
+[tool.poetry.scripts]
+geecs-scan-browser = "geecs_console.browser.__main__:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+qt_api = "pyside6"

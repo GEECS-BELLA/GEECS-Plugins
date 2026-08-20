@@ -106,7 +106,11 @@ class LogEntry(BaseModel):
 #   level - DEBUG / INFO / WARNING / ERROR / CRITICAL
 #   name  - logger name (no whitespace, dots allowed)
 #   thread- thread name (within square brackets)
-#   shot  - shot id token (no whitespace; literal "-" if unset)
+#   shot  - context token (no whitespace; literal "-" if unset).  The legacy
+#           engine wrote ``shot=<n>``; the Bluesky stack writes
+#           ``scan=ScanNNN`` (``geecs_bluesky/scan_log.py``) — both are
+#           accepted, and the capture keeps its historical name ``shot``
+#           so downstream consumers are unaffected.
 #   msg   - rest of the line
 #
 HEADER_RE = re.compile(
@@ -114,7 +118,7 @@ HEADER_RE = re.compile(
     r"(?P<level>DEBUG|INFO|WARNING|ERROR|CRITICAL)\s+"
     r"(?P<name>\S+)\s+"
     r"\[(?P<thread>[^\]]+)\]\s+"
-    r"shot=(?P<shot>\S+)\s+-\s+"
+    r"(?:shot|scan)=(?P<shot>\S+)\s+-\s+"
     r"(?P<msg>.*)$"
 )
 

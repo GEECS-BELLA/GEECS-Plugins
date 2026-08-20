@@ -10,12 +10,14 @@ tooling. Each subdirectory is an independent Python package with its own
 |---|---|
 | `ScanAnalysis/` | Post-scan analysis framework: task queue, YAML config system, scan analyzers |
 | `ImageAnalysis/` | Per-image analysis: pipelines, offline analyzers, config models |
-| `GEECS-Scanner-GUI/` | PyQt5 DAQ front-end: scans, save elements, optimization (Xopt) |
+| `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
-| `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
+| `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
+| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway's PVs), Tiled integration |
+| `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
+| `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
+| `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
-| `GEECS-PythonAPI/` | Low-level device TCP layer — **under refactoring, do not touch** |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
@@ -31,6 +33,19 @@ notebook hygiene constraints. Read it whenever you touch anything under
 repository. `AGENTS.md` exists only as a Codex compatibility shim that points
 Codex to the root and package-level `CLAUDE.md` files. Do not duplicate policy
 between `AGENTS.md` and `CLAUDE.md`; update the relevant `CLAUDE.md` instead.
+`CONTRIBUTING.md` is the human-facing distillation of the same contract —
+keep the three in sync when the rules change.
+
+Recurring workflows are encoded as repo-checked skills under
+`.claude/skills/<name>/SKILL.md`: `/land` (the PR ritual), `/check`
+(lint + tests the way CI runs them, via `scripts/check.sh`), `/triage`
+(scan-log error triage), `/scan-audit` (scan timing/cadence analysis),
+`/env-doctor` (per-package Poetry env fixups). Each skill's frontmatter
+`description` carries its trigger symptoms so sessions pull the skill in
+on their own — keep those descriptions current when a skill changes.
+Prefer invoking/updating a skill over re-deriving its workflow in a
+session. Facts owned elsewhere (e.g. the branch topology, which lives in
+`CONTRIBUTING.md`) are referenced from skills, never copied into them.
 
 Worktrees should live **inside** the main checkout at `.claude/worktrees/`,
 under stable names that describe the intended feature or fix — for example
@@ -109,47 +124,52 @@ against each package's `[tool.poetry.dependencies]` (intra-repo path deps).
 ```
 GEECS-Data-Utils     →  (no intra-repo deps — foundational data layer)
 LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
+GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
 
 ImageAnalysis        →  GEECS-Data-Utils
-GeecsCAGateway       →  (no intra-repo deps — the GEECS access layer:
-                        wire protocol, DB, PV naming, CA server)
-GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway
+GEECS-Core           →  (no intra-repo deps — the GEECS access library:
+                        transport, DB, PV naming, exceptions, fake server)
+GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
+                        GEECS-Schemas (schema-only vocabulary for optional
+                        derived-channel overlays)
+GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming),
+                        GeecsCAGateway (config helpers, e.g.
+                        effective_vartype), GEECS-Data-Utils (IMAQ decode)
+                        — the distributed PVA image server on the camera
+                        servers
+GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
                         (+ ImageAnalysis, optional via the `analysis` extra —
-                        post-run image analysis over archived Tiled runs)
-GEECS-PythonAPI      →  GEECS-Data-Utils
+                        post-run image analysis over archived Tiled runs;
+                        + ScanAnalysis/ImageAnalysis/xopt, optional via the
+                        `optimize` extra — the relocated Xopt/evaluator
+                        stack in geecs_bluesky.optimization)
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
-GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
-                        GEECS-Data-Utils, GeecsBluesky
+GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
+                        GEECS-Core (GeecsDb for completions/health)
+                        (its `optimization` extra installs the heavy deps
+                        for geecs_bluesky.optimization — xopt/ScanAnalysis —
+                        no geecs-scanner-gui dependency remains)
 ```
 
-`GeecsCAGateway` is the self-contained GEECS access layer: the UDP/TCP wire
-protocol, the experiment DB, the PV naming contract, and the caproto CA
-server. GeecsBluesky imports its *library* parts (`GeecsDb`, `pv_naming`,
-wire-level exceptions) and consumes its *service* (the PVs, via stock
-ophyd-async EPICS signals) — it never imports the server.
+`GEECS-Core` is the GEECS access library: the UDP/TCP wire protocol, the
+experiment DB, the PV naming contract, and the exception tree. The gateways
+build their servers on it; GeecsBluesky and GEECS-Console import its library
+parts (`GeecsDb`, `pv_naming`, wire-level exceptions) and consume the CA
+gateway purely as a *service* (the PVs, via stock ophyd-async EPICS
+signals) — nothing imports the gateway's server code except GeecsPvaGateway
+(config helpers).
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
-depends on nothing else in the repo. `GEECS-Scanner-GUI` sits at the top and
-pulls in everything. `ScanAnalysis` and `ImageAnalysis` are the most actively
-developed packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
+depends on nothing else in the repo. `GEECS-Console` sits at the top of the
+DAQ side. `ScanAnalysis` and `ImageAnalysis` are the most actively
+developed analysis packages. `LogMaker4GoogleDocs` is optional everywhere — missing it
 causes silent skips, not errors.
-
-Two declaration quirks worth knowing (both verified against the pyprojects):
-
-- **`GEECS-PythonAPI` declares a dependency on `ImageAnalysis` but never imports
-  it** — a stale/unused entry in `GEECS-PythonAPI/pyproject.toml`. It's an
-  architecturally backwards edge (the low-level device layer pointing at the
-  high-level analysis package) and is a candidate for removal whenever the
-  python-api refactor next touches its dependencies. It is intentionally omitted
-  from the graph above because no code relies on it.
-- **`ScanAnalysis`'s dependency on `GEECS-PythonAPI` is currently commented out**
-  in its `pyproject.toml`, so ScanAnalysis does not depend on python-api. (An
-  earlier version of this graph claimed it did.)
 
 ## How Packages Are Used Together (Typical Analysis Flow)
 
-1. **GEECS-Scanner-GUI** runs a scan → writes per-shot data files to a
-   date-structured folder on the data server
+1. **GEECS-Console** (via **GeecsBluesky**'s scan engine) runs a scan →
+   writes per-shot data files to a date-structured folder on the data server
+   (the legacy master-line GEECS-Scanner-GUI writes the same layout)
 2. **GEECS-Data-Utils** `ScanPaths` / `ScanData` resolves the folder, loads
    scalar summary data from s-files or TDMS
 3. **ImageAnalysis** `StandardAnalyzer` / `BeamAnalyzer` / etc. processes
@@ -178,14 +198,17 @@ Two declaration quirks worth knowing (both verified against the pyprojects):
 `base_path` is typically a network drive (Windows: `Z:/data`, Linux/Mac: mounted
 equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/config.ini`.
 
-## GEECS-PythonAPI — Handle With Care
+## Deleted legacy packages (2026-08-20)
 
-This package provides TCP device connections and the experiment database query
-layer. It is **being refactored** — do not add new features or restructure it.
-Other packages use it primarily for:
-- `ScanDevice` — subscribe to a device variable stream
-- Database dict lookup — enumerate all devices in an experiment
-- `config.ini` — shared config file all packages read from
+`GEECS-PythonAPI` (legacy TCP device layer) and `GEECS-Scanner-GUI` (legacy
+PyQt5 DAQ front-end) were **deleted from `dev`** at the end of the geecs-core
+arc. Their successors: `geecs_core.client.GeecsDevice` for device
+get/set/subscribe, `GEECS-Console` + `GeecsBluesky` for scans, and
+`geecs_bluesky.optimization` for the Xopt stack. Both packages remain on
+`master` for the legacy production line until the M6 cutover; never adopt
+them in new code there either. The `~/.config/geecs_python_api/config.ini`
+path they named is a permanent fleet contract and deliberately keeps its
+name (see `GEECS-Core/DESIGN.md`).
 
 ## Release & Versioning
 
@@ -205,15 +228,15 @@ Each package is versioned independently using **semantic versioning**:
 3. Commit `pyproject.toml` and `CHANGELOG.md` together with the code changes
 
 ```bash
-cd GEECS-Scanner-GUI && poetry version minor   # 0.7.1 → 0.8.0
-cd GEECS-PythonAPI   && poetry version patch   # 0.3.0 → 0.3.1
+cd GEECS-Console && poetry version minor   # 0.20.2 → 0.21.0
+cd GEECS-Core    && poetry version patch   # 0.2.0 → 0.2.1
 ```
 
 Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
-`GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
-`ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
-`GeecsBluesky/`, `GeecsCAGateway/`.
+`GEECS-Data-Utils/`, `ScanAnalysis/`, `ImageAnalysis/`,
+`LogMaker4GoogleDocs/`, `GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`,
+`GeecsPvaGateway/`, `GEECS-Schemas/`, `GEECS-Console/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the
@@ -227,7 +250,8 @@ has caused real production incidents; the consequences aren't abstract.
 
 ### Analysis code is a consumer of scan folders, never a producer
 
-Only the **scanner side** (GEECS-Scanner-GUI's `ScanDataManager`, BlueskyScanner)
+Only the **scanner side** (BlueskyScanner — concretely `claim_scan_number`
+in GeecsBluesky's `plans/run_wrapper.py`)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
 ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.
@@ -273,38 +297,14 @@ deferral is deliberate; the rationale is below. If you encounter a feature
 request whose natural scope overlaps one of these, that's the right time to
 revisit. Speculative cleanup is not.
 
-- **`GEECS-Scanner-GUI/geecs_scanner/app/app_controller.py` is a thin
-  pass-through layer.** It was extracted from the main window during the bold
-  refactor (PR landed May 2026) and ended up as a side struct that adds an
-  indirection without removing complexity. We considered reverting; the cost
-  of churn outweighs the benefit at this point. Leave it; it's harmless. Do
-  not invest in extending it.
+- **`extras/` is a legacy dump pending pruning** — ~26 MB of unrelated
+  one-off projects and third-party snapshots. Never build there, never cite
+  its contents as reference implementations, and don't prune it
+  opportunistically: what's still load-bearing needs the owner's judgment.
 
-- **`GEECS-Scanner-GUI/geecs_scanner/engine/data_logger.py` and
-  `device_manager.py` lack behavioral tests for several internal paths.** The
-  code works in production; a future Bluesky-backed scan path may obsolete
-  significant parts of these modules. Adding deep tests now risks pinning
-  internals we don't intend to keep. If you need to *change* DataLogger or
-  DeviceManager, write tests for the specific behavior you're modifying as
-  part of that change.
-
-- **`ScanConfig` lives in `geecs_data_utils` rather than
-  `geecs_scanner.engine.models`.** This is logically backwards (engine config
-  in the data-utils package) but the migration touches many files across two
-  packages and has no forcing function. Defer until a feature naturally takes
-  you into that area.
-
-- **`GEECS-Scanner-GUI/geecs_scanner/app/geecs_scanner.py` is ~2200 lines and
-  mixes seven concerns** (save-element list management, scan variable
-  handling, presets, shot calculation, scan submission, optimization config,
-  toolbar/menu wiring). Adding a new scan mode currently touches six places.
-  Documented organizational debt; the fix is concern-cluster extraction (or a
-  base class for editor windows). Wait for a specific feature ("add a new
-  scan mode," "add a new editor") to drive the refactor with bounded scope.
-
-- **`GEECS-PythonAPI` is being refactored elsewhere.** Don't add features here
-  or restructure it. Other packages use it through `ScanDevice` and the
-  database dict lookup; treat that as the public surface.
+- **`LogMaker4GoogleDocs` needs a refactor.** It works in production
+  (Google Doc log uploads) and is optional everywhere, but don't extend it
+  or use it as a style reference until that refactor happens.
 
 If you find yourself adding to this list, consider whether you're capturing
 real institutional knowledge or accumulating procrastination. Both are

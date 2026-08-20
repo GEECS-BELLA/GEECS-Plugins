@@ -205,3 +205,19 @@ def test_tiled_server_reachable_parses_default_ports(
 def test_tiled_server_reachable_unparseable_uri_defers_to_client() -> None:
     """A hostless URI returns True so from_uri reports the real parse error."""
     assert tiled_server_reachable("not-a-uri") is True
+
+
+def test_read_tiled_config_is_the_canonical_data_utils_reader() -> None:
+    """Issue #527: [tiled] config parsing has ONE definition (geecs_data_utils).
+
+    Both geecs_bluesky re-export points must BE the canonical function, so
+    a future config-semantics change (a second URI, a profiles file) cannot
+    drift between packages.
+    """
+    from geecs_data_utils.tiled_catalog import read_tiled_config as canonical
+
+    from geecs_bluesky import tiled_integration
+    from geecs_bluesky.assets import tiled_readback
+
+    assert tiled_integration.read_tiled_config is canonical
+    assert tiled_readback.read_tiled_config is canonical

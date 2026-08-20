@@ -1,5 +1,5 @@
 {
-    "version": 1, 
+    "version": 1,
     "formatters": {
         "time_source_level_message": {
             "format": "{asctime}\t{name}:{levelname}\t{message}",

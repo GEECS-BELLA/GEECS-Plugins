@@ -8,12 +8,14 @@ to a warning: scans run fine without Tiled.
 
 from __future__ import annotations
 
-import configparser
 import logging
 import socket
-from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
+
+# The one config reader (issue #527): re-exported here so existing callers
+# (and test monkeypatches of this module's attribute) keep working.
+from geecs_data_utils.tiled_catalog import read_tiled_config
 
 logger = logging.getLogger(__name__)
 
@@ -47,26 +49,6 @@ def tiled_server_reachable(
             return True
     except OSError:
         return False
-
-
-def read_tiled_config() -> tuple[str | None, str | None]:
-    """Read Tiled URI and API key from ``~/.config/geecs_python_api/config.ini``.
-
-    Returns ``(uri, api_key)``, either of which may be ``None`` if absent.
-    """
-    config_path = Path.home() / ".config" / "geecs_python_api" / "config.ini"
-    if not config_path.exists():
-        return None, None
-
-    cfg = configparser.ConfigParser()
-    cfg.read(config_path)
-    if "tiled" not in cfg:
-        return None, None
-
-    uri = cfg["tiled"].get("uri") or None
-    api_key = cfg["tiled"].get("api_key") or None
-    logger.debug("Tiled config loaded from %s — uri=%s", config_path, uri)
-    return uri, api_key
 
 
 def prepare_descriptor_for_tiled(doc: dict) -> dict:

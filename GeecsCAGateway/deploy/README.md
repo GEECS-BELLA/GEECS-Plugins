@@ -11,6 +11,19 @@ recipe, smoke tests, log expectations — is in
 
 ## Install
 
+**Step 0 — persistent NAS mount, before anything else.** The gateway reads
+the configs repo (derived channels, and any config kind that lives there)
+from the data share. A hand mount will not survive a reboot, and an
+ordinary fstab mount fails permanently if the NAS is down at boot — and
+the gateway then starts *silently without derived PVs*. Set up the
+self-healing mount first, exactly as in
+[`DEPLOYMENT.md` § "Host reboots and network mounts"](../DEPLOYMENT.md):
+root-only credentials file, an fstab entry with
+`_netdev,nofail,x-systemd.automount`, and `RequiresMountsFor=` on the
+unit once it is installed below. Spring-test the automount (umount →
+`systemctl start <mountpoint>.automount` → `ls` the path) before
+proceeding.
+
 From the repo checkout on the target box:
 
 ```bash
@@ -39,8 +52,8 @@ Then the smoke tests from `DEPLOYMENT.md` §4 — from a *different* machine, so
 subnet scoping and firewalls are exercised:
 
 ```bash
-caproto-get Undulator:CAGateway:VERSION Undulator:CAGateway:DEVICES_CONNECTED
-caproto-monitor Undulator:CAGateway:HEARTBEAT    # ticks every 5 s
+caproto-get undulator:cagateway:version undulator:cagateway:devices_connected
+caproto-monitor undulator:cagateway:heartbeat    # ticks every 5 s
 ```
 
 ## Upgrade / resync with the GEECS DB
@@ -59,13 +72,51 @@ on the lab subnet (the unit's `RestartForceExitStatus=86` relaunches the
 service, which rebuilds its config from the DB):
 
 ```bash
-caproto-put Undulator:CAGateway:RESTART Restart
+caproto-put undulator:cagateway:restart Restart
 ```
+
+## CA alarm limits table
+
+The curated alarm overlay lives in the existing GEECS MySQL database as
+`ca_alarm_limits`. Apply the migration once per database before entering alarm
+rows:
+
+```bash
+cd ~/GEECS-Plugins/GeecsCAGateway
+mysql --host=<db-host> --user=<db-user> --password <db-name> \
+  < deploy/ca_alarm_limits.sql
+```
+
+The table is optional from the gateway's perspective: if it is absent, startup
+continues with no curated value alarms. After editing rows in `ca_alarm_limits`,
+restart through the service or `undulator:cagateway:restart` so the gateway
+reloads the DB-backed config.
+
+To smoke-test one configured row, drive the readback into one of its alarm
+bands and read the PV with status metadata:
+
+```bash
+caproto-get -a undulator:u_s1h:current
+```
+
+For example, with `high=2.5`, `hihi=4.5`, and the default high severity of
+`MINOR`, a live `U_S1H:Current` value of `3 A` should report `HIGH` /
+`MINOR_ALARM` in CA clients such as Phoebus. If you edit the DB row and do not
+see the metadata or severity change, restart the gateway so it reloads the
+DB-backed config.
 
 ## Changing what is served
 
 Edit `ExecStart` in the unit (`--all-variables`, `--no-settable`,
-`--include-disabled`, a different `--experiment`), then
+`--include-disabled`, an explicit `--derived-channels /path/to/file.yaml`
+override, a different `--experiment`), then
 `sudo systemctl daemon-reload && sudo systemctl restart geecs-ca-gateway`.
 Serving a second experiment = a second copy of the unit with a different name
 and `--experiment`; CA name resolution makes the split invisible to clients.
+
+Derived channels normally do not require an `ExecStart` edit: put
+`derived_channels.yaml` under
+`GEECS-Plugins-Configs/scanner_configs/experiments/<Experiment>/gateway/` and
+restart the gateway. The service discovers that file through
+`GEECS_SCANNER_CONFIG_DIR`, `GEECS_PLUGINS_CONFIGS`, or
+`config.ini [Paths] scanner_config_root_path`.

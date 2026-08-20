@@ -1,0 +1,35 @@
+actions:
+  Quad-In_Long0:
+    steps:
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 30
+      variable: Position.Ch4
+      wait_for_execution: true
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 0
+      variable: Disable.Ch5
+      wait_for_execution: true
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 15
+      variable: Position.Ch6
+      wait_for_execution: true
+  Quad-In_Long300:
+    steps:
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 30
+      variable: Position.Ch4
+      wait_for_execution: true
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 300
+      variable: Disable.Ch5
+      wait_for_execution: true
+    - action: set
+      device: HTT-B-Zaber_Chain-B
+      value: 15
+      variable: Position.Ch6
+      wait_for_execution: true

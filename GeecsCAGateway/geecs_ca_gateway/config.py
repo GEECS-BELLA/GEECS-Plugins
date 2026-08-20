@@ -1,9 +1,9 @@
 """Declarative configuration for the GEECS → EPICS CA gateway.
 
-The gateway is driven entirely by a :class:`GatewayConfig`.  For the proof of
-concept these are constructed by hand (see ``demo.py``); the intended next step
-is to generate them from the GEECS experiment database dict, pulling per-variable
-units/precision/limits from the attributes database.
+The gateway is driven entirely by a :class:`GatewayConfig`.  Production
+configs are generated from the GEECS experiment database
+(:meth:`GatewayConfig.from_geecs_experiment`, pulling per-variable
+units/limits/dtype); hand-built configs remain possible (see ``demo.py``).
 """
 
 from __future__ import annotations
@@ -11,13 +11,20 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from .naming import normalize_pv_component
+from geecs_core.db.alarms import AlarmLimits
+from .derived import DerivedChannelSpec
+from geecs_core.pv_naming import normalize_component as normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
 DType = Literal["float", "int", "string", "path", "enum"]
+
+# EPICS DBR_STRING (the .DESC field's type) caps at 40 characters. A longer
+# description is truncated by CA clients, so we clip it at the source with a
+# warning rather than silently shipping something that displays wrong.
+_MAX_DESC_LENGTH = 40
 
 # GEECS `variabletype` → gateway dtype. Types absent here (image, 1darray) are
 # not scalar CA data and are skipped when building specs from the DB.
@@ -39,6 +46,51 @@ _SKIP_VARTYPES = {"image", "1darray"}
 _MAX_ENUM_STATES = 16
 _MAX_ENUM_STRING_LEN = 26
 
+# `choices` values that are bare type descriptors rather than option lists (the
+# `choice` table's low IDs double as type descriptors in the GEECS DB).
+_CHOICE_TYPE_DESCRIPTORS = _SKIP_VARTYPES | {"numeric", "string", "path"}
+
+
+def effective_vartype(variabletype: str | None, choices: str | None) -> str:
+    """Resolve the effective GEECS variable type from DB metadata.
+
+    Shared by :meth:`DeviceSpec.from_db_metadata` and the DB-hygiene audit
+    (:func:`geecs_ca_gateway.audit.audit_subscribed_variables`) so both apply
+    identical rules.
+
+    The ``choice`` table's low IDs double as type descriptors, so when
+    ``choices`` is a bare descriptor word (``image``, ``1darray``, ``numeric``,
+    ``string``, ``path``) it is the AUTHORITATIVE type — even when
+    ``variabletype`` says otherwise (e.g. ``variabletype='choice'`` with
+    ``choices='image'`` is an image variable streaming raw bytes, not a
+    one-option enum).  Otherwise trust ``variabletype``; if it is blank, a real
+    option list is a ``choice``, else fall back to ``numeric``.
+
+    Parameters
+    ----------
+    variabletype : str or None
+        The DB ``variabletype`` column (may be blank/None).
+    choices : str or None
+        The DB ``choices`` column (an option list, a bare type descriptor,
+        or blank/None).
+
+    Returns
+    -------
+    str
+        The effective type, lower-cased: one of the descriptor words above,
+        a ``variabletype`` value, or ``"choice"`` / ``"numeric"`` fallbacks.
+    """
+    vartype = (variabletype or "").strip().lower()
+    raw_choices = (choices or "").strip()
+    descriptor = raw_choices.lower()
+    if descriptor in _CHOICE_TYPE_DESCRIPTORS:
+        return descriptor
+    if vartype:
+        return vartype
+    if "," in raw_choices:
+        return "choice"
+    return "numeric"
+
 
 class VariableSpec(BaseModel):
     """One GEECS variable exposed as EPICS PV(s).
@@ -58,6 +110,25 @@ class VariableSpec(BaseModel):
     hi: float | None = None
     choices: list[str] = Field(default_factory=list)  # ordered options for enum
     deadband: float = 0.0  # float monitor deadband; only post when |Δ| > deadband
+    alarm_limits: AlarmLimits | None = None
+    # One-line human description for the PV's .DESC field (Phoebus/archiver
+    # label). Stable *identity* only — not a change log; time-varying
+    # provenance belongs in git-tracked config or the elog, never here (a
+    # .DESC edit leaves no history). Clipped to 40 chars (EPICS DBR_STRING).
+    description: str = ""
+
+    @field_validator("description")
+    @classmethod
+    def _clip_description(cls, value: str) -> str:
+        """Clip an over-long description to the EPICS DBR_STRING limit."""
+        if len(value) > _MAX_DESC_LENGTH:
+            logger.warning(
+                "description %r exceeds %d chars (EPICS .DESC limit) — clipping",
+                value,
+                _MAX_DESC_LENGTH,
+            )
+            return value[:_MAX_DESC_LENGTH]
+        return value
 
     @property
     def pv_suffix(self) -> str:
@@ -163,28 +234,9 @@ class DeviceSpec(BaseModel):
             seen.add(var_name)
 
             override = dtypes.get(var_name)
-            vartype = (meta.get("variabletype") or "").strip().lower()
             raw_choices = (meta.get("choices") or "").strip()
-            descriptor = raw_choices.lower()
 
-            # The `choice` table's low IDs double as type descriptors, so when
-            # `choices` is a bare descriptor word it is the AUTHORITATIVE type —
-            # even when variabletype says otherwise (e.g. variabletype='choice'
-            # with choices='image' is an image variable streaming raw bytes, not a
-            # one-option enum). Otherwise trust variabletype; if it's blank, a real
-            # option list is a choice, else fall back to numeric.
-            if descriptor in _SKIP_VARTYPES or descriptor in (
-                "numeric",
-                "string",
-                "path",
-            ):
-                effective = descriptor
-            elif vartype:
-                effective = vartype
-            elif "," in raw_choices:
-                effective = "choice"
-            else:
-                effective = "numeric"
+            effective = effective_vartype(meta.get("variabletype"), raw_choices)
 
             if override is None and effective in _SKIP_VARTYPES:
                 logger.debug(
@@ -224,15 +276,14 @@ class DeviceSpec(BaseModel):
                     lo=meta.get("min"),
                     hi=meta.get("max"),
                     choices=choices,
-                    # NOT the DB "tolerance": that is a *set convergence*
-                    # criterion (often coarse, e.g. 0.05 A on magnet PSUs) and
-                    # using it as a monitor deadband hides real sub-tolerance
-                    # motion from readback PVs — and therefore from every
-                    # recorded event row and s-file (observed live: a magnet
-                    # move within tolerance left the readback frozen).
-                    # Deadband 0.0 posts every changed frame and suppresses
-                    # only exact repeats; at the ~1-5 Hz GEECS stream rate
-                    # bandwidth is a non-issue.
+                    # Present only once the DB SELECT exposes a description
+                    # column (see CHANGELOG / design note — a deliberate
+                    # on-network follow-up); absent today → "" and inert.
+                    description=meta.get("description") or "",
+                    # Deadband stays 0.0 — the DB "tolerance" is a *set
+                    # convergence* criterion, NOT a monitor deadband; wiring
+                    # it here froze sub-tolerance motion out of readbacks
+                    # (shipped bug; see CLAUDE.md quirks).
                     deadband=0.0,
                 )
             )
@@ -274,7 +325,7 @@ class DeviceSpec(BaseModel):
         -------
         DeviceSpec
         """
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         host, port = GeecsDb.find_device(name)
         metadata = GeecsDb.get_device_variables(name)
@@ -295,6 +346,7 @@ class GatewayConfig(BaseModel):
     """Top-level gateway configuration: the set of devices to serve."""
 
     devices: list[DeviceSpec] = Field(default_factory=list)
+    derived_channels: list[DerivedChannelSpec] = Field(default_factory=list)
 
     @classmethod
     def from_geecs_experiment(
@@ -349,7 +401,7 @@ class GatewayConfig(BaseModel):
         -------
         GatewayConfig
         """
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         endpoints = GeecsDb.get_experiment_devices(
             experiment, enabled_only=enabled_only
@@ -357,6 +409,7 @@ class GatewayConfig(BaseModel):
         var_map = GeecsDb.get_experiment_device_variables(
             experiment, enabled_only=enabled_only
         )
+        alarm_map = GeecsDb.get_ca_alarm_limits(experiment)
         sub_map: dict[str, list[str]] = {}
         if subscribed_only:
             sub_map = GeecsDb.get_subscribed_variables(
@@ -399,7 +452,29 @@ class GatewayConfig(BaseModel):
                     name,
                 )
                 continue
+            for var in spec.variables:
+                alarm_limits = alarm_map.get((name, var.geecs_var))
+                if alarm_limits is None:
+                    continue
+                if var.dtype not in ("float", "int"):
+                    logger.warning(
+                        "from_geecs_experiment: ignoring alarm limits for "
+                        "%s/%s because dtype=%s is not numeric",
+                        name,
+                        var.geecs_var,
+                        var.dtype,
+                    )
+                    continue
+                var.alarm_limits = alarm_limits
             devices.append(spec)
+        served = {(dev.name, var.geecs_var) for dev in devices for var in dev.variables}
+        for device, variable in sorted(set(alarm_map) - served):
+            logger.warning(
+                "from_geecs_experiment: ignoring alarm limits for %s/%s because "
+                "that variable is not served by the gateway",
+                device,
+                variable,
+            )
         logger.info(
             "from_geecs_experiment(%s): built %d/%d device spec(s)",
             experiment,

@@ -12,8 +12,9 @@ test — see the [test map](#pinned-by-test-map) at the end. Items marked
 **(PR #452)** describe behavior that lands with the `fix/strict-shot-plausibles`
 branch (gateway 0.5.2), which merges before this document does.
 
-Code anchors: `geecs_ca_gateway/pv_naming.py`, `config.py`, `channels.py`,
-`gateway.py`, `transport/`. Design rationale lives in `DESIGN.md`; operations
+Code anchors: `geecs_core/pv_naming.py` and `geecs_core/transport/`
+(the shared access library, `GEECS-Core/`), plus this package's `config.py`,
+`channels.py`, `gateway.py`. Design rationale lives in `DESIGN.md`; operations
 in `DEPLOYMENT.md`.
 
 ---
@@ -23,13 +24,18 @@ in `DEPLOYMENT.md`.
 ### Namespace
 
 ```
-[Experiment:]Device:Variable          readback
-[Experiment:]Device:Variable:SP       setpoint (only when the variable is settable)
-[Experiment:]Device:CONNECTED         per-device status
-[Experiment:]CAGateway:<SUFFIX>       gateway self-diagnostics
+[experiment:]device:variable          readback
+[experiment:]device:variable:SP       setpoint (only when the variable is settable)
+[experiment:]device:variable          derived readback (when declared)
+[experiment:]device:connected         per-device status
+[experiment:]cagateway:<suffix>       gateway self-diagnostics
 ```
 
-Example: `Undulator:U_S1H:Current` and `Undulator:U_S1H:Current:SP`.
+Example: `undulator:u_s1h:current` and `undulator:u_s1h:current:SP`.
+
+Every name **component** is lowercase (see normalization below); the only
+uppercase in the PV namespace are the fixed structural literals — the `:SP`
+setpoint suffix and the `.DESC` description-field suffix.
 
 - `:` is the **reserved namespace separator**, applied only between components
   (`pv_naming.pv_name`). It never appears inside a component.
@@ -44,7 +50,7 @@ Example: `Undulator:U_S1H:Current` and `Undulator:U_S1H:Current:SP`.
 
 ### Component normalization (`pv_naming.normalize_component`)
 
-Within a single component, only `[A-Za-z0-9_]` survives. The exact
+Within a single component, only `[a-z0-9_]` survives. The exact
 transformation is:
 
 1. Leading/trailing whitespace is stripped.
@@ -52,32 +58,49 @@ transformation is:
    parentheses, slashes, anything — collapses to a **single** underscore
    (regex `[^A-Za-z0-9_]+` → `_`).
 3. Leading and trailing underscores produced by step 2 are stripped.
+4. The result is **lowercased**. Case carries no meaning anywhere in GEECS,
+   and folding it here makes every derived name case-insensitive to operator
+   input: any casing of a GEECS name resolves to the same PV.
 
 Examples (each pinned by a test):
 
 | GEECS name           | PV component     | Why it matters |
 |----------------------|------------------|----------------|
-| `Trigger.Source`     | `Trigger_Source` | **The dot is critical**: EPICS parses `.` as the record/field separator, so `Dev:Trigger.Source` would read as field `.Source` of record `Dev:Trigger` |
-| `Jet X pos`          | `Jet_X_pos`      | spaces |
-| `Beam-Current (A)`   | `Beam_Current_A` | run of ` (` collapses to one `_`; trailing `)` stripped |
+| `Trigger.Source`     | `trigger_source` | **The dot is critical**: EPICS parses `.` as the record/field separator, so `Dev:Trigger.Source` would read as field `.Source` of record `Dev:Trigger` |
+| `Jet X pos`          | `jet_x_pos`      | spaces |
+| `Beam-Current (A)`   | `beam_current_a` | run of ` (` collapses to one `_`; trailing `)` stripped |
 | `  padded  name  `   | `padded_name`    | whitespace + run collapsing |
+| `MiXeD Case`         | `mixed_case`     | case-folded — PVs are case-insensitive to operator input |
 
-This policy lives in **`geecs_ca_gateway.pv_naming`** — the one module both the
+This policy lives in **`geecs_core.pv_naming`** — the one module both the
 gateway (producer) and GeecsBluesky's CA devices (consumer) import — so the two
-sides can never drift. `geecs_ca_gateway.naming` is a thin re-export.
+sides can never drift.
+GeecsBluesky's event-column mangling (`safe_name`) delegates to the same
+function, so a GEECS name mangles identically into a PV component and an
+event-document column component (pinned by
+`GeecsBluesky/tests/test_utils.py::test_safe_name_agrees_with_the_pv_naming_contract`).
+
+**GEECS-native names are the canonical vocabulary.** Configs, schemas, the
+DB, and every user-facing surface speak raw GEECS names; PV names (and event
+columns) are derived one-way encodings produced only by this module. Tools
+needing the reverse direction use the manifest (below), never string surgery.
 
 ### The mapping is lossy — use the manifest
 
-`Trigger.Source` and `Trigger Source` normalize to the same PV component.
+`Trigger.Source`, `Trigger Source`, and `trigger source` normalize to the
+same PV component.
 **Never reverse-engineer a GEECS name from a PV string.** The gateway holds the
 authoritative bidirectional map in `GeecsCaGateway.manifest`
-(`PV → (device, geecs_var, kind)` where kind is `"readback"`, `"setpoint"`, or
-`"status"`).
+(`PV → (device, geecs_var, kind)` where kind is `"readback"`, `"setpoint"`,
+`"derived"`, or `"status"`). For derived PVs, the manifest device is the
+source GEECS device whose frame drives the calculation.
 
 ### Setpoint PVs — `:SP`
 
 A variable whose **`devicetype_variable.set`** flag is `yes` gets a companion
-setpoint PV at the literal suffix `:SP` appended to the full readback name.
+setpoint PV at the literal suffix `:SP` appended to the full readback name
+(`pv_naming.setpoint_pv`, the one place the suffix is applied; the suffix is
+deliberately uppercase — a fixed structural literal, not a name component).
 Non-settable variables (including the intrinsic timestamp variables) have
 **no** `:SP` PV.
 
@@ -100,9 +123,9 @@ ground truth; an instance row with no surviving type link (NULL or dangling
 `devicetype_variable_id`) defines an instance-only variable and is served
 too. Pinned by the inheritance-chain tests in `tests/test_geecs_db.py`.
 
-### Per-device status PV — `CONNECTED`
+### Per-device status PVs — `CONNECTED`, `LAST_SET_ERROR`
 
-Every device gets exactly one status PV: `[Experiment:]Device:CONNECTED`.
+Every device gets a connection-state PV: `[experiment:]device:connected`.
 
 - Type: enum with `enum_strings = ["Disconnected", "Connected"]`
   (index 0 = Disconnected, 1 = Connected).
@@ -110,15 +133,29 @@ Every device gets exactly one status PV: `[Experiment:]Device:CONNECTED`.
   while the device's TCP subscription is down.
 - Client-read-only.
 
+Every device with at least one settable variable additionally gets
+`[experiment:]device:last_set_error` — the most recent failed GEECS set's
+message (e.g. `U_S1H/Current: Error occurred during setCurrent - -100.0 -
+value not in range (5.000000,-5.000000)`).
+
+- Type: long-string (char-array, capacity 512, UTF-8) — the messages exceed
+  the 40-char `DBR_STRING` cap; read with `caget -S`.
+- **Sticky**: it is *not* cleared by a later successful set — the `:SP`
+  channel's `WRITE`/`INVALID` alarm carries the current/cleared state (§7),
+  this PV is the forensic record of what the last failure said. Empty string
+  until the first failure. One PV per device (GEECS serializes one command
+  per device), so the message names the variable.
+- Client-read-only; timestamped at failure time.
+
 ### Gateway self-diagnostics — the reserved `CAGateway` namespace
 
-`[Experiment:]CAGateway:{UPTIME, HEARTBEAT, DEVICES_CONNECTED, VERSION}`
+`[experiment:]cagateway:{uptime, heartbeat, devices_connected, version}`
 (devIocStats-style; updated by a 5 s status loop; `UPTIME` in seconds,
 `VERSION` is the installed package version). The `CAGateway` device component
 is **reserved**: a real GEECS device whose PVs would land there trips the
 collision guard at startup rather than silently clobbering the status PVs.
 
-**`[Experiment:]CAGateway:RESTART`** is the one *client-writable* PV in the
+**`[experiment:]cagateway:restart`** is the one *client-writable* PV in the
 namespace (the devIocStats `SYSRESET` pattern): an enum with states
 `["Idle", "Restart"]`. Writing `Restart` (label or index 1) makes the gateway
 shut down cleanly and exit with the restart code (86); under the shipped
@@ -136,6 +173,13 @@ that. Path-typed variables are therefore served as **char-array PVs**
 convention (areaDetector `FilePath` does the same). Clients should read/write
 them as long strings (`caget -S`, ophyd-async handles it natively). Plain
 `string` variables stay native 40-char string PVs.
+
+**Images are not served by this gateway.** Image-typed variables are exposed
+as **NTNDArray PVs over pvAccess** by `GeecsPvaGateway/` — distributed
+instances on the camera servers, minting names with this same `pv_naming`
+policy (`undulator:uc_amp2_ir_input:image`), so the namespace is one flat
+contract across both protocols. See that package's README/CLAUDE.md for the
+image-side behavior (gated subscriptions, latest-wins delivery, timestamps).
 
 ---
 
@@ -166,7 +210,16 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
   physical move.
 - If the GEECS set fails (rejection, error, timeout), the setter raises, the
   value is **not** stored, and the CA put fails. Correct put semantics: a
-  failed put leaves the setpoint PV unchanged.
+  failed put leaves the setpoint PV unchanged. The failure is also published
+  as channel state — `:SP` alarm `WRITE`/`INVALID` plus the device's
+  `LAST_SET_ERROR` message PV — because a **no-callback write cannot see the
+  put fail** (see §7, set-failure observability).
+- **Write with put-completion** (`caput -c`, aioca `wait=True`, ophyd-async
+  `set()`) whenever you care about the outcome. A plain fire-and-forget
+  `caput` returns before the GEECS exchange even starts; its failure surfaces
+  only in the CA client library's asynchronous exception handler and the
+  alarm/error PVs above. This is Channel Access protocol semantics, not a
+  gateway limitation.
 - **Set timeout: 30 s default, configurable** (`GeecsCaGateway(set_timeout_s=…)`).
   This deliberately matches `CaMotor._DEFAULT_MOVE_TIMEOUT` (30 s) in
   GeecsBluesky — "a slow axis is not a dead one". A legitimate 10–30 s stage
@@ -175,10 +228,39 @@ GEECS device  <--blocking UDP set-----------  setpoint PV   (caput :SP)
 - The setpoint PV reflects the last *successfully forwarded* put, not the
   device readback. Read state from the readback PV; the `:SP` value is the
   commanded value.
-- Write safety: GEECS enforces DB value limits server-side and returns an error
-  the setter propagates, so an out-of-range `caput` fails correctly. The
-  DB-derived limits on the PV are **display** limits (a UX hint), not
-  gateway-enforced control limits — see §4.
+- Write safety — **layered, gateway mirror + GEECS backstop**. `:SP` channels
+  serve the DB `min`/`max` span as standard EPICS **control (drive) limits**
+  (`DBR_CTRL` metadata — Phoebus sliders bound themselves, ophyd-style
+  clients can validate before putting) and enforce them **pre-forward**: an
+  out-of-range put fails at the CA layer (`CannotExceedLimits`) before any
+  UDP traffic reaches the device. **Rejection, never clamping** — a native
+  EPICS `ao` record clamps to `DRVL`/`DRVH`, but clamping here would move
+  hardware to a value the client never commanded; failing the put is the
+  deliberate choice (and caproto's native semantics). The pre-forward
+  ordering is equally deliberate — enforcement inside the value store would
+  run *after* the forward, so with DB limits tighter than the device's, the
+  hardware would move and the put would then fail.
+  - Pre-forward rejection is a *client* error (§7): no `:SP` alarm, no
+    `LAST_SET_ERROR` entry — those mirror device-side outcomes only.
+  - Control limits are served only for well-formed spans (both bounds
+    present, `lo < hi`). Missing, one-sided, or degenerate (`lo == hi`)
+    DB rows leave the `:SP` unenforced — a bad row must never brick an
+    axis. (`lo == hi` is also caproto's "limits disabled" sentinel.)
+  - **GEECS device-side enforcement remains the guaranteed backstop and
+    the authority** — unchanged, and it also covers limits the DB doesn't
+    express (interlocks, local mode, drift between a DB edit and the next
+    gateway restart). A put inside the DB span that the device rejects
+    fails with the device's error and drives the §7 alarm/`LAST_SET_ERROR`
+    machinery exactly as before.
+  - **Drift cuts both ways.** A DB span looser than the device's is
+    harmless (the backstop catches it). A DB span *wrong-tight* — or
+    widened after the gateway started — hard-blocks valid sets at the CA
+    layer until the gateway restarts (restart *is* the DB-resync
+    mechanism, §"self-diagnostics"/`RESTART`). Fix the row, bounce the
+    gateway.
+  - Readback PVs keep the same span as **display** limits only, never
+    control limits — see §4 (faithful out-of-range readbacks, e.g. NaN,
+    must publish).
 
 ---
 
@@ -234,6 +316,76 @@ Clients must therefore trigger/latch on the timestamp PVs, not on a data PV,
 when they need whole-frame consistency. (Cross-*device* correlation remains out
 of scope — that is Bluesky's job, see DESIGN.md "scope boundaries".)
 
+### Derived numeric channels
+
+The gateway can load a `geecs-schemas` `DerivedChannels` YAML/JSON overlay from
+the configs repo convention
+`scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml` (or an
+explicit `--derived-channels PATH` override). That overlay exposes additional
+read-only float PVs computed from one source device's numeric push-frame
+values, or from multiple source devices with explicit latest-value freshness
+semantics.
+
+- A derived channel has one output PV (`device`, `variable`, optional
+  `experiment`/`pv` override) and one arithmetic expression.
+- Inputs bind expression symbols to `(device, variable)` sources.
+- Same-device inputs are **frame-coherent**. The gateway evaluates the
+  expression once per source frame, after raw data PVs are posted and before
+  that frame's timestamp PVs are posted. Therefore a client latching on the
+  source device's timestamp observes raw and derived values from the same
+  completed frame.
+- Cross-device inputs use **latest-value semantics**. A cross-device derived
+  PV recomputes when any input source updates, using the latest cached numeric
+  values from the other sources. Such entries must declare `stale_after`
+  seconds; if any input is missing or older than that window, the output PV is
+  `INVALID_ALARM` / `UDF`. Freshness is also reevaluated by the gateway status
+  loop, so a completely quiet input set cannot leave the last computed value
+  looking live indefinitely.
+- The expression subset is numeric arithmetic only: literals, input symbols,
+  `+ - * / % **`, comparisons, boolean `and` / `or` / `not`, unary `+/-`, and
+  a small whitelist of `math` functions such as `sqrt`, `exp`, `log`, and
+  `log10`. Arbitrary Python, attributes, indexing, and conditionals are
+  rejected during gateway startup. Boolean/status expressions are stored as
+  `1.0` or `0.0` on the float PV.
+- Inputs may be subscribed solely for the calculation; they do not need to be
+  exposed as their own readback PVs.
+
+Example Convectron-style declaration shape:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: TargetChamberPressure
+    variable: Pressure
+    expression: "10**(v - 6)"
+    inputs:
+      - symbol: v
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
+    egu: Torr
+    precision: 6
+```
+
+Derived PV alarm states differ intentionally from raw float readbacks before
+first data: a derived output starts at `INVALID_ALARM`/`UDF` until its first
+successful computation, rather than serving a valid-looking `0.0` placeholder.
+Once live, successful computations write `NO_ALARM`. Failure modes are:
+
+| Condition | Derived PV severity / status |
+|---|---|
+| Never successfully computed, missing/empty input, or non-numeric input | `INVALID_ALARM` / `UDF` |
+| Expression runtime failure, such as division by zero | `INVALID_ALARM` / `CALC` |
+| Source device TCP subscription dropped / unreachable | `INVALID_ALARM` / `COMM` |
+| Recovery after any failure | Next successful computation writes `NO_ALARM` even when the numeric value is unchanged |
+
+Repeated failures with the same INVALID status do not re-publish on every
+source frame; the gateway publishes the transition and keeps the PV invalid
+until a successful computation clears it.
+
+Enum/string bad-state expressions and shot-synchronized analysis products are
+outside v1. If inputs need a shared shot id, compute the result in analysis,
+not as a gateway derived PV.
+
 ---
 
 ## 4. Type mapping
@@ -263,11 +415,29 @@ Resolution quirks (all DB-driven, all pinned by tests):
   only the dropdown is lost.
 - `int` exists as a dtype (served as `ChannelInteger`) but is reachable only
   via an explicit `dtypes=` override — the DB never produces it.
-- Metadata: DB `units` → EGU; DB `min`/`max` → **display** limits only, never
-  enforced control limits. caproto enforces control limits on write and would
-  reject faithful-but-out-of-range readbacks — notably `NaN` from a failed
-  online analysis, which the contract requires be *reported*, not clamped.
-  GEECS remains the authority on valid set values (§2).
+- Metadata: DB `units` → EGU; DB `min`/`max` → limits, split by channel kind.
+  **Readbacks: display limits only, never control limits** — caproto enforces
+  control limits on write and would reject faithful-but-out-of-range
+  readbacks, notably `NaN` from a failed online analysis, which the contract
+  requires be *reported*, not clamped. **Setpoints: the span is additionally
+  served and enforced as control (drive) limits** when well-formed (§2).
+  GEECS device-side enforcement remains the guaranteed backstop on sets (§2).
+
+### Description — the `.DESC` field
+
+A variable's DB `description` (from the per-instance `variable` table,
+resolved through the capability inheritance chain like every other field) is
+served as the standard EPICS `.DESC` field: a read-only `<pv>.DESC` string
+channel, so `caget undulator:u_s1h:current.DESC` returns the text and Phoebus
+/ the archiver pick it up automatically. Only variables with a non-empty
+description get a `.DESC` entry (no empty descriptions are served). The text
+is clipped to the EPICS **DBR_STRING 40-character** limit at both the DB
+column (`VARCHAR(40)`) and in the gateway.
+
+`.DESC` carries **stable identity only** — it is a mutable label with no
+history (an edit leaves no archived trace), so time-varying provenance (a
+recalibration, a filter swap) belongs in git-tracked config or the elog, not
+here. Setpoint (`:SP`) and status PVs do not carry `.DESC`.
 
 ### Enum resolution — readback (string → index), **(PR #452)** order
 
@@ -328,20 +498,29 @@ What severity means **today**:
 
 | Condition | PV | Severity / status |
 |---|---|---|
-| Device TCP subscription live | readbacks | `NO_ALARM` (plain value writes reset severity) |
+| Device TCP subscription live, no configured value alarm active | readbacks | `NO_ALARM` |
+| Device TCP subscription live, configured scalar limit crossed | that numeric readback | configured severity (`MINOR_ALARM`, `MAJOR_ALARM`, or `INVALID_ALARM`) with status `LOW`, `LOLO`, `HIGH`, or `HIHI` |
 | Device TCP subscription dropped / unreachable | all of that device's **readback** PVs | **`INVALID_ALARM`**, status `COMM` — data is stale, last value retained |
 | Same event | that device's `CONNECTED` PV | value `Disconnected`, **`MAJOR_ALARM`**, status `COMM` |
-| Recovery (first live frame / reconnect) | both | automatic return to `NO_ALARM` |
+| Recovery (first live frame / reconnect) | both | automatic return to live-value severity (`NO_ALARM` unless a configured value alarm is active) |
 
 So: **INVALID on a readback means "not live", not "bad value"** — the held
 value is the last known good one. `CONNECTED` is the explicit liveness signal
 for Phoebus/alarm layers; prefer it over inferring liveness from data severity.
 
+Value-based alarms are an explicit curated overlay from the optional
+`ca_alarm_limits` MySQL table, keyed by `(experiment, device, variable)`.
+Only non-null threshold columns apply. The gateway validates rows at startup,
+attaches them only to served numeric readbacks, and treats the table as optional:
+if it is absent during rollout, the IOC starts with no value alarms. DB `min` /
+`max` remain display metadata and are **never** interpreted as alarm limits.
+Curated alarm thresholds are evaluated only by the gateway overlay; they are not
+exported as native DBR_CTRL alarm/warning limit metadata, because caproto would
+otherwise run a second independent limit evaluator on every write.
+
 **Not yet implemented** (be honest with your displays):
 
-- No value-based alarms: DB min/max are display limits only; there are no
-  HIHI/HIGH/LOW/LOLO thresholds, so a readback never goes `MINOR`/`MAJOR` on
-  value. A NaN or out-of-range value arrives as a plain `NO_ALARM` update.
+- No enum/string bad-state alarms yet; v1 value alarms are scalar limits only.
 - No archive deadbands (MDEL/ADEL split) — planned with the Archiver Appliance
   (DESIGN.md "Honest gaps").
 - A device merely going *quiet* raises no alarm and does not age severity —
@@ -364,16 +543,47 @@ At `pvdb` build time (startup), every PV registers in the manifest:
   `from_db_metadata` also dedupes rows defensively.
 - **Genuine collisions raise**: a *different* source mapping to an existing PV
   name (e.g. `Trigger.Source` and `Trigger Source` on one device, both
-  normalizing to `Trigger_Source`) raises `ValueError` at startup. Never a
+  normalizing to `trigger_source`) raises `ValueError` at startup. Never a
   silent clobber; the gateway refuses to start until the overlay renames one.
-- **The status namespace is reserved**: per-device `…:CONNECTED` and the
-  `[Experiment:]CAGateway:*` diagnostics go through the same guard, so a GEECS
+- **The status namespace is reserved**: per-device `…:connected` and the
+  `[experiment:]cagateway:*` diagnostics go through the same guard, so a GEECS
   variable named `CONNECTED` or a device named `CAGateway` is a startup error,
   not a shadowed status PV.
 
 ---
 
 ## 7. Failure semantics
+
+### Set-failure observability — alarm + `LAST_SET_ERROR`
+
+Live-verified against real hardware (U_S1H `Current`, 2026-07-23): an
+out-of-range set is ACKed `accepted` by the device, then fails in the exe
+reply (`error,… value not in range …`). The gateway surfaces that outcome
+three ways, so no client class is blind to it:
+
+1. **Put-completion** (callback writers): the caput fails with
+   `ECA_PUTFAIL`; the exception text carries the GEECS message. The value is
+   not stored (§2).
+2. **`:SP` channel alarm** (monitor clients): a failed set stamps the
+   setpoint channel `WRITE`/`INVALID`; the next successful set clears it to
+   `NO_ALARM`. Transitions only — repeated identical failures do not
+   re-publish. Alarm-sensitive Phoebus widgets show the failure with no
+   screen changes.
+3. **`device:last_set_error`** (any reader): the failure message, sticky
+   until overwritten by the next failure (§1).
+
+Scope: the alarm/error PVs mirror **GEECS forward outcomes** only. A put the
+gateway rejects before any UDP exchange (an uncastable value, or an
+out-of-control-limits value — §2) fails the caput but leaves them untouched;
+an unresolvable enum label forwards verbatim (§4) and alarms only when GEECS
+rejects it. Fire-and-forget writes can never see
+the put fail — that is CA protocol semantics; use put-completion (§2). The
+alarm/`LAST_SET_ERROR` surface is a net for *device-side* failures only —
+a pre-forward control-limit rejection is visible to put-completion writers
+(and the gateway log) alone, so a fire-and-forget out-of-range write
+vanishes without a PV trace. Accepted trade-off: the served `DBR_CTRL`
+metadata lets well-behaved clients (sliders, ophyd-style limit checks)
+refuse the value before ever putting.
 
 ### Per-device startup fault tolerance
 
@@ -441,20 +651,29 @@ that branch and are part of this contract's target behavior.
 
 | Contract claim | Pinned by |
 |---|---|
-| Component normalization (dot, spaces, runs, strip) | `test_naming.py::test_dot_becomes_underscore`, `::test_spaces_collapse_to_underscores`, `::test_mixed_bad_chars_collapse` |
-| `[Experiment:]Device:Variable` assembly, prefix optional, overrides | `test_naming.py::test_pv_name_for_with_experiment_prefix`, `::test_pv_name_for_without_experiment`, `::test_variable_spec_explicit_pv_wins`, `::test_device_prefix_defaults_to_name`; `test_pv_contract.py::test_pv_name_drops_falsy_parts_and_normalizes` |
+| Component normalization (dot, spaces, runs, strip, lowercase) | `test_naming.py::test_dot_becomes_underscore`, `::test_spaces_collapse_to_underscores`, `::test_mixed_bad_chars_collapse`, `::test_components_are_lowercased` |
+| Event-column mangling delegates to the same policy | `GeecsBluesky/tests/test_utils.py::test_safe_name_agrees_with_the_pv_naming_contract` |
+| `[experiment:]device:variable` assembly (lowercase), prefix optional, overrides | `test_naming.py::test_pv_name_for_with_experiment_prefix`, `::test_pv_name_for_without_experiment`, `::test_variable_spec_explicit_pv_wins`, `::test_device_prefix_defaults_to_name`; `test_pv_contract.py::test_pv_name_drops_falsy_parts_and_normalizes` |
 | Manifest as authoritative map; `:SP` only when settable | `test_gateway.py::test_experiment_prefix_and_manifest`, `::test_pvdb_contains_readback_and_setpoint` |
 | Genuine collision raises; exact duplicates tolerated | `test_gateway.py::test_pv_name_collision_raises`; `test_config_from_db.py::test_from_db_metadata_dedupes_duplicate_variables` |
 | Reserved `CAGateway`/status namespace guarded | `test_gateway.py::test_pvdb_has_connected_and_gateway_status_pvs`; `test_pv_contract.py::test_status_pv_namespace_is_collision_guarded` |
-| `CAGateway:RESTART` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
+| `cagateway:restart` triggers clean shutdown; `Idle` is a no-op; exit code 86 | `test_pv_contract.py::test_restart_pv_requests_clean_shutdown`; `test_gateway.py::test_run_returns_true_on_restart_request`; `test_entrypoint.py::test_main_exits_with_restart_code` |
 | Readbacks client-read-only; setpoints writable | `test_gateway.py::test_readback_channels_deny_client_writes` |
 | Stream → readback; caput `:SP` → GEECS → readback | `test_gateway.py::test_stream_updates_readback`, `::test_setpoint_write_reaches_geecs` |
 | Failed GEECS set ⇒ CA put fails, value not stored | `test_pv_contract.py::test_setpoint_put_failure_leaves_value_unstored` |
+| Failed set alarms `:SP` WRITE/INVALID, success clears; pre-forward client errors don't alarm | `test_pv_contract.py::test_setpoint_put_failure_stamps_write_invalid_alarm`, `::test_client_value_error_does_not_alarm_setpoint` |
+| Failure alarm published, transition-only; clear rides the value publish | `test_pv_contract.py::test_failed_set_alarm_is_published_on_transition_only` |
+| Out-of-range set end-to-end: ACK accepted + exe error ⇒ put fails, alarm, sticky `LAST_SET_ERROR`; PV only on settable devices | `test_gateway.py::test_out_of_range_set_fails_put_alarms_sp_and_records_error`, `::test_last_set_error_pv_exists_only_for_settable_devices` |
 | 30 s configurable set budget; 10 s get budget | `test_gateway.py::test_setpoint_write_uses_move_budget_timeout`, `::test_set_timeout_is_configurable`, `::test_get_uses_standard_exe_timeout` |
 | Timestamp ladder, LabVIEW→Unix, implausible rejected | `test_gateway.py::test_extract_timestamp_converts_labview_to_unix`, `::test_extract_timestamp_ladder_prefers_first_present`, `::test_extract_timestamp_none_when_absent_or_implausible`; `test_config_from_db.py::test_timestamp_ladder_default_prefers_acq_then_sys` |
 | PV stamped with device time; timestamp PVs carry raw LabVIEW value | `test_gateway.py::test_pv_timestamp_from_systimestamp`, `::test_timestamp_vars_exposed_as_pvs_with_raw_value` |
 | `0.0` pre-acquisition placeholder | `test_pv_contract.py::test_float_readback_initializes_to_zero_placeholder` |
 | Frame ordering: data before timestamps *(PR #452)* | `test_gateway.py::test_callback_posts_timestamp_variables_last` |
+| Derived-channel manifest kind and numeric output PV metadata | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest` |
+| Derived-channel expression subset and cross-device `stale_after` schema rule | `test_derived_channels.py::test_expression_evaluator_supports_convectron_formula`, `::test_expression_evaluator_supports_status_logic`, `::test_expression_evaluator_bool_ops_publish_binary_floats`, `::test_expression_evaluator_rejects_non_numeric_python`, `::test_derived_channel_schema_requires_stale_after_for_cross_device` |
+| Derived values evaluate from one source frame; derived-only inputs are subscribed without raw PVs | `test_derived_channels.py::test_derived_channel_updates_from_same_source_frame`, `::test_derived_only_input_is_subscribed_without_raw_pv` |
+| Cross-device derived values use latest fresh inputs and invalidate on stale input or source disconnect | `test_derived_channels.py::test_cross_device_derived_channel_uses_latest_values`, `::test_cross_device_derived_channel_marks_stale_input_invalid`, `::test_cross_device_quiet_sources_mark_stale_invalid`, `::test_cross_device_source_disconnect_marks_dependent_derived_invalid` |
+| Derived alarm states: initial/missing input UDF, expression failure CALC, reconnect recovery with unchanged value, repeated INVALID transition-only | `test_derived_channels.py::test_derived_pvdb_has_numeric_readback_and_manifest`, `::test_missing_derived_input_marks_invalid_udf`, `::test_derived_expression_failure_marks_invalid_calc`, `::test_derived_reconnect_clears_invalid_even_when_value_unchanged`, `::test_repeated_derived_failure_does_not_republish_invalid` |
 | DB type mapping, descriptors, enum degradation, blank-type inference | `test_config_from_db.py::test_from_db_metadata_maps_variable_types`, `::test_choice_pointing_at_type_descriptor_is_skipped`, `::test_blank_variabletype_inferred_from_choices`, `::test_choice_without_options_falls_back_to_string`, `::test_choice_exceeding_ca_enum_limits_falls_back_to_string` |
 | Long-string path PVs (>40 chars round-trip both directions) | `test_channels.py::test_cast_path_decodes_char_arrays`, `::test_path_readback_holds_long_string`, `::test_path_setpoint_forwards_full_text` |
 | Enum label↔index both directions over the gateway | `test_channels.py::test_enum_index_maps_label_to_index`, `::test_enum_geecs_value_index_and_label`; `test_gateway.py::test_enum_readback_and_setpoint` |
@@ -463,7 +682,10 @@ that branch and are part of this contract's target behavior.
 | Deadband 0.0 from DB (`tolerance` never a deadband) | `test_pv_contract.py::test_db_tolerance_is_not_used_as_monitor_deadband` |
 | Zero deadband: every change posts, exact repeats suppressed | `test_pv_contract.py::test_zero_deadband_posts_changes_suppresses_exact_repeats` |
 | Explicit non-zero deadband suppression | `test_gateway.py::test_deadband_suppresses_small_changes` |
-| Display (not control) limits; NaN readback reported | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
+| Limits split by kind (readback display-only + NaN reported; `:SP` control limits) | `test_config_from_db.py::test_pvdb_built_from_db_spec_has_limits`; `test_gateway.py::test_nan_readback_accepted_despite_limits` |
+| Out-of-ctrl-limit put rejected pre-forward (no UDP, no alarm/`LAST_SET_ERROR`); degenerate spans stay unlimited; device backstop still alarms behind the gate | `test_pv_contract.py::test_out_of_ctrl_limit_put_rejected_before_forward`, `::test_missing_or_degenerate_db_span_stays_unlimited`; `test_gateway.py::test_ctrl_limit_gate_layers_with_device_side_rejection` |
+| Optional `ca_alarm_limits` table; curated scalar alarms attach only to served numeric readbacks | `test_geecs_db.py::test_get_ca_alarm_limits_returns_validated_rows`, `::test_get_ca_alarm_limits_missing_table_is_fail_open`; `test_config_from_db.py::test_alarm_limits_validate_order_and_presence`, `::test_from_geecs_experiment_attaches_numeric_alarm_limits` |
+| Value alarm severity/status on live readbacks; disconnect INVALID wins until next live frame | `test_gateway.py::test_value_alarm_limits_set_live_readback_severity`, `::test_invalid_liveness_overrides_value_alarm_until_live_frame` |
 | INVALID on drop, auto-recovery; CONNECTED MAJOR while down | `test_gateway.py::test_reconnect_and_validity`, `::test_set_connected_updates_pv_severity_and_count` |
 | Per-device bind-failure tolerance; clean caput error afterward | `test_gateway.py::test_one_device_bind_failure_does_not_abort_startup`, `::test_setpoint_write_without_udp_client_raises_cleanly` |
 | UDP reply correlation, echo form, malformed/stale discard | `test_udp_reply_correlation.py` (whole module) |

@@ -16,15 +16,20 @@ import socket
 from typing import Any
 
 import pytest
-from caproto import AlarmSeverity
-from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from caproto import AlarmSeverity, AlarmStatus
+from caproto._data import CannotExceedLimits
+from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
+from geecs_core.db.alarms import AlarmLimits
+from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
+from geecs_core.exceptions import GeecsCommandFailedError
 from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
 
 pytestmark = pytest.mark.fake_server
 
 DEVICE = "U_ESP_JetXYZ"
+DEVICE_PV = "u_esp_jetxyz"  # pv_name(DEVICE) — PVs are lowercase
 LABVIEW_OFFSET = 2_082_844_800  # LabVIEW epoch (1904) → Unix epoch (1970)
 
 
@@ -107,6 +112,26 @@ def _config(host: str, port: int) -> GatewayConfig:
     )
 
 
+def _alarm_config() -> GatewayConfig:
+    """Return a network-free config with scalar alarm limits."""
+    return GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(
+                        geecs_var="Position",
+                        dtype="float",
+                        alarm_limits=AlarmLimits(high=5.0, hihi=10.0),
+                    )
+                ],
+            )
+        ]
+    )
+
+
 def test_experiment_prefix_and_manifest() -> None:
     """Experiment prefix flows into PV names; the manifest maps PV → GEECS var."""
     cfg = GatewayConfig(
@@ -121,10 +146,37 @@ def test_experiment_prefix_and_manifest() -> None:
         ]
     )
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_S1H:Current" in gw.pvdb
-    assert "Undulator:U_S1H:Current:SP" in gw.pvdb
-    assert gw.manifest["Undulator:U_S1H:Current"] == ("U_S1H", "Current", "readback")
-    assert gw.manifest["Undulator:U_S1H:Current:SP"] == ("U_S1H", "Current", "setpoint")
+    assert "undulator:u_s1h:current" in gw.pvdb
+    assert "undulator:u_s1h:current:SP" in gw.pvdb
+    assert gw.manifest["undulator:u_s1h:current"] == ("U_S1H", "Current", "readback")
+    assert gw.manifest["undulator:u_s1h:current:SP"] == ("U_S1H", "Current", "setpoint")
+
+
+def test_description_served_as_desc_field() -> None:
+    """A variable description becomes a served '<pv>.DESC' string channel."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name="U_S1H",
+                host="h",
+                port=1,
+                experiment="Undulator",
+                variables=[
+                    VariableSpec(
+                        geecs_var="Current",
+                        description="S1H steering magnet current",
+                    ),
+                    VariableSpec(geecs_var="Voltage"),  # no description
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    desc_pv = "undulator:u_s1h:current.DESC"
+    assert desc_pv in gw.pvdb
+    assert gw.pvdb[desc_pv].value == "S1H steering magnet current"
+    # A variable with no description gets no .DESC entry.
+    assert "undulator:u_s1h:voltage.DESC" not in gw.pvdb
 
 
 def test_pv_name_collision_raises() -> None:
@@ -150,11 +202,11 @@ def test_pv_name_collision_raises() -> None:
 async def test_pvdb_contains_readback_and_setpoint() -> None:
     """Settable variable yields both a readback and a ``:SP`` setpoint PV."""
     gw = GeecsCaGateway(_config("127.0.0.1", 1))
-    assert f"{DEVICE}:Position" in gw.pvdb
-    assert f"{DEVICE}:Position:SP" in gw.pvdb
+    assert f"{DEVICE_PV}:position" in gw.pvdb
+    assert f"{DEVICE_PV}:position:SP" in gw.pvdb
     # non-settable variable has no setpoint
-    assert f"{DEVICE}:acq_timestamp" in gw.pvdb
-    assert f"{DEVICE}:acq_timestamp:SP" not in gw.pvdb
+    assert f"{DEVICE_PV}:acq_timestamp" in gw.pvdb
+    assert f"{DEVICE_PV}:acq_timestamp:SP" not in gw.pvdb
 
 
 async def test_stream_updates_readback() -> None:
@@ -168,7 +220,7 @@ async def test_stream_updates_readback() -> None:
         await gw.subscribe()
         try:
             await asyncio.sleep(0.4)  # a couple of 5 Hz frames
-            assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(7.5)
+            assert gw.pvdb[f"{DEVICE_PV}:position"].value == pytest.approx(7.5)
         finally:
             await gw.close()
 
@@ -185,7 +237,7 @@ async def test_reconnect_and_validity() -> None:
     )
     await gw.connect()
     await gw.subscribe()
-    rb = gw.pvdb[f"{DEVICE}:Position"]
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
     try:
         # live: value flows and severity is clear
         assert await _wait_until(lambda: rb.value == pytest.approx(7.5))
@@ -213,6 +265,112 @@ async def test_reconnect_and_validity() -> None:
         await gw.close()
 
 
+async def test_value_alarm_limits_set_live_readback_severity() -> None:
+    """Curated scalar limits set MINOR/MAJOR severity on live values."""
+    cfg = _alarm_config()
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": 7.0})
+    assert rb.value == pytest.approx(7.0)
+    assert int(rb.severity) == int(AlarmSeverity.MINOR_ALARM)
+    assert int(rb.status) == int(AlarmStatus.HIGH)
+
+    await callback({"Position": 11.0})
+    assert rb.value == pytest.approx(11.0)
+    assert int(rb.severity) == int(AlarmSeverity.MAJOR_ALARM)
+    assert int(rb.status) == int(AlarmStatus.HIHI)
+
+    await callback({"Position": 4.0})
+    assert rb.value == pytest.approx(4.0)
+    assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+    assert int(rb.status) == int(AlarmStatus.NO_ALARM)
+
+
+async def test_high_only_alarm_row_does_not_trigger_native_low_alarm() -> None:
+    """A partial curated row must not activate caproto's native limit evaluator."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(
+                        geecs_var="Position",
+                        dtype="float",
+                        alarm_limits=AlarmLimits(high=5.0),
+                    )
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": -1.0})
+
+    assert rb.value == pytest.approx(-1.0)
+    assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+    assert int(rb.status) == int(AlarmStatus.NO_ALARM)
+
+
+async def test_alarm_hysteresis_holds_hihi_before_stepping_down() -> None:
+    """HIHI does not chatter to HIGH until value exits the hysteresis band."""
+    cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[
+                    VariableSpec(
+                        geecs_var="Position",
+                        dtype="float",
+                        alarm_limits=AlarmLimits(high=4.0, hihi=5.0, hysteresis=0.1),
+                    )
+                ],
+            )
+        ]
+    )
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": 5.1})
+    assert int(rb.status) == int(AlarmStatus.HIHI)
+
+    await callback({"Position": 4.95})
+    assert int(rb.status) == int(AlarmStatus.HIHI)
+    assert int(rb.severity) == int(AlarmSeverity.MAJOR_ALARM)
+
+    await callback({"Position": 4.89})
+    assert int(rb.status) == int(AlarmStatus.HIGH)
+    assert int(rb.severity) == int(AlarmSeverity.MINOR_ALARM)
+
+
+async def test_invalid_liveness_overrides_value_alarm_until_live_frame() -> None:
+    """A disconnect still reports INVALID/COMM; the next live value recomputes."""
+    cfg = _alarm_config()
+    gw = GeecsCaGateway(cfg)
+    rb = gw.pvdb[f"{DEVICE_PV}:position"]
+    callback = gw._make_callback(cfg.devices[0])
+
+    await callback({"Position": 7.0})
+    assert int(rb.severity) == int(AlarmSeverity.MINOR_ALARM)
+
+    await gw._mark_device_invalid(DEVICE)
+    assert int(rb.severity) == int(AlarmSeverity.INVALID_ALARM)
+    assert int(rb.status) == int(AlarmStatus.COMM)
+
+    gw._last_written[DEVICE] = {}
+    await callback({"Position": 4.0})
+    assert int(rb.severity) == int(AlarmSeverity.NO_ALARM)
+    assert int(rb.status) == int(AlarmStatus.NO_ALARM)
+
+
 async def test_timestamp_vars_exposed_as_pvs_with_raw_value() -> None:
     """systimestamp/acq_timestamp become float PVs carrying the raw LabVIEW value."""
     labview = LABVIEW_OFFSET + 1000.0
@@ -232,12 +390,12 @@ async def test_timestamp_vars_exposed_as_pvs_with_raw_value() -> None:
         )
         gw = GeecsCaGateway(cfg)
         # both intrinsic timestamp vars get PVs (acq even if this device won't push it)
-        assert f"{DEVICE}:systimestamp" in gw.pvdb
-        assert f"{DEVICE}:acq_timestamp" in gw.pvdb
+        assert f"{DEVICE_PV}:systimestamp" in gw.pvdb
+        assert f"{DEVICE_PV}:acq_timestamp" in gw.pvdb
         await gw.connect()
         await gw.subscribe()
         try:
-            rb = gw.pvdb[f"{DEVICE}:systimestamp"]
+            rb = gw.pvdb[f"{DEVICE_PV}:systimestamp"]
             # RAW LabVIEW value, not unix-converted
             assert await _wait_until(lambda: rb.value == pytest.approx(labview))
         finally:
@@ -264,7 +422,7 @@ async def test_pv_timestamp_from_systimestamp() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Position"]
+        rb = gw.pvdb[f"{DEVICE_PV}:position"]
         try:
             assert await _wait_until(lambda: rb.value == pytest.approx(3.3))
             assert rb.timestamp == pytest.approx(1782949690.5, abs=1e-3)
@@ -302,8 +460,8 @@ async def test_enum_readback_and_setpoint() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Enable_Output"]
-        sp = gw.pvdb[f"{DEVICE}:Enable_Output:SP"]
+        rb = gw.pvdb[f"{DEVICE_PV}:enable_output"]
+        sp = gw.pvdb[f"{DEVICE_PV}:enable_output:SP"]
         try:
             # readback: GEECS "off" string -> enum label "off"
             assert await _wait_until(lambda: _enum_label(rb) == "off")
@@ -312,6 +470,138 @@ async def test_enum_readback_and_setpoint() -> None:
             assert device.get("Enable_Output") == "on"
             # readback follows back to "on"
             assert await _wait_until(lambda: _enum_label(rb) == "on")
+        finally:
+            await gw.close()
+
+
+def _text(value: Any) -> str:
+    """A char-array channel value as a str (the package's own decode helper)."""
+    return _to_text(value)
+
+
+def test_last_set_error_pv_exists_only_for_settable_devices() -> None:
+    """Devices with a settable variable get a LAST_SET_ERROR PV; others don't."""
+    gw = GeecsCaGateway(_config("127.0.0.1", 1))  # Position is settable
+    assert f"{DEVICE_PV}:last_set_error" in gw.pvdb
+
+    readonly_cfg = GatewayConfig(
+        devices=[
+            DeviceSpec(
+                name=DEVICE,
+                host="127.0.0.1",
+                port=1,
+                variables=[VariableSpec(geecs_var="Position", dtype="float")],
+            )
+        ]
+    )
+    assert f"{DEVICE_PV}:last_set_error" not in GeecsCaGateway(readonly_cfg).pvdb
+
+
+async def test_out_of_range_set_fails_put_alarms_sp_and_records_error() -> None:
+    """A GEECS-rejected set fails the put, alarms the :SP, records the message.
+
+    Pins the live-verified out-of-bounds behavior (U_S1H ``Current``,
+    2026-07-23): the device ACKs ``accepted`` but the exe reply is
+    ``error,… value not in range …``. The gateway must surface that as a
+    failed caput + ``WRITE``/``INVALID`` alarm on the ``:SP`` + the message
+    on ``LAST_SET_ERROR`` — never as a silent success. A subsequent in-range
+    set succeeds, clears the alarm, and leaves the error record sticky.
+    """
+    device = FakeGeecsDevice(
+        DEVICE,
+        variables={"Current": 0.0},
+        limits={"Current": (-5.0, 5.0)},
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(geecs_var="Current", dtype="float", settable=True)
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        sp = gw.pvdb[f"{DEVICE_PV}:current:SP"]
+        err = gw.pvdb[f"{DEVICE_PV}:last_set_error"]
+        try:
+            with pytest.raises(GeecsCommandFailedError, match="value not in range"):
+                await sp.write(-100.0)
+            assert device.get("Current") == pytest.approx(0.0)  # hardware untouched
+            assert sp.value != pytest.approx(-100.0)  # not stored
+            assert int(sp.alarm.severity) == int(AlarmSeverity.INVALID_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.WRITE)
+            assert "value not in range" in _text(err.value)
+
+            await sp.write(2.5)
+            assert device.get("Current") == pytest.approx(2.5)
+            assert sp.value == pytest.approx(2.5)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.NO_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.NO_ALARM)
+            # Sticky forensic record — the alarm carries the cleared state.
+            assert "value not in range" in _text(err.value)
+        finally:
+            await gw.close()
+
+
+async def test_ctrl_limit_gate_layers_with_device_side_rejection() -> None:
+    """DB ctrl limits gate at CA; device-side rejection still alarms behind it.
+
+    Layered enforcement end-to-end: a put outside the DB span fails with
+    ``CannotExceedLimits`` before any UDP traffic (no alarm, no
+    ``LAST_SET_ERROR`` — a client error, §2/§7); a put *inside* the DB span
+    but outside the device's own (tighter) limits reaches the device, is
+    rejected in the exe reply, and drives the 0.15.0 machinery — put fails,
+    ``WRITE``/``INVALID`` alarm, message recorded.
+    """
+    device = FakeGeecsDevice(
+        DEVICE,
+        variables={"Current": 0.0},
+        limits={"Current": (-3.0, 3.0)},  # device enforces tighter than DB
+    )
+    async with FakeGeecsServer(device) as srv:
+        cfg = GatewayConfig(
+            devices=[
+                DeviceSpec(
+                    name=DEVICE,
+                    host=srv.host,
+                    port=srv.port,
+                    variables=[
+                        VariableSpec(
+                            geecs_var="Current",
+                            dtype="float",
+                            settable=True,
+                            lo=-5.0,
+                            hi=5.0,  # DB span, served as :SP ctrl limits
+                        )
+                    ],
+                )
+            ]
+        )
+        gw = GeecsCaGateway(cfg)
+        await gw.connect()
+        sp = gw.pvdb[f"{DEVICE_PV}:current:SP"]
+        err = gw.pvdb[f"{DEVICE_PV}:last_set_error"]
+        try:
+            # Outside the DB span: rejected at the CA layer, pre-forward.
+            with pytest.raises(CannotExceedLimits):
+                await sp.write(100.0)
+            assert device.get("Current") == pytest.approx(0.0)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.NO_ALARM)
+            assert _text(err.value) == ""  # no device outcome to record
+
+            # Inside the DB span, outside the device's: device-side path.
+            with pytest.raises(GeecsCommandFailedError, match="value not in range"):
+                await sp.write(4.0)
+            assert device.get("Current") == pytest.approx(0.0)
+            assert int(sp.alarm.severity) == int(AlarmSeverity.INVALID_ALARM)
+            assert int(sp.alarm.status) == int(AlarmStatus.WRITE)
+            assert "value not in range" in _text(err.value)
         finally:
             await gw.close()
 
@@ -335,7 +625,7 @@ async def test_deadband_suppresses_small_changes() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        rb = gw.pvdb[f"{DEVICE_PV}:pos"]
         try:
             assert await _wait_until(lambda: rb.value == pytest.approx(5.0))
             # within deadband (0.05 <= 0.1): suppressed, value stays 5.0
@@ -368,7 +658,7 @@ async def test_nan_readback_accepted_despite_limits() -> None:
         gw = GeecsCaGateway(cfg)
         await gw.connect()
         await gw.subscribe()
-        rb = gw.pvdb[f"{DEVICE}:Pos"]
+        rb = gw.pvdb[f"{DEVICE_PV}:pos"]
         try:
             await asyncio.sleep(0.4)
             value = rb.value
@@ -401,7 +691,7 @@ async def test_uncoercible_value_warns_once_and_skips() -> None:
         try:
             await asyncio.sleep(0.5)  # several 5 Hz frames of the bad value
             # value skipped (PV stays at initial), no crash, warned exactly once
-            assert gw.pvdb[f"{DEVICE}:Pos"].value == pytest.approx(0.0)
+            assert gw.pvdb[f"{DEVICE_PV}:pos"].value == pytest.approx(0.0)
             assert (DEVICE, "Pos") in gw._coerce_warned
         finally:
             await gw.close()
@@ -417,11 +707,11 @@ async def test_setpoint_write_reaches_geecs() -> None:
         await gw.connect()
         await gw.subscribe()
         try:
-            await gw.pvdb[f"{DEVICE}:Position:SP"].write(4.2)
+            await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(4.2)
             assert device.get("Position") == pytest.approx(4.2)
             # and the change streams back into the readback
             await asyncio.sleep(0.4)
-            assert gw.pvdb[f"{DEVICE}:Position"].value == pytest.approx(4.2)
+            assert gw.pvdb[f"{DEVICE_PV}:position"].value == pytest.approx(4.2)
         finally:
             await gw.close()
 
@@ -531,11 +821,11 @@ def test_pvdb_has_connected_and_gateway_status_pvs() -> None:
     )
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
-    assert "Test:U_Dev:CONNECTED" in gw.pvdb
-    assert str(gw.pvdb["Test:U_Dev:CONNECTED"].value) == "Disconnected"
-    for suffix in ("UPTIME", "HEARTBEAT", "DEVICES_CONNECTED", "VERSION"):
-        assert f"Test:CAGateway:{suffix}" in gw.pvdb
-    assert gw.manifest["Test:U_Dev:CONNECTED"] == ("U_Dev", "CONNECTED", "status")
+    assert "test:u_dev:connected" in gw.pvdb
+    assert str(gw.pvdb["test:u_dev:connected"].value) == "Disconnected"
+    for suffix in ("uptime", "heartbeat", "devices_connected", "version"):
+        assert f"test:cagateway:{suffix}" in gw.pvdb
+    assert gw.manifest["test:u_dev:connected"] == ("U_Dev", "CONNECTED", "status")
 
 
 async def test_set_connected_updates_pv_severity_and_count() -> None:
@@ -552,15 +842,15 @@ async def test_set_connected_updates_pv_severity_and_count() -> None:
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
     await gw._set_connected("U_Dev", True)
-    conn = gw.pvdb["Test:U_Dev:CONNECTED"]
+    conn = gw.pvdb["test:u_dev:connected"]
     assert str(conn.value) == "Connected"
     assert conn.alarm.severity == AlarmSeverity.NO_ALARM
-    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (1, [1])
+    assert gw.pvdb["test:cagateway:devices_connected"].value in (1, [1])
 
     await gw._set_connected("U_Dev", False)
     assert str(conn.value) == "Disconnected"
     assert conn.alarm.severity == AlarmSeverity.MAJOR_ALARM
-    assert gw.pvdb["Test:CAGateway:DEVICES_CONNECTED"].value in (0, [0])
+    assert gw.pvdb["test:cagateway:devices_connected"].value in (0, [0])
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +892,7 @@ async def test_setpoint_write_uses_move_budget_timeout() -> None:
     udp = _RecordingUdp(device_name=DEVICE)
     gw._udp[DEVICE] = udp
 
-    await gw.pvdb[f"{DEVICE}:Position:SP"].write(4.2)
+    await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(4.2)
 
     assert len(udp.set_calls) == 1
     variable, value, timeout = udp.set_calls[0]
@@ -618,14 +908,14 @@ async def test_set_timeout_is_configurable() -> None:
     udp = _RecordingUdp(device_name=DEVICE)
     gw._udp[DEVICE] = udp
 
-    await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+    await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(1.0)
 
     assert udp.set_calls[0][2] == pytest.approx(45.0)
 
 
 async def test_get_uses_standard_exe_timeout() -> None:
     """``get`` keeps the client's short default exe timeout; only sets get 30 s."""
-    from geecs_ca_gateway.transport.udp_client import _EXE_TIMEOUT, GeecsUdpClient
+    from geecs_core.transport.udp_client import _EXE_TIMEOUT, GeecsUdpClient
 
     client = GeecsUdpClient("127.0.0.1", 1)
     recorded: list[float] = []
@@ -692,11 +982,11 @@ async def test_one_device_bind_failure_does_not_abort_startup(
 
 async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
     """A caput to a device whose UDP bind failed gets a clear connection error."""
-    from geecs_ca_gateway.exceptions import GeecsConnectionError
+    from geecs_core.exceptions import GeecsConnectionError
 
     gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
     with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
-        await gw.pvdb[f"{DEVICE}:Position:SP"].write(1.0)
+        await gw.pvdb[f"{DEVICE_PV}:position:SP"].write(1.0)
 
 
 class _ValueRecordingChannel:
@@ -783,5 +1073,5 @@ async def test_run_returns_true_on_restart_request(monkeypatch) -> None:
     await asyncio.sleep(0.05)
     assert not run_task.done()  # serving; no restart requested yet
 
-    await gw.pvdb["CAGateway:RESTART"].write("Restart")
+    await gw.pvdb["cagateway:restart"].write("Restart")
     assert await asyncio.wait_for(run_task, timeout=5) is True

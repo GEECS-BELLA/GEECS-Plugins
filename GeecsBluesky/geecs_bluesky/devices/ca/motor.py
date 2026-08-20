@@ -1,17 +1,20 @@
 """CaMotor — position-feedback motor driven through the CA gateway.
 
-The CA counterpart of :class:`~geecs_bluesky.devices.motor.GeecsMotor`.  Two
-layers of convergence:
+Two layers of convergence:
 
-1. The gateway's ``…:SP`` write forwards to the GEECS UDP set, which itself
-   blocks until the device reports the set converged (per the DB tolerance) or
-   failed — so the CA put *already* carries GEECS's native convergence.  It is
-   given the full ``move_timeout`` budget rather than the short CA default,
-   since a slow axis is not a dead one.
+1. The gateway's ``…:SP`` write rides the blocking GEECS UDP set (given the
+   full ``move_timeout`` budget rather than the short CA default — a slow
+   axis is not a dead one), so the put already carries GEECS's native
+   convergence; a plain CaSettable is not "non-blocking."
 2. A readback polling loop then confirms the *streamed* position is within
-   ``tolerance`` of the target — belt-and-suspenders for the fringe cases where
-   the UDP set's own timeout semantics are ambiguous (devices that go quiet
-   during a move vs. genuinely stuck axes).
+   ``tolerance`` of the target — belt-and-suspenders for devices whose UDP
+   set-completion semantics are ambiguous.  It only adds information when
+   the readback is an independent measurement (a stage encoder), not an
+   echo of the command.
+
+The poll reads the readback of the *same* variable it set; the decoupled
+set-X-confirm-Y case is
+:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
 """
 
 from __future__ import annotations
@@ -98,8 +101,9 @@ class CaMotor(CaSettable):
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._move_timeout
 
-        # Layer 1: the gateway :SP put rides the blocking GEECS UDP set.
-        await self._setpoint.set(value, timeout=self._move_timeout)
+        # Layer 1: the gateway :SP put rides the blocking GEECS UDP set,
+        # through the shared put primitive with move_timeout as its budget.
+        await self._put.put(value, timeout=self._move_timeout)
 
         # Layer 2: confirm the streamed readback converged.
         position = getattr(self, self._readback_attr_name)

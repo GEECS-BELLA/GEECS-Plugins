@@ -1,17 +1,14 @@
 """CaTimestampedReadable — free-run sync contributor over the CA gateway.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`:
-read like a snapshot (no blocking ``trigger()``, so it never gates the event
+Read like a snapshot (no blocking ``trigger()``, so it never gates the event
 row) but carrying the sync-device companion columns labeled relative to the
-reference.  The labeling semantics — row shot-id peeking, bounded grace wait,
-offset/valid emission — are the *shared*
-:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin
-(the same code the direct contributor runs); this class supplies the CA
-transport underneath: ``acq_timestamp`` from the persistent gateway monitor
+reference — the shared
+:class:`~geecs_bluesky.devices.contributor.FreeRunContributorSupport` mixin.
+This class supplies the CA transport underneath: ``acq_timestamp`` from the
+persistent gateway monitor
 (:class:`~geecs_bluesky.devices.ca.triggerable.CaAcqTimestampReadable`), and
-``localsavingpath`` / ``save`` controls as CA signals writing the gateway
-``…:SP`` setpoints.
+``localsavingpath`` / ``save`` controls writing the gateway ``…:SP``
+setpoints.
 """
 
 from __future__ import annotations
@@ -20,7 +17,7 @@ import logging
 
 from ophyd_async.epics.core import epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.triggerable import CaAcqTimestampReadable
 from geecs_bluesky.devices.contributor import FreeRunContributorSupport
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
@@ -74,6 +71,12 @@ class CaTimestampedReadable(
         }
         self._save_nonscalar_data = save_nonscalar_data
         if save_nonscalar_data:
+            # A file/image-saving device surfaces acq_timestamp as an s-file
+            # column so saved files tie back to scan rows (legacy parity); a
+            # pure-scalar device keeps it as an excluded companion column.
+            self._column_headers[f"{name}-{safe_name(acq_timestamp_variable)}"] = (
+                f"{device} {acq_timestamp_variable}"
+            )
             # Writable controls, not readable signals: read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set).
             for attr in ("localsavingpath", "save"):
@@ -81,7 +84,7 @@ class CaTimestampedReadable(
                 setattr(
                     self,
                     attr,
-                    epics_signal_rw(str, readback, f"{readback}:SP"),
+                    epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
 
     @property

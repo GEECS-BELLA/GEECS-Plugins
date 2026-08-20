@@ -1,21 +1,13 @@
 """CaGenericDetector — the scanner's triggered detector over the CA gateway.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.generic_detector.GeecsGenericDetector`: one
-readable signal per variable, ``trigger()`` gated on ``acq_timestamp`` (via
-:class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`'s persistent CA
-monitor), the schema-v1 sync-device companion columns on every read, and native
-non-scalar file saving.
-
-The companion-column and asset logic is the *shared* domain layer — this class
-composes the same :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
-:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins the
-direct detector uses (same tracker, data keys, save-path column, and
-Resource/Datum documents).  Only the transport differs: ``acq_timestamp`` comes
-from the CA monitor cache instead of the TCP shot cache, and the
-``localsavingpath`` / ``save`` controls are CA signals that read the gateway
-readback PV and write its ``…:SP`` setpoint (which forwards to the GEECS UDP
-set), instead of direct UDP signals.
+One readable signal per variable, ``trigger()`` gated on ``acq_timestamp``
+(via :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`'s
+persistent CA monitor), the schema-v1 sync-device companion columns on every
+read (:class:`~geecs_bluesky.devices.shot_id.ShotIdSupport`), and native
+non-scalar file saving
+(:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport`; the
+``localsavingpath`` / ``save`` controls write the gateway ``…:SP``, which
+forwards to the GEECS UDP set).
 """
 
 from __future__ import annotations
@@ -27,7 +19,7 @@ from bluesky.protocols import Reading
 from event_model import DataKey
 from ophyd_async.epics.core import epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
 from geecs_bluesky.devices.ca.triggerable import CaTriggerable
 from geecs_bluesky.devices.nonscalar_save import NonScalarSaveSupport
 from geecs_bluesky.devices.shot_id import ShotIdSupport
@@ -83,6 +75,14 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
         }
         self._save_nonscalar_data = save_nonscalar_data
         if save_nonscalar_data:
+            # A file/image-saving device surfaces acq_timestamp as an s-file
+            # column so saved files tie back to scan rows (legacy parity — the
+            # saved filenames are stamped with it, and an images-only device
+            # otherwise contributes no scalar column at all). For a pure-scalar
+            # device acq_timestamp stays an excluded companion column.
+            self._column_headers[f"{name}-{safe_name(acq_timestamp_variable)}"] = (
+                f"{device} {acq_timestamp_variable}"
+            )
             # Writable controls, not readable signals (mirrors the direct
             # NonScalarSaveSupport._init_save_signals): read the gateway
             # readback, write the :SP setpoint (→ GEECS UDP set). Requires the
@@ -92,7 +92,7 @@ class CaGenericDetector(ShotIdSupport, NonScalarSaveSupport, CaTriggerable):
                 setattr(
                     self,
                     attr,
-                    epics_signal_rw(str, readback, f"{readback}:SP"),
+                    epics_signal_rw(str, readback, setpoint_pv(readback)),
                 )
 
     @property

@@ -1,9 +1,9 @@
 # GeecsCAGateway — Developer Context for Claude
 
-The GEECS **access layer**: this package owns the GEECS UDP/TCP wire protocol,
-the experiment MySQL database client, the PV naming contract, and a caproto
-**Channel Access soft-IOC** that mirrors GEECS devices as EPICS PVs (readback +
-`:SP` setpoints). Every EPICS-ecosystem consumer — GeecsBluesky's ophyd-async
+The caproto **Channel Access soft-IOC** that mirrors GEECS devices as EPICS
+PVs (readback + `:SP` setpoints), built on the GEECS access library
+**GEECS-Core** (`geecs_core`: UDP/TCP transport, experiment DB, PV naming,
+exceptions — extracted from this package 2026-08-20). Every EPICS-ecosystem consumer — GeecsBluesky's ophyd-async
 devices, Phoebus displays, the planned Archiver Appliance — talks to GEECS
 through these PVs instead of growing its own bespoke bridge.
 
@@ -45,30 +45,27 @@ geecs_ca_gateway/
   config.py          # Pydantic models: GatewayConfig / DeviceSpec / VariableSpec;
                      #   DB→dtype mapping incl. choice-descriptor quirks;
                      #   from_db_metadata (pure) / from_geecs_db / from_geecs_experiment
-  pv_naming.py       # THE shared naming policy (producer + consumers import it)
-  naming.py          # thin re-export of pv_naming for gateway-local use
-  transport/
-    udp_client.py    # GeecsUdpClient — cmd/ACK/exe protocol, exchange lock,
-                     #   exe-reply correlation, local-IP detection (VPN/PPP)
-    tcp_subscriber.py# GeecsTcpSubscriber — framed Wait>> subscription, push
-                     #   listener, name-anchored frame parser, text_variables
-  db/
-    geecs_db.py      # GeecsDb — MySQL lookups (device endpoint/type, variables
-                     #   + metadata, experiment device list, get='yes' subset);
-                     #   credentials from config.ini → Configurations.INI
-  testing/
-    fake_device_server.py  # FakeGeecsServer / FakeGeecsDevice — in-process
-                           #   UDP/TCP server speaking the real wire protocol
-  exceptions.py      # GeecsError tree (connection / rejected / failed / not-found);
-                     #   GeecsBluesky's scan-level exceptions subclass these
+  audit.py           # read-only DB-hygiene audit (#496): reports every get='yes'
+                     #   variable the gateway won't serve + FK-orphans. Pure
+                     #   classifier audit_subscribed_variables() (no DB) + CLI
+                     #   (python -m geecs_ca_gateway.audit / geecs-ca-gateway-audit)
   demo.py            # offline self-checking demo over the fake server
 ```
 
-Dependency direction: **GeecsBluesky depends on this package, never the other
-way around**. GeecsBluesky imports the *library* parts (`GeecsDb`, `pv_naming`,
-exceptions, `FakeGeecsServer`) and consumes the *service* (the PVs, via stock
-ophyd-async EPICS signals). The gateway env is deliberately slim: caproto +
-pydantic + mysql-connector — no ophyd/bluesky/pandas.
+The access-layer modules this package used to own — `transport/`
+(GeecsUdpClient, GeecsTcpSubscriber), `db/` (GeecsDb + the alarms model),
+`pv_naming`, `exceptions`, `testing/fake_device_server.py` — live in
+**`GEECS-Core/geecs_core/`** (see its `DESIGN.md`); this package imports them
+from `geecs_core.*` and layers the CA server on top.
+
+Dependency direction: **nothing imports this package except GeecsPvaGateway**
+(config helpers, e.g. `effective_vartype`). GeecsBluesky and GEECS-Console
+take the library parts (`GeecsDb`, `pv_naming`, exceptions) from `geecs-core`
+directly and consume this gateway purely as a *service* (the PVs, via stock
+ophyd-async EPICS signals). The gateway also imports `geecs-schemas` for
+schema-validated derived-channel overlay files. The gateway env is deliberately
+slim: caproto + pydantic + geecs-schemas + geecs-core + PyYAML — no
+ophyd/bluesky/pandas.
 
 ## Architecture
 
@@ -97,12 +94,13 @@ One asyncio event loop runs everything:
   and **timestamp-ladder variables are posted last** so a client triggering on
   `acq_timestamp` observes the completed frame (PV_CONTRACT.md §3).
 - **channels/naming**: `channels.py` is the only caproto-typed layer (kept
-  swappable per DESIGN.md's PVA-later plan). Readback channels deny client
+  swappable per DESIGN.md's per-device-class PVA plan — images already run
+  on PVA via `GeecsPvaGateway/`; scalars stay CA). Readback channels deny client
   writes (access rights READ); setpoint channels forward to GEECS *before*
-  storing, so a failed set fails the caput. `pv_naming.py` is the one shared
-  naming module; full names are assembled by `DeviceSpec.pv_name_for`.
-- **db/**: `GeecsDb` is class-method-only, credentials cached from the standard
-  GEECS config chain. `config.py` maps DB rows → specs; the network-free core
+  storing, so a failed set fails the caput. `geecs_core.pv_naming` is the one
+  shared naming module; full names are assembled by `DeviceSpec.pv_name_for`.
+- **db (geecs_core.db)**: `GeecsDb` is class-method-only, credentials cached
+  from the standard GEECS config chain. `config.py` maps DB rows → specs; the network-free core
   is `from_db_metadata` (unit-tested without MySQL);
   `from_geecs_experiment` builds a whole experiment (get='yes' subset +
   control surface by default — settable-only devices keep their `:SP` PVs)
@@ -128,8 +126,8 @@ One asyncio event loop runs everything:
   wire text survives (enum labels like `"1.0"` need this too).
 - **Exe status is `"no error,"`, not the documented `"ok,"`** — match the
   prefix. Real hardware also differs from protocol docs in the echo field
-  (above); when in doubt trust the legacy GEECS-PythonAPI parser and the fake
-  server, which encode observed behavior.
+  (above); when in doubt trust the fake server (and the legacy
+  GEECS-PythonAPI parser, now in git history), which encode observed behavior.
 - **Numeric enum labels resolve by value, never index** (`"2.000000"` is the
   label `"2"`, not index 2 — DG645 configs have labels `["1","2","5"]`).
   Index-interpretation is a fallback reserved for fully non-numeric label sets
@@ -144,19 +142,21 @@ One asyncio event loop runs everything:
 
 ## Testing infrastructure
 
-- **`FakeGeecsServer` / `FakeGeecsDevice`** (`geecs_ca_gateway.testing`) — an
+- **`FakeGeecsServer` / `FakeGeecsDevice`** (`geecs_core.testing`) — an
   in-process asyncio UDP+TCP server speaking the real wire protocol (5 Hz
   pushes, ACK/exe replies). The whole suite is offline: no hardware, no lab
   network, no CA client needed (tests drive channels directly via
-  `channel.write`). GeecsBluesky's tests import it from here too.
+  `channel.write`). GeecsBluesky no longer imports it — its hermetic tests
+  use ophyd-async mock backends instead.
 - `pytest` runs `asyncio_mode = "auto"` and deselects `integration` (lab-DB)
   tests by default; `fake_server` marks tests that open localhost sockets.
-- Test files map to layers: `test_naming` / `test_channels` /
-  `test_config_from_db` (pure units), `test_transport` +
-  `test_udp_reply_correlation` (wire protocol; the latter injects datagrams
-  with no sockets), `test_gateway` (fake-server end-to-end),
-  `test_pv_contract` (thin example-tests pinning PV_CONTRACT.md claims),
-  `test_geecs_db` / `test_entrypoint` (mocked DB / CLI).
+- Test files map to layers: `test_naming` (DeviceSpec PV assembly) /
+  `test_channels` / `test_config_from_db` (pure units), `test_gateway`
+  (fake-server end-to-end), `test_pv_contract` (thin example-tests pinning
+  PV_CONTRACT.md claims), `test_entrypoint` (CLI). The wire-protocol and DB
+  suites (`test_transport`, `test_udp_reply_correlation`, `test_geecs_db`,
+  `test_coerce`, `test_pv_naming`) moved to `GEECS-Core/tests/` with the
+  code they pin.
 - **When you change externally observable behavior**: update `PV_CONTRACT.md`,
   and add/adjust its pinned test in the same PR. The contract's test map is the
   index.
@@ -180,9 +180,30 @@ ca_addr_list`, applied by geecs_bluesky at import) is documented in
 ## Ground rules
 
 - **Never let producer and consumer naming drift** — the policy lives only in
-  `pv_naming.py`; GeecsBluesky imports the same module. No copies.
-- **Scalars/controls only; images stay off CA** (distributed PVA workstream,
-  DESIGN.md). Don't add image PVs here.
+  `geecs_core.pv_naming`; GeecsBluesky imports the same module. No copies.
+- **Scalars/controls only; images stay off CA** (DESIGN.md). Don't add image
+  PVs here — they are served by `GeecsPvaGateway/`, the distributed PVA peer
+  running on the camera servers (it imports geecs-core's transport, DB, and
+  `pv_naming`, plus this package's config helpers; same one-namespace
+  coexistence as GeecsBluesky).
 - Follow the repo-wide conventions (root `CLAUDE.md`): Pydantic v2, NumPy
   docstrings, type hints, `poetry version` + `CHANGELOG.md` on every
   code-changing PR.
+
+## DB-hygiene audit (`audit.py`, #496)
+
+`expt_device_variable` accumulates `get='yes'` rows that map to nothing real
+(the LabVIEW DB-editing GUIs don't cascade deletes), and each one makes the
+gateway/scanner try to connect a PV that never exists → per-device stalls. The
+audit reports them; run it on-network with `python -m geecs_ca_gateway.audit
+--experiment Undulator` (add `--full` for the per-device listing, `--sql` to
+*print* review-only DELETEs). It flags: **GHOST** (`get='yes'` name isn't a real
+device variable), **SKIP:<type>** (`get='yes'` var whose *effective* type is
+`image`/`1darray`, in `_SKIP_VARTYPES`, so no scalar PV), and **FK-orphan**
+(`expt_device_id` with no `expt_device`). Effective types come from the shared
+pure helper `config.effective_vartype()` — the same choice-descriptor rules the
+config builder applies (`variabletype='choice'` + `choices='image'` is an image;
+#512) — so the audit flags exactly what the gateway skips. The classifier
+`audit_subscribed_variables()` is a pure function over plain dicts (no DB —
+unit-tested in `test_audit.py`); DB access is lazy.
+**Read-only: it never DELETEs or modifies** — `--sql` only prints.

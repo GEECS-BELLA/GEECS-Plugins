@@ -1,0 +1,18 @@
+single_scan_devices:
+  ASSERT-Stage_TestBench: ASSERT-LensStage:Position.Ch1
+  Assert-Ctrl-BProfiler-LRes: Assert-Ctrl_BProfiler-LRes:Position.Ch1
+  Blade-Z: HTT-ESP02:Position.Axis 3
+  'Compressor: Grating Separation': HTT-Aerotech:Position.Axis1
+  Ghost Stage: HTT-ESP06:Position.Axis 3
+  HP Mode Imager: HTT-ESP06:Position.Axis 1
+  Jet x: HTT-ESP01:Position.Axis 1
+  Jet z: HTT-ESP01:Position.Axis 3
+  LP Mode Imager: HTT-LPModeStage:position
+  Pressure Scan: HTT-HighPressureDAQ:AnalogOutput.Channel 0
+  Probe Delay Short: HTT-ESP04:Position.Axis 3
+  'Probe Delay: Long': HTT_ProbeLongDelay:position
+  QAtt-DS: HTT-B-Zaber_Chain-B:Position.Ch3
+  QAtt-US: HTT-B-Zaber_Chain-B:Position.Ch2
+  Quad-x: HTT-B-Zaber_Chain-B:Position.Ch3
+  Quad-y: HTT-B-Zaber_Chain-B:Position.Ch5
+  Quad-z: HTT-B-Zaber_Chain-B:Position.Ch4

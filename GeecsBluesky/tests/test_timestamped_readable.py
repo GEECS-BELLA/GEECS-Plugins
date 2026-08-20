@@ -144,8 +144,8 @@ async def test_save_nonscalar_emits_save_path_column() -> None:
     cam.configure_shot_id(rep_rate_hz=1.0)
     # The writable save-control signals exist (used by the run wrapper to turn
     # native saving on/off through the gateway :SP PVs)
-    assert cam.localsavingpath.source.endswith("Test:U_Cam:localsavingpath")
-    assert cam.save.source.endswith("Test:U_Cam:save")
+    assert cam.localsavingpath.source.endswith("test:u_cam:localsavingpath")
+    assert cam.save.source.endswith("test:u_cam:save")
     cam.configure_nonscalar_file_logging("/data/Scan001/U_Cam")
 
     desc = await asyncio.wait_for(cam.describe(), timeout=3.0)

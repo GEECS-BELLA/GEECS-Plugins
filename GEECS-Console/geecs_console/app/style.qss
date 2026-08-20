@@ -1,0 +1,475 @@
+/* GEECS-Console visual treatment — matches the approved screen map v0.1.
+ *
+ * Palette (wireframe chrome from the screen-map artifact):
+ *   --w-bg      #eceef0   window background
+ *   --w-panel   #fbfcfd   group-box panel
+ *   --w-line    #b9c0c7   1px borders
+ *   --w-ink     #2a323a   primary text
+ *   --w-dim     #6b7681   secondary text / legends / hints
+ *   --w-accent  #2e7fb8   primary action + checked radio
+ *   --run       #2f9e63   green semantic
+ *   --warn      #d9a21b   amber semantic
+ *   --abort     #c4453a   red semantic / danger
+ *
+ * Loaded by geecs_console.app.main_window.load_stylesheet(), which replaces
+ * the @UI_DIR@ token with the absolute path of the packaged ui/ directory
+ * (for the combo-box arrow asset).
+ */
+
+QMainWindow,
+QWidget#ConsoleRoot {
+    background-color: #eceef0;
+}
+
+QWidget {
+    font-size: 12px;
+    color: #2a323a;
+}
+
+/* ------------------------------------------------------------------ */
+/* Group boxes: crisp 1px border, panel background, small dim legend  */
+/* on the border (title text is uppercased in the .ui — QSS has no    */
+/* text-transform).                                                   */
+/* ------------------------------------------------------------------ */
+
+QGroupBox {
+    background-color: #fbfcfd;
+    border: 1px solid #b9c0c7;
+    border-radius: 4px;
+    margin-top: 8px;
+    padding: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #6b7681;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 8px;
+    top: 2px;
+    padding: 0px 5px;
+    background-color: #fbfcfd;
+    color: #6b7681;
+}
+
+/* Children reset the group box's legend font. */
+QGroupBox QLabel,
+QGroupBox QRadioButton,
+QGroupBox QCheckBox {
+    font-size: 12px;
+    font-weight: normal;
+    color: #2a323a;
+}
+
+QLabel {
+    background: transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Buttons                                                            */
+/* ------------------------------------------------------------------ */
+
+QPushButton {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #fdfdfd, stop: 1 #eef0f2);
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    padding: 4px 12px;
+    color: #2a323a;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+QPushButton:hover {
+    background-color: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #ffffff, stop: 1 #f2f4f6);
+    border-color: #a5adb5;
+}
+
+QPushButton:pressed {
+    background-color: #e4e7ea;
+}
+
+QPushButton:disabled {
+    background-color: #f2f3f5;
+    border-color: #d3d8dc;
+    color: #9aa4ad;
+}
+
+/* Primary: Start scan */
+QPushButton#r5_start_button {
+    background-color: #2e7fb8;
+    border: 1px solid #2e7fb8;
+    color: #ffffff;
+    font-weight: 600;
+    padding: 5px 16px;
+}
+
+QPushButton#r5_start_button:hover {
+    background-color: #1d6da6;
+    border-color: #1d6da6;
+}
+
+QPushButton#r5_start_button:pressed {
+    background-color: #175d8f;
+}
+
+QPushButton#r5_start_button:disabled {
+    background-color: #b9d2e4;
+    border-color: #b9d2e4;
+    color: #f3f7fa;
+}
+
+/* Danger outline: Stop */
+QPushButton#r5_stop_button {
+    background-color: #ffffff;
+    border: 1px solid #c4453a;
+    color: #c4453a;
+    padding: 5px 16px;
+}
+
+QPushButton#r5_stop_button:hover {
+    background-color: #fbf1f0;
+}
+
+QPushButton#r5_stop_button:pressed {
+    background-color: #f5e0de;
+}
+
+QPushButton#r5_stop_button:disabled {
+    background-color: #fbfbfb;
+    border-color: #ddc7c4;
+    color: #d3a49f;
+}
+
+/* ------------------------------------------------------------------ */
+/* Inputs: white, 1px line border, 3px radius                         */
+/* ------------------------------------------------------------------ */
+
+QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    padding: 3px 6px;
+    color: #2a323a;
+    selection-background-color: #dcebf5;
+    selection-color: #2a323a;
+}
+
+QLineEdit:focus {
+    border-color: #2e7fb8;
+}
+
+QLineEdit:disabled {
+    background-color: #f2f3f5;
+    color: #9aa4ad;
+}
+
+QComboBox {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    padding: 3px 20px 3px 6px;
+    color: #2a323a;
+    selection-background-color: #dcebf5;
+    selection-color: #2a323a;
+}
+
+QComboBox:focus {
+    border-color: #2e7fb8;
+}
+
+QComboBox:disabled {
+    background-color: #f2f3f5;
+    color: #9aa4ad;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 18px;
+    border: none;
+}
+
+QComboBox::down-arrow {
+    image: url("@UI_DIR@/arrow_down.svg");
+    width: 8px;
+    height: 8px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    selection-background-color: #dcebf5;
+    selection-color: #2a323a;
+    outline: none;
+}
+
+QSpinBox,
+QDoubleSpinBox {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    padding: 3px 4px 3px 6px;
+    color: #2a323a;
+    selection-background-color: #dcebf5;
+    selection-color: #2a323a;
+}
+
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border-color: #2e7fb8;
+}
+
+QSpinBox:disabled,
+QDoubleSpinBox:disabled {
+    background-color: #f2f3f5;
+    color: #9aa4ad;
+}
+
+/* Spin buttons are disabled in the .ui (QAbstractSpinBox::NoButtons):
+ * on macOS the native button geometry draws outside the QSS border and
+ * looks detached, and the screen map's number fields are plain inputs.
+ * Typing, arrow keys, and wheel still adjust values. */
+
+/* ------------------------------------------------------------------ */
+/* Lists                                                              */
+/* ------------------------------------------------------------------ */
+
+QListWidget {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 3px;
+    outline: none;
+}
+
+QListWidget::item {
+    padding: 3px 8px;
+    border-bottom: 1px solid #eef1f3;
+    color: #2a323a;
+}
+
+QListWidget::item:selected {
+    background-color: #dcebf5;
+    color: #2a323a;
+}
+
+QListWidget::item:hover {
+    background-color: #f0f5f9;
+}
+
+/* ------------------------------------------------------------------ */
+/* Radios: accent when checked                                        */
+/* ------------------------------------------------------------------ */
+
+QRadioButton {
+    spacing: 5px;
+}
+
+QRadioButton::indicator {
+    width: 13px;
+    height: 13px;
+    border: 1px solid #6b7681;
+    border-radius: 7px;
+    background-color: #ffffff;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #2e7fb8;
+}
+
+QRadioButton::indicator:checked {
+    border: 1px solid #2e7fb8;
+    background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5,
+                                      fx: 0.5, fy: 0.5,
+                                      stop: 0.50 #2e7fb8, stop: 0.62 #ffffff,
+                                      stop: 1 #ffffff);
+}
+
+QRadioButton:disabled {
+    color: #9aa4ad;
+}
+
+QRadioButton::indicator:disabled {
+    border-color: #c9cfd5;
+    background-color: #f2f3f5;
+}
+
+/* ------------------------------------------------------------------ */
+/* Progress bar: thin, rounded, green chunk                           */
+/* ------------------------------------------------------------------ */
+
+QProgressBar {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 6px;
+    min-height: 12px;
+    max-height: 12px;
+    text-align: center;
+    font-size: 9px;
+    color: #6b7681;
+}
+
+QProgressBar::chunk {
+    background-color: #2f9e63;
+    border-radius: 5px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Menu bar + status bar chrome                                       */
+/* ------------------------------------------------------------------ */
+
+QMenuBar {
+    background-color: #f2f4f5;
+    border-bottom: 1px solid #b9c0c7;
+    color: #2a323a;
+}
+
+QMenuBar::item {
+    padding: 3px 9px;
+    background: transparent;
+    border-radius: 3px;
+}
+
+QMenuBar::item:selected {
+    background-color: #dde4ea;
+}
+
+QMenu {
+    background-color: #fbfcfd;
+    border: 1px solid #b9c0c7;
+    color: #2a323a;
+}
+
+QMenu::item {
+    padding: 4px 18px;
+}
+
+QMenu::item:selected {
+    background-color: #dcebf5;
+}
+
+QMenu::item:disabled {
+    color: #9aa4ad;
+}
+
+QStatusBar {
+    background-color: #f2f4f5;
+    border-top: 1px solid #b9c0c7;
+    color: #6b7681;
+}
+
+QStatusBar QLabel {
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+    color: #6b7681;
+    background: transparent;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+/* ------------------------------------------------------------------ */
+/* R1 health chips: small rounded pills (dot colored in rich text)    */
+/* ------------------------------------------------------------------ */
+
+QLabel#r1_gateway_chip,
+QLabel#r1_tiled_chip,
+QLabel#r1_db_chip {
+    background-color: #ffffff;
+    border: 1px solid #b9c0c7;
+    border-radius: 9px;
+    padding: 1px 8px;
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+    color: #6b7681;
+}
+
+/* ------------------------------------------------------------------ */
+/* Dim field labels and hint lines                                    */
+/* ------------------------------------------------------------------ */
+
+QLabel#r1_experiment_label,
+QLabel#r1_rep_rate_label,
+QLabel#r1_trigger_label,
+QLabel#r3_variable_label,
+QLabel#r3_start_label,
+QLabel#r3_stop_label,
+QLabel#r3_step_label,
+QLabel#r3_variable2_label,
+QLabel#r3_start2_label,
+QLabel#r3_stop2_label,
+QLabel#r3_step2_label,
+QLabel#r3_shots_label,
+QLabel#r3_acquisition_label,
+QLabel#r3_description_label,
+QLabel#r7_readback_title {
+    color: #6b7681;
+}
+
+QLabel#r2_available_label,
+QLabel#r2_selected_label,
+QLabel#r2_union_label,
+QLabel#r2_hint_label,
+QLabel#r3_shot_count_label {
+    color: #6b7681;
+    font-size: 11px;
+}
+
+QLabel#r5_hint_label {
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+    color: #6b7681;
+}
+
+/* R6: state pill (dot colored in rich text) + monospace scan number */
+QLabel#r6_state_pill {
+    font-weight: 600;
+    color: #2a323a;
+}
+
+QLabel#r6_scan_number_label {
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+    color: #6b7681;
+}
+
+/* ------------------------------------------------------------------ */
+/* R6 log tail: dark, monospace, no focus ring                        */
+/* ------------------------------------------------------------------ */
+
+QPlainTextEdit#r6_log_tail {
+    background-color: #202830;
+    color: #9fb4c4;
+    border: 1px solid #202830;
+    border-radius: 3px;
+    padding: 4px 6px;
+    font-family: "SF Mono", "Menlo", "Consolas", "DejaVu Sans Mono", monospace;
+    font-size: 11px;
+    selection-background-color: #3a4a58;
+    selection-color: #e8eef3;
+}
+
+QPlainTextEdit#r6_log_tail:focus {
+    border: 1px solid #202830;
+    outline: none;
+}
+
+/* Scrollbars inside the dark log tail stay subtle. */
+QPlainTextEdit#r6_log_tail QScrollBar:vertical {
+    background: #202830;
+    width: 8px;
+}
+
+QPlainTextEdit#r6_log_tail QScrollBar::handle:vertical {
+    background: #3a4a58;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QPlainTextEdit#r6_log_tail QScrollBar::add-line:vertical,
+QPlainTextEdit#r6_log_tail QScrollBar::sub-line:vertical {
+    height: 0px;
+}

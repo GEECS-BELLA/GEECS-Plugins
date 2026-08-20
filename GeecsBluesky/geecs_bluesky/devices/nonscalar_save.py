@@ -3,13 +3,12 @@
 GEECS cameras write image files natively once their ``localsavingpath`` and
 ``save`` variables are set.  Bluesky/Tiled do not store the images; they record
 the scanner-owned save directory (``<dev>-nonscalar_save_path``) and the device
-``acq_timestamp`` so notebooks join events to native timestamped files by
-timestamp, not by a synthetic shot counter.
+``acq_timestamp`` so events join to native timestamped files by timestamp,
+never by a synthetic shot counter.
 
-This mixin gives both the triggered detector (strict / free-run reference)
-and the free-run contributor one implementation of that capability, so the two
-cannot diverge.  Host devices create their own ``localsavingpath`` / ``save``
-control signals (CA signals writing the gateway ``:SP`` setpoints).
+Shared by the triggered detector and the free-run contributor so the asset
+contract cannot diverge.  Host devices create their own ``localsavingpath`` /
+``save`` control signals (CA signals writing the gateway ``:SP`` setpoints).
 """
 
 from __future__ import annotations

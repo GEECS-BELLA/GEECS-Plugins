@@ -21,16 +21,26 @@ geecs_log_triage/
 
 ## Log Format Source of Truth
 
-The parser targets the per-scan log format defined in
-`GEECS-Scanner-GUI/geecs_scanner/logging_setup.py::attach_scan_log`:
+The parser targets **two** per-scan log formats (both accepted by one regex;
+the context token is captured as `shot` either way):
 
-```
-%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] shot=%(shot_id)s - %(message)s
-```
+- Legacy engine (`GEECS-Scanner-GUI/geecs_scanner/logging_setup.py`):
 
-Where `asctime` uses `datefmt="%Y-%m-%d %H:%M:%S"`. If the format string changes
-in `logging_setup.py`, update the regex in `parser.HEADER_RE` and bump a minor
-version.
+  ```
+  %(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] shot=%(shot_id)s - %(message)s
+  ```
+
+- Bluesky stack (`GeecsBluesky/geecs_bluesky/scan_log.py::scan_log`):
+
+  ```
+  %(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] scan=%(scan_id)s - %(message)s
+  ```
+
+Where `asctime` uses `datefmt="%Y-%m-%d %H:%M:%S"`. If either format string
+changes at its source, update the regex in `parser.HEADER_RE`
+(`geecs_data_utils/scan_log_loader.py`) and bump a minor version.  (The
+`scan=` support landed 2026-07-13 after live Bluesky scan.logs parsed to
+zero entries — the triage ran but saw nothing.)
 
 Multi-line tracebacks: when a log record contains an exception, the formatter
 appends the traceback as additional lines that do not start with a header

@@ -6,7 +6,11 @@ Exercises the pure ``DeviceSpec.from_db_metadata`` core using rows shaped like
 
 from __future__ import annotations
 
+import pytest
+
+from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
+from geecs_core.db.geecs_db import GeecsDb
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -32,6 +36,104 @@ def test_from_db_metadata_maps_units_limits_settable() -> None:
 
     # units default to empty; missing limits stay None
     assert by_name["IPAddress"].lo is None and by_name["IPAddress"].hi is None
+
+
+def test_description_absent_defaults_to_empty() -> None:
+    """A metadata row with no 'description' key yields an empty DESC."""
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, U_S1H_META)
+    by_name = {v.geecs_var: v for v in spec.variables}
+    assert by_name["Current"].description == ""
+
+
+def test_description_maps_from_metadata() -> None:
+    """A 'description' key on a metadata row maps onto VariableSpec.description."""
+    meta = [
+        {
+            "name": "Current",
+            "units": "A",
+            "min": -5.0,
+            "max": 5.0,
+            "settable": True,
+            "description": "S1H steering current",
+        }
+    ]
+    spec = DeviceSpec.from_db_metadata("U_S1H", "h", 1, meta)
+    assert spec.variables[0].description == "S1H steering current"
+
+
+def test_description_clipped_to_epics_limit() -> None:
+    """An over-long description is clipped to 40 chars (EPICS .DESC limit)."""
+    from geecs_ca_gateway.config import VariableSpec
+
+    long_text = "x" * 60
+    spec = VariableSpec(geecs_var="V", description=long_text)
+    assert len(spec.description) == 40
+
+
+def test_alarm_limits_validate_order_and_presence() -> None:
+    """Curated alarm limits must be explicit and monotonic."""
+    limits = AlarmLimits(low=1.0, high=5.0)
+    assert limits.low == 1.0
+    with pytest.raises(ValueError, match="at least one"):
+        AlarmLimits()
+    with pytest.raises(ValueError, match="increase"):
+        AlarmLimits(low=5.0, high=1.0)
+
+
+def test_alarm_limits_hysteresis_holds_level_before_stepdown() -> None:
+    """HIHI stays active through its hysteresis band before dropping to HIGH."""
+    limits = AlarmLimits(high=4.0, hihi=5.0, hysteresis=0.1)
+
+    assert limits.evaluate(5.1).level == "HIHI"
+    held = limits.evaluate(4.95, previous=limits.evaluate(5.1).level)
+    assert held is not None
+    assert held.level == "HIHI"
+
+    stepped_down = limits.evaluate(4.89, previous=held.level)
+    assert stepped_down is not None
+    assert stepped_down.level == "HIGH"
+
+
+def test_from_geecs_experiment_attaches_numeric_alarm_limits(monkeypatch) -> None:
+    """DB alarm rows attach only to served numeric readback variables."""
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_experiment_devices",
+        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ("h", 1)}),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_experiment_device_variables",
+        classmethod(
+            lambda cls, experiment, enabled_only=True: {
+                "U_A": [
+                    {
+                        "name": "Current",
+                        "units": "A",
+                        "min": -5.0,
+                        "max": 5.0,
+                        "settable": True,
+                        "variabletype": "numeric",
+                    }
+                ]
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_subscribed_variables",
+        classmethod(lambda cls, experiment, enabled_only=True: {"U_A": ["Current"]}),
+    )
+    monkeypatch.setattr(
+        GeecsDb,
+        "get_ca_alarm_limits",
+        classmethod(
+            lambda cls, experiment: {("U_A", "Current"): AlarmLimits(high=4.0)}
+        ),
+    )
+
+    cfg = GatewayConfig.from_geecs_experiment("Undulator")
+    assert cfg.devices[0].variables[0].alarm_limits == AlarmLimits(high=4.0)
 
 
 def test_include_filters_variables() -> None:
@@ -70,19 +172,33 @@ def test_dtypes_override() -> None:
 
 
 def test_pvdb_built_from_db_spec_has_limits() -> None:
-    """A gateway built from the DB spec carries CA control limits on channels."""
+    """DB limits split by channel kind: display on readback, control on :SP.
+
+    The readback must stay display-limits-only (caproto enforces control
+    limits on every write, including the gateway's own stream mirroring —
+    the 9396c61f NaN-readback lesson); the setpoint additionally serves the
+    span as enforced ``DBR_CTRL`` limits so out-of-range client puts fail at
+    the CA layer.
+    """
     spec = DeviceSpec.from_db_metadata(
         "U_S1H", "h", 1, U_S1H_META, include=["Current", "Voltage"]
     )
     # __init__ only builds the pvdb — no network until connect() is called.
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
 
-    current = gw.pvdb["U_S1H:Current"]
-    # display (informational) limits, not enforced control limits
+    current = gw.pvdb["u_s1h:current"]
+    # readback: display (informational) limits, control limits DISABLED (0/0)
     assert current.upper_disp_limit == 5.0
     assert current.lower_disp_limit == -5.0
     assert current.units == "A"
-    assert "U_S1H:Current:SP" in gw.pvdb  # settable -> setpoint exists
+    assert current.lower_ctrl_limit == current.upper_ctrl_limit == 0
+
+    sp = gw.pvdb["u_s1h:current:SP"]  # settable -> setpoint exists
+    # setpoint: same span served as BOTH display and enforced control limits
+    assert sp.lower_disp_limit == -5.0
+    assert sp.upper_disp_limit == 5.0
+    assert sp.lower_ctrl_limit == -5.0
+    assert sp.upper_ctrl_limit == 5.0
 
 
 def test_from_db_metadata_dedupes_duplicate_variables() -> None:
@@ -109,7 +225,7 @@ def test_from_db_metadata_dedupes_duplicate_variables() -> None:
     assert len(spec.variables) == 1  # deduped
     # and building the gateway does not raise a spurious collision
     gw = GeecsCaGateway(GatewayConfig(devices=[spec]))
-    assert "Undulator:U_GhostFilters:Transmission_Channel11_Pos1" in gw.pvdb
+    assert "undulator:u_ghostfilters:transmission_channel11_pos1" in gw.pvdb
 
 
 def test_from_db_metadata_maps_variable_types() -> None:
@@ -277,7 +393,7 @@ def _patch_experiment_db(
     sub_map: dict,
 ) -> None:
     """Stub the three batched GeecsDb queries from_geecs_experiment issues."""
-    from geecs_ca_gateway.db.geecs_db import GeecsDb
+    from geecs_core.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,
@@ -320,7 +436,7 @@ def test_from_geecs_experiment_subscribed_only(monkeypatch) -> None:
     assert {v.geecs_var for v in by_name["U_A"].variables} == {"Current"}
     assert {v.geecs_var for v in by_name["U_B"].variables} == {"Current", "Voltage"}
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_B:Voltage" in gw.pvdb
+    assert "undulator:u_b:voltage" in gw.pvdb
 
 
 def test_from_geecs_experiment_keeps_settable_only_devices(monkeypatch) -> None:
@@ -346,7 +462,7 @@ def test_from_geecs_experiment_keeps_settable_only_devices(monkeypatch) -> None:
     # control surface survives: only the settable variable, not the readback set
     assert {v.geecs_var for v in by_name["U_CTRL"].variables} == {"save"}
     gw = GeecsCaGateway(cfg)
-    assert "Undulator:U_CTRL:save:SP" in gw.pvdb
+    assert "undulator:u_ctrl:save:SP" in gw.pvdb
     # a device exposing nothing at all is dropped (no pointless connections)
     assert "U_IDLE" not in by_name
     # --no-settable restores the strict get-list behavior

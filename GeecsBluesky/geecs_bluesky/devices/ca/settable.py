@@ -1,13 +1,16 @@
 """CaSettable — a writable GEECS variable driven through the CA gateway.
 
 The gateway exposes a settable GEECS variable as two PVs: a readback
-(``[Experiment:]Device:Variable``, fed by the device stream) and a setpoint
-(``…:SP``, whose CA puts the gateway forwards to the device over UDP).  This
-device writes the setpoint and reads back the real value — the CA counterpart of
-:class:`~geecs_bluesky.devices.settable.GeecsSettable`.
+(``[experiment:]device:variable``, fed by the device stream) and a setpoint
+(``…:SP``, forwarded to the device over UDP).  This device writes the
+setpoint and reads back the real value.
 
-For a position-feedback motor that must poll the readback until it converges, a
-future ``CaMotor`` would override ``_set_and_wait`` (mirroring ``GeecsMotor``).
+The ``:SP`` put is not fire-and-forget: it rides GEECS's native **blocking**
+set, which completes only when the device reports convergence (per the DB
+tolerance) or failure — a plain CaSettable already waits.
+:class:`~geecs_bluesky.devices.ca.motor.CaMotor` adds an independent
+readback-tolerance poll on top; the decoupled set-X-confirm-Y case is
+:class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable`.
 """
 
 from __future__ import annotations
@@ -18,7 +21,8 @@ import logging
 from ophyd_async.core import AsyncStatus, StandardReadable
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
-from geecs_bluesky.devices.ca._pv import ca_pv
+from geecs_bluesky.devices.ca._pv import ca_pv, setpoint_pv
+from geecs_bluesky.devices.ca.gateway_put import GatewaySetpointPut
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +66,12 @@ class CaSettable(StandardReadable):
         readback_pv = ca_pv(experiment, device, variable)
         # Setpoint is not a child readable (no feedback loop): set() writes it,
         # read() reflects the streamed readback instead.
-        self._setpoint = epics_signal_rw(datatype, f"{readback_pv}:SP")
+        self._setpoint = epics_signal_rw(datatype, setpoint_pv(readback_pv))
+        # Layer-1 puts ride the shared gateway-put primitive (the one owner
+        # of addressing/coercion/timeout policy); the typed signal stays the
+        # transport — connect-time dtype check and the mock-backend seam.
+        # timeout=None defers to the signal's own default per put.
+        self._put = GatewaySetpointPut(signal=self._setpoint, timeout=None)
         with self.add_children_as_readables():
             setattr(self, _readback_attr, epics_signal_r(datatype, readback_pv))
         super().__init__(name=name)
@@ -75,7 +84,7 @@ class CaSettable(StandardReadable):
         self._column_headers = {f"{name}-{_readback_attr}": f"{device} {variable}"}
 
     async def disconnect(self) -> None:
-        """Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+        """Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
 
         This device holds no persistent monitor subscription, so there is
         nothing to unsubscribe — the method exists so scanner teardown is
@@ -93,6 +102,6 @@ class CaSettable(StandardReadable):
 
     async def _set_and_wait(self, value: float) -> None:
         """Write the setpoint and wait ``settle_time`` (subclasses may poll)."""
-        await self._setpoint.set(value)
+        await self._put.put(value)
         if self._settle_time > 0:
             await asyncio.sleep(self._settle_time)

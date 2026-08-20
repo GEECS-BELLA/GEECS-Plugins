@@ -21,12 +21,13 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
     ---
 
-    Run scans on the beamline. Configure save elements, drive multi-scan
-    batches, and run Xopt-driven optimization through the Scanner GUI —
-    or use its engine headlessly from your own scripts.
+    Run scans on the beamline with the GEECS Console: compose save sets,
+    drive scans and optimizations through the Bluesky-backed engine, and
+    browse recorded runs — or submit the same scan requests headlessly
+    from your own scripts.
 
-    [:octicons-arrow-right-24: Scanner GUI tutorial](geecs_scanner/tutorial.md) ·
-    [Overview](geecs_scanner/overview.md)
+    [:octicons-arrow-right-24: GEECS Console](geecs_console/overview.md) ·
+    [Running scans](geecs_console/running_scans.md)
 
 -   :material-chart-areaspline:{ .lg .middle } **Data Analysis**
 
@@ -47,11 +48,11 @@ follow that split; the bottom row is for navigation and troubleshooting.
     suite. Pick this if you already know which piece you're working
     with.
 
-    [:octicons-arrow-right-24: Scanner GUI](geecs_scanner/overview.md) ·
+    [:octicons-arrow-right-24: GEECS Console](geecs_console/overview.md) ·
     [Image Analysis](image_analysis/overview.md) ·
     [Scan Analysis](scan_analysis/overview.md) ·
     [Data Utils](geecs_data_utils/overview.md) ·
-    [Python API](geecs_python_api/overview.md)
+    [GEECS-Core](geecs_core/overview.md)
 
 -   :material-bug-outline:{ .lg .middle } **Troubleshooting & internals**
 
@@ -60,9 +61,8 @@ follow that split; the bottom row is for navigation and troubleshooting.
     Common scan failure modes, the `/triage` skill for diagnosing
     recurring issues, and the architecture deep-dives.
 
-    [:octicons-arrow-right-24: Troubleshooting](geecs_scanner/troubleshooting.md) ·
-    [Skills](skills/overview.md) ·
-    [Architecture](geecs_scanner/architecture.md)
+    [:octicons-arrow-right-24: Troubleshooting](geecs_console/troubleshooting.md) ·
+    [Skills](skills/overview.md)
 
 </div>
 
@@ -70,16 +70,18 @@ follow that split; the bottom row is for navigation and troubleshooting.
 
 ```mermaid
 flowchart LR
-    GUI[Scanner GUI<br/>PyQt5 acquisition]
-    Engine[Scanner Engine<br/>headless scan core]
+    Console[GEECS Console<br/>PySide6 operator GUI]
+    Engine[GeecsBluesky<br/>RunEngine scan core]
+    Core[GEECS-Core<br/>transport + DB + GeecsDevice]
+    GW[CA/PVA Gateways<br/>GEECS as EPICS PVs]
     SA[Scan Analysis<br/>per-scan workflows]
     IA[Image Analysis<br/>per-image pipelines]
     DU[Data Utils<br/>paths + s-files]
-    API[GEECS Python API<br/>device transport]
     GDoc[LogMaker<br/>e-log upload]
 
-    GUI --> Engine
-    Engine --> API
+    Console --> Engine
+    Engine -->|CA service| GW
+    GW --> Core
     Engine --> DU
     SA --> IA
     SA --> DU
@@ -87,18 +89,18 @@ flowchart LR
     IA -.->|optional, via Array2DScanAnalyzer| SA
 ```
 
-A typical workflow: the Scanner GUI runs a scan that writes a folder to the
-data server. Scan Analysis (live or offline) reads that folder, runs
+A typical workflow: the GEECS Console runs a scan that writes a folder to
+the data server (and a structured run to the Tiled catalog). Scan Analysis (live or offline) reads that folder, runs
 configured Image Analysis analyzers across the shots, renders summary
 figures, and appends derived scalars back to the s-file. A separate notebook
 can then load the s-file via Data Utils for ad-hoc exploration.
 
 ## Packages at a glance
 
-**[GEECS Scanner GUI](geecs_scanner/overview.md)** — PyQt5 data-acquisition
-application that runs scans, manages save elements, and supports multi-scan
-batches and Xopt-driven optimization. Primary tool for collecting data; the
-engine underneath is also usable as a headless library.
+**[GEECS Console](geecs_console/overview.md)** — the operator application
+for collecting data: compose save sets, run scans and optimizations through
+the Bluesky-backed engine, monitor live, and browse recorded runs. The
+engine underneath (GeecsBluesky) is equally usable headlessly.
 
 **[Image Analysis](image_analysis/overview.md)** — per-image processing and
 analysis. Pipelines are described in YAML (background, masking, filtering,
@@ -111,11 +113,11 @@ s-file appending. Runs interactively or as a `LiveTaskRunner` that processes
 scans automatically as they complete. Optional integration with Google Doc
 e-logs via `LogMaker4GoogleDocs`.
 
-**[GEECS Python API](geecs_python_api/overview.md)** — low-level interface to
-GEECS hardware: device communication, the experiment database, and the shared
-[`config.ini`](geecs_python_api/scripting_guide.md). Most tools use it
-indirectly; the [Scripting Guide](geecs_python_api/scripting_guide.md) covers
-direct use.
+**[GEECS-Core](geecs_core/overview.md)** — the GEECS access library: device
+communication (UDP/TCP transport and the entry-level `GeecsDevice` client),
+the experiment database, and the PV naming contract. The shared `config.ini`
+it reads is documented in the
+[Getting Started tutorial](tutorials/getting_started.md).
 
 **[GEECS Data Utils](geecs_data_utils/overview.md)** — path resolution and
 data loading for scan folders. Resolves `(experiment, date, scan_number)` to

@@ -1,0 +1,21 @@
+Devices:
+  HTT-DG645_6_B:
+    add_all_variables: false
+    save_nonscalar_data: false
+    synchronous: false
+    variable_list:
+    - Delay.Ch D
+closeout_action:
+  steps:
+  - action: set
+    device: HTT-DG645_6_B
+    value: 0.0
+    variable: Delay.Ch D
+    wait_for_execution: true
+setup_action:
+  steps:
+  - action: set
+    device: HTT-DG645_6_B
+    value: 0.005
+    variable: Delay.Ch D
+    wait_for_execution: true

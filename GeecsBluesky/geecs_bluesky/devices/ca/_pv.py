@@ -20,7 +20,10 @@ the ``ca://…`` source string either way.
 
 from __future__ import annotations
 
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_core.pv_naming import pv_name
+from geecs_core.pv_naming import (
+    setpoint_pv as setpoint_pv,
+)  # re-export: the CA modules' naming home
 
 #: Explicit Channel Access scheme understood by
 #: ``ophyd_async.epics.core._signal.split_protocol_from_pv``.

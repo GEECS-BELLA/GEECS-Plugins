@@ -3,18 +3,101 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.12.1] — 2026-07-25
+## [0.13.6] - 2026-08-20
+
+### Changed
+
+- Docs-only: `native_files.py` cross-reference updated to the optimization
+  stack's new home (`geecs_bluesky.optimization.session_bridge`).
+
+## [0.13.5] — 2026-07-25
 
 ### Fixed
 
 - **`decode_imaq_image_string`: tail-anchored fallback for wrappers without the
-  repeated-name payload anchor.** Some cameras (observed live: `UC_Amp2_IR_input`)
-  flatten frames without repeating the device-name string before the pixel
-  block, so every frame failed with "payload not divisible by rows". When the
-  name anchor is inconsistent with the header, geometry and pixel type (IMAQ
-  type code, header offset +36) now come from the IMAQ struct and the pixel
-  block is taken as the last `rows * stride` bytes (stride 64-byte aligned).
-  Verified against a captured live frame; unsupported pixel types still raise.
+  repeated-name payload anchor** (rolled forward from master, released there as
+  0.12.1). Some cameras (observed live: `UC_Amp2_IR_input`) flatten frames
+  without repeating the device-name string before the pixel block, so every
+  frame failed with "payload not divisible by rows". Dispatch is structural:
+  when the name never repeats, geometry and pixel type (IMAQ type code, header
+  offset +36) come from the IMAQ struct and the pixel block is the last
+  `rows * stride` bytes (stride 64-byte aligned); anchored wrappers keep the
+  strict loud-error path. Verified against a captured live frame.
+
+## [0.13.4] — 2026-07-16
+
+### Changed
+
+- **`tiled_export` uses the canonical config reader** (issue #527): the
+  private `_read_tiled_config` duplicate is deleted in favor of
+  `tiled_catalog.read_tiled_config`, so the package no longer carries two
+  parsers of the same `[tiled]` section.  Pinned by an identity test in
+  `tests/test_tiled_export.py`.
+
+## [0.13.3] — 2026-07-13
+
+### Fixed
+
+- `scan_log_loader.HEADER_RE` now parses **Bluesky** scan.log lines: the
+  Bluesky stack writes a `scan=ScanNNN` context token where the legacy
+  engine wrote `shot=<n>`, so every line of a Bluesky scan.log failed the
+  header regex and log triage reported zero entries on perfectly good logs
+  (observed live 2026-07-13, Undulator Scans 1–3).  Both tokens are now
+  accepted; the capture keeps its historical `shot` name so downstream
+  consumers (GEECS-LogTriage) are unaffected.
+
+## [0.13.2] — 2026-07-13
+
+### Changed
+
+- Docstring condensation (docs-only): `tiled_catalog`'s module docstring
+  states the config/dependency-direction rule in one line (the rationale
+  lives in this package's `CLAUDE.md`), and `tiled_drift`'s
+  `RELATIVE_SIGMA_EPSILON` comment defers to the module docstring's σ ≈ 0
+  explanation instead of repeating it.
+
+## [0.13.1] — 2026-07-12
+
+### Fixed
+
+- `TiledScanCatalog.load_run` no longer raises on runs whose primary stream
+  holds no event rows (aborted or legacy runs read back as a dimensionless
+  xarray Dataset, where `to_dataframe` raises "no valid index for a
+  0-dimensional object" — hit live in the scan browser's first session).
+  Such runs now degrade to `data=None` with a log line, the same contract
+  as a missing primary stream.
+
+## [0.13.0] — 2026-07-12
+
+### Added
+
+- **Tiled scan-catalog layer** — the Tiled analogue of `ScanPaths`/`ScanData`
+  (day → scan → data over Bluesky-recorded runs), pure and Qt-free, consumable
+  by GUIs (the GEECS-Console scan browser) and batch analysis alike:
+  - `geecs_data_utils.tiled_catalog` — the `ScanCatalog` protocol,
+    `RunSummary`/`RunDetail`/`CatalogStatus` dataclasses,
+    `summary_from_metadata`, the offline `StubCatalog`, and
+    `TiledScanCatalog` (lazy `tiled` import behind the existing `tiled`
+    extra; metadata-only day listing via a `start.time` range +
+    `start.experiment` search; event table read with the repo-blessed
+    `run["primary"].read()` pattern).  Connection details are constructor
+    args; `TiledScanCatalog.from_config()` reads the `[tiled]` section of
+    the shared `config.ini` directly with `configparser` — no
+    `geecs_bluesky` import (dependency direction preserved).
+  - `geecs_data_utils.tiled_schema` — event-schema v1 column semantics in
+    ONE version-tagged module (`GeecsBluesky/EVENT_SCHEMA.md` is the
+    contract): row-identity columns, per-device companion suffixes,
+    `telemetry_` Tier-2 prefix, `geecs_scalar_headers` display-name
+    prettification, reference-timestamp/pinned-column selection,
+    scan-variable readback detection, scan-shape classification
+    (NOSCAN/1D/GRID/OPT), planned shot totals.
+  - `geecs_data_utils.tiled_drift` — pure "moved during scan" telemetry
+    drift analysis: a column drifts when |last − first| exceeds 3σ of its
+    in-scan spread, with a relative-epsilon guard for σ ≈ 0, NaN/string
+    tolerance (dtype-tolerant telemetry), and significance-sorted results.
+- Hermetic tests for all three modules (fake Tiled client objects — no
+  network): `tests/test_tiled_catalog.py`, `tests/test_tiled_schema.py`,
+  `tests/test_tiled_drift.py`.
 
 ## [0.12.0] — 2026-07-06
 

@@ -25,6 +25,7 @@ Actual CLI flags (`geecs_ca_gateway/__main__.py`):
 | `--all-variables` | off | Expose every device variable, not just the `get='yes'` monitoring set |
 | `--no-settable` | off | Do *not* add settable (control-surface) variables to the subscribed set |
 | `--include-disabled` | off | Include devices not `enabled` in the experiment |
+| `--derived-channels PATH` | configs-repo convention if present | Load a geecs-schemas YAML/JSON derived-channel overlay and expose computed read-only numeric PVs |
 | `--show-missing` | off | Keep the transport's "missing variable(s)" notices (quiet by default — subscribed-but-idle variables are normal for monitoring) |
 | `--log-level LEVEL` | `INFO` | Python logging level |
 
@@ -47,6 +48,72 @@ The gateway reads no config file of its own. Everything comes from:
    endpoints, variables, types, units, limits, settability. On a DB change,
    restart the gateway (this matches the existing master-GUI reboot pattern;
    hot reload is a later nicety).
+
+Optional derived readbacks come from a schema-validated overlay file in the
+configs repo. By convention, the gateway auto-loads:
+
+```text
+GEECS-Plugins-Configs/
+  scanner_configs/
+    experiments/
+      <Experiment>/
+        gateway/
+          derived_channels.yaml
+```
+
+The file is not a replacement for the DB; it only adds computed numeric PVs on
+top of the DB-backed raw device set. Same-device inputs are computed from one
+coherent source frame:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: TargetChamberPressure
+    variable: Pressure
+    expression: "10**(v - 6)"
+    inputs:
+      - symbol: v
+        device: U_VacuumGauge
+        variable: "AI_mean.Channel 0"
+    egu: Torr
+    precision: 6
+    description: "Convectron pressure from U_VacuumGauge analog input 0"
+```
+
+Cross-device derived PVs use latest-value semantics and must declare
+`stale_after`. The gateway recomputes when any input updates, and the status
+loop marks the output `INVALID/UDF` if any input is missing or stale even when
+all sources go quiet. These are advisory software-status PVs, not hard safety
+interlocks:
+
+```yaml
+schema_version: 1
+derived_channels:
+  - device: LaserPermit
+    variable: OK
+    expression: "pressure < 1e-5 and ready > 0"
+    inputs:
+      - symbol: pressure
+        device: TargetChamberPressure
+        variable: Pressure
+      - symbol: ready
+        device: Amp4Shutter
+        variable: Ready
+    stale_after: 2.0
+    description: "Latest-value advisory status for laser shots"
+```
+
+The configs repo root is resolved the same way as scanner configs:
+`GEECS_SCANNER_CONFIG_DIR` may point directly at
+`scanner_configs/experiments`, `GEECS_PLUGINS_CONFIGS` may point at the
+configs repo root, or `~/.config/geecs_python_api/config.ini`
+`[Paths] scanner_config_root_path` may point at the configs repo root. If the
+conventional file is absent, the gateway starts normally with no derived PVs.
+Use `--derived-channels /path/to/file.yaml` only to override the convention.
+
+For the systemd service, keep a checked-out configs repo on the gateway host
+and ensure one of those resolution paths is configured; then a normal restart
+reloads both the DB-backed raw PVs and the derived overlay.
 
 MySQL access uses the pure-Python connector (`use_pure=True`) — the C extension
 has crashed silently on the lab Windows machines.
@@ -79,8 +146,9 @@ export EPICS_CAS_BEACON_ADDR_LIST="192.168.6.255"  # beacon to the lab subnet
 ```
 
 Serving CA only on the intended subnet is the write-safety residual from
-`DESIGN.md` — GEECS enforces value limits server-side, but there is no CA-level
-auth.
+`DESIGN.md` — value limits are enforced at both layers (gateway `DBR_CTRL`
+drive limits + the GEECS device-side backstop, `PV_CONTRACT.md` §2), but
+there is no CA-level auth.
 
 ---
 
@@ -123,11 +191,80 @@ Storage placement rules:
 
 ---
 
-## 3. Client-side recipe
+## 3. Client-side recipe — new-client onboarding
 
-Battle-tested on the Windows control machines (live sessions, 2026-07-06).
+Everything a fresh client machine (lab network or VPN) needs, in the order a
+new user wants it: raw PV access first, then the shared config file, then
+Tiled readback. Battle-tested on the Windows control machines and over
+routed VPN (live sessions since 2026-07-06).
 
-### Point CA clients at the gateway
+**A client needs nothing from GEECS-Plugins.** That is the whole point of
+the gateway: GEECS is consumed as standard EPICS PVs and standard Tiled
+HTTP, so the monorepo is only required on machines that *submit scans*:
+
+| Task | What you install | From this repo |
+|---|---|---|
+| Read / write PVs | any CA client — `pip install caproto`, pyepics, EPICS base `caget`, Phoebus | nothing |
+| Live displays | Phoebus (point `EPICS_CA_ADDR_LIST` at the gateway) | nothing |
+| Read scan data | `pip install "tiled[client]"` + the API key | nothing |
+| Submit scans | GEECS-Console / GeecsBluesky | repo checkout + poetry |
+
+### First contact — PVs with nothing but a CA client
+
+No repo checkout and no config file required; any Channel Access client
+works. The caproto CLI tools are the lightest install:
+
+```bash
+python -m venv ca && source ca/bin/activate
+pip install caproto
+
+export EPICS_CA_ADDR_LIST=192.168.6.14   # directed name search — routes over VPN
+export EPICS_CA_AUTO_ADDR_LIST=NO        # don't also broadcast on your local subnet
+
+caproto-get undulator:cagateway:version undulator:cagateway:uptime
+caproto-monitor undulator:cagateway:heartbeat   # ticks every 5 s; Ctrl-C to stop
+```
+
+```powershell
+# PowerShell equivalent (same shell that runs the client)
+$env:EPICS_CA_ADDR_LIST = "192.168.6.14"
+$env:EPICS_CA_AUTO_ADDR_LIST = "NO"
+caproto-get undulator:cagateway:version
+```
+
+If the heartbeat ticks, you are connected — continue with the §4 smoke tests
+to poke real device PVs.
+
+PV names are `experiment:device:variable` with every component lowercased
+from the GEECS names, and each settable variable additionally exposes
+`…:SP` for writes — the normative naming/typing/alarm contract is
+`PV_CONTRACT.md`. The served set is the experiment's `get='yes'` monitoring
+subset plus each device's settable control surface (§1), so a variable
+visible in GEECS Master Control is usually reachable here under its
+lowercased name.
+
+**Always write with put-completion** (`caput -c`, caproto-put's default,
+aioca `wait=True`, ophyd-async `set()`). A fire-and-forget write returns
+before anything is checked or forwarded, so any rejected set *looks*
+successful to that client. Rejections come in two layers
+(`PV_CONTRACT.md` §2/§7): out-of-DB-range values fail at the CA layer
+itself (`:SP` PVs serve and enforce the DB span as `DBR_CTRL` drive
+limits — visible to put-completion writers and the gateway log only),
+while *device-side* failures (interlocks, local mode, device limits the
+DB doesn't express) additionally stamp the `:SP` PV with a
+`WRITE`/`INVALID` alarm and record their message on
+`experiment:device:last_set_error` (read with `caget -S`).
+
+**Off-subnet (VPN) notes.** CA name search with an explicit address list is
+*directed unicast* UDP, which routes over VPN — this is why the recipe above
+works off-subnet. Server *beacons* ride UDP broadcast and do **not** cross
+routed paths, so a long-lived display (Phoebus) that was searching while the
+gateway was down can look stuck for minutes after the gateway returns;
+restart the display (§5). The Python stack issues fresh searches per polling
+cycle and recovers on its own. Keep `EPICS_CA_AUTO_ADDR_LIST=NO` — a
+broadcast on your home/VPN subnet finds nothing and is never what you want.
+
+### Point the Python stack at the gateway
 
 Preferred — the shared GEECS config file, so the gateway host lives with the
 other infrastructure addresses instead of in every shell:
@@ -149,25 +286,53 @@ loads — libca reads the env when its context is created): it sets
 as expected, and a stale export can silently shadow the config: check the env
 first when name resolution misbehaves.
 
-### Switch the Scanner GUI onto the Bluesky/CA backend
+### Running scans (dev branch)
 
-```powershell
-# PowerShell
-$env:GEECS_USE_BLUESKY = "1"                          # 1/true/yes/on → BlueskyScanner
-$env:GEECS_BLUESKY_ACQUISITION_MODE = "strict_shot_control"   # or free_run_time_sync
+The Scanner-GUI backend toggle formerly documented here
+(`GEECS_USE_BLUESKY`, `GEECS_BLUESKY_ACQUISITION_MODE`) is **gone on
+`dev`**: the Bluesky/CA path is the only engine, the legacy Scanner GUI is
+un-launchable, and acquisition mode is declared per scan in the
+`ScanRequest` itself (`acquisition: free_run | strict`) rather than by
+environment variable — a request declares intent. Scans are submitted from
+**GEECS-Console** (the PySide6 operator console) or headless via
+`geecs_bluesky.session.GeecsSession.run(ScanRequest)`. (`master` still carries the
+legacy scanner line and its env toggle.)
+
+### Tiled — reading scan data back
+
+Every Bluesky scan's documents (start/stop metadata plus the per-shot
+scalar event table) land in the Tiled catalog on the same host,
+`http://192.168.6.14:8000`. Client needs: `pip install "tiled[client]"`
+and the API key — ask the gateway operator; the key is deliberately not in
+this public repo.
+
+```ini
+# ~/.config/geecs_python_api/config.ini — the scanner reads this same section
+[tiled]
+uri = http://192.168.6.14:8000
+api_key = <ask>
 ```
 
-```bat
-:: cmd.exe — note: no quotes, no $env:
-set GEECS_USE_BLUESKY=1
-set GEECS_BLUESKY_ACQUISITION_MODE=strict_shot_control
+```python
+from tiled.client import from_uri
+
+c = from_uri("http://192.168.6.14:8000", api_key="<key>")
+run = c.values().last()        # most recent scan
+run.metadata["start"]          # scan number, device list, mode, applied defaults…
+df = run["primary"].read().to_dataframe().reset_index()   # per-shot scalar table
 ```
 
-Both variables must be set in the **same shell that launches the GUI**
-(PowerShell `$env:` and cmd `set` affect only that process tree, not the
-system). `GEECS_BLUESKY_ACQUISITION_MODE` defaults to strict; strict requires a
-reachable shot-control device with an `ARMED` state — use `free_run_time_sync`
-for free-running trigger acquisition.
+(`.read()` alone returns an xarray Dataset under the deployed Tiled's
+composite-container layout — the `.to_dataframe()` step is how the repo's
+own readers get the per-shot table.)
+
+A generic web catalog browser is served at `http://192.168.6.14:8000/ui`
+(first visit: `/ui?api_key=<key>` — the server moves the key into a cookie
+and strips the URL). `GeecsBluesky/TILED_SETUP.md` is the canonical Tiled
+reference — the client recipe as well as server-side state and upgrade
+notes; if this quickstart and that file ever disagree, trust that file.
+The scan-shaped browsing workflow (day → Scan NNN → plot columns) is
+GEECS-Console's scan browser.
 
 ### Windows notes
 
@@ -205,26 +370,31 @@ for free-running trigger acquisition.
 
 ## 4. Smoke tests — "is it alive?"
 
-Copy-pasteable, using the caproto CLI tools that ship with the gateway's own
-environment (`poetry run` from `GeecsCAGateway/`; plain `caget`/`caput` from
-EPICS base work identically). Substitute your experiment/device.
+Copy-pasteable, using the caproto CLI tools. Run them from the gateway's own
+environment (`poetry run` from `GeecsCAGateway/`) or from any client venv
+with `caproto` installed (§3 first-contact recipe — drop the `poetry run`
+prefix); plain `caget`/`caput` from EPICS base work identically. Substitute
+your experiment/device.
 
 ```bash
 # 1. Gateway process up and serving? (heartbeat ticks every 5 s)
-poetry run caproto-get Undulator:CAGateway:VERSION Undulator:CAGateway:UPTIME
-poetry run caproto-monitor Undulator:CAGateway:HEARTBEAT   # Ctrl-C after a couple of ticks
+poetry run caproto-get undulator:cagateway:version undulator:cagateway:uptime
+poetry run caproto-monitor undulator:cagateway:heartbeat   # Ctrl-C after a couple of ticks
 
 # 2. Is a given device live behind it?
-poetry run caproto-get Undulator:U_S1H:CONNECTED           # → Connected
-poetry run caproto-get Undulator:CAGateway:DEVICES_CONNECTED
+poetry run caproto-get undulator:u_s1h:connected           # → Connected
+poetry run caproto-get undulator:cagateway:devices_connected
 
 # 3. Readback streaming? (should tick with the device's ~1–5 Hz stream)
-poetry run caproto-monitor Undulator:U_S1H:Current
+poetry run caproto-monitor undulator:u_s1h:current
+
+# 3b. Derived readback loaded from the configs repo? (example: target chamber)
+poetry run caproto-get -a undulator:targetchamberpressure:pressure
 
 # 4. Write path (pick a harmless settable variable; put-completion = GEECS
 #    convergence, so this blocks until the device converges)
-poetry run caproto-get Undulator:U_S1H:Current             # note the value
-poetry run caproto-put Undulator:U_S1H:Current:SP <same value>
+poetry run caproto-get undulator:u_s1h:current             # note the value
+poetry run caproto-put undulator:u_s1h:current:SP <same value>
 ```
 
 Interpretation:
@@ -268,17 +438,59 @@ sudo systemctl enable --now geecs-ca-gateway
   poetry install && systemctl restart geecs-ca-gateway` — matching the
   existing GEECS master-GUI reboot pattern for device-set changes.
 - **DB edits don't need shell access**: any CA client can write the
-  `[Experiment:]CAGateway:RESTART` PV (devIocStats `SYSRESET` pattern) and
+  `[experiment:]cagateway:restart` PV (devIocStats `SYSRESET` pattern) and
   the gateway exits with code 86, which the unit's `RestartForceExitStatus`
   turns into a relaunch — serving the freshly edited device/get-list set a
   few seconds later. A Phoebus button, a GUI menu action, or a one-liner:
 
   ```bash
-  caproto-put Undulator:CAGateway:RESTART Restart
+  caproto-put undulator:cagateway:restart Restart
   ```
 - Later sharding for fault isolation = more units with different
   `--experiment`/subsystem configs; CA name resolution makes this invisible to
   clients (DESIGN.md).
+
+### Host reboots and network mounts (verified live 2026-07-15)
+
+The gateway host typically holds the configs repo on a NAS mount (the
+derived-channels overlay resolves through it — §1). That makes the mount a
+**boot-order dependency with a silent failure mode**: a hand-mounted share
+(no fstab entry), or an fstab mount attempted while the NAS is down,
+simply isn't there when the service starts — and the gateway then starts
+*normally with no derived PVs* (by design). The only symptom is the
+derived channels missing; every other PV is healthy. This exact chain
+happened after a 2026-07-15 site power cycle where the NAS came up after
+the gateway host.
+
+Make the whole chain self-healing once:
+
+```bash
+# root-only credentials file (never put the password in fstab):
+#   /root/.smb-credentials   (chmod 600)  containing username=/password=/domain=
+# fstab entry — the three options are the point:
+//<nas-host>/<share>  /mnt/<share>  cifs  credentials=/root/.smb-credentials,_netdev,nofail,x-systemd.automount  0  0
+sudo systemctl daemon-reload
+```
+
+- `x-systemd.automount` mounts **on first access** instead of once at
+  boot — a NAS that comes up hours after the host is a non-event.
+- `nofail` keeps a dead NAS from wedging boot; `_netdev` orders after
+  networking.
+- Teach the unit the dependency so a missing mount *delays* the gateway
+  instead of silently starting it configless:
+  `sudo systemctl edit geecs-ca-gateway` →
+  `[Unit]` / `RequiresMountsFor=/mnt/<share>`.
+
+Verify the cycle without rebooting: `umount` the share, `systemctl start
+mnt-<share>.automount` (at boot it arms itself; mid-session you start it
+once), then `ls` the mountpoint — the listing should trigger the mount.
+After fixing, `systemctl restart geecs-ca-gateway` and confirm a derived
+PV answers.
+
+One client-side footnote for off-subnet operators (VPN/routed): after a
+gateway restart, long-lived displays (Phoebus) can look stuck for minutes
+because CA beacons don't cross routed paths — restart the display. Details
+in §3's off-subnet notes.
 
 ### Log expectations
 

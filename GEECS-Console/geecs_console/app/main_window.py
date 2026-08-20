@@ -1,0 +1,1916 @@
+"""The GEECS-Console main window: loads the .ui, wires the controller seams.
+
+The window owns no engine logic.  It reads widgets into a
+:class:`~geecs_console.request_builder.ConsoleFormState`, builds requests via
+:func:`~geecs_console.request_builder.build_scan_request`, submits through
+the :class:`~geecs_console.submission.Submitter` protocol, lists configs
+through :class:`~geecs_console.services.configs.ConsoleConfigs`, and shows
+health via :class:`~geecs_console.services.health.HealthProbe`.  All four are
+constructor-injectable, so tests drive the window with fakes and zero
+network.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import random
+from pathlib import Path
+from typing import Callable, Optional
+
+from PySide6.QtCore import QFile, Qt, QTimer, QUrl, Slot
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtUiTools import QUiLoader
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDoubleSpinBox,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMainWindow,
+    QMessageBox,
+    QPlainTextEdit,
+    QProgressBar,
+    QPushButton,
+    QRadioButton,
+    QSpinBox,
+    QWidget,
+)
+from pydantic import ValidationError
+
+from geecs_console.app.actions_menu import ActionsMenuController
+from geecs_console.app.movable_panel import MovablePanelController
+from geecs_console.app.now_panel import NowPanelController
+from geecs_console.editors.action_library_editor import open_action_library_editor
+from geecs_console.editors.save_set_editor import open_save_set_editor
+from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
+from geecs_console.editors.shot_control_editor import open_shot_control_editor
+from geecs_console.events_adapter import ScanEventsAdapter
+from geecs_console.services import ops_paths
+from geecs_console.services.action_library_store import ActionLibraryStore
+from geecs_console.app.tooltips import ToolTipSuppressor, apply_operator_tooltips
+from geecs_console.services.background import BackgroundResult, HealthPoller
+from geecs_console.services.device_completions import (
+    CompletionsProvider,
+    GeecsDbCompletions,
+)
+from geecs_console.version import console_version
+from geecs_console.request_builder import (
+    MAXIMUM_SCAN_SIZE,
+    ConsoleFormError,
+    ConsoleFormState,
+    ConsoleMode,
+    FormAxis,
+    build_scan_request,
+    estimate_total_shots,
+    form_state_from_request,
+)
+from geecs_console.services.configs import ConsoleConfigs
+from geecs_console.services.presets import PresetStore, PresetStoreError
+from geecs_console.services.settings import ConsoleSettings
+from geecs_console.services.device_panel import (
+    DevicePanelBackend,
+    StubDevicePanel,
+)
+from geecs_console.services.health import (
+    HealthProbe,
+    HealthReport,
+    HealthStatus,
+    StubHealth,
+)
+from geecs_console.submission import Submitter, make_bluesky_submitter
+
+logger = logging.getLogger(__name__)
+
+_UI_PATH = Path(__file__).parent / "ui" / "main_window.ui"
+_QSS_PATH = Path(__file__).parent / "style.qss"
+
+#: With "Randomized beeps" on, the fraction of shots that actually beep.
+_RANDOM_BEEP_PROBABILITY = 0.25
+
+#: How often the background poller re-checks the health probe.
+_HEALTH_POLL_INTERVAL_MS = 5_000
+
+#: Screen-map semantic colors (see style.qss header for the full palette).
+_COLOR_DIM = "#6b7681"
+_COLOR_GREY = "#b9c0c7"
+_COLOR_GREEN = "#2f9e63"
+_COLOR_AMBER = "#d9a21b"
+_COLOR_RED = "#c4453a"
+
+_HEALTH_DOT_COLORS = {
+    HealthStatus.OK: _COLOR_GREEN,
+    HealthStatus.WARN: _COLOR_AMBER,
+    HealthStatus.DOWN: _COLOR_RED,
+    HealthStatus.UNKNOWN: _COLOR_GREY,
+}
+
+# Lifecycle states that settle an in-flight Stop request, releasing the Stop
+# button's "Stopping…" hold.  Exactly the engine's terminal vocabulary: the
+# bridge's scan-thread cleanup always ends in ABORTED or DONE
+# (geecs_bluesky.events.ScanState; BlueskyScanner._run_scan).  Deliberately
+# NOT paused_on_error — that state is resumable, the scan is not over.
+_TERMINAL_SCAN_STATES = frozenset({"aborted", "done"})
+
+
+def _default_completions_factory(experiment: str) -> CompletionsProvider:
+    """Build the production R7 completions provider for *experiment*."""
+    return GeecsDbCompletions(experiment)
+
+
+def _idle_scan_lookup(experiment: str) -> Optional[int]:
+    """Highest existing ``ScanNNN`` in today's daily folder — read-only.
+
+    The production R6 idle-scan lookup: resolves today's ``scans/`` path
+    via :func:`ops_paths.todays_scan_folder` and lists it with
+    :func:`ops_paths.highest_scan_number`.  Strictly read-only (repo
+    scan-folder invariant) and possibly slow (network data root), so the
+    window only ever calls it on a daemon thread.
+
+    Parameters
+    ----------
+    experiment : str
+        The selected experiment ("" falls back to the config default).
+
+    Returns
+    -------
+    int or None
+        The highest scan number, or ``None`` when unresolvable/absent.
+    """
+    return ops_paths.highest_scan_number(ops_paths.todays_scan_folder(experiment))
+
+
+def load_stylesheet() -> str:
+    """Read the packaged QSS, resolving the ui-directory asset token.
+
+    Returns
+    -------
+    str
+        The stylesheet text with ``@UI_DIR@`` replaced by the absolute
+        path of the packaged ``ui/`` directory (combo/spin arrow SVGs).
+    """
+    qss = _QSS_PATH.read_text(encoding="utf-8")
+    ui_dir = (Path(__file__).parent / "ui").as_posix()
+    return qss.replace("@UI_DIR@", ui_dir)
+
+
+class MainWindow(QMainWindow):
+    """The operator console main window (screen map regions R1-R7).
+
+    Parameters
+    ----------
+    experiment : str, optional
+        Experiment to open with; empty selects nothing (offline default).
+    configs : ConsoleConfigs, optional
+        Configs-repo service; tests inject a fake, default reads the repo.
+    health : HealthProbe, optional
+        Session-bar chip source; default is the all-unknown stub.
+    device_panel : DevicePanelBackend, optional
+        R7 readback/set backend; default is the no-op stub (readback never
+        updates, sets report unwired).  ``main.py`` injects the real
+        :class:`~geecs_console.services.device_panel.GatewayDevicePanel`.
+    presets : PresetStore, optional
+        R4 preset persistence (a preset IS a saved ``ScanRequest``); tests
+        inject a fake or a tmp-dir-backed store, default reads/writes the
+        experiment's ``presets/`` dir in the configs repo.
+    action_store : ActionLibraryStore, optional
+        The Actions-menu name source (only ``list_names`` /
+        ``set_experiment`` are used — listing runs on a daemon thread);
+        tests inject a fake, default reads the experiment's
+        ``action_library/actions.yaml`` in the configs repo.
+    settings : ConsoleSettings, optional
+        Persisted GUI state (last selected experiment); tests inject one
+        backed by a tmp INI file, default is the user-scope QSettings store.
+    submitter : Submitter, optional
+        Scan engine; tests inject a fake.  When ``None`` one is built
+        lazily by *submitter_factory* on the first Start click.
+    submitter_factory : callable, optional
+        ``(experiment, on_event) -> Submitter``; defaults to
+        :func:`~geecs_console.submission.make_bluesky_submitter`.
+    rng : random.Random, optional
+        The source of randomness for the "Randomized beeps" option; tests
+        inject a seeded instance.  Defaults to a fresh ``random.Random()``.
+    completions_factory : callable, optional
+        ``(experiment) -> CompletionsProvider`` for the R7 device combo's
+        ``device:variable`` items; tests inject a fake.  Defaults to the
+        DB-backed provider (daemon-thread fetch, empty offline).
+    scan_number_lookup : callable, optional
+        ``(experiment) -> int | None`` returning today's highest existing
+        scan number for the R6 idle display; tests inject a fake.  Defaults
+        to the read-only ``ops_paths`` lookup (daemon-thread call — the data
+        root may be a slow network mount).
+    """
+
+    #: One readback value from the device-panel backend (emitted from the CA
+
+    def __init__(
+        self,
+        experiment: str = "",
+        configs: Optional[ConsoleConfigs] = None,
+        health: Optional[HealthProbe] = None,
+        device_panel: Optional[DevicePanelBackend] = None,
+        presets: Optional[PresetStore] = None,
+        action_store: Optional[ActionLibraryStore] = None,
+        settings: Optional[ConsoleSettings] = None,
+        submitter: Optional[Submitter] = None,
+        submitter_factory: Optional[Callable[..., Submitter]] = None,
+        rng: Optional[random.Random] = None,
+        completions_factory: Optional[Callable[[str], CompletionsProvider]] = None,
+        scan_number_lookup: Optional[Callable[[str], Optional[int]]] = None,
+    ) -> None:
+        super().__init__()
+        self._configs = configs if configs is not None else ConsoleConfigs(experiment)
+        self._health = health if health is not None else StubHealth()
+        self._device_panel = (
+            device_panel if device_panel is not None else StubDevicePanel()
+        )
+        self._presets = (
+            presets if presets is not None else PresetStore(self._configs.experiment)
+        )
+        self._action_store = (
+            action_store
+            if action_store is not None
+            else ActionLibraryStore(self._configs.experiment)
+        )
+        self._settings = settings if settings is not None else ConsoleSettings()
+        self._submitter = submitter
+        self._submitter_factory = (
+            submitter_factory
+            if submitter_factory is not None
+            else make_bluesky_submitter
+        )
+        self.events = ScanEventsAdapter(self)
+        self._shot_count_valid = False
+        self._beep_rng = rng if rng is not None else random.Random()
+        self._last_beep_shots = 0
+        self._completions_factory = completions_factory
+        self._scan_number_lookup = scan_number_lookup
+        #: Non-modal editor dialogs opened from the Editors menu.  PySide6
+        #: garbage-collects an unreferenced dialog wrapper and tears down the
+        #: C++ dialog with it, so every opened editor is kept here.
+        self._open_editors: list = []
+        #: The open three-way action-decision modal (G-actions v2), or None
+        #: — kept so a terminal lifecycle state can dismiss a dangling one.
+        self._decision_box: Optional[object] = None
+
+        self._apply_stylesheet()
+        self._load_ui()
+        self._bind_widgets()
+        apply_operator_tooltips(self)
+        self._build_menus()
+        self._build_status_bar()
+        self._wire_signals()
+
+        self.setWindowTitle("GEECS Console")
+        # R6 rendering lives on NowPanelController (app/now_panel.py); the
+        # widgets stay window attributes (tests, tooltips), the lookup is
+        # resolved at probe time so the module-level default stays
+        # test-patchable.
+        self._now = NowPanelController(
+            state_pill=self.state_pill,
+            progress_bar=self.progress_bar,
+            scan_number_label=self.scan_number_label,
+            log_tail=self.log_tail,
+            current_experiment=lambda: self.experiment_combo.currentText(),
+            resolve_lookup=lambda: (
+                self._scan_number_lookup
+                if self._scan_number_lookup is not None
+                else _idle_scan_lookup
+            ),
+        )
+
+        # First populate quietly: a remembered experiment restored on the
+        # next line makes its "No experiment selected." a lie (it used to
+        # flash for 10 s and stick in the log tail — user report).
+        self._populate_from_configs(announce=False)
+        if not self._restore_last_experiment() and self._listing_message:
+            self._report(self._listing_message)
+        # Chips read UNKNOWN until the first background poll returns; seed the
+        # markup synchronously (no probe call — never touches the network).
+        self._apply_health_report(HealthReport())
+        self._push_experiment_to_probe(self._configs.experiment)
+        self._start_health_poller()
+        self._now.set_state_pill("idle")
+        self._on_mode_changed()
+        # Startup fetches for the selected experiment (no-ops when none):
+        # R7 device:variable completions, the R6 idle scan-number peek, and
+        # the Actions-menu plan names.  Restoring the last experiment already
+        # fired the experiment-changed path (which starts all three); these
+        # cover the explicit-experiment and no-experiment startups.  A
+        # duplicate fetch is *result*-safe (stale results are dropped by
+        # experiment tag) but NOT thread-safe in general: two concurrent
+        # fetch threads can race the lazy first import of a native chain
+        # (demonstrated in the actions fetch's geecs_bluesky chain, which
+        # aborted the process — hence the one-in-flight dedupe in the
+        # actions and now-panel controllers; the idle probe's own lazy
+        # chain is geecs_data_utils/pandas).  The completions pair still
+        # double-spawns and shares the hazard shape (mysql-connector
+        # chain); dedupe it the same way if this ever bites.
+        self._movable.start_completions_fetch()
+        self._now.start_idle_probe()
+        self._actions.start_fetch()
+
+    # ------------------------------------------------------------------
+    # Construction
+    # ------------------------------------------------------------------
+
+    def _apply_stylesheet(self) -> None:
+        """Apply the packaged QSS application-wide (once per process)."""
+        app = QApplication.instance()
+        if app is not None and not app.styleSheet():
+            app.setStyleSheet(load_stylesheet())
+
+    def _load_ui(self) -> None:
+        """Load the Designer .ui as the central widget."""
+        loader = QUiLoader()
+        ui_file = QFile(str(_UI_PATH))
+        ui_file.open(QFile.OpenModeFlag.ReadOnly)
+        try:
+            self._ui: QWidget = loader.load(ui_file, self)
+        finally:
+            ui_file.close()
+        if self._ui is None:
+            raise RuntimeError(f"Failed to load {_UI_PATH}: {loader.errorString()}")
+        self.setCentralWidget(self._ui)
+        # Screen-map column proportions (R2 26% | center 46% | right 28%).
+        # QUiLoader ignores the .ui stretch attribute, so set it here.
+        from PySide6.QtWidgets import QHBoxLayout
+
+        columns = self._ui.findChild(QHBoxLayout, "columns_layout")
+        if columns is not None:
+            for index, stretch in enumerate((26, 46, 28)):
+                columns.setStretch(index, stretch)
+
+    def _child(self, cls: type, name: str):
+        """Return the named child widget, failing loudly when missing."""
+        widget = self._ui.findChild(cls, name)
+        if widget is None:
+            raise LookupError(f"{name!r} ({cls.__name__}) not found in {_UI_PATH}")
+        return widget
+
+    def _bind_widgets(self) -> None:
+        """Resolve every wired widget from the loaded .ui once."""
+        # R1 session bar
+        self.experiment_combo: QComboBox = self._child(QComboBox, "r1_experiment_combo")
+        self.rep_rate: QDoubleSpinBox = self._child(QDoubleSpinBox, "r1_rep_rate")
+        self.trigger_profile_combo: QComboBox = self._child(
+            QComboBox, "r1_trigger_profile_combo"
+        )
+        self.trigger_variant_combo: QComboBox = self._child(
+            QComboBox, "r1_trigger_variant_combo"
+        )
+        self.gateway_chip: QLabel = self._child(QLabel, "r1_gateway_chip")
+        self.tiled_chip: QLabel = self._child(QLabel, "r1_tiled_chip")
+        self.db_chip: QLabel = self._child(QLabel, "r1_db_chip")
+        # R2 save sets
+        self.available_list: QListWidget = self._child(QListWidget, "r2_available_list")
+        self.selected_list: QListWidget = self._child(QListWidget, "r2_selected_list")
+        self.add_button: QPushButton = self._child(QPushButton, "r2_add_button")
+        self.remove_button: QPushButton = self._child(QPushButton, "r2_remove_button")
+        self.union_label: QLabel = self._child(QLabel, "r2_union_label")
+        self.hint_label: QLabel = self._child(QLabel, "r2_hint_label")
+        # R3 scan form
+        self.radio_noscan: QRadioButton = self._child(QRadioButton, "r3_radio_noscan")
+        self.radio_1d: QRadioButton = self._child(QRadioButton, "r3_radio_1d")
+        self.radio_grid: QRadioButton = self._child(QRadioButton, "r3_radio_grid")
+        self.radio_optimization: QRadioButton = self._child(
+            QRadioButton, "r3_radio_optimization"
+        )
+        self.radio_background: QRadioButton = self._child(
+            QRadioButton, "r3_radio_background"
+        )
+        self.variable_combo: QComboBox = self._child(QComboBox, "r3_variable_combo")
+        self.start_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_start")
+        self.stop_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_stop")
+        self.step_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_step")
+        self.variable2_combo: QComboBox = self._child(QComboBox, "r3_variable2_combo")
+        self.start2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_start2")
+        self.stop2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_stop2")
+        self.step2_spin: QDoubleSpinBox = self._child(QDoubleSpinBox, "r3_step2")
+        self.optimization_label: QLabel = self._child(QLabel, "r3_optimization_label")
+        self.optimization_combo: QComboBox = self._child(
+            QComboBox, "r3_optimization_combo"
+        )
+        self.iterations_label: QLabel = self._child(QLabel, "r3_iterations_label")
+        self.iterations_spin: QSpinBox = self._child(QSpinBox, "r3_iterations_spin")
+        self.shots_per_step: QSpinBox = self._child(QSpinBox, "r3_shots_per_step")
+        self.acquisition_combo: QComboBox = self._child(
+            QComboBox, "r3_acquisition_combo"
+        )
+        self.shot_count_label: QLabel = self._child(QLabel, "r3_shot_count_label")
+        self.description_edit: QLineEdit = self._child(QLineEdit, "r3_description")
+        # R4 presets
+        self.preset_combo: QComboBox = self._child(QComboBox, "r4_preset_combo")
+        self.apply_button: QPushButton = self._child(QPushButton, "r4_apply_button")
+        self.save_as_button: QPushButton = self._child(QPushButton, "r4_save_as_button")
+        self.delete_button: QPushButton = self._child(QPushButton, "r4_delete_button")
+        # R5 submit row
+        self.stop_button: QPushButton = self._child(QPushButton, "r5_stop_button")
+        self.start_button: QPushButton = self._child(QPushButton, "r5_start_button")
+        self.pause_button: QPushButton = self._child(QPushButton, "r5_pause_button")
+        # R6 now panel
+        self.state_pill: QLabel = self._child(QLabel, "r6_state_pill")
+        self.progress_bar: QProgressBar = self._child(QProgressBar, "r6_progress")
+        self.scan_number_label: QLabel = self._child(QLabel, "r6_scan_number_label")
+        self.log_tail: QPlainTextEdit = self._child(QPlainTextEdit, "r6_log_tail")
+        # R7 device panel
+        self.device_combo: QComboBox = self._child(QComboBox, "r7_device_combo")
+        self.readback_label: QLabel = self._child(QLabel, "r7_readback_label")
+        self.set_field: QLineEdit = self._child(QLineEdit, "r7_set_field")
+        self.set_button: QPushButton = self._child(QPushButton, "r7_set_button")
+        device_line_edit = self.device_combo.lineEdit()
+        if device_line_edit is not None:
+            device_line_edit.setPlaceholderText("device:variable")
+
+        from geecs_schemas import AcquisitionMode
+
+        for mode in (AcquisitionMode.FREE_RUN, AcquisitionMode.STRICT):
+            self.acquisition_combo.addItem(mode.value)
+
+    def _build_menus(self) -> None:
+        """Create the menu bar (Ops / Actions / Editors / Preferences / Help).
+
+        Every created ``QMenu`` is kept in ``self._menus`` — PySide6 can
+        garbage-collect the Python wrapper returned by ``addMenu`` and take
+        the C++ menu (and its actions) down with it.
+        """
+        self._menus: list = []
+        ops = self.menuBar().addMenu("Ops")
+        self._menus.append(ops)
+        for text, handler in (
+            ("Open experiment config folder", self._on_open_experiment_configs),
+            ("Open user config (config.ini)", self._on_open_user_config),
+            ("Open today's scan folder", self._on_open_todays_scans),
+        ):
+            action = ops.addAction(text)
+            action.triggered.connect(handler)
+        ops.addSeparator()
+        github = ops.addAction("GEECS-Plugins on GitHub")
+        github.triggered.connect(self._on_open_github)
+
+        # Actions menu: contents and dialogs live on ActionsMenuController
+        # (app/actions_menu.py); the window keeps the QMenu reference and
+        # the controller composition.
+        actions_menu = self.menuBar().addMenu("Actions")
+        self._menus.append(actions_menu)
+        self._actions = ActionsMenuController(
+            actions_menu,
+            window=self,
+            store=self._action_store,
+            current_experiment=lambda: self.experiment_combo.currentText(),
+            ensure_submitter=self._ensure_submitter,
+            report=self._report,
+        )
+
+        editors = self.menuBar().addMenu("Editors")
+        self._menus.append(editors)
+        self._editor_actions = []
+        for text, handler in (
+            ("Save Elements…", self._on_edit_save_sets),
+            ("Scan Variables…", self._on_edit_scan_variables),
+            ("Shot Control…", self._on_edit_shot_control),
+            ("Action Library…", self._on_edit_action_library),
+        ):
+            action = editors.addAction(text)
+            action.triggered.connect(handler)
+            self._editor_actions.append(action)
+
+        prefs = self.menuBar().addMenu("Preferences")
+        self._menus.append(prefs)
+        self.beep_action = prefs.addAction("Per-shot beep")
+        self.beep_action.setCheckable(True)
+        self.beep_action.setChecked(bool(self._settings.per_shot_beep))
+        self.beep_action.toggled.connect(self._on_per_shot_beep_toggled)
+        self.random_beep_action = prefs.addAction("Randomized beeps")
+        self.random_beep_action.setCheckable(True)
+        self.random_beep_action.setChecked(bool(self._settings.randomized_beeps))
+        self.random_beep_action.toggled.connect(self._on_randomized_beeps_toggled)
+        prefs.addSeparator()
+        # Tooltips default on (discoverability); an experienced operator
+        # turns them off here.  One application-level suppressor covers the
+        # main window and every editor dialog, installed only while off.
+        self.show_tooltips_action = prefs.addAction("Show tooltips")
+        self.show_tooltips_action.setCheckable(True)
+        self.show_tooltips_action.setChecked(bool(self._settings.show_tooltips))
+        self.show_tooltips_action.toggled.connect(self._on_show_tooltips_toggled)
+        self._tooltip_suppressor = ToolTipSuppressor(self)
+        self._tooltip_suppressor_installed = False
+        if not self._settings.show_tooltips:
+            self._set_tooltips_shown(False)
+
+        help_menu = self.menuBar().addMenu("Help")
+        self._menus.append(help_menu)
+        about = help_menu.addAction(f"GEECS Console {console_version()}")
+        about.setEnabled(False)
+
+    def _build_status_bar(self) -> None:
+        """Create the status bar: gateway addr, configs path, version."""
+        gateway = os.environ.get("EPICS_CA_ADDR_LIST", "unset")
+        self._status_gateway = QLabel(f"gateway: {gateway}")
+        self._status_configs = QLabel("configs: —")
+        self._status_version = QLabel(f"v{console_version()}")
+        self.statusBar().addWidget(self._status_gateway)
+        self.statusBar().addWidget(self._status_configs)
+        self.statusBar().addPermanentWidget(self._status_version)
+
+    def _wire_signals(self) -> None:
+        """Connect widget and adapter signals to the handlers."""
+        for radio in (
+            self.radio_noscan,
+            self.radio_1d,
+            self.radio_grid,
+            self.radio_optimization,
+            self.radio_background,
+        ):
+            radio.toggled.connect(self._on_mode_changed)
+        for spin in (
+            self.start_spin,
+            self.stop_spin,
+            self.step_spin,
+            self.start2_spin,
+            self.stop2_spin,
+            self.step2_spin,
+        ):
+            spin.valueChanged.connect(self._refresh_shot_count)
+        self.shots_per_step.valueChanged.connect(self._refresh_shot_count)
+        self.iterations_spin.valueChanged.connect(self._refresh_shot_count)
+        self.optimization_combo.currentTextChanged.connect(
+            self._on_optimization_config_changed
+        )
+        self.add_button.clicked.connect(self._on_add_save_set)
+        self.remove_button.clicked.connect(self._on_remove_save_set)
+        self.experiment_combo.currentTextChanged.connect(self._on_experiment_changed)
+        self.trigger_profile_combo.currentTextChanged.connect(
+            self._on_trigger_profile_changed
+        )
+        self.start_button.clicked.connect(self._on_start_clicked)
+        self.stop_button.clicked.connect(self._on_stop_clicked)
+        self.pause_button.clicked.connect(self._on_pause_clicked)
+        self.apply_button.clicked.connect(self._on_preset_apply)
+        self.save_as_button.clicked.connect(self._on_preset_save_as)
+        self.delete_button.clicked.connect(self._on_preset_delete)
+
+        # R7 movable panel: selection, readback(s), completions, and manual
+        # sets/moves all live on MovablePanelController (app/movable_panel.py)
+        # — the window keeps the widget attributes and the composition (the
+        # #534 controller shape; its workers and queued value signal are
+        # controller-owned, per issue #510).
+        self._movable = MovablePanelController(
+            device_combo=self.device_combo,
+            readback_label=self.readback_label,
+            set_field=self.set_field,
+            set_button=self.set_button,
+            backend=self._device_panel,
+            current_experiment=lambda: self.experiment_combo.currentText(),
+            ensure_submitter=self._ensure_submitter,
+            # getattr-guarded: the configs seam is duck-typed and test fakes
+            # (or older injected configs) may not expose the catalog.
+            catalog_specs=lambda: getattr(self._configs, "scan_variable_specs", dict)(),
+            completions_provider=lambda experiment: (
+                self._completions_factory
+                if self._completions_factory is not None
+                else _default_completions_factory
+            )(experiment),
+            report=self._report,
+        )
+        # R3 → R7 auto-select (the legacy scanner behavior): picking a scan
+        # variable re-points the movable panel at it, composites included.
+        # Commit-only (textActivated: dropdown pick / Enter) — NEVER
+        # currentTextChanged: both R3 combos are editable, and a
+        # per-keystroke connection would churn CA monitors and hijack the
+        # panel while the operator types an axis name (review, PR #598).
+        self.variable_combo.textActivated.connect(self._movable.select_from_scan_combo)
+        self.variable2_combo.textActivated.connect(self._movable.select_from_scan_combo)
+        # (The actions-menu fetch worker lives on ActionsMenuController;
+        # the idle scan-number probe worker on NowPanelController.)
+        # Stop dispatch (issue #571): stop_scanning_thread may block briefly
+        # (engine bookkeeping join), so it runs on a worker — never the GUI
+        # thread.  No result slot: completion is announced by the terminal
+        # lifecycle event (_on_scan_state clears the in-flight hold).
+        self._stop_worker = BackgroundResult()
+        self._stop_in_flight = False
+        self._stop_button_label = self.stop_button.text()
+        #: Last lifecycle state word (lowercase) — drives the Pause/Resume
+        #: button (G-actions v2 operator pause).
+        self._scan_state_text = "idle"
+        self._pause_button_label = self.pause_button.text()
+        self._refresh_pause_button()
+
+        self.events.state_changed.connect(self._on_scan_state)
+        self.events.totals_known.connect(self._on_totals_known)
+        self.events.scan_number_known.connect(self.set_scan_number)
+        self.events.progress.connect(self._on_progress)
+        self.events.error.connect(self._on_scan_error)
+        self.events.log_line.connect(self.append_log)
+        self.events.dialog_requested.connect(self._on_operator_dialog)
+
+    # ------------------------------------------------------------------
+    # Configs / health population
+    # ------------------------------------------------------------------
+
+    def _populate_from_configs(self, announce: bool = True) -> None:
+        """Fill the combos and lists from the configs service (offline-safe).
+
+        Parameters
+        ----------
+        announce : bool, optional
+            Show the listing's message (or clear a stale one) in the status
+            bar.  The constructor's *first* populate passes ``False``: it
+            runs before the last-experiment restore, so its transient
+            "No experiment selected." would flash — and sit in the log tail
+            right above whatever the operator does next — even though an
+            experiment is selected one line later (the constructor
+            re-announces afterwards only if the restore selected nothing).
+        """
+        listing = self._configs.listing()
+        self.experiment_combo.blockSignals(True)
+        self.experiment_combo.clear()
+        self.experiment_combo.addItems(listing.experiments)
+        if self._configs.experiment:
+            self.experiment_combo.setCurrentText(self._configs.experiment)
+        else:
+            # Populated but nothing selected: show a placeholder rather
+            # than rendering blank (the combo is editable, so its line
+            # edit carries the hint until the operator picks one).
+            self.experiment_combo.setCurrentIndex(-1)
+            line_edit = self.experiment_combo.lineEdit()
+            if line_edit is not None:
+                line_edit.setPlaceholderText("select experiment…")
+        self.experiment_combo.blockSignals(False)
+
+        self.available_list.clear()
+        self.available_list.addItems(listing.save_sets)
+        self.selected_list.clear()
+        # Optimizer configs (R3): keep the selection when the name survives
+        # the repopulation; offline the listing is empty, which leaves the
+        # combo empty and Start disabled in optimization mode.
+        current_optimization = self.optimization_combo.currentText()
+        self.optimization_combo.blockSignals(True)
+        self.optimization_combo.clear()
+        self.optimization_combo.addItems(listing.optimization_configs)
+        self.optimization_combo.setCurrentIndex(
+            self.optimization_combo.findText(current_optimization)
+        )
+        self.optimization_combo.blockSignals(False)
+        self.trigger_profile_combo.blockSignals(True)
+        self.trigger_profile_combo.clear()
+        self.trigger_profile_combo.addItem("")
+        self.trigger_profile_combo.addItems(listing.trigger_profiles)
+        self.trigger_profile_combo.blockSignals(False)
+        self.trigger_variant_combo.clear()
+        # Repopulation is programmatic — block signals so the R7 auto-select
+        # only follows *operator* picks (and preset applies), never the
+        # populate churn itself.
+        for combo in (self.variable_combo, self.variable2_combo):
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItems(listing.scan_variables)
+            combo.blockSignals(False)
+
+        root = str(listing.configs_root) if listing.configs_root else "not found"
+        self._status_configs.setText(f"configs: {root}")
+        self._listing_message = listing.message
+        if announce:
+            if listing.message:
+                self._report(listing.message)
+            else:
+                # A clean listing supersedes any earlier listing complaint
+                # still sitting in the status bar (e.g. the no-experiment
+                # message after the operator picks one).
+                self.statusBar().clearMessage()
+        self._refresh_presets()
+        self._refresh_union_preview()
+        self._refresh_shot_count()
+        self._refresh_editor_actions()
+
+    @staticmethod
+    def _chip_markup(name: str, status: HealthStatus) -> str:
+        """Rich-text pill body for one R1 health chip: colored dot + text.
+
+        Parameters
+        ----------
+        name : str
+            The chip's service name (``gateway`` / ``tiled`` / ``db``).
+        status : HealthStatus
+            The polled status (drives the dot color).
+
+        Returns
+        -------
+        str
+            QLabel rich text — the pill border/background come from QSS.
+        """
+        color = _HEALTH_DOT_COLORS.get(status, _COLOR_GREY)
+        return f'<span style="color:{color};">●</span> {name}: {status.value}'
+
+    @Slot(object)
+    def _apply_health_report(self, report: HealthReport) -> None:
+        """Render a health report into the R1 chips (GUI-thread slot).
+
+        Parameters
+        ----------
+        report : HealthReport
+            The polled chip states (delivered queued from the background
+            :class:`HealthPoller`, or passed directly to seed the initial
+            all-unknown markup).
+        """
+        self.gateway_chip.setText(self._chip_markup("gateway", report.gateway))
+        self.tiled_chip.setText(self._chip_markup("tiled", report.tiled))
+        self.db_chip.setText(self._chip_markup("db", report.db))
+
+    def _start_health_poller(self) -> None:
+        """Start the background health poller and its GUI-thread interval timer.
+
+        A GUI-thread :class:`~PySide6.QtCore.QTimer` fires every
+        :data:`_HEALTH_POLL_INTERVAL_MS`; each tick dispatches the blocking
+        ``poll()`` to a daemon thread inside :class:`HealthPoller`, whose
+        ``report_ready`` signal is delivered queued back to
+        :meth:`_apply_health_report` on the GUI thread.  Works with any probe
+        (stub or real).  One immediate poll runs so the chips leave ``UNKNOWN``
+        as soon as the first result lands.
+        """
+        self._health_poller = HealthPoller(self._health)
+        # Force a queued connection so the chip update always runs on the GUI
+        # thread — an undecorated bound method can otherwise be wired direct,
+        # which would paint QLabels from the daemon thread (a hard crash).
+        self._health_poller.report_ready.connect(
+            self._apply_health_report, Qt.ConnectionType.QueuedConnection
+        )
+        self._health_timer = QTimer(self)
+        self._health_timer.setInterval(_HEALTH_POLL_INTERVAL_MS)
+        self._health_timer.timeout.connect(self._health_poller.poll_async)
+        self._health_timer.start()
+        self._health_poller.poll_async()
+
+    def _push_experiment_to_probe(self, experiment: str) -> None:
+        """Point the probe at *experiment*'s gateway PV, if it supports it.
+
+        StubHealth has no ``experiment`` attribute, so this is a guarded no-op
+        for the offline default; the real probe picks up the new prefix on its
+        next poll.
+
+        Parameters
+        ----------
+        experiment : str
+            The selected experiment name ("" for none).
+        """
+        if hasattr(self._health, "experiment"):
+            setattr(self._health, "experiment", experiment or None)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        """Stop background I/O cleanly before closing — never joins a thread.
+
+        Stops the GUI-thread health interval timer (no further polls),
+        unsubscribes the device-panel readback monitor (non-blocking), and
+        disconnects every cross-thread signal so a still-running daemon
+        poll/put/monitor can't paint a widget on a window being torn down.
+        In-flight daemon threads finish on their own without blocking
+        shutdown.
+        """
+        timer = getattr(self, "_health_timer", None)
+        if timer is not None:
+            timer.stop()
+        # A closed window must not keep suppressing application tooltips
+        # (Qt would also drop the filter when the window is destroyed, but
+        # close-without-destroy is the common test teardown shape).
+        if getattr(self, "_tooltip_suppressor_installed", False):
+            self._set_tooltips_shown(True)
+        poller = getattr(self, "_health_poller", None)
+        if poller is not None:
+            try:
+                poller.report_ready.disconnect(self._apply_health_report)
+            except (RuntimeError, TypeError):
+                pass
+        movable = getattr(self, "_movable", None)
+        if movable is not None:
+            movable.dispose()
+        actions = getattr(self, "_actions", None)
+        if actions is not None:
+            actions.dispose()
+        now = getattr(self, "_now", None)
+        if now is not None:
+            now.dispose()
+        super().closeEvent(event)
+
+    # ------------------------------------------------------------------
+    # Form state (the round-trip surface tests exercise)
+    # ------------------------------------------------------------------
+
+    def current_mode(self) -> ConsoleMode:
+        """Return the mode the R3 radios currently select.
+
+        Returns
+        -------
+        ConsoleMode
+            The checked radio's mode (1D when nothing is checked yet).
+        """
+        if self.radio_noscan.isChecked():
+            return ConsoleMode.NOSCAN
+        if self.radio_grid.isChecked():
+            return ConsoleMode.GRID
+        if self.radio_optimization.isChecked():
+            return ConsoleMode.OPTIMIZATION
+        if self.radio_background.isChecked():
+            return ConsoleMode.BACKGROUND
+        return ConsoleMode.ONE_D
+
+    def selected_save_sets(self) -> list[str]:
+        """Return the R2 selected save-set names, in list order.
+
+        Returns
+        -------
+        list of str
+            One name per row of the selected list.
+        """
+        return [
+            self.selected_list.item(row).text()
+            for row in range(self.selected_list.count())
+        ]
+
+    def form_state(self) -> ConsoleFormState:
+        """Snapshot the widgets into a :class:`ConsoleFormState`.
+
+        Returns
+        -------
+        ConsoleFormState
+            The validated form model :func:`build_scan_request` consumes.
+            In optimization mode this resolves the selected optimizer
+            config's name into its loaded spec (the one place the form
+            snapshot reads a file), keeping the request builder pure.
+
+        Raises
+        ------
+        pydantic.ValidationError
+            When the widgets hold an invalid combination (e.g. an empty
+            scan-variable name in a step mode).
+        ConsoleFormError
+            When the selected optimizer config cannot be loaded.
+        """
+        mode = self.current_mode()
+        axes: list[FormAxis] = []
+        if mode in (ConsoleMode.ONE_D, ConsoleMode.GRID):
+            axes.append(
+                FormAxis(
+                    variable=self.variable_combo.currentText(),
+                    start=self.start_spin.value(),
+                    stop=self.stop_spin.value(),
+                    step=self.step_spin.value(),
+                )
+            )
+        if mode is ConsoleMode.GRID:
+            axes.append(
+                FormAxis(
+                    variable=self.variable2_combo.currentText(),
+                    start=self.start2_spin.value(),
+                    stop=self.stop2_spin.value(),
+                    step=self.step2_spin.value(),
+                )
+            )
+        optimization = None
+        max_iterations = None
+        if mode is ConsoleMode.OPTIMIZATION:
+            optimization = self._load_selected_optimization()
+            # The spinner's special value 0 renders as "auto" = no limit.
+            max_iterations = self.iterations_spin.value() or None
+        profile = self.trigger_profile_combo.currentText() or None
+        variant = self.trigger_variant_combo.currentText() or None
+        from geecs_schemas import AcquisitionMode
+
+        return ConsoleFormState(
+            mode=mode,
+            axes=axes,
+            shots_per_step=self.shots_per_step.value(),
+            save_sets=self.selected_save_sets(),
+            trigger_profile=profile,
+            trigger_variant=variant if profile else None,
+            acquisition=AcquisitionMode(self.acquisition_combo.currentText()),
+            description=self.description_edit.text(),
+            optimization=optimization,
+            max_iterations=max_iterations,
+        )
+
+    def _load_selected_optimization(self):
+        """Resolve the R3 optimizer-config selection into its loaded spec.
+
+        Returns
+        -------
+        geecs_schemas.OptimizationSpec or None
+            The selected config's spec; ``None`` with nothing selected
+            (:func:`build_scan_request` then refuses with a clear message).
+
+        Raises
+        ------
+        ConsoleFormError
+            When the selected config exists in the combo but cannot be
+            loaded (missing file, bad YAML, schema rejection).
+        """
+        name = self.optimization_combo.currentText()
+        if not name:
+            return None
+        try:
+            return self._configs.optimization_spec(name)
+        except Exception as exc:  # ConsoleConfigsError, or a fake's failure
+            raise ConsoleFormError(
+                f"Cannot load optimizer config {name!r}: {exc}"
+            ) from exc
+
+    # ------------------------------------------------------------------
+    # R3 handlers
+    # ------------------------------------------------------------------
+
+    def _on_mode_changed(self) -> None:
+        """Apply the mode's enable states to the axis rows, then refresh."""
+        mode = self.current_mode()
+        axis1 = mode in (ConsoleMode.ONE_D, ConsoleMode.GRID)
+        axis2 = mode is ConsoleMode.GRID
+        for widget in (
+            self.variable_combo,
+            self.start_spin,
+            self.stop_spin,
+            self.step_spin,
+        ):
+            widget.setEnabled(axis1)
+        for widget in (
+            self.variable2_combo,
+            self.start2_spin,
+            self.stop2_spin,
+            self.step2_spin,
+        ):
+            widget.setEnabled(axis2)
+        # The optimizer-config row only exists for optimization mode.
+        optimize = mode is ConsoleMode.OPTIMIZATION
+        self.optimization_label.setVisible(optimize)
+        self.optimization_combo.setVisible(optimize)
+        self.iterations_label.setVisible(optimize)
+        self.iterations_spin.setVisible(optimize)
+        # The union line is mode-aware (optimization notes the optimizer's
+        # own provisioned diagnostics), so a mode flip must repaint it.
+        self._refresh_union_preview()
+        self._refresh_shot_count()
+
+    def _on_optimization_config_changed(self, name: str) -> None:
+        """Seed the Iterations spinner from the newly selected config.
+
+        The spinner owns the submitted iteration count (see
+        :class:`~geecs_console.request_builder.ConsoleFormState`), so a
+        config's own ``max_iterations`` must surface *here* — otherwise it
+        would be silently overridden at submission.  Best-effort: an
+        unloadable config leaves the spinner alone (submission reports the
+        load failure properly).
+
+        Parameters
+        ----------
+        name : str
+            The R3 optimizer-config combo's new text ("" for none).
+        """
+        if name:
+            try:
+                spec = self._configs.optimization_spec(name)
+            except Exception as exc:  # noqa: BLE001 — seeding is best-effort
+                logger.info(
+                    "optimizer config %r unloadable while seeding: %s", name, exc
+                )
+            else:
+                self.iterations_spin.setValue(
+                    getattr(spec, "max_iterations", None) or 0
+                )
+        self._refresh_submit_enabled()
+
+    def _estimation_form(self) -> ConsoleFormState:
+        """Form state for shot counting only (placeholder variable names)."""
+        mode = self.current_mode()
+        axes: list[FormAxis] = []
+        if mode in (ConsoleMode.ONE_D, ConsoleMode.GRID):
+            axes.append(
+                FormAxis(
+                    variable="axis1",
+                    start=self.start_spin.value(),
+                    stop=self.stop_spin.value(),
+                    step=self.step_spin.value(),
+                )
+            )
+        if mode is ConsoleMode.GRID:
+            axes.append(
+                FormAxis(
+                    variable="axis2",
+                    start=self.start2_spin.value(),
+                    stop=self.stop2_spin.value(),
+                    step=self.step2_spin.value(),
+                )
+            )
+        return ConsoleFormState(
+            mode=mode,
+            axes=axes,
+            shots_per_step=self.shots_per_step.value(),
+            max_iterations=(
+                self.iterations_spin.value() or None
+                if mode is ConsoleMode.OPTIMIZATION
+                else None
+            ),
+        )
+
+    def _refresh_shot_count(self) -> None:
+        """Recompute the live shot-count label and the runaway guard.
+
+        Optimization mode shows ``iterations × shots per step`` when the
+        Iterations spinner is set (the engine's announced upper bound —
+        the suggester may stop early), or ``auto`` when it isn't; the
+        runaway guard applies to the product like any other mode.
+        """
+        form = self._estimation_form()
+        if form.mode is ConsoleMode.OPTIMIZATION and form.max_iterations is None:
+            self._shot_count_valid = True
+            self.shot_count_label.setText("total shots: auto")
+            self._refresh_submit_enabled()
+            return
+        try:
+            total = estimate_total_shots(form)
+        except (ConsoleFormError, ValidationError):
+            self._shot_count_valid = False
+            self.shot_count_label.setText("total shots: —")
+            self._refresh_submit_enabled()
+            return
+        if total > MAXIMUM_SCAN_SIZE:
+            self._shot_count_valid = False
+            self.shot_count_label.setText(
+                f"total shots: {total} — exceeds {MAXIMUM_SCAN_SIZE:.0e} limit"
+            )
+        else:
+            self._shot_count_valid = True
+            self.shot_count_label.setText(f"total shots: {total}")
+        self._refresh_submit_enabled()
+
+    # ------------------------------------------------------------------
+    # R2 handlers
+    # ------------------------------------------------------------------
+
+    def _move_items(self, source: QListWidget, target: QListWidget) -> None:
+        """Move the selected rows from *source* to *target*."""
+        for item in source.selectedItems():
+            source.takeItem(source.row(item))
+            target.addItem(item.text())
+        self._refresh_union_preview()
+        self._refresh_submit_enabled()
+
+    def _on_add_save_set(self) -> None:
+        """R2 Add: available → selected."""
+        self._move_items(self.available_list, self.selected_list)
+
+    def _on_remove_save_set(self) -> None:
+        """R2 Remove: selected → available."""
+        self._move_items(self.selected_list, self.available_list)
+
+    def _refresh_union_preview(self) -> None:
+        """Update the R2 union line and role-conflict/reference hint.
+
+        Optimization mode notes the optimizer's own contribution — the
+        engine merges the optimizer config's ``device_requirements`` into
+        the effective device set, so the save-set union alone undercounts
+        what the scan will record (and zero selected sets still records
+        the optimizer's diagnostics).
+        """
+        preview = self._configs.union_preview(self.selected_save_sets())
+        optimize = self.current_mode() is ConsoleMode.OPTIMIZATION
+        if preview.device_count is None:
+            self.union_label.setText("union: —")
+        elif optimize and not preview.device_count:
+            self.union_label.setText("union: diagnostics from optimizer config")
+        elif optimize:
+            self.union_label.setText(
+                f"union: {preview.device_count} devices + optimizer diagnostics"
+            )
+        else:
+            self.union_label.setText(f"union: {preview.device_count} devices")
+        self.hint_label.setText(preview.hint)
+
+    # ------------------------------------------------------------------
+    # R1 handlers
+    # ------------------------------------------------------------------
+
+    def _on_experiment_changed(self, experiment: str) -> None:
+        """Repopulate everything for the newly selected experiment."""
+        self._configs.set_experiment(experiment)
+        self._presets.set_experiment(experiment)
+        self._action_store.set_experiment(experiment)
+        self._settings.last_experiment = experiment
+        self._push_experiment_to_probe(experiment)
+        self._populate_from_configs()
+        # The readback PVs are experiment-prefixed — re-point the movable
+        # panel's monitors and refresh its completions; then the new daily
+        # scans folder and the new action-plan library.
+        self._movable.on_experiment_changed()
+        self._now.start_idle_probe()
+        self._actions.start_fetch()
+
+    def _restore_last_experiment(self) -> bool:
+        """Select the remembered experiment at startup (explicit choice wins).
+
+        Runs once from the constructor, after the combo is populated.  A
+        remembered experiment is restored only when nothing was selected
+        explicitly and the name is still in the combo's list; selecting it
+        fires :meth:`_on_experiment_changed`, so configs, presets, the
+        health probe, and the device panel all follow.
+
+        Returns
+        -------
+        bool
+            Whether the restore selected an experiment (and so repopulated
+            with a fresh listing message) — ``False`` tells the constructor
+            the quiet first populate's message still stands.
+        """
+        if self._configs.experiment:
+            return False
+        remembered = self._settings.last_experiment
+        if not remembered or self.experiment_combo.findText(remembered) < 0:
+            return False
+        self.experiment_combo.setCurrentText(remembered)
+        return True
+
+    def _on_trigger_profile_changed(self, profile: str) -> None:
+        """Repopulate the variant combo for the selected trigger profile."""
+        self.trigger_variant_combo.clear()
+        if profile:
+            self.trigger_variant_combo.addItem("")
+            self.trigger_variant_combo.addItems(self._configs.trigger_variants(profile))
+
+    # ------------------------------------------------------------------
+    # Ops menu (path resolution lives in services/ops_paths — pure & tested)
+    # ------------------------------------------------------------------
+
+    def _open_local_path(self, path: Path) -> None:
+        """Open *path* in the platform file browser (Finder / Explorer).
+
+        Parameters
+        ----------
+        path : Path
+            An existing file or directory.
+        """
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def _on_open_experiment_configs(self) -> None:
+        """Ops: open the current experiment's configs-repo directory."""
+        folder = ops_paths.experiment_configs_folder(
+            self.experiment_combo.currentText()
+        )
+        if folder is None:
+            self._report("Experiment config folder not found — no configs repo.")
+            return
+        self._open_local_path(folder)
+
+    def _on_open_user_config(self) -> None:
+        """Ops: open the shared user ``config.ini`` (or its folder if absent)."""
+        target = ops_paths.user_config_target()
+        if target is None:
+            self._report(f"User config not found: {ops_paths.USER_CONFIG_PATH}")
+            return
+        if target.is_dir():
+            self._report("config.ini not found — opening its folder instead.")
+        self._open_local_path(target)
+
+    def _on_open_todays_scans(self) -> None:
+        """Ops: open today's daily ``scans/`` folder — strictly read-only.
+
+        The scanner side is the only producer of scan folders; when today's
+        folder does not exist yet this reports "no scans today" and creates
+        nothing (repo scan-folder invariant).
+        """
+        folder = ops_paths.todays_scan_folder(self.experiment_combo.currentText())
+        if folder is None:
+            self._report(
+                "Cannot resolve today's scan folder — no data root or experiment."
+            )
+            return
+        if not folder.is_dir():
+            self._report("No scans today — the daily folder does not exist yet.")
+            return
+        self._open_local_path(folder)
+
+    def _on_open_github(self) -> None:
+        """Ops: open the GEECS-Plugins GitHub page in the browser."""
+        QDesktopServices.openUrl(QUrl(ops_paths.GITHUB_URL))
+
+    # ------------------------------------------------------------------
+    # Editors menu (each entry point shows a non-modal dialog and returns it)
+    # ------------------------------------------------------------------
+
+    def _refresh_editor_actions(self) -> None:
+        """Enable the Editors-menu actions only when an experiment is selected."""
+        enabled = bool(self.experiment_combo.currentText())
+        for action in self._editor_actions:
+            action.setEnabled(enabled)
+
+    def _open_editor(self, opener: Callable[..., object]) -> None:
+        """Open one editor for the current experiment, holding a reference.
+
+        The ``open_*_editor`` entry points show their dialog non-modally
+        (``show()``, not ``exec()``) and return it; an unreferenced PySide6
+        wrapper would be garbage-collected — taking the C++ dialog down with
+        it — so every opened editor is kept in ``self._open_editors``
+        (closed ones are pruned on the next open).
+
+        Parameters
+        ----------
+        opener : callable
+            One of the four ``open_*_editor`` entry points, called as
+            ``opener(self, experiment=<current>)``.
+        """
+        experiment = self.experiment_combo.currentText()
+        if not experiment:
+            self._report("Select an experiment before opening an editor.")
+            return
+        dialog = opener(self, experiment=experiment)
+        self._open_editors = [d for d in self._open_editors if d.isVisible()]
+        self._open_editors.append(dialog)
+
+    def _on_edit_save_sets(self) -> None:
+        """Editors: open the save-set editor for the current experiment."""
+        self._open_editor(open_save_set_editor)
+
+    def _on_edit_scan_variables(self) -> None:
+        """Editors: open the scan-variable editor for the current experiment."""
+        self._open_editor(open_scan_variable_editor)
+
+    def _on_edit_shot_control(self) -> None:
+        """Editors: open the trigger-profile editor for the current experiment."""
+        self._open_editor(open_shot_control_editor)
+
+    def _on_edit_action_library(self) -> None:
+        """Editors: open the action-library editor for the current experiment."""
+        self._open_editor(open_action_library_editor)
+
+    # ------------------------------------------------------------------
+    # Actions menu (contents on ActionsMenuController; thin test surface)
+    # ------------------------------------------------------------------
+
+    @property
+    def enable_actions_action(self):
+        """The arming switch QAction (owned by the actions-menu controller)."""
+        return self._actions.enable_action
+
+    @property
+    def _open_action_dialogs(self) -> list:
+        """The controller's open ActionRunDialogs (read-only view)."""
+        return self._actions.open_dialogs
+
+    # ------------------------------------------------------------------
+    # Preferences (beeps)
+    # ------------------------------------------------------------------
+
+    def _on_per_shot_beep_toggled(self, checked: bool) -> None:
+        """Persist the per-shot beep preference.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state.
+        """
+        self._settings.per_shot_beep = checked
+
+    def _on_randomized_beeps_toggled(self, checked: bool) -> None:
+        """Persist the randomized-beeps preference.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state.
+        """
+        self._settings.randomized_beeps = checked
+
+    def _on_show_tooltips_toggled(self, checked: bool) -> None:
+        """Persist the tooltip preference and apply it.
+
+        Parameters
+        ----------
+        checked : bool
+            The action's new checked state (``True`` shows tooltips).
+        """
+        self._settings.show_tooltips = checked
+        self._set_tooltips_shown(checked)
+
+    def _set_tooltips_shown(self, shown: bool) -> None:
+        """Install or remove the application-wide tooltip suppressor.
+
+        The suppressor is present on the ``QApplication`` only while
+        tooltips are off, so the default-on path adds no per-event filter
+        overhead.  Idempotent via the installed flag.
+
+        Parameters
+        ----------
+        shown : bool
+            ``True`` shows tooltips (suppressor removed).
+        """
+        app = QApplication.instance()
+        if app is None:
+            return
+        if shown and self._tooltip_suppressor_installed:
+            app.removeEventFilter(self._tooltip_suppressor)
+            self._tooltip_suppressor_installed = False
+        elif not shown and not self._tooltip_suppressor_installed:
+            app.installEventFilter(self._tooltip_suppressor)
+            self._tooltip_suppressor_installed = True
+
+    def _maybe_beep(self) -> None:
+        """Sound one per-shot beep, honoring the Preferences options.
+
+        Silent when "Per-shot beep" is off; with "Randomized beeps" on, only
+        ~1 in 4 shots beep (:data:`_RANDOM_BEEP_PROBABILITY`, drawn from the
+        injectable ``rng``).  ``QApplication.beep()`` — no sound assets, no
+        multimedia dependency.
+        """
+        if not self.beep_action.isChecked():
+            return
+        if (
+            self.random_beep_action.isChecked()
+            and self._beep_rng.random() >= _RANDOM_BEEP_PROBABILITY
+        ):
+            return
+        QApplication.beep()
+
+    # ------------------------------------------------------------------
+    # R5 submit row
+    # ------------------------------------------------------------------
+
+    def _scanning(self) -> bool:
+        """Whether the submitter reports an active scan."""
+        return self._submitter is not None and self._submitter.is_scanning_active()
+
+    def _refresh_submit_enabled(self) -> None:
+        """Recompute Start/Stop enabled state from form + engine.
+
+        Optimization mode needs a selected optimizer config but — unlike
+        every other mode — no selected save sets: the engine
+        auto-provisions the optimizer's ``device_requirements`` (the
+        evaluator's diagnostics) into the effective device set
+        (GeecsBluesky ≥ 0.38.0), so an optimize run records something even
+        with an empty R2 selection.  Whether the engine accepts an
+        optimize submission remains the engine's call, surfaced from
+        :meth:`_on_start_clicked` rather than pre-blocked here.
+        """
+        scanning = self._scanning()
+        optimize = self.current_mode() is ConsoleMode.OPTIMIZATION
+        ready = (
+            not scanning
+            and self._shot_count_valid
+            and (bool(self.selected_save_sets()) or optimize)
+            and (not optimize or bool(self.optimization_combo.currentText()))
+        )
+        self.start_button.setEnabled(ready)
+        # While a stop is in flight the button stays disabled ("Stopping…")
+        # until the terminal lifecycle event lands (_on_scan_state).
+        self.stop_button.setEnabled(scanning and not self._stop_in_flight)
+        self._refresh_pause_button()
+
+    def _refresh_pause_button(self) -> None:
+        """Set the Pause/Resume button from the current lifecycle state.
+
+        Pause while RUNNING, Resume while PAUSED; disabled otherwise
+        (transitional PAUSING/STOPPING, idle, or terminal).  The engine's
+        operator-pause holds the scan non-modally, so the GUI stays usable
+        while paused.
+        """
+        state = self._scan_state_text
+        if state == "paused":
+            self.pause_button.setText("▶ Resume")
+            self.pause_button.setEnabled(not self._stop_in_flight)
+            self.pause_button.setToolTip("Resume the paused scan.")
+        elif state == "running":
+            self.pause_button.setText(self._pause_button_label)
+            self.pause_button.setEnabled(not self._stop_in_flight)
+            self.pause_button.setToolTip(
+                "Pause the scan at its next safe point (the machine goes to "
+                "its quiescent state; Resume or Stop from here)."
+            )
+        else:
+            self.pause_button.setText(self._pause_button_label)
+            self.pause_button.setEnabled(False)
+
+    def _ensure_submitter(self) -> Optional[Submitter]:
+        """Return the injected submitter, or lazily build the real engine."""
+        if self._submitter is not None:
+            return self._submitter
+        try:
+            self._submitter = self._submitter_factory(
+                self.experiment_combo.currentText(), self.events.handle
+            )
+        except Exception as exc:
+            message = f"Scan engine unavailable: {exc}"
+            self.statusBar().showMessage(message, 10_000)
+            self.append_log(message)
+            return None
+        return self._submitter
+
+    def _on_start_clicked(self) -> None:
+        """Build the request from the form and submit it."""
+        try:
+            request = build_scan_request(self.form_state())
+        except (ConsoleFormError, ValidationError) as exc:
+            message = f"Cannot submit: {exc}"
+            self.statusBar().showMessage(message, 10_000)
+            self.append_log(message)
+            return
+        submitter = self._ensure_submitter()
+        if submitter is None:
+            return
+        try:
+            accepted = submitter.reinitialize(request)
+            if not accepted:
+                # The Submitter protocol returns False on a refused request
+                # (e.g. unresolvable names) — starting anyway would run the
+                # scanner on stale state from a previous reinitialize.
+                message = "Submission refused: the scanner did not accept the request"
+                self.statusBar().showMessage(message, 10_000)
+                self.append_log(message)
+                return
+            submitter.start_scan_thread()
+        except Exception as exc:
+            message = f"Submission failed: {exc}"
+            self.statusBar().showMessage(message, 10_000)
+            self.append_log(message)
+        self._refresh_submit_enabled()
+
+    def _on_stop_clicked(self) -> None:
+        """Request the running scan to stop — never blocking the GUI thread.
+
+        ``stop_scanning_thread`` can block (during initialization the
+        engine's scan thread may sit in a 20 s device connect; calling it
+        here used to pinwheel the window — issue #571), so it is
+        dispatched through the stop worker.  The button disables and shows
+        "Stopping…" until the lifecycle stream reports a terminal state
+        (:meth:`_on_scan_state` releases the hold), then normal gating
+        resumes.
+        """
+        submitter = self._submitter
+        if submitter is None or not submitter.is_scanning_active():
+            self._refresh_submit_enabled()
+            return
+        self._stop_in_flight = True
+        self.stop_button.setText("Stopping…")
+        self._stop_worker.run_async(submitter.stop_scanning_thread, "scan-stop")
+        self.append_log("stop requested")
+        self._refresh_submit_enabled()
+
+    def _on_pause_clicked(self) -> None:
+        """Pause the running scan, or resume it if already paused.
+
+        Both engine calls return promptly (``request_pause`` asks the
+        RunEngine to pause at its next checkpoint; ``request_resume`` signals
+        the parked pause supervisor), so they run on the GUI thread — no
+        worker.  The actual pause/resume happens on the engine's scan
+        thread and is announced back through the lifecycle stream (the
+        PAUSED/RUNNING states flip this button via
+        :meth:`_refresh_pause_button`).
+        """
+        submitter = self._submitter
+        if submitter is None or not submitter.is_scanning_active():
+            return
+        if self._scan_state_text == "paused":
+            submitter.request_resume()
+            self.append_log("resume requested")
+        else:
+            submitter.request_pause()
+            self.append_log("pause requested")
+
+    # ------------------------------------------------------------------
+    # R4 presets (a preset IS a saved ScanRequest)
+    # ------------------------------------------------------------------
+
+    def _report(self, message: str) -> None:
+        """Show *message* in the status bar and append it to the log tail.
+
+        Parameters
+        ----------
+        message : str
+            The operator-facing line.
+        """
+        self.statusBar().showMessage(message, 10_000)
+        self.append_log(message)
+
+    def _refresh_presets(self) -> None:
+        """Repopulate the R4 combo from the store, keeping the selection."""
+        current = self.preset_combo.currentText()
+        self.preset_combo.blockSignals(True)
+        self.preset_combo.clear()
+        self.preset_combo.addItems(self._presets.list_names())
+        # findText returns -1 when the previous selection is gone, which
+        # setCurrentIndex(-1) renders as "nothing selected" — exactly right.
+        self.preset_combo.setCurrentIndex(self.preset_combo.findText(current))
+        self.preset_combo.blockSignals(False)
+
+    def _on_preset_save_as(self) -> None:
+        """R4 Save-as: current form → ScanRequest → named YAML in the store."""
+        try:
+            request = build_scan_request(self.form_state())
+        except (ConsoleFormError, ValidationError) as exc:
+            self._report(f"Cannot save preset: {exc}")
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            "Save preset",
+            "Preset name:",
+            text=self.preset_combo.currentText(),
+        )
+        name = name.strip()
+        if not accepted or not name:
+            return
+        try:
+            self._presets.save(name, request)
+        except PresetStoreError as exc:
+            self._report(f"Cannot save preset: {exc}")
+            return
+        self._refresh_presets()
+        self.preset_combo.setCurrentText(name)
+        self._report(f"Saved preset {name!r}.")
+
+    def _on_preset_apply(self) -> None:
+        """R4 Apply: load the selected preset and populate the form from it.
+
+        Anything unloadable or inexpressible on the form (a missing or
+        invalid file, an optimize preset, action bindings, explicit position
+        lists, more than two axes) reports a status-bar error and leaves the
+        form untouched.
+        """
+        name = self.preset_combo.currentText()
+        if not name:
+            self._report("No preset selected.")
+            return
+        try:
+            form = form_state_from_request(self._presets.load(name))
+            self._apply_form_state(form)
+        except (PresetStoreError, ConsoleFormError) as exc:
+            self._report(f"Cannot apply preset {name!r}: {exc}")
+            return
+        self._report(f"Applied preset {name!r}.")
+
+    def _on_preset_delete(self) -> None:
+        """R4 Delete: remove the selected preset and refresh the combo."""
+        name = self.preset_combo.currentText()
+        if not name:
+            self._report("No preset selected.")
+            return
+        try:
+            self._presets.delete(name)
+        except PresetStoreError as exc:
+            self._report(f"Cannot delete preset {name!r}: {exc}")
+            return
+        self._refresh_presets()
+        self._report(f"Deleted preset {name!r}.")
+
+    def _apply_form_state(self, form: ConsoleFormState) -> None:
+        """Populate the R1–R3 form widgets from *form* (the Apply inverse).
+
+        Validates everything the widgets cannot express **before** touching
+        any of them, so a failed apply leaves the form exactly as it was.
+
+        Parameters
+        ----------
+        form : ConsoleFormState
+            The form snapshot to render (usually from
+            :func:`form_state_from_request`).
+
+        Raises
+        ------
+        ConsoleFormError
+            More than two axes (the form has two axis rows), an axis with
+            an explicit values list (the form only shows start/stop/step),
+            or an optimization spec matching none of the experiment's
+            optimizer configs (the form shows a config *name*, not a spec).
+        """
+        if len(form.axes) > 2:
+            raise ConsoleFormError(
+                f"it sweeps {len(form.axes)} axes — the form has two axis rows."
+            )
+        for axis in form.axes:
+            if axis.values is not None:
+                raise ConsoleFormError(
+                    f"axis {axis.variable!r} uses an explicit position list, "
+                    "which the form cannot show (start/stop/step only)."
+                )
+        optimization_name = ""
+        if form.mode is ConsoleMode.OPTIMIZATION and form.optimization is not None:
+            optimization_name = self._match_optimization_config(form.optimization)
+
+        radio = {
+            ConsoleMode.NOSCAN: self.radio_noscan,
+            ConsoleMode.ONE_D: self.radio_1d,
+            ConsoleMode.GRID: self.radio_grid,
+            ConsoleMode.OPTIMIZATION: self.radio_optimization,
+            ConsoleMode.BACKGROUND: self.radio_background,
+        }[form.mode]
+        radio.setChecked(True)
+
+        axis_rows = (
+            (self.variable_combo, self.start_spin, self.stop_spin, self.step_spin),
+            (self.variable2_combo, self.start2_spin, self.stop2_spin, self.step2_spin),
+        )
+        for axis, (combo, start, stop, step) in zip(form.axes, axis_rows):
+            combo.setCurrentText(axis.variable)
+            start.setValue(axis.start)
+            stop.setValue(axis.stop)
+            step.setValue(axis.step)
+        if form.axes:
+            # setCurrentText is programmatic (no textActivated), so follow
+            # the preset explicitly — axis 1 owns the panel.
+            self._movable.select_from_scan_combo(form.axes[0].variable)
+
+        if optimization_name:
+            self.optimization_combo.setCurrentText(optimization_name)
+        # After the combo (whose change handler seeds the spinner from the
+        # config): the preset's own iteration count wins.
+        self.iterations_spin.setValue(form.max_iterations or 0)
+        self.shots_per_step.setValue(form.shots_per_step)
+        self.acquisition_combo.setCurrentText(form.acquisition.value)
+        self.description_edit.setText(form.description)
+        self.trigger_profile_combo.setCurrentText(form.trigger_profile or "")
+        # Changing the profile text repopulated the variant combo (the
+        # currentTextChanged handler); now pick the preset's variant.
+        self.trigger_variant_combo.setCurrentText(form.trigger_variant or "")
+        self._apply_save_sets(form.save_sets)
+        self._refresh_shot_count()
+
+    def _match_optimization_config(self, spec: object) -> str:
+        """Find the listed optimizer config whose loaded spec equals *spec*.
+
+        The form expresses optimization as a config *name* (the R3 combo),
+        so applying a preset that carries an inline spec means finding the
+        experiment's config with identical content — pydantic equality over
+        the loaded documents, with ``max_iterations`` neutralized on both
+        sides: that field belongs to the Iterations spinner (restored
+        separately from the preset), so a preset saved with an overridden
+        count must still match its source config.  Unloadable configs are
+        skipped.
+
+        Parameters
+        ----------
+        spec : OptimizationSpec
+            The preset's optimization block.
+
+        Returns
+        -------
+        str
+            The matching config name from the combo.
+
+        Raises
+        ------
+        ConsoleFormError
+            When no listed config matches — selecting anything else would
+            silently change what the preset submits.
+        """
+        neutral = {"max_iterations": None}
+        wanted = spec.model_copy(update=neutral)
+        for index in range(self.optimization_combo.count()):
+            name = self.optimization_combo.itemText(index)
+            try:
+                if (
+                    self._configs.optimization_spec(name).model_copy(update=neutral)
+                    == wanted
+                ):
+                    return name
+            except Exception as exc:  # noqa: BLE001 — an unloadable config just can't match
+                logger.info(
+                    "optimizer config %r unloadable while matching: %s", name, exc
+                )
+        raise ConsoleFormError(
+            "its optimization spec matches none of this experiment's "
+            "optimizer configs — the form can only show a named config."
+        )
+
+    def _apply_save_sets(self, names: list[str]) -> None:
+        """Make the R2 selected list exactly *names* (known ones, in order).
+
+        Save-set names the current experiment's configs don't list are
+        skipped with a status-bar warning — putting an unresolvable name in
+        the selected list would only fail later, at submission.
+
+        Parameters
+        ----------
+        names : list of str
+            The preset's save-set names, in list order.
+        """
+        known = set(self.selected_save_sets()) | {
+            self.available_list.item(row).text()
+            for row in range(self.available_list.count())
+        }
+        selected = [name for name in names if name in known]
+        missing = [name for name in names if name not in known]
+        self.selected_list.clear()
+        self.selected_list.addItems(selected)
+        self.available_list.clear()
+        self.available_list.addItems(sorted(known - set(selected)))
+        if missing:
+            self._report(
+                "Preset save sets not in this experiment's configs "
+                f"(skipped): {', '.join(missing)}"
+            )
+        self._refresh_union_preview()
+        self._refresh_submit_enabled()
+
+    # ------------------------------------------------------------------
+    # R7 device panel
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # R6 now panel
+    # ------------------------------------------------------------------
+
+    def append_log(self, line: str) -> None:
+        """Append one line to the compact log tail (delegates to the panel).
+
+        Parameters
+        ----------
+        line : str
+            The text to append (one log-tail row).
+        """
+        self._now.append_log(line)
+
+    def set_scan_number(self, number: int) -> None:
+        """Show the current scan number (delegates to the panel).
+
+        Parameters
+        ----------
+        number : int
+            The claimed scan number.
+        """
+        self._now.set_scan_number(number)
+
+    def _on_scan_state(self, state: str) -> None:
+        """Update the state pill and button gating on lifecycle events.
+
+        A terminal state (aborted/done/error) also releases an in-flight
+        Stop request: the button label restores and normal gating resumes
+        (:meth:`_on_stop_clicked` set the hold).
+        """
+        lowered = (state or "").lower()
+        self._scan_state_text = lowered or "idle"
+        if self._stop_in_flight and lowered in _TERMINAL_SCAN_STATES:
+            self._stop_in_flight = False
+            self.stop_button.setText(self._stop_button_label)
+        self._now.set_state_pill(state)
+        self._refresh_submit_enabled()
+
+        # Push the live scan state into open action dialogs so their Run
+        # button flips between "Run" and "Pause scan & run" (G-actions v2).
+        scanning = lowered not in _TERMINAL_SCAN_STATES and lowered != "idle"
+        self._actions.set_scanning(scanning)
+
+        # A terminal state dismisses a dangling action-decision modal: an
+        # operator Stop during the pause window aborts the scan without the
+        # engine answering the three-way dialog, so the console must tear it
+        # down itself (the #552 PR-3 review contract — the engine has no
+        # dialog-cancel signal).
+        if lowered in _TERMINAL_SCAN_STATES and self._decision_box is not None:
+            self._decision_box.reject()
+
+    def _on_totals_known(self, total_shots: int) -> None:
+        """Size the progress bar once the scan announces its totals."""
+        self._now.set_totals(total_shots)
+        self._last_beep_shots = 0  # new scan: re-arm the per-shot beep
+
+    def _on_progress(
+        self, step_index: int, total_steps: int, shots_completed: int
+    ) -> None:
+        """Advance the progress bar from step events; beep on shot increments."""
+        self._now.update_progress(step_index, total_steps, shots_completed)
+        if shots_completed > self._last_beep_shots:
+            self._last_beep_shots = shots_completed
+            self._maybe_beep()
+        elif shots_completed < self._last_beep_shots:
+            # A scan that never announced totals restarted the count.
+            self._last_beep_shots = shots_completed
+
+    def _on_scan_error(self, message: str) -> None:
+        """Show scan errors in the status bar."""
+        self.statusBar().showMessage(message, 10_000)
+
+    # ------------------------------------------------------------------
+    # Operator / pre-flight dialogs
+    # ------------------------------------------------------------------
+
+    def _on_operator_dialog(self, request: object) -> None:
+        """Render an operator question modally and unblock the engine thread.
+
+        Delivered queued from :meth:`ScanEventsAdapter.handle` (which runs on
+        the engine/scan thread, blocked on ``request.response_event``), so this
+        slot runs on the GUI thread — where a modal must live.  The engine
+        resumes with the operator's choice: Abort sets ``request.abort[0]``
+        before the response event is set.
+
+        Parameters
+        ----------
+        request : object
+            A ``DialogRequest`` (duck-typed): ``exc``, optional ``title`` /
+            ``continue_label`` / ``abort_label``, a mutable one-element
+            ``abort`` list, and a ``response_event`` (:class:`threading.Event`).
+            An ``ActionDecisionRequest`` (carrying a ``verdict`` list) is
+            rendered as the three-way action pop-up instead (G-actions v2).
+        """
+        if getattr(request, "verdict", None) is not None:
+            self._on_action_decision(request)
+            return
+        try:
+            exc = getattr(request, "exc", None)
+            title = getattr(request, "title", None) or "Operator confirmation"
+            continue_label = getattr(request, "continue_label", None) or "Continue"
+            abort_label = getattr(request, "abort_label", None) or "Abort"
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(str(title))
+            box.setText(str(exc) if exc is not None else str(title))
+            continue_button = box.addButton(
+                str(continue_label), QMessageBox.ButtonRole.AcceptRole
+            )
+            box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(continue_button)
+            box.exec()
+
+            aborted = box.clickedButton() is not continue_button
+            abort_flag = getattr(request, "abort", None)
+            if aborted and isinstance(abort_flag, list) and abort_flag:
+                abort_flag[0] = True
+            self.append_log(f"operator: {'abort' if aborted else 'continue'}")
+        except Exception:  # noqa: BLE001 — must never leave the engine parked
+            logger.exception("operator dialog render failed; aborting to be safe")
+            abort_flag = getattr(request, "abort", None)
+            if isinstance(abort_flag, list) and abort_flag:
+                abort_flag[0] = True  # a warning we cannot show → do not proceed
+        finally:
+            self._unblock_engine(request)
+
+    @staticmethod
+    def _unblock_engine(request: object) -> None:
+        """Set the request's response event so the parked engine thread runs.
+
+        Called from a ``finally`` in both dialog handlers: an exception in
+        the render path must never leave the engine's scan thread blocked
+        on ``response_event`` forever (the engine has no dialog-cancel
+        signal; #552 PR-3/PR-4 contract).
+        """
+        response_event = getattr(request, "response_event", None)
+        if response_event is not None and hasattr(response_event, "set"):
+            response_event.set()
+
+    def _on_action_decision(self, request: object) -> None:
+        """Render the three-way action-decision pop-up (G-actions v2).
+
+        The scan is paused (machine in its safe state) and the engine's
+        scan thread is parked on ``request.response_event``.  This modal
+        offers Execute / Ignore / Abort; the choice goes into
+        ``request.verdict[0]`` before the event is set.  The box is tracked
+        on ``self._decision_box`` so a terminal lifecycle state (an operator
+        Stop that aborted the scan out of band) can dismiss it — the engine
+        provides no dialog-cancel signal (#552 PR-3 contract).
+
+        Parameters
+        ----------
+        request : object
+            An ``ActionDecisionRequest`` (duck-typed): ``action_name``,
+            ``message``, ``step_count``, a mutable one-element ``verdict``
+            list, and a ``response_event``.
+        """
+        try:
+            name = str(getattr(request, "action_name", "action"))
+            message = str(getattr(request, "message", "")) or f"Action '{name}'"
+            steps = int(getattr(request, "step_count", 0) or 0)
+
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Question)
+            box.setWindowTitle(f"Scan paused — action '{name}'")
+            box.setText(message)
+            execute_button = box.addButton(
+                f"Execute ({steps} step{'s' if steps != 1 else ''})",
+                QMessageBox.ButtonRole.AcceptRole,
+            )
+            ignore_button = box.addButton(
+                "Ignore & resume", QMessageBox.ButtonRole.RejectRole
+            )
+            box.addButton("Abort scan", QMessageBox.ButtonRole.DestructiveRole)
+            box.setDefaultButton(ignore_button)
+
+            self._decision_box = box
+            try:
+                box.exec()
+            finally:
+                self._decision_box = None
+
+            clicked = box.clickedButton()
+            if clicked is execute_button:
+                verdict = "execute"
+            elif clicked is ignore_button:
+                verdict = "ignore"
+            else:
+                # Abort, or a programmatic dismiss (terminal-state reject()):
+                # a dismiss already means the scan is ending, so "abort" is
+                # the safe read either way.
+                verdict = "abort"
+
+            verdict_list = getattr(request, "verdict", None)
+            if isinstance(verdict_list, list) and verdict_list:
+                verdict_list[0] = verdict
+            self.append_log(f"action decision: {verdict}")
+        except Exception:  # noqa: BLE001 — must never leave the engine parked
+            # The request's verdict default is "ignore" (resume, run
+            # nothing) — the safe outcome when the pop-up could not render.
+            logger.exception("action-decision dialog render failed; resuming")
+        finally:
+            self._unblock_engine(request)

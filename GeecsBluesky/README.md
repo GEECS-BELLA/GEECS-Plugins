@@ -58,10 +58,11 @@ cd GeecsBluesky
 poetry install --extras "ca tiled"
 ```
 
-The `geecs-ca-gateway` path dependency provides the GEECS access-layer
-library (`GeecsDb` metadata, `pv_naming`, wire-level exceptions) and the
-`FakeGeecsServer` test double. DB credentials resolve through the standard
-`~/.config/geecs_python_api/config.ini` → `Configurations.INI` chain.
+The `geecs-core` path dependency provides the GEECS access library
+(`GeecsDb` metadata, `pv_naming`, wire-level exceptions). The CA gateway
+itself is consumed only as a service (its PVs). DB credentials resolve
+through the standard `~/.config/geecs_python_api/config.ini` →
+`Configurations.INI` chain.
 
 ## Quick start (headless session)
 
@@ -100,12 +101,12 @@ poetry run pytest            # hermetic suite (ophyd-async mock backends)
 
 Plain `pytest` needs no lab network and no gateway: shots are simulated with
 `set_mock_value` and an RE-loop pacer (`tests/ca_mock_helpers.py`). The
-hardware scripts are explicit:
+hardware test is explicit (integration-marked, real scans against lab
+devices):
 
 ```bash
-poetry run python test_bluesky_scanner.py   # real scans against lab devices
+poetry run pytest tests/test_scan_request_hardware.py -m integration -s
 ```
 
-Shot control in the hardware script follows the laser state
-(`GEECS_BLUESKY_LASER=on|off`, default `off` → internal single-shot config),
-loaded from the configs repository.
+Save set, trigger profile, and every other name are parameterizable via
+`GEECS_HW_*` env vars — see the module docstring.

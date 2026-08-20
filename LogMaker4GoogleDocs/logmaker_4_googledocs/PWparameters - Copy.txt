@@ -28,4 +28,3 @@ spreadsheetid = 1O1M-0DvY1zYv-wgssdWL8UZPk8-JTr0G34SsfYyjNQw
 sheetname = Sheet1
 firstcolumn = A
 lastcolumn = F
-

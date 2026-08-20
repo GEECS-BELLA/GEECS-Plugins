@@ -2,14 +2,14 @@
 
 Wire-protocol and database exceptions (``GeecsError`` base,
 ``GeecsConnectionError``, ``GeecsCommandError`` and subclasses,
-``GeecsDeviceNotFoundError``) live in :mod:`geecs_ca_gateway.exceptions` — the
+``GeecsDeviceNotFoundError``) live in :mod:`geecs_core.exceptions` — the
 GEECS access layer — and are re-exported here so existing imports keep working.
 Scan-level exceptions below subclass the same ``GeecsError`` base.
 """
 
 from __future__ import annotations
 
-from geecs_ca_gateway.exceptions import (
+from geecs_core.exceptions import (
     GeecsCommandError,
     GeecsCommandFailedError,
     GeecsCommandRejectedError,
@@ -28,10 +28,16 @@ __all__ = [
     "GeecsTriggerTimeoutError",
     "GeecsQuiescenceTimeoutError",
     "GeecsMotorTimeoutError",
+    "GeecsConfirmTimeoutError",
     "GeecsT0SyncError",
     "GeecsConfigurationError",
     "GeecsDeviceDownError",
     "GeecsStaleDevicesError",
+    "GeecsUnservedVariablesError",
+    "ActionCheckFailedError",
+    "ActionPlanNotFoundError",
+    "ActionPlanCycleError",
+    "ActionStepTimeoutError",
 ]
 
 
@@ -43,7 +49,7 @@ __all__ = [
 class GeecsTriggerTimeoutError(GeecsError):
     """``acq_timestamp`` did not advance within the trigger timeout.
 
-    Raised by :class:`~geecs_bluesky.devices.triggerable.GeecsTriggerable`
+    Raised by :class:`~geecs_bluesky.devices.ca.triggerable.CaTriggerable`
     when no new shot arrives within ``_trigger_timeout`` seconds.  Typical
     causes: DG645 not firing, camera not acquiring, or trigger cable fault.
     """
@@ -76,7 +82,7 @@ class GeecsQuiescenceTimeoutError(GeecsError):
 class GeecsMotorTimeoutError(GeecsError):
     """Motor did not reach the target position within ``move_timeout``.
 
-    Raised by :class:`~geecs_bluesky.devices.motor.GeecsMotor` when the
+    Raised by :class:`~geecs_bluesky.devices.ca.motor.CaMotor` when the
     position polling loop expires.  Possible causes: stage stall, mechanical
     obstruction, wrong tolerance, or very long move.  Do not auto-retry —
     a stalled stage may need operator intervention.
@@ -98,6 +104,39 @@ class GeecsMotorTimeoutError(GeecsError):
         super().__init__(
             f"{device_name}/{variable}: position {current} did not reach "
             f"{target} within {timeout:.1f}s"
+        )
+
+
+class GeecsConfirmTimeoutError(GeecsError):
+    """A confirming variable did not match the set target within ``timeout``.
+
+    Raised by :class:`~geecs_bluesky.devices.ca.confirm.CaConfirmSettable` when
+    the polling loop on the *confirming* variable (a different variable from
+    the one written — the ``ScanVariable.confirm`` "topology C" case) expires.
+    Possible causes: the confirming variable's tolerance is too tight for its
+    real jitter, the two variables are not actually coupled the way the config
+    assumes, or the device is stuck. Do not auto-retry — this is the same
+    "needs operator attention" posture as :class:`GeecsMotorTimeoutError`.
+    """
+
+    def __init__(
+        self,
+        device_name: str,
+        variable: str,
+        confirm_variable: str,
+        target: float | str,
+        current: float | str,
+        timeout: float,
+    ) -> None:
+        self.device_name = device_name
+        self.variable = variable
+        self.confirm_variable = confirm_variable
+        self.target = target
+        self.current = current
+        self.timeout = timeout
+        super().__init__(
+            f"{device_name}/{variable}: confirming variable {confirm_variable} "
+            f"reads {current!r}, did not match {target!r} within {timeout:.1f}s"
         )
 
 
@@ -134,15 +173,13 @@ class GeecsConfigurationError(GeecsError):
 class GeecsDeviceDownError(GeecsError):
     """A device's gateway ``CONNECTED`` PV reports ``Disconnected``.
 
-    The gateway serves every DB device's PVs whether or not the device's TCP
-    stream is up, so CA-connect success never implied device liveness; the
-    per-device ``[Experiment:]Device:CONNECTED`` status PV is the
-    authoritative signal (PV_CONTRACT.md §1/§5).  Raised (or carried inside
-    the pre-claim operator dialog) when that PV says a device is down:
-    by ``BlueskyScanner._preflight_check_sync_liveness`` before a scan, and
-    by :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
-    no-frame device turns out to be disconnected mid-scan (re-firing cannot
-    help a dead device).  The message is operator-facing.
+    ``CONNECTED`` is the authoritative liveness signal — CA-connect success
+    never implies device liveness (PV_CONTRACT.md §1/§5; rationale in
+    ``GeecsBluesky/CLAUDE.md``).  Raised, or carried inside the pre-claim
+    operator dialog, by the pre-flight liveness check and by
+    :func:`~geecs_bluesky.plans.single_shot.geecs_single_shot` when a
+    no-frame device turns out to be disconnected mid-scan.  The message is
+    operator-facing.
     """
 
     def __init__(self, message: str, device_name: str | None = None) -> None:
@@ -153,13 +190,124 @@ class GeecsDeviceDownError(GeecsError):
 class GeecsStaleDevicesError(GeecsError):
     """Free-run sync device(s) are CONNECTED but have no fresh frames.
 
-    Carried inside the pre-claim operator dialog raised by
-    ``BlueskyScanner._preflight_check_sync_liveness`` (free-run mode only,
-    after the gateway-liveness stage passed) when cached ``acq_timestamp``
-    frames are missing or too old — all-stale means the trigger is probably
-    off / not free-running; a stale subset is a per-device acquisition
-    problem.  Genuinely *dead* devices are :class:`GeecsDeviceDownError`
-    territory (the ``CONNECTED`` PV), not this.  The message is
-    operator-facing: it names the stale device(s), how stale they are, and
-    what the dialog's options mean.
+    Carried inside the pre-claim operator dialog raised by the free-run
+    staleness check: all-stale means the trigger is probably off / not
+    free-running; a stale subset is a per-device acquisition problem.
+    Genuinely *dead* devices are :class:`GeecsDeviceDownError` territory.
+    The message is operator-facing.
     """
+
+
+class GeecsUnservedVariablesError(GeecsError):
+    """Save-set variable(s) the gateway does not serve as PVs.
+
+    The gateway serves each enabled device's ``get='yes'`` variables plus its
+    settable control surface (``GeecsCAGateway/DEPLOYMENT.md``); a save-set
+    variable outside that set has no PV, so its detector signal can never
+    connect (a 20 s ophyd ``NotConnectedError``, observed live 2026-07-15).
+    Carried inside the pre-claim operator dialog raised by the
+    unserved-variables pre-flight check.  The message is operator-facing.
+
+    Parameters
+    ----------
+    message :
+        The operator-facing dialog body.
+    unserved :
+        ``{device: [variables]}`` — the unserved variables, by device.
+    """
+
+    def __init__(
+        self, message: str, unserved: dict[str, list[str]] | None = None
+    ) -> None:
+        self.unserved = dict(unserved or {})
+        super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# Action-plan errors — compiled ActionPlan execution (plans/action_compiler)
+# ---------------------------------------------------------------------------
+
+
+class ActionCheckFailedError(GeecsError):
+    """A ``check`` step read a value that did not match what the plan expected.
+
+    Raised by the compiled action plan (see
+    :func:`~geecs_bluesky.plans.action_compiler.compile_action_plan`) when a
+    ``check`` step's readback differs from its ``expected`` value.  The plan
+    always stops here — a mismatch is never papered over.  The message is
+    operator-facing.
+    """
+
+    def __init__(
+        self,
+        device: str,
+        variable: str,
+        expected: object,
+        actual: object,
+    ) -> None:
+        self.device = device
+        self.variable = variable
+        self.expected = expected
+        self.actual = actual
+        super().__init__(
+            f"Check failed: {device}:{variable} read back {actual!r} but the "
+            f"plan expected {expected!r}. The action plan stopped here so the "
+            "mismatch can be looked at before anything else runs."
+        )
+
+
+class ActionPlanNotFoundError(GeecsError):
+    """A ``run`` step referenced a plan name that is not in the registry.
+
+    Raised while a compiled action plan executes a nested ``run`` step whose
+    ``plan`` name has no entry in the plan registry — typically a renamed or
+    deleted plan that something still points at.
+    """
+
+    def __init__(self, plan_name: str, known_plans: list[str] | None = None) -> None:
+        self.plan_name = plan_name
+        self.known_plans = sorted(known_plans) if known_plans else []
+        known = (
+            f" Known plans: {', '.join(self.known_plans)}."
+            if self.known_plans
+            else " The registry is empty."
+        )
+        super().__init__(
+            f"Action plan {plan_name!r} is not defined in the plan registry — "
+            f"it may have been renamed or removed.{known}"
+        )
+
+
+class ActionPlanCycleError(GeecsError):
+    """Nested ``run`` steps form a loop, so the plan would never finish.
+
+    Raised before recursing into a nested plan whose name is already on the
+    execution stack (for example plan A runs B, and B runs A again); the
+    message shows the chain of plan names that closes the loop.
+    """
+
+    def __init__(self, chain: list[str]) -> None:
+        self.chain = list(chain)
+        super().__init__(
+            "Action plans call each other in a loop and would never finish: "
+            + " -> ".join(self.chain)
+            + ". Remove one of the 'run' steps to break the cycle."
+        )
+
+
+class ActionStepTimeoutError(GeecsError):
+    """A direct-executed action step did not complete within its budget.
+
+    Raised by
+    :func:`~geecs_bluesky.plans.action_direct.execute_action_steps_directly`
+    when a blocking ``set``/``check`` dispatch is still pending at the end
+    of its per-step budget (the in-loop coroutine is cancelled).  Sits in
+    the same operational-timeout family as
+    :class:`GeecsTriggerTimeoutError` / :class:`GeecsMotorTimeoutError` so
+    operator-facing handlers that catch :class:`GeecsError` see it.
+    """
+
+    def __init__(self, label: str, timeout: float) -> None:
+        self.label = label
+        self.timeout = timeout
+        super().__init__(f"action step {label} did not complete within {timeout:.0f} s")

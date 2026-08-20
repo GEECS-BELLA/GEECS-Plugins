@@ -1,0 +1,46 @@
+# Example optimization configuration using MultiDeviceScanEvaluator
+#
+# This example demonstrates the new simplified pattern for creating
+# optimization evaluators. The key improvements are:
+#
+# 1. No manual device_requirements - auto-generated from analyzers
+# 2. Minimal Python code - just implement compute_objective()
+# 3. Config-driven analyzer setup
+# 4. Support for multiple devices/analyzers
+# 5. Automatic image averaging via 'per_bin' mode
+#
+# To use this pattern:
+# 1. Create a small Python subclass implementing compute_objective()
+# 2. Configure analyzers in this YAML file
+# 3. Run optimization - device_requirements auto-generated!
+
+# VOCS: Define optimization problem
+vocs:
+  variables:
+    # Example: optimize triplet magnet currents
+    U_Hexapod:ypos: [17, 19]
+#    U_Hexapod:zpos: [-.75, .75]
+#    U_Hexapod:vangle: [-.5, .5]
+#    U_Hexapod:wangle: [-.5, .5]
+
+  objectives:
+    f: MINIMIZE  # Minimize the objective function
+
+  constraints: {}  # Optional constraints can be added here
+
+# Evaluator: Specify the evaluator class and configuration
+evaluator:
+  # Module path to your custom evaluator
+  # (Create a subclass of MultiDeviceScanEvaluator)
+  module: geecs_scanner.optimization.evaluators.beam_sum_counts_evaluator
+  class: MaxCountsEvaluator
+
+  kwargs:
+    # Custom evaluator parameters
+    analyzers:
+      # Single device example: UC_TC_Output camera
+      - diagnostic: UC_TC_Output
+        scan:
+          mode: per_bin
+generator:
+  name: bayes_turbo_standard  # Options: random, cnsga, upper_confidence_bound, etc.

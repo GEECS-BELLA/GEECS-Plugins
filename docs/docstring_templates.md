@@ -18,8 +18,8 @@ Examples
 --------
 Basic usage example:
 
->>> from geecs_scanner.app import GEECSScanner
->>> scanner = GEECSScanner()
+>>> from geecs_core import GeecsDevice
+>>> device = GeecsDevice("U_Hexapod")
 
 Notes
 -----

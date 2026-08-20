@@ -11,21 +11,16 @@ companion columns of the event schema contract:
 * ``<dev>-valid`` — ``shot_offset == 0``
 
 Data values are always the device's latest real data, truthfully labeled: a
-long-exposure camera whose frame for shot N arrives late lands at
-``shot_offset = -1`` with shot N−1's values, and downstream realignment is a
-per-device shift keyed on ``shot_id``.  An optional bounded **grace wait**
-(default one push period) raises the offset-0 fraction by giving the device's
-frame time to arrive after the reference accepts the shot.
+late frame lands at a negative ``shot_offset`` with the earlier shot's
+values, and downstream realignment is a per-device shift keyed on
+``shot_id``.  An optional bounded **grace wait** (default one push period)
+raises the offset-0 fraction.
 
-This mixin is the *shared* domain layer — transport-agnostic by construction.
-It requires the host to provide ``last_acq_timestamp`` (from the TCP shot cache
-on the direct backend, from the persistent CA monitor cache on the CA backend),
-plus the :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
-:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins whose
-helpers it emits through.  Both
-:class:`~geecs_bluesky.devices.timestamped_readable.GeecsTimestampedReadable`
-(direct) and the CA contributor compose it, so the labeling semantics cannot
-diverge between backends.
+This mixin is the transport-agnostic domain layer: the host provides
+``last_acq_timestamp`` plus the
+:class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and
+:class:`~geecs_bluesky.devices.nonscalar_save.NonScalarSaveSupport` mixins
+whose helpers it emits through.
 """
 
 from __future__ import annotations
@@ -54,6 +49,10 @@ class FreeRunContributorSupport:
 
     _reference: "Reference[ShotIdSupport] | None" = None
     _grace_wait_s: float = 0.3
+    #: The most recent read's reference-relative shot offset (``None`` before
+    #: the first read or when underivable) — consumed by the free-run plan's
+    #: t0 seed check after the first row.
+    last_shot_offset: int | None = None
 
     def set_reference(
         self,
@@ -69,8 +68,12 @@ class FreeRunContributorSupport:
             ``ShotIdSupport`` device, normally the triggered reference detector.
         grace_wait_s:
             Bounded wait at read time for this device's own frame for the
-            row's shot to arrive (~one push period).  ``0`` disables;
-            ``None`` keeps the current setting (default ``0.3``).
+            row's shot to arrive.  ``0`` disables; ``None`` keeps the
+            current setting (default ``0.3``).  The *effective* wait is
+            additionally capped at half a trigger period
+            (``0.5 / rep_rate_hz`` from the shot-ID tracker), so a fixed
+            default can never burn multiple shot periods at fast rep rates
+            — see :meth:`_effective_grace_wait_s`.
         """
         # Reference opts out of ophyd-async's child adoption: assigning a
         # bare Device attribute would re-parent and rename the pacemaker,
@@ -96,13 +99,27 @@ class FreeRunContributorSupport:
             return None
         return tracker.peek(ts)
 
+    def _effective_grace_wait_s(self) -> float:
+        """Grace wait bounded to half a trigger period.
+
+        Contributors are read sequentially by the RunEngine, so an
+        over-long grace wait serializes across every lagging contributor.
+        Capping at ``0.5 / rep_rate_hz`` keeps the worst case under one
+        shot period per row regardless of the configured default (at the
+        1 Hz default nothing changes: ``min(0.3, 0.5) == 0.3``).
+        """
+        tracker = self._shot_id_tracker
+        if tracker is None:
+            return self._grace_wait_s
+        return min(self._grace_wait_s, 0.5 / tracker.rep_rate_hz)
+
     async def _grace_wait(self, row_shot_id: int) -> None:
         """Wait (bounded) for this device's frame for *row_shot_id*."""
         tracker = self._shot_id_tracker
         if tracker is None or not tracker.is_seeded:
             return
         loop = asyncio.get_running_loop()
-        deadline = loop.time() + self._grace_wait_s
+        deadline = loop.time() + self._effective_grace_wait_s()
         while True:
             ts = self.last_acq_timestamp
             if ts is not None:
@@ -164,5 +181,6 @@ class FreeRunContributorSupport:
             if shot_id is not None and row_shot_id is not None
             else None
         )
+        self.last_shot_offset = shot_offset
         self._emit_shot_id_readings(reading, event_timestamp, shot_id, shot_offset)
         return reading

@@ -1,0 +1,507 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ActionLibraryEditorRoot</class>
+ <widget class="QWidget" name="ActionLibraryEditorRoot">
+  <property name="windowTitle">
+   <string>Action Library</string>
+  </property>
+  <layout class="QVBoxLayout" name="ale_root_layout">
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="ale_columns_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <!-- Left column: the plan list -->
+     <item>
+      <widget class="QGroupBox" name="ale_plans_group">
+       <property name="title">
+        <string>ACTION PLANS</string>
+       </property>
+       <layout class="QVBoxLayout" name="ale_plans_layout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <item>
+         <widget class="QListWidget" name="ale_plan_list">
+          <property name="minimumWidth">
+           <number>200</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="ale_plan_buttons_layout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QPushButton" name="ale_new_button">
+            <property name="text">
+             <string>New</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_duplicate_button">
+            <property name="text">
+             <string>Duplicate</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_rename_button">
+            <property name="text">
+             <string>Rename</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_delete_button">
+            <property name="text">
+             <string>Delete</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <!-- Right column: the selected plan -->
+     <item>
+      <widget class="QGroupBox" name="ale_plan_group">
+       <property name="title">
+        <string>SELECTED PLAN</string>
+       </property>
+       <layout class="QVBoxLayout" name="ale_plan_layout">
+        <property name="spacing">
+         <number>6</number>
+        </property>
+        <item>
+         <layout class="QHBoxLayout" name="ale_description_layout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="ale_description_label">
+            <property name="text">
+             <string>Description</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="ale_description_edit">
+            <property name="placeholderText">
+             <string>What this plan does and when to use it</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QTableWidget" name="ale_steps_table">
+          <property name="minimumWidth">
+           <number>380</number>
+          </property>
+          <property name="minimumHeight">
+           <number>180</number>
+          </property>
+          <column>
+           <property name="text">
+            <string>Do</string>
+           </property>
+          </column>
+          <column>
+           <property name="text">
+            <string>Summary</string>
+           </property>
+          </column>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="ale_step_buttons_layout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <widget class="QPushButton" name="ale_add_step_button">
+            <property name="text">
+             <string>Add step</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_remove_step_button">
+            <property name="text">
+             <string>Remove</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_up_button">
+            <property name="text">
+             <string>Up</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_down_button">
+            <property name="text">
+             <string>Down</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="ale_step_buttons_spacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <!-- Per-step editor: kind selector drives the visible fields -->
+        <item>
+         <widget class="QGroupBox" name="ale_step_group">
+          <property name="title">
+           <string>STEP</string>
+          </property>
+          <layout class="QVBoxLayout" name="ale_step_layout">
+           <property name="spacing">
+            <number>6</number>
+           </property>
+           <item>
+            <layout class="QHBoxLayout" name="ale_kind_layout">
+             <property name="spacing">
+              <number>6</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="ale_kind_label">
+               <property name="text">
+                <string>Do</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QComboBox" name="ale_kind_combo">
+               <property name="minimumWidth">
+                <number>110</number>
+               </property>
+               <item>
+                <property name="text">
+                 <string>set</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>wait</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>check</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>run</string>
+                </property>
+               </item>
+              </widget>
+             </item>
+             <item>
+              <spacer name="ale_kind_spacer">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QStackedWidget" name="ale_step_stack">
+             <!-- page 0: set -->
+             <widget class="QWidget" name="ale_page_set">
+              <layout class="QFormLayout" name="ale_set_form">
+               <item row="0" column="0">
+                <widget class="QLabel" name="ale_set_device_label">
+                 <property name="text">
+                  <string>Device</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QLineEdit" name="ale_set_device_edit">
+                 <property name="placeholderText">
+                  <string>e.g. U_148_PLC</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="ale_set_variable_label">
+                 <property name="text">
+                  <string>Variable</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QLineEdit" name="ale_set_variable_edit">
+                 <property name="placeholderText">
+                  <string>e.g. DO.Ch9</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="ale_set_value_label">
+                 <property name="text">
+                  <string>Value</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QLineEdit" name="ale_set_value_edit">
+                 <property name="placeholderText">
+                  <string>number or word, e.g. 0 or on</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QCheckBox" name="ale_set_wait_check">
+                 <property name="text">
+                  <string>Wait for execution</string>
+                 </property>
+                 <property name="checked">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <!-- page 1: wait -->
+             <widget class="QWidget" name="ale_page_wait">
+              <layout class="QFormLayout" name="ale_wait_form">
+               <item row="0" column="0">
+                <widget class="QLabel" name="ale_wait_seconds_label">
+                 <property name="text">
+                  <string>Seconds</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QDoubleSpinBox" name="ale_wait_seconds_spin">
+                 <property name="buttonSymbols">
+                  <enum>QAbstractSpinBox::NoButtons</enum>
+                 </property>
+                 <property name="maximumWidth">
+                  <number>110</number>
+                 </property>
+                 <property name="decimals">
+                  <number>3</number>
+                 </property>
+                 <property name="minimum">
+                  <double>0.000000000000000</double>
+                 </property>
+                 <property name="maximum">
+                  <double>86400.000000000000000</double>
+                 </property>
+                 <property name="value">
+                  <double>1.000000000000000</double>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <!-- page 2: check -->
+             <widget class="QWidget" name="ale_page_check">
+              <layout class="QFormLayout" name="ale_check_form">
+               <item row="0" column="0">
+                <widget class="QLabel" name="ale_check_device_label">
+                 <property name="text">
+                  <string>Device</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QLineEdit" name="ale_check_device_edit">
+                 <property name="placeholderText">
+                  <string>e.g. U_GaiaSVEReader</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="ale_check_variable_label">
+                 <property name="text">
+                  <string>Variable</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QLineEdit" name="ale_check_variable_edit">
+                 <property name="placeholderText">
+                  <string>e.g. InternalShutterA</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="ale_check_expected_label">
+                 <property name="text">
+                  <string>Expected</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QLineEdit" name="ale_check_expected_edit">
+                 <property name="placeholderText">
+                  <string>number or word the reading must match</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+             <!-- page 3: run -->
+             <widget class="QWidget" name="ale_page_run">
+              <layout class="QFormLayout" name="ale_run_form">
+               <item row="0" column="0">
+                <widget class="QLabel" name="ale_run_plan_label">
+                 <property name="text">
+                  <string>Plan</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="ale_run_plan_combo">
+                 <property name="editable">
+                  <bool>true</bool>
+                 </property>
+                 <property name="minimumWidth">
+                  <number>220</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QLabel" name="ale_run_warning_label">
+                 <property name="text">
+                  <string/>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="ale_error_label">
+          <property name="text">
+           <string/>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="ale_save_row_layout">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <item>
+           <spacer name="ale_save_spacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_revert_button">
+            <property name="text">
+             <string>Revert</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="ale_save_button">
+            <property name="text">
+             <string>Save</string>
+            </property>
+            <property name="autoDefault">
+             <bool>false</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

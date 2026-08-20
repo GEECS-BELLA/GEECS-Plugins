@@ -167,3 +167,37 @@ def test_severity_level_no_ordering():
     assert Severity.INFO.level_no < Severity.WARNING.level_no
     assert Severity.WARNING.level_no < Severity.ERROR.level_no
     assert Severity.ERROR.level_no < Severity.CRITICAL.level_no
+
+
+# ---------------------------------------------------------------------------
+# Bluesky scan.log format (geecs_bluesky/scan_log.py: `scan=ScanNNN` token)
+# ---------------------------------------------------------------------------
+
+BLUESKY_LINE = (
+    "2026-07-13 12:05:00.868 INFO geecs_bluesky.shot_controller "
+    "[bluesky-run-engine] scan=Scan006 - Shot controller → OFF"
+)
+
+BLUESKY_WARNING = (
+    "2026-07-13 12:05:00.063 WARNING geecs_bluesky.preflight "
+    "[bluesky-scan] scan=Scan006 - Pre-flight: proceeding with all sync "
+    "devices stale (UC_Amp4_IR_input (last frame 133 s ago))"
+)
+
+
+def test_header_re_matches_bluesky_scan_token():
+    """The Bluesky stack writes `scan=ScanNNN` where legacy wrote `shot=<n>`."""
+    m = HEADER_RE.match(BLUESKY_LINE)
+    assert m is not None
+    assert m.group("name") == "geecs_bluesky.shot_controller"
+    assert m.group("thread") == "bluesky-run-engine"
+    assert m.group("shot") == "Scan006"
+    assert m.group("msg") == "Shot controller → OFF"
+
+
+def test_parse_lines_bluesky_log():
+    """A Bluesky scan.log parses into entries (regression: 0 entries pre-fix)."""
+    entries = parse_lines([BLUESKY_LINE, BLUESKY_WARNING])
+    assert len(entries) == 2
+    assert entries[0].logger_name == "geecs_bluesky.shot_controller"
+    assert entries[1].level is Severity.WARNING

@@ -1,0 +1,34 @@
+{
+  "constraints": {},
+  "evaluator": {
+    "class_name": "MaxCountsEvaluator",
+    "kwargs": {
+      "analyzers": [
+        {
+          "diagnostic": "UC_TC_Output",
+          "scan": {
+            "mode": "per_bin"
+          }
+        }
+      ]
+    },
+    "module": "geecs_scanner.optimization.evaluators.beam_sum_counts_evaluator"
+  },
+  "generator": {
+    "name": "bayes_turbo_standard",
+    "options": {}
+  },
+  "max_iterations": null,
+  "move_to_best_on_finish": false,
+  "objectives": {
+    "f": "MINIMIZE"
+  },
+  "observables": [],
+  "seed_dump_files": [],
+  "variables": {
+    "U_Hexapod:ypos": [
+      17.0,
+      19.0
+    ]
+  }
+}

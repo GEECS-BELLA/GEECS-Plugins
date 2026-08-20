@@ -31,6 +31,7 @@ class _FakeLifecycleEvent:
 
     state: str
     total_shots: int = 0
+    scan_number: int | None = None
 
 
 def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
@@ -39,6 +40,7 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
     scanner = BlueskyScanner.__new__(BlueskyScanner)
     scanner._on_event = events.append
     scanner._current_state = None
+    scanner._scan_number = None
 
     monkeypatch.setattr(
         bluesky_scanner,
@@ -54,7 +56,30 @@ def test_set_state_emits_gui_lifecycle_event(monkeypatch) -> None:
     scanner._set_state("DONE", total_shots=12)
 
     assert scanner.current_state == "done"
-    assert events == [_FakeLifecycleEvent(state="done", total_shots=12)]
+    assert events == [
+        _FakeLifecycleEvent(state="done", total_shots=12, scan_number=None)
+    ]
+
+
+def test_set_state_carries_claimed_scan_number(monkeypatch) -> None:
+    """Once a scan number is claimed, every lifecycle emission carries it."""
+    events: list[_FakeLifecycleEvent] = []
+    scanner = BlueskyScanner.__new__(BlueskyScanner)
+    scanner._on_event = events.append
+    scanner._current_state = None
+    scanner._scan_number = 41
+
+    monkeypatch.setattr(
+        bluesky_scanner,
+        "ScanState",
+        SimpleNamespace(RUNNING="running", DONE="done"),
+    )
+    monkeypatch.setattr(bluesky_scanner, "ScanLifecycleEvent", _FakeLifecycleEvent)
+
+    scanner._set_state("RUNNING")
+    scanner._set_state("DONE")
+
+    assert [e.scan_number for e in events] == [41, 41]
 
 
 def test_prepare_descriptor_for_tiled_internalizes_geecs_assets() -> None:
@@ -113,32 +138,6 @@ def test_translate_save_path_for_device_server() -> None:
     )
 
     assert path == r"Z:\data\Undulator\Y2026\06-Jun\26_0623\scans\Scan011\UC_Cam"
-
-
-def test_resolve_acquisition_mode_defaults_to_strict() -> None:
-    options = SimpleNamespace(rep_rate_hz=1.0)  # no acquisition_mode attr
-    mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
-    assert mode == "strict_shot_control"
-
-
-def test_resolve_acquisition_mode_from_options() -> None:
-    options = SimpleNamespace(acquisition_mode="free_run_time_sync")
-    mode = BlueskyScanner._resolve_acquisition_mode(options, env={})
-    assert mode == "free_run_time_sync"
-
-
-def test_resolve_acquisition_mode_env_overrides_options() -> None:
-    options = SimpleNamespace(acquisition_mode="strict_shot_control")
-    mode = BlueskyScanner._resolve_acquisition_mode(
-        options, env={"GEECS_BLUESKY_ACQUISITION_MODE": "free_run_time_sync"}
-    )
-    assert mode == "free_run_time_sync"
-
-
-def test_resolve_acquisition_mode_unknown_raises() -> None:
-    options = SimpleNamespace(acquisition_mode="nonsense")
-    with pytest.raises(GeecsConfigurationError, match="Unknown acquisition_mode"):
-        BlueskyScanner._resolve_acquisition_mode(options, env={})
 
 
 # ---------------------------------------------------------------------------
@@ -230,185 +229,3 @@ def test_strict_single_shot_accepts_armed_state_and_setters() -> None:
         }
     )
     ShotController(config, {"Trigger.Source": object()}).require_strict_single_shot()
-
-
-# ---------------------------------------------------------------------------
-# Device role classification
-# ---------------------------------------------------------------------------
-
-_DEVICES = {
-    "U_CamA": {"synchronous": True},
-    "U_CamB": {"synchronous": True},
-    "U_Stage": {"synchronous": False},
-}
-
-
-def test_classify_roles_strict_mode() -> None:
-    roles = dict(BlueskyScanner._classify_device_roles(_DEVICES, "strict_shot_control"))
-    assert roles == {
-        "U_CamA": "triggered",
-        "U_CamB": "triggered",
-        "U_Stage": "snapshot",
-    }
-
-
-def test_classify_roles_free_run_first_sync_is_reference() -> None:
-    roles = dict(BlueskyScanner._classify_device_roles(_DEVICES, "free_run_time_sync"))
-    assert roles == {
-        "U_CamA": "reference",
-        "U_CamB": "contributor",
-        "U_Stage": "snapshot",
-    }
-
-
-def test_classify_roles_free_run_all_async_has_no_reference() -> None:
-    devices = {"U_Stage": {"synchronous": False}}
-    roles = dict(BlueskyScanner._classify_device_roles(devices, "free_run_time_sync"))
-    assert "reference" not in roles.values()
-    assert roles == {"U_Stage": "snapshot"}
-
-
-# ---------------------------------------------------------------------------
-# Optimization mode (GUI-injected loader → session.optimize)
-# ---------------------------------------------------------------------------
-
-
-class _FakeBridge:
-    """Stands in for the GUI's SessionOptimizationBridge."""
-
-    def __init__(self) -> None:
-        self.variable_names = ["U_S1H:Current", "U_S1V:Current"]
-        self.bound_with: dict | None = None
-
-    def bind(self, *, devices, scan_tag, scan_folder=None):
-        self.bound_with = {
-            "devices": list(devices),
-            "scan_tag": scan_tag,
-            "scan_folder": scan_folder,
-        }
-        return (lambda bin_data: 1.0), self
-
-    def finish(self):
-        self.finished = True
-
-
-class _FakeOptSession:
-    """Records settable/optimize calls; no RunEngine involved."""
-
-    def __init__(self) -> None:
-        self.settables: list[tuple[str, str]] = []
-        self.optimize_kwargs: dict | None = None
-        self.shot_control_called_with: object = "unset"
-
-    def shot_control(self, config):
-        self.shot_control_called_with = config
-
-    def settable(self, device, variable, *, name=None):
-        self.settables.append((device, variable))
-        return SimpleNamespace(name=name, _geecs_device_name=device)
-
-    def optimize(self, **kwargs):
-        self.optimize_kwargs = kwargs
-        return "uid", []
-
-
-def _make_optimization_scanner(session, bridge, monkeypatch, *, loader=True):
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._session = session
-    scanner._experiment_dir = "TestExp"
-    scanner._shot_control = None
-    scanner._acquisition_mode = "free_run_time_sync"
-    scanner._shots_per_step = 5
-    scanner._detectors = []
-    scanner._device_lock = __import__("threading").Lock()
-    scanner._on_event = None
-    scanner._current_state = None
-    scanner._total_shots = 0
-    scanner._abort_requested = False
-    scanner._optimization_loader = (lambda path: bridge) if loader else None
-    monkeypatch.setattr(
-        bluesky_scanner,
-        "claim_scan",
-        lambda experiment: (SimpleNamespace(number=42), "/tmp/Scan042"),
-    )
-    monkeypatch.setattr(
-        BlueskyScanner,
-        "_build_session_devices",
-        lambda self: [SimpleNamespace(name="ref")],
-    )
-    return scanner
-
-
-def test_run_optimization_maps_config_onto_session_optimize(monkeypatch) -> None:
-    session = _FakeOptSession()
-    bridge = _FakeBridge()
-    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
-
-    scan_config = SimpleNamespace(
-        optimizer_config_path="/cfg/opt.yaml",
-        start=0.0,
-        end=4.0,
-        step=1.0,
-        wait_time=5.0,
-        additional_description="steer",
-    )
-    scanner._run_optimization(scan_config)
-
-    # VOCS variables became session settables keyed by "Device:Variable"
-    assert session.settables == [("U_S1H", "Current"), ("U_S1V", "Current")]
-    kwargs = session.optimize_kwargs
-    assert kwargs is not None
-    assert set(kwargs["variables"]) == {"U_S1H:Current", "U_S1V:Current"}
-    # Iterations from the configured step count, shots from rep_rate×wait_time
-    assert kwargs["max_iterations"] == 5
-    assert kwargs["shots_per_iteration"] == 5
-    assert kwargs["mode"] == "free_run"
-    # Pre-claimed number/folder passed through; bridge got the real tag
-    assert kwargs["scan_number"] == 42
-    assert kwargs["scan_folder"] == "/tmp/Scan042"
-    assert bridge.bound_with is not None
-    assert bridge.bound_with["scan_tag"].number == 42
-    # Bound devices = movables + detectors
-    assert len(bridge.bound_with["devices"]) == 3
-    assert kwargs["suggester"] is bridge
-    # No on_finish attribute on the bridge -> session default "hold"
-    assert kwargs["on_finish"] == "hold"
-    # Post-run bookkeeping hook invoked after the session run
-    assert getattr(bridge, "finished", False) is True
-
-
-def test_run_optimization_passes_bridge_on_finish(monkeypatch) -> None:
-    session = _FakeOptSession()
-    bridge = _FakeBridge()
-    bridge.on_finish = "best"
-    scanner = _make_optimization_scanner(session, bridge, monkeypatch)
-    scan_config = SimpleNamespace(
-        optimizer_config_path="/cfg/opt.yaml",
-        start=0.0,
-        end=1.0,
-        step=1.0,
-        wait_time=5.0,
-        additional_description="",
-    )
-    scanner._run_optimization(scan_config)
-    assert session.optimize_kwargs["on_finish"] == "best"
-
-
-def test_run_optimization_without_loader_skips(monkeypatch, caplog) -> None:
-    session = _FakeOptSession()
-    scanner = _make_optimization_scanner(
-        session, _FakeBridge(), monkeypatch, loader=False
-    )
-    scan_config = SimpleNamespace(optimizer_config_path="/cfg/opt.yaml")
-    with caplog.at_level(logging.WARNING):
-        scanner._run_optimization(scan_config)
-    assert session.optimize_kwargs is None
-    assert "no optimization_loader" in caplog.text
-
-
-def test_run_optimization_requires_config_path(monkeypatch) -> None:
-    session = _FakeOptSession()
-    scanner = _make_optimization_scanner(session, _FakeBridge(), monkeypatch)
-    scan_config = SimpleNamespace(optimizer_config_path=None)
-    scanner._run_optimization(scan_config)
-    assert session.optimize_kwargs is None

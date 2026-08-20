@@ -2,34 +2,65 @@
 
 Composes the acquisition-mode plan (free-run reference-paced vs strict
 plan-owned single-shot), the run wrapper (scan numbering, native saving, run
-metadata), and the guaranteed finalize-disarm into a single ready-to-run plan.
-Device construction and configuration stay with the caller — the session
-builds CA devices from factories, the scanner builds either backend from
+metadata), the compiled setup/per-step/closeout action plans, and the
+guaranteed finalize-disarm into a single ready-to-run plan.  Device
+construction and configuration stay with the caller — the session builds CA
+devices from factories, the scanner builds either backend from
 ``exec_config`` — but the *recipe* lives only here, so the two front doors
 cannot drift.
+
+Action placement (the §4.4b/§4.5 slots, decided here):
+
+- **setup** — first thing inside the composed plan, before the free-run
+  quiesce/t0-sync stage and the first step; a failing setup still triggers
+  the finalize chain (save-off → disarm → closeout).
+- **per_step** — yielded by the step plans at every step boundary, after
+  the move and before that step's shots (always with the shot controller
+  disarmed / the machine quiescent).
+- **closeout** — the outermost ``finalize_wrapper``; runs even on mid-scan
+  abort, always after the disarm finalize has restored STANDBY.
+
+Native-save windowing (Gate-2): saving is enabled only while the trigger
+cannot free-run — the run wrapper defers save-on (``defer_save_on=True``)
+and the step plans yield
+:func:`~geecs_bluesky.plans.run_wrapper.save_enable_plan` at the first
+orphan-free moment; save-off remains the innermost finalize.  Design
+rationale: ``GeecsBluesky/CLAUDE.md`` (shot-control composition per mode).
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import bluesky.preprocessors as bpp
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
-from geecs_bluesky.plans.run_wrapper import geecs_run_wrapper
-from geecs_bluesky.plans.step_scan import geecs_step_scan
+from geecs_bluesky.plans.run_wrapper import geecs_run_wrapper, save_enable_plan
+from geecs_bluesky.plans.step_scan import geecs_step_scan, normalize_motors
 from geecs_bluesky.shot_controller import ShotController
 
 logger = logging.getLogger(__name__)
 
 
+def _chain_setup(setup: Callable, inner):
+    """Prepend the setup plan to *inner* (fresh generator via the callable)."""
+    yield from setup()
+    yield from inner
+
+
+def _restore_movables(movables: Sequence[Any]):
+    """Finalize plan: each movable's baseline restore, in axis order."""
+    for movable in movables:
+        yield from movable.restore_baselines_plan()
+
+
 def build_step_scan_plan(
     *,
     strict: bool,
-    motor: Any | None,
-    positions: Sequence[float | None],
+    motor: Any | Sequence[Any] | None,
+    positions: Sequence[Any],
     reference: Any | None,
     detectors: Sequence[Any],
     shots_per_step: int,
@@ -39,6 +70,9 @@ def build_step_scan_plan(
     scan_folder: str | None,
     saving_detectors: Sequence[tuple],
     extra_md: dict[str, Any] | None = None,
+    setup: Callable | None = None,
+    per_step: Callable | None = None,
+    closeout: Callable | None = None,
 ):
     """Build the full scan plan for one step scan / statistics collection.
 
@@ -48,8 +82,10 @@ def build_step_scan_plan(
         ``True`` for plan-owned single-shot (``strict_shot_control``),
         ``False`` for reference-paced free-run (``free_run_time_sync``).
     motor, positions
-        The scan axis and its positions; ``motor=None`` with ``[None]`` is
-        statistics collection (one no-move bin).
+        The scan axis (or axes — a sequence of Movables is a grid, outermost
+        first, with tuple positions) and the positions to visit;
+        ``motor=None`` with ``[None]`` is statistics collection (one no-move
+        bin).
     reference : Any or None
         Free-run pacemaker (required when not strict).
     detectors : sequence
@@ -59,13 +95,22 @@ def build_step_scan_plan(
         required in strict.
     experiment, scan_number, scan_folder, saving_detectors, extra_md
         Forwarded to :func:`~geecs_bluesky.plans.run_wrapper.geecs_run_wrapper`.
+    setup, per_step, closeout : callable, optional
+        Plan-stub callables (each call returns a fresh message generator) —
+        typically compiled ActionPlans.  See the module docstring for the
+        exact placement and abort semantics of each hook.
 
     Returns
     -------
     generator
-        The composed plan (run wrapper + finalize disarm), ready for ``RE()``.
+        The composed plan (setup + run wrapper + finalize disarm + finalize
+        closeout), ready for ``RE()``.
     """
     detectors = list(detectors)
+    saving = list(saving_detectors)
+    # Native-save windowing: saving turns on inside the step plans, at the
+    # first point where the trigger cannot free-run (module docstring).
+    enable_saving = (lambda: save_enable_plan(saving)) if saving else None
 
     if strict:
         if controller is None:
@@ -82,12 +127,26 @@ def build_step_scan_plan(
             shots_per_step=shots_per_step,
             setup_trigger=lambda: controller.arm_single_shot(detectors),
             fire_shot=controller.fire_shot,
+            per_step=per_step,
+            enable_saving=enable_saving,
         )
     else:
         if reference is None:
             raise GeecsConfigurationError(
                 "free-run scans require at least one synchronous device as "
                 "the reference (pacemaker)"
+            )
+        if controller is None and saving:
+            # No shot control means no quiesce point to window saving on, so
+            # orphan frames are inherent to a controllerless free-run scan —
+            # surface it loudly rather than refuse the (supported) config.
+            logger.warning(
+                "free-run scan has native-saving detectors but no shot "
+                "control: saving cannot be windowed to the trigger-stopped "
+                "span, so frames captured during t0-sync/moves may be saved "
+                "as orphans (no event row). Add a trigger_profile to window "
+                "saving. Detectors: %s",
+                [getattr(t[0], "name", str(t[0])) for t in saving],
             )
         contributors = [d for d in detectors if d is not reference]
         inner = geecs_free_run_step_scan(
@@ -99,19 +158,51 @@ def build_step_scan_plan(
             arm_trigger=controller.arm if controller else None,
             disarm_trigger=controller.disarm if controller else None,
             quiesce_trigger=controller.quiesce if controller else None,
+            per_step=per_step,
+            enable_saving=enable_saving,
         )
 
-    scalar_devices = detectors + ([motor] if motor is not None else [])
+    if setup is not None:
+        # Inside the run wrapper so a failed setup still fires the
+        # save-off/disarm/closeout finalizes (module docstring).
+        inner = _chain_setup(setup, inner)
+
+    scalar_devices = detectors + normalize_motors(motor)
     plan = geecs_run_wrapper(
         inner,
         experiment=experiment,
         scan_number=scan_number,
         scan_folder=scan_folder,
-        saving_detectors=list(saving_detectors),
+        saving_detectors=saving,
         devices=scalar_devices,
         extra_md=extra_md or {},
+        defer_save_on=True,
     )
-    # Outer finalize guarantees the disarm (→ STANDBY) even on mid-scan abort.
+    # Finalize nesting (innermost → outermost): save-off → disarm → closeout;
+    # every layer runs even on mid-scan abort.
     if controller is not None:
         plan = bpp.finalize_wrapper(plan, controller.disarm())
+    if closeout is not None:
+        plan = bpp.finalize_wrapper(plan, closeout)
+    # Relative pseudo (composite) axes return to their captured baselines at
+    # the very end (owner request, 2026-07-22) — success AND abort, after
+    # closeout so operator rituals see the scan's final state, and inside
+    # the stage wrapper so unstage has not yet dropped the baselines.
+    restorers = [
+        m
+        for m in normalize_motors(motor)
+        if callable(getattr(m, "restore_baselines_plan", None))
+    ]
+    if restorers:
+        plan = bpp.finalize_wrapper(plan, _restore_movables(restorers))
+    # Outermost: stage every per-row read device so each signal gets a caching
+    # CA monitor and per-shot reads are served locally instead of issuing one
+    # network get per signal per row (the read-path contract —
+    # GeecsBluesky/CLAUDE.md "Read path: staging & shot coherence").  Staged
+    # reads are shot-coherent because the gateway posts a frame's data
+    # variables before its timestamp-ladder variables (PV_CONTRACT.md §3).
+    # stage_wrapper stages exactly once on entry and unstages via finalize on
+    # every exit path (ophyd-async staging is a bool, not a refcount — nested
+    # plans must not re-stage these devices).
+    plan = bpp.stage_wrapper(plan, scalar_devices)
     return plan

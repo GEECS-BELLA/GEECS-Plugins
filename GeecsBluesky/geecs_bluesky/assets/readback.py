@@ -362,7 +362,7 @@ def build_camera_shot_documents(
     from geecs_data_utils.scan_paths import ScanPaths
 
     if device_type is None:
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         device_type = GeecsDb.get_device_type(device_name)
 

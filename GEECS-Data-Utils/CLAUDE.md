@@ -2,7 +2,7 @@
 
 Foundational data layer. Provides scan path navigation, scalar data loading,
 data binning/aggregation, and a queryable Parquet-based scan metadata database.
-Used by ImageAnalysis, ScanAnalysis, and GEECS-Scanner-GUI.
+Used by ImageAnalysis, ScanAnalysis, GeecsBluesky, and GEECS-Console.
 
 ## Package Layout
 
@@ -206,8 +206,49 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - **ImageAnalysis** — `ScanPaths` to locate device data folders per scan
 - **ScanAnalysis** — `ScanData` for binning scalar data in summary plots;
   `ScanPaths` as the base for scan folder resolution
-- **GEECS-Scanner-GUI** — `ScanConfig` / `ScanMode` enums for scan parameter
-  definitions; `ScanPaths` for post-scan file organization
+- **GeecsBluesky / GEECS-Console** — `ScanPaths` for scan folder
+  resolution and post-scan file organization (`ScanConfig` / `ScanMode`
+  remain here as legacy vocabulary; their engine consumer was deleted
+  2026-08-20)
+
+## Tiled catalog layer (`tiled_catalog` / `tiled_schema` / `tiled_drift`)
+
+The Tiled analogue of `ScanPaths`/`ScanData`: day → scan → data over the
+Bluesky runs a GEECS scan records to the lab Tiled server.  Pure and
+Qt-free by design — consumed by the GEECS-Console scan browser today and
+intended for ScanAnalysis Tiled readers later (ScanAnalysis depends on
+this package and must never depend on GeecsBluesky or a GUI package).
+
+- **`tiled_catalog`** — the `ScanCatalog` protocol (`probe` / `list_runs`
+  / `load_run`), `RunSummary`/`RunDetail`/`CatalogStatus` dataclasses,
+  `summary_from_metadata`, the offline `StubCatalog`, and
+  `TiledScanCatalog`.  `tiled` is imported lazily inside methods behind
+  the existing `tiled` extra (the `tiled_export` pattern).  Day listing is
+  one metadata-only search on the `start.time` epoch range (+
+  `start.experiment` when set), newest first; the event table read is the
+  repo-blessed `run["primary"].read().to_dataframe().reset_index()`
+  (see `GeecsBluesky/TILED_SETUP.md`).  Connection details are
+  constructor args; `from_config()` reads `[tiled]` from
+  `~/.config/geecs_python_api/config.ini` with `configparser` — **never
+  import `geecs_bluesky` here** (it depends on us).  Catalog methods may
+  block on the network: interactive callers must dispatch them off the
+  GUI thread.
+- **`tiled_schema`** — event-schema column semantics, ONE module,
+  version-tagged (`TARGET_SCHEMA_VERSION = 1`);
+  `GeecsBluesky/EVENT_SCHEMA.md` is the contract.  Anything that
+  interprets a column name (companion suffixes, `telemetry_` prefix,
+  pinned/reference-timestamp selection, scan-variable readback detection,
+  `geecs_scalar_headers` prettification, NOSCAN/1D/GRID/OPT
+  classification) belongs here, not in consumers.  When the schema
+  evolves, touch this file.
+- **`tiled_drift`** — pure "moved during scan" telemetry drift analysis
+  (plain float sequences in, dataclasses out; zero Qt, zero pandas):
+  |last − first| > 3σ of in-scan spread, σ ≈ 0 guarded by a relative
+  epsilon, NaN/string samples tolerated (telemetry is dtype-tolerant per
+  the event schema).
+
+Tests are hermetic (`tests/test_tiled_*.py`) — fake client objects that
+quack like Tiled search results; no network, no real catalog.
 
 ## Key Dependency
 
@@ -215,3 +256,4 @@ from geecs_data_utils.plotting_utils import plot_binned, plot_binned_multi
 - `pyarrow` — Parquet I/O
 - `duckdb` — available for ad-hoc Parquet queries but minimal use
 - `pydantic >= 2.0` — all data models
+- `tiled[client]` — optional `tiled` extra (`tiled_export`, `tiled_catalog`)

@@ -1,0 +1,328 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SaveSetEditorRoot</class>
+ <widget class="QWidget" name="SaveSetEditorRoot">
+  <property name="windowTitle">
+   <string>Save Set Editor</string>
+  </property>
+  <layout class="QVBoxLayout" name="sse_root_layout">
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <layout class="QHBoxLayout" name="sse_columns_layout" stretch="30,70">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <!-- Left: the save-set list -->
+     <item>
+      <widget class="QGroupBox" name="sse_list_group">
+       <property name="title">
+        <string>SAVE SETS</string>
+       </property>
+       <layout class="QVBoxLayout" name="sse_list_layout">
+        <item>
+         <widget class="QListWidget" name="sse_set_list"/>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="sse_list_buttons">
+          <item>
+           <widget class="QPushButton" name="sse_new_button">
+            <property name="text">
+             <string>New</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sse_duplicate_button">
+            <property name="text">
+             <string>Duplicate</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sse_rename_button">
+            <property name="text">
+             <string>Rename</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="sse_delete_button">
+            <property name="text">
+             <string>Delete</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <!-- Right: the selected set's document -->
+     <item>
+      <layout class="QVBoxLayout" name="sse_document_layout">
+       <item>
+        <widget class="QGroupBox" name="sse_set_group">
+         <property name="title">
+          <string>SAVE SET</string>
+         </property>
+         <layout class="QFormLayout" name="sse_set_form">
+          <item row="0" column="0">
+           <widget class="QLabel" name="sse_name_caption">
+            <property name="text">
+             <string>Name</string>
+            </property>
+           </widget>
+          </item>
+          <item row="0" column="1">
+           <widget class="QLabel" name="sse_name_label">
+            <property name="text">
+             <string>—</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="sse_description_caption">
+            <property name="text">
+             <string>Description</string>
+            </property>
+           </widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="sse_description_edit">
+            <property name="placeholderText">
+             <string>what this save set is for…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="sse_entries_layout" stretch="40,60">
+         <property name="spacing">
+          <number>10</number>
+         </property>
+         <item>
+          <widget class="QGroupBox" name="sse_devices_group">
+           <property name="title">
+            <string>DEVICES</string>
+           </property>
+           <layout class="QVBoxLayout" name="sse_devices_layout">
+            <item>
+             <widget class="QListWidget" name="sse_device_list"/>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="sse_device_add_row">
+              <item>
+               <widget class="QLineEdit" name="sse_device_edit">
+                <property name="placeholderText">
+                 <string>device name…</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="sse_add_device_button">
+                <property name="text">
+                 <string>Add</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QPushButton" name="sse_remove_device_button">
+              <property name="text">
+               <string>Remove device</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="sse_entry_group">
+           <property name="title">
+            <string>SELECTED DEVICE</string>
+           </property>
+           <layout class="QVBoxLayout" name="sse_entry_layout">
+            <item>
+             <widget class="QCheckBox" name="sse_images_check">
+              <property name="text">
+               <string>Save images / non-scalar files</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="sse_db_scalars_check">
+              <property name="text">
+               <string>Record DB-marked telemetry (db_scalars)</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="sse_all_scalars_check">
+              <property name="text">
+               <string>Record every published scalar (all_scalars)</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="sse_role_row">
+              <item>
+               <widget class="QLabel" name="sse_role_caption">
+                <property name="text">
+                 <string>Role override</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="sse_role_combo"/>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QLabel" name="sse_scalars_caption">
+              <property name="text">
+               <string>Extra scalar variables</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QListWidget" name="sse_scalar_list"/>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="sse_scalar_add_row">
+              <item>
+               <widget class="QLineEdit" name="sse_scalar_edit">
+                <property name="placeholderText">
+                 <string>variable name…</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="sse_add_scalar_button">
+                <property name="text">
+                 <string>Add</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="sse_remove_scalar_button">
+                <property name="text">
+                 <string>Remove</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QFormLayout" name="sse_actions_form">
+              <item row="0" column="0">
+               <widget class="QLabel" name="sse_setup_caption">
+                <property name="text">
+                 <string>Setup plans</string>
+                </property>
+               </widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLineEdit" name="sse_setup_edit">
+                <property name="placeholderText">
+                 <string>action-plan names, comma-separated</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel" name="sse_closeout_caption">
+                <property name="text">
+                 <string>Closeout plans</string>
+                </property>
+               </widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLineEdit" name="sse_closeout_edit">
+                <property name="placeholderText">
+                 <string>action-plan names, comma-separated</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="sse_message_label">
+         <property name="text">
+          <string></string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="sse_button_row">
+         <item>
+          <widget class="QPushButton" name="sse_revert_button">
+           <property name="text">
+            <string>Revert</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="sse_save_button">
+           <property name="text">
+            <string>Save</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="sse_button_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="sse_close_button">
+           <property name="text">
+            <string>Close</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

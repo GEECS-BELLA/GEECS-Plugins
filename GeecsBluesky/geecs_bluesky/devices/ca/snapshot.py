@@ -1,7 +1,6 @@
 """CaSnapshotReadable — asynchronous GEECS readback sampled per event row.
 
-The CA counterpart of
-:class:`~geecs_bluesky.devices.snapshot.GeecsSnapshotReadable`: latest streamed
+Latest streamed
 values from the gateway readback PVs, read when a Bluesky event is recorded.
 No ``acq_timestamp`` gating and no shot-id companion columns — intended for
 asynchronous state/readback devices (stages, slow controls) snapshotted
@@ -63,7 +62,7 @@ class CaSnapshotReadable(StandardReadable):
         }
 
     async def disconnect(self) -> None:
-        """Per-scan teardown hook (scanner bridge ``_disconnect_devices_sync``).
+        """Per-scan teardown hook (the runner's ``session.disconnect`` cleanup).
 
         This device holds no persistent monitor subscription, so there is
         nothing to unsubscribe — the method exists so scanner teardown is

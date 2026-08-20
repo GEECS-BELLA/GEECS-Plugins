@@ -3,6 +3,445 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.19.0] - 2026-08-20
+
+### Changed
+
+- **Access-layer extraction (mechanical, no behavior change):** `transport/`,
+  `db/` (+ `alarms.py`, now `geecs_core.db.alarms`), `pv_naming`,
+  `exceptions`, and `testing/fake_device_server.py` moved to the new
+  **GEECS-Core** package (`geecs_core`), together with their test suites.
+  This package now depends on `geecs-core` and re-imports those modules from
+  it; `mysql-connector-python` dropped (rides in with geecs-core). The
+  `naming.py` re-export shim was retired — gateway code imports
+  `geecs_core.pv_naming` directly. `tests/test_naming.py` keeps the
+  DeviceSpec/VariableSpec assembly tests; the naming-policy primitives are
+  pinned in `GEECS-Core/tests/test_pv_naming.py`.
+
+## [0.18.0] - 2026-08-20
+
+### Added
+
+- **`GeecsTcpSubscriber.subscribe(include_shot=True)`** — opt-in delivery of
+  the push frame's shot counter to callbacks under the reserved key
+  `"shot number"` (an `int`). Attached only to frames where at least one
+  subscribed variable matched, so callback gating and all existing consumers
+  (default `False`) are unchanged. First consumer: the planned `GeecsDevice`
+  client (geecs-core arc), which mirrors the legacy `state["shot number"]`.
+
+### Changed
+
+- **`GeecsDb` MySQL connects are now time-bounded** (`connection_timeout`,
+  module constant `CONNECT_TIMEOUT_S = 10.0` in `db/geecs_db.py`). Off-network
+  callers fail in seconds instead of blocking ~75 s on the OS TCP-connect
+  default. On the lab network (millisecond connects) this is a no-op.
+
+## [0.17.1] - 2026-08-18
+
+### Changed
+
+- Docs truth-up (no code changes): `DESIGN.md` — the protocol bullet's
+  "pvAccess later, starting with images" hedge updated to reflect that
+  PVA-for-images shipped and is deployed fleet-wide (`GeecsPvaGateway`);
+  the "Reconnect supervisor" honest-gap entry marked DONE (supervisors
+  landed long ago) with the real residual documented — half-open sockets
+  freeze readbacks without alarming (issue #611); the alarm-limits gap
+  updated for the 0.7.0 curated overlay. `README.md` — same two gap-list
+  corrections (curated alarms exist; images served by the PVA sibling, not
+  merely absent). `CLAUDE.md` — "PVA-later plan" phrasing updated to the
+  per-device-class reality.
+
+## [0.17.0] - 2026-07-25
+
+### Added
+
+- **`GeecsTcpSubscriber.wait_disconnected()`** — returns when the push listener
+  exits (socket drop or `close()`), so external supervisors (GeecsPvaGateway's
+  per-camera reconnect loop) can await disconnection without reaching into
+  private task handles.
+
+### Changed
+
+- The subscriber's per-frame debug log is truncated (`%.200r` + byte count) —
+  it previously logged the full payload repr, which becomes multi-MB per frame
+  once image payloads ride this transport (owed from PR #605 review, finding 2).
+
+## [0.16.1] - 2026-07-25
+
+### Fixed
+
+- **`GeecsTcpSubscriber` decodes push payloads as latin-1 instead of
+  `ascii, errors="replace"`.** ASCII scalar frames are byte-identical under
+  latin-1, but binary payloads (image frames) were irreversibly corrupted —
+  every byte >0x7f became U+FFFD. latin-1 is the lossless byte↔str map, so a
+  `text_variables` subscriber recovers the exact wire bytes via
+  `value.encode("latin-1")`. Prerequisite for the distributed PVA image-server
+  workstream (DESIGN.md: images stay off CA, data stays at the edge). Served
+  PVs are unchanged for ASCII frames; text values carrying bytes >0x7f (never
+  observed in production) now decode as latin-1 characters instead of U+FFFD
+  replacement chars. The UDP get/exe path keeps its ASCII decode — the TCP
+  push stream is the only binary-bearing path.
+
+## [0.16.0] - 2026-07-24
+
+### Added
+
+- **Control (drive) limits on setpoint PVs** (PV_CONTRACT §2): `:SP`
+  channels now serve the DB `min`/`max` span as enforced `DBR_CTRL` limits —
+  mirroring GEECS's own enforcement at the gateway the way native EPICS
+  drive limits (`DRVL`/`DRVH`) express a record's valid span — and reject
+  out-of-range puts **pre-forward** (`CannotExceedLimits`; rejection, never
+  the EPICS record's clamp-to-limit — clamping would move hardware to an
+  uncommanded value; no UDP traffic, no device perturbation; the check
+  runs before the GEECS forward because caproto's own `verify_value` runs
+  after it). Pre-forward rejection is a client error: no `:SP` alarm, no
+  `LAST_SET_ERROR` (those keep mirroring device-side outcomes only).
+  Served only for well-formed spans (both bounds, `lo < hi`; DB audit
+  2026-07-24: 1480/1550 settable Undulator variables qualify) — missing,
+  one-sided, or degenerate rows leave the `:SP` unenforced so a bad DB row
+  can never brick an axis. **GEECS device-side enforcement remains the
+  guaranteed backstop** (interlocks, DB-edit drift): values inside the DB
+  span that the device rejects still fail with the device's error and the
+  0.15.0 alarm machinery. Readbacks are untouched — display limits only
+  (the 9396c61f NaN-readback behavior, now pinned per channel kind).
+
+## [0.15.0] - 2026-07-23
+
+### Added
+
+- **Set-failure observability** (PV_CONTRACT §7): a failed GEECS set — e.g.
+  an out-of-bounds value the device ACKs `accepted` but rejects in the exe
+  reply (live-verified on U_S1H `Current`, 2026-07-23) — now surfaces as
+  published channel state, not only as put-completion failure, so
+  fire-and-forget CA writers (plain `caput`, default Phoebus writes) are no
+  longer blind to it:
+  - the `:SP` channel alarm goes `WRITE`/`INVALID` on a failed set and
+    clears to `NO_ALARM` on the next successful one (transition-only
+    publishes; pre-forward client errors such as an uncastable value do
+    not alarm);
+  - every device with a settable variable gains a
+    `[experiment:]device:last_set_error` long-string PV holding the most
+    recent failure message, sticky until the next failure.
+- `FakeGeecsDevice` gains per-variable `limits` — an out-of-range set is
+  ACKed but fails in the exe reply with the real hardware's
+  `value not in range (hi,lo)` phrasing, for offline pinning of the above.
+- `DEPLOYMENT.md` §3: always write with put-completion; documented why a
+  plain caput cannot see set failures (CA protocol semantics).
+
+## [0.14.3] - 2026-07-21
+
+### Changed
+
+- `derived.py`'s `ExpressionEvaluator` now delegates its
+  compile-then-restricted-eval skeleton to the shared
+  `geecs_schemas.restricted_expr` core (geecs-schemas 0.9.0) — a
+  behavior-preserving refactor so security hardening of the eval sites
+  lands once, not twice.  The derived-channel language is unchanged
+  (comparisons/bool-ops with `1.0`/`0.0` publication, `isfinite`,
+  `tau`, no `abs`/`//`; bare function names still compile-legal), as are
+  the `DerivedExpressionError` contract and the class's public surface;
+  pinned by the existing derived-channel suite.  Rejection message
+  phrasing for invalid expressions changed slightly (now the core's
+  wording).
+
+## [0.14.2] - 2026-07-21
+
+### Changed
+
+- `DEPLOYMENT.md` §3 rewritten as a new-client onboarding recipe (docs only):
+  a task-vs-install table making explicit that PV access, displays, and Tiled
+  readback need nothing from GEECS-Plugins (the monorepo is only for
+  submitting scans); a "first contact" section connects with nothing but
+  `pip install caproto` +
+  `EPICS_CA_ADDR_LIST` (works over routed VPN — directed unicast name search),
+  with the off-subnet/beacon caveats moved up from §5; a new §3b covers
+  reading scans back from the Tiled catalog (`tiled[client]`, `[tiled]`
+  config.ini section, web UI at `/ui`, pointer to
+  `GeecsBluesky/TILED_SETUP.md`).
+- Removed the stale Scanner-GUI backend-toggle instructions
+  (`GEECS_USE_BLUESKY` / `GEECS_BLUESKY_ACQUISITION_MODE`): on `dev` the
+  Bluesky/CA path is the only engine and acquisition mode is declared per
+  scan in the `ScanRequest` — the section now points at GEECS-Console and
+  headless `GeecsSession.run(ScanRequest)` (`master` keeps the legacy
+  toggle).
+
+## [0.14.1] - 2026-07-20
+
+### Changed
+
+- `db/geecs_db.py`: internal refactor extracting a connection layer. A single
+  `_cursor()` context manager now owns the connector-import guard, the
+  pure-Python connection, and the guaranteed close; a thin `_query()` primitive
+  wraps single-statement lookups. All eight `GeecsDb` query methods drop their
+  repeated import-guard + connect/close boilerplate (~130 lines) and keep only
+  their SQL and result shaping; the two-statement batch methods reuse one
+  `_cursor()` block to stay on a single connection. No behavior change — the
+  full `test_geecs_db.py` suite passes unchanged, and the externally observable
+  surface (return shapes, error semantics) is identical, so `PV_CONTRACT.md` is
+  unaffected.
+- `get_ca_alarm_limits()` is no longer special-cased around its own
+  connect/execute error handling. It now goes through `_query()` like every
+  other method, with a single fail-open `try/except` at the call site that
+  preserves the exact prior contract (missing-table → INFO, other DB failure →
+  WARNING, both returning `{}` so IOC startup never aborts on the optional
+  overlay table). `ImportError` still propagates — a missing connector is a
+  deployment error, not an absent overlay.
+
+## [0.14.0] - 2026-07-20
+
+### Changed
+
+- **PV name components are now lowercase** (`pv_naming.normalize_component`
+  case-folds): case carries no meaning anywhere in GEECS, and folding makes
+  every derived PV case-insensitive to operator input — any casing of a GEECS
+  name resolves to the same PV. Deployed PVs change on the wire
+  (`Undulator:U_S1H:Current` → `undulator:u_s1h:current`); the gateway and its
+  CA clients must be updated together. `PV_CONTRACT.md` §1 updated with the
+  case-folding step, lowercase examples, and the canonical-vocabulary
+  statement (GEECS-native names are canonical; PV names are a derived one-way
+  encoding).
+
+### Added
+
+- `pv_naming.setpoint_pv` (+ `SETPOINT_SUFFIX`): the one place the `:SP`
+  setpoint suffix is applied. The suffix itself stays uppercase — a fixed
+  structural literal, not a name component. Gateway pvdb construction and all
+  known consumers (GeecsBluesky, GEECS-Console) now use it instead of
+  hand-assembled `f"...:SP"` strings.
+
+## [0.13.4] - 2026-07-15
+
+### Changed
+
+- `deploy/README.md`: install checklist gains **Step 0 — persistent NAS
+  mount** (pointer to the DEPLOYMENT.md host-reboots runbook, with the
+  spring-test), so a new gateway host is never stood up with a hand
+  mount that dies at the first reboot.
+
+## [0.13.3] - 2026-07-15
+
+### Changed
+
+- `DEPLOYMENT.md`: new "Host reboots and network mounts" runbook — the
+  NAS-mount boot-order dependency whose failure mode is a healthy gateway
+  with silently absent derived channels (hand mounts / fstab racing a
+  down NAS). Documents the self-healing pattern (credentials file +
+  `_netdev,nofail,x-systemd.automount` + `RequiresMountsFor` on the
+  unit), the no-reboot verification cycle, and the off-subnet CA-client
+  footnote (beacons don't cross routed paths — restart long-lived
+  displays after a gateway restart). Verified live 2026-07-15.
+
+## [0.13.2] - 2026-07-13
+
+### Fixed
+
+- The fake device server's UDP set handler now coerces wire values with the
+  canonical `transport/_coerce.coerce_scalar` instead of a private inline
+  copy of the pre-0.12.2 logic — the copy still crashed with an uncaught
+  `OverflowError` on non-finite values (`set…>>inf`), the exact bug 0.12.2
+  fixed in the canonical helper, and its semantics could silently drift
+  from the real transport's.
+
+### Changed
+
+- Docstring condensation (docs-only): the LabVIEW no-cascade-delete
+  backstory and the choice-descriptor resolution rule are each stated once
+  (module docstrings / `CLAUDE.md`) with one-line pointers elsewhere,
+  instead of being retold in full in `config.py`, `audit.py`, and
+  `geecs_db.py`; `build_delete_sql`'s docstring no longer claims the
+  function prints. `run_audit`'s pointless lazy `_SKIP_VARTYPES` import
+  moved to the module top (only the `GeecsDb`/mysql import is meaningfully
+  lazy).
+
+## [0.13.1] - 2026-07-12
+
+### Fixed
+
+- **Audit classifier now matches the gateway's effective-type resolution**
+  (`#512`). The DB-hygiene audit flagged SKIP variables by `variabletype`
+  alone, but the gateway's config builder treats a bare type-descriptor word
+  in `choices` (`image`, `1darray`, `numeric`, `string`, `path`) as the
+  authoritative type — so a `variabletype='choice'`, `choices='image'` row
+  (a real camera/array variable) was skipped by the gateway yet reported
+  clean by the audit. The resolution logic is now a single shared pure
+  helper, `geecs_ca_gateway.config.effective_vartype()`, extracted from
+  `DeviceSpec.from_db_metadata()` and used by both the config builder and
+  `audit_subscribed_variables()`; such rows are now reported as
+  `SKIP:image` / `SKIP:1darray`. Gateway serving behavior is unchanged
+  (pinned by the existing `test_config_from_db.py` tests).
+
+## [0.13.0] - 2026-07-11
+
+### Added
+
+- **DB-hygiene audit tool** (`geecs_ca_gateway/audit.py`; `#496`) — a read-only
+  report of every `get='yes'` variable the gateway will NOT serve, plus
+  FK-orphans. Ships as both a reusable pure function and a CLI
+  (`python -m geecs_ca_gateway.audit --experiment NAME`, console script
+  `geecs-ca-gateway-audit`). Flags three flavours of `expt_device_variable`
+  rot that the LabVIEW DB-editing GUIs leave behind (no cascade deletes):
+  - **GHOST** — a `get='yes'` row whose `variablename` is not a real variable
+    of the device (deleted / alias-derived name); names a PV never created.
+  - **SKIP:<type>** — a `get='yes'` variable whose `variabletype` is in the
+    gateway's `_SKIP_VARTYPES` (`image` / `1darray`); no scalar PV served.
+  - **FK-orphan** — an `expt_device_variable` row whose `expt_device_id` points
+    at an `expt_device.id` that no longer exists (whole experiment removed).
+
+  The classifier `audit_subscribed_variables(subscribed, device_variables,
+  skip_types)` is a **pure function over plain dicts** with zero DB imports
+  (fully unit-tested). The DB-facing wrapper and CLI import `GeecsDb` / `mysql`
+  lazily, so the module imports offline. **Strictly read-only** — it never
+  DELETEs or modifies; the optional `--sql` flag only *prints* (never executes)
+  the DELETE statements a human could review. `--full` prints the complete
+  per-device listing.
+- `GeecsDb.get_fk_orphan_variables()` — read-only LEFT-JOIN query returning the
+  count + a capped sample of FK-orphan `expt_device_variable` rows.
+
+## [0.12.2] - 2026-07-10
+
+### Fixed
+
+- `transport/_coerce.coerce_scalar` no longer crashes with an uncaught
+  `OverflowError` on infinite numeric wire values (`"inf"`, `"1e400"`, ...):
+  non-finite numerics now pass through as the raw string, matching the
+  existing `"nan"` behavior. Latent since the original inline copies;
+  found in the PR #481 adversarial review.
+
+## [0.12.1] - 2026-07-10
+
+Cleanup pass 2 (docstrings/comments only; AST-verified no code change).
+
+### Changed
+
+- `config.py`: the deadband-vs-tolerance incident retelling condensed to the
+  rule + a CLAUDE.md-quirks pointer (the rule itself — deadband stays 0.0,
+  DB `tolerance` is a set-convergence criterion — is unchanged). The
+  wire-protocol and DB-inheritance commentary in `transport/`, `channels.py`,
+  `db/geecs_db.py`, and `gateway.py` was deliberately left intact (audit:
+  load-bearing, canonical only in code).
+
+## [0.12.0] - 2026-07-10
+
+Cleanup pass 1 (audit: `Planning/cleanup_vision_v1/00_overview.md`) — no
+behavior change.
+
+### Changed
+
+- The numeric wire-value coercion (`float` → int-if-whole → fallback str),
+  previously duplicated in `tcp_subscriber` and `udp_client`, is now the
+  shared `transport/_coerce.coerce_scalar`. The fake device server keeps its
+  own copy deliberately (test/prod decoupling).
+- `config.py` module docstring no longer describes the shipped DB-driven
+  config path (`from_geecs_experiment`) as future work; `naming.py`'s
+  docstring condensed to a pointer at `pv_naming` (the policy home).
+
+### Removed
+
+- `GeecsDb.list_devices()` — zero consumers anywhere in the workspace (the
+  config path uses the batched `get_experiment_devices`).
+- `FakeGeecsDevice.fire_shot()` — its only consumer was GeecsBluesky's
+  deleted direct-backend test suite (bluesky tests use ophyd-async mock
+  backends now); its docstring pointed at a deleted class path.
+
+## [0.11.0] - 2026-07-09
+
+### Added
+
+- Cross-device derived channels with latest-value semantics. A derived channel
+  whose inputs span multiple source devices now recomputes when any input
+  source updates, uses the latest cached numeric values from the other inputs,
+  and requires `stale_after` to mark the output `INVALID/UDF` when any input is
+  missing or stale. The gateway status loop also reevaluates freshness so
+  completely quiet input sources cannot leave the last computed value looking
+  live indefinitely.
+- Boolean/comparison expressions for derived status PVs. Expressions such as
+  `pressure < 1e-5 and ready > 0` are accepted and publish as float values
+  `1.0` or `0.0`.
+
+## [0.10.0] - 2026-07-09
+
+### Added
+
+- **Per-PV `.DESC` field, resolved from the DB and served over CA.** A
+  variable's DB `description` (per-instance `variable` table, resolved through
+  the capability inheritance chain like every other field into
+  `VariableSpec.description`) is served as the standard EPICS `.DESC` field —
+  a read-only `<pv>.DESC` string channel added to the pvdb, so
+  `caget …:Current.DESC` returns the text and Phoebus/the archiver pick it up.
+  Only non-empty descriptions get a `.DESC` entry. Clipped to the 40-char
+  DBR_STRING limit at both the DB column and the gateway. Verified end-to-end
+  against the live DB and with a live CA client. Applies to readbacks and
+  derived channels; `:SP` and status PVs carry no `.DESC`. `PV_CONTRACT.md` §4
+  documents it; pinned by `test_gateway.test_description_served_as_desc_field`.
+  Discipline: `.DESC` carries *stable identity only*, never time-varying
+  provenance (a `.DESC` edit leaves no history).
+- `deploy/variable_description.sql` — non-destructive DDL to narrow
+  `variable.description` to the 40-char EPICS `.DESC` limit (applied) and
+  (optionally, gated on a code coalesce) add a type-level
+  `devicetype_variable.description`.
+
+## [0.9.0] - 2026-07-08
+
+### Added
+
+- Two `GeecsDb` query methods backing the GeecsBluesky M3c DB-integration
+  runtime (library-only; the gateway server is unchanged):
+  - `get_all_experiment_variables(experiment)` — every `expt_device_variable`
+    row per device (`{device: [variablename, ...]}`, deduped), the
+    `all_scalars` counterpart of `get_subscribed_variables` (`get='yes'`).
+  - `get_scan_boundary_writes(experiment)` — the `set='yes'` rows'
+    `startvalue` / `endvalue` per device
+    (`{device: [{"variable", "startvalue", "endvalue"}, ...]}`, values as raw
+    wire strings or `None`), i.e. the Master-Control scan start/end write
+    policy.  Row order is preserved so writes replay in a stable sequence.
+    **Reserved / currently unused:** the GeecsBluesky engine does not apply
+    these DB set-side boundary writes in the current version (the set-side is
+    intentionally disabled — triggering is owned by the trigger profile /
+    shot controller and camera saving by the scanner's save-windowing).  Kept
+    as a read-only library query for inspection and a possible future DB
+    scan-write feature.
+
+## [0.8.0] - 2026-07-08
+
+### Added
+
+- Derived numeric channels loaded from a `geecs-schemas` YAML/JSON overlay.
+  The gateway auto-loads the configs-repo convention
+  `scanner_configs/experiments/<Experiment>/gateway/derived_channels.yaml`
+  when present, with `--derived-channels PATH` as an explicit override. Each
+  entry declares a read-only float PV computed from a restricted arithmetic
+  expression over one source device's numeric push-frame values. This initial
+  implementation is same-source-device only, so examples like a Convectron
+  pressure PV derived from one DAQ analog input are frame-coherent without
+  introducing cross-device latest-value semantics.
+- Derived PVs report operator-visible failure states: `INVALID/UDF` until first
+  successful compute or while inputs are missing/non-numeric, `INVALID/CALC` on
+  expression runtime failure, and `INVALID/COMM` when the source device
+  disconnects. Repeated identical INVALID failures publish only the transition;
+  the next successful compute clears severity even if the numeric value is
+  unchanged.
+
+## [0.7.0] - 2026-07-08
+
+### Added
+
+- **Optional `ca_alarm_limits` MySQL overlay for curated scalar value alarms.**
+  Enabled rows are keyed by `(experiment, device, variable)` and provide
+  `LOLO` / `LOW` / `HIGH` / `HIHI` thresholds with configured severities.
+  The table is optional during rollout: if it is absent or unreadable, the
+  gateway starts with no value alarms.  Rows attach only to served numeric
+  readbacks; DB `min` / `max` remain display metadata and are never treated as
+  alarm limits.
+- `deploy/ca_alarm_limits.sql`, a non-destructive DDL snippet for creating the
+  optional alarm-limit table. Dropping the table restores pre-0.7 behavior.
+
+### Changed
+
+- Live numeric readback writes now recompute curated value-alarm severity.
+  Device disconnects still take precedence: stale readbacks remain
+  `INVALID/COMM` until the next live frame, which then reports either
+  `NO_ALARM` or the active value alarm.
+
 ## [0.6.1] - 2026-07-07
 
 ### Fixed

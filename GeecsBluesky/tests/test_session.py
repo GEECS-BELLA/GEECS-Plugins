@@ -42,7 +42,7 @@ def _session() -> GeecsSession:
 
 
 def test_positions_math() -> None:
-    """start/end/step expands like the scanner's _build_positions."""
+    """start/end/step expands to an inclusive position list."""
     assert _positions(4.0, 5.0, 0.5) == [4.0, 4.5, 5.0]
     assert _positions(1.0, 1.0, 0.5) == [1.0]
     assert _positions(0.0, 1.0, 0.0) == [0.0]
@@ -57,10 +57,10 @@ def test_factories_build_connected_named_devices() -> None:
     jet = s.motor("U_ESP_JetXYZ", "Position.Axis 1")
 
     assert det.name == "uc_amp2_ir_input"
-    assert det.centroidx.source.endswith("Undulator:UC_Amp2_IR_input:centroidx")
-    assert con.acq_timestamp.source.endswith("Undulator:UC_TopView:acq_timestamp")
-    assert snap.current.source.endswith("Undulator:U_S1H:Current")
-    assert jet._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+    assert det.centroidx.source.endswith("undulator:uc_amp2_ir_input:centroidx")
+    assert con.acq_timestamp.source.endswith("undulator:uc_topview:acq_timestamp")
+    assert snap.current.source.endswith("undulator:u_s1h:current")
+    assert jet._setpoint.source.endswith("undulator:u_esp_jetxyz:position_axis_1:SP")
 
 
 def test_construction_with_unreachable_tiled_server_is_prompt(
@@ -100,8 +100,66 @@ def test_shot_control_attaches_ca_controller() -> None:
     assert isinstance(controller, ShotController)
     setter = controller._setters["Trigger.Source"]
     assert isinstance(setter, CaPutSetter)
-    assert setter._pv == "Undulator:U_DG645_ShotControl:Trigger_Source:SP"
+    assert setter._pv == "undulator:u_dg645_shotcontrol:trigger_source:SP"
     assert s.shot_control(None) is None  # detaches
+
+
+def test_shot_control_accepts_generalized_writes() -> None:
+    """ShotControlWrites (multi-device ordered) builds the ordered controller."""
+    from geecs_bluesky.models.shot_control import ShotControlWrites
+
+    s = _session()
+    writes = ShotControlWrites(
+        name="spans",
+        states={
+            "SCAN": [
+                ("U_DG645_ShotControl", "Amplitude.Ch AB", "4.0"),
+                ("U_PLC", "DO.Ch9", "on"),
+            ]
+        },
+    )
+    controller = s.shot_control(writes)
+    assert isinstance(controller, ShotController)
+    assert controller.defines_state("SCAN")
+    # One CA setter per (device, variable), on each device's own :SP PV.
+    setters = controller._setters
+    assert {
+        setters[("U_DG645_ShotControl", "Amplitude.Ch AB")]._pv,
+        setters[("U_PLC", "DO.Ch9")]._pv,
+    } == {
+        "undulator:u_dg645_shotcontrol:amplitude_ch_ab:SP",
+        "undulator:u_plc:do_ch9:SP",
+    }
+    # Empty writes detach, like an empty legacy config.
+    assert s.shot_control(ShotControlWrites(name="empty", states={})) is None
+
+
+def test_action_signal_factory_builds_cached_connected_signals() -> None:
+    """The production SettableFactory: CA-native :SP puts, dtype-inferred reads."""
+    import asyncio
+
+    s = _session()
+    factory = s.action_signal_factory()
+    settable = factory.get_settable("U_PLC", "DO.Ch9")
+    assert settable._pv.endswith("undulator:u_plc:do_ch9:SP")
+    # Cached per (device, variable): the same wrapper comes back.
+    assert factory.get_settable("U_PLC", "DO.Ch9") is settable
+    readable = factory.get_readable("U_PLC", "DI.Ch17")
+    assert readable.source.endswith("undulator:u_plc:di_ch17")
+    assert factory.get_readable("U_PLC", "DI.Ch17") is readable
+
+    # Values are coerced to wire strings on set (mock session records the
+    # put — raw CA in production, per the CaPutSetter convention, so numeric
+    # :SP PVs accept the put).  set() is awaited inside the RE loop.
+    async def _set() -> None:
+        await settable.set(4.0)
+
+    asyncio.run_coroutine_threadsafe(_set(), s.RE._loop).result(timeout=5.0)
+    assert settable.last_mock_put == "4.0"
+
+    # The factory rides the scan cleanup path uniformly.
+    s.disconnect(factory)
+    assert factory._settables == {}
 
 
 def test_scan_validation() -> None:
@@ -227,8 +285,8 @@ def test_shot_control_reachability_check_passes(
     assert isinstance(controller, ShotController)
     assert seen == [
         [
-            "Undulator:U_DG645_ShotControl:Trigger_ExecuteSingleShot:SP",
-            "Undulator:U_DG645_ShotControl:Trigger_Source:SP",
+            "undulator:u_dg645_shotcontrol:trigger_executesingleshot:SP",
+            "undulator:u_dg645_shotcontrol:trigger_source:SP",
         ]
     ]
 

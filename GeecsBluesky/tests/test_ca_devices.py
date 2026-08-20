@@ -18,6 +18,7 @@ pytest.importorskip("aioca")  # CA backend needs the `ca` extra
 from ophyd_async.core import get_mock_put, set_mock_value  # noqa: E402
 
 from geecs_bluesky.devices.ca import (  # noqa: E402
+    CaConfirmSettable,
     CaGenericDetector,
     CaMotor,
     CaSettable,
@@ -27,28 +28,29 @@ from geecs_bluesky.devices.ca import (  # noqa: E402
 )
 from geecs_bluesky.devices.ca._pv import ca_pv  # noqa: E402
 from geecs_bluesky.exceptions import (  # noqa: E402
+    GeecsConfirmTimeoutError,
     GeecsMotorTimeoutError,
     GeecsTriggerTimeoutError,
 )
-from geecs_ca_gateway.pv_naming import normalize_component, pv_name  # noqa: E402
+from geecs_core.pv_naming import normalize_component, pv_name  # noqa: E402
 
 
 # --------------------------------------------------------------------------
-# Naming contract (shared with the gateway via geecs_ca_gateway.pv_naming)
+# Naming contract (shared with the gateway via geecs_core.pv_naming)
 # --------------------------------------------------------------------------
 
 
 def test_pv_name_policy() -> None:
     """Experiment prefix, dot-escaping, and space collapsing match the gateway."""
-    assert pv_name("Undulator", "U_S1H", "Current") == "Undulator:U_S1H:Current"
-    assert pv_name(None, "U_DG645", "Trigger.Source") == "U_DG645:Trigger_Source"
-    assert normalize_component("Beam Current (A)") == "Beam_Current_A"
+    assert pv_name("Undulator", "U_S1H", "Current") == "undulator:u_s1h:current"
+    assert pv_name(None, "U_DG645", "Trigger.Source") == "u_dg645:trigger_source"
+    assert normalize_component("Beam Current (A)") == "beam_current_a"
 
 
 def test_ca_pv_pins_the_transport_on_gateway_names() -> None:
     """ca_pv is pv_name with the explicit CA transport scheme prepended."""
-    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://Undulator:U_S1H:Current"
-    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://U_DG645:Trigger_Source"
+    assert ca_pv("Undulator", "U_S1H", "Current") == "ca://undulator:u_s1h:current"
+    assert ca_pv(None, "U_DG645", "Trigger.Source") == "ca://u_dg645:trigger_source"
 
 
 # --------------------------------------------------------------------------
@@ -106,7 +108,7 @@ async def test_every_ca_device_signal_pins_the_ca_transport() -> None:
         assert "ca://" in signal.source, signal.source
         assert signal.source.count("ca://") == 1, signal.source
     # Write PVs (":SP") pin the transport too, not just readbacks.
-    assert settable._setpoint.source.endswith("ca://Undulator:U_S1H:Current:SP")
+    assert settable._setpoint.source.endswith("ca://undulator:u_s1h:current:SP")
 
 
 async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
@@ -120,7 +122,7 @@ async def test_ca_prefix_does_not_leak_into_event_keys_or_describe() -> None:
     assert set(desc) == {"amp-centroidx", "amp-acq_timestamp"}
     assert set(reading) == {"amp-centroidx", "amp-acq_timestamp"}
     assert desc["amp-centroidx"]["source"] == (
-        "mock+ca://Undulator:UC_Amp2_IR_input:centroidx"
+        "mock+ca://undulator:uc_amp2_ir_input:centroidx"
     )
     # Exporter column headers keep the legacy "Device Variable" form.
     assert det._column_headers == {"amp-centroidx": "UC_Amp2_IR_input centroidx"}
@@ -140,7 +142,7 @@ async def test_readable_reads_value() -> None:
     set_mock_value(dev.centroidx, 42.0)
     reading = await dev.read()
     assert reading["amp-centroidx"]["value"] == 42.0
-    assert dev.centroidx.source.endswith("Undulator:UC_Amp2_IR_input:centroidx")
+    assert dev.centroidx.source.endswith("undulator:uc_amp2_ir_input:centroidx")
 
 
 async def test_readable_multiple_variables() -> None:
@@ -167,8 +169,8 @@ async def test_settable_forwards_put_to_setpoint() -> None:
     put = get_mock_put(dev._setpoint)
     put.assert_called_once()
     assert put.call_args.args[0] == 0.5
-    assert dev._setpoint.source.endswith("Undulator:U_S1H:Current:SP")
-    assert dev.readback.source.endswith("Undulator:U_S1H:Current")
+    assert dev._setpoint.source.endswith("undulator:u_s1h:current:SP")
+    assert dev.readback.source.endswith("undulator:u_s1h:current")
 
 
 async def test_settable_readback_is_the_reading() -> None:
@@ -196,7 +198,7 @@ async def test_motor_set_completes_on_arrival() -> None:
     put = get_mock_put(motor._setpoint)
     put.assert_called_once()
     assert put.call_args.args[0] == 4.5
-    assert motor._setpoint.source.endswith("Undulator:U_ESP_JetXYZ:Position_Axis_1:SP")
+    assert motor._setpoint.source.endswith("undulator:u_esp_jetxyz:position_axis_1:SP")
     reading = await motor.read()
     assert reading["jet-position"]["value"] == 4.5
 
@@ -214,6 +216,101 @@ async def test_motor_set_times_out_when_stuck() -> None:
     set_mock_value(motor.position, 0.0)  # stuck far from target
     with pytest.raises(GeecsMotorTimeoutError):
         await motor.set(4.5)
+
+
+# --------------------------------------------------------------------------
+# CaConfirmSettable — topology-C: set X, confirm on Y
+# --------------------------------------------------------------------------
+
+
+def _emq_confirm_device(**overrides) -> CaConfirmSettable:
+    kwargs = dict(
+        device="U_EMQTripletBipolar",
+        variable="Current_Limit.Ch1",
+        confirm_device="U_EMQTripletBipolar",
+        confirm_variable="Current.Ch1",
+        experiment="Undulator",
+        name="emq1",
+        timeout=0.3,
+    )
+    kwargs.update(overrides)
+    return CaConfirmSettable(**kwargs)
+
+
+async def test_confirm_writes_target_variable_reads_confirm_variable() -> None:
+    """set() puts the SETPOINT variable but polls the CONFIRM variable's PV."""
+    device = _emq_confirm_device()
+    await device.connect(mock=True)
+    assert device._setpoint.source.endswith(
+        "undulator:u_emqtripletbipolar:current_limit_ch1:SP"
+    )
+    assert device._confirm_readback.source.endswith(
+        "undulator:u_emqtripletbipolar:current_ch1"
+    )
+
+
+async def test_confirm_completes_when_confirm_variable_within_tolerance() -> None:
+    """set() resolves once the CONFIRM readback (not the target var) matches."""
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 2.51)  # within 0.05 of target
+    await asyncio.wait_for(device.set(2.5), timeout=1.0)
+    put = get_mock_put(device._setpoint)
+    put.assert_called_once()
+    assert put.call_args.args[0] == 2.5
+
+
+async def test_confirm_times_out_when_confirm_variable_never_matches() -> None:
+    """The setpoint variable converging is not enough — confirm must too."""
+    device = _emq_confirm_device(tolerance=0.05)
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, 0.0)  # never converges
+    with pytest.raises(GeecsConfirmTimeoutError) as excinfo:
+        await device.set(2.5)
+    assert excinfo.value.confirm_variable == "U_EMQTripletBipolar:Current.Ch1"
+
+
+async def test_confirm_discrete_match_is_exact_equality() -> None:
+    """A string/enum confirm target (e.g. a future shutter) matches exactly."""
+    device = CaConfirmSettable(
+        "U_Shutter",
+        "Command",
+        confirm_device="U_Shutter",
+        confirm_variable="LimitSwitch",
+        experiment="Undulator",
+        name="shutter",
+        timeout=0.3,
+        datatype=str,
+    )
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, "inserted")
+    await asyncio.wait_for(device.set("inserted"), timeout=1.0)
+
+
+async def test_confirm_discrete_match_rejects_numeric_looking_near_miss() -> None:
+    """A str confirm target does not tolerance-match numeric-looking labels.
+
+    Review finding (PR #477): the old ``_matches`` tried ``float()`` on both
+    sides before falling back to equality, so a ``datatype=str`` confirm
+    target could accept "1.04" as matching "1.0" under the default
+    tolerance — silently reintroducing analog matching for a discrete
+    variable. Dispatch must be on the declared ``datatype``, not on whether
+    the strings happen to be parseable as numbers.
+    """
+    device = CaConfirmSettable(
+        "U_Shutter",
+        "Command",
+        confirm_device="U_Shutter",
+        confirm_variable="LimitSwitch",
+        experiment="Undulator",
+        name="shutter",
+        timeout=0.3,
+        datatype=str,
+    )
+    await device.connect(mock=True)
+    set_mock_value(device._confirm_readback, "1.04")
+    with pytest.raises(GeecsConfirmTimeoutError):
+        await device.set("1.0")
 
 
 # --------------------------------------------------------------------------
@@ -425,9 +522,9 @@ async def test_generic_detector_save_controls_over_ca() -> None:
     await det.connect(mock=True)
 
     assert det.localsavingpath.source.endswith(
-        "Undulator:UC_Amp2_IR_input:localsavingpath"
+        "undulator:uc_amp2_ir_input:localsavingpath"
     )
-    assert det.save.source.endswith("Undulator:UC_Amp2_IR_input:save")
+    assert det.save.source.endswith("undulator:uc_amp2_ir_input:save")
     await det.save.set("on")
     put = get_mock_put(det.save)
     put.assert_called_once()
@@ -559,7 +656,7 @@ async def test_snapshot_reads_latest_values() -> None:
     reading = await snap.read()
     assert reading["s1h-current"]["value"] == 0.5
     assert set(reading) == {"s1h-current", "s1h-voltage"}
-    assert snap.current.source.endswith("Undulator:U_S1H:Current")
+    assert snap.current.source.endswith("undulator:u_s1h:current")
 
 
 # --------------------------------------------------------------------------
@@ -651,11 +748,12 @@ async def test_reconnect_after_disconnect_resubscribes() -> None:
 
 
 async def test_all_ca_devices_define_disconnect() -> None:
-    """Every CA device type honours the scanner bridge teardown contract.
+    """Every CA device type honours the per-scan teardown contract.
 
-    _disconnect_devices_sync runs device.disconnect() on the RE loop for the
-    motor and every detector; each class must expose it as a coroutine that
-    does not raise (previously an AttributeError swallowed by the bridge).
+    The runner's cleanup (``session.disconnect``) runs device.disconnect()
+    on the RE loop for every device it created; each class must expose it
+    as a coroutine that does not raise (previously an AttributeError was
+    swallowed by the caller).
     """
     devices = [
         CaSnapshotReadable("U_S1H", "Current", name="snap"),
@@ -668,3 +766,58 @@ async def test_all_ca_devices_define_disconnect() -> None:
         await dev.connect(mock=True)
         assert asyncio.iscoroutinefunction(dev.disconnect), type(dev).__name__
         await dev.disconnect()  # must not raise
+
+
+def test_saving_device_surfaces_acq_timestamp_in_sfile_headers() -> None:
+    """A file/image-saving device adds acq_timestamp as an s-file column.
+
+    Saved image filenames are stamped with acq_timestamp, so surfacing it as a
+    legacy scalar column lets saved files tie back to scan rows — an
+    images-only device otherwise contributes no scalar column at all. A
+    pure-scalar device keeps acq_timestamp as an excluded companion column.
+    """
+    saving = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp",
+        save_nonscalar_data=True,
+    )
+    assert saving._column_headers["amp-acq_timestamp"] == (
+        "UC_Amp2_IR_input acq_timestamp"
+    )
+    assert saving._column_headers["amp-centroidx"] == "UC_Amp2_IR_input centroidx"
+
+    scalar_only = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        ["centroidx"],
+        experiment="Undulator",
+        name="amp2",
+        save_nonscalar_data=False,
+    )
+    assert "amp2-acq_timestamp" not in scalar_only._column_headers
+
+    # An images-only save (no other scalars) still yields the acq_timestamp
+    # column — the one column that ties the saved frames to the rows.
+    images_only = CaGenericDetector(
+        "UC_Amp2_IR_input",
+        [],
+        experiment="Undulator",
+        name="cam",
+        save_nonscalar_data=True,
+    )
+    assert images_only._column_headers == {
+        "cam-acq_timestamp": "UC_Amp2_IR_input acq_timestamp"
+    }
+
+    # Same for the free-run contributor.
+    contributor = CaTimestampedReadable(
+        "UC_TopView",
+        ["centroidx"],
+        experiment="Undulator",
+        name="con",
+        save_nonscalar_data=True,
+    )
+    assert contributor._column_headers["con-acq_timestamp"] == (
+        "UC_TopView acq_timestamp"
+    )
