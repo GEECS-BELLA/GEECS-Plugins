@@ -104,10 +104,12 @@ class TestStepAndErrors:
         assert recorded["log"] == ["SomethingNewEvent"]
 
 
-class TestNarrationDedupe:
-    """The log tail is narration: consecutive identical lines collapse
-    (Sam's 2026-08-19 Scan004 showed 'scan running' x2 and the final step
-    line x2); the data signals always emit."""
+class TestScanNumberNarration:
+    """Post-claim lifecycle lines carry the scan number — every state, not
+    just RUNNING (the bridge stamps the number on each post-claim
+    emission).  Dedupe deliberately does NOT live here: the adapter emits
+    every event's line; suppression happens at the tail's convergence
+    point (NowPanelController.append_log — PR #624 review finding 1)."""
 
     def test_rerun_running_with_scan_number_narrates_the_number(
         self, adapter, recorded
@@ -115,42 +117,15 @@ class TestNarrationDedupe:
         adapter.handle(ScanLifecycleEvent(state="running"))
         adapter.handle(ScanLifecycleEvent(state="running", scan_number=4))
         assert recorded["log"] == ["scan running", "scan running (Scan004)"]
-        # The data signal is not deduped.
         assert recorded["state"] == ["running", "running"]
 
-    def test_identical_lifecycle_narrates_once(self, adapter, recorded):
+    def test_terminal_state_carries_the_number_too(self, adapter, recorded):
+        adapter.handle(ScanLifecycleEvent(state="done", scan_number=4))
+        assert recorded["log"] == ["scan done (Scan004)"]
+
+    def test_adapter_does_not_dedupe(self, adapter, recorded):
+        """Identical consecutive events both emit — suppression is the
+        now panel's job, where direct window lines interleave."""
         adapter.handle(ScanLifecycleEvent(state="running"))
         adapter.handle(ScanLifecycleEvent(state="running"))
-        assert recorded["log"] == ["scan running"]
-        assert recorded["state"] == ["running", "running"]
-
-    def test_repeated_final_step_event_narrates_once(self, adapter, recorded):
-        adapter.handle(
-            ScanStepEvent(
-                step_index=0, total_steps=1, shots_completed=10, phase="completed"
-            )
-        )
-        adapter.handle(
-            ScanStepEvent(
-                step_index=0, total_steps=1, shots_completed=10, phase="completed"
-            )
-        )
-        assert recorded["log"] == ["step 1/1 completed (10 shots)"]
-        # Progress still emitted for both events.
-        assert recorded["progress"] == [(0, 1, 10), (0, 1, 10)]
-
-    def test_alternating_lines_are_not_suppressed(self, adapter, recorded):
-        adapter.handle(
-            ScanStepEvent(
-                step_index=0, total_steps=1, shots_completed=1, phase="completed"
-            )
-        )
-        adapter.handle(
-            ScanStepEvent(
-                step_index=0, total_steps=1, shots_completed=2, phase="completed"
-            )
-        )
-        assert recorded["log"] == [
-            "step 1/1 completed (1 shots)",
-            "step 1/1 completed (2 shots)",
-        ]
+        assert recorded["log"] == ["scan running", "scan running"]

@@ -9,12 +9,17 @@ semantic.
 ### Fixed
 
 - R6 log tail no longer prints duplicate lines (field report, 2026-08-19
-  Scan004: "scan running" twice and the final step line twice): the
-  events adapter's narration now suppresses exact consecutive repeats,
-  and the bridge's deliberate RUNNING re-emission (once the scan number
-  is claimed) narrates as new information — "scan running (Scan004)".
-  Data signals (state pill, progress bar, scan number) are never
-  deduped, only the human-readable tail.
+  Scan004: "scan running" twice and the final step line twice).
+  Consecutive-duplicate suppression lives at the tail's one convergence
+  point — `NowPanelController.append_log` — so it measures against the
+  actually visible tail (the adapter's narration AND the window's direct
+  status lines both flow through it; PR #624 review finding 1), and the
+  cache re-arms when a new scan announces its totals so scan N's last
+  line can never swallow scan N+1's first (finding 3). Separately, every
+  post-claim lifecycle line now carries the scan number — "scan running
+  (Scan004)", "scan done (Scan004)" — which renders the bridge's
+  deliberate RUNNING re-emission as new information. Data signals (state
+  pill, progress bar, scan number) are never deduped.
 
 ## [0.20.0] - 2026-08-20
 

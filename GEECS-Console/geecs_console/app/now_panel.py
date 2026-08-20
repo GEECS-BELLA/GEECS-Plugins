@@ -91,6 +91,10 @@ class NowPanelController(QObject):
         #: Total shots announced by the running scan (0 = not announced).
         self._total_shots = 0
 
+        #: Bottom line of the log tail (consecutive-duplicate suppression;
+        #: re-armed by set_totals — see append_log).
+        self._last_log_line: Optional[str] = None
+
         self._scan_number_timer = QTimer(self)
         self._scan_number_timer.setSingleShot(True)
         self._scan_number_timer.setInterval(_SCAN_NUMBER_EXPIRY_MS)
@@ -113,11 +117,24 @@ class NowPanelController(QObject):
     def append_log(self, line: str) -> None:
         """Append one line to the compact log tail.
 
+        The tail is a narration, not a record: an exact repeat of the
+        line currently at the bottom adds nothing for the operator, so
+        consecutive duplicates are dropped.  Deduping HERE — the one
+        point every tail writer converges on (the events adapter's
+        narration and the window's direct status lines) — makes
+        "consecutive" mean consecutive-in-the-tail (PR #624 review
+        finding 1).  The cache re-arms on :meth:`set_totals` (a new
+        scan announcing itself), so scan N's last line can never
+        swallow scan N+1's first.
+
         Parameters
         ----------
         line : str
             The text to append (one log-tail row).
         """
+        if line == self._last_log_line:
+            return
+        self._last_log_line = line
         self._log_tail.appendPlainText(line)
 
     def set_scan_number(self, number: int) -> None:
@@ -224,6 +241,9 @@ class NowPanelController(QObject):
             The scan's announced shot total.
         """
         self._total_shots = total_shots
+        # New scan announcing itself: re-arm the tail dedupe so the last
+        # line of the previous scan can never swallow this scan's first.
+        self._last_log_line = None
         self._progress_bar.setMaximum(max(1, total_shots))
         self._progress_bar.setValue(0)
 
