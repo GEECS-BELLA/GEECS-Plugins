@@ -47,9 +47,3 @@ scan and its data are described.
     [Schema reference](../geecs_schemas/schema_reference.md)
 
 </div>
-
-!!! note "Python API is under refactoring"
-
-    The Python API is being reworked. Treat `ScanDevice` and the
-    experiment-database lookup as the stable public surface; other
-    internals may move.

@@ -21,8 +21,9 @@ constituent packages:
   Bluesky-backed acquisition front-end, including its Scan Browser).
 - **Analysis** — turning acquired data into results: Image Analysis, Scan
   Analysis, and the Data Utils path/loading layer they build on.
-- **Platform** — the access-and-contract layer everything sits on: the
-  Python API (device transport + DB), the GEECS Gateway (the EPICS access
+- **Platform** — the access-and-contract layer everything sits on:
+  GEECS-Core (device transport + DB + the GeecsDevice client), the GEECS
+  Gateway (the EPICS access
   layer — central CA soft-IOC for scalars plus the distributed PVA image
   gateways on the camera servers), and GEECS Schemas (the typed
   scan-config contract).
