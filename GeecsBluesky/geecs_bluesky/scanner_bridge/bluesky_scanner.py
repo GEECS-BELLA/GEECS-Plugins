@@ -54,6 +54,7 @@ from typing import Any, Callable
 
 from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.scan_log import begin_pre_scan_capture, discard_pre_scan_capture
 
 # Bound at module level (not via the events module) because hermetic tests
 # monkeypatch these names — the `is None` guards downstream are that seam.
@@ -272,25 +273,33 @@ class BlueskyScanner:
         if resolver is None:
             resolver = ConfigsRepoResolver(self._experiment_dir)
 
-        if request.mode is ScanRequestMode.OPTIMIZE and (
-            self._optimization_loader is None
-        ):
-            raise NotImplementedError(
-                "optimize-mode ScanRequest execution through BlueskyScanner "
-                "needs the GUI-injected optimization_loader (the config-"
-                "driven Xopt/evaluator stack lives in geecs_scanner."
-                "optimization, which this package cannot import); construct "
-                "the scanner with optimization_loader=..., or run headless "
-                "via GeecsSession.run(request, resolver, objective=..., "
-                "suggester=...)"
-            )
+        # From here every log line belongs to the upcoming scan's story:
+        # buffer root-logger records so scan.log can open with them once
+        # the folder is claimed (a refused submission discards the buffer).
+        begin_pre_scan_capture()
+        try:
+            if request.mode is ScanRequestMode.OPTIMIZE and (
+                self._optimization_loader is None
+            ):
+                raise NotImplementedError(
+                    "optimize-mode ScanRequest execution through BlueskyScanner "
+                    "needs the GUI-injected optimization_loader (the config-"
+                    "driven Xopt/evaluator stack lives in geecs_scanner."
+                    "optimization, which this package cannot import); construct "
+                    "the scanner with optimization_loader=..., or run headless "
+                    "via GeecsSession.run(request, resolver, objective=..., "
+                    "suggester=...)"
+                )
 
-        # Fail-fast validation through THE one definition of "what must
-        # resolve" (scan_request_runner.validate_scan_request, issue #529);
-        # results are discarded — run_scan_request re-resolves at execution
-        # time (it runs the same function as its own first phase, so this
-        # submission-time check can never drift from execution).
-        validate_scan_request(request, resolver)
+            # Fail-fast validation through THE one definition of "what must
+            # resolve" (scan_request_runner.validate_scan_request, issue #529);
+            # results are discarded — run_scan_request re-resolves at execution
+            # time (it runs the same function as its own first phase, so this
+            # submission-time check can never drift from execution).
+            validate_scan_request(request, resolver)
+        except Exception:
+            discard_pre_scan_capture()
+            raise
 
         # Store the ORIGINAL pre-defaults request (see docstring).
         self._scan_request = request
@@ -1038,6 +1047,9 @@ class BlueskyScanner:
             # state, so a consumer reacting to DONE/ABORTED observes
             # is_scanning_active() == False (see its docstring).  The runner's
             # own ``finally`` disconnected everything it created.
+            # A pre-scan log buffer not consumed by a scan.log attach
+            # (failure before the claim) must not leak into a later scan.
+            discard_pre_scan_capture()
             self._scan_finished = True
             if self._abort_requested or failed:
                 self._set_state("ABORTED")

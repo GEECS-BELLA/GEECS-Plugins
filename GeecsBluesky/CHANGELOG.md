@@ -4,6 +4,35 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.51.0] - 2026-08-20
+
+### Changed
+
+- **`scan.log` is now the complete per-scan record** (owner request from
+  the 2026-08-19 console test scans, and queueserver prep — under a worker
+  there is no operator-attached terminal, only a machine-global journal):
+  the per-scan file handler attaches to the **root logger** instead of a
+  four-namespace allowlist, so `bluesky` RunEngine state changes,
+  `ophyd_async` connect-failure tracebacks, and `geecs_data_utils`
+  folder/export lines land in the file — everything the terminal shows.
+  The root level is lowered to INFO for the scan's duration and restored.
+  `CAPTURE_LOGGER_NAMES` is gone (no external importers).
+
+### Added
+
+- **Pre-claim log capture** (`begin_pre_scan_capture` /
+  `discard_pre_scan_capture` in `scan_log.py`): a bounded buffer starts at
+  submission (`BlueskyScanner.reinitialize` / `GeecsSession.run`) and
+  flushes into `scan.log` the moment the folder is claimed, so the file
+  opens with the most diagnostic window — submission, device connects,
+  soft-telemetry drops (previously terminal-only).  A buffer with no
+  scan.log home (refused submission, `save_data=False`, claim failure) is
+  discarded, never leaked into a later scan's file.
+- Known-noisy transport namespaces (`httpx`, `mysql.connector`) are kept
+  out of the scan.log capture below WARNING (live finding, 2026-08-20
+  Scan001: ~15 non-scan-story lines per scan); their WARNING+ records
+  still land, and the terminal is untouched.
+
 ## [0.50.1] - 2026-07-25
 
 ### Changed
