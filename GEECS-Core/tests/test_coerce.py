@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-from geecs_ca_gateway.transport._coerce import coerce_scalar
+from geecs_core.transport._coerce import coerce_scalar
 
 
 class TestCoerceScalar:

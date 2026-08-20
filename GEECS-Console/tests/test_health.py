@@ -104,7 +104,7 @@ class TestTiled:
 
 class TestDb:
     def test_query_ok(self, probe, monkeypatch):
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         monkeypatch.setattr(
             GeecsDb, "get_subscribed_variables", classmethod(lambda cls, exp: {})
@@ -112,7 +112,7 @@ class TestDb:
         assert probe._check_db() is HealthStatus.OK
 
     def test_query_raise_is_down(self, probe, monkeypatch):
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         def _boom(cls, exp):
             raise RuntimeError("no MySQL")
@@ -123,7 +123,7 @@ class TestDb:
 
 class TestPollAggregate:
     def test_poll_reports_all_three(self, probe, monkeypatch):
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         monkeypatch.setattr(aioca, "caget", _caget_returning({}, 232))
         monkeypatch.setattr(probe, "_tiled_uri", lambda: "http://tiled.local:8000")
@@ -137,7 +137,7 @@ class TestPollAggregate:
         assert report.db is HealthStatus.OK
 
     def test_poll_never_raises_when_all_fail(self, probe, monkeypatch):
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         monkeypatch.setattr(aioca, "caget", _caget_raising())
         monkeypatch.setattr(probe, "_tiled_uri", lambda: "http://tiled.local:8000")

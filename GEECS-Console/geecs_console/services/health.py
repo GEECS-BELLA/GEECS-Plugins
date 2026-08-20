@@ -231,7 +231,7 @@ class GatewayTiledDbHealth:
             MySQL, no credentials, unreachable host).
         """
         try:
-            from geecs_ca_gateway.db.geecs_db import GeecsDb
+            from geecs_core.db.geecs_db import GeecsDb
 
             # A cheap, indexed get='yes' lookup; the result is irrelevant —
             # a successful round-trip is the connectivity signal.

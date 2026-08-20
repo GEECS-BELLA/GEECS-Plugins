@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.20.1"
+version = "0.20.2"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -17,6 +17,10 @@ geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "
 # The config vocabulary: ScanRequest is the one submission object this GUI
 # builds.  Pydantic-only — the request builder imports nothing heavier.
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+# GeecsDb (device completions, health panel) — declared directly rather
+# than ridden as a transitive of geecs-bluesky.
+geecs-core = { path = "../GEECS-Core", develop = true }
 
 # The scan browser's data layer: ScanCatalog / tiled_schema / tiled_drift
 # (plus the read-only ScanPaths resolution ops_paths already used

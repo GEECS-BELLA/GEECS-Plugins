@@ -17,10 +17,10 @@ import logging
 
 import pytest
 
-from geecs_ca_gateway.exceptions import GeecsConnectionError
-from geecs_ca_gateway.transport.udp_client import GeecsUdpClient, _Oneshot
+from geecs_core.exceptions import GeecsConnectionError
+from geecs_core.transport.udp_client import GeecsUdpClient, _Oneshot
 
-_UDP_LOGGER = "geecs_ca_gateway.transport.udp_client"
+_UDP_LOGGER = "geecs_core.transport.udp_client"
 _DEVICE_ADDR = ("127.0.0.1", 50000)
 
 

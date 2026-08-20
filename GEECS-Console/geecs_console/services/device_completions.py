@@ -76,7 +76,7 @@ class GeecsDbCompletions:
         if not self._experiment:
             return self._cache
         try:
-            from geecs_ca_gateway.db.geecs_db import GeecsDb
+            from geecs_core.db.geecs_db import GeecsDb
 
             per_device = GeecsDb.get_experiment_device_variables(self._experiment)
             self._cache = {

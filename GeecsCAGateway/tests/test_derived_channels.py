@@ -20,7 +20,7 @@ from geecs_ca_gateway.derived import (
     scanner_configs_base,
 )
 from geecs_ca_gateway.gateway import GeecsCaGateway
-from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 pytestmark = pytest.mark.fake_server
 

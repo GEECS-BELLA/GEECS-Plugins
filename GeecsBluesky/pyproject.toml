@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.52.1"
+version = "0.52.2"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -21,10 +21,10 @@ bluesky = ">=1.12"
 geecs_data_utils = { path = "../GEECS-Data-Utils", develop = true }
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
 
-# The GEECS access layer: GeecsDb metadata, pv_naming, transport-level
-# exceptions (library use), and the CA gateway PVs (service use). We import
-# its library modules; we never import its server.
-geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
+# The GEECS access library: GeecsDb metadata, pv_naming, and the
+# wire-level exception tree. The CA gateway itself is consumed only as a
+# service (its PVs, over aioca) — this package imports no gateway code.
+geecs-core = { path = "../GEECS-Core", develop = true }
 
 # The schema layer (vision doc §4): ScanRequest + the config models and
 # legacy-YAML converters consumed by scan_request_runner / session.run().

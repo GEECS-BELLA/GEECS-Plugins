@@ -14,8 +14,8 @@ import socket
 from pydantic import BaseModel, Field
 
 from geecs_ca_gateway.config import effective_vartype
-from geecs_ca_gateway.pv_naming import pv_name
-from geecs_ca_gateway.transport.udp_client import detect_local_ip
+from geecs_core.pv_naming import pv_name
+from geecs_core.transport.udp_client import detect_local_ip
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ class PvaGatewayConfig(BaseModel):
         enabled_only : bool
             Skip devices not enabled in the experiment (default true).
         """
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         endpoints = GeecsDb.get_experiment_devices(
             experiment, enabled_only=enabled_only

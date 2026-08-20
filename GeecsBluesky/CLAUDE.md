@@ -161,13 +161,14 @@ geecs_bluesky/
   scanner_configs.py        # configs-repo resolution + shot-control YAML loading
   models/
     shot_control.py         # ShotControlConfig / ShotControlState — validated YAML
-  exceptions.py             # scan-level errors; wire-level ones re-exported from the gateway
+  exceptions.py             # scan-level errors; wire-level ones re-exported from geecs-core
   utils.py                  # safe_name()
 
 The GEECS access-layer core (``transport/``, ``db/``, ``pv_naming``,
-``FakeGeecsServer``, wire-level exceptions) lives in **GeecsCAGateway** — this
-package depends on it for library use (``GeecsDb`` metadata, naming,
-exceptions) and consumes its CA service for all device I/O.
+``FakeGeecsServer``, wire-level exceptions) lives in **GEECS-Core**
+(``geecs_core``) — this package depends on it for library use (``GeecsDb``
+metadata, naming, exceptions) and consumes the CA gateway purely as a
+service (its PVs) for all device I/O; no gateway code is imported.
 
 EVENT_SCHEMA.md — the canonical event-schema v1 data contract (read it).
 
@@ -499,16 +500,16 @@ inter-machine clock skew (~50 ms); at 5 Hz that leaves 50–80 ms of margin,
 and rates meaningfully beyond 5 Hz need a redesigned seeding stage — see
 `Planning/device_read_path/00_overview.md`.
 
-## Transport Layer — moved to GeecsCAGateway
+## Transport Layer — moved to GEECS-Core
 
 The GEECS wire-protocol transport (`GeecsUdpClient`, `GeecsTcpSubscriber`)
-no longer lives in this package: it moved to
-`GeecsCAGateway/geecs_ca_gateway/transport/`, alongside the DB layer and PV
-naming.  This package touches GEECS devices **only** through the gateway's
-CA PVs; it imports the gateway's library modules (`GeecsDb`, `pv_naming`,
-wire-level exceptions) and never the transport or the server.  See
-`GeecsCAGateway/README.md` and `GeecsCAGateway/DESIGN.md` for the protocol
-details that used to be documented here.
+no longer lives in this package: it lives in `GEECS-Core/geecs_core/transport/`
+(extracted 2026-08-20 from its interim home in GeecsCAGateway), alongside the
+DB layer and PV naming.  This package touches GEECS devices **only** through
+the gateway's CA PVs; it imports geecs-core's library modules (`GeecsDb`,
+`pv_naming`, wire-level exceptions) and never the transport, the gateway, or
+the server.  See `GEECS-Core/DESIGN.md` and `GeecsCAGateway/README.md` for
+the protocol details that used to be documented here.
 
 **Images: two paths, deliberately separate.** Per-shot *scan data* stays on
 the file path — the LabVIEW device writes files, this package's asset
@@ -522,8 +523,8 @@ document stream.
 ## Test Infrastructure
 
 `FakeGeecsServer` / `FakeGeecsDevice` (the in-process UDP/TCP server that
-speaks the real GEECS wire protocol) also moved to GeecsCAGateway
-(`geecs_ca_gateway.testing`).  This package's hermetic tests are built on
+speaks the real GEECS wire protocol) also lives in GEECS-Core
+(`geecs_core.testing`).  This package's hermetic tests are built on
 ophyd-async **mock backends** instead (`tests/ca_mock_helpers.py`) — see the
 Device Layer section above.
 

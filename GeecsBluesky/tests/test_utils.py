@@ -30,7 +30,7 @@ def test_safe_name_agrees_with_the_pv_naming_contract() -> None:
     ``normalize_component`` (plus the non-empty fallback) so a GEECS name
     mangles identically into an event column and a PV.
     """
-    from geecs_ca_gateway.pv_naming import normalize_component
+    from geecs_core.pv_naming import normalize_component
 
     for raw in ("Position.Axis 1", "Amplitude.Ch AB", "Beam Current (A)", "ypos"):
         assert safe_name(raw) == normalize_component(raw)

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-pva-gateway"
-version = "0.4.2"
+version = "0.4.3"
 description = "Distributed pvAccess gateway serving GEECS camera images as NTNDArray PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -17,6 +17,9 @@ numpy = ">=2.0,<3.0"
 # config, same naming contract — different protocol. Runs distributed on the
 # camera servers (one instance per host, serving that host's cameras) instead
 # of centrally; the central CA gateway never proxies pixels (DESIGN.md).
+geecs-core = { path = "../GEECS-Core", develop = true }
+# Still needed beyond geecs-core for config helpers (effective_vartype —
+# the DB→dtype choice-descriptor rules shared with the CA gateway).
 geecs-ca-gateway = { path = "../GeecsCAGateway", develop = true }
 geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true }
 

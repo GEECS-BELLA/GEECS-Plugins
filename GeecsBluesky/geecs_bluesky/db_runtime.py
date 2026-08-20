@@ -40,7 +40,7 @@ class ScalarPolicyProvider(Protocol):
     """Supplies per-device DB variable policy for one experiment.
 
     The seam between the pure resolution logic and
-    :class:`~geecs_ca_gateway.db.geecs_db.GeecsDb`.  Every method returns an
+    :class:`~geecs_core.db.geecs_db.GeecsDb`.  Every method returns an
     empty result rather than raising when the DB is unavailable or a device
     is uncurated.  This covers only the **get-side** (subscribed ``get='yes'``
     variables + all-variables queries); the set-side is disabled (see the
@@ -64,7 +64,7 @@ class ScalarPolicyProvider(Protocol):
 class GeecsDbScalarPolicy:
     """DB-backed :class:`ScalarPolicyProvider`, one batched query per kind.
 
-    Wraps :class:`~geecs_ca_gateway.db.geecs_db.GeecsDb` for one experiment,
+    Wraps :class:`~geecs_core.db.geecs_db.GeecsDb` for one experiment,
     caching each of its two get-side whole-experiment queries on first use.
     Every query is wrapped so a DB failure (off the lab network, a missing
     table, an uncurated experiment) degrades to empty policy with a single
@@ -90,7 +90,7 @@ class GeecsDbScalarPolicy:
     def _geecs_db(self) -> object:
         if self.db is not None:
             return self.db
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         self.db = GeecsDb
         return GeecsDb
@@ -188,7 +188,7 @@ class GeecsDbServedSetProvider:
     def _geecs_db(self) -> object:
         if self.db is not None:
             return self.db
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         self.db = GeecsDb
         return GeecsDb

@@ -18,11 +18,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
 from .config import DeviceSpec, GatewayConfig, VariableSpec
 from .gateway import GeecsCaGateway
-from .pv_naming import pv_name, setpoint_pv
+from geecs_core.pv_naming import pv_name, setpoint_pv
 
 DEVICE_NAME = "U_ESP_JetXYZ"
 

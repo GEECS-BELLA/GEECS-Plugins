@@ -34,7 +34,7 @@ VAR_MAP = {
 
 @pytest.fixture
 def fake_db(monkeypatch):
-    from geecs_ca_gateway.db.geecs_db import GeecsDb
+    from geecs_core.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb, "get_experiment_devices", classmethod(lambda cls, e, **kw: ENDPOINTS)

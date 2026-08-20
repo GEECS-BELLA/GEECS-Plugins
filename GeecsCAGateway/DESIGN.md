@@ -44,12 +44,13 @@ for a solo, spare-time maintainer.
 
 ## Architecture
 
-The GeecsBluesky transport core is already ophyd-free (`transport/` imports no
-ophyd). The gateway is a **sibling presentation** over that same core, parallel
-to the ophyd `SignalBackend`:
+The transport core (then in GeecsBluesky, now `geecs_core.transport`) is
+ophyd-free (`transport/` imports no ophyd). The gateway is a **sibling
+presentation** over that same core, parallel to the ophyd `SignalBackend`:
 
 ```
-                 geecs_bluesky.transport (async core, ophyd-free)
+                 geecs_core.transport (async core, ophyd-free;
+                 lived in geecs_bluesky at the time of this snapshot)
                    GeecsUdpClient · GeecsTcpSubscriber
                     /                              \
    backends/geecs_signal_backend.py         GeecsCAGateway (this package)
@@ -225,6 +226,7 @@ Recorded so the next build phase doesn't relitigate them.
 - **Sharding + systemd** for production fault isolation.
 - **A `GatewayConfig.from_geecs_experiment(name)`** that enumerates a whole
   experiment's devices from the DB dict.
-- **Extract `transport/` + `db/`** into a shared base package that both the ophyd
-  backend and this gateway depend on (currently a `path`-dep on GeecsBluesky).
+- ~~**Extract `transport/` + `db/`** into a shared base package that both the
+  ophyd backend and this gateway depend on.~~ **DONE 2026-08-20**: the shared
+  base package is `GEECS-Core` (`geecs_core`) — see its `DESIGN.md`.
 ```

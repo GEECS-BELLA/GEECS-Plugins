@@ -30,11 +30,11 @@ from caproto import (
 )
 from caproto.asyncio.server import start_server
 
-from geecs_ca_gateway.exceptions import GeecsConnectionError
-from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
-from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
+from geecs_core.exceptions import GeecsConnectionError
+from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
+from geecs_core.transport.udp_client import GeecsUdpClient
 
-from .alarms import AlarmLevel, AlarmSeverityName
+from geecs_core.db.alarms import AlarmLevel, AlarmSeverityName
 from .channels import (
     cast_value,
     enum_index,
@@ -46,7 +46,7 @@ from .channels import (
 )
 from .config import GatewayConfig, VariableSpec
 from .derived import DerivedChannelSpec, ExpressionEvaluator, derived_pv_name
-from .pv_naming import pv_name, setpoint_pv
+from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
 

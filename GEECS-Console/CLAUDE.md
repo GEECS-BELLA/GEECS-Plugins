@@ -83,8 +83,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `tests/test_no_geecs_python_api.py` (source grep + sys.modules check;
   the grep blesses exactly one string, the
   `~/.config/geecs_python_api/config.ini` path literal the Ops menu opens).
-  DB autocompletes go through `GeecsDb` (`geecs_ca_gateway`, an allowed
-  transitive of `geecs-bluesky`); errors from the bluesky/gateway tree.
+  DB autocompletes go through `GeecsDb` (`geecs_core`, a declared direct
+  dependency); errors from the bluesky/gateway tree.
 - **The one submission shape is `geecs_schemas.ScanRequest`.**
   `request_builder.build_scan_request` is the only place form state becomes
   a request; keep it a pure function, keep widgets out of it.

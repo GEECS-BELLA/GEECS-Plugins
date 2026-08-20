@@ -140,7 +140,7 @@ def main(argv: list[str] | None = None) -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     if not args.show_missing:
-        logging.getLogger("geecs_ca_gateway.transport.tcp_subscriber").addFilter(
+        logging.getLogger("geecs_core.transport.tcp_subscriber").addFilter(
             _QuietMissingVariables()
         )
     try:

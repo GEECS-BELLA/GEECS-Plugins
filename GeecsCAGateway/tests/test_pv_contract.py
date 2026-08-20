@@ -21,7 +21,7 @@ from caproto._data import CannotExceedLimits
 from geecs_ca_gateway.channels import make_readback_channel, make_setpoint_channel
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
 from geecs_ca_gateway.gateway import GeecsCaGateway
-from geecs_ca_gateway.pv_naming import pv_name
+from geecs_core.pv_naming import pv_name
 
 DEVICE = "U_ESP_JetXYZ"
 

@@ -16,7 +16,7 @@ geecs-pva-gateway --experiment Undulator --list   # show what would be served
 
 - Served set is **DB-scoped**: enabled devices whose GEECS endpoint IP is this
   machine and that expose image-typed variables. No per-host config file.
-- PV names follow the shared contract (`geecs_ca_gateway.pv_naming`):
+- PV names follow the shared contract (`geecs_core.pv_naming`):
   `undulator:uc_amp2_ir_input:image`.
 - Subscriptions are **gated per variable**: each image variable's GEECS TCP
   subscription starts with its first PVA client and stops with its last —

@@ -76,8 +76,8 @@ tests/
 
 ## Ground rules
 
-- **Naming**: only via `geecs_ca_gateway.pv_naming`. No local copies.
-- **Transport**: only `geecs_ca_gateway.transport`. Never GEECS-PythonAPI
+- **Naming**: only via `geecs_core.pv_naming`. No local copies.
+- **Transport**: only `geecs_core.transport`. Never GEECS-PythonAPI
   (deprecated, slated for deletion).
 - **Images stay off the CA gateway; scalars stay off this one.** This package
   serves image-typed variables only. If PVA scalars ever happen, that is a
