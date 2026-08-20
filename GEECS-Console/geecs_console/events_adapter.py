@@ -49,6 +49,25 @@ class ScanEventsAdapter(QObject):
     the GUI slot answers on the main thread and sets that event to unblock it.
     """
 
+    def __init__(self, parent: Any = None) -> None:
+        super().__init__(parent)
+        #: Last line sent to the log tail (consecutive-duplicate suppression).
+        self._last_narrated: str | None = None
+
+    def _narrate(self, line: str) -> None:
+        """Emit *line* on ``log_line`` unless it repeats the previous line.
+
+        The log tail is a narration, not a record: two consecutive events
+        whose rendered text is identical (the engine legitimately re-emits
+        e.g. the final step event) add nothing for the operator, so exact
+        consecutive repeats are dropped.  Only the narration dedupes — the
+        data signals (``state_changed``, ``progress``, …) always emit.
+        """
+        if line == self._last_narrated:
+            return
+        self._last_narrated = line
+        self.log_line.emit(line)
+
     def handle(self, event: Any) -> None:
         """Consume one engine event (the ``on_event`` callback).
 
@@ -69,24 +88,29 @@ class ScanEventsAdapter(QObject):
             scan_number = getattr(event, "scan_number", None)
             if scan_number is not None:
                 self.scan_number_known.emit(int(scan_number))
-            self.log_line.emit(f"scan {state_text}")
+            # The bridge re-emits RUNNING once the scan number is claimed —
+            # narrate that as new information, not a duplicate line.
+            if scan_number is not None:
+                self._narrate(f"scan {state_text} (Scan{int(scan_number):03d})")
+            else:
+                self._narrate(f"scan {state_text}")
         elif kind == "ScanStepEvent":
             step_index = int(getattr(event, "step_index", 0))
             total_steps = int(getattr(event, "total_steps", 0))
             shots_completed = int(getattr(event, "shots_completed", 0))
             self.progress.emit(step_index, total_steps, shots_completed)
             phase = getattr(event, "phase", "")
-            self.log_line.emit(
+            self._narrate(
                 f"step {step_index + 1}/{total_steps} {phase} ({shots_completed} shots)"
             )
         elif kind == "ScanErrorEvent":
             message = str(getattr(event, "message", ""))
             self.error.emit(message)
-            self.log_line.emit(f"error: {message}")
+            self._narrate(f"error: {message}")
         elif kind == "ScanRestoreFailedEvent":
             device = getattr(event, "device", "")
             message = getattr(event, "message", "")
-            self.log_line.emit(f"restore failed: {device}: {message}")
+            self._narrate(f"restore failed: {device}: {message}")
         elif kind == "ScanDialogEvent":
             # The engine's scan thread is blocked on request.response_event;
             # emit the request so the main-thread slot renders a modal and
@@ -95,14 +119,10 @@ class ScanEventsAdapter(QObject):
             # the three-way ActionDecisionRequest (a ``verdict`` list).
             request = getattr(event, "request", None)
             if getattr(request, "verdict", None) is not None:
-                self.log_line.emit(
-                    f"action decision: {getattr(request, 'action_name', '')}"
-                )
+                self._narrate(f"action decision: {getattr(request, 'action_name', '')}")
             else:
-                self.log_line.emit(
-                    f"operator question: {getattr(request, 'exc', None)}"
-                )
+                self._narrate(f"operator question: {getattr(request, 'exc', None)}")
             if request is not None:
                 self.dialog_requested.emit(request)
         else:
-            self.log_line.emit(kind)
+            self._narrate(kind)

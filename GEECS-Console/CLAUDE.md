@@ -50,6 +50,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `ScanEvent` stream built in `events_adapter.handle` — per-shot lines
   are event *documents*, emitted at ``bps.save()`` (end of shot, *after*
   the per-shot CA reads that ride the VPN) and delivered queued; the
+  narration suppresses exact consecutive repeats (0.20.1 — the engine
+  legitimately re-emits e.g. the final step event) and renders the
+  bridge's claimed-number RUNNING re-emission as "scan running
+  (Scan NNN)"; data signals never dedupe; the
   terminal/file log's lines fire synchronously at the point of action
   (e.g. `SINGLESHOT` logs at shot *start*).  Same process, no network
   between engine and GUI — the VPN latency enters upstream, in when the
