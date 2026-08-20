@@ -4,6 +4,27 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.1] - 2026-08-20
+
+### Fixed
+
+- **BAX algorithm-results pickles no longer land in the process working
+  directory.** Xopt's `BaxGenerator` opens
+  `<algorithm_results_file>_<n>.pkl` as-is on every generate call, and the
+  config default is a bare relative `bax_probe_results` — on the delegated
+  console path (where no `scan_data_manager` exists to root it) the pickles
+  dropped into whatever directory the process ran from (live-observed
+  2026-08-20: into the repo checkout, nearly committed; under the future
+  queueserver worker it would litter the service's cwd).
+  `SessionOptimizationBridge.bind` now roots a relative
+  `algorithm_results_file` into the claimed scan folder (writing into the
+  existing folder only — the runner claims pre-bind; scan-folder invariant
+  respected), falling back to a fresh temp directory when the claim failed.
+  Absolute paths pass through untouched; a relative value with directory
+  components is flattened to its basename (nothing creates those
+  directories, and `..` must not escape the scan folder); generators
+  without the attribute are a no-op.
+
 ## [0.52.0] - 2026-08-20
 
 ### Added

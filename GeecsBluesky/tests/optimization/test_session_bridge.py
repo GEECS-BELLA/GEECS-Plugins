@@ -158,6 +158,34 @@ def _make_optimizer(**optimizer_kwargs):
     )
 
 
+def _make_bax_optimizer(algorithm_results_file=None):
+    """Observables-only BAX optimizer (the one generator that dumps pickles)."""
+    from xopt import VOCS
+
+    from geecs_bluesky.optimization.base_optimizer import BaseOptimizer
+
+    evaluator = _MeanCurrentEvaluator(scalars=["U_S1H:Current"])
+    vocs = VOCS(
+        variables={"ctrl": [-1.0, 1.0], "meas": [-2.0, 2.0]},
+        observables=["x_CoM"],
+    )
+    cfg = {
+        "control_names": ["ctrl"],
+        "measurement_name": "meas",
+        "observable_names": ["x_CoM"],
+        "n_control_mesh": 5,
+    }
+    if algorithm_results_file is not None:
+        cfg["algorithm_results_file"] = algorithm_results_file
+    return BaseOptimizer(
+        vocs=vocs,
+        evaluate_function=evaluator.get_value,
+        generator_name="multipoint_bax_alignment",
+        xopt_config_overrides={"multipoint_bax_alignment": cfg},
+        evaluator=evaluator,
+    )
+
+
 class TestSessionOptimizationBridge:
     def test_full_ask_evaluate_tell_loop(self):
         bridge = SessionOptimizationBridge(_make_optimizer())
@@ -236,6 +264,58 @@ class TestSessionOptimizationBridge:
         bridge = SessionOptimizationBridge(_make_optimizer())
         bridge.bind(devices=[], scan_tag=None)
         bridge.finish()  # must not raise
+
+
+class TestAlgorithmResultsFileRooting:
+    """bind() roots a relative generator ``algorithm_results_file`` off the cwd.
+
+    Live-observed 2026-08-20: Xopt's ``BaxGenerator`` opens
+    ``<algorithm_results_file>_<n>.pkl`` as-is on every generate call, so the
+    config default (a bare ``bax_probe_results``) dropped pickles into the
+    process working directory — the repo checkout the console ran from.
+    """
+
+    def test_relative_default_rooted_into_scan_folder(self, tmp_path):
+        bridge = SessionOptimizationBridge(_make_bax_optimizer())
+        bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
+        assert bridge.optimizer.xopt.generator.algorithm_results_file == str(
+            tmp_path / "bax_probe_results"
+        )
+
+    def test_absolute_path_passes_through_untouched(self, tmp_path):
+        explicit = str(tmp_path / "elsewhere" / "results")
+        bridge = SessionOptimizationBridge(_make_bax_optimizer(explicit))
+        bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
+        assert bridge.optimizer.xopt.generator.algorithm_results_file == explicit
+
+    def test_no_scan_folder_falls_back_to_temp_dir_never_cwd(self, caplog):
+        bridge = SessionOptimizationBridge(_make_bax_optimizer())
+        with caplog.at_level(logging.WARNING):
+            bridge.bind(devices=[], scan_tag=None)
+        rooted = Path(bridge.optimizer.xopt.generator.algorithm_results_file)
+        assert rooted.is_absolute()
+        assert rooted.parent != Path.cwd()
+        assert rooted.parent.is_dir()  # mkdtemp created it, writes succeed
+        assert "temp directory" in caplog.text
+
+    def test_relative_path_with_directories_is_flattened(self, tmp_path, caplog):
+        # Directory components would crash the generator's bare open() at
+        # the first dump (nothing mkdirs them) — or escape the scan folder
+        # via "..".  Flattened to the basename, with a warning.
+        bridge = SessionOptimizationBridge(
+            _make_bax_optimizer("../diagnostics/bax_probe")
+        )
+        with caplog.at_level(logging.WARNING):
+            bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
+        assert bridge.optimizer.xopt.generator.algorithm_results_file == str(
+            tmp_path / "bax_probe"
+        )
+        assert "directory components" in caplog.text
+
+    def test_generator_without_results_file_is_a_noop(self, tmp_path):
+        bridge = SessionOptimizationBridge(_make_optimizer())  # random generator
+        bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
+        assert not hasattr(bridge.optimizer.xopt.generator, "algorithm_results_file")
 
 
 class TestObserveReadbackSubstitution:
