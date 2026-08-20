@@ -8,8 +8,9 @@
 - [ ] `poetry version patch|minor` run for every package whose code changed
 - [ ] `CHANGELOG.md` entry added under the new version (Keep a Changelog)
 - [ ] Tests: exact counts reported below (not "tests pass")
-- [ ] Base branch matches the content — see CONTRIBUTING.md
-      § "Branch topology" (delete this line at M6)
+- [ ] Base branch is `master` (or your `users/<name>`) — see
+      CONTRIBUTING.md § "Branch topology"; master merges are
+      maintainer-only
 - [ ] Public-repo hygiene: no lab accounts/hostnames/home paths
 - [ ] Adversarial review posted and every finding dispositioned
       (brief in `.claude/skills/land/SKILL.md`)

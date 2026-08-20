@@ -169,7 +169,8 @@ causes silent skips, not errors.
 
 1. **GEECS-Console** (via **GeecsBluesky**'s scan engine) runs a scan →
    writes per-shot data files to a date-structured folder on the data server
-   (the legacy master-line GEECS-Scanner-GUI writes the same layout)
+   (the legacy GEECS-Scanner-GUI — tag `legacy-scanner-final` — wrote the
+   same layout)
 2. **GEECS-Data-Utils** `ScanPaths` / `ScanData` resolves the folder, loads
    scalar summary data from s-files or TDMS
 3. **ImageAnalysis** `StandardAnalyzer` / `BeamAnalyzer` / etc. processes

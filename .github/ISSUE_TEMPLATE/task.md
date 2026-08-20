@@ -15,6 +15,6 @@ about: Planned work with agreed timing (not a defect)
 
 <!-- Files/modules touched, tests that pin current behavior, rough size. -->
 
-## Cutover relevance
+## Context
 
-<!-- Is this an M6 cutover gate (e.g. telemetry parity)? Say so. -->
+<!-- Anything a fresh reader needs that the description doesn't carry. -->

@@ -38,11 +38,9 @@ session memory), feature PRs target the personal branch instead of a
 mainline base — and never merge `users/<name>` into a mainline branch
 yourself; that promotion PR is merged by a human maintainer.
 
-**Master merges are human-only (rule set at M6, 2026-08-20):** for a
-PR whose base is `master`, the agent does everything up to and including
-the adversarial-review disposition and the CI watch — and then **hands
-the merge to the maintainer** instead of running `gh pr merge`. Only
-PRs into a `users/<name>` personal branch may be agent-merged.
+**Master merges are maintainer-only** — the rule (and any future
+amendments) lives in CONTRIBUTING.md § "Branch topology"; step 8 below
+carries the mechanics.
 
 ## Steps
 
@@ -71,7 +69,10 @@ PRs into a `users/<name>` personal branch may be agent-merged.
    "OWED: <what to verify, expected numbers>" so the code-complete vs
    hardware-verified distinction is never implicit.
 7. **Adversarial review** (runs during the CI wait; see the section
-   below): spawn a fresh-context reviewer subagent on the PR's diff,
+   below — exception: a bulk integration merge whose constituent PRs
+   were each already reviewed skips the re-review and says so in the PR
+   body, per CONTRIBUTING § "Branch topology"): spawn a fresh-context
+   reviewer subagent on the PR's diff,
    post its report as a PR comment **either way** — a "no surviving
    findings" report is itself the audit record distinguishing
    "reviewed, clean" from "review skipped" — and disposition every
@@ -80,13 +81,19 @@ PRs into a `users/<name>` personal branch may be agent-merged.
 8. **Merge**: wait for CI (`gh pr checks <n> --watch`). If the base is
    `master`, STOP here and hand the merge to the maintainer (rule above)
    — report the PR as ready-to-merge; after they merge, delete the
-   feature branch. If the base is a `users/<name>` personal branch,
-   merge with `--merge --delete-branch` yourself. Remove the worktree
-   after merge unless it hosts an open stacked branch — and always
-   confirm with the user before removing any worktree.
+   feature branch **unless a stacked child PR is based on it** (deleting
+   the base auto-closes the child, unreopenable). If the base is a
+   `users/<name>` personal branch, merge with `--merge --delete-branch`
+   yourself. Remove the worktree after merge unless it hosts an open
+   stacked branch — and always confirm with the user before removing any
+   worktree.
 9. **Stacked PRs**: base on the parent PR's branch and say "merge #N
    first" in the body — but beware: GitHub auto-closes (unreopenable) a
-   PR whose base branch is deleted. Prefer merging the parent first and
+   PR whose base branch is deleted, and under the hand-off flow the
+   maintainer may merge the parent at any moment. Retarget the child to
+   the parent's base BEFORE reporting the parent ready-to-merge, and
+   flag any stacked child in the parent's ready-to-merge report.
+   Prefer merging the parent first and
    retargeting before it merges, or re-file (precedent: #538 → #539).
 
 ## The adversarial review step

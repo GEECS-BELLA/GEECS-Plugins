@@ -108,7 +108,7 @@ elif [ "$MODE" = "all" ]; then
 else
     [ -n "$BASE" ] || BASE="$(pick_base)"
     if [ -z "$BASE" ]; then
-        echo "check.sh: no base branch found (no origin/feat/* or origin/master); use --base" >&2
+        echo "check.sh: no base branch found (no origin/HEAD or origin/master); use --base" >&2
         exit 2
     fi
     MB="$(git merge-base HEAD "$BASE")"

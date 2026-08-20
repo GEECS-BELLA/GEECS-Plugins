@@ -30,14 +30,13 @@ repo's AI tooling uses when it helps a new developer get set up.
 ```bash
 git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git
 cd GEECS-Plugins
-git checkout dev
 ```
 
-!!! note "Why `dev`?"
-    Until the planned branch cutover, `dev` is the active development
-    line and the default base for new work; `master` carries the legacy
-    scanner. See `CONTRIBUTING.md` at the repo root for the branch
-    topology.
+!!! note "One mainline"
+    `master` (the default branch you just cloned) is the single active
+    development line — no branch switch needed. The pre-cutover legacy
+    scanner lives at the tag `legacy-scanner-final` if you ever need it.
+    See `CONTRIBUTING.md` at the repo root for the branch topology.
 
 If you'll work on analyzer configurations, also clone the sister config
 repo **as a sibling directory** (several tools expect it at
