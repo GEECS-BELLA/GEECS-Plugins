@@ -82,14 +82,27 @@ def _find_credentials() -> dict:
     return _credentials
 
 
+# Bound on the TCP connect to the DB host.  On the lab network connections
+# complete in milliseconds; off-network the OS default lets a connect block
+# for ~75 s per query.  Module-level so callers with unusual links can tune it.
+CONNECT_TIMEOUT_S: float = 10.0
+
+
 def _connect_mysql(mysql_connector):
     """Open a MySQL connection using the pure-Python connector implementation.
 
     The mysql-connector-python 9.x C extension has crashed silently on Windows in
     the legacy API layer.  GeecsBluesky runs on the same lab machines, so use the
     pure implementation here too.
+
+    The connect is bounded by :data:`CONNECT_TIMEOUT_S` so off-network callers
+    fail fast instead of hanging on the OS TCP-connect default.
     """
-    return mysql_connector.connect(**_find_credentials(), use_pure=True)
+    return mysql_connector.connect(
+        **_find_credentials(),
+        use_pure=True,
+        connection_timeout=CONNECT_TIMEOUT_S,
+    )
 
 
 @contextmanager

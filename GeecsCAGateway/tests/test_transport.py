@@ -162,6 +162,24 @@ class TestTcpSubscriber:
         assert "Position (mm)" in received[0]
         assert "Velocity (mm/s)" in received[0]
 
+    async def test_include_shot_delivers_incrementing_counter(
+        self, fake_device: FakeGeecsDevice
+    ) -> None:
+        """With include_shot, frames carry the wire shot counter as an int."""
+        received: list[dict] = []
+
+        async with FakeGeecsServer(fake_device) as srv:
+            async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
+                await sub.subscribe(
+                    ["Position (mm)"], received.append, include_shot=True
+                )
+                await asyncio.sleep(0.5)
+
+        assert len(received) >= 2
+        shots = [r["shot number"] for r in received]
+        assert all(isinstance(s, int) for s in shots)
+        assert shots == sorted(shots) and shots[-1] > shots[0]
+
     async def test_missing_variable_warns_and_continues(
         self, fake_device: FakeGeecsDevice, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -397,3 +415,34 @@ class TestSubscriptionFrameParsing:
         assert parse("garbage", ["A"]) == {}
         assert parse("Dev>>1>>", ["A"]) == {}
         assert _parse_subscription("Dev>>1>>A nval,1 nvar", None) == {}
+
+
+class TestShotNumberOptIn:
+    """Pin the reserved ``"shot number"`` key contract of include_shot."""
+
+    MSG = "U_TestDevice>>42>>Position (mm) nval,5.0 nvar"
+
+    def _parse(self, msg: str, include_shot: bool) -> dict:
+        pattern = _compile_frame_pattern(["Position (mm)"])
+        return _parse_subscription(msg, pattern, frozenset(), include_shot=include_shot)
+
+    def test_default_frames_carry_no_shot_key(self) -> None:
+        assert "shot number" not in self._parse(self.MSG, include_shot=False)
+
+    def test_opt_in_attaches_integer_shot(self) -> None:
+        parsed = self._parse(self.MSG, include_shot=True)
+        assert parsed == {"Position (mm)": 5.0, "shot number": 42}
+
+    def test_unmatched_frame_stays_empty(self) -> None:
+        """No matched variables -> no shot key, so callback gating is unchanged."""
+        msg = "U_TestDevice>>42>>Other nval,1 nvar"
+        assert self._parse(msg, include_shot=True) == {}
+
+    def test_non_integer_shot_field_omits_key(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        msg = "U_TestDevice>>abc>>Position (mm) nval,5.0 nvar"
+        with caplog.at_level("WARNING"):
+            parsed = self._parse(msg, include_shot=True)
+        assert parsed == {"Position (mm)": 5.0}
+        assert "non-integer shot" in caplog.text

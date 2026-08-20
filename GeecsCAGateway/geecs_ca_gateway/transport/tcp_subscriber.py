@@ -153,6 +153,7 @@ class GeecsTcpSubscriber:
         variables: list[str],
         callback: Callback,
         text_variables: Collection[str] = (),
+        include_shot: bool = False,
     ) -> None:
         """Send subscription command and start the background push listener.
 
@@ -168,6 +169,13 @@ class GeecsTcpSubscriber:
             from the wire (string/path-typed channels).  All other variables get
             numeric coercion, which is lossy for text: ``'007'`` → ``7``,
             ``'1.10'`` → ``1.1``, ``'1e5'`` → ``100000.0``.
+        include_shot:
+            When True, each callback dict additionally carries the frame's shot
+            counter under the reserved key ``"shot number"`` (an ``int``).  The
+            key is only attached to frames where at least one subscribed
+            variable matched, so the default callback-gating behavior is
+            unchanged.  Do not subscribe a GEECS variable literally named
+            ``"shot number"`` together with this option.
         """
         if self._writer is None:
             raise RuntimeError(
@@ -180,7 +188,9 @@ class GeecsTcpSubscriber:
         self._warned_missing_variables.clear()
 
         self._listen_task = asyncio.create_task(
-            self._listen_loop(callback, variables, frozenset(text_variables)),
+            self._listen_loop(
+                callback, variables, frozenset(text_variables), include_shot
+            ),
             name=f"tcp-sub[{self._host}:{self._port}]",
         )
 
@@ -189,6 +199,7 @@ class GeecsTcpSubscriber:
         callback: Callback,
         variables: list[str],
         text_variables: frozenset[str],
+        include_shot: bool = False,
     ) -> None:
         """Read framed messages in a loop and dispatch to callback."""
         assert self._reader is not None
@@ -208,7 +219,9 @@ class GeecsTcpSubscriber:
                 # Truncated repr: image frames are multi-MB, scalar frames tiny.
                 logger.debug("TCP rx (%d bytes): %.200r", len(msg), msg)
 
-                parsed = _parse_subscription(msg, pattern, text_variables)
+                parsed = _parse_subscription(
+                    msg, pattern, text_variables, include_shot=include_shot
+                )
                 self._warn_missing_variables(subscribed, parsed)
                 if parsed:
                     try:
@@ -255,6 +268,7 @@ def _parse_subscription(
     msg: str,
     pattern: re.Pattern[str] | None,
     text_variables: frozenset[str] = frozenset(),
+    include_shot: bool = False,
 ) -> dict[str, Any]:
     """Parse a GEECS subscription push into ``{var_name: value}``.
 
@@ -265,6 +279,11 @@ def _parse_subscription(
 
     Values of variables in ``text_variables`` are returned as the exact raw
     text; all others are numerically coerced via :func:`coerce_scalar`.
+
+    With ``include_shot=True``, the frame's shot counter (the field between the
+    first and second ``>>``) is added under the reserved key ``"shot number"``
+    — but only when at least one subscribed variable matched and the counter
+    parses as an integer, so empty frames still return ``{}``.
     """
     if pattern is None:
         return {}
@@ -280,4 +299,9 @@ def _parse_subscription(
         result[var] = (
             raw_val if var in text_variables else coerce_scalar(raw_val.strip())
         )
+    if include_shot and result:
+        try:
+            result["shot number"] = int(msg[i1 + 2 : i2])
+        except ValueError:
+            logger.warning("non-integer shot field in push frame: %.40r", msg)
     return result
