@@ -3,6 +3,24 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.18.0] - 2026-08-20
+
+### Added
+
+- **`GeecsTcpSubscriber.subscribe(include_shot=True)`** — opt-in delivery of
+  the push frame's shot counter to callbacks under the reserved key
+  `"shot number"` (an `int`). Attached only to frames where at least one
+  subscribed variable matched, so callback gating and all existing consumers
+  (default `False`) are unchanged. First consumer: the planned `GeecsDevice`
+  client (geecs-core arc), which mirrors the legacy `state["shot number"]`.
+
+### Changed
+
+- **`GeecsDb` MySQL connects are now time-bounded** (`connection_timeout`,
+  module constant `CONNECT_TIMEOUT_S = 10.0` in `db/geecs_db.py`). Off-network
+  callers fail in seconds instead of blocking ~75 s on the OS TCP-connect
+  default. On the lab network (millisecond connects) this is a no-op.
+
 ## [0.17.1] - 2026-08-18
 
 ### Changed

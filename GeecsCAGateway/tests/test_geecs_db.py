@@ -65,6 +65,36 @@ def test_find_device_uses_pure_python_mysql_connector(monkeypatch) -> None:
     assert calls and calls[0]["use_pure"] is True
 
 
+def test_connect_is_time_bounded(monkeypatch) -> None:
+    """Off-network callers must fail in seconds, not the OS connect default."""
+    calls: list[dict] = []
+
+    def connect(**kwargs):
+        calls.append(kwargs)
+        return _FakeConnection()
+
+    mysql_pkg = types.ModuleType("mysql")
+    connector_mod = types.ModuleType("mysql.connector")
+    connector_mod.connect = connect
+    mysql_pkg.connector = connector_mod
+    monkeypatch.setitem(sys.modules, "mysql", mysql_pkg)
+    monkeypatch.setitem(sys.modules, "mysql.connector", connector_mod)
+    monkeypatch.setattr(
+        geecs_db,
+        "_find_credentials",
+        lambda: {
+            "host": "db",
+            "port": 3306,
+            "database": "geecs",
+            "user": "user",
+            "password": "pw",
+        },
+    )
+
+    GeecsDb.find_device("U_TestDevice")
+    assert calls[0]["connection_timeout"] == geecs_db.CONNECT_TIMEOUT_S
+
+
 def test_get_device_type_queries_device_table(monkeypatch) -> None:
     """Device type lookup should return the database ``device.devicetype`` value."""
     queries: list[tuple[str, tuple[str, ...]]] = []
