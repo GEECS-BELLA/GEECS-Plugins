@@ -2,14 +2,14 @@
 
 Wire-protocol and database exceptions (``GeecsError`` base,
 ``GeecsConnectionError``, ``GeecsCommandError`` and subclasses,
-``GeecsDeviceNotFoundError``) live in :mod:`geecs_ca_gateway.exceptions` — the
+``GeecsDeviceNotFoundError``) live in :mod:`geecs_core.exceptions` — the
 GEECS access layer — and are re-exported here so existing imports keep working.
 Scan-level exceptions below subclass the same ``GeecsError`` base.
 """
 
 from __future__ import annotations
 
-from geecs_ca_gateway.exceptions import (
+from geecs_core.exceptions import (
     GeecsCommandError,
     GeecsCommandFailedError,
     GeecsCommandRejectedError,

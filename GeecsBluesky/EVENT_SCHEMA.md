@@ -82,7 +82,7 @@ Never look a run up by `scan_id` alone; qualify with the day, or use
 
 Column-name components come from `safe_name()` (`geecs_bluesky/utils.py`),
 which delegates to the shared naming contract
-(`geecs_ca_gateway.pv_naming.normalize_component`): runs of non-alphanumeric
+(`geecs_core.pv_naming.normalize_component`): runs of non-alphanumeric
 characters collapse to one underscore, lowercase. A GEECS name therefore
 mangles identically into an event column and a gateway PV component.
 (Before GeecsBluesky 0.46.0, `safe_name` replaced specials per-character, so

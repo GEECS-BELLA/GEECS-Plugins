@@ -3,6 +3,15 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.3] — 2026-08-20
+
+### Changed
+
+- Transport, DB, and naming imports now come from the new **geecs-core**
+  package (`geecs_core.transport` / `geecs_core.db` / `geecs_core.pv_naming`);
+  `geecs-ca-gateway` remains a dep only for `config.effective_vartype`. No
+  behavior change.
+
 ## [0.4.2] — 2026-08-18
 
 ### Fixed

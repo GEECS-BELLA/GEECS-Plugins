@@ -27,7 +27,7 @@ import logging
 import socket
 from typing import Any, Callable
 
-from geecs_ca_gateway.exceptions import (
+from geecs_core.exceptions import (
     GeecsCommandFailedError,
     GeecsCommandRejectedError,
     GeecsConnectionError,

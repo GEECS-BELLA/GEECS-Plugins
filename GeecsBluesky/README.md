@@ -58,10 +58,11 @@ cd GeecsBluesky
 poetry install --extras "ca tiled"
 ```
 
-The `geecs-ca-gateway` path dependency provides the GEECS access-layer
-library (`GeecsDb` metadata, `pv_naming`, wire-level exceptions) and the
-`FakeGeecsServer` test double. DB credentials resolve through the standard
-`~/.config/geecs_python_api/config.ini` → `Configurations.INI` chain.
+The `geecs-core` path dependency provides the GEECS access library
+(`GeecsDb` metadata, `pv_naming`, wire-level exceptions). The CA gateway
+itself is consumed only as a service (its PVs). DB credentials resolve
+through the standard `~/.config/geecs_python_api/config.ini` →
+`Configurations.INI` chain.
 
 ## Quick start (headless session)
 

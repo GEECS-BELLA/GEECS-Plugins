@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_ca_gateway.alarms import AlarmLimits
+from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.channels import (
     cast_value,
     enum_geecs_value,

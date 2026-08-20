@@ -4,6 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.2] - 2026-08-20
+
+### Changed
+
+- Access-layer imports (`GeecsDb`, `pv_naming`, wire-level exceptions) now
+  come from the new **geecs-core** package; the `geecs-ca-gateway` path dep
+  is dropped entirely — the CA gateway is consumed only as a service (its
+  PVs), matching the long-stated dependency doctrine. No behavior change.
+
 ## [0.52.1] - 2026-08-20
 
 ### Fixed

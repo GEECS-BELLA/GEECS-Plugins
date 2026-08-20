@@ -17,11 +17,11 @@ That proxy nature is deliberate and appropriate for ~1 Hz / ~100-device
 experiments, where the axes real EPICS distribution buys (hard real-time, huge
 PV counts, 24/7 fault isolation) are not stressed.
 
-This package is the self-contained GEECS access layer: the UDP/TCP wire
-protocol (`geecs_ca_gateway.transport`), the experiment database
-(`geecs_ca_gateway.db`), the PV naming contract, and the CA server. The
+This package is the CA server of the GEECS access layer, built on the
+**GEECS-Core** library (`geecs_core`: the UDP/TCP wire protocol, the
+experiment database, the PV naming contract, the exception tree). The
 Bluesky side consumes the PVs as a service (stock ophyd-async EPICS signals)
-and imports only the library parts (`GeecsDb`, `pv_naming`).
+and takes the library parts (`GeecsDb`, `pv_naming`) from geecs-core.
 
 ## Documentation
 

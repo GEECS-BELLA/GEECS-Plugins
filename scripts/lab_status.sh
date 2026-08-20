@@ -157,7 +157,7 @@ async def read(pv):
 async def main():
     # PV names come from the naming contract (lowercase components,
     # PV_CONTRACT.md §1) — never hand-assemble them here.
-    from geecs_ca_gateway.pv_naming import pv_name
+    from geecs_core.pv_naming import pv_name
 
     try:
         heartbeat = await read(pv_name(experiment, "CAGateway", "heartbeat"))

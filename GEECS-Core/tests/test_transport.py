@@ -9,10 +9,10 @@ import struct
 
 import pytest
 
-from geecs_ca_gateway.exceptions import GeecsCommandFailedError
-from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
-from geecs_ca_gateway.transport.udp_client import GeecsUdpClient
-from geecs_ca_gateway.transport.tcp_subscriber import (
+from geecs_core.exceptions import GeecsCommandFailedError
+from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_core.transport.udp_client import GeecsUdpClient
+from geecs_core.transport.tcp_subscriber import (
     GeecsTcpSubscriber,
     _compile_frame_pattern,
     _parse_subscription,
@@ -189,7 +189,7 @@ class TestTcpSubscriber:
         def on_update(update: dict) -> None:
             received.append(update)
 
-        caplog.set_level(logging.WARNING, logger="geecs_ca_gateway.transport")
+        caplog.set_level(logging.WARNING, logger="geecs_core.transport")
         async with FakeGeecsServer(fake_device) as srv:
             async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
                 await sub.subscribe(["Position (mm)", "Not In Frame"], on_update)
@@ -217,7 +217,7 @@ class TestTcpSubscriber:
             calls += 1
             update["Not In Frame"]
 
-        caplog.set_level(logging.WARNING, logger="geecs_ca_gateway.transport")
+        caplog.set_level(logging.WARNING, logger="geecs_core.transport")
         async with FakeGeecsServer(fake_device) as srv:
             async with GeecsTcpSubscriber(srv.host, srv.port) as sub:
                 await sub.subscribe(["Position (mm)", "Not In Frame"], on_update)

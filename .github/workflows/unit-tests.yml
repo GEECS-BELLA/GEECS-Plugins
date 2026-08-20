@@ -35,6 +35,26 @@ jobs:
           poetry run pytest GEECS-Data-Utils/tests -m "not integration and not gui" --tb=short -q
           poetry run pytest GEECS-Schemas/tests -m "not integration and not gui" --tb=short -q
 
+      - name: Install GEECS-Core dependencies
+        working-directory: GEECS-Core
+        run: poetry install --with dev
+
+      - name: Run GEECS-Core tests
+        working-directory: GEECS-Core
+        run: poetry run pytest tests --tb=short -q
+
+      - name: Install GeecsCAGateway dependencies
+        working-directory: GeecsCAGateway
+        run: poetry install --with dev
+
+      - name: Run GeecsCAGateway tests
+        # This suite previously ran only locally via scripts/check.sh — the
+        # geecs-core extraction is the moment it (and the new GEECS-Core
+        # suite above) joined CI, keeping check.sh's runner table and this
+        # workflow in sync.
+        working-directory: GeecsCAGateway
+        run: poetry run pytest tests --tb=short -q
+
       - name: Install GeecsBluesky dependencies
         working-directory: GeecsBluesky
         run: poetry install --with dev
@@ -80,9 +100,9 @@ jobs:
           restore-keys: poetry-console-windows-py311-
 
       - name: Install GEECS-Console dependencies
-        # Path deps (geecs-bluesky -> geecs-ca-gateway/geecs-schemas/
-        # geecs-data-utils) resolve relative to GEECS-Console/ inside the
-        # checkout, same as on the ubuntu job.
+        # Path deps (geecs-core, and geecs-bluesky -> geecs-core/
+        # geecs-schemas/geecs-data-utils) resolve relative to GEECS-Console/
+        # inside the checkout, same as on the ubuntu job.
         run: poetry install --with dev
 
       - name: Run GEECS-Console tests

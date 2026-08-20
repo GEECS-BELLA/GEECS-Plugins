@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-ca-gateway"
-version = "0.18.0"
+version = "0.19.0"
 description = "EPICS Channel Access soft-IOC gateway exposing GEECS devices as PVs"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -16,12 +16,12 @@ caproto = ">=1.1"
 pydantic = ">=2"
 geecs-schemas = { path = "../GEECS-Schemas", develop = true }
 pyyaml = "^6.0"
-# This package IS the GEECS access layer: the UDP/TCP wire protocol
-# (transport/), the experiment database (db/), the PV naming contract
-# (pv_naming), and the CA server that mirrors it all as EPICS PVs.
-# GeecsBluesky depends on us (library: GeecsDb, pv_naming, exceptions;
-# service: the PVs) — never the other way around.
-mysql-connector-python = "^9.7.0"
+# The GEECS access layer (UDP/TCP transport, experiment DB, PV naming,
+# exceptions, fake device server) lives in GEECS-Core; this package is the
+# CA server built on it. Library consumers (GeecsBluesky, GEECS-Console)
+# depend on geecs-core directly and consume our PVs as a service — nothing
+# imports this package except GeecsPvaGateway (config helpers).
+geecs-core = { path = "../GEECS-Core", develop = true }
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

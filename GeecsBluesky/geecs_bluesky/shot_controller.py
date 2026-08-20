@@ -24,7 +24,7 @@ from geecs_bluesky.models.shot_control import (
     ShotControlWrites,
 )
 from geecs_bluesky.plans.single_shot import geecs_confirm_quiescent
-from geecs_ca_gateway.pv_naming import pv_name, setpoint_pv
+from geecs_core.pv_naming import pv_name, setpoint_pv
 
 logger = logging.getLogger(__name__)
 

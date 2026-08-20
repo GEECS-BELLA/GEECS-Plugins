@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_ca_gateway.alarms import AlarmLimits
+from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig
-from geecs_ca_gateway.db.geecs_db import GeecsDb
+from geecs_core.db.geecs_db import GeecsDb
 from geecs_ca_gateway.gateway import GeecsCaGateway
 
 # Mirrors GeecsDb.get_device_variables("U_S1H") observed against real hardware.
@@ -393,7 +393,7 @@ def _patch_experiment_db(
     sub_map: dict,
 ) -> None:
     """Stub the three batched GeecsDb queries from_geecs_experiment issues."""
-    from geecs_ca_gateway.db.geecs_db import GeecsDb
+    from geecs_core.db.geecs_db import GeecsDb
 
     monkeypatch.setattr(
         GeecsDb,

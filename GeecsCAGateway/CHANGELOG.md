@@ -3,6 +3,21 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.19.0] - 2026-08-20
+
+### Changed
+
+- **Access-layer extraction (mechanical, no behavior change):** `transport/`,
+  `db/` (+ `alarms.py`, now `geecs_core.db.alarms`), `pv_naming`,
+  `exceptions`, and `testing/fake_device_server.py` moved to the new
+  **GEECS-Core** package (`geecs_core`), together with their test suites.
+  This package now depends on `geecs-core` and re-imports those modules from
+  it; `mysql-connector-python` dropped (rides in with geecs-core). The
+  `naming.py` re-export shim was retired — gateway code imports
+  `geecs_core.pv_naming` directly. `tests/test_naming.py` keeps the
+  DeviceSpec/VariableSpec assembly tests; the naming-policy primitives are
+  pinned in `GEECS-Core/tests/test_pv_naming.py`.
+
 ## [0.18.0] - 2026-08-20
 
 ### Added

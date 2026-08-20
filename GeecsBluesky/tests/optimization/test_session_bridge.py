@@ -712,7 +712,7 @@ class TestLoadExperimentDeviceNames:
     @staticmethod
     def _patch_sources(monkeypatch, experiment, devices: dict):
         import geecs_data_utils
-        from geecs_ca_gateway.db import geecs_db as db_module
+        from geecs_core.db import geecs_db as db_module
 
         calls = {"db": 0}
 

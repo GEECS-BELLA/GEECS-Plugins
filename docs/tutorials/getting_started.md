@@ -138,7 +138,7 @@ self-check lines appeared, your toolchain is healthy end to end.
 a three-line query:
 
 ```python
-from geecs_ca_gateway.db.geecs_db import GeecsDb
+from geecs_core.db.geecs_db import GeecsDb
 
 devices = GeecsDb.get_all_experiment_variables("Undulator")
 print(f"{len(devices)} devices tracked")

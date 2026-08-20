@@ -21,8 +21,8 @@ from p4p.nt import NTNDArray, NTScalar
 from p4p.server import Server
 from p4p.server.thread import SharedPV
 
-from geecs_ca_gateway.pv_naming import normalize_component, pv_name
-from geecs_ca_gateway.transport.tcp_subscriber import GeecsTcpSubscriber
+from geecs_core.pv_naming import normalize_component, pv_name
+from geecs_core.transport.tcp_subscriber import GeecsTcpSubscriber
 from geecs_data_utils.io import decode_imaq_image_string
 
 from geecs_pva_gateway import __version__

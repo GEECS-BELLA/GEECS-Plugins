@@ -25,8 +25,8 @@ from typing import Iterator, Optional
 
 from pydantic import ValidationError
 
-from geecs_ca_gateway.alarms import AlarmLimits
-from geecs_ca_gateway.exceptions import GeecsDeviceNotFoundError
+from geecs_core.db.alarms import AlarmLimits
+from geecs_core.exceptions import GeecsDeviceNotFoundError
 
 logger = logging.getLogger(__name__)
 

@@ -4,6 +4,14 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.20.2] - 2026-08-20
+
+### Changed
+
+- `GeecsDb` (device completions, health panel) now imports from the new
+  **geecs-core** package, declared as a direct dependency instead of riding
+  the `geecs-bluesky` transitive. No behavior change.
+
 ## [0.20.1] - 2026-08-20
 
 ### Fixed

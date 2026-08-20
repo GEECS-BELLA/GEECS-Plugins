@@ -62,7 +62,7 @@ def _load_experiment_device_names() -> Dict[str, str]:
     """
     # Local imports: keep module import light (no MySQL/config coupling
     # for headless bridge use).
-    from geecs_ca_gateway.db.geecs_db import GeecsDb
+    from geecs_core.db.geecs_db import GeecsDb
     from geecs_data_utils import GeecsPathsConfig
 
     experiment = GeecsPathsConfig().experiment

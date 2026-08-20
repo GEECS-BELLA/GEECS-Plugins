@@ -12,8 +12,9 @@ test — see the [test map](#pinned-by-test-map) at the end. Items marked
 **(PR #452)** describe behavior that lands with the `fix/strict-shot-plausibles`
 branch (gateway 0.5.2), which merges before this document does.
 
-Code anchors: `geecs_ca_gateway/pv_naming.py`, `config.py`, `channels.py`,
-`gateway.py`, `transport/`. Design rationale lives in `DESIGN.md`; operations
+Code anchors: `geecs_core/pv_naming.py` and `geecs_core/transport/`
+(the shared access library, `GEECS-Core/`), plus this package's `config.py`,
+`channels.py`, `gateway.py`. Design rationale lives in `DESIGN.md`; operations
 in `DEPLOYMENT.md`.
 
 ---
@@ -71,9 +72,9 @@ Examples (each pinned by a test):
 | `  padded  name  `   | `padded_name`    | whitespace + run collapsing |
 | `MiXeD Case`         | `mixed_case`     | case-folded — PVs are case-insensitive to operator input |
 
-This policy lives in **`geecs_ca_gateway.pv_naming`** — the one module both the
+This policy lives in **`geecs_core.pv_naming`** — the one module both the
 gateway (producer) and GeecsBluesky's CA devices (consumer) import — so the two
-sides can never drift. `geecs_ca_gateway.naming` is a thin re-export.
+sides can never drift.
 GeecsBluesky's event-column mangling (`safe_name`) delegates to the same
 function, so a GEECS name mangles identically into a PV component and an
 event-document column component (pinned by

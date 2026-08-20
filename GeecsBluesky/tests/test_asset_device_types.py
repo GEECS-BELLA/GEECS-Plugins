@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 
 from geecs_bluesky.assets import POINTGREY_CAMERA_DEVICE_TYPE, supports_device_type
-from geecs_ca_gateway.db import geecs_db
-from geecs_ca_gateway.db.geecs_db import GeecsDb
+from geecs_core.db import geecs_db
+from geecs_core.db.geecs_db import GeecsDb
 
 
 @pytest.mark.integration

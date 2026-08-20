@@ -1,7 +1,7 @@
 """Hermetic unit tests for the M3c DB-integration runtime (get-side, pure logic).
 
 No MySQL, no gateway, no network — a fake :class:`ScalarPolicyProvider` stands
-in for :class:`~geecs_ca_gateway.db.geecs_db.GeecsDb`.  Covers:
+in for :class:`~geecs_core.db.geecs_db.GeecsDb`.  Covers:
 
 - db_scalars resolution (True = get∪explicit, all_scalars = all∪explicit,
   False = explicit-only, no-provider = explicit-only);

@@ -14,11 +14,12 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway), Tiled integration |
-| `GeecsCAGateway/` | The GEECS access layer: UDP/TCP wire protocol, experiment DB, PV naming, and the caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
+| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway's PVs), Tiled integration |
+| `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules. The thin `GeecsDevice` client (`client/`) lands next |
+| `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
-| `GEECS-PythonAPI/` | Legacy device TCP layer — **deprecated, slated for deletion; never build on it** (GeecsCAGateway owns all GEECS transport) |
+| `GEECS-PythonAPI/` | Legacy device TCP layer — **deprecated, slated for deletion; never build on it** (GEECS-Core owns all GEECS transport) |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
 
@@ -128,13 +129,17 @@ LogMaker4GoogleDocs  →  (no intra-repo deps — pure Google API wrapper)
 GEECS-Schemas        →  (no intra-repo deps — pydantic-only config vocabulary)
 
 ImageAnalysis        →  GEECS-Data-Utils
-GeecsCAGateway       →  GEECS-Schemas (schema-only vocabulary for optional
-                        derived-channel overlays; otherwise the GEECS access layer:
-                        wire protocol, DB, PV naming, CA server)
-GeecsPvaGateway      →  GeecsCAGateway (transport, DB, pv_naming),
-                        GEECS-Data-Utils (IMAQ decode) — the distributed
-                        PVA image server on the camera servers
-GeecsBluesky         →  GEECS-Data-Utils, GeecsCAGateway, GEECS-Schemas
+GEECS-Core           →  (no intra-repo deps — the GEECS access library:
+                        transport, DB, PV naming, exceptions, fake server)
+GeecsCAGateway       →  GEECS-Core (the access library it serves over CA),
+                        GEECS-Schemas (schema-only vocabulary for optional
+                        derived-channel overlays)
+GeecsPvaGateway      →  GEECS-Core (transport, DB, pv_naming),
+                        GeecsCAGateway (config helpers, e.g.
+                        effective_vartype), GEECS-Data-Utils (IMAQ decode)
+                        — the distributed PVA image server on the camera
+                        servers
+GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
                         (+ ImageAnalysis, optional via the `analysis` extra —
                         post-run image analysis over archived Tiled runs;
                         + ScanAnalysis/ImageAnalysis/xopt, optional via the
@@ -144,17 +149,20 @@ GEECS-PythonAPI      →  GEECS-Data-Utils
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Scanner-GUI    →  GEECS-PythonAPI, ImageAnalysis, ScanAnalysis,
                         GEECS-Data-Utils, GeecsBluesky
-GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils
+GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
+                        GEECS-Core (GeecsDb for completions/health)
                         (its `optimization` extra installs the heavy deps
                         for geecs_bluesky.optimization — xopt/ScanAnalysis —
                         no geecs-scanner-gui dependency remains)
 ```
 
-`GeecsCAGateway` is the self-contained GEECS access layer: the UDP/TCP wire
-protocol, the experiment DB, the PV naming contract, and the caproto CA
-server. GeecsBluesky imports its *library* parts (`GeecsDb`, `pv_naming`,
-wire-level exceptions) and consumes its *service* (the PVs, via stock
-ophyd-async EPICS signals) — it never imports the server.
+`GEECS-Core` is the GEECS access library: the UDP/TCP wire protocol, the
+experiment DB, the PV naming contract, and the exception tree. The gateways
+build their servers on it; GeecsBluesky and GEECS-Console import its library
+parts (`GeecsDb`, `pv_naming`, wire-level exceptions) and consume the CA
+gateway purely as a *service* (the PVs, via stock ophyd-async EPICS
+signals) — nothing imports the gateway's server code except GeecsPvaGateway
+(config helpers).
 
 `GEECS-Data-Utils` is the foundational layer — everything depends on it and it
 depends on nothing else in the repo. `GEECS-Scanner-GUI` sits at the top and
@@ -210,7 +218,7 @@ equivalent). Resolved by `GeecsPathsConfig` from `~/.config/geecs_python_api/con
 
 This package (legacy TCP device connections + DB query layer) is **deprecated
 and slated for deletion** (owner decision, 2026-07-25). All of its transport
-functionality lives in `GeecsCAGateway` (`transport/`, `db/`) — new code uses
+functionality lives in `GEECS-Core` (`transport/`, `db/`) — new code uses
 that, exclusively. Do not add features, do not adopt it in new call sites, do
 not "fix" it opportunistically. Known hazard: importing its `interface` module
 with a config present can hang forever in headless sessions (import-time
@@ -243,8 +251,8 @@ Every package has a `CHANGELOG.md` following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format:
 `GEECS-Scanner-GUI/`, `GEECS-PythonAPI/`, `GEECS-Data-Utils/`,
 `ScanAnalysis/`, `ImageAnalysis/`, `LogMaker4GoogleDocs/`,
-`GeecsBluesky/`, `GeecsCAGateway/`, `GeecsPvaGateway/`, `GEECS-Schemas/`,
-`GEECS-Console/`.
+`GeecsBluesky/`, `GEECS-Core/`, `GeecsCAGateway/`, `GeecsPvaGateway/`,
+`GEECS-Schemas/`, `GEECS-Console/`.
 
 Git tags (`geecs-scanner-v0.8.0` style) are cut at **milestones** — a state
 deployed across experiments or one we may need to reproduce (e.g. the

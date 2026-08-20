@@ -46,7 +46,8 @@ diagnose the package the current task is about.
    | Package | Install for full test suite |
    |---|---|
    | `GeecsBluesky` | `poetry install --extras "ca tiled"` |
-   | `GeecsCAGateway` | `poetry install` (self-contained) |
+   | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
+   | `GEECS-Core` | `poetry install` (self-contained) |
    | `GEECS-Console` | `poetry install` (+ `--extras optimization` for the Xopt path) |
    | `GEECS-LogTriage` | `poetry install` |
 

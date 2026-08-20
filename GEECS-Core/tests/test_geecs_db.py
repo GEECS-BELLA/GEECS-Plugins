@@ -6,9 +6,9 @@ import logging
 import sys
 import types
 
-from geecs_ca_gateway.alarms import AlarmLimits, AlarmSeverityName
-from geecs_ca_gateway.db import geecs_db
-from geecs_ca_gateway.db.geecs_db import GeecsDb
+from geecs_core.db.alarms import AlarmLimits, AlarmSeverityName
+from geecs_core.db import geecs_db
+from geecs_core.db.geecs_db import GeecsDb
 
 
 class _FakeCursor:

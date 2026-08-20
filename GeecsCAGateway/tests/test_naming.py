@@ -1,25 +1,13 @@
-"""Unit tests for PV name mapping (no network)."""
+"""Unit tests for full PV name assembly via DeviceSpec/VariableSpec (no network).
+
+The naming *policy* primitives (normalize/join/setpoint) live in
+``geecs_core.pv_naming`` and are pinned by ``GEECS-Core/tests/test_pv_naming.py``;
+this file covers the gateway-side assembly of complete PV names.
+"""
 
 from __future__ import annotations
 
 from geecs_ca_gateway.config import DeviceSpec, VariableSpec
-from geecs_ca_gateway.naming import normalize_pv_component
-
-
-def test_spaces_collapse_to_underscores() -> None:
-    """GEECS variable names with spaces become CA-safe underscores."""
-    assert normalize_pv_component("Jet X pos") == "jet_x_pos"
-    assert normalize_pv_component("  padded  name  ") == "padded_name"
-
-
-def test_dot_becomes_underscore() -> None:
-    """The dot is critical: EPICS reads it as the record/field separator."""
-    assert normalize_pv_component("Trigger.Source") == "trigger_source"
-
-
-def test_mixed_bad_chars_collapse() -> None:
-    """Dashes, parens, and other non-[A-Za-z0-9_] chars map to single ``_``."""
-    assert normalize_pv_component("Beam-Current (A)") == "beam_current_a"
 
 
 def test_pv_name_for_with_experiment_prefix() -> None:
@@ -63,9 +51,8 @@ def test_device_prefix_defaults_to_name() -> None:
     assert dev.pv_prefix == "U_HexapodXYZ"
 
 
-def test_components_are_lowercased() -> None:
-    """Case carries no meaning: all derived PV components are lowercase."""
-    assert normalize_pv_component("MiXeD Case") == "mixed_case"
+def test_full_pv_names_are_lowercased() -> None:
+    """Case carries no meaning in assembled PV names."""
     dev = DeviceSpec(name="U_S1H", host="h", port=1, experiment="Undulator")
     pv = dev.pv_name_for(VariableSpec(geecs_var="Trigger.Source"))
     assert pv == pv.lower()

@@ -1,7 +1,7 @@
 """End-to-end server tests: fake GEECS camera -> gateway -> PVA client.
 
 Hermetic: a hand-rolled push server speaks the GEECS wire format (the fake
-server in geecs_ca_gateway.testing is ASCII-only, and image payloads are
+server in geecs_core.testing is ASCII-only, and image payloads are
 binary), and the PVA server runs with ``isolate=True`` (sandboxed ports).
 """
 

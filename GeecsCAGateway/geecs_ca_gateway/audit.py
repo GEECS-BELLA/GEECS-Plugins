@@ -314,7 +314,7 @@ def run_audit(
     AuditResult
         Findings, FK-orphan summary, and the audited subscribed set.
     """
-    from .db.geecs_db import GeecsDb
+    from geecs_core.db.geecs_db import GeecsDb
 
     skip = set(_SKIP_VARTYPES if skip_types is None else skip_types)
 

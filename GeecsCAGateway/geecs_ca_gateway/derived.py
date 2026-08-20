@@ -21,7 +21,7 @@ from geecs_schemas.restricted_expr import (
     compile_expression,
 )
 
-from .naming import normalize_pv_component
+from geecs_core.pv_naming import normalize_component as normalize_pv_component
 
 _ALLOWED_FUNCS = {
     name: getattr(math, name)

@@ -13,9 +13,9 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from .alarms import AlarmLimits
+from geecs_core.db.alarms import AlarmLimits
 from .derived import DerivedChannelSpec
-from .naming import normalize_pv_component
+from geecs_core.pv_naming import normalize_component as normalize_pv_component
 
 logger = logging.getLogger(__name__)
 
@@ -325,7 +325,7 @@ class DeviceSpec(BaseModel):
         -------
         DeviceSpec
         """
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         host, port = GeecsDb.find_device(name)
         metadata = GeecsDb.get_device_variables(name)
@@ -401,7 +401,7 @@ class GatewayConfig(BaseModel):
         -------
         GatewayConfig
         """
-        from geecs_ca_gateway.db.geecs_db import GeecsDb
+        from geecs_core.db.geecs_db import GeecsDb
 
         endpoints = GeecsDb.get_experiment_devices(
             experiment, enabled_only=enabled_only

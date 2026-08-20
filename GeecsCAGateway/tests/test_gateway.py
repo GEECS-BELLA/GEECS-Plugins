@@ -18,12 +18,12 @@ from typing import Any
 import pytest
 from caproto import AlarmSeverity, AlarmStatus
 from caproto._data import CannotExceedLimits
-from geecs_ca_gateway.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
+from geecs_core.testing.fake_device_server import FakeGeecsDevice, FakeGeecsServer
 
-from geecs_ca_gateway.alarms import AlarmLimits
+from geecs_core.db.alarms import AlarmLimits
 from geecs_ca_gateway.channels import _to_text
 from geecs_ca_gateway.config import DeviceSpec, GatewayConfig, VariableSpec
-from geecs_ca_gateway.exceptions import GeecsCommandFailedError
+from geecs_core.exceptions import GeecsCommandFailedError
 from geecs_ca_gateway.gateway import GeecsCaGateway, _extract_timestamp
 
 pytestmark = pytest.mark.fake_server
@@ -915,7 +915,7 @@ async def test_set_timeout_is_configurable() -> None:
 
 async def test_get_uses_standard_exe_timeout() -> None:
     """``get`` keeps the client's short default exe timeout; only sets get 30 s."""
-    from geecs_ca_gateway.transport.udp_client import _EXE_TIMEOUT, GeecsUdpClient
+    from geecs_core.transport.udp_client import _EXE_TIMEOUT, GeecsUdpClient
 
     client = GeecsUdpClient("127.0.0.1", 1)
     recorded: list[float] = []
@@ -982,7 +982,7 @@ async def test_one_device_bind_failure_does_not_abort_startup(
 
 async def test_setpoint_write_without_udp_client_raises_cleanly() -> None:
     """A caput to a device whose UDP bind failed gets a clear connection error."""
-    from geecs_ca_gateway.exceptions import GeecsConnectionError
+    from geecs_core.exceptions import GeecsConnectionError
 
     gw = GeecsCaGateway(_config("127.0.0.1", 1))  # connect() never called
     with pytest.raises(GeecsConnectionError, match="bind failed at startup"):
