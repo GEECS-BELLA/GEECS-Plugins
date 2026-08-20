@@ -95,6 +95,12 @@ nav:
 
   - Platform:
       - platform/index.md
+      - GEECS-Core:
+          - Overview: geecs_core/overview.md
+          - Examples:
+              - GeecsDevice Basics: geecs_core/examples/geecs_device_basics.ipynb
+          - API Reference:
+              - Client: geecs_core/api/client.md
       - GEECS Gateway:
           - Client Overview: geecs_gateway/client_overview.md
           - Camera Images (PVA): geecs_gateway/image_pvs.md
