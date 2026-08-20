@@ -95,11 +95,6 @@ nav:
 
   - Platform:
       - platform/index.md
-      - Python API:
-          - Overview: geecs_python_api/overview.md
-          - Scripting Guide: geecs_python_api/scripting_guide.md
-          - API Reference:
-              - Controls: geecs_python_api/api/controls.md
       - GEECS Gateway:
           - Client Overview: geecs_gateway/client_overview.md
           - Camera Images (PVA): geecs_gateway/image_pvs.md

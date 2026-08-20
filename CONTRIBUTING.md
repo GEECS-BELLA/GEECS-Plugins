@@ -124,7 +124,10 @@ Style: NumPy docstrings, type hints on public functions, Pydantic v2
 - **Contract files travel with behavior**: gateway-visible changes update
   `GeecsCAGateway/PV_CONTRACT.md` + its pinned test in the same PR;
   event-data changes update `GeecsBluesky/EVENT_SCHEMA.md`.
-- `GEECS-PythonAPI` is being refactored elsewhere — no new features there.
+- The legacy packages (`GEECS-PythonAPI`, `GEECS-Scanner-GUI`) are deleted
+  on `dev` (2026-08-20); they live on only in `master`'s legacy line until
+  the M6 cutover — no new features there either. Successors:
+  `geecs_core.client.GeecsDevice` and GEECS-Console.
 
 ## Tests
 

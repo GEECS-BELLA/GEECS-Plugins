@@ -6,18 +6,18 @@ scan and its data are described.
 
 <div class="grid cards" markdown>
 
--   :material-lan-connect:{ .lg .middle } **Python API**
+-   :material-lan-connect:{ .lg .middle } **GEECS-Core**
 
     ---
 
-    The low-level Python interface to the GEECS control system — the
-    GEECS wire protocol (UDP command/response, TCP live subscription),
-    device and variable objects, the experiment database, and the shared
-    [`config.ini`](../geecs_python_api/scripting_guide.md). Most tools use
-    it indirectly; the scripting guide covers direct use.
+    The GEECS access library — the GEECS wire protocol (UDP
+    command/response, TCP live subscription), the entry-level
+    `GeecsDevice` client for scripts and notebooks, the experiment
+    database, and the PV naming contract. The shared `config.ini` it
+    reads is documented in the
+    [Getting Started tutorial](../tutorials/getting_started.md).
 
-    [:octicons-arrow-right-24: Overview](../geecs_python_api/overview.md) ·
-    [Scripting guide](../geecs_python_api/scripting_guide.md)
+    [:octicons-arrow-right-24: Getting started](../tutorials/getting_started.md)
 
 -   :material-transit-connection-variant:{ .lg .middle } **GEECS Gateway**
 

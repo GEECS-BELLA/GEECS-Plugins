@@ -30,8 +30,8 @@ is passed straight through (package names, `--base <ref>`, `--dry-run`).
 ## Reading the output
 
 - The plan header lists which suites the diff implies and which touched
-  packages have **no CI-mirrored suite** (e.g. GEECS-Scanner-GUI,
-  GEECS-PythonAPI) — those are skipped, not covered. Say so when
+  packages have **no CI-mirrored suite** (e.g. extras/,
+  LogMaker4GoogleDocs) — those are skipped, not covered. Say so when
   reporting results; silence is not coverage.
 - Report **exact counts** ("480 passed, 1 skipped"), never "tests pass".
 - A whole layer collecting as `1 skipped`, `Command not found: pytest`,

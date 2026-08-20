@@ -150,9 +150,10 @@ Steer first projects toward the actively developed packages
 (ImageAnalysis, ScanAnalysis, GEECS-Data-Utils, GEECS-Console,
 GeecsBluesky, the gateways). Never start a newcomer in — and never cite
 as a style reference — anything on the root `CLAUDE.md` "Known debt"
-list, `GEECS-PythonAPI` (frozen), `extras/` (legacy dump pending
-pruning), `LogMaker4GoogleDocs` (awaiting refactor), or
-`GEECS-Scanner-GUI` (legacy line, retired at the M6 cutover).
+list, `extras/` (legacy dump pending pruning), or
+`LogMaker4GoogleDocs` (awaiting refactor). The legacy packages
+(GEECS-PythonAPI, GEECS-Scanner-GUI) were deleted from `dev` 2026-08-20 —
+their successors are `geecs_core.client.GeecsDevice` and GEECS-Console.
 
 ## Branching and landing work
 

@@ -66,7 +66,7 @@ poetry run mkdocs build     # static site → ./site/, clean output expected
 regression to fix before merging, even when the exit code is 0 (some
 errors are non-fatal but indicate broken pages).
 
-The build pulls in path-installed dev packages (Scanner GUI, ImageAnalysis,
+The build pulls in path-installed dev packages (GeecsBluesky, ImageAnalysis,
 ScanAnalysis, etc.) because mkdocstrings imports them to read docstrings.
 Missing imports surface as `griffe:` or `mkdocstrings:` warnings.
 

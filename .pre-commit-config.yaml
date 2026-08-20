@@ -59,10 +59,7 @@ repos:
             .*/tests/|
             tests/|
             .*/\.ipynb_checkpoints/|
-            GEECS-Scanner-GUI/geecs_scanner/app/|
-            GEECS-Scanner-GUI/geecs_scanner/utils/convert_png_to_ico\.py|
-            LogMaker4GoogleDocs/|
-            GEECS-PythonAPI/
+            LogMaker4GoogleDocs/
           )
 
   - repo: local
