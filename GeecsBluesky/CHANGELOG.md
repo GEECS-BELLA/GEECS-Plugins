@@ -20,8 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `algorithm_results_file` into the claimed scan folder (writing into the
   existing folder only — the runner claims pre-bind; scan-folder invariant
   respected), falling back to a fresh temp directory when the claim failed.
-  Absolute paths pass through untouched; generators without the attribute
-  are a no-op.
+  Absolute paths pass through untouched; a relative value with directory
+  components is flattened to its basename (nothing creates those
+  directories, and `..` must not escape the scan folder); generators
+  without the attribute are a no-op.
 
 ## [0.52.0] - 2026-08-20
 

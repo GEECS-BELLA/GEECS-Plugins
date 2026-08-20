@@ -354,13 +354,30 @@ class SessionOptimizationBridge:
         existing folder only, never creating it (cross-package scan-folder
         invariant) — or, when the claim failed (``scan_folder`` is None), into
         a fresh temp directory so a service's cwd is never littered.  Absolute
-        paths are explicit intent and pass through untouched; generators
-        without the attribute (random, UCB, ...) are a no-op.
+        paths are explicit intent and pass through untouched; a relative value
+        with directory components is flattened to its basename (nothing
+        creates those directories, and ``..`` must not escape the scan
+        folder); generators without the attribute (random, UCB, ...) are a
+        no-op.
         """
         generator = getattr(getattr(self.optimizer, "xopt", None), "generator", None)
         file_value = getattr(generator, "algorithm_results_file", None)
         if not file_value or Path(file_value).is_absolute():
             return
+        if Path(file_value).parent != Path("."):
+            # Directory components would make the generator's bare
+            # ``open()`` fail mid-run (no mkdir upstream) — or, via ``..``,
+            # escape the scan folder.  Flatten to the basename, loudly and
+            # pre-hardware.
+            flattened = Path(file_value).name
+            logger.warning(
+                "algorithm_results_file %r has directory components; "
+                "flattened to %r (results prefixes are rooted directly in "
+                "the scan folder)",
+                file_value,
+                flattened,
+            )
+            file_value = flattened
         if self._scan_folder is not None:
             base = self._scan_folder
         else:

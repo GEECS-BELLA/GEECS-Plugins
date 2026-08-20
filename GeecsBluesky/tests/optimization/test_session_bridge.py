@@ -298,6 +298,20 @@ class TestAlgorithmResultsFileRooting:
         assert rooted.parent.is_dir()  # mkdtemp created it, writes succeed
         assert "temp directory" in caplog.text
 
+    def test_relative_path_with_directories_is_flattened(self, tmp_path, caplog):
+        # Directory components would crash the generator's bare open() at
+        # the first dump (nothing mkdirs them) — or escape the scan folder
+        # via "..".  Flattened to the basename, with a warning.
+        bridge = SessionOptimizationBridge(
+            _make_bax_optimizer("../diagnostics/bax_probe")
+        )
+        with caplog.at_level(logging.WARNING):
+            bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
+        assert bridge.optimizer.xopt.generator.algorithm_results_file == str(
+            tmp_path / "bax_probe"
+        )
+        assert "directory components" in caplog.text
+
     def test_generator_without_results_file_is_a_noop(self, tmp_path):
         bridge = SessionOptimizationBridge(_make_optimizer())  # random generator
         bridge.bind(devices=[], scan_tag=None, scan_folder=tmp_path)
