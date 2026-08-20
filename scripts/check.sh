@@ -151,11 +151,32 @@ if [ "$DRY_RUN" -eq 1 ]; then
     exit 0
 fi
 
-# --- Lint (pre-commit; same fallback as scripts/commit.sh) ---------------------
-if command -v pre-commit >/dev/null 2>&1; then
-    PC=(pre-commit)
-else
+# --- Lint (pre-commit; same runner preference as scripts/commit.sh) ------------
+# Prefer the root Poetry env's pre-commit over one on PATH. The config's
+# `language: system` hooks (jupyter-notebook-clear-output) resolve their
+# executable from the invoking environment: the root env has jupyter, a
+# system pre-commit typically does not — which turns into a phantom
+# "Executable `jupyter` not found" lint failure. The guard is self-verifying
+# (env exists AND pre-commit runs in it), so environments without a usable
+# root env fall back to a PATH pre-commit as before.
+if command -v poetry >/dev/null 2>&1 \
+    && poetry env info --path >/dev/null 2>&1 \
+    && poetry run pre-commit --version >/dev/null 2>&1; then
     PC=(poetry run pre-commit)
+elif command -v pre-commit >/dev/null 2>&1; then
+    PC=(pre-commit)
+    # A PATH pre-commit runs `language: system` hooks in its own environment.
+    # If that environment cannot find jupyter, the notebook-clearing hook dies
+    # with "Executable `jupyter` not found" on every .ipynb — a phantom
+    # failure unrelated to the change. Skip that one hook loudly instead;
+    # CI's pre-commit workflow still enforces it.
+    if ! command -v jupyter >/dev/null 2>&1; then
+        export SKIP="${SKIP:+$SKIP,}jupyter-notebook-clear-output"
+        echo "   note : no 'jupyter' on PATH — skipping jupyter-notebook-clear-output (CI still runs it)"
+    fi
+else
+    echo "check.sh: no pre-commit found (neither the root poetry env nor PATH) — run 'poetry install' at the repo root" >&2
+    exit 2
 fi
 
 LINT_OK=1
