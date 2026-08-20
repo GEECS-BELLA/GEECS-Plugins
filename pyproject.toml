@@ -23,8 +23,10 @@ tomli = "^2.2.1"
 griffe = "<2.0"
 
 [tool.poetry.group.dev.dependencies]
-geecs-scanner-gui = { path = "GEECS-Scanner-GUI", develop = true }
-geecs-pythonapi = {path = "GEECS-PythonAPI", develop = true}
+# geecs-bluesky is here for the docs build: mkdocstrings pages reference
+# geecs_bluesky (it rode in transitively via the deleted geecs-scanner-gui
+# dev dep before 2026-08-20).
+geecs-bluesky = { path = "GeecsBluesky", develop = true }
 imageanalysis = { path = "ImageAnalysis", develop = true }
 geecs_data_utils = { path = "GEECS-Data-Utils", develop = true, extras = ["ml"] }
 geecs-schemas = { path = "GEECS-Schemas", develop = true }
@@ -85,18 +87,10 @@ extend-select = ["D"]  # Enable all pydocstyle checks
 "extras/**" = ["D"]
 "**/third_party_sdks/**" = ["D"]
 "**/tests/**" = ["D"]  # Ignore all docstring rules in test files
-# Legacy trees exempt from lint debt until their proper audit/cleanup
+# Legacy tree exempt from lint debt until its proper audit/cleanup
 # (owner decision on PR #574, 2026-07-16). Only the pre-existing debt
 # categories are exempted; syntax/undefined-name checks stay active.
-"GEECS-Scanner-GUI/geecs_scanner/app/**" = ["D"]
-# The one pre-existing F841 in the tree — keep F841 live elsewhere in app/,
-# geecs_scanner.py and run_control.py still see active development:
-"GEECS-Scanner-GUI/geecs_scanner/app/save_element_editor.py" = ["D", "F841"]
-# The app package's __init__ re-exports (public API of the legacy GUI):
-"GEECS-Scanner-GUI/geecs_scanner/app/**/__init__.py" = ["F401"]
-"GEECS-Scanner-GUI/geecs_scanner/utils/convert_png_to_ico.py" = ["D"]
 "LogMaker4GoogleDocs/**" = ["D", "E711", "E712", "E722"]
-"GEECS-PythonAPI/**/*.ipynb" = ["D", "F841"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"

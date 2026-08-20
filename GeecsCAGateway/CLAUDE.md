@@ -126,8 +126,8 @@ One asyncio event loop runs everything:
   wire text survives (enum labels like `"1.0"` need this too).
 - **Exe status is `"no error,"`, not the documented `"ok,"`** — match the
   prefix. Real hardware also differs from protocol docs in the echo field
-  (above); when in doubt trust the legacy GEECS-PythonAPI parser and the fake
-  server, which encode observed behavior.
+  (above); when in doubt trust the fake server (and the legacy
+  GEECS-PythonAPI parser, now in git history), which encode observed behavior.
 - **Numeric enum labels resolve by value, never index** (`"2.000000"` is the
   label `"2"`, not index 2 — DG645 configs have labels `["1","2","5"]`).
   Index-interpretation is a fallback reserved for fully non-numeric label sets

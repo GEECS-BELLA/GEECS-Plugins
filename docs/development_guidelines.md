@@ -181,8 +181,7 @@ docs/
 ├── installation.md            # General installation
 ├── geecs_console/             # GEECS Console docs
 ├── image_analysis/            # Image analysis docs
-├── scan_analysis/             # Scan analysis docs
-└── geecs_python_api/          # Python API docs
+└── scan_analysis/             # Scan analysis docs
 ```
 
 ## Common Pitfalls and Solutions

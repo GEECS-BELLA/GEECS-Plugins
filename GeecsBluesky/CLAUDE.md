@@ -12,15 +12,11 @@ scans ran in production on 2026-07-06.
 duck-typed `exec_config` path was deleted root-and-stem (G3, executed
 early 2026-07-16 by owner decision — the cutover doc had re-timed it to
 M6): `reinitialize` raises `TypeError` for anything but a `ScanRequest`,
-and the `shot_control_information` constructor kwarg is gone — so the
-legacy `GEECS-Scanner-GUI` breaks on `dev` at **engine construction**
-(its `RunControl` passes the deleted kwarg during main-window init and
-gets a generic kwarg `TypeError`, uncaught) before any submission could
-even reach the curated `reinitialize` error (accepted and deliberate;
+and the `shot_control_information` constructor kwarg is gone.
+GEECS-Scanner-GUI itself was **deleted from `dev`** (2026-08-20, geecs-core
+arc) after its `optimization` module relocated into this package;
 `master`'s legacy scanner line is untouched — the fallback story is
-unchanged).  GEECS-Scanner-GUI is fully dead code — its `optimization`
-module relocated into this package 2026-08-20 — awaiting the M6
-whole-package deletion.
+unchanged until the M6 cutover.
 
 ## Two acquisition modes (the core architecture)
 
@@ -59,9 +55,9 @@ geecs_bluesky/
                             #   ActionPlan execution & dry-run (G-actions v1)
   events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
                             #   ScanState, DialogRequest — moved down from
-                            #   geecs_scanner (vision §2); geecs_scanner's
-                            #   scan_events.py / dialog_request.py are re-export
-                            #   shims of these same class objects
+                            #   the legacy geecs_scanner engine (vision §2);
+                            #   the shims that re-exported them died with
+                            #   GEECS-Scanner-GUI's deletion (2026-08-20)
   operator_channel.py       # OperatorChannel seam: ask(OperatorQuestion) →
                             #   "continue"/"abort"/default; EventStreamOperator
                             #   (GUI dialog path) / NullOperator (headless)
@@ -556,13 +552,11 @@ api_key = <key>
 ## Engine consolidation (0.22.0) — shim state
 
 The event vocabulary (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`)
-lives in `geecs_bluesky/events.py`; `geecs_scanner.engine.scan_events` and
-`geecs_scanner.engine.dialog_request` are **re-export shims** of the same
-class objects (the legacy `DEVICE_COMMAND_ERRORS` tuple and
-`escalate_device_error` stay in the shim — they need geecs_python_api).
-The scanner's old defensive try/except imports are gone; the remaining
-`is None` guards on the module-level names exist purely as test seams
-(hermetic tests monkeypatch them to simulate a consumer-less install).
+lives in `geecs_bluesky/events.py`. The `geecs_scanner.engine.*` re-export
+shims that used to alias these class objects were deleted with
+GEECS-Scanner-GUI (2026-08-20). The remaining `is None` guards on the
+module-level names exist purely as test seams (hermetic tests monkeypatch
+them to simulate a consumer-less install).
 
 Operator interaction is one seam: `operator_channel.OperatorChannel`
 (`EventStreamOperator` = today's GUI dialog behavior, `NullOperator` =
