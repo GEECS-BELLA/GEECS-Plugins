@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "geecs-core"
-version = "0.1.0"
-description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, and the wire-protocol test double"
+version = "0.2.0"
+description = "The GEECS access library: UDP/TCP wire protocol, experiment database, PV naming contract, exceptions, the wire-protocol test double, and the entry-level GeecsDevice client"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
 packages = [{ include = "geecs_core" }]
@@ -25,9 +25,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Default run needs no lab network; the DB integration tests are opt-in.
-addopts = "-m 'not integration'"
+# Default run needs no lab network; the live-lab tiers are opt-in
+# (tests/test_live_lab.py — DB via -m integration, device I/O via -m hardware).
+addopts = "-m 'not integration and not hardware'"
 markers = [
     "fake_server: tests that use local FakeGeecsServer TCP/UDP sockets",
     "integration: tests that touch external lab services such as the GEECS database",
+    "hardware: tests that command a real GEECS device (GEECS_HW_* env vars)",
 ]
