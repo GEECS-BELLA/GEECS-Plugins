@@ -96,28 +96,50 @@ def test_scan_log_quiets_transport_chatter(tmp_path) -> None:
     with scan_log(14, str(folder)):
         logging.getLogger("httpx").info("HTTP Request: POST /api/v1/metadata")
         logging.getLogger("mysql.connector").info("plugin_name: sha2")
+        logging.getLogger("mysql.connector.plugins").info("AUTH_PLUGIN_CLASS: x")
         logging.getLogger("httpx").warning("retrying after timeout")
+        # Sibling namespaces that merely share a string prefix are NOT quieted.
+        logging.getLogger("httpx_sse").info("sse stream opened")
     content = (folder / "scan.log").read_text()
     assert "HTTP Request" not in content
     assert "plugin_name" not in content
+    assert "AUTH_PLUGIN_CLASS" not in content
     assert "retrying after timeout" in content
+    assert "sse stream opened" in content
 
 
 def test_pre_scan_buffer_flushes_into_scan_log(tmp_path) -> None:
-    """Records emitted between submission and the folder claim open the file."""
+    """Records emitted between submission and the folder claim open the file.
+
+    Runs with the root at WARNING so the level bookkeeping is observable:
+    the capture must lower the root to INFO (or the story is never emitted)
+    and the exit must restore the TRUE pre-capture level — pinning the
+    take-buffer-before-saving-root-level ordering in ``scan_log``.
+    """
     folder = tmp_path / "Scan011"
     folder.mkdir()
-    begin_pre_scan_capture()
-    module_logger.info("reinitialised from ScanRequest")
-    logging.getLogger("ophyd_async.core").warning("telemetry device dropped")
-    with scan_log(11, str(folder)):
-        module_logger.info("mid-scan line")
+    root = logging.getLogger()
+    old_level = root.level
+    root.setLevel(logging.WARNING)
+    try:
+        begin_pre_scan_capture()
+        module_logger.info("reinitialised from ScanRequest")
+        logging.getLogger("ophyd_async.core").warning("telemetry device dropped")
+        with scan_log(11, str(folder)):
+            module_logger.info("mid-scan line")
+        # The WARNING root from before the capture is restored — not the
+        # INFO the capture/scan window ran at.
+        assert root.level == logging.WARNING
+    finally:
+        root.setLevel(old_level)
     content = (folder / "scan.log").read_text()
     # Buffered lines appear, stamped, and BEFORE the "starting" banner.
     assert "reinitialised from ScanRequest" in content
     assert "telemetry device dropped" in content
     assert content.index("reinitialised") < content.index("Scan011: starting")
     assert "scan=Scan011" in content.splitlines()[0]
+    # The flush announces itself with the record count.
+    assert "opened with 2 buffered pre-claim records" in content
     # The buffer handler is gone from the root logger after the attach.
     assert not any(
         type(h).__name__ == "PreScanLogBuffer" for h in logging.getLogger().handlers

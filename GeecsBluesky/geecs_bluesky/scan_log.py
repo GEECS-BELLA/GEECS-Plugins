@@ -67,7 +67,10 @@ class _QuietNoisyLoggers(logging.Filter):
         """
         if record.levelno >= logging.WARNING:
             return True
-        return not record.name.startswith(QUIET_LOGGER_PREFIXES)
+        return not any(
+            record.name == prefix or record.name.startswith(prefix + ".")
+            for prefix in QUIET_LOGGER_PREFIXES
+        )
 
 
 class PreScanLogBuffer(logging.Handler):
@@ -76,6 +79,11 @@ class PreScanLogBuffer(logging.Handler):
     A plain bounded buffer: :meth:`emit` appends, and :meth:`flush_into`
     replays every held record through a target handler (whose own filters —
     the scan-id stamp — apply on replay).  Never auto-flushes.
+
+    Captures at INFO+ (``level=logging.INFO``), matching the scan.log file
+    handler's own INFO threshold — under a ``--log-level DEBUG`` root the
+    per-scan file is an INFO+ record on both sides of the claim, by design
+    (DEBUG-heavy startups would also evict the bounded buffer's story).
     """
 
     def __init__(self, capacity: int = PRE_SCAN_BUFFER_CAPACITY) -> None:
@@ -96,6 +104,10 @@ class PreScanLogBuffer(logging.Handler):
             The record to buffer.
         """
         self._records.append(record)
+
+    def __len__(self) -> int:
+        """Number of buffered records."""
+        return len(self._records)
 
     def flush_into(self, handler: logging.Handler) -> None:
         """Replay every buffered record through *handler*, then clear.
@@ -291,11 +303,23 @@ def scan_log(scan_number: int | None, scan_folder: str | None):
     # Pre-claim records (submission, connects, telemetry drops) replay into
     # the file first — they are chronologically earlier than everything the
     # live handler will see, and the handler's filter stamps them.
+    flushed = 0
     if buffer is not None:
+        flushed = len(buffer)
         buffer.flush_into(handler)
 
     root.addHandler(handler)
     try:
+        if flushed:
+            # The flush announces itself: the buffer is an unowned
+            # module-level slot (one scan at a time per process), so if a
+            # foreign scan ever consumes a submission's buffer, this line
+            # makes the theft visible.
+            logger.info(
+                "scan %s: opened with %d buffered pre-claim records",
+                scan_id,
+                flushed,
+            )
         logger.info("scan %s: starting (dir=%s)", scan_id, scan_folder)
         yield
         logger.info("scan %s: finished", scan_id)

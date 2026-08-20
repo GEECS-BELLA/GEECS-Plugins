@@ -276,7 +276,11 @@ class BlueskyScanner:
         # From here every log line belongs to the upcoming scan's story:
         # buffer root-logger records so scan.log can open with them once
         # the folder is claimed (a refused submission discards the buffer).
-        begin_pre_scan_capture()
+        # Guarded on the scan state: a protocol-violating mid-scan
+        # reinitialize must not steal the active scan's capture or snapshot
+        # the scan-lowered root level as "original".
+        if not self.is_scanning_active():
+            begin_pre_scan_capture()
         try:
             if request.mode is ScanRequestMode.OPTIMIZE and (
                 self._optimization_loader is None
@@ -442,11 +446,10 @@ class BlueskyScanner:
         Stop).  A thread that is genuinely stuck mid-plan still reports
         active: the flag is only set once the ``finally`` cleanup ran.
         """
+        # getattr: hermetic tests build bare scanners via __new__.
+        thread = getattr(self, "_scan_thread", None)
         return bool(
-            self._scan_thread
-            and self._scan_thread.is_alive()
-            # getattr: hermetic tests build bare scanners via __new__.
-            and not getattr(self, "_scan_finished", False)
+            thread and thread.is_alive() and not getattr(self, "_scan_finished", False)
         )
 
     def estimate_current_completion(self) -> float:

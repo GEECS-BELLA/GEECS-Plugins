@@ -31,7 +31,13 @@ def configure_logging(level_name: str = "INFO") -> None:
     # logs one line per request (every 5 s, forever).  Quiet it to WARNING.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # Handlers carry the operator's --log-level explicitly: the engine's
+    # per-scan scan.log capture (geecs_bluesky.scan_log) lowers the ROOT
+    # level to INFO for a scan's duration, and NOTSET handlers would
+    # silently inherit that — printing INFO to stderr/console.log against
+    # an explicit --log-level WARNING.
     stderr_handler = logging.StreamHandler()
+    stderr_handler.setLevel(level)
     stderr_handler.setFormatter(formatter)
     root.addHandler(stderr_handler)
     try:
@@ -42,6 +48,7 @@ def configure_logging(level_name: str = "INFO") -> None:
             backupCount=_LOG_BACKUP_COUNT,
             encoding="utf-8",
         )
+        file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         root.addHandler(file_handler)
     except OSError as exc:  # an unwritable config dir must not kill the GUI
