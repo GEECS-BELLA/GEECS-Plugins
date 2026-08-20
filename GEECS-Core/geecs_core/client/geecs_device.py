@@ -49,6 +49,9 @@ OnUpdate = Callable[[dict[str, Any]], None]
 _BACKOFF_INITIAL_S = 0.5
 _BACKOFF_MAX_S = 30.0
 
+# state keys owned by the client, never by a GEECS variable.
+_RESERVED_STATE_KEYS = frozenset({"shot number", "connected"})
+
 
 class GeecsDevice:
     """A GEECS device over direct UDP/TCP: get, set, subscribe. Nothing else.
@@ -97,7 +100,10 @@ class GeecsDevice:
 
         self.state: dict[str, Any] = {}
         self._udp: GeecsUdpClient | None = None
-        self._udp_lock = threading.Lock()
+        # Guards every lifecycle transition (_closed, _udp, _sub, _sub_task)
+        # so close() cannot race get()/subscribe() into leaked sockets or an
+        # orphaned supervisor. Never taken on the loop thread.
+        self._lock = threading.Lock()
         self._sub: GeecsTcpSubscriber | None = None
         self._sub_task: asyncio.Task | None = None
         self._closed = False
@@ -125,9 +131,13 @@ class GeecsDevice:
         GeecsCommandRejectedError, GeecsCommandFailedError, GeecsConnectionError
         """
         value = run_sync(
-            self._ensure_udp().get(variable, timeout=timeout or self.GET_TIMEOUT_S)
+            self._ensure_udp().get(
+                variable,
+                timeout=timeout if timeout is not None else self.GET_TIMEOUT_S,
+            )
         )
-        self.state[variable] = value
+        if variable not in _RESERVED_STATE_KEYS:
+            self.state[variable] = value
         return value
 
     def set(self, variable: str, value: Any, timeout: float | None = None) -> Any:
@@ -145,17 +155,25 @@ class GeecsDevice:
         """
         result = run_sync(
             self._ensure_udp().set(
-                variable, value, timeout=timeout or self.SET_TIMEOUT_S
+                variable,
+                value,
+                timeout=timeout if timeout is not None else self.SET_TIMEOUT_S,
             )
         )
-        self.state[variable] = result
+        if variable not in _RESERVED_STATE_KEYS:
+            self.state[variable] = result
         return result
 
     def _ensure_udp(self) -> GeecsUdpClient:
-        """Create and connect the UDP client on first use (thread-safe)."""
-        if self._closed:
-            raise RuntimeError(f"GeecsDevice({self.name!r}) is closed")
-        with self._udp_lock:
+        """Create and connect the UDP client on first use (thread-safe).
+
+        The closed check lives *inside* the lock: checking it outside would
+        let a racing ``close()`` complete between check and creation, leaving
+        live sockets on a closed device.
+        """
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(f"GeecsDevice({self.name!r}) is closed")
             if self._udp is None:
                 client = GeecsUdpClient(self._host, self._port, device_name=self.name)
                 run_sync(client.connect())
@@ -200,23 +218,29 @@ class GeecsDevice:
             If the initial connection fails — surfaced synchronously in both
             reconnect modes so a bad endpoint is loud at the call site.
         """
-        if self._closed:
-            raise RuntimeError(f"GeecsDevice({self.name!r}) is closed")
-        if self._sub_task is not None and not self._sub_task.done():
-            raise RuntimeError(
-                f"GeecsDevice({self.name!r}) is already subscribed — "
-                "unsubscribe() first"
-            )
         if variables is None:
             variables = [m["name"] for m in GeecsDb.get_device_variables(self.name)]
-        run_sync(
-            self._start_subscription(
-                list(variables),
-                frozenset(text_variables or ()),
-                on_update,
-                reconnect,
+        reserved = _RESERVED_STATE_KEYS.intersection(variables)
+        if reserved:
+            raise ValueError(
+                f"variable name(s) {sorted(reserved)} collide with reserved state keys"
             )
-        )
+        with self._lock:
+            if self._closed:
+                raise RuntimeError(f"GeecsDevice({self.name!r}) is closed")
+            if self._sub_task is not None and not self._sub_task.done():
+                raise RuntimeError(
+                    f"GeecsDevice({self.name!r}) is already subscribed — "
+                    "unsubscribe() first"
+                )
+            run_sync(
+                self._start_subscription(
+                    list(variables),
+                    frozenset(text_variables or ()),
+                    on_update,
+                    reconnect,
+                )
+            )
 
     async def _start_subscription(
         self,
@@ -239,15 +263,24 @@ class GeecsDevice:
         text_variables: frozenset[str],
         on_update: OnUpdate | None,
     ) -> GeecsTcpSubscriber:
-        """Open one subscriber and send the Wait command."""
+        """Open one subscriber and send the Wait command.
+
+        Owns the subscriber until it is handed back: any failure (or a
+        cancellation landing mid-connect) closes the half-established socket
+        before propagating — the discipline both gateway supervisors follow.
+        """
         sub = GeecsTcpSubscriber(self._host, self._port)
-        await sub.connect()
-        await sub.subscribe(
-            variables,
-            self._make_dispatch(on_update),
-            text_variables=text_variables,
-            include_shot=True,
-        )
+        try:
+            await sub.connect()
+            await sub.subscribe(
+                variables,
+                self._make_dispatch(on_update),
+                text_variables=text_variables,
+                include_shot=True,
+            )
+        except BaseException:
+            await sub.close()
+            raise
         self.state["connected"] = True
         return sub
 
@@ -290,7 +323,17 @@ class GeecsDevice:
                         sub = await self._connect_subscriber(
                             variables, text_variables, on_update
                         )
-                    except (OSError, TimeoutError):
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        # Broad on purpose (gateway-supervisor parity): any
+                        # narrower filter lets an unexpected error kill the
+                        # supervisor silently, freezing state["connected"].
+                        logger.debug(
+                            "reconnect attempt to %s failed",
+                            self.name,
+                            exc_info=True,
+                        )
                         continue
                     self._sub = sub
                     backoff = _BACKOFF_INITIAL_S
@@ -302,9 +345,10 @@ class GeecsDevice:
 
     def unsubscribe(self) -> None:
         """Stop the push stream (idempotent); get/set stay usable."""
-        if self._sub_task is None and self._sub is None:
-            return
-        run_sync(self._stop_subscription())
+        with self._lock:
+            if self._sub_task is None and self._sub is None:
+                return
+            run_sync(self._stop_subscription())
         self.state["connected"] = False
 
     async def _stop_subscription(self) -> None:
@@ -324,16 +368,16 @@ class GeecsDevice:
 
     def close(self) -> None:
         """Release the subscription and both UDP sockets. Idempotent."""
-        if self._closed:
-            return
-        self._closed = True
-        if self._sub_task is not None or self._sub is not None:
-            run_sync(self._stop_subscription())
-            self.state["connected"] = False
-        with self._udp_lock:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            if self._sub_task is not None or self._sub is not None:
+                run_sync(self._stop_subscription())
+                self.state["connected"] = False
             udp, self._udp = self._udp, None
-        if udp is not None:
-            run_sync(udp.close())
+            if udp is not None:
+                run_sync(udp.close())
 
     def __enter__(self) -> "GeecsDevice":
         """Return self."""

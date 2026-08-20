@@ -62,6 +62,34 @@ def run_sync(coro: Coroutine[Any, Any, Any], timeout: float | None = None) -> An
     Any
         The coroutine's return value. Exceptions raised inside the coroutine
         (``GeecsCommandFailedError`` etc.) propagate to the caller unchanged.
+
+    Raises
+    ------
+    RuntimeError
+        If called *from* the shared loop thread — i.e. from inside a
+        subscription ``on_update`` callback. Blocking the loop on work the
+        loop itself must run would deadlock every device in the process, so
+        it is refused loudly instead. Hand such work to your own
+        thread/queue.
+
+    Notes
+    -----
+    The shared loop's thread does not survive ``fork()`` — a forked child
+    calling any sync device method would block forever. Use ``spawn`` (or
+    construct devices only in the child) with ``multiprocessing``.
     """
-    future = asyncio.run_coroutine_threadsafe(coro, get_loop())
+    loop = get_loop()
+    try:
+        running = asyncio.get_running_loop()
+    except RuntimeError:
+        running = None
+    if running is loop:
+        coro.close()
+        raise RuntimeError(
+            "run_sync called from the geecs-core client loop thread — "
+            "GeecsDevice sync methods (get/set/close/...) must not be called "
+            "from inside a subscription on_update callback; hand the work to "
+            "your own thread or queue instead"
+        )
+    future = asyncio.run_coroutine_threadsafe(coro, loop)
     return future.result(timeout)

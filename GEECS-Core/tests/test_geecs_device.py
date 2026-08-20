@@ -66,14 +66,62 @@ class TestGetSet:
                 dev.get("NonExistent")
 
     def test_devices_do_not_serialize_each_other(self, served_device) -> None:
-        """Two devices command concurrently (no legacy global lock)."""
+        """Two devices command from two threads with per-device locks only.
+
+        The legacy client held one class-global lock serializing every
+        command in the process. Here each transport client owns its own
+        asyncio lock (asserted distinct), and threaded gets on two devices
+        both succeed.
+        """
+        import threading
+
         srv, _ = served_device
         with (
             GeecsDevice("U_TestDevice", host=srv.host, port=srv.port) as a,
             GeecsDevice("U_TestDevice", host=srv.host, port=srv.port) as b,
         ):
-            assert a.get("Status") == 0
-            assert b.get("Velocity (mm/s)") == pytest.approx(1.5)
+            barrier = threading.Barrier(2)
+            results: dict[str, object] = {}
+
+            def worker(dev, variable, key):
+                barrier.wait()
+                for _ in range(5):
+                    results[key] = dev.get(variable)
+
+            threads = [
+                threading.Thread(target=worker, args=(a, "Status", "a")),
+                threading.Thread(target=worker, args=(b, "Velocity (mm/s)", "b")),
+            ]
+            for th in threads:
+                th.start()
+            for th in threads:
+                th.join(timeout=10)
+                assert not th.is_alive()
+            assert results["a"] == 0
+            assert results["b"] == pytest.approx(1.5)
+            assert a._udp is not None and b._udp is not None
+            assert a._udp._lock is not b._udp._lock, (
+                "transport clients share a lock — the legacy global "
+                "command lock is back"
+            )
+
+    def test_reserved_state_keys_refused_in_subscribe(self, served_device) -> None:
+        srv, _ = served_device
+        with GeecsDevice("U_TestDevice", host=srv.host, port=srv.port) as dev:
+            with pytest.raises(ValueError, match="reserved"):
+                dev.subscribe(["Position (mm)", "connected"])
+            with pytest.raises(ValueError, match="reserved"):
+                dev.subscribe(["shot number"])
+
+    def test_run_sync_refuses_the_loop_thread(self) -> None:
+        """A sync device call inside on_update must fail loud, not deadlock."""
+        import asyncio
+
+        async def call_run_sync_from_loop():
+            with pytest.raises(RuntimeError, match="loop thread"):
+                run_sync(asyncio.sleep(0))
+
+        run_sync(call_run_sync_from_loop())
 
 
 class TestSubscription:
@@ -143,18 +191,26 @@ class TestSubscription:
 
 class TestLifecycle:
     def test_rapid_reconnect_releases_udp_sockets(self, served_device) -> None:
-        """Five open/get/close cycles must not leak the UDP socket pair.
+        """Five open/get/close cycles must actually release both UDP sockets.
 
         Pins the legacy Bug 2 (WinError 10048: exe socket never closed, port
-        not released between device lifecycles) against the new client.
+        not released between device lifecycles) against the new client — by
+        asserting the transports are closed after close(), not merely that
+        the cycles ran without error (fresh ephemeral ports would mask a
+        leak in an error-only test).
         """
         srv, _ = served_device
         for i in range(5):
             dev = GeecsDevice("U_TestDevice", host=srv.host, port=srv.port)
             try:
                 assert dev.get("Position (mm)") is not None
+                udp = dev._udp
+                assert udp is not None
             finally:
                 dev.close()
+            assert dev._udp is None
+            assert udp._cmd_transport is None or udp._cmd_transport.is_closing()
+            assert udp._exe_transport is None or udp._exe_transport.is_closing()
 
     def test_close_is_idempotent_and_fails_loud_after(self, served_device) -> None:
         srv, _ = served_device
