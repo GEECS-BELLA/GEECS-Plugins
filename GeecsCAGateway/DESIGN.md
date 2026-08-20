@@ -44,9 +44,9 @@ for a solo, spare-time maintainer.
 
 ## Architecture
 
-The GeecsBluesky transport core is already ophyd-free (`transport/` imports no
-ophyd). The gateway is a **sibling presentation** over that same core, parallel
-to the ophyd `SignalBackend`:
+The transport core (then in GeecsBluesky, now `geecs_core.transport`) is
+ophyd-free (`transport/` imports no ophyd). The gateway is a **sibling
+presentation** over that same core, parallel to the ophyd `SignalBackend`:
 
 ```
                  geecs_core.transport (async core, ophyd-free;
