@@ -41,7 +41,7 @@ class RunControl:
         """
         from geecs_bluesky.scanner_bridge import BlueskyScanner
 
-        from geecs_scanner.optimization.session_bridge import (
+        from geecs_bluesky.optimization.session_bridge import (
             load_session_optimization,
         )
 

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.51.0"
+version = "0.52.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -39,16 +39,23 @@ tiled = {version = ">=0.2", extras = ["client"], optional = true}
 # epicscorelibs, so no system EPICS base is required.
 aioca = { version = ">=1.7", optional = true }
 
-# Optimization algorithms for GeecsSession.optimize (XoptSuggester). Heavy
-# (pulls torch/botorch); the built-in RandomSuggester needs nothing. Pinned to
-# the same major as GEECS-Scanner-GUI (^3.1) so the two never drift.
+# Optimization: XoptSuggester (optimize.py) plus the whole config-driven
+# Xopt/evaluator stack (geecs_bluesky/optimization/, relocated here from
+# geecs_scanner.optimization — the queueserver worker's home for it). Heavy
+# (xopt pulls torch/botorch); the built-in RandomSuggester needs nothing.
 xopt = { version = "^3.1", optional = true }
+# gest-api rides with xopt but is imported directly (vocs_utils) — declared.
+gest-api = { version = ">=0.1", optional = true }
+# The evaluators wrap ScanAnalysis analyzers (create_scan_analyzer) and
+# ImageAnalysis diagnostics (load_diagnostic) — optimize-extra only; the
+# core engine never imports either.
+scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
 [tool.poetry.extras]
 tiled = ["tiled"]
 analysis = ["imageanalysis"]
 ca = ["aioca"]
-optimize = ["xopt"]
+optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

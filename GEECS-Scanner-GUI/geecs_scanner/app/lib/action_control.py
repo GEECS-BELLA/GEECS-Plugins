@@ -2,7 +2,7 @@
 
 from typing import Any
 from geecs_scanner.engine import ActionManager, DeviceCommandExecutor
-from geecs_scanner.engine.models.actions import ActionSequence
+from geecs_bluesky.optimization._legacy_models_actions import ActionSequence
 from pydantic import ValidationError
 import logging
 import sys

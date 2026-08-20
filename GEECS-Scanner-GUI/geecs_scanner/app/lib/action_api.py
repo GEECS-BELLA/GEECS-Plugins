@@ -1,7 +1,7 @@
 """Helpers for constructing and describing action steps in the action library GUI."""
 
 from typing import Union
-from geecs_scanner.engine.models.actions import (
+from geecs_bluesky.optimization._legacy_models_actions import (
     SetStep,
     GetStep,
     WaitStep,

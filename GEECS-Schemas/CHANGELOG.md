@@ -5,6 +5,16 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-08-20
+
+### Changed
+
+- Docs-only: the `OptimizationSpec.evaluator.module` field example now
+  shows the stack's post-relocation home (`geecs_bluesky.optimization.
+  evaluators...`); the generated `docs/geecs_schemas/schema_reference.md`
+  updated to match. Legacy-prefix configs stay loadable — GeecsBluesky
+  0.52.0's `EvaluatorConfig` rewrites them at validation.
+
 ## [0.9.0] - 2026-07-21
 
 ### Added

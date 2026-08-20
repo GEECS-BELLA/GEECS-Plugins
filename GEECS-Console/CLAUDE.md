@@ -374,10 +374,13 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   of `convert_optimizer_config`), `load_console_optimization` builds
   `BaseOptimizer.from_config(...)` + `SessionOptimizationBridge`, and the
   engine (GeecsBluesky ≥ 0.31.0) runs the optimization as a delegated
-  ScanRequest.  The stack is the **`optimization` extra**
-  (`geecs-scanner-gui`, the only place the legacy package appears —
+  ScanRequest.  The stack lives in `geecs_bluesky.optimization` (relocated
+  out of geecs_scanner 2026-08-20 — no geecs-scanner-gui dependency
+  remains anywhere in the console); the **`optimization` extra** installs
+  its heavy dependency tree (xopt → torch/botorch, ScanAnalysis — a
+  mirror of geecs-bluesky's `optimize` extra, keep the lists in sync;
   import confined to `services/optimization.py`, lazy, gated by a light
-  `find_spec` probe); without it the loader is `None` and the engine's
+  `find_spec("xopt")` probe); without it the loader is `None` and the engine's
   needs-a-loader refusal shows in the status bar, all other modes
   unaffected.  With the extra installed, `main.py` calls
   `warm_up_optimization_stack()` once after `window.show()` — a daemon
@@ -513,10 +516,11 @@ directly.)
 
 - An `OptimizationSpec` *editor* (authoring configs in the GUI) remains
   out of scope — configs are YAML files in `optimizer_configs/`.  The
-  optimization stack behind the loader (`geecs_scanner.optimization`) is
-  legacy machinery kept for parity; a redesigned hook (bluesky-adaptive
-  direction) is planned, at which point `services/optimization.py` and
-  the `optimization` extra are deleted together.
+  optimization stack behind the loader (`geecs_bluesky.optimization` —
+  relocated out of geecs_scanner 2026-08-20) is legacy machinery kept for
+  parity; a redesigned hook (bluesky-adaptive direction) is planned, at
+  which point `services/optimization.py` and the `optimization` extra are
+  deleted together.
 - `ConsoleConfigs.scan_variable_specs()` uses the public
   `ConfigsRepoResolver.scan_variable_catalog()` accessor (promoted in
   geecs-bluesky 0.49.0, closing the old reach-into-private debt note);

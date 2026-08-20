@@ -10,7 +10,7 @@ import yaml
 
 from geecs_python_api.controls.devices.scan_device import ScanDevice
 from geecs_scanner.engine.device_command_executor import DeviceCommandExecutor
-from geecs_scanner.engine.models.actions import (
+from geecs_bluesky.optimization._legacy_models_actions import (
     ActionLibrary,
     ActionSequence,
     ExecuteStep,

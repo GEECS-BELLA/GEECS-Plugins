@@ -4,6 +4,21 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.20.0] - 2026-08-20
+
+### Changed
+
+- **The `optimization` extra no longer installs `geecs-scanner-gui`** —
+  the Xopt/evaluator stack relocated to `geecs_bluesky.optimization`
+  (GeecsBluesky 0.52.0), so the extra now installs the stack's
+  dependencies directly (`xopt`, `gest-api`, `scananalysis`,
+  `imageanalysis` — a mirror of geecs-bluesky's `optimize` extra; Poetry
+  cannot express a second extras-variant of the existing geecs-bluesky
+  path dep). `services/optimization.py` imports the new home and its
+  availability probe gates on `xopt` (the code always ships with
+  geecs-bluesky; the extra adds the heavy tree). The console no longer
+  references the legacy package anywhere.
+
 ## [0.19.2] - 2026-08-20
 
 ### Fixed

@@ -29,8 +29,8 @@ metadata under ``pseudo_variables``).
 Deliberate v1 gaps (validated, then refused loudly — never silently wrong):
 ``all_scalars``, and optimize without either an
 injected ``objective``/``suggester`` pair or an ``optimization_binder``
-(the Xopt stack lives in ``geecs_scanner.optimization``, which this package
-must not import — the binder is the GUI bridge's injected seam for it).
+(the Xopt stack lives in ``geecs_bluesky.optimization`` behind the
+``optimize`` extra — the binder is the caller's injected seam for it).
 
 Configs speak GEECS device/variable names, never PVs (ratified convention);
 PV derivation stays inside the device factories.
@@ -1669,9 +1669,9 @@ def _run_optimize_request(
             "optimize-mode ScanRequest execution needs a ready-made "
             "objective and suggester (run(request, resolver, objective=..., "
             "suggester=...)) or an optimization_binder: instantiating them "
-            "from the request's evaluator/generator specs lives in the GUI "
-            "optimization stack (geecs_scanner.optimization), which "
-            "geecs_bluesky cannot import"
+            "from the request's evaluator/generator specs lives in the "
+            "optimization stack (geecs_bluesky.optimization, the `optimize` "
+            "extra), wired in by a caller-provided loader/binder"
         )
 
     detectors: list = []

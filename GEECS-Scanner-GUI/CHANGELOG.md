@@ -3,6 +3,20 @@
 All notable changes to this package will be documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.36.0] — 2026-08-20
+
+### Removed
+
+- **`geecs_scanner.optimization` relocated to `geecs_bluesky.optimization`**
+  (GeecsBluesky 0.52.0) — the module that was this package's last live
+  consumer on `dev`; the package is now fully dead code awaiting the M6
+  whole-package deletion. The legacy pydantic models the stack needed
+  (`engine/models/actions.py`, `engine/models/save_devices.py`) moved with
+  it; `engine/models/__init__.py` re-exports them from the new home so the
+  legacy engine and its tests keep importing the historical paths, and
+  the remaining direct importers (`action_manager`, `app/lib/action_*`,
+  `scan_execution_config`, `run_control`) point at the new location.
+
 ## [0.35.2] — 2026-07-16
 
 ### Changed

@@ -1,10 +1,10 @@
 """The startup warm-up: pre-importing the optimization stack off-thread.
 
-Hermetic — ``geecs-scanner-gui`` (the ``optimization`` extra) is NOT
+Hermetic — the ``optimization`` extra's dependencies (xopt) are NOT
 installed in CI, where the no-op path is exercised against the real
 ``find_spec`` probe; on dev machines that installed the extra, that
 real-probe test skips (the environment, not the code, decides its
-premise).  The warm path runs against fake ``geecs_scanner`` modules
+premise).  The warm path runs against fake ``geecs_bluesky.optimization`` modules
 planted in ``sys.modules``, and the never-blocks pin against an import
 stub gated on an event.  The double-work guard (a submission
 arriving mid-warm-up) is deliberately not machinery — Python's per-module
@@ -34,8 +34,7 @@ _JOIN_TIMEOUT_S = 5.0
 def _plant_fake_stack(monkeypatch) -> None:
     """Put importable fakes at the heavy-module paths in ``sys.modules``."""
     for name in (
-        "geecs_scanner",
-        "geecs_scanner.optimization",
+        "geecs_bluesky.optimization",
         *optimization_module._HEAVY_MODULES,
     ):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))

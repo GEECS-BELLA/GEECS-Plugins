@@ -25,7 +25,7 @@ This module is the single source of truth for that contract.  Its consumers
 - ``scan_analysis.analyzers.common.single_device_scan_analyzer`` — the
   *reader* side: joins s-file rows to natively saved files through the
   device's per-shot ``acq_timestamp`` column.
-- ``geecs_scanner.optimization.session_bridge`` — the *waiter* side: blocks
+- ``geecs_bluesky.optimization.session_bridge`` — the *waiter* side: blocks
   an optimization iteration until the bin's expected native files are
   visible on the data server.
 
