@@ -13,8 +13,9 @@ needs, and nothing else.
 - **`geecs_core.exceptions`** — the one `GeecsError` tree.
 - **`geecs_core.testing`** — `FakeGeecsServer`/`FakeGeecsDevice`, an
   in-process server speaking the real wire protocol for offline tests.
-- **`geecs_core.client`** *(from 0.2)* — `GeecsDevice`, the entry-level
-  synchronous get/set/subscribe client for scripts and notebooks.
+- **`geecs_core.client`** — `GeecsDevice`, the entry-level synchronous
+  get/set/subscribe client for scripts and notebooks (see its module
+  docstring for the threading model and reserved `state` keys).
 
 Consumers: `GeecsCAGateway` (the CA soft-IOC), `GeecsPvaGateway` (the
 distributed image server), `GeecsBluesky` (DB metadata, naming, exceptions),

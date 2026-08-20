@@ -21,10 +21,10 @@ geecs_core/
   db/               # layer 2 — the experiment MySQL database (GeecsDb,
                     #   blocking, lazy mysql-connector) + alarms.py (the
                     #   pydantic model for the ca_alarm_limits table)
-  client/           # layer 3 (from 0.2) — the entry-level synchronous
-                    #   GeecsDevice over layers 1+2, and the one place a
-                    #   background event loop bridges sync callers to the
-                    #   async transport
+  client/           # layer 3 — the entry-level synchronous GeecsDevice
+                    #   over layers 1+2, and the one place a background
+                    #   event loop bridges sync callers to the async
+                    #   transport
   testing/          # FakeGeecsServer / FakeGeecsDevice — an in-process
                     #   UDP+TCP server speaking the real wire protocol, so
                     #   every consumer can test offline

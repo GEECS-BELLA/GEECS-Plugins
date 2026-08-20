@@ -3,7 +3,7 @@
 The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment
 MySQL DB (`db/`), PV naming contract (`pv_naming`), the one `GeecsError` tree
 (`exceptions`), the `FakeGeecsServer` wire-protocol test double (`testing/`),
-and — from 0.2 — the entry-level synchronous `GeecsDevice` client (`client/`).
+and the entry-level synchronous `GeecsDevice` client (`client/`).
 
 **Read `DESIGN.md` before adding anything here.** It carries the three
 layering rules (dependencies flow downward; `client/` is the only sync/async

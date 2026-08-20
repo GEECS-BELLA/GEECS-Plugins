@@ -321,7 +321,9 @@ class GeecsUdpClient:
     async def get(self, variable: str, timeout: float | None = None) -> Any:
         """Send a get command and return the parsed value from the exe response."""
         cmd = f"get{variable}>>"
-        return await self._exchange(variable, cmd, timeout or self.exe_timeout)
+        return await self._exchange(
+            variable, cmd, timeout if timeout is not None else self.exe_timeout
+        )
 
     async def set(self, variable: str, value: Any, timeout: float | None = None) -> Any:
         """Send a set command and return the confirmed value from the exe response."""
@@ -331,7 +333,9 @@ class GeecsUdpClient:
             cmd = f"set{variable}>>{value:.12f}"
         else:
             cmd = f"set{variable}>>{value}"
-        return await self._exchange(variable, cmd, timeout or self.exe_timeout)
+        return await self._exchange(
+            variable, cmd, timeout if timeout is not None else self.exe_timeout
+        )
 
     # ------------------------------------------------------------------
 

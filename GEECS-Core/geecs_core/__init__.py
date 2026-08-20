@@ -2,8 +2,8 @@
 
 The shared foundation under every GEECS consumer: the UDP/TCP wire protocol
 (``transport/``), the experiment MySQL database (``db/``), the PV naming
-contract (``pv_naming``), the one exception tree (``exceptions``), and — from
-0.2 — the entry-level synchronous ``GeecsDevice`` client (``client/``).
+contract (``pv_naming``), the one exception tree (``exceptions``), and the
+entry-level synchronous ``GeecsDevice`` client (``client/``).
 See ``DESIGN.md`` for the layering rules.
 
 The public face re-exports the exception tree eagerly (stdlib-only) and the
@@ -25,6 +25,7 @@ from geecs_core.exceptions import (
 )
 
 __all__ = [
+    "GeecsDevice",
     "GeecsDb",
     "GeecsError",
     "GeecsConnectionError",
@@ -36,6 +37,7 @@ __all__ = [
 
 _LAZY = {
     "GeecsDb": ("geecs_core.db.geecs_db", "GeecsDb"),
+    "GeecsDevice": ("geecs_core.client.geecs_device", "GeecsDevice"),
 }
 
 
