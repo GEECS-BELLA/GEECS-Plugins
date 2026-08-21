@@ -239,3 +239,43 @@ checkpointed 1 s steps.
   `RE = RunEngine({})` and the manager must launch with `--keep-re`, or
   `queue start` silently bounces items with `Run Engine is not found in
   the RE Worker environment` in the manager log only.
+
+## Amendment: build phase COMPLETE, live checkpoint passed (2026-08-21)
+
+Everything in the **Build** and **Relocate** scope above is landed on
+`feat/queueserver` (GeecsBluesky 0.55.3; PR trail #635–#645, plus the
+`applied_defaults` event-model fix, all adversarially reviewed with
+dispositions on the PRs). The live integration checkpoint ran on the
+interim worker host against Undulator (Scans 001–004): noscan, 1D step,
+deferred pause → resume (nothing replayed), stop-from-paused (graceful,
+partial data kept), and an optimize request through the worker-registered
+loader (`optimization.json` + `xopt_dump.yaml` written). Evidence and
+per-item closure: comments on #639 / #644 / #645.
+
+Facts this phase produced live where they are owned — do not restate
+them here:
+
+- **One live-found defect, fixed as 0.55.3:** plan signatures registered
+  with the manager must use bare-builtin annotations (the manager
+  re-evaluates annotation strings in a bare namespace at `queue add`).
+  See the comment above `geecs_scan_request_plan` and its pin test.
+- **Operational behavior a client must handle** (failed items requeue at
+  the queue *front*; manager restart required after installing extras;
+  `qserver` CLI payloads are Python literals, not JSON; config.ini gaps
+  warn instead of failing startup): `GeecsBluesky/qserver/README.md`
+  Troubleshooting + `qserver/deploy/DEPLOYMENT.md`.
+
+Open-items delta: dotted-key `applied_defaults` metadata bug **fixed**
+(event-model-safe list-of-records shape, all three emission sites);
+analyzer-config schema drift in the configs repo is
+GEECS-Plugins-Configs#13; CurveZMQ key management still open (unit
+template carries the commented env-var slot). Deliberately untested:
+hard/immediate pause (operator surface is the deferred verb), pause
+during an optimize-mode scan, a live `failed_move_policy` trigger, and
+`move_to_best_on_finish`.
+
+**Next phase (Round 3, briefs complete in the issue bodies):** #648 (W6
+console client) → #649 (W5 bridge deletions, ordered after W6) → the
+promotion PR `feat/queueserver` → `master` (every constituent PR was
+reviewed; the bulk diff gets no fresh re-review — say so in the PR body;
+maintainer merges).
