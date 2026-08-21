@@ -119,3 +119,43 @@ def test_gen_list_of_plans_and_devices_succeeds_on_startup_dir(
     )
 
     assert (tmp_path / out_name).exists()
+
+
+def test_plan_signature_passes_manager_validation() -> None:
+    """A real ``queue add`` item validates against the plan's introspected signature.
+
+    Pins the signature constraint documented above
+    ``geecs_scan_request_plan``: the RE Manager re-evaluates the
+    signature's annotation *strings* in a bare namespace at submission, so
+    any non-builtin name there (``ScanRequest``, ``ConfigResolver``, even
+    ``typing.Any``) rejects every submission with "``Model`` is not fully
+    defined". List *generation* (the test above) does not exercise this —
+    only item validation does, which is why the in-process test history
+    missed it until the 2026-08-21 live integration checkpoint.
+
+    Uses the manager's own ``_process_plan``/``validate_plan`` pair (the
+    exact code path behind ``queue add``); private queueserver API,
+    accepted for a pin this specific.
+    """
+    pytest.importorskip("bluesky_queueserver")
+
+    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
+
+    from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+    from geecs_schemas import ScanRequest
+
+    request = ScanRequest.model_validate(
+        {"mode": "noscan", "shots_per_step": 2, "save_sets": ["UC_Test"]}
+    )
+    item = {
+        "name": "geecs_scan_request_plan",
+        "args": [request.model_dump(mode="json")],
+        "item_type": "plan",
+    }
+    processed = _process_plan(
+        geecs_scan_request_plan, existing_devices={}, existing_plans={}
+    )
+    ok, msg = validate_plan(
+        item, allowed_plans={"geecs_scan_request_plan": processed}, allowed_devices={}
+    )
+    assert ok, msg

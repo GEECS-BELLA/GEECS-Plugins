@@ -333,11 +333,18 @@ def _disconnect_plan(created: list):
     yield from bps.wait_for([_disconnect_all])
 
 
+# Signature constraint (queueserver contract): at `queue add` the RE Manager
+# re-evaluates this signature's annotation *strings* in a bare namespace —
+# any non-builtin name there (ScanRequest, ConfigResolver, even typing.Any)
+# makes every submission fail validation with "`Model` is not fully defined".
+# `request` must stay a plain `dict` and the keyword-only injection seams must
+# stay unannotated; the real types are documented in the docstring.  Pinned by
+# tests/test_qserver_startup.py::test_plan_signature_passes_manager_validation.
 def geecs_scan_request_plan(
-    request: dict | ScanRequest,
+    request: dict,
     *,
-    session: Any | None = None,
-    resolver: ConfigResolver | None = None,
+    session=None,
+    resolver=None,
 ):
     """Run one ScanRequest as a single Bluesky plan (preamble + inner plan).
 

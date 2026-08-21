@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.3] - 2026-08-21
+
+### Fixed
+
+- **`geecs_scan_request_plan` was unsubmittable through the RE Manager**
+  (live-integration-checkpoint finding, first real `qserver queue add`
+  against the merged assets): the manager re-evaluates the plan
+  signature's annotation strings in a bare namespace at submission, so
+  the `dict | ScanRequest` / `ConfigResolver | None` annotations made
+  *every* submission fail plan validation with "`Model` is not fully
+  defined" — list generation and all in-process tests never exercise
+  that path. The queue-facing signature is now `request: dict` with the
+  keyword-only injection seams unannotated (real types stay in the
+  docstring; runtime behaviour unchanged — the body still accepts a
+  validated `ScanRequest`). Pinned by
+  `test_qserver_startup.py::test_plan_signature_passes_manager_validation`,
+  which runs the manager's own `_process_plan`/`validate_plan` pair over
+  a real noscan item.
+
 ## [0.55.2] - 2026-08-20
 
 ### Fixed
