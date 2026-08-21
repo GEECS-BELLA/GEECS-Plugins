@@ -3,7 +3,7 @@
 ## What Is This
 
 Tiled is the persistent scalar/metadata store for all GEECS Bluesky scans.
-Every scan that runs through `BlueskyScanner` writes start/stop/event documents
+Every scan (queue-submitted or headless `GeecsSession`) writes start/stop/event documents
 to a Tiled catalog on the DB server (`192.168.6.14`).  Data is then queryable
 from any Python session on the network without touching the raw data files.
 
@@ -66,7 +66,7 @@ is the GEECS scan browser's job (GEECS-Console).
 
 ### Client machines
 
-`BlueskyScanner` auto-reads Tiled URI + API key from
+`GeecsSession` (the worker startup profile's session included) auto-reads Tiled URI + API key from
 `~/.config/geecs_python_api/config.ini` under `[tiled]`:
 
 ```ini
@@ -79,16 +79,16 @@ api_key = <stable key>
 
 ## What Works
 
-- `BlueskyScanner` connects to Tiled on startup and subscribes `TiledWriter` ✓
+- The session connects to Tiled on startup and subscribes `TiledWriter` ✓
 - Run start/stop metadata written to catalog ✓
 - Event documents (motor positions, detector scalars, timestamps) written ✓
 - Scan number, scan folder, device list in run start metadata ✓
 - Non-scalar device events include save directory and device `acq_timestamp` ✓
 - DG645 shot control arm/disarm per step ✓
 - Catalog readable from any network-connected Python session ✓
-- GUI path complete — `GEECS-Console` drives `BlueskyScanner` through the
-  delegated `ScanRequest` path: shot control (trigger profiles),
-  setup/per-step/closeout actions, and `ScanEvent` callbacks all flow
+- GUI path complete — `GEECS-Console` submits `ScanRequest`s to the
+  queueserver worker: shot control (trigger profiles) and
+  setup/per-step/closeout actions all flow
   through it (the legacy `GEECS-Scanner-GUI` path was deleted with G3) ✓
 - Scalar s-file exported from Tiled best-effort after each scan ✓
 - Hardware integration test: `tests/test_scan_request_hardware.py`

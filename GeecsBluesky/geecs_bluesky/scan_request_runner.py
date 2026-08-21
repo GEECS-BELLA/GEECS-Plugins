@@ -1,6 +1,6 @@
 """Run a ScanRequest: resolve config names, map onto the session machinery.
 
-``session.run(request)`` (or ``BlueskyScanner.reinitialize``) hands a
+``session.run(request)`` hands a
 :class:`~geecs_schemas.scan_request.ScanRequest` here.  :func:`run_scan_request`
 
 - resolves every config *name* through a :class:`ConfigResolver`
@@ -1534,7 +1534,8 @@ def run_scan_request(
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     # Unserved-variables pre-flight (pre-claim, pre-device-build): a variable
     # the gateway does not serve has no PV, so its detector could never
-    # connect — ask the operator (or headless: drop with a WARNING) now
+    # connect — drop it now with a WARNING (headless; the operator was
+    # asked client-side pre-submit, decision 3)
     # instead of dying in a 20 s NotConnectedError during connect.
     checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
         session, devices_config

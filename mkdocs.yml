@@ -57,7 +57,6 @@ nav:
           - Scan Data: geecs_console/scan_data.md
           - Scan Browser: geecs_console/scan_browser.md
           - Troubleshooting: geecs_console/troubleshooting.md
-          - API Reference:
       - Notes and Discussions:
           - Bayesian optimization for e-beam brightness: acquisition/notes/bayesian optimization for e-beam brightness.md
 

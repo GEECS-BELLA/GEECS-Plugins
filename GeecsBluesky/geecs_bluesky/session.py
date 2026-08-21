@@ -853,7 +853,8 @@ class GeecsSession:
         self.last_run_aborted = False
         # Headless scans get the same per-scan scan.log as bridge scans
         # (Gate-2 finding).  Attach only when this call claimed the number:
-        # a pre-claimed number means the caller (e.g. the GUI bridge) owns
+        # a pre-claimed number means the caller (the runner's optimize
+        # path, or the queue plan) owns
         # the scan.log handler, and a second one would duplicate every line.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
             try:

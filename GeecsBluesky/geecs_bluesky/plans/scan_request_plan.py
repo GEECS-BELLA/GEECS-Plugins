@@ -662,8 +662,9 @@ def _optimize_request_body(
     no plan-side equivalent.
 
     Deliberately dropped relative to ``GeecsSession.optimize``: the
-    ``should_abort``/``pause_supervisor`` GUI hooks (no plan-side
-    equivalent, same as the step/noscan body above).
+    ``should_abort`` stop probe (no plan-side equivalent — under the
+    queue, stop is the manager's verb; same as the step/noscan body
+    above).
 
     Raises
     ------
@@ -972,12 +973,12 @@ def _optimize_request_body(
             except Exception:
                 logger.warning("Could not write optimization history", exc_info=True)
 
-        # Success-only bookkeeping (mirrors BlueskyScanner's delegated-path
-        # call site: skipped on failure — the except clause below re-raises
+        # Success-only bookkeeping (mirrors session.optimize's success
+        # path: skipped on failure — the except clause below re-raises
         # before reaching here — and, on this path, on abort too, since an
         # operator abort surfaces as an exception through the generator
-        # chain rather than the settled-and-quiet outcome GeecsSession.RE
-        # gets from _run_supervised).
+        # chain rather than session.optimize's settled-and-quiet aborted
+        # outcome).
         finish = getattr(opt_bridge, "finish", None)
         if finish is not None:
             try:

@@ -37,7 +37,6 @@ __all__ = [
     "ActionCheckFailedError",
     "ActionPlanNotFoundError",
     "ActionPlanCycleError",
-    "ActionStepTimeoutError",
 ]
 
 
@@ -293,21 +292,3 @@ class ActionPlanCycleError(GeecsError):
             + " -> ".join(self.chain)
             + ". Remove one of the 'run' steps to break the cycle."
         )
-
-
-class ActionStepTimeoutError(GeecsError):
-    """A direct-executed action step did not complete within its budget.
-
-    Raised by
-    the direct action executor (deleted with the pause-window flow, W5 #649)
-    when a blocking ``set``/``check`` dispatch is still pending at the end
-    of its per-step budget (the in-loop coroutine is cancelled).  Sits in
-    the same operational-timeout family as
-    :class:`GeecsTriggerTimeoutError` / :class:`GeecsMotorTimeoutError` so
-    operator-facing handlers that catch :class:`GeecsError` see it.
-    """
-
-    def __init__(self, label: str, timeout: float) -> None:
-        self.label = label
-        self.timeout = timeout
-        super().__init__(f"action step {label} did not complete within {timeout:.0f} s")

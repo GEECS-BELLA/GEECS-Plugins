@@ -720,14 +720,13 @@ Remaining items are features/tuning, not architecture — see
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
-- **`DeviceCommandEvent`s are not translated** (deliberate — no GUI ever
-  rendered them, so emitting them would be dead traffic).
-  Lifecycle, step/progress, and pre-flight dialog events are emitted as of
-  0.21.0.  Pre-flight liveness is CONNECTED-based (the gateway serves every
-  DB device's data PVs whether or not the device is up, so CA-connect
-  success never implied liveness); the 10 s staleness threshold now only
-  matters for the free-run trigger-off check and still needs a lab session
-  of tuning against real rep rates.
+- **The bridge-era GUI event stream is gone** (W5 — lifecycle/step/dialog
+  events; clients observe the manager status, document, and console-output
+  streams instead).  Liveness remains CONNECTED-based (the gateway serves
+  every DB device's data PVs whether or not the device is up, so
+  CA-connect success never implied liveness) — read pre-submit by the
+  console's preflight; its staleness sample window still deserves a lab
+  session of tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
