@@ -61,6 +61,8 @@ from geecs_bluesky.db_runtime import select_telemetry_variables
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.optimize import BinData
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
+from geecs_bluesky.plans.orchestration import _with_pause_quiescer
+from geecs_bluesky.plans.pause_semantics import ShotControlPauseQuiescer
 from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import (
     claim_scan,
@@ -915,6 +917,14 @@ def _optimize_request_body(
         )
         if controller is not None:
             run_plan = bpp.finalize_wrapper(run_plan, controller.disarm())
+            # Quiesce-on-pause for the optimize path (reviewer-flagged gap on
+            # the 8d11fcd9 confirm): geecs_adaptive_scan never goes through
+            # build_step_scan_plan, so without this an operator pause
+            # mid-optimization leaves the trigger in SCAN with saving enabled
+            # — the Gate-2 orphan-frame mode decision 1 exists to prevent.
+            run_plan = _with_pause_quiescer(
+                ShotControlPauseQuiescer(controller), run_plan
+            )
 
         # The plan claimed the number, so the plan owns the per-scan
         # scan.log (mirrors the step/noscan body above).

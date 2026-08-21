@@ -4,6 +4,19 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.2] - 2026-08-20
+
+### Fixed
+
+- **Optimize-path quiesce-on-pause** (confirm-pass finding on the
+  decision-4 wiring): the queueserver optimize branch composes
+  `geecs_adaptive_scan` directly (never `build_step_scan_plan`), so no
+  pause quiescer was registered — an operator pause mid-optimization
+  would have left the trigger in SCAN with saving enabled. The branch now
+  wraps its run plan with `ShotControlPauseQuiescer` when a controller
+  exists. Also hardened the decision-4 pin to assert `session.py` does
+  not opt in (the reviewer's sabotage proved the runner-only pin hollow).
+
 ## [0.55.1] - 2026-08-20
 
 ### Changed

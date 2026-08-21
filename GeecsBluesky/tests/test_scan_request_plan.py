@@ -1259,3 +1259,23 @@ def test_plan_opts_into_pause_on_failed_move_and_runner_does_not() -> None:
     assert 'failed_move_policy="pause"' in plan_src
     runner_src = inspect.getsource(srr)
     assert "failed_move_policy" not in runner_src
+    # The bridge's ACTUAL builder call lives in session.scan, not the runner
+    # (reviewer sabotage on the 8d11fcd9 confirm proved the runner-only pin
+    # was hollow) — session.py must not opt in either.
+    import geecs_bluesky.session as _session_mod
+
+    assert "failed_move_policy" not in inspect.getsource(_session_mod)
+
+
+def test_optimize_path_registers_pause_quiescer(monkeypatch) -> None:
+    """The optimize branch wraps run_plan with the ShotControlPauseQuiescer
+    (reviewer-flagged gap: geecs_adaptive_scan bypasses build_step_scan_plan,
+    so without this a pause mid-optimization leaves the trigger firing)."""
+    import inspect
+
+    from geecs_bluesky.plans import scan_request_plan as srp
+
+    src = inspect.getsource(srp)
+    opt_body = src.split("phase 5")[-1]
+    assert "_with_pause_quiescer(" in src
+    assert "ShotControlPauseQuiescer(controller)" in src
