@@ -8,8 +8,10 @@ from geecs_schemas import (
     OptimizationSpec,
     PositionList,
     PositionRange,
+    PreflightCheckResult,
     ScanRequest,
     ScanRequestMode,
+    SubmissionRecord,
 )
 
 
@@ -288,3 +290,53 @@ class TestOptimizationSpec:
         assert spec.evaluator.class_name == "MaxCountsEvaluator"
         dumped = spec.model_dump(by_alias=True)
         assert dumped["evaluator"]["class"] == "MaxCountsEvaluator"
+
+
+class TestSubmissionRecord:
+    def make_record(self, **overrides):
+        base = {
+            "client": "geecs-console 0.21.0",
+            "submitted_at": "2026-08-21T14:30:00-07:00",
+            "preflight": [
+                {"check": "unserved_variables", "result": "passed"},
+                {
+                    "check": "gateway_liveness",
+                    "result": "continued",
+                    "detail": "U_TopView disconnected; operator continued",
+                },
+            ],
+        }
+        base.update(overrides)
+        return base
+
+    def test_absent_defaults_none(self):
+        # Saved presets carry no submission record; the field is optional.
+        request = make_step_request()
+        assert request.submission is None
+
+    def test_round_trip_through_json_dump(self):
+        # The queue path submits model_dump(mode="json") dicts; the record
+        # must survive that round trip intact.
+        request = make_step_request(submission=self.make_record())
+        again = ScanRequest.model_validate(request.model_dump(mode="json"))
+        assert again == request
+        assert again.submission.client == "geecs-console 0.21.0"
+        assert again.submission.preflight[1].result is PreflightCheckResult.CONTINUED
+        assert again.submission.preflight[0].detail == ""
+
+    def test_unknown_result_rejected(self):
+        with pytest.raises(ValidationError):
+            SubmissionRecord.model_validate(
+                self.make_record(preflight=[{"check": "x", "result": "aborted"}])
+            )
+
+    def test_unknown_field_fails_loudly(self):
+        with pytest.raises(ValidationError):
+            SubmissionRecord.model_validate(self.make_record(operator="sam"))
+
+    def test_engine_never_requires_it(self):
+        # A bare record validates: every field has a default. The engine
+        # treats the whole record as informational.
+        record = SubmissionRecord.model_validate({})
+        assert record.client == ""
+        assert record.preflight == []

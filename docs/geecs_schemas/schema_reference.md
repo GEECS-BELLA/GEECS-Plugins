@@ -27,6 +27,7 @@ One complete scan, ready to submit: what to do, what to save, how to trigger.
 | `description` | `str` | no | '' | Free-text note about this scan; it ends up in the scan's metadata and the experiment log. |
 | `background` | `bool` | no | False | Mark this scan's data as background/calibration shots so analysis can find them later. |
 | `optimization` | `OptimizationSpec (optional)` | no | None | The optimization problem definition. Required for (and only allowed with) mode 'optimize'. |
+| `submission` | `SubmissionRecord (optional)` | no | None | Filled in by the submitting client at queue time — who submitted, when, and what the pre-submit checks said. Not written by hand and never acted on by the engine; it is copied into the run metadata for the record. Leave unset in saved presets. |
 
 Example:
 
@@ -122,6 +123,26 @@ Which optimization algorithm proposes the next settings.
 |---|---|---|---|---|
 | `name` | `str` | yes | — | Name of the optimization algorithm, e.g. 'bayes_default', 'random', or 'multipoint_bax_alignment_l2'. |
 | `options` | `dict` | no | empty | Algorithm-specific tuning options. Free-form: each generator documents its own options (legacy 'xopt_config_overrides'). |
+
+### SubmissionRecord
+
+Who submitted this request, when, and what the pre-submit checks said.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `client` | `str` | no | '' | What submitted the request, e.g. 'geecs-console 0.21.0'. Free text, for the record only. |
+| `submitted_at` | `str` | no | '' | When the request was queued, as an ISO 8601 timestamp with timezone from the submitting machine's clock, e.g. '2026-08-21T14:30:00-07:00'. Informational only. |
+| `preflight` | `list[PreflightOutcome]` | no | empty | The pre-submit checks that ran and how each ended. Empty when the client ran no checks. |
+
+### PreflightOutcome
+
+One pre-submit check and how it ended, kept for the scan's record.
+
+| Field | Type | Required | Default | What it does |
+|---|---|---|---|---|
+| `check` | `str` | yes | — | Name of the pre-submit check, e.g. 'unserved_variables', 'gateway_liveness', 'free_run_staleness'. |
+| `result` | `PreflightCheckResult` | yes | — | How the check ended: 'passed' (nothing found), 'continued' (the operator saw a warning and chose to go ahead), or 'skipped' (the check could not run). |
+| `detail` | `str` | no | '' | What the check found or why it was skipped, in the words the operator saw. Empty for a clean pass. |
 
 ## `save_set`
 
