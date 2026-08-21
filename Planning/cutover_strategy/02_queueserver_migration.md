@@ -150,8 +150,10 @@ an open item below.
 - ~~Verify manager behavior details before build~~ **ANSWERED by the
   2026-08-20 sandbox spike** (see the amendment below): function execution
   requires an *idle* manager (unavailable while running or paused);
-  deferred pause waits out an in-flight blocking put and lands at the
-  first checkpoint after it, and resume does not re-execute the put.
+  a **deferred** pause waits out an in-flight blocking put, lands at the
+  first checkpoint after it, and its resume replays nothing. Hard/immediate
+  pause has the opposite resume semantics (replay from the last
+  checkpoint) — see the amendment's scoping note.
 - Resumable long scans: dropping pause-window actions makes
   stop→fix→restart the recovery path; if operationally painful, the answer
   is resumable scan design (progress checkpointing), not resurrecting
@@ -204,13 +206,28 @@ Run on the interim Linux host (the gateway machine), fully user-level
 blocking-status move (a stand-in for a GEECS blocking put), then
 checkpointed 1 s steps.
 
-- **Deferred pause vs. blocking puts (decision-4 enabler, verified):** a
-  deferred pause requested 3 s into the 8 s move left `re_state: running`
-  until the move's status completed, then paused at the first checkpoint
-  after it. Resume rewound only to that checkpoint — **the blocking put
+- **Deferred pause vs. blocking puts (verified for the deferred verb
+  only):** a deferred pause requested 3 s into the 8 s move left
+  `re_state: running` until the move's status completed, then paused at
+  the first checkpoint after it. Resume replayed nothing — for *deferred*
+  pause the message cache resets at the checkpoint, so **the blocking put
   did not re-execute** — and the plan ran to `exit_status: completed`.
   This matches the engine's existing pause-latency floor semantics: the
   in-flight GEECS set always finishes; pause lands at the next checkpoint.
+
+  **Scoping note (review finding on this amendment):** this verifies the
+  operator's *deferred* pause verb, i.e. decisions 1/4's "stock pause
+  verbs" surface. It does **not** exercise decision 4's failure-retry
+  mechanism — `bps.pause()` is a *hard* pause, and hard/immediate pause
+  resumes by **replaying from the last checkpoint**; that replay is
+  precisely how "resume = retry the failed move" works, and it remains
+  untested in the sandbox. Corollary the builder must design around: an
+  operator `re pause immediate` landing mid-put replays the put on
+  resume — **a GEECS set re-executes and hardware re-moves**. Checkpoint
+  placement therefore governs pause *latency* for deferred pause but
+  governs *what replays* for hard pause; place checkpoints so any
+  replayed segment is idempotent (or expose only the deferred verb to
+  operators).
 - **Function execution while paused (informational item, closed):**
   refused — `RE Manager must be in idle state`. Nothing may rely on
   manager-side function execution during a run or a pause; consistent
