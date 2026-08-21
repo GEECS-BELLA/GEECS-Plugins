@@ -10,8 +10,10 @@ This package owns the *scan* side:
 
 - `GeecsSession` — headless scans with the full GEECS run discipline
   (scan numbering, ScanInfo, save paths, event schema v1, Tiled, s-file export)
-- `BlueskyScanner` — the `ScanManager`-compatible GUI bridge (a thin adapter
-  over the session)
+- `qserver/` — the **queueserver worker**: a bluesky-queueserver RE Manager
+  whose startup profile serves `geecs_scan_request_plan` (every ScanRequest —
+  step/noscan/optimize — runs through it as a queue item); GEECS-Console and
+  every other client talk to the manager's queue/status API
 - `devices/ca/` — `CaGenericDetector`, `CaTimestampedReadable`,
   `CaSnapshotReadable`, `CaMotor`, `CaSettable` + the shared shot-id /
   contributor / native-saving mixins
@@ -22,7 +24,7 @@ This package owns the *scan* side:
 
 ## Current status
 
-Both acquisition modes (selected by `GEECS_BLUESKY_ACQUISITION_MODE`) are
+Both acquisition modes (declared by `ScanRequest.acquisition`) are
 hardware-verified over the gateway, including native image saving, external
 asset documents, Tiled persistence, and DG645 shot control:
 

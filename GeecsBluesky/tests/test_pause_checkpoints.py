@@ -14,11 +14,6 @@ Pins three things:
 * **``ShotController.last_state``** records the last *standing* state
   actually driven (never the momentary ``SINGLESHOT`` fire) — what the
   pause quiescer re-asserts on resume.
-
-Also pins that the old hard-pause bridge API (``pause_scan`` /
-``resume_scan``) is gone: hard pause is now an RE-level verb whose
-replay the plans are structured to survive (issue #641), not a bridge
-method.
 """
 
 from __future__ import annotations
@@ -33,7 +28,6 @@ from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.step_scan import geecs_step_scan
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
 from geecs_bluesky.shot_controller import ShotController
 
 # ---------------------------------------------------------------------------
@@ -248,17 +242,6 @@ def test_stateless_transition_leaves_last_state_alone() -> None:
     re(controller.arm())
     re(controller.quiesce())  # OFF not declared in this profile → no-op
     assert controller.last_state == "SCAN"
-
-
-# ---------------------------------------------------------------------------
-# The hard-pause bridge API is gone
-# ---------------------------------------------------------------------------
-
-
-def test_hard_pause_bridge_api_deleted() -> None:
-    """pause_scan/resume_scan (hard pause, replay trap) must not return."""
-    assert not hasattr(BlueskyScanner, "pause_scan")
-    assert not hasattr(BlueskyScanner, "resume_scan")
 
 
 def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:

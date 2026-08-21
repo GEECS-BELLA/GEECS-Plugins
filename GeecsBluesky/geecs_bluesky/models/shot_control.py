@@ -25,7 +25,7 @@ state" (leave the variable untouched) — matching the legacy
 This module gives that document a typed home so callers validate once and then
 ask structured questions (``defines_state``, ``values_for_state``) instead of
 digging raw nested dicts.  It is pure data — no hardware, no GEECS engine
-imports — so both :class:`~geecs_bluesky.scanner_bridge.BlueskyScanner` and any
+imports — so every scan entry point and any
 future GUI/editor can share it without dragging in the legacy engine.
 """
 

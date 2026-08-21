@@ -15,19 +15,18 @@ suggester binding) is constructed worker-side from the JSON request and
 never crosses a process boundary.
 
 The prologue pieces are the runner's own module-level functions — shared,
-not copied — so the legacy entry point (which the console keeps using until
-Round 3) and this plan cannot drift.  Differences from the legacy path are
-deliberate, per the Planning doc's decisions and 2026-08-20 amendments:
+not copied — so the headless entry point (``run_scan_request``, via
+``GeecsSession.run``) and this plan cannot drift.  Differences from that
+path are deliberate, per the Planning doc's decisions and amendments:
 
 - **Validation runs here, authoritatively** (amendment 2: no separate
   validation plan stub; clients re-run :func:`validate_scan_request`
   pre-submit for immediate feedback).
 - **No operator seams.**  Pre-flight questions move client-side pre-submit
   (decision 3), so the unserved-variables check runs with the headless
-  default (continue-and-drop with a WARNING); the GUI ``preflight`` /
-  ``on_scan_start`` / ``should_abort`` / ``pause_supervisor`` hooks have no
-  plan-side equivalent (the manager's queue/status API owns stop/pause,
-  decision 4; progress rides the document stream).
+  default (continue-and-drop with a WARNING); the old GUI-bridge hooks
+  died with the bridge (W5, #649) — the manager's queue/status API owns
+  stop/pause (decision 4) and progress rides the document stream.
 - **Device connects are plan messages.**  The session factories connect via
   ``run_coroutine_threadsafe`` onto the RE loop — a deadlock from inside a
   plan — so construction is deferred through a session facade and the
@@ -64,7 +63,6 @@ from geecs_bluesky.optimize import BinData
 from geecs_bluesky.plans.optimize import geecs_adaptive_scan
 from geecs_bluesky.plans.orchestration import _with_pause_quiescer
 from geecs_bluesky.plans.pause_semantics import ShotControlPauseQuiescer
-from geecs_bluesky.plans.orchestration import build_step_scan_plan
 from geecs_bluesky.plans.run_wrapper import (
     claim_scan,
     claim_scan_number,
@@ -495,7 +493,7 @@ def _scan_request_body(
     # Unserved-variables check, headless by decision 3 (operator questions
     # are client-side pre-submit): continue-and-drop with a WARNING.
     checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
-        session, devices_config, None
+        session, devices_config
     )
     if checked_config is None:  # defensive: the headless default never aborts
         raise GeecsConfigurationError(
@@ -591,51 +589,31 @@ def _scan_request_body(
 
     # ---- phase 4: the claim boundary --------------------------------------
     scan_number, scan_folder = claim_scan_number(session.experiment)
-    if scan_number is not None:
-        session._write_scan_info(
-            scan_number,
-            scan_folder,
-            motor=motor_arg,
-            positions=spec.positions,
-            shots_per_step=request.shots_per_step,
-            description=request.description,
-            overrides=spec.scan_info,
-        )
 
-    # Role wiring + native-save configuration, exactly as GeecsSession.scan.
-    reference = all_detectors[0]
-    for det in all_detectors:
-        if hasattr(det, "configure_shot_id"):
-            det.configure_shot_id(session.rep_rate_hz)
-        if hasattr(det, "set_reference") and det is not reference:
-            det.set_reference(reference)
-    saving_detectors = session._configure_saving(
-        all_detectors, scan_number, scan_folder
-    )
-
-    # ---- phase 5: the inner plans, exactly as today ------------------------
-    inner = build_step_scan_plan(
-        strict=strict,
-        motor=motor_arg,
-        positions=spec.positions,
-        reference=reference,
-        detectors=all_detectors,
-        shots_per_step=request.shots_per_step,
-        controller=controller,
-        experiment=session.experiment,
+    # ---- phase 5: the shared post-claim tail + inner plans -----------------
+    # ScanInfo → role wiring → native-save configuration → the inner plan:
+    # THE one definition, shared with GeecsSession.scan (the PR #639
+    # disposition-row-5 extraction; this used to be a ~25-line copy).
+    inner = session.build_claimed_scan_plan(
         scan_number=scan_number,
         scan_folder=scan_folder,
-        saving_detectors=saving_detectors,
-        extra_md={"description": request.description, **spec.md},
+        detectors=all_detectors,
+        motor=motor_arg,
+        positions=spec.positions,
+        shots_per_step=request.shots_per_step,
+        strict=strict,
+        controller=controller,
+        description=request.description,
+        md=spec.md,
+        scan_info_overrides=spec.scan_info,
         setup=setup,
         per_step=per_step,
         closeout=closeout,
-        # Decision-4 activation (issue #641, PR #645): the queueserver path is
-        # the ONE caller that opts into pause-on-failed-move — the RE Manager
-        # renders the paused state and resume/stop are first-class queue verbs.
-        # Bridge/console scans (run_scan_request) keep the 'raise' default:
-        # their PauseSupervisor would auto-resume this pause into a silent
-        # retry loop (reviewed on #645).
+        # Decision-4 activation (issue #641, PR #645): the queueserver path
+        # opts into pause-on-failed-move — the RE Manager renders the paused
+        # state and resume/stop are first-class queue verbs.  Headless
+        # session.scan keeps the 'raise' default: with no operator to
+        # answer, a pause would hang the scan (see the helper's docstring).
         failed_move_policy="pause",
     )
     # The plan claimed the number, so the plan owns the per-scan scan.log
@@ -684,8 +662,9 @@ def _optimize_request_body(
     no plan-side equivalent.
 
     Deliberately dropped relative to ``GeecsSession.optimize``: the
-    ``should_abort``/``pause_supervisor`` GUI hooks (no plan-side
-    equivalent, same as the step/noscan body above).
+    ``should_abort`` stop probe (no plan-side equivalent — under the
+    queue, stop is the manager's verb; same as the step/noscan body
+    above).
 
     Raises
     ------
@@ -736,7 +715,7 @@ def _optimize_request_body(
             "read"
         )
     devices_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
-        session, devices_config, None
+        session, devices_config
     )
     if devices_config is None:
         # No operator preflight hook on this path (same design position as
@@ -994,12 +973,12 @@ def _optimize_request_body(
             except Exception:
                 logger.warning("Could not write optimization history", exc_info=True)
 
-        # Success-only bookkeeping (mirrors BlueskyScanner's delegated-path
-        # call site: skipped on failure — the except clause below re-raises
+        # Success-only bookkeeping (mirrors session.optimize's success
+        # path: skipped on failure — the except clause below re-raises
         # before reaching here — and, on this path, on abort too, since an
         # operator abort surfaces as an exception through the generator
-        # chain rather than the settled-and-quiet outcome GeecsSession.RE
-        # gets from _run_supervised).
+        # chain rather than session.optimize's settled-and-quiet aborted
+        # outcome).
         finish = getattr(opt_bridge, "finish", None)
         if finish is not None:
             try:

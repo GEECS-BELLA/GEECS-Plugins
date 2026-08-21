@@ -22,7 +22,7 @@ legacy-shaped DataFrame (``Device:Variable`` columns, ``Bin #``,
 unchanged.  Analyzers load natively saved files by the real ``ScanTag``,
 exactly as they do for any scan.
 
-``BlueskyScanner`` receives :func:`load_session_optimization` via its
+The queueserver worker receives :func:`load_session_optimization` via its
 ``optimization_loader`` constructor argument (wired in ``RunControl``); the
 dependency direction stays GUI → geecs_bluesky.
 """
@@ -214,7 +214,7 @@ class SessionOptimizationBridge:
         ``BaseOptimizerConfig`` from the evaluator's analyzers) into the
         save-device set via ``device_manager.load_from_dictionary``, so an
         objective's diagnostic acquires and saves without being on the GUI
-        save list.  ``BlueskyScanner`` reads this attribute duck-typed
+        save list.  The scan-request runner reads this attribute duck-typed
         (``getattr``, like ``on_finish``/``finish``) and merges it into its
         device config before building session devices — the attribute stays
         duck-typed so the bridge seam is loader-agnostic.
@@ -483,7 +483,7 @@ class SessionOptimizationBridge:
         The legacy ScanManager writes ``<scan_dir>/xopt_dump.yaml`` at the
         end of every optimization scan; these dumps are the warm-start seed
         source (``seed_dump_files``) and the durable record of evaluated
-        inputs/outputs. Called by ``BlueskyScanner`` after
+        inputs/outputs. Called by the runner after
         ``session.optimize`` returns.
         """
         if self._scan_folder is None:
@@ -596,7 +596,7 @@ class SessionOptimizationBridge:
 
 
 def load_session_optimization(optimizer_config_path: str) -> SessionOptimizationBridge:
-    """``optimization_loader`` for ``BlueskyScanner`` (injected by RunControl).
+    """``optimization_loader`` built from a config file path (legacy shape).
 
     Builds the :class:`BaseOptimizer` from the same YAML as a legacy
     optimization scan — no ScanDataManager or DataLogger; the session bridge

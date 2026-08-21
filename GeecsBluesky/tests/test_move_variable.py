@@ -9,11 +9,9 @@ Pins the manual-move contract, the counterpart of ``test_run_action``:
   bump), and returns the ``{"variable", "kind", "value", "targets"}``
   summary.
 - Refusal while a scan owns the engine uses the **exact** message
-  ``"scan in progress — move not started"`` (session and bridge — the GUI
-  surfaces it verbatim).
+  ``"scan in progress — move not started"`` (the GUI surfaces it
+  verbatim).
 - A non-finite value is refused before any device is built.
-- ``BlueskyScanner.move_variable`` is a thin delegation (part of the
-  console Submitter contract).
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ import pytest
 pytest.importorskip("aioca")  # session is CA-only
 
 from geecs_bluesky.exceptions import GeecsConfigurationError  # noqa: E402
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner  # noqa: E402
 from geecs_bluesky.session import GeecsSession  # noqa: E402
 from geecs_schemas import PseudoScanVariable, ScanVariable  # noqa: E402
 
@@ -178,38 +175,6 @@ def test_non_finite_value_refused_before_any_device(session) -> None:
 
     with pytest.raises(GeecsConfigurationError, match="non-finite"):
         session.move_variable("bump_x", float("nan"), _Untouchable())
-
-
-def _bare_scanner(*, scanning: bool) -> BlueskyScanner:
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._scan_thread = SimpleNamespace(is_alive=lambda: True) if scanning else None
-    scanner._scan_finished = False
-    return scanner
-
-
-def test_bridge_refuses_while_scanning_exact_message() -> None:
-    scanner = _bare_scanner(scanning=True)
-    with pytest.raises(RuntimeError) as excinfo:
-        scanner.move_variable("anything", 1.0)
-    assert str(excinfo.value) == REFUSAL
-
-
-def test_bridge_delegates_to_session_with_its_resolver() -> None:
-    scanner = _bare_scanner(scanning=False)
-    sentinel_resolver = object()
-    seen = {}
-
-    class _Session:
-        def move_variable(self, name, value, resolver, *, timeout=60.0):
-            seen["call"] = (name, value, resolver, timeout)
-            return {"variable": name, "kind": "setpoint", "value": value, "targets": {}}
-
-    scanner._session = _Session()
-    scanner._request_resolver = sentinel_resolver
-    result = scanner.move_variable("jet_z", 3.0, timeout=120.0)
-
-    assert seen["call"] == ("jet_z", 3.0, sentinel_resolver, 120.0)
-    assert result["variable"] == "jet_z"
 
 
 # ---------------------------------------------------------------------------

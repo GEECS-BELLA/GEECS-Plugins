@@ -4,6 +4,52 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.0] - 2026-08-21
+
+### Removed
+
+- **The GUI bridge machinery (W5, issue #649)** — the RE Manager's
+  queue/status API is this functionality now:
+  - `scanner_bridge/` (`BlueskyScanner`) and its test suites.
+  - `plans/action_direct.py` and the three-way `ActionDecisionRequest`
+    (decision 2: pause-window actions dropped; actions are ordinary
+    queue items).
+  - `operator_channel.py` and the whole `events.py` vocabulary
+    (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`) — zero
+    emitters/consumers remained after the bridge; the mkdocs
+    `scan_events` API page removed with it.  `OperatorQuestion` and the
+    `ANSWER_*` constants moved into `preflight.py` (GEECS-Console's
+    pre-submit checks are their live consumer).
+  - `pause_supervisor.py` **whole** (the brief's "most of" was generous —
+    nothing had a consumer after the above; `ShotControlPauseQuiescer`
+    in `plans/pause_semantics.py` is the live pause-quiesce equivalent)
+    and `GeecsSession._run_supervised` with the `pause_supervisor`
+    parameters on `scan`/`optimize`.
+  - Bridge-only device checks `GatewayLivenessCheck` /
+    `FreeRunStalenessCheck` (their only invoker was the bridge's
+    preflight hook; the console's pre-submit CONNECTED/staleness reads
+    are the successors, run where an operator can answer).
+  - Bridge-only runner hooks: `run_scan_request` loses
+    `preflight=`, `on_scan_start=`, `operator_channel=`,
+    `pause_supervisor=` (`should_abort=` survives as the one external
+    stop probe); `run_preflight`/`run_unserved_variables_check` lose
+    their channel parameter (engine-side an `Ask` takes its
+    `on_default` with one WARNING).
+
+### Changed
+
+- **The `session.scan` tail-helper extraction** (PR #639 disposition
+  row 5): `GeecsSession.build_claimed_scan_plan` is THE one post-claim
+  tail (ScanInfo → role wiring → native-save configuration →
+  `build_step_scan_plan`), shared by `session.scan` and the queue plan's
+  preamble — the plan's ~25-line copy is gone.  `failed_move_policy` is
+  the helper's parameter: the queue plan opts into `"pause"`, the
+  headless default stays `"raise"` (no operator to answer a pause; the
+  #645 pin's rationale updated accordingly).
+- Stop-from-paused stays pinned hermetically
+  (`test_pause_semantics.py::test_failed_move_then_stop_ends_gracefully`
+  — pure RE + plan messages, no deleted machinery involved).
+
 ## [0.56.0] - 2026-08-21
 
 ### Added

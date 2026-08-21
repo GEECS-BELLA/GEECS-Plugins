@@ -727,13 +727,14 @@ def test_failed_move_then_stop_ends_gracefully() -> None:
 
 
 def test_failed_move_policy_defaults_to_raise_like_legacy() -> None:
-    """Default policy propagates FailedStatus — bridge/console untouched.
+    """Default policy propagates FailedStatus — headless callers untouched.
 
-    Issue #645 F1: the pause-on-failed-move path coexists badly with the
-    engine-side pause supervisor (auto-resume loop, stop-from-paused
-    bypass).  Callers that don't opt in — the bridge/console path via
-    ``scan_request_plan.py`` — must see exactly the pre-#641 behavior: the
-    ``FailedStatus`` raises straight through ``RE()``, no pause.
+    Originally #645 F1 (supervisor coexistence); post-W5 the rationale is
+    simpler: only the queueserver plan opts into ``"pause"`` because the
+    RE Manager renders the paused state and resume/stop are first-class
+    queue verbs.  A headless ``session.scan`` has no operator to answer a
+    pause, so the default must stay ``"raise"`` — the ``FailedStatus``
+    raises straight through ``RE()``, no pause, no hang.
     """
     import inspect
 

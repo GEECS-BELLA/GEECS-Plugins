@@ -1218,25 +1218,27 @@ def test_telemetry_documents_match_run_scan_request(
     )
 
 
-def test_plan_opts_into_pause_on_failed_move_and_runner_does_not() -> None:
-    """Decision-4 activation pin (#645): only the queueserver plan passes
-    failed_move_policy='pause'; the bridge/console path keeps the builder's
-    'raise' default (PauseSupervisor coexistence)."""
+def test_plan_opts_into_pause_on_failed_move_and_headless_does_not() -> None:
+    """Decision-4 activation pin (#645, re-pinned for the W5 tail helper):
+    only the queueserver plan passes failed_move_policy='pause'; the
+    headless path (session.scan through the shared tail helper) keeps the
+    'raise' default — with no operator to answer, a pause would hang."""
     import inspect
 
     from geecs_bluesky.plans import scan_request_plan as srp
     from geecs_bluesky import scan_request_runner as srr
+    from geecs_bluesky.session import GeecsSession
 
     plan_src = inspect.getsource(srp)
     assert 'failed_move_policy="pause"' in plan_src
     runner_src = inspect.getsource(srr)
     assert "failed_move_policy" not in runner_src
-    # The bridge's ACTUAL builder call lives in session.scan, not the runner
-    # (reviewer sabotage on the 8d11fcd9 confirm proved the runner-only pin
-    # was hollow) — session.py must not opt in either.
-    import geecs_bluesky.session as _session_mod
-
-    assert "failed_move_policy" not in inspect.getsource(_session_mod)
+    # The shared tail helper defaults to 'raise', and session.scan must not
+    # override it — the plan preamble is the ONE opt-in call site.
+    helper_sig = inspect.signature(GeecsSession.build_claimed_scan_plan)
+    assert helper_sig.parameters["failed_move_policy"].default == "raise"
+    scan_src = inspect.getsource(GeecsSession.scan)
+    assert "failed_move_policy" not in scan_src
 
 
 def test_optimize_path_registers_pause_quiescer() -> None:

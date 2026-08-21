@@ -2,7 +2,7 @@
 
 Every legacy scan folder carries a ``scan.log``; the Bluesky stack matches
 that with a scoped ``logging.FileHandler`` attached for the duration of one
-scan.  Extracted verbatim from ``BlueskyScanner._scan_log`` (Gate-2 finding:
+scan.  Extracted verbatim from the legacy GUI bridge's handler (Gate-2 finding:
 headless ``GeecsSession.run()`` scans had no scan.log because the helper was
 bridge-internal) so both front doors share one implementation — the session
 must not import the bridge.

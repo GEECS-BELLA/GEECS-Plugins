@@ -1,6 +1,6 @@
 """Run a ScanRequest: resolve config names, map onto the session machinery.
 
-``session.run(request)`` (or ``BlueskyScanner.reinitialize``) hands a
+``session.run(request)`` hands a
 :class:`~geecs_schemas.scan_request.ScanRequest` here.  :func:`run_scan_request`
 
 - resolves every config *name* through a :class:`ConfigResolver`
@@ -61,7 +61,6 @@ from geecs_bluesky.db_runtime import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
-from geecs_bluesky.operator_channel import OperatorChannel
 from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan
 from geecs_bluesky.preflight import run_unserved_variables_check
@@ -980,7 +979,8 @@ class StepScanSpec:
         The positions list handed to the scan plan: ``[None]`` for noscan,
         the axis values for a single axis, grid-point tuples for a grid.
     n_steps, n_shots :
-        Progress totals (the ``on_scan_start`` hook contract).
+        Progress totals (recorded for consumers of the built spec; the
+        GUI's live totals now come from the run start document).
     """
 
     md: dict[str, Any]
@@ -1263,19 +1263,19 @@ def make_served_set_provider(session: Any) -> GeecsDbServedSetProvider | None:
 def _preflight_unserved(
     session: Any,
     devices_config: dict[str, dict[str, Any]],
-    operator_channel: "OperatorChannel | None",
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, list[str]], list[str]]:
     """Run the unserved-variables check over *devices_config* (pre-claim).
 
     Thin glue between :func:`make_served_set_provider` and
     :func:`~geecs_bluesky.preflight.run_unserved_variables_check`; returns
-    as the latter (``None`` config means the operator aborted).
+    as the latter.  Headless by construction (queueserver decision 3): the
+    operator was asked client-side at submission, so a raised question
+    takes its continue-and-drop default with a WARNING.
     """
     provider = make_served_set_provider(session)
     return run_unserved_variables_check(
         devices_config,
         provider.served_by_device if provider is not None else None,
-        operator_channel,
     )
 
 
@@ -1399,11 +1399,7 @@ def run_scan_request(
     suggester: Any | None = None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     device_requirements: Any | None = None,
-    preflight: Callable[[list, bool], list | None] | None = None,
-    on_scan_start: Callable[[int, int], None] | None = None,
-    operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
-    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -1456,44 +1452,19 @@ def run_scan_request(
         pre-flight as everything else and are recorded in run metadata as
         ``provisioned_device_requirements``.  ``None``/empty is a no-op;
         ignored on non-optimize modes.
-    preflight :
-        Optional scanner-layer hook (the GUI bridge's operator-dialog
-        seam), called pre-claim with the fully assembled detector list and
-        a strict flag: ``preflight(detectors, strict) -> list | None``.
-        The returned (possibly reduced) list becomes the scan's detectors;
-        ``None`` aborts the run (created devices are still disconnected).
-        Not called on the optimize path — a detector-level optimize
-        preflight is a later seam (the config-level unserved-variables
-        check *does* run there; see *operator_channel*).  Headless callers
-        omit it (behavior unchanged when ``None``).
-    on_scan_start :
-        Optional progress-totals hook (the GUI bridge's progress seam),
-        called with ``(total_steps, total_shots)`` immediately before the
-        session scan starts.  On the optimize path the totals are the
-        upper bound ``(max_iterations, max_iterations × shots_per_step)``
-        — the suggester may stop early.
-    operator_channel :
-        Where the runner's own pre-flight questions go (today: the
-        unserved-variables check, which runs pre-claim over the devices
-        config on **every** mode — noscan/step *and* optimize — before any
-        detector is built).  ``None`` (headless default) answers with each
-        question's default: continue-and-drop with a WARNING.  Distinct
-        from *preflight*, which vets the already-built detector list.
     should_abort :
-        Optional operator-stop probe (the GUI bridge passes
-        ``lambda: self._abort_requested``), consulted between the
+        Optional external-stop probe, consulted between the
         initialization stages — after configuration resolution, after
-        device connect, after the *preflight* hook, and immediately before
-        the scan-number claim — because ``RE.abort()`` cannot stop a scan
-        that has not reached the RunEngine yet.  Every checkpoint is
-        pre-claim, so an init-stage stop burns no scan number; on trip the
-        runner disconnects what it created, logs one INFO line, sets
-        ``session.last_run_aborted`` (the #563 aborted-outcome contract)
-        and returns ``None``.  The callable is also handed to
-        ``session.scan``/``session.optimize``, whose in-plan gate closes
-        the residual window between the last checkpoint here and the
-        engine reporting ``running``.  ``None`` (headless default) checks
-        nothing.
+        device connect, and immediately before the scan-number claim —
+        because ``RE.abort()`` cannot stop a scan that has not reached the
+        RunEngine yet.  Every checkpoint is pre-claim, so an init-stage
+        stop burns no scan number; on trip the runner disconnects what it
+        created, logs one INFO line, sets ``session.last_run_aborted``
+        (the #563 aborted-outcome contract) and returns ``None``.  The
+        callable is also handed to ``session.scan``/``session.optimize``,
+        whose in-plan gate closes the residual window between the last
+        checkpoint here and the engine reporting ``running``.  ``None``
+        (headless default) checks nothing.
 
     Returns
     -------
@@ -1546,12 +1517,9 @@ def run_scan_request(
             suggester=suggester,
             optimization_binder=optimization_binder,
             device_requirements=device_requirements,
-            on_scan_start=on_scan_start,
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
-            operator_channel=operator_channel,
             should_abort=should_abort,
-            pause_supervisor=pause_supervisor,
         )
 
     # A step/noscan request without a save set was already refused by
@@ -1566,10 +1534,11 @@ def run_scan_request(
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     # Unserved-variables pre-flight (pre-claim, pre-device-build): a variable
     # the gateway does not serve has no PV, so its detector could never
-    # connect — ask the operator (or headless: drop with a WARNING) now
+    # connect — drop it now with a WARNING (headless; the operator was
+    # asked client-side pre-submit, decision 3)
     # instead of dying in a 20 s NotConnectedError during connect.
     checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
-        session, devices_config, operator_channel
+        session, devices_config
     )
     if checked_config is None:
         logger.warning(
@@ -1638,20 +1607,6 @@ def run_scan_request(
         if _stopped_during_init(session, should_abort, "after device connect"):
             return None
 
-        if preflight is not None:
-            # Scanner-layer seam (operator dialogs): runs pre-claim by
-            # construction — the claim happens inside session.scan below.
-            checked = preflight(detectors, mode == "strict")
-            if checked is None:
-                logger.warning(
-                    "ScanRequest preflight aborted the scan (pre-claim; no "
-                    "scan number was burned)"
-                )
-                return None
-            detectors = list(checked)
-            if _stopped_during_init(session, should_abort, "after preflight"):
-                return None
-
         movables: list = []
         for target in axis_resolved:
             movable = build_movable(session, target)
@@ -1680,8 +1635,6 @@ def run_scan_request(
         # session.scan, immediately below.
         if _stopped_during_init(session, should_abort, "before scan-number claim"):
             return None
-        if on_scan_start is not None:
-            on_scan_start(spec.n_steps, spec.n_shots)
         return session.scan(
             detectors=detectors,
             motor=motor_arg,
@@ -1695,7 +1648,6 @@ def run_scan_request(
             per_step=per_step,
             closeout=closeout,
             should_abort=should_abort,
-            pause_supervisor=pause_supervisor,
         )
     finally:
         if created and hasattr(session, "disconnect"):
@@ -1712,12 +1664,9 @@ def _run_optimize_request(
     suggester: Any | None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     device_requirements: Any | None = None,
-    on_scan_start: Callable[[int, int], None] | None = None,
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
-    operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
-    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1737,8 +1686,7 @@ def _run_optimize_request(
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
         The ready-made optimization callables.
-    optimization_binder, device_requirements, on_scan_start, operator_channel,
-    should_abort :
+    optimization_binder, device_requirements, should_abort :
         As in :func:`run_scan_request` (the unserved-variables check runs
         here too, pre-claim, over the effective devices config — save-set
         devices *and* optimizer-provisioned ones; the *should_abort*
@@ -1828,7 +1776,7 @@ def _run_optimize_request(
             devices_config,
             dropped_unserved,
             dropped_unserved_devices,
-        ) = _preflight_unserved(session, devices_config, operator_channel)
+        ) = _preflight_unserved(session, devices_config)
         if devices_config is None:
             logger.warning(
                 "ScanRequest preflight aborted the optimization (unserved "
@@ -1924,9 +1872,6 @@ def _run_optimize_request(
                 )
 
             max_iterations = spec.max_iterations or 20
-            if on_scan_start is not None:
-                # Upper-bound totals: the suggester may stop early.
-                on_scan_start(max_iterations, max_iterations * request.shots_per_step)
 
             # The runner claimed → the runner attaches scan.log (the session
             # only self-attaches when *it* claimed the number).
@@ -1945,7 +1890,6 @@ def _run_optimize_request(
                     scan_number=scan_number,
                     scan_folder=scan_folder,
                     should_abort=should_abort,
-                    pause_supervisor=pause_supervisor,
                 )
             if claimed_here and getattr(session, "last_run_aborted", False):
                 # session.optimize returned the aborted outcome quietly

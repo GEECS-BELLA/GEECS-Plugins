@@ -7,12 +7,9 @@ Pins the engine half of the G-actions contract:
   and executes the compiled steps in order on the session RunEngine.
 - The v1 during-scan behavior is refusal with the **exact** message
   ``"scan in progress — action not started"`` — the GUI surfaces it
-  verbatim, so the string is pinned character-for-character here (session
-  and bridge).
+  verbatim, so the string is pinned character-for-character here.
 - ``GeecsSession.describe_action`` is the pure dry-run: flattened step
   summaries, zero signal creation, zero connects.
-- ``BlueskyScanner.run_action`` / ``describe_action`` are thin delegations
-  (the GUI contract mirrored by the console's Submitter protocol).
 
 The richer pause/decide/resume during-scan flow is issue #552 — out of
 scope; these tests pin the refusal seam it will replace.
@@ -36,7 +33,6 @@ from geecs_bluesky.exceptions import (  # noqa: E402
     GeecsConfigurationError,
 )
 from geecs_bluesky.session import GeecsSession  # noqa: E402
-from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner  # noqa: E402
 from geecs_schemas.action_plan import ActionPlan  # noqa: E402
 
 REFUSAL = "scan in progress — action not started"
@@ -280,76 +276,6 @@ def test_session_refuses_when_run_engine_not_idle() -> None:
     with pytest.raises(RuntimeError) as excinfo:
         s.run_action("anything", _Untouchable())
     assert str(excinfo.value) == REFUSAL
-
-
-def _bare_scanner(*, scanning: bool) -> BlueskyScanner:
-    scanner = BlueskyScanner.__new__(BlueskyScanner)
-    scanner._scan_thread = SimpleNamespace(is_alive=lambda: True) if scanning else None
-    scanner._scan_finished = False
-    return scanner
-
-
-def test_bridge_run_action_refuses_while_scanning_exact_message() -> None:
-    scanner = _bare_scanner(scanning=True)
-    with pytest.raises(RuntimeError) as excinfo:
-        scanner.run_action("anything")
-    assert str(excinfo.value) == REFUSAL
-
-
-def test_bridge_describe_action_works_while_scanning() -> None:
-    # The dry-run is pure (zero CA) and is exactly what an operator wants
-    # to consult mid-scan — only run_action carries the refusal.
-    scanner = _bare_scanner(scanning=True)
-    expected = [{"kind": "wait", "wait_s": 1.0}]
-    scanner._session = SimpleNamespace(describe_action=lambda name, resolver: expected)
-    scanner._action_resolver = lambda: object()
-    steps = scanner.describe_action("anything")
-    assert steps == expected
-
-
-# ---------------------------------------------------------------------------
-# Bridge delegation (the GUI contract)
-# ---------------------------------------------------------------------------
-
-
-def test_bridge_delegates_to_session_with_its_resolver() -> None:
-    scanner = _bare_scanner(scanning=False)
-    calls: list[tuple[str, str, Any]] = []
-    sentinel_resolver = object()
-    scanner._request_resolver = sentinel_resolver
-    scanner._session = SimpleNamespace(
-        run_action=lambda name, resolver: calls.append(("run", name, resolver)),
-        describe_action=lambda name, resolver: (
-            calls.append(("describe", name, resolver)) or [{"kind": "wait"}]
-        ),
-    )
-
-    scanner.run_action("bracket")
-    assert scanner.describe_action("bracket") == [{"kind": "wait"}]
-
-    assert calls == [
-        ("run", "bracket", sentinel_resolver),
-        ("describe", "bracket", sentinel_resolver),
-    ]
-
-
-def test_bridge_builds_configs_repo_resolver_when_none_stored(monkeypatch) -> None:
-    from geecs_bluesky.scanner_bridge import bluesky_scanner as module
-
-    scanner = _bare_scanner(scanning=False)
-    scanner._request_resolver = None
-    scanner._experiment_dir = "Undulator"
-    built: list[str] = []
-
-    class _FakeResolver:
-        def __init__(self, experiment: str) -> None:
-            built.append(experiment)
-
-    monkeypatch.setattr(module, "ConfigsRepoResolver", _FakeResolver)
-    scanner._session = SimpleNamespace(run_action=lambda name, resolver: None)
-
-    scanner.run_action("bracket")
-    assert built == ["Undulator"]
 
 
 # ---------------------------------------------------------------------------
