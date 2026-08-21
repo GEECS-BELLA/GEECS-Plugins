@@ -414,9 +414,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   nothing and needs no heavy dependencies to submit an optimization.  A
   worker without the `optimize` extra refuses the queued request loudly;
   the refusal message surfaces like any other submission failure.
-  `services/optimization.py` (the old GUI-process loader and its
-  `optimization` extra) is now **consumer-less** — kept only until the
-  W5 cleanup deletes it; do not wire it anywhere new.  **The worker
+  The old GUI-process loader (`services/optimization.py`) and the
+  `optimization` extra were **deleted** in the W5-adjacent cleanup — the
+  worker's `geecs_bluesky.optimization.worker_loader` is the one
+  implementation.  **The worker
   auto-provisions the optimizer's `device_requirements`** (GeecsBluesky
   ≥ 0.38.0, reversing the #520 deferral after the 2026-07-15
   NaN-objectives field incident), recorded in run metadata as
@@ -541,11 +542,12 @@ directly.)
 
 - An `OptimizationSpec` *editor* (authoring configs in the GUI) remains
   out of scope — configs are YAML files in `optimizer_configs/`.  The
-  optimization stack behind the loader (`geecs_bluesky.optimization` —
-  relocated out of geecs_scanner 2026-08-20) is legacy machinery kept for
-  parity; a redesigned hook (bluesky-adaptive direction) is planned, at
-  which point `services/optimization.py` and the `optimization` extra are
-  deleted together.
+  optimization stack itself lives worker-side
+  (`geecs_bluesky.optimization`, loader = `worker_loader.py`); the
+  console ships no optimization code and no heavy dependencies (the
+  GUI-process loader + `optimization` extra were deleted in the
+  W5-adjacent cleanup).  A redesigned hook (bluesky-adaptive direction)
+  remains the planned replacement for the stack.
 - `ConsoleConfigs.scan_variable_specs()` uses the public
   `ConfigsRepoResolver.scan_variable_catalog()` accessor (promoted in
   geecs-bluesky 0.49.0, closing the old reach-into-private debt note);

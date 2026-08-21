@@ -165,8 +165,8 @@ _optimization_loader: Callable[[Any], Any] | None = None
 def set_optimization_loader(loader: Callable[[Any], Any] | None) -> None:
     """Install the worker-wide optimization loader for the plan.
 
-    Modeled on how GEECS-Console's ``services.optimization`` builds its
-    ``optimization_loader`` (imports nothing from GEECS-Console): a worker
+    The loader seam (its one implementation:
+    ``geecs_bluesky.optimization.worker_loader``): a worker
     startup script calls this once with a callable built from
     ``geecs_bluesky.optimization`` when the ``optimize`` extra is
     installed. The plan then calls ``loader(request.optimization)`` for

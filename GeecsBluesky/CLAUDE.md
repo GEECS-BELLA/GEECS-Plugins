@@ -162,8 +162,8 @@ geecs_bluesky/
                             #   skip whole without it
     worker_loader.py         # the queueserver worker's optimization_loader:
                             #   OptimizationSpec -> SessionOptimizationBridge
-                            #   (worker-side twin of GEECS-Console's
-                            #   geecs_console.services.optimization); also
+                            #   (the ONE loader implementation — its former
+                            #   console twin died with the cutover); also
                             #   warm_up_optimization_stack(), called once at
                             #   worker startup (qserver/startup/startup.py)
                             #   to pre-import the heavy stack off-thread
@@ -663,7 +663,7 @@ the DB blipped):
   (`db_scalars=True`, default); `all_scalars=True` unions *every* DB variable;
   `db_scalars=False` (the legacy-converter pin) = explicit-only.
   `save_set_to_devices_config(save_set, scalar_policy)` threads it; with no
-  policy (GUI bridge / off-network) only the explicit list is recorded — M3b
+  policy (no DB / off-network) only the explicit list is recorded — M3b
   behavior, strictly additive.
 - **Background telemetry (Tier 2).**  Every live device with a `get='yes'`
   variable not in *any* named save set (the merged set — see M4 above) → soft

@@ -4,6 +4,20 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.23.0] - 2026-08-21
+
+### Removed
+
+- **The dead GUI-process optimization loader** (W5-adjacent cleanup, the
+  #655 follow-up): `services/optimization.py` + its two test modules and
+  the `optimization` extra (xopt / gest-api / ScanAnalysis /
+  ImageAnalysis optional deps) — consumer-less since the window switch
+  (0.22.0); optimizations run worker-side
+  (`geecs_bluesky.optimization.worker_loader`, decision 5), and the
+  console needs no heavy dependencies to submit them.  README and the
+  geecs-bluesky dependency comment truthed to the queueserver
+  architecture (the #655 review's deferred console-side prose).
+
 ## [0.22.0] - 2026-08-21
 
 ### Changed

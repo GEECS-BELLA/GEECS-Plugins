@@ -1638,8 +1638,8 @@ class GeecsSession:
 
         Writes only into the already-claimed ``scans/ScanNNN/`` folder — it
         never creates the scan folder (cross-package invariant).  *overrides*
-        replaces individual derived fields (legacy-format fidelity for the
-        GUI bridge).  A ``Scanner = "bluesky"`` key is stamped so future
+        replaces individual derived fields (legacy ScanInfo-format
+        fidelity).  A ``Scanner = "bluesky"`` key is stamped so future
         tooling can tell Bluesky-produced scans from legacy MC scans
         (metadata only — nothing may depend on it for correctness).
         """

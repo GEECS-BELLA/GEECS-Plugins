@@ -179,7 +179,7 @@ def save_set_to_devices_config(
     the unmarked synchronous entries).  Each recorded ``variable_list`` is
     resolved per the ``db_scalars`` contract via
     :func:`~geecs_bluesky.db_runtime.resolve_entry_scalars`; with
-    *scalar_policy* ``None`` (GUI bridge / off-network) only explicit scalars
+    *scalar_policy* ``None`` (no DB / off-network) only explicit scalars
     are recorded.
 
     Returns
@@ -1433,7 +1433,7 @@ def run_scan_request(
         be instantiated in this package.
     optimization_binder :
         Alternative to *objective*/*suggester* for ``optimize`` mode: a
-        scanner-layer hook (the GUI bridge's injected
+        scanner-layer hook (the queueserver worker's registered
         ``optimization_loader`` seam) called as
         ``binder(devices=..., scan_tag=..., scan_folder=...) ->
         (objective, suggester)`` with the connected movables + detectors
@@ -1483,9 +1483,9 @@ def run_scan_request(
         sets and no optimizer device requirements to provision).
     """
     # Phase 1 — the one fail-fast definition (issue #529): everything that
-    # must resolve does so here, before any session state is touched.  The
-    # GUI bridge's reinitialize calls the same function, so submission-time
-    # and execution-time validation cannot drift.
+    # must resolve does so here, before any session state is touched.
+    # Clients run the same function pre-submit (the console's preflight),
+    # so submission-time and execution-time validation cannot drift.
     # The returned raw defaults object serves execution-time flags that are
     # not request fields (background_telemetry) from the SAME file snapshot
     # the validation applied — one read per run, no torn-edit window.

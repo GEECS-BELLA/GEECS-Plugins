@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.1] - 2026-08-21
+
+### Changed
+
+- Docs-only: `optimization/worker_loader.py` un-twinned (its console-side
+  twin was deleted in the W5-adjacent cleanup — this is now the one
+  loader implementation); the last four present-tense "GUI bridge"
+  comment mentions rewritten (`scan_request_runner.py`, `session.py`,
+  `models/shot_control.py`) — the #655 review's residue list.
+
 ## [0.57.0] - 2026-08-21
 
 ### Removed

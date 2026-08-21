@@ -138,7 +138,7 @@ class ShotControlWrites(BaseModel):
     This model stays pure data (no hardware, no schema imports) so the
     trigger-profile adapter lives bluesky-side
     (:func:`~geecs_bluesky.scan_request_runner.trigger_writes_from_profile`)
-    and the GUI bridge can store either generation in one slot.
+    and callers can store either generation in one slot.
 
     Parameters
     ----------
