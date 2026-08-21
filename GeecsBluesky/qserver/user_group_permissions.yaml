@@ -1,0 +1,43 @@
+user_groups:
+  # Global baseline: allow every discovered plan, device, and function.
+  root:
+    allowed_plans:
+      - null
+    forbidden_plans:
+      - null
+    allowed_devices:
+      - null
+    forbidden_devices:
+      - null
+    allowed_functions:
+      - null
+    forbidden_functions:
+      - null
+
+  # Staff/admin group: regex-all access to plans, devices, and functions.
+  admin:
+    allowed_plans:
+      - ":.*"
+    forbidden_plans:
+      - null
+    allowed_devices:
+      - ":?.*:depth=5"
+    forbidden_devices:
+      - null
+    allowed_functions:
+      - ":.*"
+    forbidden_functions:
+      - null
+
+  # Operator group: queue submission is restricted to GEECS-named plans.
+  operator:
+    allowed_plans:
+      - ":geecs_.*"
+    forbidden_plans:
+      - null
+    allowed_devices: []
+    forbidden_devices:
+      - null
+    allowed_functions: []
+    forbidden_functions:
+      - null
