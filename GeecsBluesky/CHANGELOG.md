@@ -11,7 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Legacy scalar s-file export can now run as a RunEngine stop-document
   callback (`SFileExportCallback`), matching starts/stops by run UID,
   reading the scan number from start metadata, and preserving the existing
-  best-effort Tiled export posture for queueserver worker wiring.
+  best-effort Tiled export posture for queueserver worker wiring. Export
+  is **success-only** (`exit_status == "success"`): aborted/failed runs
+  write no s-file, matching the post-`RE()` call sites this replaces.
 
 ## [0.52.2] - 2026-08-20
 
