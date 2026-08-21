@@ -86,8 +86,6 @@ class FakeActionSubmitter:
         )
         self.run_error = run_error
         self.run_calls = []
-        self.request_calls = []
-        self.request_error = None
         self.describe_calls = []
         self.describe_started = threading.Event()
         self.describe_release = threading.Event()

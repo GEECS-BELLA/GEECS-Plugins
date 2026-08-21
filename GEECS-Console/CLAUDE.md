@@ -61,10 +61,16 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   (`num_points × shots_per_step`) + scan number; primary-stream event
   `seq_num` → progress + beeps; stop → done/aborted by `exit_status`),
   and the **manager status poll** is the fallback narrator — it asserts
-  running/paused (authoritative for the pill and the Pause button,
-  including scans other clients started), falls a running/paused pill
-  back to idle when the stream is down, and reads "unknown" when the
-  manager is unreachable.  A `paused` pill's *why* comes from the
+  every live RE state (running/paused and the transitional
+  pausing/stopping/…, rendered as-is; authoritative for the pill and
+  Pause button, including scans other clients started), falls an active
+  pill back to idle when the RE is idle (stream down, or another
+  client's stop), and reads "unknown" when the manager is unreachable
+  *or* `re_state` is `None` (worker environment gone mid-scan — the
+  crash case must never leave a RUNNING pill lying; a status-bar line
+  says the worker is down).  Live-state asserts are suppressed for
+  `_TERMINAL_GRACE_S` after a terminal document so a stale pre-stop
+  snapshot cannot narrate the transition backwards.  A `paused` pill's *why* comes from the
   console-output stream's failed-move reason line (`_on_pause_reason`).
   **The log tail is NOT the worker's scan.log** (the canonical statement
   of this — the engine CLAUDE.md points here): it is the manager's
@@ -164,7 +170,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `stop()`/`dispose()` only gate emission and **abandon** the daemon
   threads — a zmq socket must never be closed from another thread (a
   libzmq assertion aborts the process; #653 review).  Stream setup
-  failure emits `stream_failed(str)`.
+  failure emits `stream_failed(str)`, which the window surfaces via
+  `_report` — degraded mode (no progress/log stream) is never silent.
 - **Movable panel (R7)** — owned by
   `app/movable_panel.py::MovablePanelController` since 0.19.0 (the #534
   controller shape: no Qt parent, injected widgets + callables, its own

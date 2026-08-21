@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -120,6 +121,12 @@ _HEALTH_DOT_COLORS = {
 # RE returning to idle means the scan is over either way.  Deliberately NOT
 # "paused" — that state is resumable, the scan is not over.
 _TERMINAL_SCAN_STATES = frozenset({"aborted", "done", "idle"})
+
+#: After a terminal document renders, live-state asserts from the status
+#: poll are suppressed this long — a snapshot *taken* pre-stop but
+#: *delivered* post-stop must not narrate the transition backwards (the
+#: poll cadence is 1 s; two periods + slack).
+_TERMINAL_GRACE_S = 2.5
 
 
 def _default_completions_factory(experiment: str) -> CompletionsProvider:
@@ -624,6 +631,9 @@ class MainWindow(QMainWindow):
         #: Last scan state word (lowercase) — drives the Pause/Resume
         #: button and the stop hold.
         self._scan_state_text = "idle"
+        #: When a terminal document last rendered (monotonic; arms the
+        #: status poll's backwards-narration grace window).
+        self._terminal_state_at = 0.0
         self._pause_button_label = self.pause_button.text()
         self._refresh_pause_button()
 
@@ -799,6 +809,14 @@ class MainWindow(QMainWindow):
             self._monitor.console.pause_reason.connect(
                 self._on_pause_reason, Qt.ConnectionType.QueuedConnection
             )
+        # Degraded mode must be visible (#654 review finding 2): a stream
+        # that cannot set up says so in the status bar + log tail instead
+        # of leaving progress/log silently empty.
+        for worker in (self._monitor.documents, self._monitor.console):
+            if worker is not None:
+                worker.stream_failed.connect(
+                    self._report, Qt.ConnectionType.QueuedConnection
+                )
         self._monitor.start(self)
 
     @Slot(object)
@@ -807,30 +825,49 @@ class MainWindow(QMainWindow):
 
         The manager poll is the state pill's *fallback* narrator: the
         document stream announces the interesting transitions (start / stop
-        documents → running / done / aborted), so this slot only speaks
-        when the manager says running/paused (authoritative either way) or
-        when a running/paused pill must fall back to idle (stream down, or
-        another client's stop).  A disconnected manager reads "unknown".
+        documents → running / done / aborted), so this slot asserts the
+        worker RE's live states (running/paused and the transitional
+        pausing/stopping/… — rendered as-is), falls an active pill back to
+        idle when the RE is idle (stream down, or another client's stop),
+        and reads "unknown" when the manager is unreachable **or the
+        worker environment is gone mid-scan** (``re_state`` ``None`` —
+        the crash case must never leave a RUNNING pill lying; #654 review
+        finding 1).  A snapshot taken before a stop document but delivered
+        after it must not narrate the transition backwards, so live-state
+        asserts are suppressed for a short grace window after a terminal
+        document (#654 review finding 3).
         """
         self._queue_status = status
-        if not status.connected:
-            if self._scan_state_text != "unknown":
+        pill = self._scan_state_text
+        active_pill = pill not in ("idle", "done", "aborted", "unknown")
+        if not status.connected or status.re_state is None:
+            if pill != "unknown":
                 self._on_scan_state("unknown")
+                if status.connected and active_pill:
+                    self._report(
+                        "worker environment is down — scan state lost "
+                        "(restart the worker; check its journal)"
+                    )
             return
         re_state = status.re_state
-        if re_state in ("running", "paused"):
-            if self._scan_state_text != re_state:
-                self._on_scan_state(re_state)
-        elif re_state == "idle" and self._scan_state_text in (
-            "running",
-            "paused",
-            "unknown",
+        if re_state == "idle":
+            if active_pill or pill == "unknown":
+                self._on_scan_state("idle")
+            else:
+                # No state change — but Start/Stop gating may still depend
+                # on the fresh snapshot (e.g. connectivity returning).
+                self._refresh_submit_enabled()
+            return
+        # A live RE state (running/paused/pausing/stopping/…): assert it,
+        # unless a terminal document just rendered — a pre-stop snapshot
+        # arriving late would flip DONE/ABORTED back to RUNNING for a poll.
+        if (
+            pill in ("done", "aborted")
+            and time.monotonic() - self._terminal_state_at < _TERMINAL_GRACE_S
         ):
-            self._on_scan_state("idle")
-        else:
-            # No state change — but Start/Stop gating may still depend on
-            # the fresh snapshot (e.g. connectivity returning).
-            self._refresh_submit_enabled()
+            return
+        if pill != re_state:
+            self._on_scan_state(re_state)
 
     @Slot(str, object)
     def _on_scan_document(self, name: str, doc: dict) -> None:
@@ -1472,15 +1509,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _scanning(self) -> bool:
-        """Whether the manager reports an active plan (running or paused).
+        """Whether the manager reports an active plan (any live RE state).
 
         From the polled status snapshot — under the queue this covers any
         client's scan, not just this console's, which is exactly right for
-        Start gating (one worker, one machine).
+        Start gating (one worker, one machine).  Transitional states
+        (pausing/stopping/…) count as active; ``None`` (worker environment
+        gone) does not — there is nothing to stop.
         """
-        return self._queue_status.connected and self._queue_status.re_state in (
-            "running",
-            "paused",
+        return self._queue_status.connected and self._queue_status.re_state not in (
+            None,
+            "idle",
         )
 
     def _refresh_submit_enabled(self) -> None:
@@ -1728,7 +1767,17 @@ class MainWindow(QMainWindow):
             return
         self._stop_in_flight = True
         self.stop_button.setText("Stopping…")
-        self._stop_worker.run_async(submitter.stop_scan, "scan-stop")
+
+        # Same rule as the submit pipeline: a raise inside the worker is
+        # swallowed by BackgroundResult without emitting, which would leave
+        # the "Stopping…" hold stuck forever — capture into a failure tuple.
+        def call() -> tuple[bool, str]:
+            try:
+                return submitter.stop_scan()
+            except Exception as exc:  # noqa: BLE001 — deliver as a failure
+                return (False, str(exc))
+
+        self._stop_worker.run_async(call, "scan-stop")
         self.append_log("stop requested (partial data is preserved)")
         self._refresh_submit_enabled()
 
@@ -2041,6 +2090,11 @@ class MainWindow(QMainWindow):
         """
         lowered = (state or "").lower()
         self._scan_state_text = lowered or "idle"
+        if lowered in ("done", "aborted"):
+            # Arms the status poll's post-terminal grace window (a stale
+            # pre-stop snapshot must not repaint RUNNING — see
+            # _on_queue_status).
+            self._terminal_state_at = time.monotonic()
         if self._stop_in_flight and lowered in _TERMINAL_SCAN_STATES:
             self._stop_in_flight = False
             self.stop_button.setText(self._stop_button_label)

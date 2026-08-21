@@ -184,12 +184,14 @@ def window(qtbot):
     return win
 
 
-def drive_status(window, re_state, connected=True):
+def drive_status(window, re_state, connected=True, worker_exists=None):
     """Feed one manager status snapshot straight into the window's slot."""
     from geecs_console.services.queue_client import QueueStatus
 
+    if worker_exists is None:
+        worker_exists = connected and re_state is not None
     window._on_queue_status(
-        QueueStatus(connected=connected, re_state=re_state, worker_exists=connected)
+        QueueStatus(connected=connected, re_state=re_state, worker_exists=worker_exists)
     )
 
 
@@ -932,6 +934,92 @@ class TestSubmission:
         drive_status(window, None, connected=False)
         assert "UNKNOWN" in window.state_pill.text()
         assert not window.pause_button.isEnabled()
+
+
+class TestStateModel:
+    """The poll/document split's edge branches (#654 review findings 1/3/5)."""
+
+    def test_stream_down_scan_end_falls_back_to_idle(self, window):
+        """Doc stream dead: the poll's idle both ends the pill and releases
+        an in-flight stop hold ("idle" is in _TERMINAL_SCAN_STATES)."""
+        select_save_set(window, "Amp4In")
+        drive_status(window, "running")
+        window._on_stop_clicked()
+        assert window._stop_in_flight
+        drive_status(window, "idle")
+        assert "IDLE" in window.state_pill.text()
+        assert not window._stop_in_flight
+        assert window.start_button.isEnabled()
+
+    def test_worker_environment_death_reads_unknown_and_reports(self, window):
+        """re_state None with the manager up = the worker crashed mid-scan;
+        the pill must never keep saying RUNNING (#654 finding 1)."""
+        drive_status(window, "running")
+        drive_status(window, None, worker_exists=False)
+        assert "UNKNOWN" in window.state_pill.text()
+        assert "worker environment is down" in window.log_tail.toPlainText()
+        assert not window.pause_button.isEnabled()
+        # Recovery: the worker comes back idle → pill idle.
+        drive_status(window, "idle")
+        assert "IDLE" in window.state_pill.text()
+
+    def test_stale_running_snapshot_cannot_undo_a_terminal_pill(self, window):
+        """A pre-stop snapshot delivered after the stop document must not
+        narrate the transition backwards (#654 finding 3)."""
+        window._on_scan_document("start", {"scan_number": 5})
+        window._on_scan_document("stop", {"exit_status": "success"})
+        assert "DONE" in window.state_pill.text()
+        drive_status(window, "running")  # stale — inside the grace window
+        assert "DONE" in window.state_pill.text()
+        # After the grace window a live assert is authoritative again.
+        window._terminal_state_at = 0.0
+        drive_status(window, "running")
+        assert "RUNNING" in window.state_pill.text()
+
+    def test_transitional_states_render_and_count_as_scanning(self, window):
+        select_save_set(window, "Amp4In")
+        drive_status(window, "stopping")
+        assert "STOPPING" in window.state_pill.text()
+        assert not window.start_button.isEnabled()
+        assert window.stop_button.isEnabled()
+        assert not window.pause_button.isEnabled()  # not running/paused
+
+    def test_stop_worker_raise_releases_the_hold(self, window, qtbot):
+        """A raising stop_scan must deliver a failure, not strand the
+        'Stopping…' hold (#654 finding 4 — the submit-pipeline rule)."""
+
+        def boom():
+            raise RuntimeError("manager exploded mid-stop")
+
+        window._submitter.stop_scan = boom
+        drive_status(window, "running")
+        window._on_stop_clicked()
+        qtbot.waitUntil(lambda: not window._stop_in_flight, timeout=2000)
+        assert "manager exploded mid-stop" in window.log_tail.toPlainText()
+        assert window.stop_button.isEnabled()
+
+    def test_stream_failure_is_surfaced_to_the_operator(self, qtbot):
+        """stream_failed is wired to the status bar/log (#654 finding 2)."""
+
+        class StreamySubmitter(FakeSubmitter):
+            info_addr = "tcp://127.0.0.1:1"
+            doc_addr = "127.0.0.1:1"
+
+        win = MainWindow(
+            configs=FakeConfigs(save_sets=["Amp4In"]),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=StreamySubmitter(),
+        )
+        qtbot.addWidget(win)
+        monitor = win._monitor
+        assert monitor is not None and monitor.documents is not None
+        monitor.documents.stream_failed.emit("document stream unavailable (test)")
+        qtbot.waitUntil(
+            lambda: "document stream unavailable" in win.log_tail.toPlainText(),
+            timeout=2000,
+        )
+        monitor.dispose()
 
     def test_form_round_trips_into_build_scan_request(self, window):
         select_save_set(window, "Amp4In")
