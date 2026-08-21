@@ -4,6 +4,17 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.1] - 2026-08-20
+
+### Changed
+
+- **Decision-4 activation**: `geecs_scan_request_plan` now passes
+  `failed_move_policy="pause"` into `build_step_scan_plan` — the
+  queueserver path opts into pause-on-failed-move (RE Manager renders the
+  paused state; resume retries, stop ends gracefully). The bridge/console
+  path deliberately keeps the `'raise'` default (PauseSupervisor
+  coexistence, PR #645 review). Pinned by test.
+
 ## [0.55.0] - 2026-08-20
 
 ### Added

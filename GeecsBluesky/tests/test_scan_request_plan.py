@@ -1244,3 +1244,18 @@ def test_telemetry_documents_match_run_scan_request(
     assert not any("u_cam" in k for k in telemetry_keys), (
         "a save-set device must never be duplicated as telemetry"
     )
+
+
+def test_plan_opts_into_pause_on_failed_move_and_runner_does_not() -> None:
+    """Decision-4 activation pin (#645): only the queueserver plan passes
+    failed_move_policy='pause'; the bridge/console path keeps the builder's
+    'raise' default (PauseSupervisor coexistence)."""
+    import inspect
+
+    from geecs_bluesky.plans import scan_request_plan as srp
+    from geecs_bluesky import scan_request_runner as srr
+
+    plan_src = inspect.getsource(srp)
+    assert 'failed_move_policy="pause"' in plan_src
+    runner_src = inspect.getsource(srr)
+    assert "failed_move_policy" not in runner_src

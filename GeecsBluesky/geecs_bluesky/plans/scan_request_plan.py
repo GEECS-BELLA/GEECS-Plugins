@@ -599,6 +599,13 @@ def _scan_request_body(
         setup=setup,
         per_step=per_step,
         closeout=closeout,
+        # Decision-4 activation (issue #641, PR #645): the queueserver path is
+        # the ONE caller that opts into pause-on-failed-move — the RE Manager
+        # renders the paused state and resume/stop are first-class queue verbs.
+        # Bridge/console scans (run_scan_request) keep the 'raise' default:
+        # their PauseSupervisor would auto-resume this pause into a silent
+        # retry loop (reviewed on #645).
+        failed_move_policy="pause",
     )
     # The plan claimed the number, so the plan owns the per-scan scan.log
     # (the GeecsSession.scan claimed-here rule; tolerates a failed claim).
