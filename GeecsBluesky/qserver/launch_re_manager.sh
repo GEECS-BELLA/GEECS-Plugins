@@ -50,10 +50,14 @@ fi
 # QS_DOC_PUBLISH_ADDR=OFF for the worker side).
 QS_DOC_PROXY_IN="${QS_DOC_PROXY_IN:-5567}"
 QS_DOC_PROXY_OUT="${QS_DOC_PROXY_OUT:-5568}"
-if [[ "${QS_DOC_PROXY:-ON}" != "OFF" ]] && ! port_is_answering "${QS_DOC_PROXY_IN}"; then
+# Case-insensitive OFF, matching the worker's QS_DOC_PUBLISH_ADDR check.
+QS_DOC_PROXY_MODE="$(printf '%s' "${QS_DOC_PROXY:-ON}" | tr '[:lower:]' '[:upper:]')"
+if [[ "${QS_DOC_PROXY_MODE}" != "OFF" ]] && ! port_is_answering "${QS_DOC_PROXY_IN}"; then
     if command -v bluesky-0MQ-proxy >/dev/null 2>&1; then
         echo "Starting bluesky-0MQ-proxy ${QS_DOC_PROXY_IN} -> ${QS_DOC_PROXY_OUT}." >&2
-        bluesky-0MQ-proxy "${QS_DOC_PROXY_IN}" "${QS_DOC_PROXY_OUT}" >/dev/null 2>&1 &
+        # stderr stays attached (journal / terminal) so a bind failure —
+        # e.g. the out port already taken — is diagnosable, not silent.
+        bluesky-0MQ-proxy "${QS_DOC_PROXY_IN}" "${QS_DOC_PROXY_OUT}" >/dev/null &
     else
         echo "WARNING: bluesky-0MQ-proxy not on PATH; document stream disabled" >&2
         echo "(GUI live progress will be empty; set QS_DOC_PROXY=OFF to silence)." >&2

@@ -104,20 +104,38 @@ RE.subscribe(SFileExportCallback())
 # Redis); clients (GEECS-Console) consume them with
 # bluesky.callbacks.zmq.RemoteDispatcher on the proxy's out port. NOTE the
 # manager's --zmq-publish-console stream is a different thing entirely
-# (captured stdout/stderr text, not documents). Best-effort with a loud
-# warning, same posture as Tiled: a worker without the stream still runs
-# scans correctly — only live GUI progress is lost.
+# (captured stdout/stderr text, not documents). Best-effort, same posture
+# as Tiled: a worker without the stream still runs scans correctly — only
+# live GUI progress is lost. A zmq PUB connect always "succeeds" (it is
+# asynchronous and simply drops while unconnected), so an absent proxy is
+# probed explicitly below — that TCP check is what makes the warning real
+# (#652 review finding 2).
 _doc_publish_addr = os.environ.get("QS_DOC_PUBLISH_ADDR", "localhost:5567")
 if _doc_publish_addr.upper() != "OFF":
     try:
+        import socket
+
         from bluesky.callbacks.zmq import Publisher
 
+        _doc_host, _, _doc_port = _doc_publish_addr.rpartition(":")
+        try:
+            socket.create_connection(
+                (_doc_host or "localhost", int(_doc_port)), timeout=1.0
+            ).close()
+        except OSError:
+            logger.warning(
+                "No document proxy listening at %s — GUI progress streams "
+                "will be empty until one appears (zmq reconnects on its "
+                "own; set QS_DOC_PUBLISH_ADDR, or OFF to silence this)",
+                _doc_publish_addr,
+            )
         RE.subscribe(Publisher(_doc_publish_addr))
         logger.info("Publishing documents to 0MQ proxy at %s", _doc_publish_addr)
     except Exception:
         logger.warning(
-            "Could not publish documents to %s — GUI progress streams will "
-            "be empty (set QS_DOC_PUBLISH_ADDR, or OFF to silence this)",
+            "Could not set up the document publisher for %s — GUI progress "
+            "streams will be empty (set QS_DOC_PUBLISH_ADDR, or OFF to "
+            "silence this)",
             _doc_publish_addr,
             exc_info=True,
         )
@@ -126,9 +144,12 @@ if _doc_publish_addr.upper() != "OFF":
 def geecs_move_variable(name: str, value: float) -> dict:
     """Manually move a scan variable — the console Movable panel's verb (#648).
 
-    Executed via the manager's ``function_execute`` API, which requires a
+    Executed via the manager's ``function_execute`` API. **Foreground**
+    execution (``run_in_background=False``, the client default) requires a
     fully idle manager — the queueserver enforcement of the session's own
-    "scan in progress — move not started" refusal. Not a plan on purpose:
+    "scan in progress — move not started" refusal; background execution
+    bypasses that gate, which is why both GEECS queue plans check the
+    session's manual-move lock before starting. Not a plan on purpose:
     :meth:`~geecs_bluesky.session.GeecsSession.move_variable` moves outside
     the RunEngine (the RE stays idle, guarded by the session's manual-move
     lock), so wrapping it in a queue item would change its semantics.
@@ -151,10 +172,10 @@ def geecs_move_variable(name: str, value: float) -> dict:
 def geecs_describe_action(name: str) -> list[dict]:
     """Dry-run a named ActionPlan against *this worker's* configs (#648).
 
-    Executed via ``function_execute`` (idle manager only). Pure config
-    resolution — no CA, no execution. Serving it worker-side means the
-    preview describes what the worker would actually run, even when a
-    client's configs checkout has drifted.
+    Executed via ``function_execute`` (foreground calls require an idle
+    manager). Pure config resolution — no CA, no execution. Serving it
+    worker-side means the preview describes what the worker would actually
+    run, even when a client's configs checkout has drifted.
 
     Parameters
     ----------

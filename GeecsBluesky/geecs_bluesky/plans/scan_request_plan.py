@@ -424,6 +424,11 @@ def geecs_scan_request_plan(
                 "geecs_scan_request_plan has no session: install one with "
                 "set_plan_session(...) at worker startup, or pass session=..."
             )
+    # The session's manual-move mutual exclusion (PR #597 contract) must
+    # travel to the queue path: a background-executed geecs_move_variable
+    # leaves the manager IDLE while a move converges, so a queue start could
+    # otherwise drive hardware mid-move (#652 review finding 1).
+    session._refuse_if_manual_move("scan not started")
     if resolver is None:
         resolver = ConfigsRepoResolver(session.experiment)
 
@@ -1074,6 +1079,9 @@ def geecs_run_action_plan(
                 "geecs_run_action_plan has no session: install one with "
                 "set_plan_session(...) at worker startup, or pass session=..."
             )
+    # Same manual-move mutual exclusion as geecs_scan_request_plan (the
+    # session contract must travel to the queue path — #652 review).
+    session._refuse_if_manual_move("action not started")
     if resolver is None:
         resolver = ConfigsRepoResolver(session.experiment)
 

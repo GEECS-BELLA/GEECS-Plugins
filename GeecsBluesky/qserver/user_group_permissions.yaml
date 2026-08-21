@@ -30,8 +30,7 @@ user_groups:
       - null
 
   # Operator group: queue submission is restricted to GEECS-named plans,
-  # function execution to the GEECS-named manual verbs (#648:
-  # geecs_move_variable / geecs_describe_action).
+  # function execution to exactly the manual verbs (#648).
   operator:
     allowed_plans:
       - ":geecs_.*"
@@ -41,7 +40,10 @@ user_groups:
     forbidden_devices:
       - null
     allowed_functions:
-      - ":geecs_.*"
+      # Exactly the two manual verbs — a broader :geecs_.* would also admit
+      # the plan generators as (useless but confusing) function targets.
+      - ":geecs_move_variable$"
+      - ":geecs_describe_action$"
     forbidden_functions:
       - null
 

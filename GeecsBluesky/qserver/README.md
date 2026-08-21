@@ -106,16 +106,20 @@ correctly — only live GUI progress is lost.
 
 - **Move a scan variable** — call `geecs_move_variable(name, value)` via
   the manager's `function_execute` API. Deliberately *not* a plan:
-  `GeecsSession.move_variable` moves outside the RunEngine. Function
-  execution requires a fully **idle** manager (not running, not paused) —
-  the queueserver enforcement of the old "scan in progress — move not
-  started" refusal.
+  `GeecsSession.move_variable` moves outside the RunEngine. **Foreground**
+  function execution (`run_in_background=False`, the client default)
+  requires a fully idle manager (not running, not paused) — the
+  queueserver enforcement of the old "scan in progress — move not
+  started" refusal. Background execution bypasses that gate, so the GEECS
+  plans guard the other direction themselves: both queue plans refuse to
+  start while the session's manual-move lock is held ("manual move in
+  progress — scan/action not started").
 
 - **Preview an action** — `geecs_describe_action(name)` via
   `function_execute`: pure config resolution against *this worker's*
   configs checkout (authoritative even when a client's checkout drifted).
-  Idle-only like every function — clients wanting a mid-scan preview must
-  resolve client-side instead.
+  Foreground-idle-only like the move verb — clients wanting a mid-scan
+  preview must resolve client-side instead.
 
 ## Troubleshooting
 

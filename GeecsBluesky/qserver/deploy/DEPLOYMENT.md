@@ -166,8 +166,12 @@ The launcher starts a `bluesky-0MQ-proxy` (5567 in / 5568 out) alongside
 Redis when one is not already answering; the startup profile publishes
 bluesky documents into it for GUI progress (see `../README.md`, "Document
 stream"). The proxy runs inside the unit's cgroup on purpose — it is
-stateless, so dying and restarting with the manager is correct behavior;
-no second systemd unit is needed. Override the ports with
+stateless and dies with the unit; no second systemd unit is needed. Caveat
+of that choice: systemd supervises only the main process, so a proxy that
+dies *alone* is not restarted until the next manager restart — the symptom
+is GUI progress going quiet while scans keep running fine (the proxy's
+stderr goes to the journal; the worker also logs a warning at startup when
+nothing answers on the publish port). Override the ports with
 `Environment="QS_DOC_PROXY_IN=…"` / `QS_DOC_PROXY_OUT=…` (paired with
 `QS_DOC_PUBLISH_ADDR` for the worker side), or disable with
 `QS_DOC_PROXY=OFF` + `QS_DOC_PUBLISH_ADDR=OFF`.

@@ -22,13 +22,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **ZMQ document publisher** — the startup profile publishes bluesky
     documents to a `bluesky-0MQ-proxy` (launcher-started, 5567 in /
     5568 out, `QS_DOC_PROXY*` / `QS_DOC_PUBLISH_ADDR` overrides,
-    best-effort with a loud warning). This is the GUI progress stream;
-    the manager's `--zmq-publish-console` stream is text, not documents.
+    best-effort; a startup TCP probe warns when no proxy answers, since
+    a zmq PUB connect succeeds silently). This is the GUI progress
+    stream; the manager's `--zmq-publish-console` stream is text, not
+    documents.
   - **Manual-verb functions** — `geecs_move_variable` /
     `geecs_describe_action` in the startup namespace for the manager's
-    idle-only `function_execute` (the queueserver enforcement of the
-    session's "scan in progress" refusals); `operator` group gains
-    `:geecs_.*` allowed_functions.
+    `function_execute` (foreground calls require an idle manager — the
+    queueserver enforcement of the session's "scan in progress"
+    refusals); `operator` group allows exactly those two functions.
+    Both queue plans now check the session's manual-move lock before
+    starting (the PR #597 mutual exclusion, carried to the queue path —
+    background-executed moves leave the manager IDLE while converging).
 
 ## [0.55.4] - 2026-08-21
 

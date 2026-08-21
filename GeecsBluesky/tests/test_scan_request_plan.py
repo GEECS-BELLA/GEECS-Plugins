@@ -1350,3 +1350,29 @@ def test_run_action_plan_signature_passes_manager_validation() -> None:
         item, allowed_plans={"geecs_run_action_plan": processed}, allowed_devices={}
     )
     assert ok, msg
+
+
+def test_queue_plans_refuse_while_a_manual_move_is_in_flight(resolver) -> None:
+    """The PR #597 mutual exclusion travels to the queue path (#652 review).
+
+    A background-executed geecs_move_variable leaves the manager IDLE while
+    the move converges, so both queue plans must refuse to start while the
+    session's manual-move lock is held.
+    """
+    from geecs_bluesky.plans.scan_request_plan import geecs_run_action_plan
+
+    session = _mock_session()
+    request = _noscan_request()
+    with session._manual_move_lock:
+        with pytest.raises(RuntimeError, match="manual move in progress"):
+            session.RE(
+                geecs_scan_request_plan(
+                    request.model_dump(), session=session, resolver=resolver
+                )
+            )
+        with pytest.raises(RuntimeError, match="manual move in progress"):
+            session.RE(
+                geecs_run_action_plan(
+                    "close_shutters", session=session, resolver=resolver
+                )
+            )
