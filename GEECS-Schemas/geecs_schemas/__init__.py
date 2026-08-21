@@ -36,9 +36,12 @@ from geecs_schemas.scan_request import (
     PositionList,
     PositionRange,
     Positions,
+    PreflightCheckResult,
+    PreflightOutcome,
     ScanAxis,
     ScanRequest,
     ScanRequestMode,
+    SubmissionRecord,
 )
 from geecs_schemas.scan_variables import (
     CompositeMode,
@@ -70,6 +73,9 @@ __all__ = [
     "OptimizationSpec",
     "EvaluatorSpec",
     "GeneratorSpec",
+    "SubmissionRecord",
+    "PreflightOutcome",
+    "PreflightCheckResult",
     # derived_channels
     "DerivedChannels",
     "DerivedChannel",

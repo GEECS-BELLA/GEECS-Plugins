@@ -360,6 +360,89 @@ class OptimizationSpec(SchemaModel):
         return self
 
 
+class PreflightCheckResult(str, Enum):
+    """How one pre-submit check ended.
+
+    Attributes
+    ----------
+    PASSED : str
+        The check found nothing to ask about.
+    CONTINUED : str
+        The check raised a question and the operator chose to continue
+        anyway.
+    SKIPPED : str
+        The check could not run (for example the database was unreachable)
+        and submission went ahead without it.
+    """
+
+    PASSED = "passed"
+    CONTINUED = "continued"
+    SKIPPED = "skipped"
+
+
+class PreflightOutcome(SchemaModel):
+    """One pre-submit check and how it ended, kept for the scan's record.
+
+    A check that would have stopped the submission never produces one of
+    these — an aborted submission is never queued, so there is nothing to
+    record.
+    """
+
+    check: str = Field(
+        description=(
+            "Name of the pre-submit check, e.g. 'unserved_variables', "
+            "'gateway_liveness', 'free_run_staleness'."
+        )
+    )
+    result: PreflightCheckResult = Field(
+        description=(
+            "How the check ended: 'passed' (nothing found), 'continued' "
+            "(the operator saw a warning and chose to go ahead), or "
+            "'skipped' (the check could not run)."
+        )
+    )
+    detail: str = Field(
+        "",
+        description=(
+            "What the check found or why it was skipped, in the words the "
+            "operator saw. Empty for a clean pass."
+        ),
+    )
+
+
+class SubmissionRecord(SchemaModel):
+    """Who submitted this request, when, and what the pre-submit checks said.
+
+    Filled in by the submitting client (the console, a script, an agent) at
+    the moment the request is queued — not written by hand.  The scan engine
+    copies it into the run metadata for provenance and never acts on it: a
+    request without one runs exactly the same.
+    """
+
+    client: str = Field(
+        "",
+        description=(
+            "What submitted the request, e.g. 'geecs-console 0.21.0'. "
+            "Free text, for the record only."
+        ),
+    )
+    submitted_at: str = Field(
+        "",
+        description=(
+            "When the request was queued, as an ISO 8601 timestamp with "
+            "timezone from the submitting machine's clock, e.g. "
+            "'2026-08-21T14:30:00-07:00'. Informational only."
+        ),
+    )
+    preflight: list[PreflightOutcome] = Field(
+        default_factory=list,
+        description=(
+            "The pre-submit checks that ran and how each ended. Empty when "
+            "the client ran no checks."
+        ),
+    )
+
+
 class ScanRequest(VersionedSchemaModel):
     """One complete scan, ready to submit: what to do, what to save, how to trigger.
 
@@ -487,6 +570,16 @@ class ScanRequest(VersionedSchemaModel):
         description=(
             "The optimization problem definition. Required for (and only "
             "allowed with) mode 'optimize'."
+        ),
+    )
+    submission: Optional[SubmissionRecord] = Field(
+        None,
+        description=(
+            "Filled in by the submitting client at queue time — who "
+            "submitted, when, and what the pre-submit checks said. Not "
+            "written by hand and never acted on by the engine; it is copied "
+            "into the run metadata for the record. Leave unset in saved "
+            "presets."
         ),
     )
 
