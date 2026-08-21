@@ -64,8 +64,9 @@ and pauses again, indefinitely, until the move lands or the operator stops.
 The failed-move log-line contract (the reason record; grep for it in
 scan.log)::
 
-    FAILED MOVE - pausing for operator: <axes -> targets>: <cause>; resume
-    retries the move from the last checkpoint, stop ends the scan gracefully
+    FAILED MOVE - pausing for operator: commanded <axes -> targets>, one
+    axis failed - see cause for which: <cause>; resume retries the move
+    from the last checkpoint, stop ends the scan gracefully
 
 Checkpoint-placement rules for hard-pause replay idempotence live with the
 step plans; the audit table is on the PR for issue #641.  Both step plans

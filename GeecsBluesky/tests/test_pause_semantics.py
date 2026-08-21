@@ -247,6 +247,7 @@ def test_step_plan_checkpoints_immediately_after_per_step() -> None:
             shots_per_step=1,
             setup_trigger=lambda: controller.arm_single_shot([]),
             fire_shot=controller.fire_shot,
+            arm_trigger=controller.arm,
             per_step=per_step,
         )
     )
@@ -634,13 +635,14 @@ class _PlainDet(_NamedFake):
         return {self.name: {"source": "sim", "dtype": "number", "shape": []}}
 
 
-def _failed_move_scan(motor: _FlakyMotor, failed_move_policy: str = "pause"):
+def _failed_move_scan(motor: _FlakyMotor, failed_move_policy: str | None = None):
+    """None means: omit the kwarg entirely, exercising the builder's default."""
     return geecs_step_scan(
         motor=motor,
         positions=[0.0, 1.0],
         detectors=[_PlainDet("cam")],
         shots_per_step=2,
-        failed_move_policy=failed_move_policy,
+        **({} if failed_move_policy is None else {"failed_move_policy": failed_move_policy}),
     )
 
 
@@ -658,7 +660,7 @@ def test_failed_move_pauses_with_reason_and_resume_retries(caplog) -> None:
     RE.subscribe(lambda name, doc: docs.append((name, doc)))
     with caplog.at_level(logging.ERROR, logger="geecs_bluesky.plans.step_scan"):
         with pytest.raises(RunEngineInterrupted):
-            RE(_failed_move_scan(motor))
+            RE(_failed_move_scan(motor, failed_move_policy="pause"))
     assert RE.state == "paused"
     reasons = [
         record.message
@@ -685,7 +687,7 @@ def test_failed_move_retry_that_fails_pauses_again(caplog) -> None:
     RE.subscribe(lambda name, doc: docs.append((name, doc)))
     with caplog.at_level(logging.ERROR, logger="geecs_bluesky.plans.step_scan"):
         with pytest.raises(RunEngineInterrupted):
-            RE(_failed_move_scan(motor))
+            RE(_failed_move_scan(motor, failed_move_policy="pause"))
         assert RE.state == "paused"
         with pytest.raises(RunEngineInterrupted):
             RE.resume()  # the replayed retry fails → paused again
@@ -709,7 +711,7 @@ def test_failed_move_then_stop_ends_gracefully() -> None:
     docs: list[tuple[str, dict]] = []
     RE.subscribe(lambda name, doc: docs.append((name, doc)))
     with pytest.raises(RunEngineInterrupted):
-        RE(_failed_move_scan(motor))
+        RE(_failed_move_scan(motor, failed_move_policy="pause"))
     assert RE.state == "paused"
     RE.stop()
     assert RE.state == "idle"
@@ -729,10 +731,18 @@ def test_failed_move_policy_defaults_to_raise_like_legacy() -> None:
     ``scan_request_plan.py`` — must see exactly the pre-#641 behavior: the
     ``FailedStatus`` raises straight through ``RE()``, no pause.
     """
+    import inspect
+
+    from geecs_bluesky.plans.orchestration import build_step_scan_plan
+
+    assert (
+        inspect.signature(build_step_scan_plan).parameters["failed_move_policy"].default
+        == "raise"
+    )
     motor = _FlakyMotor("flaky", fail_at=1.0, failures=1)
     RE = RunEngine()
     with pytest.raises(FailedStatus):
-        RE(_failed_move_scan(motor, failed_move_policy="raise"))
+        RE(_failed_move_scan(motor))
     assert RE.state == "idle"
     # One attempt only — no retry-by-replay under "raise".
     assert motor.attempts == [0.0, 1.0]
