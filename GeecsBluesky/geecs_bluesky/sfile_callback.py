@@ -21,7 +21,11 @@ class SFileExportCallback:
     """
 
     def __init__(self, exporter: Exporter | None = None) -> None:
-        self._starts: dict[str, dict[str, object]] = {}
+        # uid -> scan_number only (never the full start document): a stop
+        # lost in transit (e.g. a dropped 0MQ message under a future
+        # RemoteDispatcher subscription) then leaks a few bytes, not a copy
+        # of the whole start doc.
+        self._starts: dict[str, int | None] = {}
         self._exporter = exporter
 
     def __call__(self, name: str, doc: Document) -> None:
@@ -43,7 +47,7 @@ class SFileExportCallback:
         if run_uid is None:
             logger.warning("Skipping start document without uid")
             return
-        self._starts[run_uid] = dict(doc)
+        self._starts[run_uid] = _scan_number(doc)
 
     def _export_for_stop(self, doc: Document) -> None:
         run_uid = _string_value(doc.get("run_start"))
@@ -51,20 +55,35 @@ class SFileExportCallback:
             logger.debug("Skipping stop document without run_start uid")
             return
 
-        start = self._starts.pop(run_uid, None)
-        if start is None:
+        if run_uid not in self._starts:
             logger.debug(
                 "Skipping legacy scalar file export for run %s: no start document",
                 run_uid,
             )
             return
-
-        scan_number = _scan_number(start)
+        scan_number = self._starts.pop(run_uid)
         if scan_number is None:
             logger.warning(
                 "Skipping legacy scalar file export for run %s: "
                 "start document has no scan_number",
                 run_uid,
+            )
+            return
+
+        # Parity with the call sites this callback replaces
+        # (GeecsSession post-RE() export): today an aborted or failed run
+        # writes no s-file — the export sites are only reached on clean
+        # completion. Preserve that; exporting partials from aborted runs
+        # is a deliberate future decision, not a side effect (PR #635
+        # review finding 1).
+        exit_status = doc.get("exit_status")
+        if exit_status != "success":
+            logger.info(
+                "Skipping legacy scalar file export for scan %s (uid=%s): "
+                "exit_status=%r",
+                scan_number,
+                run_uid,
+                exit_status,
             )
             return
 
