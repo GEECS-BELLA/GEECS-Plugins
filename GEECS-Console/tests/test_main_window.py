@@ -930,6 +930,22 @@ class TestSubmission:
         assert not window.pause_button.isEnabled()
         assert "Pause" in window.pause_button.text()
 
+    def test_equal_state_poll_still_refreshes_gating(self, window):
+        """2026-08-21 live finding (Scan008): the start document narrates
+        RUNNING before the first running poll; the equal-state poll must
+        still refresh gating, or Stop stays disabled (and Start enabled)
+        for the whole scan."""
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        # Doc stream narrates first — the pill flips, but the stored
+        # snapshot still says idle (the bug's setup).
+        window._on_scan_document("start", {"scan_number": 8})
+        assert "RUNNING" in window.state_pill.text()
+        # The poll catches up, agreeing with the pill.
+        drive_status(window, "running")
+        assert window.stop_button.isEnabled()
+        assert not window.start_button.isEnabled()
+
     def test_disconnected_manager_reads_unknown(self, window):
         drive_status(window, None, connected=False)
         assert "UNKNOWN" in window.state_pill.text()

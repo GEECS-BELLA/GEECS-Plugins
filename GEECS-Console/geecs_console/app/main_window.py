@@ -838,6 +838,18 @@ class MainWindow(QMainWindow):
         document (#654 review finding 3).
         """
         self._queue_status = status
+        self._apply_status_state(status)
+        # Gating refresh on EVERY snapshot, transition or not: _scanning()
+        # reads the stored snapshot, so a poll that merely agrees with a
+        # pill the document stream already set still changes what
+        # Start/Stop must allow (2026-08-21 live finding: the start doc
+        # narrated RUNNING before the first running poll, the equal-state
+        # poll then skipped the refresh, and Stop stayed disabled — with
+        # Start enabled — for the whole scan).
+        self._refresh_submit_enabled()
+
+    def _apply_status_state(self, status: QueueStatus) -> None:
+        """Apply one snapshot's pill/state transitions (see `_on_queue_status`)."""
         pill = self._scan_state_text
         active_pill = pill not in ("idle", "done", "aborted", "unknown")
         if not status.connected or status.re_state is None:
@@ -853,10 +865,6 @@ class MainWindow(QMainWindow):
         if re_state == "idle":
             if active_pill or pill == "unknown":
                 self._on_scan_state("idle")
-            else:
-                # No state change — but Start/Stop gating may still depend
-                # on the fresh snapshot (e.g. connectivity returning).
-                self._refresh_submit_enabled()
             return
         # A live RE state (running/paused/pausing/stopping/…): assert it,
         # unless a terminal document just rendered — a pre-stop snapshot
