@@ -4,6 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.4] - 2026-08-20
+
+### Added
+
+- Added `qserver/` launch mechanics for the queueserver migration: a
+  user-group permissions file, a user-level RE Manager launcher that brings up
+  local Redis when needed, operator README notes, and a placeholder startup
+  directory for the separate plan-preamble task.
+
 ## [0.52.3] - 2026-08-20
 
 ### Added
