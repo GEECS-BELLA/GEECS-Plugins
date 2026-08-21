@@ -1846,7 +1846,7 @@ def _run_optimize_request(
         if dropped_unserved_devices:
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
-            md["applied_defaults"] = applied_defaults
+            md["applied_defaults"] = dict(applied_defaults)
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(
