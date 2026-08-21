@@ -154,7 +154,10 @@ class TestFullCorpus:
                     assert entry.at_scan_start == {}, path
                     assert entry.at_scan_end == {}, path
                 converted += 1
-        assert converted >= 70  # 71 legacy files at the time of writing
+        # The corpus is a live checkout: legacy files disappear as they are
+        # migrated to the new schema, so pin only that the conversion path
+        # was exercised — the per-entry assertions above do the real checking.
+        assert converted > 0, "no legacy save_devices files found in corpus"
 
     def test_every_scan_variable_catalog_converts(self):
         converted = 0
