@@ -39,7 +39,12 @@ if ! redis_is_answering; then
     fi
 fi
 
+# --keep-re: the startup profile defines RE = RunEngine({}) and the manager
+# must keep it — without this pairing, `queue start` silently bounces items
+# and only the manager log shows "Run Engine is not found in the RE Worker
+# environment" (empirical, issue #636).
 exec start-re-manager \
     --startup-dir "${QS_STARTUP_DIR}" \
     --user-group-permissions "${PERMISSIONS_FILE}" \
+    --keep-re \
     --zmq-publish-console ON

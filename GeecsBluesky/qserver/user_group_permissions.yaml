@@ -41,3 +41,15 @@ user_groups:
     allowed_functions: []
     forbidden_functions:
       - null
+
+  # The `qserver` CLI submits as user group `primary` by default — without
+  # this group EVERY CLI submission is rejected with "Unknown user group:
+  # 'primary'" (empirical, issue #636). Admin-equivalent for now; production
+  # tightens it to the `operator` shape.
+  primary:
+    allowed_plans:
+      - ":.*"
+    allowed_devices:
+      - ":?.*:depth=5"
+    allowed_functions:
+      - ":.*"

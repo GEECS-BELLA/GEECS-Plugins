@@ -45,3 +45,18 @@ qserver environment open
 The placeholder `startup/` profile contains no Python yet, so environment
 opening verifies the manager mechanics only. Plan registration and GEECS
 preamble setup arrive in the separate startup-profile task.
+
+## Troubleshooting
+
+- **`queue add` returns `success: False` with no reason at the CLI** — the
+  manager was launched without a permissions file, or the file lacks the
+  group the client submits as (the `qserver` CLI uses `primary` by
+  default). See `user_group_permissions.yaml`.
+- **`queue start` succeeds but the item bounces back and nothing runs** —
+  the startup profile does not define `RE = RunEngine({})` (paired with
+  the launcher's `--keep-re`). Only the manager log shows the cause:
+  `Run Engine is not found in the RE Worker environment`.
+- **`qserver function execute` fails with `RE Manager must be in idle
+  state`** — function execution requires a fully idle manager; it is not
+  available while a plan is running *or paused*. Nothing in the GEECS
+  design may rely on it mid-run.

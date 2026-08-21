@@ -4,7 +4,7 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [0.52.4] - 2026-08-21
+## [0.52.4] - 2026-08-20
 
 ### Added
 
