@@ -75,3 +75,19 @@ the manager starts — the profile fails loud at import time otherwise (see
   state`** — function execution requires a fully idle manager; it is not
   available while a plan is running *or paused*. Nothing in the GEECS
   design may rely on it mid-run.
+- **Optimize-mode requests refused with "without an optimization loader
+  registered" even though the `optimize` extra is installed** — the
+  manager process predates the install. The worker inherits the manager's
+  import state, so `environment close`/`open` is *not* enough: restart
+  the manager process itself after any `poetry install` change
+  (empirical, 2026-08-21 live checkpoint).
+- **`queue start` re-runs an old failed item, or the queue keeps
+  growing** — on plan failure the manager returns the failed item to the
+  *front* of the queue (default `ignore_failures: false`). Clear the
+  queue (or remove the item) before resubmitting a corrected request;
+  clients that blindly add-and-start will re-execute the failed item
+  first.
+- **`qserver history get` shows a literal `'...'` entry** — the CLI
+  truncates long histories for display; the newest items may not be
+  shown. Read history through the API (`bluesky-queueserver-api`) for
+  anything programmatic.

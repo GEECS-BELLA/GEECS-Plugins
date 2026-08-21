@@ -86,10 +86,22 @@ At minimum, verify that the service account's config resolves:
 
 - the GEECS data root on the mounted data share,
 - the scanner configs repository,
+- the scan-analysis configs path (`[Paths] scan_analysis_configs_path`) —
+  optimize-mode requests hard-require it (`BaseOptimizerConfig` refuses
+  without it; every other mode runs fine, so the gap surfaces only on the
+  first optimize submission),
 - database credentials through the normal `Configurations.INI` chain,
 - Tiled connection details when Tiled publishing is enabled,
 - optional `[epics] ca_addr_list` if the unit-level `EPICS_CA_ADDR_LIST`
   override is not being used.
+
+A missing key does not fail the service at startup — the worker loads and
+the plan list populates, with only a warning in the journal (e.g. "Could
+not determine base data path", "No Tiled URI configured — Tiled storage
+disabled"). Grep the journal for `WARNING`/`ERROR` after the first
+`environment open` rather than trusting a clean-looking `qserver status`
+(2026-08-21 live-checkpoint lesson: three keys were discovered missing
+one failed scan at a time).
 
 The systemd unit sets `EPICS_CA_ADDR_LIST` explicitly. That is the deployment
 standard because `systemctl cat geecs-qserver.service` then shows the active
