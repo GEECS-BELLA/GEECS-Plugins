@@ -642,7 +642,11 @@ def _failed_move_scan(motor: _FlakyMotor, failed_move_policy: str | None = None)
         positions=[0.0, 1.0],
         detectors=[_PlainDet("cam")],
         shots_per_step=2,
-        **({} if failed_move_policy is None else {"failed_move_policy": failed_move_policy}),
+        **(
+            {}
+            if failed_move_policy is None
+            else {"failed_move_policy": failed_move_policy}
+        ),
     )
 
 
