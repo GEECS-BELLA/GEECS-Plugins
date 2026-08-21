@@ -4,6 +4,39 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.21.0] - 2026-08-21
+
+### Added
+
+- The queueserver client services layer (#648, W6 part 1 — built and
+  tested, not yet wired into the window; the window switch is the next
+  PR):
+  - `services/queue_client.py` — the RE Manager client seam
+    (protocol + `ZmqQueueClient` over `bluesky-queueserver-api` +
+    offline `StubQueueClient`): submission with the failed-item-at-front
+    guard (surface pending items, clear only on explicit confirm),
+    deferred pause / resume, graceful stop (from paused directly; from
+    running via pause-then-stop sequencing), `function_execute` manual
+    verbs with task polling, and a never-raises `status()` for polling.
+    Config: the new `[qserver]` section (`host` + optional address
+    overrides) of the shared config file.
+  - `services/submit_preflight.py` — client-side pre-submit checks
+    (decision 3): the engine's own `validate_scan_request` (hard gate),
+    the engine's `UnservedVariablesCheck` (reused, not reimplemented),
+    gateway `CONNECTED` liveness reads (fail-open), and a free-run
+    trigger-staleness sample; plus `stamp_submission`, which stamps the
+    geecs-schemas 0.10.0 `SubmissionRecord` (aware timestamp pinned by
+    test) onto the outgoing request.
+  - `app/scan_monitor.py` — `ScanMonitorController` (#534 controller
+    shape): manager status polling on the `HealthPoller` pattern, the
+    document stream (`RemoteDispatcher`, per-shot progress source), and
+    the manager console-output stream with failed-move reason
+    extraction (pinned against the engine's `FAILED_MOVE_LOG_PREFIX`).
+- New dependency: `bluesky-queueserver-api` (pulls pyzmq).
+- Cross-reference rider (#648 item 6): `services/optimization.py` now
+  names its worker-side twin (`geecs_bluesky.optimization.worker_loader`)
+  with the keep-in-sync rule; the twin already pointed here.
+
 ## [0.20.2] - 2026-08-20
 
 ### Changed

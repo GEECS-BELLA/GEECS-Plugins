@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.20.2"
+version = "0.21.0"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -46,6 +46,11 @@ xopt = { version = "^3.1", optional = true }
 gest-api = { version = ">=0.1", optional = true }
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 imageanalysis = { path = "../ImageAnalysis", develop = true, optional = true }
+# The RE Manager client (queueserver migration, #648): queue submission,
+# status polling, and the manager's console-output monitor all ride this
+# small api package (it pulls pyzmq; the document stream's
+# RemoteDispatcher comes from bluesky via geecs-bluesky).
+bluesky-queueserver-api = "^0.0.13"
 
 [tool.poetry.extras]
 optimization = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
