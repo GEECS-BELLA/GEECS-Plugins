@@ -52,6 +52,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and a fake loader/bridge drives a scripted suggester through real bins
   (mock acq-timestamp pacing seeded from the bridge's `bind(devices=...)`,
   since the adaptive scan's t0 sync runs before any staging message).
+- PR #644 review fix wave: `worker_loader.py` gains
+  `warm_up_optimization_stack()`, which imports the heavy optimize-extra
+  modules (`xopt`, `scan_analysis`, the loader's own submodules) on a
+  daemon thread right after a loader is registered, so the first real
+  `geecs_scan_request_plan` optimize call in a worker session doesn't pay
+  that import cost in-plan; `startup.py` calls it immediately after
+  `set_optimization_loader()`, a no-op when the `optimize` extra isn't
+  installed. `tests/test_qserver_startup.py`'s import-order test is now a
+  `_qserver_startup_probe.py` subprocess run in a fresh interpreter — the
+  prior in-process `runpy.run_path` version could never actually observe
+  first-import order since `geecs_bluesky`/`aioca` are already cached in
+  `sys.modules` by the time any in-process test runs.
 
 ## [0.53.1] - 2026-08-20
 

@@ -22,11 +22,14 @@ is always inside the run.
 from __future__ import annotations
 
 import configparser
+import json
+from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("aioca")
 
+import bluesky.plan_stubs as bps  # noqa: E402
 from bluesky.utils import RunEngineInterrupted  # noqa: F401  (doc import guard)
 from ophyd_async.core import set_mock_value  # noqa: E402
 
@@ -327,8 +330,12 @@ def test_optimize_mode_without_a_loader_is_refused_loudly_after_validation(
 
     session = _mock_session()
     claims: list = []
+    # The optimize path claims via claim_scan (NOT claim_scan_number, which
+    # is the noscan/step path's claim function) — patching the wrong name
+    # here would make this tripwire pass vacuously even if the no-loader
+    # refusal moved to after the claim (row 4, PR #644 review).
     monkeypatch.setattr(
-        "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
+        "geecs_bluesky.plans.scan_request_plan.claim_scan",
         lambda experiment: claims.append(experiment) or (None, None),
     )
     monkeypatch.setattr(srp, "_optimization_loader", None)
@@ -494,6 +501,484 @@ def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
     assert finish_calls == [True]
     assert docs.start is not None and docs.start["plan_name"] == "geecs_adaptive_scan"
     assert docs.stop is not None and docs.stop["exit_status"] == "success"
+
+
+def test_optimize_empty_effective_device_set_after_preflight_refused_pre_claim(
+    resolver, monkeypatch
+) -> None:
+    """PR #644 review row 3: an unserved-preflight that drops every device
+    must refuse *before* the claim — not fall through to
+    ``reference = detectors[0]`` after the claim and blow up with an
+    unrelated ``IndexError`` (burning a scan number for nothing).
+    """
+    import geecs_bluesky.plans.scan_request_plan as srp
+    import geecs_bluesky.scan_request_runner as runner_module
+
+    monkeypatch.setattr(
+        runner_module,
+        "make_served_set_provider",
+        lambda session: SimpleNamespace(served_by_device=lambda: {}),
+    )
+    monkeypatch.setattr(
+        srp,
+        "_optimization_loader",
+        lambda spec: SimpleNamespace(device_requirements=None),
+    )
+    claims: list = []
+    monkeypatch.setattr(
+        srp,
+        "claim_scan",
+        lambda experiment: claims.append(experiment) or (None, None),
+    )
+    session = _mock_session()
+    request = ScanRequest.model_validate(
+        dict(
+            mode="optimize",
+            shots_per_step=2,
+            acquisition="free_run",
+            save_sets=["UC_Test"],
+            optimization={
+                "variables": {"jet_z": [0.0, 1.0]},
+                "objectives": {"counts": "MAXIMIZE"},
+                "evaluator": {"module": "m", "class": "C"},
+                "generator": {"name": "bayes_default"},
+                "max_iterations": 3,
+            },
+        )
+    )
+    with pytest.raises(
+        GeecsConfigurationError, match="unserved-variables pre-flight dropped"
+    ):
+        session.RE(
+            geecs_scan_request_plan(
+                request.model_dump(), session=session, resolver=resolver
+            )
+        )
+    assert claims == [], "the preflight refusal must burn no scan number"
+
+
+# ---------------------------------------------------------------------------
+# Optimize mode: on_finish ladder, history persistence, metadata parity
+# (PR #644 review rows 1, 2, 5, 7)
+# ---------------------------------------------------------------------------
+
+
+def _optimize_request(
+    *, move_to_best_on_finish: bool = False, max_iterations: int = 5
+) -> ScanRequest:
+    return ScanRequest.model_validate(
+        dict(
+            mode="optimize",
+            shots_per_step=2,
+            acquisition="free_run",
+            save_sets=["UC_Test"],
+            optimization={
+                "variables": {"jet_z": [0.0, 1.0]},
+                "objectives": {"counts": "MAXIMIZE"},
+                "evaluator": {"module": "m", "class": "C"},
+                "generator": {"name": "bayes_default"},
+                "max_iterations": max_iterations,
+                "move_to_best_on_finish": move_to_best_on_finish,
+            },
+        )
+    )
+
+
+class _ScriptedSuggester:
+    def __init__(self, points: list[dict]) -> None:
+        self._points = list(points)
+        self.observed: list[tuple] = []
+
+    def suggest(self):
+        return self._points.pop(0) if self._points else None
+
+    def observe(self, inputs, objective_value, bin_data):
+        self.observed.append((inputs, objective_value, bin_data))
+
+
+class _RaisingSuggester(_ScriptedSuggester):
+    """Scripted points, then a crash — simulates a suggester/operator abort
+    mid-optimization (on_finish restore-on-failure tests)."""
+
+    def __init__(self, points: list[dict], fail_after: int) -> None:
+        super().__init__(points)
+        self._fail_after = fail_after
+        self._calls = 0
+
+    def suggest(self):
+        self._calls += 1
+        if self._calls > self._fail_after:
+            raise RuntimeError("suggester exploded")
+        return super().suggest()
+
+
+def _track_mv_and_rd(monkeypatch):
+    """Wrap ``bluesky.plan_stubs.mv``/``rd`` to record calls without
+    changing behavior — ``bps.mv``/``bps.rd`` are shared module functions
+    used by both the plan body and ``geecs_adaptive_scan``, so this must
+    wrap-and-delegate rather than replace.
+    """
+    real_mv = bps.mv
+    real_rd = bps.rd
+    mv_calls: list[tuple] = []
+    rd_calls: list[tuple] = []
+
+    def mv_wrapper(*args, **kwargs):
+        mv_calls.append(args)
+        return (yield from real_mv(*args, **kwargs))
+
+    def rd_wrapper(obj, *args, **kwargs):
+        value = yield from real_rd(obj, *args, **kwargs)
+        rd_calls.append((obj, value))
+        return value
+
+    monkeypatch.setattr(bps, "mv", mv_wrapper)
+    monkeypatch.setattr(bps, "rd", rd_wrapper)
+    return mv_calls, rd_calls
+
+
+def _run_optimize_with_bridge(
+    session,
+    resolver,
+    request,
+    monkeypatch,
+    *,
+    suggester,
+    objective,
+    scan_folder=None,
+    finish_calls: list | None = None,
+    bind_calls: list | None = None,
+):
+    """Drive ``geecs_scan_request_plan`` through optimize mode with a
+    scripted bridge; returns ``(docs, finish_calls, bind_calls)``.
+
+    *finish_calls*/*bind_calls* may be passed in by the caller so they stay
+    inspectable even when the run raises (an abort/failure test cannot rely
+    on this function's return value).
+    """
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    if finish_calls is None:
+        finish_calls = []
+    if bind_calls is None:
+        bind_calls = []
+    monkeypatch.setattr(
+        srp,
+        "claim_scan",
+        lambda experiment: (
+            None,
+            str(scan_folder) if scan_folder is not None else None,
+        ),
+    )
+    pacers: list = []
+
+    class FakeBridge:
+        device_requirements = None
+
+        def bind(self, devices, scan_tag, scan_folder):
+            bind_calls.append(
+                {"devices": devices, "scan_tag": scan_tag, "scan_folder": scan_folder}
+            )
+            for device in devices:
+                if hasattr(device, "acq_timestamp"):
+                    set_mock_value(device.acq_timestamp, 1000.0)
+                    pacers.append(
+                        start_pacer(
+                            session.RE,
+                            [(device, 1000.0)],
+                            initial_delay=1.0,
+                            interval=0.15,
+                        )
+                    )
+            return objective, suggester
+
+        def finish(self):
+            finish_calls.append(True)
+
+    monkeypatch.setattr(srp, "_optimization_loader", lambda spec: FakeBridge())
+
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    try:
+        session.RE(
+            geecs_scan_request_plan(
+                request.model_dump(), session=session, resolver=resolver
+            )
+        )
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.unsubscribe(token)
+        session.RE.msg_hook = None
+    return docs, finish_calls, bind_calls
+
+
+def test_optimize_on_finish_best_moves_to_the_best_observed_inputs(
+    resolver, monkeypatch
+) -> None:
+    """PR #644 review row 1: move_to_best_on_finish selects the
+    best-observed inputs across the whole run, not just the last suggested
+    point."""
+    session = _mock_session()
+    mv_calls, _rd_calls = _track_mv_and_rd(monkeypatch)
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}, {"jet_z": 0.4}, {"jet_z": 0.7}])
+    values = iter([1.0, 5.0, 2.0])  # best is the *middle* point, not the last
+
+    def objective(bin_data):
+        return next(values)
+
+    request = _optimize_request(move_to_best_on_finish=True)
+    docs, finish_calls, _bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        request,
+        monkeypatch,
+        suggester=suggester,
+        objective=objective,
+    )
+    assert docs.stop is not None and docs.stop["exit_status"] == "success"
+    assert len(mv_calls) == 4  # 3 suggested moves + the final move-to-best
+    assert mv_calls[-1][1] == pytest.approx(0.4)
+    assert finish_calls == [True]
+
+
+def test_optimize_on_finish_best_falls_back_to_initial_when_no_finite_objective(
+    resolver, monkeypatch, caplog
+) -> None:
+    """PR #644 review row 1: if every objective evaluation came back
+    non-finite, on_finish=best falls back to the initial values (with a
+    WARNING) instead of silently moving to nan."""
+    import logging
+
+    session = _mock_session()
+    mv_calls, rd_calls = _track_mv_and_rd(monkeypatch)
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}, {"jet_z": 0.4}])
+
+    def objective(bin_data):
+        raise RuntimeError("evaluator is down")
+
+    request = _optimize_request(move_to_best_on_finish=True)
+    with caplog.at_level(logging.WARNING):
+        docs, finish_calls, _bind_calls = _run_optimize_with_bridge(
+            session,
+            resolver,
+            request,
+            monkeypatch,
+            suggester=suggester,
+            objective=objective,
+        )
+    assert docs.stop is not None and docs.stop["exit_status"] == "success"
+    initial_value = rd_calls[0][1]
+    assert mv_calls[-1][1] == pytest.approx(initial_value)
+    assert any("no finite objectives" in r.message for r in caplog.records)
+    assert finish_calls == [True]
+
+
+def test_optimize_on_finish_best_restores_initial_on_failure_and_skips_finish(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """PR #644 review rows 1 + 5 (negative): a hard failure/abort restores
+    the *initial* values (never best-so-far) before re-raising, writes no
+    optimization.json, and never calls the bridge's finish()."""
+    session = _mock_session()
+    mv_calls, rd_calls = _track_mv_and_rd(monkeypatch)
+    suggester = _RaisingSuggester([{"jet_z": 0.1}], fail_after=1)
+
+    def objective(bin_data):
+        return 5.0
+
+    scan_folder = tmp_path / "Scan007"
+    scan_folder.mkdir()
+    finish_calls: list = []
+    request = _optimize_request(move_to_best_on_finish=True)
+    with pytest.raises(RuntimeError, match="suggester exploded"):
+        _run_optimize_with_bridge(
+            session,
+            resolver,
+            request,
+            monkeypatch,
+            suggester=suggester,
+            objective=objective,
+            scan_folder=scan_folder,
+            finish_calls=finish_calls,
+        )
+    initial_value = rd_calls[0][1]
+    assert mv_calls[-1][1] == pytest.approx(initial_value)
+    assert not (scan_folder / "optimization.json").exists()
+    assert finish_calls == []
+
+
+def test_optimize_on_finish_hold_never_moves(resolver, monkeypatch) -> None:
+    """PR #644 review row 5: on_finish left unset (move_to_best_on_finish
+    False) means the plan never issues an extra move, in any outcome — the
+    variables stay wherever the suggester last set them."""
+    session = _mock_session()
+    mv_calls, _rd_calls = _track_mv_and_rd(monkeypatch)
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}, {"jet_z": 0.4}])
+
+    def objective(bin_data):
+        return 5.0
+
+    request = _optimize_request(move_to_best_on_finish=False)
+    docs, finish_calls, _bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        request,
+        monkeypatch,
+        suggester=suggester,
+        objective=objective,
+    )
+    assert docs.stop is not None and docs.stop["exit_status"] == "success"
+    assert len(mv_calls) == 2  # exactly the 2 suggested moves, no extra move
+    assert mv_calls[-1][1] == pytest.approx(0.4)
+    assert finish_calls == [True]
+
+
+def test_optimize_persists_history_to_optimization_json(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """PR #644 review row 2: optimization.json persistence is gated on a
+    real scan folder + non-empty history — exercised here with an actual
+    tmp folder (the ``claim_scan`` stub used elsewhere in this file returns
+    ``(None, None)``, which never reaches this code path at all)."""
+    session = _mock_session()
+    scan_folder = tmp_path / "Scan007"
+    scan_folder.mkdir()
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}, {"jet_z": 0.4}])
+    values = iter([1.0, 5.0])
+
+    def objective(bin_data):
+        return next(values)
+
+    request = _optimize_request(move_to_best_on_finish=False)
+    docs, _finish_calls, _bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        request,
+        monkeypatch,
+        suggester=suggester,
+        objective=objective,
+        scan_folder=scan_folder,
+    )
+    assert docs.stop is not None and docs.stop["exit_status"] == "success"
+    history_path = scan_folder / "optimization.json"
+    assert history_path.exists()
+    history = json.loads(history_path.read_text())
+    assert [h["inputs"] for h in history] == [{"jet_z": 0.1}, {"jet_z": 0.4}]
+    assert [h["objective"] for h in history] == [pytest.approx(1.0), pytest.approx(5.0)]
+
+
+def test_optimize_mode_records_db_scan_runtime_metadata(
+    configs_root, resolver, monkeypatch
+) -> None:
+    """PR #644 review row 7: metadata parity between the plan's optimize
+    body and the binder path's ``_run_optimize_request`` — ``db_scan_runtime``
+    must land in the optimize start doc too, not just the noscan/step one.
+    No existing test on either entry point asserted this positively before.
+    """
+    session = _mock_session()
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}])
+
+    def objective(bin_data):
+        return 1.0
+
+    request = _optimize_request(move_to_best_on_finish=False)
+    docs, _finish_calls, _bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        request,
+        monkeypatch,
+        suggester=suggester,
+        objective=objective,
+    )
+    assert docs.start is not None
+    assert docs.start["db_scan_runtime"] == {
+        "db_scalars": "applied",
+        "background_telemetry": "not_run_in_optimize",
+    }
+
+
+def test_optimize_mode_threads_applied_defaults_into_run_wrapper_metadata(
+    configs_root, resolver, monkeypatch
+) -> None:
+    """PR #644 review row 7: ``applied_defaults`` provenance must reach
+    ``geecs_run_wrapper``'s ``extra_md`` on the optimize path the same way
+    it reaches ``build_step_scan_spec``'s ``md`` on the noscan/step path.
+
+    This spies on the ``extra_md`` handed to ``geecs_run_wrapper`` rather
+    than asserting on the real start doc, and sanitizes the dotted
+    ``"actions.setup"`` key before letting the (otherwise unmodified) call
+    proceed. An actions-based default is the only hermetic way to populate
+    ``applied_defaults`` in optimize mode — a ``trigger_profile`` default
+    would construct a real, network-backed ``ShotController`` that a mock
+    session cannot satisfy — but real ``event_model.compose_run`` schema
+    validation (only exercised here, never by the ``_FakeSession``
+    binder-path tests) rejects any top-level start-doc key containing
+    ``.``/``/``, so running the dotted key through unmodified would fail
+    for a reason unrelated to what this test checks. That rejection is a
+    real, pre-existing gap shared by both plan paths (`apply_experiment_
+    defaults` in ``scan_request_runner.py`` is what produces the dotted
+    key, for both step/noscan and optimize) — flagged to the coordinator
+    separately rather than fixed here, since sanitizing it one-sidedly on
+    the optimize path would itself break the parity this test checks.
+    """
+    import geecs_bluesky.plans.scan_request_plan as srp
+
+    (configs_root / "LegacyExp" / "experiment_defaults.yaml").write_text(
+        "actions:\n  setup: [close_shutters]\n"
+    )
+    session = _mock_session()
+    suggester = _ScriptedSuggester([{"jet_z": 0.1}])
+
+    def objective(bin_data):
+        return 1.0
+
+    request = _optimize_request(move_to_best_on_finish=False)
+
+    captured_extra_md: dict = {}
+    real_geecs_run_wrapper = srp.geecs_run_wrapper
+    real_geecs_adaptive_scan = srp.geecs_adaptive_scan
+
+    def _sanitize(md: dict) -> dict:
+        # ``applied_defaults`` keys are dotted (e.g. "actions.setup") by
+        # convention (see apply_experiment_defaults in scan_request_runner.py)
+        # — real event-model schema validation rejects dots in ANY top-level
+        # start-doc key, and validates ``applied_defaults``'s own keys under
+        # that same rule. Only the nested keys need sanitizing here.
+        sanitized = dict(md)
+        if "applied_defaults" in sanitized:
+            sanitized["applied_defaults"] = {
+                k.replace(".", "_"): v for k, v in sanitized["applied_defaults"].items()
+            }
+        return sanitized
+
+    def spy_geecs_run_wrapper(plan, **kwargs):
+        extra_md = kwargs.get("extra_md") or {}
+        captured_extra_md.update(extra_md)
+        kwargs["extra_md"] = _sanitize(extra_md)
+        return real_geecs_run_wrapper(plan, **kwargs)
+
+    def spy_geecs_adaptive_scan(**kwargs):
+        md = kwargs.get("md") or {}
+        captured_extra_md.update(md)
+        kwargs["md"] = _sanitize(md)
+        return real_geecs_adaptive_scan(**kwargs)
+
+    monkeypatch.setattr(srp, "geecs_run_wrapper", spy_geecs_run_wrapper)
+    monkeypatch.setattr(srp, "geecs_adaptive_scan", spy_geecs_adaptive_scan)
+
+    docs, _finish_calls, _bind_calls = _run_optimize_with_bridge(
+        session,
+        resolver,
+        request,
+        monkeypatch,
+        suggester=suggester,
+        objective=objective,
+    )
+    assert docs.start is not None
+    assert captured_extra_md["applied_defaults"] == {
+        "actions.setup": ["close_shutters"]
+    }
 
 
 def test_no_session_configured_is_a_clear_error(resolver) -> None:

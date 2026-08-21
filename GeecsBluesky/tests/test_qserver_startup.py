@@ -1,23 +1,34 @@
 """Hermetic tests for the RE Manager startup profile (issue #640).
 
-No lab, no redis, no queueserver process: ``runpy.run_path`` executes
-``qserver/startup/startup.py`` in-process the same way the manager's worker
-would import it, with the experiment-resolution and Tiled-subscription
-config chains monkeypatched so nothing here depends on this machine's
-``~/.config/geecs_python_api/config.ini``.
+No lab, no redis, no queueserver process. Most tests here run
+``qserver/startup/startup.py`` in-process via ``runpy.run_path`` the same
+way the manager's worker would import it, with the experiment-resolution
+and Tiled-subscription config chains monkeypatched so nothing depends on
+this machine's ``~/.config/geecs_python_api/config.ini``.
+
+The import-order test is the exception: it shells out to
+``_qserver_startup_probe.py`` in a fresh interpreter. The module's own
+docstring calls the ``geecs_bluesky``-before-``aioca`` ordering
+load-bearing, but by the time any in-process test function runs, both are
+already cached in this test session's ``sys.modules`` from earlier
+collection — an in-process ``runpy.run_path`` here could never actually
+observe first-import order, only appear to.
 """
 
 from __future__ import annotations
 
+import os
 import runpy
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-from bluesky import RunEngine
 
 STARTUP_PATH = (
     Path(__file__).resolve().parents[1] / "qserver" / "startup" / "startup.py"
 )
+_PROBE_PATH = Path(__file__).resolve().parent / "_qserver_startup_probe.py"
 
 
 @pytest.fixture(autouse=True)
@@ -36,22 +47,35 @@ def _no_tiled_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("geecs_bluesky.session.subscribe_tiled", lambda *a, **kw: None)
 
 
-def test_startup_profile_defines_re_and_plan_headless(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """QS_EXPERIMENT resolves the experiment; RE and the plan land in the namespace."""
-    monkeypatch.setenv("QS_EXPERIMENT", "TestExp")
+def test_startup_profile_defines_re_and_plan_headless(tmp_path: Path) -> None:
+    """QS_EXPERIMENT resolves the experiment; RE and the plan land in the namespace.
 
-    ns = runpy.run_path(str(STARTUP_PATH), run_name="__not_main__")
+    Also asserts the load-bearing import order documented at the top of
+    ``qserver/startup/startup.py``: ``geecs_bluesky`` (which sets
+    ``EPICS_CA_ADDR_LIST`` from config) must be imported, and that variable
+    must be set, before ``aioca`` is first imported. Run as a subprocess so
+    both modules start uncached — see the module docstring above.
+    """
+    config_dir = tmp_path / "home" / ".config" / "geecs_python_api"
+    config_dir.mkdir(parents=True)
+    (config_dir / "config.ini").write_text("[epics]\nca_addr_list = 127.0.0.1\n")
 
-    from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+    env = dict(os.environ)
+    env["QS_EXPERIMENT"] = "TestExp"
+    env["HOME"] = str(tmp_path / "home")
+    env.pop("EPICS_CA_ADDR_LIST", None)
+    env.pop("EPICS_CA_AUTO_ADDR_LIST", None)
 
-    assert isinstance(ns["RE"], RunEngine)
-    # --keep-re requires the manager's RE to be the plan preamble's RE —
-    # a second, independently-constructed RunEngine is unsupported.
-    assert ns["RE"] is ns["session"].RE
-    assert ns["geecs_scan_request_plan"] is geecs_scan_request_plan
-    assert ns["__all__"] == ["RE", "geecs_scan_request_plan"]
+    result = subprocess.run(
+        [sys.executable, str(_PROBE_PATH), str(STARTUP_PATH)],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "PROBE_OK" in result.stdout, result.stdout + result.stderr
 
 
 def test_startup_profile_fails_loud_without_an_experiment(

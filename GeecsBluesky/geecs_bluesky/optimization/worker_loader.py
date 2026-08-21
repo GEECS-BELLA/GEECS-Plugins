@@ -8,20 +8,33 @@ preamble (``geecs_bluesky.plans.scan_request_plan``,
 :func:`~geecs_bluesky.plans.scan_request_plan.set_optimization_loader`).
 
 This module is the worker-side twin of GEECS-Console's
-``geecs_console.services.optimization`` — same three functions, same
-shapes, independently implemented so GeecsBluesky imports nothing from
-GEECS-Console (the dependency graph runs the other way: Console depends on
-GeecsBluesky, never the reverse). Keep the two in sync by hand if the
-``OptimizationSpec``/``BaseOptimizerConfig`` mapping changes.
+``geecs_console.services.optimization`` — same four functions (including
+the startup warm-up), same shapes, independently implemented so
+GeecsBluesky imports nothing from GEECS-Console (the dependency graph runs
+the other way: Console depends on GeecsBluesky, never the reverse). Keep
+the two in sync by hand if the ``OptimizationSpec``/``BaseOptimizerConfig``
+mapping changes.
 """
 
 from __future__ import annotations
 
+import importlib
 import importlib.util
 import logging
+import threading
+import time
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
+
+#: The heavy modules :func:`load_worker_optimization` imports at call time —
+#: pulling in the whole Xopt/botorch/torch stack transitively.  The warm-up
+#: thread imports exactly these so a later loader call is a pure
+#: ``sys.modules`` cache hit.
+_HEAVY_MODULES = (
+    "geecs_bluesky.optimization.base_optimizer",
+    "geecs_bluesky.optimization.session_bridge",
+)
 
 
 def optimizer_config_from_spec(spec: Any) -> dict:
@@ -147,9 +160,68 @@ def make_worker_optimization_loader() -> Optional[Callable[[Any], Any]]:
     return load_worker_optimization
 
 
+def warm_up_optimization_stack() -> Optional[threading.Thread]:
+    """Pre-import the optimization stack on a daemon thread.
+
+    The loader's first call pays the torch/botorch/xopt cold import — tens
+    of seconds — which would otherwise freeze the worker's first optimize
+    request. The worker startup profile (``qserver/startup/startup.py``)
+    calls this once, right after registering a non-``None``
+    :func:`make_worker_optimization_loader` result via ``set_optimization_
+    loader``: when the ``optimize`` extra is present (the same light
+    ``find_spec`` probe as :func:`optimization_available`), a daemon thread
+    imports ``_HEAVY_MODULES`` in the background so the stack is warm
+    before the first optimize-mode ``ScanRequest`` ever arrives on the
+    queue. Without the extra this is a no-op.
+
+    Warm-up failures are logged and swallowed — they never affect startup;
+    the loader's own lazy import simply pays the cost (and raises its own
+    error) later.
+
+    No double-import guard is needed for a request arriving mid-warm-up:
+    Python's per-module import locks already serialize concurrent imports,
+    so :func:`load_worker_optimization`'s import statements block until
+    the warm-up thread finishes that module, then reuse it from
+    ``sys.modules``. The work happens exactly once per process either way.
+
+    Returns
+    -------
+    threading.Thread or None
+        The started daemon thread, or ``None`` when the ``optimize``
+        extra is absent (nothing to warm). Callers need not join it.
+    """
+    if not optimization_available():
+        logger.debug(
+            "optimization stack warm-up skipped — its dependencies are not "
+            "installed (the `optimize` extra)"
+        )
+        return None
+
+    def _warm_up() -> None:
+        start = time.perf_counter()
+        try:
+            for name in _HEAVY_MODULES:
+                importlib.import_module(name)
+        except Exception:
+            logger.warning(
+                "optimization stack warm-up failed — the first optimize "
+                "request will pay the import cost instead",
+                exc_info=True,
+            )
+            return
+        logger.info(
+            "optimization stack preloaded in %.1f s", time.perf_counter() - start
+        )
+
+    thread = threading.Thread(target=_warm_up, name="optimization-warmup", daemon=True)
+    thread.start()
+    return thread
+
+
 __all__ = [
     "optimizer_config_from_spec",
     "load_worker_optimization",
     "optimization_available",
     "make_worker_optimization_loader",
+    "warm_up_optimization_stack",
 ]

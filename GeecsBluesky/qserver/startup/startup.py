@@ -111,8 +111,18 @@ RE.subscribe(SFileExportCallback())
 # heavy deps (xopt, ScanAnalysis) are importable — a headless worker without
 # them refuses optimize-mode requests loudly at the plan (see
 # set_optimization_loader's docstring) instead of failing mid-scan.
-from geecs_bluesky.optimization.worker_loader import make_worker_optimization_loader  # noqa: E402
+from geecs_bluesky.optimization.worker_loader import (  # noqa: E402
+    make_worker_optimization_loader,
+    warm_up_optimization_stack,
+)
 
-set_optimization_loader(make_worker_optimization_loader())
+_optimization_loader = make_worker_optimization_loader()
+set_optimization_loader(_optimization_loader)
+
+# Pre-import the stack's heavy modules (torch/botorch/xopt) off-thread now,
+# so the cold-import cost is paid here rather than freezing the worker's
+# first optimize-mode request (mirrors GEECS-Console's main.py warm-up).
+if _optimization_loader is not None:
+    warm_up_optimization_stack()
 
 __all__ = ["RE", "geecs_scan_request_plan"]
