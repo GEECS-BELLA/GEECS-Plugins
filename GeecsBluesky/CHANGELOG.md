@@ -4,6 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.53.1] - 2026-08-20
+
+### Added
+
+- Added queueserver host deployment assets under `qserver/deploy/`: Redis
+  package notes, a placeholder-only systemd service unit, and an Ubuntu 22.04
+  runbook for installing, starting, and verifying the RE Manager service
+  (issue #642).
+
 ## [0.53.0] - 2026-08-20
 
 ### Added
