@@ -1267,7 +1267,7 @@ def test_plan_opts_into_pause_on_failed_move_and_runner_does_not() -> None:
     assert "failed_move_policy" not in inspect.getsource(_session_mod)
 
 
-def test_optimize_path_registers_pause_quiescer(monkeypatch) -> None:
+def test_optimize_path_registers_pause_quiescer() -> None:
     """The optimize branch wraps run_plan with the ShotControlPauseQuiescer
     (reviewer-flagged gap: geecs_adaptive_scan bypasses build_step_scan_plan,
     so without this a pause mid-optimization leaves the trigger firing)."""
@@ -1276,6 +1276,5 @@ def test_optimize_path_registers_pause_quiescer(monkeypatch) -> None:
     from geecs_bluesky.plans import scan_request_plan as srp
 
     src = inspect.getsource(srp)
-    opt_body = src.split("phase 5")[-1]
     assert "_with_pause_quiescer(" in src
     assert "ShotControlPauseQuiescer(controller)" in src
