@@ -1,0 +1,39 @@
+# Template unit for the GEECS bluesky-queueserver RE Manager.
+# Copy to /etc/systemd/system/geecs-qserver.service on the dedicated host,
+# then replace every /opt/geecs/GEECS-Plugins placeholder with that host's
+# checkout path before enabling the unit.
+
+[Unit]
+Description=GEECS Bluesky Queueserver RE Manager
+After=network-online.target redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# Public repo placeholder only. Set this to the unprivileged service account
+# created for the queueserver host; never commit a real account name here.
+User=geecs
+
+# Placeholder: path to the GeecsBluesky checkout directory on this host.
+WorkingDirectory=/opt/geecs/GEECS-Plugins/GeecsBluesky
+
+Environment="QS_STARTUP_DIR=/opt/geecs/GEECS-Plugins/GeecsBluesky/qserver/startup"
+Environment="QS_EXPERIMENT=Undulator"
+
+# Set to the Channel Access gateway host. This explicit unit-level override is
+# the deployment-standard form; config.ini [epics] ca_addr_list also works, but
+# the unit wins operationally by making the runtime CA target visible here.
+Environment="EPICS_CA_ADDR_LIST=192.168.6.14"
+
+# CurveZMQ control-plane key management is still an open design item. When that
+# decision lands, put the server private key here; see
+# Planning/cutover_strategy/02_queueserver_migration.md.
+# Environment="QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER="
+
+ExecStart=/usr/bin/env poetry run /opt/geecs/GEECS-Plugins/GeecsBluesky/qserver/launch_re_manager.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

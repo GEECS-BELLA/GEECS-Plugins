@@ -4,7 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<<<<<<< HEAD
+## [0.53.1] - 2026-08-20
+
+### Added
+
+- Added queueserver host deployment assets under `qserver/deploy/`: Redis
+  package notes, a placeholder-only systemd service unit, and an Ubuntu 22.04
+  runbook for installing, starting, and verifying the RE Manager service
+  (issue #642).
+
 ## [0.53.0] - 2026-08-20
 
 ### Added
@@ -39,7 +47,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   extracted into the pure `build_step_scan_spec()` (+ `StepScanSpec`),
   shared verbatim with the new plan preamble so the two entry points cannot
   drift.  No behavior change (pinned by the existing runner suite).
->>>>>>> origin/qs/w1-scan-request-plan
 
 ## [0.52.4] - 2026-08-20
 
@@ -60,7 +67,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   best-effort Tiled export posture for queueserver worker wiring. Export
   is **success-only** (`exit_status == "success"`): aborted/failed runs
   write no s-file, matching the post-`RE()` call sites this replaces.
-=======
+
 ## [0.52.2] - 2026-08-20
 
 ### Changed
