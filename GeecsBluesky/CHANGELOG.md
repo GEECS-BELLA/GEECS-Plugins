@@ -4,7 +4,6 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<<<<<<< HEAD
 ## [0.53.0] - 2026-08-20
 
 ### Added
@@ -39,7 +38,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   extracted into the pure `build_step_scan_spec()` (+ `StepScanSpec`),
   shared verbatim with the new plan preamble so the two entry points cannot
   drift.  No behavior change (pinned by the existing runner suite).
->>>>>>> origin/qs/w1-scan-request-plan
 
 ## [0.52.4] - 2026-08-20
 
@@ -60,7 +58,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   best-effort Tiled export posture for queueserver worker wiring. Export
   is **success-only** (`exit_status == "success"`): aborted/failed runs
   write no s-file, matching the post-`RE()` call sites this replaces.
-=======
+
 ## [0.52.2] - 2026-08-20
 
 ### Changed
@@ -1655,7 +1653,6 @@ changes on the existing paths.
   bare-extension normalization as a local wrapper. No behavior change; the
   registry/asset tests pass unchanged.
 
-
 ## [0.19.1] - 2026-07-06
 
 ### Fixed
@@ -1699,7 +1696,6 @@ changes on the existing paths.
   PV, so event keys and source strings are unchanged.
   `ShotController.over_ca`'s setters intentionally keep bare PV names — they
   talk to aioca directly, which treats a prefix as part of the PV name.
-
 
 ## [0.19.0] - 2026-07-05
 
