@@ -4,6 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.52.3] - 2026-08-20
+
+### Added
+
+- Legacy scalar s-file export can now run as a RunEngine stop-document
+  callback (`SFileExportCallback`), matching starts/stops by run UID,
+  reading the scan number from start metadata, and preserving the existing
+  best-effort Tiled export posture for queueserver worker wiring.
+
 ## [0.52.2] - 2026-08-20
 
 ### Changed
