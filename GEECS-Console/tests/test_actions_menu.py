@@ -86,8 +86,6 @@ class FakeActionSubmitter:
         )
         self.run_error = run_error
         self.run_calls = []
-        self.request_calls = []
-        self.request_error = None
         self.describe_calls = []
         self.describe_started = threading.Event()
         self.describe_release = threading.Event()
@@ -95,17 +93,10 @@ class FakeActionSubmitter:
         self.run_release = threading.Event()
         self.run_release.set()
 
-    def reinitialize(self, request):
-        return True
+    def status(self):
+        from geecs_console.services.queue_client import QueueStatus
 
-    def start_scan_thread(self):
-        self.active = True
-
-    def stop_scanning_thread(self):
-        self.active = False
-
-    def is_scanning_active(self):
-        return self.active
+        return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 
     def describe_action(self, name):
         self.describe_calls.append(name)
@@ -118,11 +109,6 @@ class FakeActionSubmitter:
         self.run_release.wait(timeout=5)
         if self.run_error is not None:
             raise self.run_error
-
-    def request_action_during_scan(self, name):
-        self.request_calls.append(name)
-        if self.request_error is not None:
-            raise self.request_error
 
 
 def wait_previewed(dialog, qtbot):
@@ -156,6 +142,8 @@ def window(qtbot):
         ),
     )
     qtbot.addWidget(win)
+    if win._monitor is not None:
+        win._monitor.dispose()  # tests drive the state slots directly
     return win
 
 
@@ -297,10 +285,10 @@ class TestActionDialog:
         dialog.run_button.click()
         qtbot.waitUntil(lambda: submitter.run_calls == ["vent_line"], timeout=3000)
         qtbot.waitUntil(
-            lambda: "action 'vent_line' done" in dialog.message_label.text(),
+            lambda: "action 'vent_line' queued" in dialog.message_label.text(),
             timeout=3000,
         )
-        assert "action 'vent_line' done" in window.statusBar().currentMessage()
+        assert "action 'vent_line' queued" in window.statusBar().currentMessage()
 
     def test_refusal_message_is_surfaced_not_silent(self, window, qtbot):
         """The scan-in-progress refusal must show inline AND in the status bar."""
@@ -327,11 +315,11 @@ class TestActionDialog:
         dialog.run_button.click()
         qtbot.waitUntil(lambda: submitter.run_calls == ["insert_cal"], timeout=3000)
         assert not dialog.run_button.isEnabled()
-        assert "running action 'insert_cal'" in window.statusBar().currentMessage()
+        assert "queueing action 'insert_cal'" in window.statusBar().currentMessage()
         submitter.run_release.set()
         qtbot.waitUntil(lambda: dialog.run_button.isEnabled(), timeout=3000)
         qtbot.waitUntil(
-            lambda: "action 'insert_cal' done" in dialog.message_label.text(),
+            lambda: "action 'insert_cal' queued" in dialog.message_label.text(),
             timeout=3000,
         )
 
@@ -366,156 +354,24 @@ class TestActionDialog:
         assert dialog.windowTitle() == "Action: insert_cal"
 
 
-class TestDuringScanActions:
-    """G-actions v2 console half: the pause-scan path + three-way modal."""
+class TestScanGating:
+    """Actions are idle-only queue items (migration decision 2 dropped the
+    pause-window flow) — Run disables while a scan is active."""
 
-    def test_run_button_flips_to_pause_when_scanning(self, window, qtbot):
+    def test_run_disables_while_scanning_and_rearms_when_idle(self, window, qtbot):
         dialog = open_dialog(window, qtbot)
         wait_previewed(dialog, qtbot)
         window.enable_actions_action.setChecked(True)
-        assert dialog.run_button.text().startswith("Run")
-        window._submitter.active = True
+        assert dialog.run_button.isEnabled()
         window._on_scan_state("running")  # window pushes state into dialogs
-        assert dialog.run_button.text().startswith("Pause scan & run")
+        assert not dialog.run_button.isEnabled()
+        assert "Run" in dialog.run_button.text()  # never a pause-scan label
+        window._on_scan_state("idle")
+        assert dialog.run_button.isEnabled()
 
-    def test_run_during_scan_uses_request_action_during_scan(self, window, qtbot):
-        submitter = window._submitter
-        submitter.active = True
+    def test_dialog_opened_during_a_scan_starts_disabled(self, window, qtbot):
+        window._on_scan_state("running")
         dialog = open_dialog(window, qtbot)
         wait_previewed(dialog, qtbot)
-        window._on_scan_state("running")
         window.enable_actions_action.setChecked(True)
-        dialog.run_button.click()
-        qtbot.waitUntil(lambda: submitter.request_calls == ["insert_cal"], timeout=3000)
-        assert submitter.run_calls == []  # NOT the idle path
-        qtbot.waitUntil(
-            lambda: "decide in the pop-up" in dialog.message_label.text(), timeout=3000
-        )
-
-    def test_shot_control_refusal_during_scan_is_surfaced(self, window, qtbot):
-        submitter = window._submitter
-        submitter.active = True
-        submitter.request_error = RuntimeError("action writes the scan's shot-control")
-        dialog = open_dialog(window, qtbot)
-        wait_previewed(dialog, qtbot)
-        window._on_scan_state("running")
-        window.enable_actions_action.setChecked(True)
-        dialog.run_button.click()
-        qtbot.waitUntil(
-            lambda: "shot-control" in dialog.message_label.text(), timeout=3000
-        )
-
-
-def _decision_request():
-    class _Req:
-        action_name = "jet_on"
-        message = "Scan paused — run jet_on?"
-        step_count = 3
-
-        def __init__(self):
-            self.verdict = ["ignore"]
-            self.response_event = threading.Event()
-
-    return _Req()
-
-
-def _click_role(monkeypatch, role):
-    """Make QMessageBox.exec click the button with *role* (offscreen)."""
-    from PySide6.QtWidgets import QMessageBox
-
-    holder = {}
-
-    def fake_exec(box):
-        for b in box.buttons():
-            if role is not None and box.buttonRole(b) == role:
-                holder["clicked"] = b
-        box.done(0)
-
-    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
-    monkeypatch.setattr(
-        QMessageBox, "clickedButton", lambda self: holder.get("clicked")
-    )
-
-
-class TestActionDecisionModal:
-    def test_execute_verdict(self, window, monkeypatch):
-        from PySide6.QtWidgets import QMessageBox
-
-        _click_role(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
-        req = _decision_request()
-        window._on_action_decision(req)
-        assert req.verdict[0] == "execute"
-        assert req.response_event.is_set()
-
-    def test_ignore_verdict(self, window, monkeypatch):
-        from PySide6.QtWidgets import QMessageBox
-
-        _click_role(monkeypatch, QMessageBox.ButtonRole.RejectRole)
-        req = _decision_request()
-        window._on_action_decision(req)
-        assert req.verdict[0] == "ignore"
-        assert req.response_event.is_set()
-
-    def test_abort_verdict(self, window, monkeypatch):
-        from PySide6.QtWidgets import QMessageBox
-
-        _click_role(monkeypatch, QMessageBox.ButtonRole.DestructiveRole)
-        req = _decision_request()
-        window._on_action_decision(req)
-        assert req.verdict[0] == "abort"
-        assert req.response_event.is_set()
-
-    def test_terminal_state_dismisses_dangling_modal(self, window, monkeypatch):
-        """A Stop that aborts the scan out of band tears the modal down; the
-        programmatic dismiss reads as 'abort' (#552 PR-3 contract)."""
-        from PySide6.QtWidgets import QMessageBox
-
-        def fake_exec(box):
-            window._on_scan_state("aborted")  # terminal → reject the stored box
-
-        monkeypatch.setattr(QMessageBox, "exec", fake_exec)
-        monkeypatch.setattr(QMessageBox, "clickedButton", lambda self: None)
-        req = _decision_request()
-        window._on_action_decision(req)
-        assert req.verdict[0] == "abort"
-        assert req.response_event.is_set()
-
-
-class TestDialogUnblockOnFailure:
-    """A render failure must never leave the engine's scan thread parked."""
-
-    def test_action_decision_render_failure_still_unblocks_engine(
-        self, window, monkeypatch
-    ):
-        from PySide6.QtWidgets import QMessageBox
-
-        def boom(self):
-            raise RuntimeError("Qt exploded mid-render")
-
-        monkeypatch.setattr(QMessageBox, "exec", boom)
-        req = _decision_request()
-        window._on_action_decision(req)  # must not raise out
-        assert req.response_event.is_set()  # engine unblocked
-        assert req.verdict[0] == "ignore"  # safe default (resume, run nothing)
-
-    def test_operator_dialog_render_failure_aborts_and_unblocks(
-        self, window, monkeypatch
-    ):
-        from PySide6.QtWidgets import QMessageBox
-
-        def boom(self):
-            raise RuntimeError("Qt exploded mid-render")
-
-        monkeypatch.setattr(QMessageBox, "exec", boom)
-
-        class _Req:
-            exc = RuntimeError("some pre-flight warning")
-
-            def __init__(self):
-                self.abort = [False]
-                self.response_event = threading.Event()
-
-        req = _Req()
-        window._on_operator_dialog(req)
-        assert req.response_event.is_set()
-        assert req.abort[0] is True  # unshowable warning → do not proceed
+        assert not dialog.run_button.isEnabled()

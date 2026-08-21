@@ -23,7 +23,6 @@ from geecs_console.services.optimization import (
     optimization_available,
     optimizer_config_from_spec,
 )
-from geecs_console.submission import make_bluesky_submitter
 from geecs_schemas import OptimizationSpec
 
 
@@ -158,31 +157,3 @@ def test_load_console_optimization_builds_the_session_bridge(monkeypatch) -> Non
     assert isinstance(bridge, _FakeBridge)
     assert built["config"] == optimizer_config_from_spec(spec)
     assert isinstance(built["optimizer"], _FakeOptimizer)
-
-
-# ---------------------------------------------------------------------------
-# Submitter injection
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("available", [False, True])
-def test_submitter_injects_the_loader(monkeypatch, available) -> None:
-    """make_bluesky_submitter wires the availability-gated loader through."""
-    captured: dict = {}
-
-    class _FakeScanner:
-        def __init__(self, **kwargs) -> None:
-            captured.update(kwargs)
-
-    import geecs_bluesky.scanner_bridge.bluesky_scanner as engine_module
-
-    monkeypatch.setattr(engine_module, "BlueskyScanner", _FakeScanner)
-    monkeypatch.setattr(
-        optimization_module, "optimization_available", lambda: available
-    )
-
-    make_bluesky_submitter("HTU", on_event=None)
-
-    expected = load_console_optimization if available else None
-    assert captured["optimization_loader"] is expected
-    assert captured["experiment_dir"] == "HTU"

@@ -1,149 +1,201 @@
-"""The submission seam: what the console needs from a scan engine.
+"""The submission seam: what the console needs from the scan service.
 
-:class:`Submitter` is the protocol the main window depends on — the four
-methods of ``BlueskyScanner``'s ScanManager-compatible surface that the
-console actually calls, plus the two action-plan methods behind the Actions
-menu (``run_action`` / ``describe_action``, same names on the scanner).
-:func:`make_bluesky_submitter` builds the real engine; the import is inside
-the function so the window opens (and the whole package imports) without the
-``ca`` extra or a reachable gateway.
+Since the queueserver migration (#648) the console is a **peer client of
+the RE Manager** — scans are queue items executed by the GEECS worker
+(``GeecsBluesky/qserver/``), not an in-process engine.  :class:`Submitter`
+is the protocol the window and controllers depend on;
+:class:`QueueSubmitter` implements it over the
+:class:`~geecs_console.services.queue_client.QueueClient`, and
+:func:`make_queue_submitter` is the default factory (offline it wraps the
+stub client, whose every verb refuses with the missing-``[qserver]``
+message).
+
+Scan *state* is deliberately not on this protocol: the window observes it
+from the manager status poll and the document stream
+(:class:`~geecs_console.app.scan_monitor.ScanMonitorController`), never by
+asking the submitter.  The dropped pause-window action flow
+(``request_action_during_scan``, decision 2 of the migration) has no
+successor member — actions run as ordinary queue items when the manager is
+idle.
+
+Threading contract: every member here **blocks** (0MQ round trips; manual
+moves poll a worker task to completion), so the window and controllers
+dispatch them through their ``BackgroundResult`` workers — with two
+deliberate exceptions, :meth:`Submitter.request_pause` and
+:meth:`Submitter.request_resume`, which are single short-timeout requests
+the window calls directly (the old prompt-returning pause semantics).
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
-from geecs_schemas import ScanRequest
+from geecs_console.services.queue_client import (
+    QueueClient,
+    QueueStatus,
+    SubmitResult,
+)
 
 
 @runtime_checkable
 class Submitter(Protocol):
-    """The scan-engine surface the console submits through."""
+    """The scan-service surface the console submits through."""
 
-    def reinitialize(self, request: ScanRequest) -> bool:
-        """Validate and store *request* for the next run."""
-        ...
+    def submit(self, request: dict, *, clear_pending: bool = False) -> SubmitResult:
+        """Queue one ``ScanRequest`` dict and start the queue.
 
-    def start_scan_thread(self) -> None:
-        """Launch the stored scan in a background thread."""
-        ...
-
-    def stop_scanning_thread(self) -> None:
-        """Request the running scan to stop; returns promptly.
-
-        May still block briefly (a short bookkeeping join in the engine),
-        so the window dispatches it through a ``BackgroundResult`` worker —
-        never on the GUI thread.  Completion is announced by the terminal
-        ABORTED/DONE lifecycle event, not by this call's return.
+        ``ok=False`` with ``pending_items`` means the queue already held
+        items (the failed-item-at-front trap) and nothing was submitted —
+        the window asks the operator, then retries with
+        ``clear_pending=True``.
         """
         ...
 
-    def is_scanning_active(self) -> bool:
-        """Whether a scan is currently running."""
+    def stop_scan(self) -> tuple[bool, str]:
+        """Gracefully stop the current scan (partial data preserved).
+
+        From paused: stop directly.  From running: sequenced deferred
+        pause → stop, waiting out an in-flight blocking move — may take
+        tens of seconds, so the window dispatches it on the stop worker.
+        """
+        ...
+
+    def request_pause(self) -> tuple[bool, str]:
+        """Deferred-pause the running scan (returns promptly)."""
+        ...
+
+    def request_resume(self) -> tuple[bool, str]:
+        """Resume a paused scan — replays nothing (returns promptly)."""
         ...
 
     def run_action(self, name: str) -> None:
-        """Execute action plan *name* now — blocking.
+        """Queue action plan *name* as its own item (idle manager only).
 
-        Raises with an operator-readable message on refusal or failure;
-        during a scan the engine raises exactly
-        ``RuntimeError("scan in progress — action not started")``.
+        Raises ``RuntimeError`` with an operator-readable message when the
+        submission is refused (manager unreachable, queue busy).
+        Completion/failure of the action itself is observed through the
+        manager status, not this call.
         """
         ...
 
     def describe_action(self, name: str) -> list[dict]:
-        """Dry-run action plan *name* — the resolved steps, never executed.
+        """Dry-run action plan *name* against the worker's configs.
 
+        Blocking (a worker ``function_execute`` task; idle manager only).
         Returns one dict per step in execution order, with keys ``kind``,
-        ``device``, ``variable``, ``value``, ``wait_s``, and ``from_plan``
-        (``None`` where not applicable).
+        ``device``, ``variable``, ``value``, ``wait_s``, ``from_plan``.
+        Raises ``RuntimeError`` with an operator-readable message on
+        refusal or failure.
         """
         ...
 
     def move_variable(self, name: str, value: float) -> dict:
         """Move one catalog scan variable (or raw ``Device:Variable``) now.
 
-        The manual-move member (maps to ``BlueskyScanner.move_variable``,
-        GeecsBluesky ≥ 0.48.0): the move carries scan-identical completion
-        semantics (motor poll, confirm poll, pseudo/composite fan-out with
-        fresh relative baselines per call).  Blocking — dispatch off the
-        GUI thread.  Returns ``{"variable", "kind", "value", "targets"}``;
-        raises ``RuntimeError`` with an operator-readable message while a
-        scan or another move is active.
+        Runs the worker's ``geecs_move_variable`` (scan-identical
+        completion semantics; idle manager only) and blocks until the move
+        lands — dispatch off the GUI thread.  Returns ``{"variable",
+        "kind", "value", "targets"}``; raises ``RuntimeError`` with the
+        worker's refusal/failure message (e.g. the engine's exact
+        ``"scan in progress — move not started"``).
         """
         ...
 
-    def request_pause(self) -> None:
-        """Pause the running scan at its next safe point (operator Pause).
-
-        No action involved: the machine goes to its quiescent state and the
-        scan holds (non-modally) until :meth:`request_resume` or a stop.
-        Returns promptly; the PAUSED lifecycle state is announced back.
-        """
-        ...
-
-    def request_resume(self) -> None:
-        """Resume a scan paused by :meth:`request_pause` (operator Resume)."""
-        ...
-
-    def request_action_during_scan(self, name: str) -> None:
-        """Request action plan *name* to run in the scan's pause window.
-
-        The during-scan counterpart of :meth:`run_action` (G-actions v2):
-        validates fail-fast, refuses an action that writes the scan's
-        shot-control device(s), then asks the engine to pause at its next
-        checkpoint and stage the action.  Returns promptly — the operator's
-        execute/ignore/abort decision arrives as a separate dialog event.
-        Raises with an operator-readable message on refusal (no active
-        scan, unreachable target, or a shot-control-device write).
-        """
+    def status(self) -> QueueStatus:
+        """One manager status snapshot (never raises) — the poller's probe."""
         ...
 
 
-def make_bluesky_submitter(
-    experiment: str,
-    on_event: Callable[[Any], None] | None = None,
-) -> Submitter:
-    """Build the real :class:`~geecs_bluesky.scanner_bridge.BlueskyScanner`.
+class QueueSubmitter:
+    """The real :class:`Submitter`: a thin adapter over the queue client.
+
+    Also carries the stream addresses
+    (:attr:`info_addr` / :attr:`doc_addr`, ``None`` when unconfigured) so
+    the window can build its
+    :class:`~geecs_console.app.scan_monitor.ScanMonitorController` from the
+    same configuration in one place.
+    """
+
+    def __init__(
+        self,
+        client: QueueClient,
+        *,
+        info_addr: Optional[str] = None,
+        doc_addr: Optional[str] = None,
+    ) -> None:
+        self.client = client
+        self.info_addr = info_addr
+        self.doc_addr = doc_addr
+
+    def submit(self, request: dict, *, clear_pending: bool = False) -> SubmitResult:
+        """Queue the scan request (see :class:`Submitter`)."""
+        return self.client.submit_scan(request, clear_pending=clear_pending)
+
+    def stop_scan(self) -> tuple[bool, str]:
+        """Gracefully stop the current scan (see :class:`Submitter`)."""
+        return self.client.stop_scan()
+
+    def request_pause(self) -> tuple[bool, str]:
+        """Deferred-pause the running scan."""
+        return self.client.request_pause()
+
+    def request_resume(self) -> tuple[bool, str]:
+        """Resume a paused scan."""
+        return self.client.request_resume()
+
+    def run_action(self, name: str) -> None:
+        """Queue the action item; raise the refusal message on failure."""
+        result = self.client.submit_action(name)
+        if not result.ok:
+            if result.pending_items:
+                raise RuntimeError(
+                    f"queue not empty ({len(result.pending_items)} item(s) "
+                    "pending) — clear the queue before running an action"
+                )
+            raise RuntimeError(result.message or "action submission refused")
+
+    def describe_action(self, name: str) -> list[dict]:
+        """Worker-side dry run (see :class:`Submitter`)."""
+        return self.client.describe_action(name)
+
+    def move_variable(self, name: str, value: float) -> dict:
+        """Worker-side manual move (see :class:`Submitter`)."""
+        return self.client.move_variable(name, value)
+
+    def status(self) -> QueueStatus:
+        """One manager status snapshot (never raises)."""
+        return self.client.status()
+
+
+def make_queue_submitter(experiment: str = "") -> QueueSubmitter:
+    """Build the configured submitter (stub-backed when no ``[qserver]``).
 
     Parameters
     ----------
-    experiment : str
-        Experiment name (configs-repo folder / PV prefix).
-    on_event : callable, optional
-        The engine's ``on_event`` callback — typically
-        :meth:`geecs_console.events_adapter.ScanEventsAdapter.handle`.
+    experiment : str, optional
+        The selected experiment.  Currently informational — one manager
+        serves one experiment by deployment contract (``QS_EXPERIMENT``),
+        and the ``[qserver]`` config names that manager; a mismatch
+        surfaces as the worker refusing the request's names at validation.
 
     Returns
     -------
-    Submitter
-        A ready ``BlueskyScanner`` (RunEngine created, Tiled subscription
-        attempted best-effort).
-
-    Raises
-    ------
-    ImportError
-        When ``geecs-bluesky`` is installed without the ``ca`` extra.
-
-    Notes
-    -----
-    The Actions-menu methods (``run_action`` / ``describe_action``) map to
-    the scanner's same-named methods — the returned engine satisfies the
-    protocol structurally, no adapter needed.
-
-    The engine's ``optimization_loader`` seam is wired here from
-    :func:`geecs_console.services.optimization.make_optimization_loader`:
-    with the console's optional ``optimization`` extra installed the loader
-    turns an optimize request's ``OptimizationSpec`` into the Xopt/evaluator
-    bridge; without it the loader is ``None`` and the engine refuses
-    optimize-mode requests at ``reinitialize`` (surfaced in the status bar).
+    QueueSubmitter
+        Ready to use; unconfigured installs get the stub client (every
+        verb refuses with the missing-config message) and no stream
+        addresses.
     """
-    from geecs_bluesky.scanner_bridge.bluesky_scanner import BlueskyScanner
+    from geecs_console.services.queue_client import (
+        StubQueueClient,
+        ZmqQueueClient,
+        read_qserver_config,
+    )
 
-    from geecs_console.services.optimization import make_optimization_loader
-
-    return BlueskyScanner(
-        experiment_dir=experiment,
-        on_event=on_event,
-        optimization_loader=make_optimization_loader(),
+    config = read_qserver_config()
+    if config is None:
+        return QueueSubmitter(StubQueueClient())
+    return QueueSubmitter(
+        ZmqQueueClient(config),
+        info_addr=config.info_addr,
+        doc_addr=config.doc_addr,
     )
