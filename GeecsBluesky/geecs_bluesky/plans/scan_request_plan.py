@@ -88,6 +88,7 @@ from geecs_bluesky.scan_request_runner import (
     compile_action_slot,
     make_scalar_policy,
     metadata_applied_defaults,
+    metadata_submission,
     merge_optimizer_device_requirements,
     prefetch_action_signals,
     resolve_movable_target,
@@ -103,7 +104,12 @@ from geecs_schemas import AcquisitionMode, ScanRequest, ScanRequestMode
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["geecs_scan_request_plan", "set_plan_session", "set_optimization_loader"]
+__all__ = [
+    "geecs_scan_request_plan",
+    "geecs_run_action_plan",
+    "set_plan_session",
+    "set_optimization_loader",
+]
 
 #: Per-connect timeout for the in-plan strict batches.  Near-parity, not
 #: parity, with ``GeecsSession._connect``: there 20 s is the outer wall on
@@ -418,6 +424,11 @@ def geecs_scan_request_plan(
                 "geecs_scan_request_plan has no session: install one with "
                 "set_plan_session(...) at worker startup, or pass session=..."
             )
+    # The session's manual-move mutual exclusion (PR #597 contract) must
+    # travel to the queue path: a background-executed geecs_move_variable
+    # leaves the manager IDLE while a move converges, so a queue start could
+    # otherwise drive hardware mid-move (#652 review finding 1).
+    session._refuse_if_manual_move("scan not started")
     if resolver is None:
         resolver = ConfigsRepoResolver(session.experiment)
 
@@ -793,6 +804,9 @@ def _optimize_request_body(
         md["dropped_unserved_devices"] = list(dropped_unserved_devices)
     if applied_defaults:
         md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
+    submission = metadata_submission(request)
+    if submission is not None:
+        md["submission"] = submission
     if skipped:
         md["skipped_action_plans"] = skipped
         logger.warning(
@@ -1011,3 +1025,83 @@ def _optimize_request_body(
         raise
 
     return uid
+
+
+# Same signature constraint as geecs_scan_request_plan (see the comment
+# above its `def`): the RE Manager re-evaluates annotation strings in a bare
+# namespace at `queue add`, so only builtin names may appear — `name: str`
+# is safe, the keyword-only injection seams stay unannotated.
+def geecs_run_action_plan(
+    name: str,
+    *,
+    session=None,
+    resolver=None,
+):
+    """Run one named ActionPlan as its own queue item (decision 2, #648).
+
+    The queueserver replacement for on-demand action execution
+    (:meth:`~geecs_bluesky.session.GeecsSession.run_action`, whose direct
+    ``RE(...)`` call cannot run under a manager-owned RunEngine): the
+    console's Actions menu submits this plan to the queue, so a manual
+    action gets the same queue provenance, ordering, and idle-only
+    semantics as any scan.  No run is opened — an action emits no
+    documents, exactly like today's ``run_action``.
+
+    Resolution, nested-``run`` flattening, signal prefetch, and the
+    compiled step semantics are the same code paths the in-scan action
+    slots use; connects happen via plan messages (the in-plan pattern of
+    :func:`geecs_scan_request_plan`) and a finalize disconnects everything
+    created — success, failure, and abort alike.
+
+    Parameters
+    ----------
+    name :
+        Action-plan name in the experiment's action library.
+    session :
+        The :class:`~geecs_bluesky.session.GeecsSession` whose signal
+        factory builds the action targets.  Defaults to the worker-wide
+        session installed by :func:`set_plan_session`.
+    resolver :
+        Name resolver; defaults to
+        :class:`~geecs_bluesky.config_resolver.ConfigsRepoResolver` over
+        the session's experiment.
+
+    Raises
+    ------
+    GeecsConfigurationError
+        No session configured, or an unknown plan name / bad nested
+        reference (fail-fast, before any signal connects).
+    """
+    if session is None:
+        session = _worker_session
+        if session is None:
+            raise GeecsConfigurationError(
+                "geecs_run_action_plan has no session: install one with "
+                "set_plan_session(...) at worker startup, or pass session=..."
+            )
+    # Same manual-move mutual exclusion as geecs_scan_request_plan (the
+    # session contract must travel to the queue path — #652 review).
+    session._refuse_if_manual_move("action not started")
+    if resolver is None:
+        resolver = ConfigsRepoResolver(session.experiment)
+
+    registry = build_action_registry(resolver)
+    factories = _DeferredConnectFactories(session)
+    factory = factories.action_signal_factory()
+    created: list = [factory]
+
+    def _body():
+        # Fail-fast: unknown names / nested cycles surface in resolution
+        # and prefetch, before any connect message is emitted.
+        stub, plans = compile_action_slot([name], resolver, registry, factory)
+        if stub is None:  # pragma: no cover - [name] is never empty
+            return
+        prefetch_action_signals(plans, registry, factory)
+        created.extend(factories.created)
+        if factories.created:
+            yield from _connect_in_batches(factories.created, mock=session._mock)
+        logger.info("Running action %r (queue item)", name)
+        yield from stub()
+        logger.info("Action %r completed", name)
+
+    return (yield from bpp.finalize_wrapper(_body(), lambda: _disconnect_plan(created)))

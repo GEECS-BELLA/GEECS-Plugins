@@ -160,6 +160,35 @@ The unit intentionally carries a commented-out
 key management is still open; the design item is tracked in
 `../../../Planning/cutover_strategy/02_queueserver_migration.md`.
 
+### Document stream (no extra unit)
+
+The launcher starts a `bluesky-0MQ-proxy` (5567 in / 5568 out) alongside
+Redis when one is not already answering; the startup profile publishes
+bluesky documents into it for GUI progress (see `../README.md`, "Document
+stream"). The proxy runs inside the unit's cgroup on purpose — it is
+stateless and dies with the unit; no second systemd unit is needed. Caveat
+of that choice: systemd supervises only the main process, so a proxy that
+dies *alone* is not restarted until the next manager restart — the symptom
+is GUI progress going quiet while scans keep running fine (the proxy's
+stderr goes to the journal; the worker also logs a warning at startup when
+nothing answers on the publish port). Override the ports with
+`Environment="QS_DOC_PROXY_IN=…"` / `QS_DOC_PROXY_OUT=…` (paired with
+`QS_DOC_PUBLISH_ADDR` for the worker side), or disable with
+`QS_DOC_PROXY=OFF` + `QS_DOC_PUBLISH_ADDR=OFF`.
+
+### Network ports
+
+Client machines (console GUIs) need to reach, on the worker host:
+
+- **60615** — the RE Manager control socket (`bluesky-queueserver-api`),
+- **60625** — the manager's console-output stream (log tail / failed-move
+  reason lines; text, not documents),
+- **5568** — the document-stream out port (live per-shot progress).
+
+Redis (6379) stays loopback-only. The proxy's in port (5567) is only
+ever used by the worker itself (same host) — nothing remote needs it,
+though the proxy binds all interfaces; firewall it with the rest.
+
 ---
 
 ## 3. Verify the manager

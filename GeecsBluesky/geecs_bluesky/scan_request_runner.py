@@ -777,6 +777,20 @@ def metadata_applied_defaults(
     ]
 
 
+def metadata_submission(request: ScanRequest) -> dict[str, Any] | None:
+    """Return the request's submission-provenance record for run metadata.
+
+    ``ScanRequest.submission`` (geecs-schemas 0.10.0) is stamped by the
+    submitting client at queue time — who queued the request, when, and the
+    pre-submit preflight outcomes.  The engine records it verbatim and never
+    acts on it.  ``None`` when the client stamped nothing (headless callers,
+    saved presets), so callers gate the metadata key on the return value.
+    """
+    if request.submission is None:
+        return None
+    return request.submission.model_dump(mode="json")
+
+
 def resolve_experiment_defaults(resolver: ConfigResolver) -> Any | None:
     """Return the resolver's experiment defaults, or ``None`` (tolerantly).
 
@@ -1024,6 +1038,11 @@ def build_step_scan_spec(
         # Provenance: the run records exactly which experiment defaults
         # filled in fields the submitter left unset.
         md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
+    submission = metadata_submission(request)
+    if submission is not None:
+        # Provenance: the submitting client's record — who queued the
+        # request, when, and the pre-submit preflight outcomes (#648).
+        md["submission"] = submission
     if any(slots.values()):
         # Provenance: the assembled per-slot execution order (defaults +
         # entry rituals + the request's own, mirrored on closeout).
@@ -1863,6 +1882,9 @@ def _run_optimize_request(
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
             md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
+        submission = metadata_submission(request)
+        if submission is not None:
+            md["submission"] = submission
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(
