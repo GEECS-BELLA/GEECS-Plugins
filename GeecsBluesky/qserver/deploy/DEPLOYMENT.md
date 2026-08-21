@@ -27,11 +27,23 @@ sudo apt install python3.11 python3.11-venv redis-server
 sudo systemctl enable --now redis-server.service
 ```
 
-Install Poetry by the method approved for the host image, then install the
-worker environment from the repository checkout:
+Clone the repository if the host does not have it yet:
+
+```bash
+sudo mkdir -p /opt/geecs && sudo chown "$USER" /opt/geecs
+git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git /opt/geecs/GEECS-Plugins
+```
+
+Install Poetry by the method approved for the host image (note where it
+lands — the official installer uses `~/.local/bin`, which systemd's service
+PATH does not include; the unit template therefore takes poetry's absolute
+path). Then install the worker environment, pointing poetry at 3.11
+explicitly (jammy's default `python3` is 3.10, which this package refuses —
+the repo's documented top environment failure):
 
 ```bash
 cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+poetry env use python3.11
 poetry install --extras "ca tiled qserver"
 ```
 
@@ -154,13 +166,9 @@ If `environment open` fails, inspect the service journal first:
 journalctl -u geecs-qserver.service -n 200 --no-pager
 ```
 
-Follow the troubleshooting notes in `../README.md` for the known queueserver
-failure shapes:
-
-- missing or incomplete `user_group_permissions.yaml`,
-- a startup profile that does not define `RE = RunEngine({})` while the
-  launcher uses `--keep-re`,
-- attempts to run `qserver function execute` while the manager is not idle.
+Follow the troubleshooting section in `../README.md` for the known
+queueserver failure shapes — it is the single maintained list; symptoms and
+fixes are not restated here.
 
 After the environment is open, submit only the smoke-test queue items approved
 for the current startup profile. Do not use a deployment host to discover
