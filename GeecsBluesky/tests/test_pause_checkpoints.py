@@ -1,22 +1,24 @@
-"""Deferred-pause groundwork for G-actions v2 (issue #552, PR-1).
+"""Deferred-pause groundwork (issue #552) + queueserver placement (issue #641).
 
 Pins three things:
 
-* **Checkpoint placement** in both step plans — one before each step's
-  move and one before every row, never between ``create`` and ``save`` —
-  so ``request_pause(defer=True)`` always lands with an empty rewind
-  cache and resume replays nothing (no re-move, no re-fire).
+* **Checkpoint placement** in both step plans — pre-move, post-move,
+  pre-row, and post-rows, never between ``create`` and ``save`` — so
+  ``request_pause(defer=True)`` always lands with an empty rewind cache
+  (resume replays nothing) AND a hard pause's resume replay is bounded
+  to an idempotent segment (issue #641; the replay-idempotence walk
+  itself is pinned in ``test_pause_semantics.py``).
 * **Resume replays nothing** at the RunEngine level: a deferred pause
   raised mid-scan and resumed yields exactly the expected event rows,
   each ``scan_event_index`` exactly once.
 * **``ShotController.last_state``** records the last *standing* state
   actually driven (never the momentary ``SINGLESHOT`` fire) — what the
-  #552 pause supervisor re-asserts after an operator action.
+  pause quiescer re-asserts on resume.
 
 Also pins that the old hard-pause bridge API (``pause_scan`` /
-``resume_scan``) is gone: with no checkpoints it was a
-resume-replays-the-scan trap, and with checkpoints a bare hard pause
-still replays a partial row (re-firing a shot in strict mode).
+``resume_scan``) is gone: hard pause is now an RE-level verb whose
+replay the plans are structured to survive (issue #641), not a bridge
+method.
 """
 
 from __future__ import annotations
@@ -80,9 +82,9 @@ def _step_plan_messages(num_points: int = 3, shots_per_step: int = 2) -> list[Ms
 
 
 def test_one_checkpoint_per_step_and_per_row() -> None:
-    """3 steps × 2 shots → 3 pre-move + 6 pre-row = 9 checkpoints."""
+    """3 steps × 2 shots → (pre-move + post-move + post-rows) × 3 + 6 pre-row."""
     commands = [m.command for m in _step_plan_messages(3, 2)]
-    assert commands.count("checkpoint") == 3 + 3 * 2
+    assert commands.count("checkpoint") == 3 * 3 + 3 * 2
 
 
 def test_checkpoint_precedes_the_move_and_every_row() -> None:
@@ -257,8 +259,9 @@ def test_hard_pause_bridge_api_deleted() -> None:
 def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:
     """Free-run (production mode): same checkpoint contract, incl. tail flush.
 
-    Motorless statistics run, 1 bin × 2 shots → 1 pre-move + 2 pre-row
-    checkpoints; the tail-flush create/read/save bundle must contain none.
+    Motorless statistics run, 1 bin × 2 shots → pre-move + post-move +
+    2 pre-row + post-rows + post-flush checkpoints (#641 placement); the
+    tail-flush create/read/save bundle must contain none.
     """
     pytest.importorskip("aioca")
     from ophyd_async.core import set_mock_value
@@ -289,7 +292,9 @@ def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:
     finally:
         pacer.cancel()
 
-    assert commands.count("checkpoint") == 1 + 2
+    # One no-move bin × 2 shots: pre-move + post-move + 2 pre-row +
+    # post-rows + post-flush (issue #641 placement).
+    assert commands.count("checkpoint") == 6
     open_bundle = False
     for command in commands:
         if command == "create":

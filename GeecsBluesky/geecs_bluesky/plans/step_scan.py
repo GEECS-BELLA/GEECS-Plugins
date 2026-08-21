@@ -29,13 +29,18 @@ Example (devices built and connected through a
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Iterable, Sequence
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
+from bluesky.utils import FailedStatus
 
 from geecs_bluesky.devices.scan_context import ScanContext
+from geecs_bluesky.plans.pause_semantics import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.plans.single_shot import geecs_single_shot
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_motors(motor: Any | Sequence[Any] | None) -> list[Any]:
@@ -118,6 +123,60 @@ def move_changed_axes(motors: list[Any], position: Any, previous: tuple | None):
     if args:
         yield from bps.mv(*args)
     return targets
+
+
+def move_with_failed_move_pause(
+    motors: list[Any], position: Any, previous: tuple | None
+):
+    """Plan stub: :func:`move_changed_axes`, pausing the RE on a failed move.
+
+    The decision-4 move site (queueserver migration, issue #641; design
+    rationale and the log-line contract:
+    :mod:`~geecs_bluesky.plans.pause_semantics`).  On a move status failure
+    the reason is recorded — the
+    :data:`~geecs_bluesky.plans.pause_semantics.FAILED_MOVE_LOG_PREFIX`
+    ERROR line, which the root-logger scan.log handler puts in the scan's
+    record — and the plan issues a **hard** ``bps.pause()``.  Resume replays
+    the failed ``set``/``wait`` from the pre-move checkpoint (``pause`` is
+    uncacheable, so the pause itself never replays): the retry, at the same
+    absolute target.  A retry that fails again is thrown back in at the
+    pause yield and pauses again; stop ends the run gracefully through the
+    plan's finalize chain.
+
+    Parameters mirror :func:`move_changed_axes`.
+
+    Returns
+    -------
+    tuple
+        The targets commanded (the grid point), whether the move landed on
+        the first attempt or via a resume replay.
+    """
+    try:
+        return (yield from move_changed_axes(motors, position, previous))
+    except FailedStatus as exc:
+        targets = (
+            tuple(position) if isinstance(position, (list, tuple)) else (position,)
+        )
+        detail = ", ".join(
+            f"{getattr(m, 'name', m)} -> {t!r}" for m, t in zip(motors, targets)
+        )
+        while True:
+            cause = exc.__cause__ or exc
+            logger.error(
+                "%s: %s: %s; resume retries the move from the last "
+                "checkpoint, stop ends the scan gracefully",
+                FAILED_MOVE_LOG_PREFIX,
+                detail,
+                cause,
+            )
+            try:
+                yield from bps.pause()
+            except FailedStatus as retry_exc:  # the replayed retry failed too
+                exc = retry_exc
+                continue
+            # Reaching here means resume's replay re-issued the move and its
+            # wait completed - the retry landed.
+            return targets
 
 
 def geecs_step_scan(
@@ -229,14 +288,28 @@ def geecs_step_scan(
         scan_event_index = 0
         previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
-            # Deferred-pause boundary (issue #552): a checkpoint before the
-            # move and before every row means request_pause(defer=True)
-            # lands with an empty rewind cache — resume replays nothing
-            # (no re-move, no re-fire).  Never place a checkpoint between
-            # create and save (IllegalMessageSequence).
+            # Checkpoint placement is a pause contract (issues #552/#641).
+            # Deferred pause: a checkpoint before the move and before every
+            # row means request_pause(defer=True) lands with an empty rewind
+            # cache — resume replays nothing (no re-move, no re-fire).
+            # Hard pause (bps.pause / re pause immediate) resumes by
+            # REPLAYING from the last checkpoint, so each checkpoint also
+            # bounds what re-executes: the pre-move checkpoint scopes a
+            # replay to the move (absolute re-command — idempotent, and the
+            # failed-move retry mechanism); the post-move checkpoint keeps
+            # the move out of a replayed per_step action prefix; the pre-row
+            # checkpoint scopes a mid-shot replay to that shot (a re-fire,
+            # strict's bounded-refire semantics); the post-rows checkpoint
+            # keeps the bin's last COMPLETED row out of a replay landing in
+            # the disarm/tail window (re-saving it would duplicate the event
+            # row).  Never place a checkpoint between create and save
+            # (IllegalMessageSequence).
             yield from bps.checkpoint()
             if _motors and pos is not None:
-                previous = yield from move_changed_axes(_motors, pos, previous)
+                previous = yield from move_with_failed_move_pause(
+                    _motors, pos, previous
+                )
+            yield from bps.checkpoint()
             if per_step is not None:
                 # After the move, before this step's plan-owned shots — the
                 # machine is quiescent here (strict fires each shot itself).
@@ -255,6 +328,7 @@ def geecs_step_scan(
                     yield from geecs_single_shot(_read_devices, fire_shot)
                 else:
                     yield from bps.trigger_and_read(_read_devices)
+            yield from bps.checkpoint()
             if disarm_trigger is not None:
                 yield from disarm_trigger()
 
