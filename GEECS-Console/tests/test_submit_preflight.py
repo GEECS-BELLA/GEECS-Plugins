@@ -79,9 +79,19 @@ def _make_provider(served):
 def _make_pv_reader(reads):
     state = {"ts_calls": 0}
 
-    def _read(pv, timeout):
+    def _read(pv, timeout, datatype=None):
         if pv.endswith(":connected"):
-            return reads["CONNECTED"]
+            # Enum-faithful fake (#653 review finding 1): the gateway's
+            # CONNECTED is a DBR_ENUM, so a native read returns the integer
+            # index — only datatype=str yields the choice string the check
+            # compares against.  A regression back to a native read gets
+            # the index and can never see "Disconnected".
+            value = reads["CONNECTED"]
+            if value is None:
+                return None
+            if datatype is str:
+                return value
+            return {"Disconnected": 0, "Connected": 1}[value]
         if pv.endswith(":acq_timestamp"):
             values = reads["acq_timestamp"]
             value = values[min(state["ts_calls"], len(values) - 1)]

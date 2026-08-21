@@ -215,14 +215,32 @@ def _check_unserved(
         )
 
 
-def _read_pv(pv: str, timeout: float) -> Any:
-    """One blocking CA read (aioca in a private loop); ``None`` on failure."""
+def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:
+    """One blocking CA read (aioca in a private loop); ``None`` on failure.
+
+    Parameters
+    ----------
+    pv : str
+        Bare PV name (no ``ca://`` prefix).
+    timeout : float
+        CA read budget in seconds.
+    datatype :
+        Passed to ``caget``.  **Must be ``str`` for enum PVs whose choice
+        string is compared** (the gateway's ``CONNECTED`` is a DBR_ENUM —
+        a native read returns the integer index, and ``str(1)`` never
+        equals ``"Disconnected"``; #653 review finding 1, the same rule as
+        the engine's ``epics_signal_r(str, ...)`` liveness child).
+        ``None`` reads the channel's native type (right for
+        ``acq_timestamp``, natively a double).
+    """
     import asyncio
 
     from aioca import caget
 
     async def _get() -> Any:
-        return await caget(pv, timeout=timeout)
+        if datatype is None:
+            return await caget(pv, timeout=timeout)
+        return await caget(pv, datatype=datatype, timeout=timeout)
 
     try:
         return asyncio.run(_get())
@@ -239,8 +257,12 @@ def _check_liveness(
 
     down: list[str] = []
     for device in devices_config:
+        # datatype=str is load-bearing: CONNECTED is an enum PV and the
+        # comparison below is against its choice string (see _read_pv).
         reading = _read_pv(
-            bare_pv(ca_pv(experiment, device, "CONNECTED")), _LIVENESS_TIMEOUT_S
+            bare_pv(ca_pv(experiment, device, "CONNECTED")),
+            _LIVENESS_TIMEOUT_S,
+            datatype=str,
         )
         # Fail-open: only the exact "Disconnected" reading means down (the
         # engine's liveness doctrine — an unreadable status is not a verdict).

@@ -291,3 +291,35 @@ class TestZmqQueueClient:
         monkeypatch.setattr(time, "sleep", lambda s: None)
         with pytest.raises(RuntimeError, match="did not finish"):
             client.move_variable("u_s1h", 1.0)
+
+
+class TestQueueStartFailure:
+    """#653 review finding 2: a start failure must never silently leave the
+    item queued while reporting plain failure."""
+
+    def test_start_refusal_removes_the_item_and_says_so(self):
+        fake = _FakeManagerAPI()
+        removed: list[str] = []
+        fake.queue_start = lambda: (_ for _ in ()).throw(RuntimeError("busy"))
+
+        def item_remove(*, uid=None, pos=None):
+            removed.append(uid)
+
+        fake.item_remove = item_remove
+        result = _client(fake).submit_scan({"mode": "noscan"})
+        assert not result.ok
+        assert removed == ["uid-1"]
+        assert "removed again" in result.message
+
+    def test_start_refusal_with_failed_removal_names_the_stuck_item(self):
+        fake = _FakeManagerAPI()
+        fake.queue_start = lambda: (_ for _ in ()).throw(RuntimeError("busy"))
+
+        def item_remove(*, uid=None, pos=None):
+            raise RuntimeError("remove refused")
+
+        fake.item_remove = item_remove
+        result = _client(fake).submit_scan({"mode": "noscan"})
+        assert not result.ok
+        assert "REMAINS queued" in result.message
+        assert result.item_uid == "uid-1"

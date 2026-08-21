@@ -54,19 +54,25 @@ def _failed_move_prefix() -> str:
 class DocumentStreamWorker(QObject):
     """Daemon-thread consumer of the worker's bluesky document stream.
 
-    Emits ``document(name, doc)`` for every document received.  The signal
-    is worker-owned; consumers connect it ``QueuedConnection``.  ``start()``
-    spawns the thread; :meth:`stop` makes further emissions impossible and
-    best-effort closes the dispatcher (never joins — the thread is daemon).
+    Emits ``document(name, doc)`` for every document received and
+    ``stream_failed(str)`` if the stream cannot be set up (bad address,
+    missing import) — post-setup, the zmq SUB socket reconnects on its own
+    and needs no supervision.  Signals are worker-owned; consumers connect
+    them ``QueuedConnection``.  ``start()`` spawns the thread; :meth:`stop`
+    only gates emission and **abandons** the daemon thread: the
+    dispatcher's zmq socket/loop must never be touched from another thread
+    (pyzmq sockets are not thread-safe — a cross-thread close can trip a
+    libzmq assertion, which *aborts* the process rather than raising; #653
+    review finding 3).
     """
 
     document = Signal(str, object)
+    stream_failed = Signal(str)
 
     def __init__(self, doc_addr: str) -> None:
         super().__init__()
         self._addr = doc_addr
         self._stopped = False
-        self._dispatcher: Any = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> None:
@@ -83,7 +89,6 @@ class DocumentStreamWorker(QObject):
             from bluesky.callbacks.zmq import RemoteDispatcher
 
             dispatcher = RemoteDispatcher(self._addr)
-            self._dispatcher = dispatcher
 
             def _forward(name: str, doc: dict) -> None:
                 if not self._stopped:
@@ -91,32 +96,40 @@ class DocumentStreamWorker(QObject):
 
             dispatcher.subscribe(_forward)
             dispatcher.start()  # blocks for the thread's lifetime
-        except Exception:
+        except Exception as exc:
             if not self._stopped:
                 logger.warning("document stream at %s ended", self._addr, exc_info=True)
+                try:
+                    self.stream_failed.emit(
+                        f"document stream unavailable ({exc}) — live "
+                        "per-shot progress is off"
+                    )
+                except RuntimeError:
+                    pass  # the worker was deleted during teardown
 
     def stop(self) -> None:
-        """Stop emitting and best-effort close the dispatcher (idempotent)."""
+        """Gate further emissions (idempotent).
+
+        Deliberately touches nothing else: the dispatcher is abandoned
+        with its daemon thread (see the class docstring — a cross-thread
+        zmq close can abort the process, and the thread dies with the app
+        anyway).
+        """
         self._stopped = True
-        dispatcher = self._dispatcher
-        if dispatcher is not None:
-            try:
-                dispatcher.stop()
-            except Exception:  # cross-thread close is best-effort teardown
-                logger.debug("dispatcher stop raised (ignored)", exc_info=True)
-            self._dispatcher = None
 
 
 class ConsoleStreamWorker(QObject):
     """Daemon-thread consumer of the manager's console-output text stream.
 
-    Emits ``line(str)`` per received line and ``pause_reason(str)`` when a
-    line carries the engine's failed-move prefix — the paused pill's "why".
+    Emits ``line(str)`` per received line, ``pause_reason(str)`` when a
+    line carries the engine's failed-move prefix — the paused pill's "why"
+    — and ``stream_failed(str)`` if the monitor cannot be set up.
     Text only: this stream never carries documents (see qserver/README.md).
     """
 
     line = Signal(str)
     pause_reason = Signal(str)
+    stream_failed = Signal(str)
 
     def __init__(self, info_addr: str) -> None:
         super().__init__()
@@ -157,9 +170,16 @@ class ConsoleStreamWorker(QObject):
                     self._handle_text(str(msg.get("msg", "")), prefix)
             finally:
                 monitor.disable()
-        except Exception:
+        except Exception as exc:
             if not self._stopped:
                 logger.warning("console stream at %s ended", self._addr, exc_info=True)
+                try:
+                    self.stream_failed.emit(
+                        f"console-output stream unavailable ({exc}) — the "
+                        "log tail and pause reasons are off"
+                    )
+                except RuntimeError:
+                    pass  # the worker was deleted during teardown
 
     def _handle_text(self, text: str, prefix: str) -> None:
         for raw_line in text.splitlines():

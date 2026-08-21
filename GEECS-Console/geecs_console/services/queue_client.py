@@ -30,6 +30,7 @@ told to (``clear_pending=True``).
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -250,20 +251,26 @@ class ZmqQueueClient:
         self._config = config
         self._user = user
         self._api: Any = None
+        # The status poller's first call and an early worker-thread verb can
+        # race the lazy init; without the lock the loser's REManagerAPI (and
+        # its zmq receive thread) would leak for the process lifetime (#653
+        # review finding 5).
+        self._api_lock = threading.Lock()
 
     # -- plumbing -----------------------------------------------------------
 
     def _manager(self) -> Any:
         """Return the cached ``REManagerAPI``, creating it on first use."""
-        if self._api is None:
-            from bluesky_queueserver_api.zmq import REManagerAPI
+        with self._api_lock:
+            if self._api is None:
+                from bluesky_queueserver_api.zmq import REManagerAPI
 
-            self._api = REManagerAPI(
-                zmq_control_addr=self._config.control_addr,
-                zmq_info_addr=self._config.info_addr,
-                timeout_recv=_RECV_TIMEOUT_S,
-            )
-        return self._api
+                self._api = REManagerAPI(
+                    zmq_control_addr=self._config.control_addr,
+                    zmq_info_addr=self._config.info_addr,
+                    timeout_recv=_RECV_TIMEOUT_S,
+                )
+            return self._api
 
     def _wait_for_task(self, task_uid: str, *, timeout_s: float) -> dict:
         """Poll ``task_result`` until the task completes; return its payload.
@@ -309,7 +316,15 @@ class ZmqQueueClient:
     def _submit_item(
         self, plan_name: str, args: list, *, clear_pending: bool
     ) -> SubmitResult:
-        """Shared add-and-start with the failed-item-at-front guard."""
+        """Shared add-and-start with the failed-item-at-front guard.
+
+        The add and the start are separate manager calls with separate
+        failure handling (#653 review finding 2): a start failure after a
+        successful add must never report plain "failed" while the item
+        sits queued and runs later on its own — the item is best-effort
+        removed, and when even that fails the message says exactly what
+        remains queued.
+        """
         from bluesky_queueserver_api import BPlan
 
         api = self._manager()
@@ -331,10 +346,36 @@ class ZmqQueueClient:
             item = BPlan(plan_name, *args)
             response = api.item_add(item, user=self._user)
             item_uid = (response.get("item") or {}).get("item_uid")
-            api.queue_start()
-            return SubmitResult(ok=True, message="queued", item_uid=item_uid)
         except Exception as exc:
             return SubmitResult(ok=False, message=str(exc))
+        try:
+            api.queue_start()
+        except Exception as exc:
+            try:
+                if item_uid:
+                    api.item_remove(uid=item_uid)
+                removed = bool(item_uid)
+            except Exception:
+                removed = False
+            if removed:
+                return SubmitResult(
+                    ok=False,
+                    message=(
+                        f"queue start refused ({exc}) — the item was "
+                        "removed again; nothing will run"
+                    ),
+                )
+            return SubmitResult(
+                ok=False,
+                message=(
+                    f"queue start refused ({exc}) and the item could NOT "
+                    f"be removed — {plan_name} (uid {item_uid}) REMAINS "
+                    "queued and will run when the queue next starts; "
+                    "clear the queue if that is not intended"
+                ),
+                item_uid=item_uid,
+            )
+        return SubmitResult(ok=True, message="queued", item_uid=item_uid)
 
     def submit_scan(
         self, request: dict, *, clear_pending: bool = False
