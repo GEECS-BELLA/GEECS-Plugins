@@ -5,7 +5,7 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.2] - 2026-08-21
+## [0.10.1] - 2026-08-21
 
 ### Fixed
 
@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   this change), so the count assertion is now drift-tolerant
   (`converted > 0`); the per-entry legacy-pin assertions are unchanged
   and remain the real guard.
+
+## [0.10.0] - 2026-08-21
+
+### Added
+
+- `ScanRequest.submission` — optional submission-provenance record
+  (queueserver migration, issue #648 decision 3): `SubmissionRecord`
+  carries which client queued the request and when, plus the pre-submit
+  preflight outcomes (`PreflightOutcome` /
+  `PreflightCheckResult`: passed / continued / skipped). Filled in by the
+  submitting client at queue time, copied into run metadata by the
+  engine, never acted on — a request without one runs exactly the same.
+  Saved presets leave it unset.
 
 ## [0.9.1] - 2026-08-20
 
