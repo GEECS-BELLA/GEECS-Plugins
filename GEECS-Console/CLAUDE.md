@@ -26,44 +26,55 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **R4 presets** — combo + Apply + Save-as + Delete.  A preset IS a saved
   `ScanRequest`; **persistence live** (see Implemented seams): YAML files
   in the configs repo's per-experiment `presets/` dir.
-- **R5 submit row** — Stop (danger) + Start (primary).  Start requires: not
-  scanning, ≥1 selected save set (**except in Optimization mode** — the
-  engine auto-provisions the optimizer's `device_requirements`, so zero
-  selected sets is valid there), valid shot count within the guard, and in
-  Optimization mode a selected optimizer config.  The GUI never pre-blocks
-  an optimize submission beyond that — the engine's accept/refuse answer is
-  surfaced in the status bar.  **Stop is asynchronous** (#571):
-  `stop_scanning_thread` can block briefly engine-side, so the click
-  dispatches it through a dedicated `BackgroundResult` stop worker (no
-  result slot — completion arrives via the lifecycle stream); the button
-  disables and shows "Stopping…" until a terminal lifecycle state
-  (`_TERMINAL_SCAN_STATES` = aborted/done, exactly the engine's terminal
-  vocabulary) releases the hold and normal gating resumes.
+- **R5 submit row** — Stop (danger) + Start (primary).  Start requires: no
+  active plan on the manager (running *or* paused — any client's, the
+  polled `re_state` is the truth), no submission already in flight, ≥1
+  selected save set (**except in Optimization mode** — the worker
+  auto-provisions the optimizer's `device_requirements`, so zero selected
+  sets is valid there), valid shot count within the guard, and in
+  Optimization mode a selected optimizer config.  **Start runs the
+  pre-submit pipeline** (queueserver decision 3): the check phase
+  (`run_submit_preflight` — engine validation, unserved variables,
+  CONNECTED liveness, free-run staleness) on the submit worker → each
+  question as one modal (`_ask_binary`; a render failure reads as abort)
+  → `stamp_submission` writes the `SubmissionRecord` → the queue submit
+  on the worker, with the **failed-item-at-front question** ("Remove &&
+  submit?") on a non-empty queue.  Both worker callables capture their
+  own exceptions into refusal/failure results — `BackgroundResult`
+  swallows raises without emitting, which would strand the pipeline
+  in-flight (pinned by test).  **Stop is asynchronous** (the #571 rule
+  with a longer worst case): `Submitter.stop_scan` sequences
+  deferred-pause → stop from a running scan, so it runs on the stop
+  worker with a result slot (a *failed* sequencing releases the hold for
+  a retry); the button shows "Stopping…" until a terminal state
+  (`_TERMINAL_SCAN_STATES` = aborted/done from the stop document, plus
+  idle — the status poll's fallback) releases the hold.
 - **R6 now panel** — state pill, progress bar, "Scan NNN" with 10 s expiry
-  to "(previous)" (**live**: driven by `ScanLifecycleEvent.scan_number`
-  through the adapter's `scan_number_known` signal), compact log tail.
+  to "(previous)" (**live**: driven by the start document's
+  `scan_number`), compact log tail.
   When idle (startup / experiment change) the label shows
   "Scan NNN (previous)" from a **strictly read-only** peek at today's
   daily `scans/` folder (see Implemented seams), or "No scans today".
-  **The log tail is NOT the Python log** (the canonical statement of
-  this — the engine CLAUDE.md points here): it is a narration of the
-  `ScanEvent` stream built in `events_adapter.handle` — per-shot lines
-  are event *documents*, emitted at ``bps.save()`` (end of shot, *after*
-  the per-shot CA reads that ride the VPN) and delivered queued; the
-  tail suppresses exact consecutive repeats at its convergence point,
-  `NowPanelController.append_log` (0.20.1 — both the adapter narration
-  and the window's direct status lines flow through it; the cache
-  re-arms on set_totals so a new scan's first line always renders), and
-  every post-claim lifecycle line carries the scan number ("scan
-  running (Scan NNN)", "scan done (Scan NNN)"); data signals never
-  dedupe; the
-  terminal/file log's lines fire synchronously at the point of action
-  (e.g. `SINGLESHOT` logs at shot *start*).  Same process, no network
-  between engine and GUI — the VPN latency enters upstream, in when the
-  shot's reads complete.  The two are independent stories with different
-  timing and granularity; they will drift, and shot counts must never be
-  reconciled across them (live-investigated 2026-07-16 — a "pause shows
-  extra steps" report was mostly this drift).
+  State comes from two sources with a deliberate split
+  (`_on_queue_status` / `_on_scan_document`): the **document stream**
+  narrates transitions (start → running + totals
+  (`num_points × shots_per_step`) + scan number; primary-stream event
+  `seq_num` → progress + beeps; stop → done/aborted by `exit_status`),
+  and the **manager status poll** is the fallback narrator — it asserts
+  running/paused (authoritative for the pill and the Pause button,
+  including scans other clients started), falls a running/paused pill
+  back to idle when the stream is down, and reads "unknown" when the
+  manager is unreachable.  A `paused` pill's *why* comes from the
+  console-output stream's failed-move reason line (`_on_pause_reason`).
+  **The log tail is NOT the worker's scan.log** (the canonical statement
+  of this — the engine CLAUDE.md points here): it is the manager's
+  captured stdout/stderr stream (port 60625) plus the window's own
+  narration lines — delivered over the network with its own timing and
+  granularity; the two stories will drift, and shot counts must never be
+  reconciled across them.  The tail suppresses exact consecutive repeats
+  at its convergence point, `NowPanelController.append_log` (the cache
+  re-arms on set_totals so a new scan's first line always renders); data
+  signals never dedupe.
 - **R7 movable panel** (middle column, below R4/R5 since 0.19.1 — the
   right column is R6's alone) — an editable combo (catalog scan-variable names
   first, then `device:variable` completions from `GeecsDbCompletions`),
@@ -89,18 +100,23 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `request_builder.build_scan_request` is the only place form state becomes
   a request; keep it a pure function, keep widgets out of it.
 - **The window depends on seams, not implementations**: `Submitter`
-  (protocol over `BlueskyScanner`'s Submitter-contract methods —
-  scan lifecycle, on-demand actions, pause/resume, and
-  `move_variable` manual moves),
-  `ConsoleConfigs`, `HealthProbe`, `ScanEventsAdapter`, `PresetStore`,
-  `ConsoleSettings`.  All constructor-injectable; every test drives the
-  window with fakes.
+  (the queueserver-client protocol since #648 — `QueueSubmitter` over
+  the RE Manager: queue submission with the failed-item guard, sequenced
+  stop, pause/resume, worker-side actions and `move_variable`, and a
+  never-raises `status()` the monitor polls), `ConsoleConfigs`,
+  `HealthProbe`, `PresetStore`, `ConsoleSettings`.  All
+  constructor-injectable; every test drives the window with fakes (and
+  disposes the window's `ScanMonitorController` so state slots are
+  driven directly, never raced by the background poll).
 - **Offline-first**: the window must open and run with zero network and
   zero configs.  `geecs_bluesky` is imported lazily (function-level) in
-  `submission.py` and `services/configs.py` — it pulls `aioca` at package
-  import, so a module-level import would couple opening the window to the
-  `ca` extra.  `events_adapter` dispatches on event class *names* for the
-  same reason (and so hermetic fakes work).
+  `services/submit_preflight.py` and `services/configs.py` — it pulls
+  `aioca` at package import, so a module-level import would couple
+  opening the window to the `ca` extra; `bluesky-queueserver-api`
+  imports live inside `services/queue_client.py` methods the same way.
+  Without a `[qserver]` config section the stub client refuses
+  submission with a message naming the missing section — everything
+  else works.
 - PySide6 only (LGPL, agent-editable `.ui` XML).  Never PyQt.
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
@@ -125,14 +141,30 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   pushes the selection into the probe (guarded `hasattr`/`setattr`, since
   StubHealth has no `experiment`); `closeEvent` stops the timer.  Inject the
   real probe in `main.py`; keep `StubHealth` as the window's default.
-- **Operator / pre-flight dialogs**: a `ScanDialogEvent` is rendered as a
-  modal `QMessageBox`.  `ScanEventsAdapter.handle` (on the engine/scan thread)
-  emits `dialog_requested(request)`; the queued signal delivers
-  `_on_operator_dialog` on the GUI thread (where the modal must live) while the
-  engine thread blocks on `request.response_event.wait()`.  Abort sets
-  `request.abort[0] = True`; either choice calls `request.response_event.set()`
-  to unblock the engine.  Duck-typed on the `DialogRequest` attributes — no
-  `geecs_bluesky` import.
+- **Pre-submit preflight dialogs** (queueserver decision 3 — the old
+  mid-run `ScanDialogEvent`/`DialogRequest` transport is gone with the
+  bridge): the checks run *before* queueing on the submit worker
+  (`services/submit_preflight.py` — the engine's own
+  `validate_scan_request` and `UnservedVariablesCheck` reused, plus
+  client-side CONNECTED liveness (fail-open; the read passes
+  `datatype=str` because CONNECTED is a DBR_ENUM — a native read returns
+  the index and can never match "Disconnected") and a free-run
+  staleness sample), and each question is an ordinary synchronous modal
+  (`_ask_binary`).  Answers are stamped into the request's
+  `SubmissionRecord` (geecs-schemas ≥ 0.10.0, aware timestamp pinned)
+  so run metadata records who was asked what.  The worker re-runs
+  validation authoritatively at execution — duplication by design.
+- **Scan monitor** (`app/scan_monitor.py::ScanMonitorController`, #534
+  controller shape): the manager status poll (`HealthPoller` pattern
+  over `Submitter.status()`), the document stream (`RemoteDispatcher`
+  on the worker's proxy out-port — per-shot progress, totals, scan
+  number, terminal states), and the manager console-output stream (log
+  tail + failed-move pause reasons).  Stream workers emit on
+  worker-owned signals connected `QueuedConnection`;
+  `stop()`/`dispose()` only gate emission and **abandon** the daemon
+  threads — a zmq socket must never be closed from another thread (a
+  libzmq assertion aborts the process; #653 review).  Stream setup
+  failure emits `stream_failed(str)`.
 - **Movable panel (R7)** — owned by
   `app/movable_panel.py::MovablePanelController` since 0.19.0 (the #534
   controller shape: no Qt parent, injected widgets + callables, its own
@@ -145,11 +177,12 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `format_target_readbacks`), and an unresolvable text falls back to the
   raw `device:variable` parse.  **Sets fork by selection kind**: catalog
   names dispatch `Submitter.move_variable(name, value)` on the set
-  worker — the engine seam (GeecsBluesky ≥ 0.48.0) with scan-identical
-  completion semantics (motor poll, confirm poll, pseudo fan-out with a
-  fresh relative baseline per move) and refusals ("scan in progress —
-  move not started" / "manual move in progress — …") surfaced verbatim;
-  raw `device:variable` strings keep the direct gateway put (no engine
+  worker — since #648 that is the queueserver worker's
+  `geecs_move_variable` via `function_execute` (idle manager only;
+  scan-identical completion semantics — motor poll, confirm poll, pseudo
+  fan-out) with the worker's refusals ("scan in progress — move not
+  started" / "manual move in progress — …") surfaced verbatim; raw
+  `device:variable` strings keep the direct gateway put (no manager
   required).  The R3 axis combos' `currentTextChanged` auto-selects the
   panel (populate churn is signal-blocked; unresolvable names never
   hijack it).  The transport backend stays `GatewayDevicePanel` (real) or
@@ -208,11 +241,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   Constructor-injectable; `tests/conftest.py` isolates the user scope to a
   per-test tmp path so no test touches real settings.  Also carries the
   Preferences beep options (`per_shot_beep`, `randomized_beeps`).
-- **Scan number (R6)**: the engine's `ScanLifecycleEvent.scan_number`
-  (`None` until the scan folder is claimed, then present on every lifecycle
-  emission) is read duck-typed by `ScanEventsAdapter` and emitted as
-  `scan_number_known(int)`; the window connects it to `set_scan_number`,
-  which delegates to `NowPanelController` (10 s expiry to "(previous)").
+- **Scan number (R6)**: the run's start document carries `scan_number`
+  (recorded by the worker at the claim); `_on_scan_document` feeds it to
+  `set_scan_number`, which delegates to `NowPanelController` (10 s
+  expiry to "(previous)").
 - **Ops menu**: four items, handlers in `main_window.py`, path resolution
   factored into `services/ops_paths.py` as small pure `-> Path | None`
   functions (unit-tested against tmp trees, no Finder).  *Open experiment
@@ -330,31 +362,24 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   the blocking `run_action(name)` on a dialog-owned worker — in flight
   the button disables and the status bar shows "running action
   '<name>'…"; success reports "action '<name>' done"; failures/refusals
-  (the engine raises exactly `RuntimeError("scan in progress — action
-  not started")` during a scan) land in the status bar AND inline.  The
+  land in the status bar AND inline.  The
   preview and run outcomes render on **separate labels** — a slow
   describe arriving late must never clobber a refusal (pinned by test).
-  Both engine methods are `Submitter` protocol members
-  (`submission.py`), mapped to `BlueskyScanner`'s same-named methods.
-  **During-scan (G-actions v2, #552, 0.16.0):** the same dialog drives the
-  pause flow — with a scan active the Run button reads "Pause scan & run
-  (N steps)" and calls the `Submitter.request_action_during_scan` member
-  (pause → decide → run) instead of idle `run_action`; the window's
-  scan-lifecycle hub pushes live scan state into the controller
-  (`set_scanning`), which forwards it to the open dialogs so the button
-  flips.
-  The three-way **action-decision modal** (Execute / Ignore / Abort) is
-  rendered by `_on_action_decision` from an engine `ActionDecisionRequest`
-  (routed through the same `ScanDialogEvent`/`dialog_requested` transport
-  as the binary pre-flight dialog — `_on_operator_dialog` duck-types on the
-  `verdict` attribute), and is **dismissed on a terminal ABORTED state**
-  (`self._decision_box.reject()` in `_on_scan_state`): a Stop during the
-  pause window aborts without the engine answering, and the engine has no
-  dialog-cancel signal (the #552 PR-3 review contract).  **Misfire
-  hardening (#575):** name in larger type, Run gated on the preview having
-  loaded (no firing beside an empty table — kills the old
-  late-preview-clobbers-run race), step count on the Run label.  Pinned by
-  `tests/test_actions_menu.py`.
+  Both methods are `Submitter` protocol members (`submission.py`) —
+  since #648, `run_action` queues `geecs_run_action_plan` and
+  `describe_action` runs the worker's `geecs_describe_action`.
+  **Actions are idle-only queue items since the queueserver migration**
+  (decision 2 dropped the G-actions v2 pause-window flow — `Run` queues
+  `geecs_run_action_plan` via `Submitter.run_action`, the preview comes
+  from the worker's `geecs_describe_action`, and with a scan active the
+  Run button simply disables; the window's state hub pushes
+  `set_scanning` into the controller, which forwards it to open dialogs
+  and seeds newly opened ones).  The old
+  `request_action_during_scan`/three-way-decision machinery is deleted.
+  **Misfire hardening (#575):** name in larger type, Run gated on the
+  preview having loaded (no firing beside an empty table — kills the old
+  late-preview-clobbers-run race), step count on the Run label.  Pinned
+  by `tests/test_actions_menu.py`.
 - **Optimization (R3) — end to end**: the Optimization radio shows a
   config combo listing the YAML stems of the experiment's
   `optimizer_configs/` folder (legacy scanner-GUI folder name; part of
@@ -374,36 +399,22 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   limits hack): the builder writes it onto the spec, picking a config seeds
   the spinner from the config's own limit, presets restore it, and the R3
   shot count shows `iterations × shots/step` (the runaway guard applies) or
-  "auto".  **The engine-side loader is wired** (0.9.0):
-  `make_bluesky_submitter` injects `optimization_loader` from
-  `services/optimization.py` — `optimizer_config_from_spec` maps the spec
-  onto the `BaseOptimizerConfig` dict shape (pinned as the exact inverse
-  of `convert_optimizer_config`), `load_console_optimization` builds
-  `BaseOptimizer.from_config(...)` + `SessionOptimizationBridge`, and the
-  engine (GeecsBluesky ≥ 0.31.0) runs the optimization as a delegated
-  ScanRequest.  The stack lives in `geecs_bluesky.optimization` (relocated
-  out of geecs_scanner 2026-08-20 — no geecs-scanner-gui dependency
-  remains anywhere in the console); the **`optimization` extra** installs
-  its heavy dependency tree (xopt → torch/botorch, ScanAnalysis — a
-  mirror of geecs-bluesky's `optimize` extra, keep the lists in sync;
-  import confined to `services/optimization.py`, lazy, gated by a light
-  `find_spec("xopt")` probe); without it the loader is `None` and the engine's
-  needs-a-loader refusal shows in the status bar, all other modes
-  unaffected.  With the extra installed, `main.py` calls
-  `warm_up_optimization_stack()` once after `window.show()` — a daemon
-  thread pre-imports the loader's heavy modules (torch/botorch/xopt cost
-  tens of seconds cold) so the first optimize submission doesn't freeze;
-  failures are logged and swallowed (the lazy path then pays the cost),
-  and a submission mid-warm-up simply blocks on Python's per-module
-  import lock — no extra machinery.  **The engine auto-provisions the
-  optimizer's `device_requirements`** (GeecsBluesky ≥ 0.38.0, reversing
-  the #520 deferral after the 2026-07-15 NaN-objectives field incident):
-  the loader-returned `SessionOptimizationBridge` already exposes
-  `device_requirements` (auto-generated from the evaluator's analyzers),
-  the engine bridge reads it duck-typed and merges it into the effective
-  device set, recorded in run metadata as
-  `provisioned_device_requirements`.  So in Optimization mode Start no
-  longer requires a selected save set, and the R2 union line notes the
+  "auto".  **Execution is worker-side since the queueserver migration**
+  (decision 5): the request's inline `OptimizationSpec` travels in the
+  queue item, and the *worker's* loader
+  (`geecs_bluesky.optimization.worker_loader`, registered at qserver
+  startup) builds the Xopt/evaluator stack there — the console injects
+  nothing and needs no heavy dependencies to submit an optimization.  A
+  worker without the `optimize` extra refuses the queued request loudly;
+  the refusal message surfaces like any other submission failure.
+  `services/optimization.py` (the old GUI-process loader and its
+  `optimization` extra) is now **consumer-less** — kept only until the
+  W5 cleanup deletes it; do not wire it anywhere new.  **The worker
+  auto-provisions the optimizer's `device_requirements`** (GeecsBluesky
+  ≥ 0.38.0, reversing the #520 deferral after the 2026-07-15
+  NaN-objectives field incident), recorded in run metadata as
+  `provisioned_device_requirements` — so in Optimization mode Start
+  requires no selected save set, and the R2 union line notes the
   optimizer's contribution ("diagnostics from optimizer config" /
   "+ optimizer diagnostics").
 - **Tooltips (issue #497 phase 1)**: editor form fields get their tooltips

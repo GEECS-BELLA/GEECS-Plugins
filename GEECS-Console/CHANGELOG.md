@@ -4,6 +4,44 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.22.0] - 2026-08-21
+
+### Changed
+
+- **The console is now a queueserver client end to end (#648, W6 part
+  2 — the window switch).** The in-process BlueskyScanner bridge path is
+  gone from the console:
+  - **Submission** runs the decision-3 pipeline: pre-submit preflight on
+    the submit worker → questions as ordinary modals → `SubmissionRecord`
+    stamped → queue add + start via the manager API, with the
+    failed-item-at-front question ("Remove && submit?") on a non-empty
+    queue. Worker callables capture their own exceptions (a raise can no
+    longer strand the pipeline in-flight — pinned by test).
+  - **State/progress** come from the scan monitor: the manager status
+    poll drives the pill (running/paused authoritative, idle fallback,
+    "unknown" when unreachable), the document stream drives totals
+    (`num_points × shots_per_step`), scan number, per-shot progress +
+    beeps (primary-stream `seq_num`), and done/aborted (stop-doc
+    `exit_status`); the console-output stream feeds the log tail and the
+    paused pill's failed-move reason.
+  - **Stop** sequences pause-then-stop via `Submitter.stop_scan` on the
+    stop worker (a failed sequencing releases the hold for a retry);
+    **Pause/Resume** are direct short-timeout manager calls.
+  - **Actions are idle-only queue items** (decision 2): the Run dialog
+    queues `geecs_run_action_plan`, previews via the worker's
+    `geecs_describe_action`, and disables while a scan is active; the
+    G-actions v2 pause-window flow (`request_action_during_scan`, the
+    three-way decision modal, the mid-run operator-dialog transport) is
+    removed. The Movable panel's catalog moves run the worker's
+    `geecs_move_variable`.
+  - `submission.py` is rewritten around `QueueSubmitter`
+    (`make_queue_submitter` factory); `events_adapter.py` and its fakes
+    are deleted; `main.py` no longer warms the GUI-process optimization
+    stack (`services/optimization.py` is consumer-less, slated for the
+    W5 cleanup).
+  - Docs: `docs/tutorials/getting_started.md` documents the `[qserver]`
+    config section (the #653 review's owed item); CLAUDE.md truth-up.
+
 ## [0.21.0] - 2026-08-21
 
 ### Added
