@@ -36,6 +36,13 @@ The stack behind the loader (evaluators → ScanAnalysis/ImageAnalysis
 analyzers) is the legacy machinery kept for old-GUI parity; a redesigned
 hook (bluesky-adaptive direction) is a planned follow-up, so this module is
 written to be deletable.
+
+KEEP IN SYNC: this module is the console-side twin of the queueserver
+worker's loader, ``geecs_bluesky.optimization.worker_loader`` — same four
+functions, same shapes, independently implemented because the dependency
+graph runs Console → GeecsBluesky, never the reverse.  A change to the
+``OptimizationSpec``/``BaseOptimizerConfig`` mapping here must be mirrored
+there (and vice versa — its module docstring points back here).
 """
 
 from __future__ import annotations
