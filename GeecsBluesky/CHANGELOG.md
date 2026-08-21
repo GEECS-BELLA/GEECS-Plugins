@@ -4,6 +4,41 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.53.0] - 2026-08-20
+
+### Added
+
+- **`geecs_scan_request_plan` — "run this ScanRequest" as one Bluesky plan**
+  (`plans/scan_request_plan.py`), the queueserver migration's one structural
+  unit (issue #633, round 1;
+  `Planning/cutover_strategy/02_queueserver_migration.md`).  The
+  `run_scan_request` prologue relocates into the plan **preamble**, executed
+  worker-side inside the RunEngine: authoritative fail-fast validation →
+  name resolution → worker-side construction of the ShotController, action
+  signals, detectors, and scan-axis movables (bound methods/closures never
+  cross a process boundary) → in-plan connects (`ensure_connected` batches
+  for the strict tier, a soft gather for Tier-2 telemetry, the shot-control
+  reachability check) → the scan-number claim → the same inner plan as today
+  (`build_step_scan_plan`), with ScanInfo, per-scan `scan.log`, and a
+  finalize that disconnects everything the plan created.  Everything before
+  the claim burns no scan number.  `set_plan_session()` installs the
+  worker-wide default session so `RE(geecs_scan_request_plan(request))`
+  needs only the JSON request; no bluesky-queueserver import exists — a
+  later round registers the callable with a manager.  Optimize-mode requests
+  are validated then refused loudly (`NotImplementedError`; the in-worker
+  optimization-loader invocation is a later round); step and noscan produce
+  the same documents as `run_scan_request` (pinned by hermetic
+  document-parity tests in `tests/test_scan_request_plan.py`).  The post-run
+  s-file export is deliberately absent from the plan — it becomes a worker
+  stop-document callback (a parallel task owns that seam).
+
+### Changed
+
+- `run_scan_request`'s inline run-metadata / ScanInfo / grid assembly is
+  extracted into the pure `build_step_scan_spec()` (+ `StepScanSpec`),
+  shared verbatim with the new plan preamble so the two entry points cannot
+  drift.  No behavior change (pinned by the existing runner suite).
+
 ## [0.52.2] - 2026-08-20
 
 ### Changed

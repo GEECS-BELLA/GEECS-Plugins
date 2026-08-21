@@ -101,6 +101,15 @@ geecs_bluesky/
     single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
+    scan_request_plan.py    # geecs_scan_request_plan — "run this ScanRequest"
+                            #   as ONE plan (queueserver round 1, issue #633):
+                            #   the run_scan_request prologue relocated into
+                            #   the plan preamble (validate → resolve →
+                            #   construct+connect in-plan → claim → the same
+                            #   inner plan); set_plan_session installs the
+                            #   worker default session; optimize refused
+                            #   loudly (later round); s-file export is NOT
+                            #   here (worker stop-doc callback seam)
   devices/
     ca/                     # THE device family: CA-backed via GeecsCAGateway PVs (`ca` extra)
       triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
