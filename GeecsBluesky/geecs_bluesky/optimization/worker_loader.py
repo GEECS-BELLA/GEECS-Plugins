@@ -7,13 +7,10 @@ invokes it moves from the GUI process into the queueserver worker's plan
 preamble (``geecs_bluesky.plans.scan_request_plan``,
 :func:`~geecs_bluesky.plans.scan_request_plan.set_optimization_loader`).
 
-This module is the worker-side twin of GEECS-Console's
-``geecs_console.services.optimization`` — same four functions (including
-the startup warm-up), same shapes, independently implemented so
-GeecsBluesky imports nothing from GEECS-Console (the dependency graph runs
-the other way: Console depends on GeecsBluesky, never the reverse). Keep
-the two in sync by hand if the ``OptimizationSpec``/``BaseOptimizerConfig``
-mapping changes.
+This module is the ONE implementation of the loader seam (its former
+console-side twin, ``geecs_console.services.optimization``, was deleted
+with the queueserver cutover — the console no longer runs optimizations
+in-process, W5-adjacent cleanup).
 """
 
 from __future__ import annotations

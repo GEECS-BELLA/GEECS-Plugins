@@ -2,9 +2,12 @@
 
 The greenfield PySide6 operator console for GEECS — the front-end of the
 Bluesky/gateway target architecture.  It builds one
-`geecs_schemas.ScanRequest` per scan and submits it to the `geecs-bluesky`
-engine (`BlueskyScanner`).  Successor to GEECS-Scanner-GUI, built clean
-against the new architecture instead of retrofitting the PyQt5 GUI.
+`geecs_schemas.ScanRequest` per scan and submits it as a queue item to the
+GEECS queueserver worker (`GeecsBluesky/qserver/` — a bluesky-queueserver
+RE Manager; configure the worker host in the `[qserver]` section of
+`~/.config/geecs_python_api/config.ini`).  Successor to GEECS-Scanner-GUI,
+built clean against the new architecture instead of retrofitting the
+PyQt5 GUI.
 
 ## Launch
 
