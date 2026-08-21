@@ -30,7 +30,10 @@ sudo systemctl enable --now redis-server.service
 Clone the repository if the host does not have it yet:
 
 **Everything below runs AS THE SERVICE ACCOUNT** (the unit's `User=`,
-`geecs` in this template): Poetry keys project virtualenvs under the
+`geecs` in this template — create it *with a login shell*, or substitute
+`sudo -u geecs -H bash` wherever `sudo -u geecs -i` appears; a
+`/usr/sbin/nologin` account fails `-i` with "account is currently not
+available"): Poetry keys project virtualenvs under the
 *invoking user's* cache, so an env installed by an admin account is
 invisible to the service — the unit would crash-loop on a fresh,
 dependency-less env while admin-side verification passes. Clone, install,
@@ -152,7 +155,6 @@ Run these commands from a shell that has the `qserver` CLI available. The
 Poetry environment from the checkout is the expected source:
 
 ```bash
-cd /opt/geecs/GEECS-Plugins/GeecsBluesky
 sudo -u geecs -i
 cd /opt/geecs/GEECS-Plugins/GeecsBluesky
 poetry run qserver status
