@@ -927,6 +927,142 @@ class PseudoMovableTarget:
 MovableTarget = PlainMovableTarget | PseudoMovableTarget
 
 
+@dataclass(frozen=True)
+class StepScanSpec:
+    """The pure execution picture of a step/noscan request (no devices).
+
+    Everything :func:`run_scan_request` derives from the request *before*
+    touching hardware, packaged so the legacy entry point and the
+    queueserver plan preamble
+    (:func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`)
+    share one definition of the run metadata / ScanInfo / grid shapes and
+    cannot drift (the acceptance contract is document equality).
+
+    Attributes
+    ----------
+    md :
+        The run-metadata dict (``scan_request_mode``, provenance keys,
+        grid/pseudo metadata) — the caller merges ``description`` on top.
+    scan_info :
+        The ScanInfo ini overrides (``scan_mode``, ``scan_parameter``,
+        legacy 1-D grid fields).
+    positions :
+        The positions list handed to the scan plan: ``[None]`` for noscan,
+        the axis values for a single axis, grid-point tuples for a grid.
+    n_steps, n_shots :
+        Progress totals (the ``on_scan_start`` hook contract).
+    """
+
+    md: dict[str, Any]
+    scan_info: dict[str, Any]
+    positions: list[Any]
+    n_steps: int
+    n_shots: int
+
+
+def build_step_scan_spec(
+    request: ScanRequest,
+    axis_resolved: list["MovableTarget"],
+    *,
+    applied_defaults: Mapping[str, Any],
+    slots: Mapping[str, list[str]],
+    dropped_unserved: Mapping[str, list[str]],
+    dropped_unserved_devices: list[str],
+    telemetry_selected: Mapping[str, list[str]],
+) -> StepScanSpec:
+    """Assemble the pure run picture of a step/noscan request.
+
+    Relocated verbatim from :func:`run_scan_request`'s inline metadata
+    assembly (queueserver round 1) so the plan preamble reuses it; behavior
+    is pinned by the existing runner suite.  Multi-axis requests become an
+    outer-product grid (first axis outermost/slowest, one bin per grid
+    point) with the legacy 1-D ScanInfo fields describing the outermost
+    axis.
+
+    Parameters
+    ----------
+    request :
+        The **post-defaults** validated request (step or noscan mode).
+    axis_resolved :
+        The resolved movable target per ``request.axes`` entry (empty for
+        noscan) — :func:`resolve_movable_target` output, in axis order.
+    applied_defaults, slots, dropped_unserved, dropped_unserved_devices,
+    telemetry_selected :
+        The provenance records accumulated by the prologue; each lands in
+        run metadata only when non-empty (pass ``{}``/``[]`` to omit —
+        e.g. ``telemetry_selected`` must already be gated on the
+        telemetry-enabled flag).
+    """
+    md: dict[str, Any] = {"scan_request_mode": request.mode.value}
+    # Provenance: which named save sets were unioned for this scan.
+    md["save_sets"] = list(request.save_sets)
+    if dropped_unserved:
+        # Provenance: variables (and whole devices) dropped by the
+        # unserved-variables pre-flight — the run proceeded without them.
+        md["dropped_unserved_variables"] = {
+            dev: list(vars_) for dev, vars_ in dropped_unserved.items()
+        }
+    if dropped_unserved_devices:
+        md["dropped_unserved_devices"] = list(dropped_unserved_devices)
+    if applied_defaults:
+        # Provenance: the run records exactly which experiment defaults
+        # filled in fields the submitter left unset.
+        md["applied_defaults"] = dict(applied_defaults)
+    if any(slots.values()):
+        # Provenance: the assembled per-slot execution order (defaults +
+        # entry rituals + the request's own, mirrored on closeout).
+        md["action_plans"] = {k: list(v) for k, v in slots.items() if v}
+    if telemetry_selected:
+        md["background_telemetry"] = {
+            dev: list(vars_) for dev, vars_ in telemetry_selected.items()
+        }
+    scan_info: dict[str, Any] = {
+        "shots": request.shots_per_step,
+        "background": request.background,
+    }
+
+    if request.mode is ScanRequestMode.NOSCAN:
+        scan_info["scan_mode"] = "noscan"
+        return StepScanSpec(md, scan_info, [None], 1, request.shots_per_step)
+
+    targets = [target.label for target in axis_resolved]
+    value_lists = [axis.positions.to_values() for axis in request.axes]
+    pseudo_meta = {
+        target.variable_name: target.metadata()
+        for target in axis_resolved
+        if isinstance(target, PseudoMovableTarget)
+    }
+    if pseudo_meta:
+        md["pseudo_variables"] = pseudo_meta
+
+    scan_info["scan_mode"] = "standard"
+    scan_info["scan_parameter"] = ",".join(targets)
+    if len(request.axes) == 1:
+        positions: list[Any] = list(value_lists[0])
+        md["scan_variable"] = request.axes[0].variable
+    else:
+        # Outer product, first axis outermost/slowest (the schema's
+        # documented grid semantics); one bin per grid point.
+        positions = [tuple(point) for point in itertools.product(*value_lists)]
+        md["scan_variable"] = ",".join(a.variable for a in request.axes)
+        md["scan_axes"] = [a.variable for a in request.axes]
+        md["grid_shape"] = list(request.grid_shape())
+        md["num_grid_points"] = request.n_steps()
+        # ScanInfo is a legacy 1-D format: Start/End/Step describe the
+        # outermost axis; the grid truth lives in the run metadata.
+        outer = value_lists[0]
+        scan_info["start"] = outer[0]
+        scan_info["end"] = outer[-1]
+        scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+    return StepScanSpec(
+        md,
+        scan_info,
+        positions,
+        len(positions),
+        len(positions) * request.shots_per_step,
+    )
+
+
 def resolve_movable_target(spec: ScanVariableSpec, name: str) -> MovableTarget:
     """Resolve a catalog entry into its movable target, fail-fast.
 
@@ -1481,111 +1617,45 @@ def run_scan_request(
             if _stopped_during_init(session, should_abort, "after preflight"):
                 return None
 
-        md: dict[str, Any] = {"scan_request_mode": request.mode.value}
-        # Provenance: which named save sets were unioned for this scan.
-        md["save_sets"] = list(request.save_sets)
-        if dropped_unserved:
-            # Provenance: variables (and whole devices) dropped by the
-            # unserved-variables pre-flight — the run proceeded without them.
-            md["dropped_unserved_variables"] = {
-                dev: list(vars_) for dev, vars_ in dropped_unserved.items()
-            }
-        if dropped_unserved_devices:
-            md["dropped_unserved_devices"] = list(dropped_unserved_devices)
-        if applied_defaults:
-            # Provenance: the run records exactly which experiment defaults
-            # filled in fields the submitter left unset.
-            md["applied_defaults"] = applied_defaults
-        if any(slots.values()):
-            # Provenance: the assembled per-slot execution order (defaults +
-            # entry rituals + the request's own, mirrored on closeout).
-            md["action_plans"] = {k: v for k, v in slots.items() if v}
-        if telemetry_enabled and telemetry_selected:
-            md["background_telemetry"] = {
-                dev: list(vars_) for dev, vars_ in telemetry_selected.items()
-            }
-        scan_info: dict[str, Any] = {
-            "shots": request.shots_per_step,
-            "background": request.background,
-        }
-
-        if request.mode is ScanRequestMode.NOSCAN:
-            scan_info["scan_mode"] = "noscan"
-            # The last pre-claim checkpoint: the claim happens inside
-            # session.scan, immediately below.
-            if _stopped_during_init(session, should_abort, "before scan-number claim"):
-                return None
-            if on_scan_start is not None:
-                on_scan_start(1, request.shots_per_step)
-            return session.scan(
-                detectors=detectors,
-                motor=None,
-                positions=[None],
-                shots_per_step=request.shots_per_step,
-                mode=mode,
-                description=request.description,
-                md=md,
-                scan_info=scan_info,
-                setup=setup,
-                per_step=per_step,
-                closeout=closeout,
-                should_abort=should_abort,
-                pause_supervisor=pause_supervisor,
-            )
-
         movables: list = []
-        targets: list[str] = []
-        value_lists: list[list[float]] = []
-        for target, axis in zip(axis_resolved, request.axes):
+        for target in axis_resolved:
             movable = build_movable(session, target)
             created.append(movable)
             movables.append(movable)
-            targets.append(target.label)
-            value_lists.append(axis.positions.to_values())
-        pseudo_meta = {
-            target.variable_name: target.metadata()
-            for target in axis_resolved
-            if isinstance(target, PseudoMovableTarget)
-        }
-        if pseudo_meta:
-            md["pseudo_variables"] = pseudo_meta
-
-        scan_info["scan_mode"] = "standard"
-        scan_info["scan_parameter"] = ",".join(targets)
-        if len(request.axes) == 1:
-            motor_arg: Any = movables[0]
-            positions: list[Any] = value_lists[0]
-            md["scan_variable"] = request.axes[0].variable
+        if request.mode is ScanRequestMode.NOSCAN:
+            motor_arg: Any = None
+        elif len(request.axes) == 1:
+            motor_arg = movables[0]
         else:
-            # Outer product, first axis outermost/slowest (the schema's
-            # documented grid semantics); one bin per grid point.
             motor_arg = movables
-            positions = [tuple(point) for point in itertools.product(*value_lists)]
-            md["scan_variable"] = ",".join(a.variable for a in request.axes)
-            md["scan_axes"] = [a.variable for a in request.axes]
-            md["grid_shape"] = list(request.grid_shape())
-            md["num_grid_points"] = request.n_steps()
-            # ScanInfo is a legacy 1-D format: Start/End/Step describe the
-            # outermost axis; the grid truth lives in the run metadata.
-            outer = value_lists[0]
-            scan_info["start"] = outer[0]
-            scan_info["end"] = outer[-1]
-            scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+
+        # The pure run picture (md / ScanInfo / positions / totals) — one
+        # definition shared with the queueserver plan preamble.
+        spec = build_step_scan_spec(
+            request,
+            axis_resolved,
+            applied_defaults=applied_defaults,
+            slots=slots,
+            dropped_unserved=dropped_unserved,
+            dropped_unserved_devices=dropped_unserved_devices,
+            telemetry_selected=telemetry_selected if telemetry_enabled else {},
+        )
+
         # The last pre-claim checkpoint: the claim happens inside
         # session.scan, immediately below.
         if _stopped_during_init(session, should_abort, "before scan-number claim"):
             return None
         if on_scan_start is not None:
-            on_scan_start(len(positions), len(positions) * request.shots_per_step)
+            on_scan_start(spec.n_steps, spec.n_shots)
         return session.scan(
             detectors=detectors,
             motor=motor_arg,
-            positions=positions,
+            positions=spec.positions,
             shots_per_step=request.shots_per_step,
             mode=mode,
             description=request.description,
-            md=md,
-            scan_info=scan_info,
+            md=spec.md,
+            scan_info=spec.scan_info,
             setup=setup,
             per_step=per_step,
             closeout=closeout,
@@ -1776,7 +1846,7 @@ def _run_optimize_request(
         if dropped_unserved_devices:
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
-            md["applied_defaults"] = applied_defaults
+            md["applied_defaults"] = dict(applied_defaults)
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(
