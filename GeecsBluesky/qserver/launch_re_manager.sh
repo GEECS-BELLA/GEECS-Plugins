@@ -12,8 +12,12 @@ PERMISSIONS_FILE="${SCRIPT_DIR}/user_group_permissions.yaml"
 QS_STARTUP_DIR="${QS_STARTUP_DIR:-./startup}"
 QS_REDIS_SERVER="${QS_REDIS_SERVER:-redis-server}"
 
+port_is_answering() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+}
+
 redis_is_answering() {
-    (exec 3<>/dev/tcp/127.0.0.1/6379) >/dev/null 2>&1
+    port_is_answering 6379
 }
 
 if ! redis_is_answering; then
@@ -36,6 +40,23 @@ if ! redis_is_answering; then
     if ! redis_is_answering; then
         echo "ERROR: Redis did not start or did not answer on 127.0.0.1:6379." >&2
         exit 1
+    fi
+fi
+
+# Document stream (#648): the startup profile publishes bluesky documents to
+# a bluesky-0MQ-proxy (in QS_DOC_PROXY_IN, out QS_DOC_PROXY_OUT); GUI clients
+# subscribe to the out port for live progress. Stateless — restarting with
+# the manager is fine. QS_DOC_PROXY=OFF skips it (pair with
+# QS_DOC_PUBLISH_ADDR=OFF for the worker side).
+QS_DOC_PROXY_IN="${QS_DOC_PROXY_IN:-5567}"
+QS_DOC_PROXY_OUT="${QS_DOC_PROXY_OUT:-5568}"
+if [[ "${QS_DOC_PROXY:-ON}" != "OFF" ]] && ! port_is_answering "${QS_DOC_PROXY_IN}"; then
+    if command -v bluesky-0MQ-proxy >/dev/null 2>&1; then
+        echo "Starting bluesky-0MQ-proxy ${QS_DOC_PROXY_IN} -> ${QS_DOC_PROXY_OUT}." >&2
+        bluesky-0MQ-proxy "${QS_DOC_PROXY_IN}" "${QS_DOC_PROXY_OUT}" >/dev/null 2>&1 &
+    else
+        echo "WARNING: bluesky-0MQ-proxy not on PATH; document stream disabled" >&2
+        echo "(GUI live progress will be empty; set QS_DOC_PROXY=OFF to silence)." >&2
     fi
 fi
 

@@ -29,7 +29,9 @@ user_groups:
     forbidden_functions:
       - null
 
-  # Operator group: queue submission is restricted to GEECS-named plans.
+  # Operator group: queue submission is restricted to GEECS-named plans,
+  # function execution to the GEECS-named manual verbs (#648:
+  # geecs_move_variable / geecs_describe_action).
   operator:
     allowed_plans:
       - ":geecs_.*"
@@ -38,7 +40,8 @@ user_groups:
     allowed_devices: []
     forbidden_devices:
       - null
-    allowed_functions: []
+    allowed_functions:
+      - ":geecs_.*"
     forbidden_functions:
       - null
 

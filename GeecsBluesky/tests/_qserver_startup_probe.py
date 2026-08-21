@@ -84,7 +84,10 @@ def main() -> None:
 
     from bluesky import RunEngine
 
-    from geecs_bluesky.plans.scan_request_plan import geecs_scan_request_plan
+    from geecs_bluesky.plans.scan_request_plan import (
+        geecs_run_action_plan,
+        geecs_scan_request_plan,
+    )
 
     if not isinstance(ns.get("RE"), RunEngine):
         _fail(f"ns['RE'] is not a RunEngine: {ns.get('RE')!r}")
@@ -95,7 +98,20 @@ def main() -> None:
     if ns.get("geecs_scan_request_plan") is not geecs_scan_request_plan:
         _fail("ns['geecs_scan_request_plan'] is not the real plan function")
         return
-    if ns.get("__all__") != ["RE", "geecs_scan_request_plan"]:
+    if ns.get("geecs_run_action_plan") is not geecs_run_action_plan:
+        _fail("ns['geecs_run_action_plan'] is not the real plan function")
+        return
+    for verb in ("geecs_move_variable", "geecs_describe_action"):
+        if not callable(ns.get(verb)):
+            _fail(f"ns[{verb!r}] is not callable — function_execute verb missing")
+            return
+    if ns.get("__all__") != [
+        "RE",
+        "geecs_scan_request_plan",
+        "geecs_run_action_plan",
+        "geecs_move_variable",
+        "geecs_describe_action",
+    ]:
         _fail(f"ns['__all__'] was {ns.get('__all__')!r}")
         return
 

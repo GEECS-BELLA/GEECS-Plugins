@@ -4,6 +4,32 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.56.0] - 2026-08-21
+
+### Added
+
+- Worker-side enablers for the W6 console queueserver client (#648):
+  - **`md["submission"]` recording** — a `ScanRequest.submission`
+    provenance record (geecs-schemas 0.10.0) is copied verbatim into run
+    metadata at all three emission sites (runner step/optimize, plan
+    optimize; the shared step-path builder covers both entry points).
+    `metadata_submission()` in `scan_request_runner` is the one helper.
+  - **`geecs_run_action_plan(name)`** — on-demand ActionPlan execution as
+    an ordinary queue item (decision 2: actions are queue items). Same
+    resolution/flattening/prefetch code paths as the in-scan action
+    slots, in-plan connects, finalize disconnect, no run opened. Manager
+    signature validation pinned (the 0.55.3 bare-namespace lesson).
+  - **ZMQ document publisher** — the startup profile publishes bluesky
+    documents to a `bluesky-0MQ-proxy` (launcher-started, 5567 in /
+    5568 out, `QS_DOC_PROXY*` / `QS_DOC_PUBLISH_ADDR` overrides,
+    best-effort with a loud warning). This is the GUI progress stream;
+    the manager's `--zmq-publish-console` stream is text, not documents.
+  - **Manual-verb functions** — `geecs_move_variable` /
+    `geecs_describe_action` in the startup namespace for the manager's
+    idle-only `function_execute` (the queueserver enforcement of the
+    session's "scan in progress" refusals); `operator` group gains
+    `:geecs_.*` allowed_functions.
+
 ## [0.55.3] - 2026-08-21
 
 ### Fixed

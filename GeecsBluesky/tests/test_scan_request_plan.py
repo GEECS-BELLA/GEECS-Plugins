@@ -1250,3 +1250,103 @@ def test_optimize_path_registers_pause_quiescer() -> None:
     src = inspect.getsource(srp)
     assert "_with_pause_quiescer(" in src
     assert "ShotControlPauseQuiescer(controller)" in src
+
+
+# ---------------------------------------------------------------------------
+# Submission provenance (#648 decision 3 — geecs-schemas 0.10.0)
+# ---------------------------------------------------------------------------
+
+
+def test_submission_record_reaches_start_doc_on_both_paths(
+    resolver, tmp_path, monkeypatch
+) -> None:
+    """A client-stamped SubmissionRecord lands verbatim in run metadata.
+
+    Both entry points (the queue plan and the runner) must record
+    ``md["submission"]`` — the engine copies, never edits.
+    """
+    stamp = {
+        "client": "geecs-console 0.21.0",
+        "submitted_at": "2026-08-21T14:30:00-07:00",
+        "preflight": [
+            {
+                "check": "gateway_liveness",
+                "result": "continued",
+                "detail": "U_Test disconnected; operator continued",
+            }
+        ],
+    }
+    request = _noscan_request(submission=stamp)
+    docs_plan = _run_scan("plan", request, resolver, tmp_path / "p", monkeypatch)
+    docs_runner = _run_scan("runner", request, resolver, tmp_path / "r", monkeypatch)
+    expected = request.submission.model_dump(mode="json")
+    assert docs_plan.start["submission"] == expected
+    assert docs_runner.start["submission"] == expected
+
+
+def test_unstamped_request_emits_no_submission_key(
+    resolver, tmp_path, monkeypatch
+) -> None:
+    """No stamp, no key — absence must read as 'client recorded nothing'."""
+    docs = _run_scan("plan", _noscan_request(), resolver, tmp_path / "p", monkeypatch)
+    assert "submission" not in docs.start
+
+
+# ---------------------------------------------------------------------------
+# geecs_run_action_plan (#648 manual verbs — actions as queue items)
+# ---------------------------------------------------------------------------
+
+
+def test_run_action_plan_executes_the_named_action(resolver) -> None:
+    """The queue-item action plan compiles, connects, and issues the sets."""
+    from geecs_bluesky.plans.scan_request_plan import geecs_run_action_plan
+
+    session = _mock_session()
+    sets: list[tuple[str, tuple]] = []
+
+    def hook(msg) -> None:
+        if msg.command == "set":
+            sets.append((msg.obj.name, msg.args))
+
+    session.RE.msg_hook = hook
+    try:
+        session.RE(
+            geecs_run_action_plan("close_shutters", session=session, resolver=resolver)
+        )
+    finally:
+        session.RE.msg_hook = None
+    # LEGACY_ACTIONS close_shutters: one set of U_PLC DO.Ch9 -> 'on'.
+    assert [args for _, args in sets] == [("on",)], sets
+
+
+def test_run_action_plan_unknown_name_fails_fast(resolver) -> None:
+    """An unknown action name raises before any connect message is emitted."""
+    from geecs_bluesky.plans.scan_request_plan import geecs_run_action_plan
+
+    session = _mock_session()
+    with pytest.raises(GeecsConfigurationError, match="not_a_plan"):
+        session.RE(
+            geecs_run_action_plan("not_a_plan", session=session, resolver=resolver)
+        )
+
+
+def test_run_action_plan_signature_passes_manager_validation() -> None:
+    """Same bare-namespace pin as geecs_scan_request_plan's (0.55.3 lesson)."""
+    pytest.importorskip("bluesky_queueserver")
+
+    from bluesky_queueserver.manager.profile_ops import _process_plan, validate_plan
+
+    from geecs_bluesky.plans.scan_request_plan import geecs_run_action_plan
+
+    item = {
+        "name": "geecs_run_action_plan",
+        "args": ["close_shutters"],
+        "item_type": "plan",
+    }
+    processed = _process_plan(
+        geecs_run_action_plan, existing_devices={}, existing_plans={}
+    )
+    ok, msg = validate_plan(
+        item, allowed_plans={"geecs_run_action_plan": processed}, allowed_devices={}
+    )
+    assert ok, msg

@@ -69,6 +69,54 @@ the CLI, or use `bluesky-queueserver-api`, which takes real dicts.
 the manager starts — the profile fails loud at import time otherwise (see
 `startup/startup.py`).
 
+## Document stream (GUI progress)
+
+The startup profile publishes every bluesky document to a
+`bluesky-0MQ-proxy`, which the launcher starts alongside Redis (in port
+`QS_DOC_PROXY_IN`, default 5567; out port `QS_DOC_PROXY_OUT`, default
+5568). GUI clients get live per-shot progress by subscribing to the out
+port:
+
+```python
+from bluesky.callbacks.zmq import RemoteDispatcher
+
+dispatcher = RemoteDispatcher("<worker-host>:5568")
+dispatcher.subscribe(lambda name, doc: ...)
+dispatcher.start()  # blocking — run it in a background thread
+```
+
+Do not confuse this with the manager's `--zmq-publish-console` stream
+(port 60625): that one carries captured stdout/stderr **text** for log
+tails, never documents. The two are complementary — documents for
+progress, console text for the failed-move reason lines and log tail.
+
+Opt out with `QS_DOC_PROXY=OFF` (launcher) plus `QS_DOC_PUBLISH_ADDR=OFF`
+(worker). The stream is best-effort: a worker without it still runs scans
+correctly — only live GUI progress is lost.
+
+## Manual verbs (console Actions menu / Movable panel)
+
+- **Run an action** — submit `geecs_run_action_plan` as an ordinary queue
+  item (decision 2: actions are queue items, with queue provenance and
+  idle-only ordering):
+
+  ```bash
+  qserver queue add plan '{"name": "geecs_run_action_plan", "args": ["close_shutters"], "item_type": "plan"}'
+  ```
+
+- **Move a scan variable** — call `geecs_move_variable(name, value)` via
+  the manager's `function_execute` API. Deliberately *not* a plan:
+  `GeecsSession.move_variable` moves outside the RunEngine. Function
+  execution requires a fully **idle** manager (not running, not paused) —
+  the queueserver enforcement of the old "scan in progress — move not
+  started" refusal.
+
+- **Preview an action** — `geecs_describe_action(name)` via
+  `function_execute`: pure config resolution against *this worker's*
+  configs checkout (authoritative even when a client's checkout drifted).
+  Idle-only like every function — clients wanting a mid-scan preview must
+  resolve client-side instead.
+
 ## Troubleshooting
 
 - **`queue add` returns `success: False` with no reason at the CLI** — the

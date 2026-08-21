@@ -41,6 +41,7 @@ import os
 import geecs_bluesky  # noqa: F401
 
 from geecs_bluesky.plans.scan_request_plan import (
+    geecs_run_action_plan,
     geecs_scan_request_plan,
     set_optimization_loader,
     set_plan_session,
@@ -98,6 +99,77 @@ set_plan_session(session)
 # Best-effort legacy scalar (s-file) export on every completed run — #635.
 RE.subscribe(SFileExportCallback())
 
+# ZMQ document publisher — the GUI progress stream (#648). bluesky documents
+# go to a bluesky-0MQ-proxy (started by launch_re_manager.sh alongside
+# Redis); clients (GEECS-Console) consume them with
+# bluesky.callbacks.zmq.RemoteDispatcher on the proxy's out port. NOTE the
+# manager's --zmq-publish-console stream is a different thing entirely
+# (captured stdout/stderr text, not documents). Best-effort with a loud
+# warning, same posture as Tiled: a worker without the stream still runs
+# scans correctly — only live GUI progress is lost.
+_doc_publish_addr = os.environ.get("QS_DOC_PUBLISH_ADDR", "localhost:5567")
+if _doc_publish_addr.upper() != "OFF":
+    try:
+        from bluesky.callbacks.zmq import Publisher
+
+        RE.subscribe(Publisher(_doc_publish_addr))
+        logger.info("Publishing documents to 0MQ proxy at %s", _doc_publish_addr)
+    except Exception:
+        logger.warning(
+            "Could not publish documents to %s — GUI progress streams will "
+            "be empty (set QS_DOC_PUBLISH_ADDR, or OFF to silence this)",
+            _doc_publish_addr,
+            exc_info=True,
+        )
+
+
+def geecs_move_variable(name: str, value: float) -> dict:
+    """Manually move a scan variable — the console Movable panel's verb (#648).
+
+    Executed via the manager's ``function_execute`` API, which requires a
+    fully idle manager — the queueserver enforcement of the session's own
+    "scan in progress — move not started" refusal. Not a plan on purpose:
+    :meth:`~geecs_bluesky.session.GeecsSession.move_variable` moves outside
+    the RunEngine (the RE stays idle, guarded by the session's manual-move
+    lock), so wrapping it in a queue item would change its semantics.
+
+    Parameters
+    ----------
+    name : str
+        Catalog scan-variable name or raw ``Device:Variable``.
+    value : float
+        Target value, in the variable's own units.
+
+    Returns
+    -------
+    dict
+        ``move_variable``'s summary: ``{variable, kind, value, targets}``.
+    """
+    return session.move_variable(name, value)
+
+
+def geecs_describe_action(name: str) -> list[dict]:
+    """Dry-run a named ActionPlan against *this worker's* configs (#648).
+
+    Executed via ``function_execute`` (idle manager only). Pure config
+    resolution — no CA, no execution. Serving it worker-side means the
+    preview describes what the worker would actually run, even when a
+    client's configs checkout has drifted.
+
+    Parameters
+    ----------
+    name : str
+        Action-plan name in the experiment's action library.
+
+    Returns
+    -------
+    list of dict
+        One dict per concrete step, in execution order (see
+        :meth:`~geecs_bluesky.session.GeecsSession.describe_action`).
+    """
+    return session.describe_action(name)
+
+
 # scan.log's root-logger attach + pre-claim buffer (GeecsBluesky 0.51.0,
 # geecs_bluesky/scan_log.py) needs no wiring here: geecs_scan_request_plan
 # itself calls begin_pre_scan_capture() at submission and the scan_log(...)
@@ -125,4 +197,10 @@ set_optimization_loader(_optimization_loader)
 if _optimization_loader is not None:
     warm_up_optimization_stack()
 
-__all__ = ["RE", "geecs_scan_request_plan"]
+__all__ = [
+    "RE",
+    "geecs_scan_request_plan",
+    "geecs_run_action_plan",
+    "geecs_move_variable",
+    "geecs_describe_action",
+]
