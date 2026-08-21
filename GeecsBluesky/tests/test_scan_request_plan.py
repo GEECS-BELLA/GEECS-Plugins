@@ -319,16 +319,19 @@ def test_strict_without_trigger_profile_refuses_before_claim(
     assert claims == []
 
 
-def test_optimize_mode_is_refused_loudly_after_validation(
+def test_optimize_mode_without_a_loader_is_refused_loudly_after_validation(
     resolver, monkeypatch
 ) -> None:
-    """Optimize relocates in a later round (decision 5): validated, refused."""
+    """No loader registered (W2): validated, then refused — never silently."""
+    from geecs_bluesky.plans import scan_request_plan as srp
+
     session = _mock_session()
     claims: list = []
     monkeypatch.setattr(
         "geecs_bluesky.plans.scan_request_plan.claim_scan_number",
         lambda experiment: claims.append(experiment) or (None, None),
     )
+    monkeypatch.setattr(srp, "_optimization_loader", None)
     request = ScanRequest.model_validate(
         dict(
             mode="optimize",
@@ -344,7 +347,7 @@ def test_optimize_mode_is_refused_loudly_after_validation(
             },
         )
     )
-    with pytest.raises(NotImplementedError, match="optimize"):
+    with pytest.raises(GeecsConfigurationError, match="set_optimization_loader"):
         session.RE(
             geecs_scan_request_plan(
                 request.model_dump(), session=session, resolver=resolver
@@ -366,6 +369,131 @@ def test_optimize_mode_is_refused_loudly_after_validation(
                 bad.model_dump(), session=session, resolver=resolver
             )
         )
+
+
+def test_optimize_mode_reaches_a_registered_loader_and_runs_the_bins(
+    resolver, monkeypatch
+) -> None:
+    """With a loader registered, the request reaches it and its objective/
+    suggester drive the run — the W2 seam close (issue #640)."""
+    import geecs_bluesky.plans.scan_request_plan as srp
+    from geecs_bluesky.optimize import BinData
+
+    session = _mock_session()
+    monkeypatch.setattr(
+        "geecs_bluesky.plans.scan_request_plan.claim_scan",
+        lambda experiment: (None, None),
+    )
+
+    bind_calls: list[dict] = []
+    finish_calls: list[bool] = []
+
+    class ScriptedSuggester:
+        def __init__(self) -> None:
+            self._points = [{"jet_z": 0.1}, {"jet_z": 0.4}]
+            self.observed: list[tuple] = []
+
+        def suggest(self):
+            return self._points.pop(0) if self._points else None
+
+        def observe(self, inputs, objective_value, bin_data):
+            self.observed.append((inputs, objective_value, bin_data))
+
+    suggester = ScriptedSuggester()
+
+    def objective(bin_data: BinData) -> float:
+        # A real (non-stub) value derived from the bin's actual collected
+        # rows — proves the bridge's objective ran against real event data
+        # threaded through by the plan, not a canned return.
+        return float(len(bin_data.rows))
+
+    pacers: list = []
+
+    class FakeBridge:
+        device_requirements = None
+
+        def bind(self, devices, scan_tag, scan_folder):
+            bind_calls.append(
+                {
+                    "devices": devices,
+                    "scan_tag": scan_tag,
+                    "scan_folder": scan_folder,
+                }
+            )
+            # geecs_adaptive_scan's t0 sync runs before any staging message —
+            # devices are already connected by this point (bind() is called
+            # after in-plan connects, before the adaptive-scan plan starts),
+            # so this is the last hook available to seed acq_timestamp before
+            # geecs_t0_sync reads it.
+            for device in devices:
+                if hasattr(device, "acq_timestamp"):
+                    set_mock_value(device.acq_timestamp, 1000.0)
+                    pacers.append(
+                        start_pacer(
+                            session.RE,
+                            [(device, 1000.0)],
+                            initial_delay=1.0,
+                            interval=0.15,
+                        )
+                    )
+            return objective, suggester
+
+        def finish(self):
+            finish_calls.append(True)
+
+    loader_calls: list = []
+
+    def fake_loader(spec):
+        loader_calls.append(spec)
+        return FakeBridge()
+
+    monkeypatch.setattr(srp, "_optimization_loader", fake_loader)
+    request = ScanRequest.model_validate(
+        dict(
+            mode="optimize",
+            shots_per_step=2,
+            acquisition="free_run",
+            save_sets=["UC_Test"],
+            optimization={
+                "variables": {"jet_z": [0.0, 1.0]},
+                "objectives": {"counts": "MAXIMIZE"},
+                "evaluator": {"module": "m", "class": "C"},
+                "generator": {"name": "bayes_default"},
+                "max_iterations": 5,
+            },
+        )
+    )
+    docs = _DocCollector()
+    token = session.RE.subscribe(docs)
+    try:
+        session.RE(
+            geecs_scan_request_plan(
+                request.model_dump(), session=session, resolver=resolver
+            )
+        )
+    finally:
+        for pacer in pacers:
+            pacer.cancel()
+        session.RE.unsubscribe(token)
+
+    assert len(loader_calls) == 1
+    assert loader_calls[0].model_dump() == request.optimization.model_dump()
+    assert len(bind_calls) == 1
+    assert bind_calls[0]["scan_tag"] is None and bind_calls[0]["scan_folder"] is None
+    # The suggester's two scripted points both ran, and observed a real
+    # objective value computed from the bin's actual collected rows — proof
+    # the binder's objective/suggester threaded into the run, not a stub.
+    assert [inputs for inputs, _, _ in suggester.observed] == [
+        {"jet_z": 0.1},
+        {"jet_z": 0.4},
+    ]
+    assert [value for _, value, _ in suggester.observed] == [
+        pytest.approx(request.shots_per_step),
+        pytest.approx(request.shots_per_step),
+    ]
+    assert finish_calls == [True]
+    assert docs.start is not None and docs.start["plan_name"] == "geecs_adaptive_scan"
+    assert docs.stop is not None and docs.stop["exit_status"] == "success"
 
 
 def test_no_session_configured_is_a_clear_error(resolver) -> None:

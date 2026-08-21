@@ -1,8 +1,15 @@
 # GEECS Queueserver Launch Assets
 
 This directory contains the user-level launch mechanics for a local
-bluesky-queueserver RE Manager. The startup profile content is intentionally
-not here; it lands with the separate plan-preamble task.
+bluesky-queueserver RE Manager, plus the startup profile itself
+(`startup/startup.py`) that turns the launched manager into a runnable GEECS
+worker: it builds the `GeecsSession`, defines the module-level `RE` the
+manager keeps alive across queue items, subscribes the Tiled/s-file/scan-log
+callbacks, registers the optimization loader when the `optimize` extra is
+installed, and exposes `geecs_scan_request_plan` — the one plan every
+`ScanRequest` (step, noscan, optimize) runs through. See
+`startup/startup.py`'s module docstring for the import-order and
+experiment-resolution contracts.
 
 ## Launch
 
@@ -42,9 +49,17 @@ qserver status
 qserver environment open
 ```
 
-The placeholder `startup/` profile contains no Python yet, so environment
-opening verifies the manager mechanics only. Plan registration and GEECS
-preamble setup arrive in the separate startup-profile task.
+Once the environment is open, `geecs_scan_request_plan` is registered and
+callable; submit a `ScanRequest` dict as its sole argument, for example:
+
+```bash
+qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "noscan", "shots_per_step": 2, "acquisition": "free_run", "save_sets": ["UC_Test"]}], "item_type": "plan"}'
+qserver queue start
+```
+
+`QS_EXPERIMENT` (or `config.ini`'s `[Experiment] expt`) must resolve before
+the manager starts — the profile fails loud at import time otherwise (see
+`startup/startup.py`).
 
 ## Troubleshooting
 
