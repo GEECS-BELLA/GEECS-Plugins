@@ -30,7 +30,7 @@ Example (devices built and connected through a
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Literal, Sequence
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
@@ -157,14 +157,22 @@ def move_with_failed_move_pause(
         targets = (
             tuple(position) if isinstance(position, (list, tuple)) else (position,)
         )
+        # Changed axes move concurrently (bps.mv, one status per axis); a
+        # FailedStatus carries only the failing status, not the device
+        # (bluesky's _add_status_to_group never tags obj onto the status
+        # object), so this cannot say which axis raised.  `detail` lists
+        # every commanded target for context; `cause`'s own text (e.g.
+        # GeecsMotorTimeoutError's device/variable fields) is what actually
+        # identifies the failing axis.
         detail = ", ".join(
             f"{getattr(m, 'name', m)} -> {t!r}" for m, t in zip(motors, targets)
         )
         while True:
             cause = exc.__cause__ or exc
             logger.error(
-                "%s: %s: %s; resume retries the move from the last "
-                "checkpoint, stop ends the scan gracefully",
+                "%s: commanded %s, one axis failed - see cause for which: "
+                "%s; resume retries the move from the last checkpoint, stop "
+                "ends the scan gracefully",
                 FAILED_MOVE_LOG_PREFIX,
                 detail,
                 cause,
@@ -190,6 +198,7 @@ def geecs_step_scan(
     setup_trigger: Callable | None = None,
     per_step: Callable | None = None,
     enable_saving: Callable | None = None,
+    failed_move_policy: Literal["raise", "pause"] = "raise",
     md: dict[str, Any] | None = None,
 ):
     """Step-scan plan: move *motor* through *positions*, collect *shots_per_step* shots.
@@ -252,6 +261,18 @@ def geecs_step_scan(
         longer free-run, so no orphan frames get saved (Gate-2 save
         windowing: ``GeecsBluesky/CLAUDE.md``).  Save-*off* stays the run
         wrapper's innermost finalize, before the caller's disarm.
+    failed_move_policy:
+        ``"raise"`` (default): a failed move's ``FailedStatus`` propagates
+        normally — exact pre-#641 behavior, so any caller that does not
+        opt in is unaffected (in particular the bridge/console path, which
+        also sidesteps the coexisting engine-side pause supervisor's
+        auto-resume-on-failed-move interaction and the related stop-from-
+        paused bypass — both are properties of *entering* the pause path,
+        not of this plan).  ``"pause"``: use
+        :func:`move_with_failed_move_pause` — a failed move logs the
+        documented reason and hard-pauses the RE; resume retries the move
+        by replay (decision 4).  Queueserver callers with no supervisor in
+        the loop opt into ``"pause"``.
     md:
         Extra metadata merged into the RunEngine ``start`` document.
 
@@ -285,6 +306,11 @@ def geecs_step_scan(
         if enable_saving is not None:
             # Saving starts only after the trigger is stopped (Gate-2).
             yield from enable_saving()
+        move = (
+            move_with_failed_move_pause
+            if failed_move_policy == "pause"
+            else move_changed_axes
+        )
         scan_event_index = 0
         previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
@@ -297,23 +323,34 @@ def geecs_step_scan(
             # bounds what re-executes: the pre-move checkpoint scopes a
             # replay to the move (absolute re-command — idempotent, and the
             # failed-move retry mechanism); the post-move checkpoint keeps
-            # the move out of a replayed per_step action prefix; the pre-row
-            # checkpoint scopes a mid-shot replay to that shot (a re-fire,
-            # strict's bounded-refire semantics); the post-rows checkpoint
-            # keeps the bin's last COMPLETED row out of a replay landing in
-            # the disarm/tail window (re-saving it would duplicate the event
+            # the move out of a replayed per_step action prefix; the
+            # post-per_step checkpoint (issue #645 cross-vendor addendum,
+            # P1) keeps per_step's compiled ActionPlan writes (``bps.abs_set``
+            # calls — not guaranteed idempotent, unlike an absolute move) out
+            # of a replay landing before arm; the pre-row checkpoint scopes a
+            # mid-shot replay to that shot (a re-fire, strict's
+            # bounded-refire semantics); the post-rows checkpoint keeps the
+            # bin's last COMPLETED row out of a replay landing in the
+            # disarm/tail window (re-saving it would duplicate the event
             # row).  Never place a checkpoint between create and save
             # (IllegalMessageSequence).
+            #
+            # Irreducible residual: a hard pause landing DURING per_step()
+            # itself (mid-action, before it yields back to the loop) still
+            # replays from the post-move checkpoint through the partial
+            # per_step execution — same class as the documented bounded-
+            # refire windows, not closable by checkpoint placement alone
+            # (would need per-action idempotence in the ActionPlan compiler,
+            # out of this module's scope).
             yield from bps.checkpoint()
             if _motors and pos is not None:
-                previous = yield from move_with_failed_move_pause(
-                    _motors, pos, previous
-                )
+                previous = yield from move(_motors, pos, previous)
             yield from bps.checkpoint()
             if per_step is not None:
                 # After the move, before this step's plan-owned shots — the
                 # machine is quiescent here (strict fires each shot itself).
                 yield from per_step()
+            yield from bps.checkpoint()
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):

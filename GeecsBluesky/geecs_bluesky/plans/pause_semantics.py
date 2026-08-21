@@ -36,6 +36,17 @@ is already quiescent by construction — the single-shot source cannot
 free-run — so the quiescer deliberately does nothing (pinned by test);
 ``OFF``/``None`` mean the trigger is already stopped / never touched.
 
+**Coexistence with the engine-side pause supervisor (transitional, dies at
+Round 3).**  While the supervisor and this quiescer are both live on the
+bridge/console path, a pause double-quiesces (the supervisor's own
+OFF/restore races this class's, ~3 redundant gateway writes) and the
+supervisor's restore is no longer a safety net for a *plan*-driven pause —
+the end state is provably correct either way, but the redundancy and the
+now-vestigial restore path are worth remembering when the supervisor is
+deleted: this coexistence-era behavior (and the two classes' write
+ordering relative to each other) goes away with it, not before (cross-
+vendor review on #645).
+
 **Failed-move → pause (decision 4).**
 :func:`~geecs_bluesky.plans.step_scan.move_with_failed_move_pause` (living
 at the move site itself, in ``step_scan.py``) catches a failed move status,
@@ -57,7 +68,15 @@ scan.log)::
     retries the move from the last checkpoint, stop ends the scan gracefully
 
 Checkpoint-placement rules for hard-pause replay idempotence live with the
-step plans; the audit table is on the PR for issue #641.
+step plans; the audit table is on the PR for issue #641.  Both step plans
+also checkpoint immediately after ``per_step()`` (cross-vendor review,
+issue #645 addendum, item P1) — a compiled ActionPlan's writes
+(``bps.abs_set`` calls) are not guaranteed idempotent the way an absolute
+move is, so a hard pause landing between ``per_step()`` finishing and arm
+must not replay them.  The irreducible residual — a hard pause landing
+DURING ``per_step()`` itself replays the in-flight action sequence from the
+post-move checkpoint — is the same class as strict mode's documented
+bounded-refire window and is not closable by checkpoint placement alone.
 """
 
 from __future__ import annotations

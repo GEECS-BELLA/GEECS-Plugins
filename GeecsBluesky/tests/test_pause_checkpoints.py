@@ -82,9 +82,14 @@ def _step_plan_messages(num_points: int = 3, shots_per_step: int = 2) -> list[Ms
 
 
 def test_one_checkpoint_per_step_and_per_row() -> None:
-    """3 steps × 2 shots → (pre-move + post-move + post-rows) × 3 + 6 pre-row."""
+    """3 steps x 2 shots -> (pre-move + post-move + post-per_step + post-rows) x 3 + 6 pre-row.
+
+    The post-per_step checkpoint (issue #645 cross-vendor addendum, P1)
+    keeps a replayed arm from dragging a completed per_step ActionPlan
+    write along with it.
+    """
     commands = [m.command for m in _step_plan_messages(3, 2)]
-    assert commands.count("checkpoint") == 3 * 3 + 3 * 2
+    assert commands.count("checkpoint") == 3 * 4 + 3 * 2
 
 
 def test_checkpoint_precedes_the_move_and_every_row() -> None:
@@ -260,8 +265,9 @@ def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:
     """Free-run (production mode): same checkpoint contract, incl. tail flush.
 
     Motorless statistics run, 1 bin × 2 shots → pre-move + post-move +
-    2 pre-row + post-rows + post-flush checkpoints (#641 placement); the
-    tail-flush create/read/save bundle must contain none.
+    post-per_step + 2 pre-row + post-rows + post-flush checkpoints (#641
+    placement, #645 addendum P1); the tail-flush create/read/save bundle
+    must contain none.
     """
     pytest.importorskip("aioca")
     from ophyd_async.core import set_mock_value
@@ -292,9 +298,10 @@ def test_free_run_plan_checkpoints_per_step_and_row_never_in_bundle() -> None:
     finally:
         pacer.cancel()
 
-    # One no-move bin × 2 shots: pre-move + post-move + 2 pre-row +
-    # post-rows + post-flush (issue #641 placement).
-    assert commands.count("checkpoint") == 6
+    # One no-move bin × 2 shots: pre-move + post-move + post-per_step +
+    # 2 pre-row + post-rows + post-flush (issue #641 placement, #645
+    # addendum P1).
+    assert commands.count("checkpoint") == 7
     open_bundle = False
     for command in commands:
         if command == "create":

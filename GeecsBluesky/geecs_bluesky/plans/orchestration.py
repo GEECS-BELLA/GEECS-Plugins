@@ -31,7 +31,7 @@ rationale: ``GeecsBluesky/CLAUDE.md`` (shot-control composition per mode).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import bluesky.preprocessors as bpp
 
@@ -80,6 +80,7 @@ def build_step_scan_plan(
     setup: Callable | None = None,
     per_step: Callable | None = None,
     closeout: Callable | None = None,
+    failed_move_policy: Literal["raise", "pause"] = "raise",
 ):
     """Build the full scan plan for one step scan / statistics collection.
 
@@ -106,6 +107,12 @@ def build_step_scan_plan(
         Plan-stub callables (each call returns a fresh message generator) —
         typically compiled ActionPlans.  See the module docstring for the
         exact placement and abort semantics of each hook.
+    failed_move_policy : {"raise", "pause"}
+        Forwarded to :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan` /
+        :func:`~geecs_bluesky.plans.free_run_step_scan.geecs_free_run_step_scan`.
+        ``"raise"`` (default) is exact pre-#641 behavior — every existing
+        caller (the bridge/console path via ``scan_request_plan.py``) is
+        unaffected until it explicitly opts into ``"pause"``.
 
     Returns
     -------
@@ -136,6 +143,7 @@ def build_step_scan_plan(
             fire_shot=controller.fire_shot,
             per_step=per_step,
             enable_saving=enable_saving,
+            failed_move_policy=failed_move_policy,
         )
     else:
         if reference is None:
@@ -167,6 +175,7 @@ def build_step_scan_plan(
             quiesce_trigger=controller.quiesce if controller else None,
             per_step=per_step,
             enable_saving=enable_saving,
+            failed_move_policy=failed_move_policy,
         )
 
     if setup is not None:

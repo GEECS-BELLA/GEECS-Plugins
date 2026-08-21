@@ -36,7 +36,7 @@ from typing import Any
 import bluesky.plan_stubs as bps
 import pytest
 from bluesky import RunEngine
-from bluesky.utils import Msg, RunEngineInterrupted
+from bluesky.utils import FailedStatus, Msg, RunEngineInterrupted
 from ophyd_async.core import AsyncStatus
 
 from geecs_bluesky.models.shot_control import ShotControlWrites
@@ -223,6 +223,87 @@ def test_free_run_plan_hard_pause_never_replays_a_completed_row() -> None:
     finally:
         pacer.cancel()
     _assert_no_replayable_completed_row(commands)
+
+
+def test_step_plan_checkpoints_immediately_after_per_step() -> None:
+    """Pins P1 (#645 cross-vendor addendum): checkpoint right after per_step.
+
+    A hard pause landing between per_step()'s (potentially non-idempotent)
+    compiled-ActionPlan writes and arm must not replay those writes — the
+    checkpoint must be the very next message once per_step yields control
+    back, before arm_trigger runs.
+    """
+    marker = _NamedFake("action_marker")
+
+    def per_step():
+        yield Msg("null", marker)
+
+    controller = _controller([])
+    messages = _collect(
+        geecs_step_scan(
+            motor=_NamedFake("jet_z"),
+            positions=[0.0],
+            detectors=[_NamedFake("cam")],
+            shots_per_step=1,
+            setup_trigger=lambda: controller.arm_single_shot([]),
+            fire_shot=controller.fire_shot,
+            per_step=per_step,
+        )
+    )
+    marker_index = next(
+        i for i, m in enumerate(messages) if m.command == "null" and m.obj is marker
+    )
+    assert messages[marker_index + 1].command == "checkpoint"
+
+
+def test_free_run_plan_checkpoints_immediately_after_per_step() -> None:
+    """Free-run counterpart of the per_step-checkpoint placement pin.
+
+    Needs a real RE + CA-mock reference (t0-sync polls real readback
+    values) — message-level ``_collect`` alone can't drive this plan, same
+    constraint as the free-run replay-cache-audit test above.
+    """
+    pytest.importorskip("aioca")
+    from ophyd_async.core import set_mock_value
+
+    from geecs_bluesky.devices.ca import CaGenericDetector
+    from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
+    from tests.ca_mock_helpers import connect_mock, start_pacer
+
+    marker = _NamedFake("action_marker")
+
+    def per_step():
+        yield Msg("null", marker)
+
+    controller = _controller([])
+    ref = CaGenericDetector("U_Ref", ["Sig"], name="ref")
+    ref.configure_shot_id(rep_rate_hz=1.0)
+
+    RE = RunEngine()
+    messages: list[Msg] = []
+    RE.msg_hook = lambda msg: messages.append(msg)
+    connect_mock(RE, ref)
+    set_mock_value(ref.acq_timestamp, 1000.0)
+    pacer = start_pacer(RE, [(ref, 1000.0)], initial_delay=0.2, interval=0.1)
+    try:
+        RE(
+            geecs_free_run_step_scan(
+                motor=None,
+                positions=[None],
+                reference=ref,
+                detectors=[],
+                shots_per_step=1,
+                arm_trigger=controller.arm,
+                disarm_trigger=controller.disarm,
+                per_step=per_step,
+            )
+        )
+    finally:
+        pacer.cancel()
+    marker_index = next(
+        i for i, m in enumerate(messages) if m.command == "null" and m.obj is marker
+    )
+    assert messages[marker_index + 1].command == "checkpoint"
 
 
 # ---------------------------------------------------------------------------
@@ -553,12 +634,13 @@ class _PlainDet(_NamedFake):
         return {self.name: {"source": "sim", "dtype": "number", "shape": []}}
 
 
-def _failed_move_scan(motor: _FlakyMotor):
+def _failed_move_scan(motor: _FlakyMotor, failed_move_policy: str = "pause"):
     return geecs_step_scan(
         motor=motor,
         positions=[0.0, 1.0],
         detectors=[_PlainDet("cam")],
         shots_per_step=2,
+        failed_move_policy=failed_move_policy,
     )
 
 
@@ -636,3 +718,21 @@ def test_failed_move_then_stop_ends_gracefully() -> None:
     assert stop_docs[0]["exit_status"] == "success"  # graceful, not aborted
     # Bin 1 completed before the failure; its rows survive exactly once.
     assert _primary_indices(docs) == [1, 2]
+
+
+def test_failed_move_policy_defaults_to_raise_like_legacy() -> None:
+    """Default policy propagates FailedStatus — bridge/console untouched.
+
+    Issue #645 F1: the pause-on-failed-move path coexists badly with the
+    engine-side pause supervisor (auto-resume loop, stop-from-paused
+    bypass).  Callers that don't opt in — the bridge/console path via
+    ``scan_request_plan.py`` — must see exactly the pre-#641 behavior: the
+    ``FailedStatus`` raises straight through ``RE()``, no pause.
+    """
+    motor = _FlakyMotor("flaky", fail_at=1.0, failures=1)
+    RE = RunEngine()
+    with pytest.raises(FailedStatus):
+        RE(_failed_move_scan(motor, failed_move_policy="raise"))
+    assert RE.state == "idle"
+    # One attempt only — no retry-by-replay under "raise".
+    assert motor.attempts == [0.0, 1.0]

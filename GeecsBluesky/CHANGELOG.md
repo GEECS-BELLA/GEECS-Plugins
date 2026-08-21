@@ -32,20 +32,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     pre-move checkpoint** — the retry, at the same absolute target
     (`pause` is uncacheable, so the pause itself never replays); a retry
     that fails pauses again; stop ends the run gracefully through the
-    finalize chain.
+    finalize chain.  Gated behind a new `failed_move_policy: "raise" |
+    "pause"` flag on `geecs_step_scan` / `geecs_free_run_step_scan` /
+    `build_step_scan_plan`, **default `"raise"`** — exact pre-#641
+    behavior, so the bridge/console path (which does not pass the flag)
+    is unaffected, sidestepping both the coexisting pause supervisor's
+    auto-resume-on-failed-move loop and the related stop-from-paused
+    bypass (cross-vendor review on #645; the queueserver-side opt-in wires
+    up separately once `plans/scan_request_plan.py`'s parallel PR merges).
 
 ### Changed
 
 - **Checkpoint placement is now a hard-pause replay contract** (the #641
   audit): both step plans add a post-move checkpoint (a replayed per-step
-  action prefix no longer re-runs the move) and a post-rows checkpoint (a
-  bin's last completed row can no longer replay into the disarm window —
-  previously a hard pause there duplicated the event row and re-fired the
-  shot); the free-run plan adds a post-flush checkpoint (the tail-flush
-  event can no longer replay into the finalize chain).  A rewind-cache
-  reconstruction walk over both plans' message streams pins the invariant
+  action prefix no longer re-runs the move), a post-per_step checkpoint
+  (a replayed arm can no longer drag a completed ActionPlan write along
+  with it — cross-vendor review on #645, item P1; the residual mid-action
+  pause is documented as irreducible, same class as strict's bounded
+  refire), and a post-rows checkpoint (a bin's last completed row can no
+  longer replay into the disarm window — previously a hard pause there
+  duplicated the event row and re-fired the shot); the free-run plan adds
+  a post-flush checkpoint (the tail-flush event can no longer replay into
+  the finalize chain).  A rewind-cache reconstruction walk over both
+  plans' message streams pins the invariant
   (`tests/test_pause_semantics.py`); deferred-pause behavior is unchanged
   (still lands at the next checkpoint, still replays nothing).
+
 ## [0.53.1] - 2026-08-20
 
 ### Added
