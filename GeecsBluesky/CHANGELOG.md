@@ -4,6 +4,15 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.4] - 2026-08-21
+
+### Fixed
+
+- Formatting-only: `ruff format` applied to two files left unformatted by
+  0.55.3 (`scan_request_runner.py`, `tests/test_pause_semantics.py`) —
+  they failed the pre-commit CI job on every PR targeting the branch. No
+  behavior change.
+
 ## [0.55.3] - 2026-08-21
 
 ### Fixed

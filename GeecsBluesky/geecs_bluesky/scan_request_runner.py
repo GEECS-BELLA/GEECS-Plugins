@@ -773,8 +773,7 @@ def metadata_applied_defaults(
     document.  Emit them as values instead.
     """
     return [
-        {"field": field, "value": value}
-        for field, value in applied_defaults.items()
+        {"field": field, "value": value} for field, value in applied_defaults.items()
     ]
 
 

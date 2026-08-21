@@ -5,6 +5,18 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-08-21
+
+### Fixed
+
+- Test-only: `TestFullCorpus::test_every_save_element_converts` no longer
+  pins a hard floor on the legacy save_devices file count (`>= 70`). The
+  corpus is a live GEECS-Plugins-Configs checkout and legacy files are
+  rewritten in place to the new schema as they migrate (68 remain as of
+  this change), so the count assertion is now drift-tolerant
+  (`converted > 0`); the per-entry legacy-pin assertions are unchanged
+  and remain the real guard.
+
 ## [0.10.0] - 2026-08-21
 
 ### Added
