@@ -906,21 +906,12 @@ def test_optimize_mode_threads_applied_defaults_into_run_wrapper_metadata(
     it reaches ``build_step_scan_spec``'s ``md`` on the noscan/step path.
 
     This spies on the ``extra_md`` handed to ``geecs_run_wrapper`` rather
-    than asserting on the real start doc, and sanitizes the dotted
-    ``"actions.setup"`` key before letting the (otherwise unmodified) call
-    proceed. An actions-based default is the only hermetic way to populate
-    ``applied_defaults`` in optimize mode — a ``trigger_profile`` default
-    would construct a real, network-backed ``ShotController`` that a mock
-    session cannot satisfy — but real ``event_model.compose_run`` schema
-    validation (only exercised here, never by the ``_FakeSession``
-    binder-path tests) rejects any top-level start-doc key containing
-    ``.``/``/``, so running the dotted key through unmodified would fail
-    for a reason unrelated to what this test checks. That rejection is a
-    real, pre-existing gap shared by both plan paths (`apply_experiment_
-    defaults` in ``scan_request_runner.py`` is what produces the dotted
-    key, for both step/noscan and optimize) — flagged to the coordinator
-    separately rather than fixed here, since sanitizing it one-sidedly on
-    the optimize path would itself break the parity this test checks.
+    than asserting only on the real start doc. An actions-based default is
+    the only hermetic way to populate ``applied_defaults`` in optimize mode
+    — a ``trigger_profile`` default would construct a real, network-backed
+    ``ShotController`` that a mock session cannot satisfy. The emitted
+    metadata must use the event-model-safe list-of-records shape; dotted
+    field names such as ``actions.setup`` are values, not nested keys.
     """
     import geecs_bluesky.plans.scan_request_plan as srp
 
@@ -937,35 +928,13 @@ def test_optimize_mode_threads_applied_defaults_into_run_wrapper_metadata(
 
     captured_extra_md: dict = {}
     real_geecs_run_wrapper = srp.geecs_run_wrapper
-    real_geecs_adaptive_scan = srp.geecs_adaptive_scan
-
-    def _sanitize(md: dict) -> dict:
-        # ``applied_defaults`` keys are dotted (e.g. "actions.setup") by
-        # convention (see apply_experiment_defaults in scan_request_runner.py)
-        # — real event-model schema validation rejects dots in ANY top-level
-        # start-doc key, and validates ``applied_defaults``'s own keys under
-        # that same rule. Only the nested keys need sanitizing here.
-        sanitized = dict(md)
-        if "applied_defaults" in sanitized:
-            sanitized["applied_defaults"] = {
-                k.replace(".", "_"): v for k, v in sanitized["applied_defaults"].items()
-            }
-        return sanitized
 
     def spy_geecs_run_wrapper(plan, **kwargs):
         extra_md = kwargs.get("extra_md") or {}
         captured_extra_md.update(extra_md)
-        kwargs["extra_md"] = _sanitize(extra_md)
         return real_geecs_run_wrapper(plan, **kwargs)
 
-    def spy_geecs_adaptive_scan(**kwargs):
-        md = kwargs.get("md") or {}
-        captured_extra_md.update(md)
-        kwargs["md"] = _sanitize(md)
-        return real_geecs_adaptive_scan(**kwargs)
-
     monkeypatch.setattr(srp, "geecs_run_wrapper", spy_geecs_run_wrapper)
-    monkeypatch.setattr(srp, "geecs_adaptive_scan", spy_geecs_adaptive_scan)
 
     docs, _finish_calls, _bind_calls = _run_optimize_with_bridge(
         session,
@@ -976,9 +945,12 @@ def test_optimize_mode_threads_applied_defaults_into_run_wrapper_metadata(
         objective=objective,
     )
     assert docs.start is not None
-    assert captured_extra_md["applied_defaults"] == {
-        "actions.setup": ["close_shutters"]
-    }
+    assert captured_extra_md["applied_defaults"] == [
+        {"field": "actions.setup", "value": ["close_shutters"]}
+    ]
+    assert docs.start["applied_defaults"] == [
+        {"field": "actions.setup", "value": ["close_shutters"]}
+    ]
 
 
 def test_no_session_configured_is_a_clear_error(resolver) -> None:

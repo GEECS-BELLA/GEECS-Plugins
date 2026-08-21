@@ -6,10 +6,12 @@ structural task): a plan generator whose **preamble** relocates the
 :func:`~geecs_bluesky.scan_request_runner.run_scan_request` prologue to the
 worker side — validate → resolve save sets/actions/trigger → construct +
 connect devices → claim the scan number — and then yields the same inner
-plan (:func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`) a
-``run_scan_request`` scan runs today.  Because the preamble runs *inside*
-the plan, every bound method and closure (ShotController stubs, per-step
-action callables) is constructed worker-side from the JSON request and
+scan recipe a ``run_scan_request`` scan runs today (step/noscan through
+:func:`~geecs_bluesky.plans.orchestration.build_step_scan_plan`, optimize
+through :func:`~geecs_bluesky.plans.optimize.geecs_adaptive_scan`). Because
+the preamble runs *inside* the plan, every bound method and closure
+(ShotController stubs, per-step action callables, optimization objective /
+suggester binding) is constructed worker-side from the JSON request and
 never crosses a process boundary.
 
 The prologue pieces are the runner's own module-level functions — shared,
@@ -31,12 +33,11 @@ deliberate, per the Planning doc's decisions and 2026-08-20 amendments:
   plan — so construction is deferred through a session facade and the
   batch connects ride :func:`ophyd_async.plan_stubs.ensure_connected` /
   ``bps.wait_for``, still pre-claim (a connect failure burns no number).
-- **s-file export is not the plan's job**: it becomes a worker-side
-  stop-document callback (a parallel task owns that seam in
-  ``session.py``); the emitted documents are identical either way.
-- **Optimize mode is refused loudly** (validated first).  Decision 5's
-  in-worker optimization-loader invocation is a later round; step and
-  noscan are this round's acceptance surface.
+- **s-file export is not the plan's job**: it is a worker-side stop-document
+  callback; the emitted documents are identical either way.
+- **Optimize mode runs through the same plan** when the worker startup
+  registers an optimization loader; headless installs without the
+  ``optimize`` extra refuse optimize requests loudly before the claim.
 
 No queueserver import lives here — this is an ordinary plan callable; a
 worker startup script registers it with the manager (and installs the
@@ -86,6 +87,7 @@ from geecs_bluesky.scan_request_runner import (
     build_step_scan_spec,
     compile_action_slot,
     make_scalar_policy,
+    metadata_applied_defaults,
     merge_optimizer_device_requirements,
     prefetch_action_signals,
     resolve_movable_target,
@@ -790,7 +792,7 @@ def _optimize_request_body(
     if dropped_unserved_devices:
         md["dropped_unserved_devices"] = list(dropped_unserved_devices)
     if applied_defaults:
-        md["applied_defaults"] = dict(applied_defaults)
+        md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
     if skipped:
         md["skipped_action_plans"] = skipped
         logger.warning(

@@ -1491,9 +1491,9 @@ def test_run_applies_defaults_and_records_provenance(
     (writes,) = session.shot_control_calls
     assert isinstance(writes, ShotControlWrites)
     assert writes.devices == ["U_DG645_ShotControl"]
-    assert session.scan_kwargs["md"]["applied_defaults"] == {
-        "trigger_profile": "HTU-Normal"
-    }
+    assert session.scan_kwargs["md"]["applied_defaults"] == [
+        {"field": "trigger_profile", "value": "HTU-Normal"}
+    ]
 
 
 def test_default_actions_execute_bracketing_the_scans_own(
@@ -1719,10 +1719,10 @@ def test_full_fake_session_flow_axes_actions_multi_device_trigger(
         ("U_PLC-DO.Ch5", "off"),
     ]
     # Provenance of the applied defaults.
-    assert kwargs["md"]["applied_defaults"] == {
-        "actions.setup": ["default_prep"],
-        "actions.closeout": ["default_cleanup"],
-    }
+    assert kwargs["md"]["applied_defaults"] == [
+        {"field": "actions.setup", "value": ["default_prep"]},
+        {"field": "actions.closeout", "value": ["default_cleanup"]},
+    ]
     # Cleanup: detectors + 2 movables + the action signal factory.
     (factory,) = session.action_factories
     assert factory in session.disconnected

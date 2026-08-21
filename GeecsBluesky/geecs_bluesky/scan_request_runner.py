@@ -761,6 +761,23 @@ def apply_experiment_defaults(
     return request, applied
 
 
+def metadata_applied_defaults(
+    applied_defaults: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return event-model-safe provenance records for applied defaults.
+
+    The execution-side merge logic keeps dotted field names such as
+    ``actions.setup`` because they are concise and useful internally.
+    Event-model validates metadata keys recursively, though, so those
+    dotted names cannot be emitted as dictionary keys in the start
+    document.  Emit them as values instead.
+    """
+    return [
+        {"field": field, "value": value}
+        for field, value in applied_defaults.items()
+    ]
+
+
 def resolve_experiment_defaults(resolver: ConfigResolver) -> Any | None:
     """Return the resolver's experiment defaults, or ``None`` (tolerantly).
 
@@ -1007,7 +1024,7 @@ def build_step_scan_spec(
     if applied_defaults:
         # Provenance: the run records exactly which experiment defaults
         # filled in fields the submitter left unset.
-        md["applied_defaults"] = dict(applied_defaults)
+        md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
     if any(slots.values()):
         # Provenance: the assembled per-slot execution order (defaults +
         # entry rituals + the request's own, mirrored on closeout).
@@ -1846,7 +1863,7 @@ def _run_optimize_request(
         if dropped_unserved_devices:
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
-            md["applied_defaults"] = dict(applied_defaults)
+            md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(

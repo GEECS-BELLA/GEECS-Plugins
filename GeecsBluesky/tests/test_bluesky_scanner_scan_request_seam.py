@@ -570,7 +570,9 @@ def test_defaults_not_applied_twice(monkeypatch) -> None:
     kwargs = session.scan_kwargs
     assert kwargs is not None
     assert kwargs["md"]["action_plans"]["setup"] == ["default_prep"]
-    assert kwargs["md"]["applied_defaults"] == {"actions.setup": ["default_prep"]}
+    assert kwargs["md"]["applied_defaults"] == [
+        {"field": "actions.setup", "value": ["default_prep"]}
+    ]
 
 
 # ---------------------------------------------------------------------------
