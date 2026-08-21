@@ -88,7 +88,11 @@ logger = logging.getLogger(__name__)
 
 __all__ = ["geecs_scan_request_plan", "set_plan_session"]
 
-#: Per-batch device connect budget — parity with ``GeecsSession._connect``.
+#: Per-connect timeout for the in-plan strict batches.  Near-parity, not
+#: parity, with ``GeecsSession._connect``: there 20 s is the outer wall on
+#: the loop hop while each connect runs at the ophyd-async default (10 s),
+#: so an unreachable device fails at ~10 s; here the 20 s *is* the
+#: per-connect timeout, so the same failure surfaces ~10 s later.
 _CONNECT_TIMEOUT = 20.0
 
 #: The session factory methods whose *construction* code the plan reuses
@@ -311,6 +315,15 @@ def geecs_scan_request_plan(
     and abort alike.  The post-run s-file export is deliberately absent
     (worker stop-document callback; see the module docstring).
 
+    The preamble's I/O is deliberately *blocking* inside the generator:
+    config-repo reads, the DB policy queries, the claim's folder listing,
+    and the ScanInfo write all run in the RunEngine thread, so a pause or
+    stop request is not serviced until the current call returns — the
+    accepted consequence of relocating the prologue into the plan.  The
+    worst case is a DB or data-share stall (off the lab network, the DB
+    socket timeout is ~75 s).  Executor offload of these calls is the
+    filed hardening follow-up if that window bites in operation.
+
     Parameters
     ----------
     request :
@@ -378,9 +391,10 @@ def _scan_request_body(
     if request.mode is ScanRequestMode.OPTIMIZE:
         raise NotImplementedError(
             "optimize-mode ScanRequests are not yet served by "
-            "geecs_scan_request_plan (queueserver round 1 covers step and "
-            "noscan; the in-worker optimization-loader invocation is a later "
-            "round) — run them through GeecsSession.run / run_scan_request"
+            "geecs_scan_request_plan: the optimization loader is registered "
+            "by the worker startup script, which lands in the worker-startup "
+            "round (W2) — round 1 covers step and noscan. Until then, run "
+            "optimize requests through GeecsSession.run / run_scan_request"
         )
 
     controller = None

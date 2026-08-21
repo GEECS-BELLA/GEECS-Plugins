@@ -559,3 +559,75 @@ def test_step_scan_documents_match_run_scan_request(
     parser = configparser.ConfigParser()
     parser.read_string(ini_b)
     assert parser["Scan Info"]["scan parameter"] == '"U_ESP_JetXYZ:Position.Axis 1"'
+
+
+def test_telemetry_documents_match_run_scan_request(
+    resolver, monkeypatch, tmp_path
+) -> None:
+    """Telemetry parity: the in-plan connect fork cannot drift silently.
+
+    The autouse ``no_db`` fixture forces the scalar policy to ``None`` (no
+    telemetry) on both entry points, so the other parity tests never touch
+    the Tier-2 path.  This test swaps in a hermetic fake
+    ``ScalarPolicyProvider`` so the telemetry fork
+    (``_connect_telemetry_plan`` vs the runner's
+    ``build_telemetry_readables`` over ``session.telemetry_batch``) is
+    actually exercised on BOTH entry points: same soft event columns, same
+    ``background_telemetry`` metadata, same save-set wholesale exclusion.
+    """
+
+    class _FakeScalarPolicy:
+        """Protocol-complete ScalarPolicyProvider over a fixed table."""
+
+        _subscribed = {
+            # Not in the UC_Test save set -> becomes Tier-2 telemetry.
+            "U_BgMonitor": ["Pressure", "Temp"],
+            # In the save set -> excluded wholesale (Tier-1 owns it).
+            "U_Cam": ["MaxCounts"],
+        }
+
+        def get_variables(self, device: str) -> list[str]:
+            return list(self._subscribed.get(device, []))
+
+        def all_variables(self, device: str) -> list[str]:
+            return list(self._subscribed.get(device, []))
+
+        def subscribed_by_device(self) -> dict[str, list[str]]:
+            return {d: list(v) for d, v in self._subscribed.items()}
+
+    for target in (
+        "geecs_bluesky.scan_request_runner.make_scalar_policy",
+        "geecs_bluesky.plans.scan_request_plan.make_scalar_policy",
+    ):
+        monkeypatch.setattr(target, lambda session: _FakeScalarPolicy())
+
+    request = _noscan_request()
+    docs_runner = _run_scan(
+        "runner", request, resolver, tmp_path / "runner" / "Scan007", monkeypatch
+    )
+    docs_plan = _run_scan(
+        "plan", request, resolver, tmp_path / "plan" / "Scan007", monkeypatch
+    )
+    _assert_same_run(
+        docs_runner,
+        docs_plan,
+        tmp_path / "runner" / "Scan007",
+        tmp_path / "plan" / "Scan007",
+    )
+    # The Tier-2 selection made it into the run metadata (parity of the
+    # value itself is already pinned by _assert_same_run's start essence).
+    assert docs_plan.start["background_telemetry"] == {
+        "U_BgMonitor": ["Pressure", "Temp"]
+    }
+    # ...and into the event columns (the group keeps member names).
+    telemetry_keys = {
+        k
+        for d in docs_plan.descriptors
+        for k in d["data_keys"]
+        if k.startswith("telemetry_")
+    }
+    assert telemetry_keys, "telemetry columns must exist in the event stream"
+    assert all("u_bgmonitor" in k for k in telemetry_keys)
+    assert not any("u_cam" in k for k in telemetry_keys), (
+        "a save-set device must never be duplicated as telemetry"
+    )
