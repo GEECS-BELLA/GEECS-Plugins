@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Literal, Sequence
 
 import bluesky.plan_stubs as bps
 import bluesky.preprocessors as bpp
@@ -52,6 +52,7 @@ from geecs_bluesky.devices.shot_id import ShotIdSupport
 from geecs_bluesky.plans.step_scan import (
     motor_md,
     move_changed_axes,
+    move_with_failed_move_pause,
     normalize_motors,
 )
 from geecs_bluesky.plans.t0_sync import geecs_t0_sync
@@ -98,6 +99,7 @@ def geecs_free_run_step_scan(
     enable_saving: Callable | None = None,
     t0_sync_window_s: float = 0.2,
     tail_flush: bool = True,
+    failed_move_policy: Literal["raise", "pause"] = "raise",
     md: dict[str, Any] | None = None,
 ):
     """Free-run step scan: rows paced by *reference*, contributors never block.
@@ -166,6 +168,18 @@ def geecs_free_run_step_scan(
     tail_flush:
         Emit one final ``flush``-stream event after the last disarm so
         lagging contributors' final shot is captured.
+    failed_move_policy:
+        ``"raise"`` (default): a failed move's ``FailedStatus`` propagates
+        normally — exact pre-#641 behavior, so any caller that does not
+        opt in is unaffected (in particular the bridge/console path, which
+        also sidesteps the coexisting engine-side pause supervisor's
+        auto-resume-on-failed-move interaction and the related stop-from-
+        paused bypass — both are properties of *entering* the pause path,
+        not of this plan).  ``"pause"``: use
+        :func:`~geecs_bluesky.plans.step_scan.move_with_failed_move_pause`
+        — a failed move logs the documented reason and hard-pauses the RE;
+        resume retries the move by replay (decision 4).  Queueserver
+        callers with no supervisor in the loop opt into ``"pause"``.
     md:
         Extra metadata merged into the start document.
 
@@ -251,23 +265,40 @@ def geecs_free_run_step_scan(
     t0s = yield from geecs_t0_sync(sync_devices, window_s=effective_window_s)
     _md["device_t0s"] = t0s
 
+    move = (
+        move_with_failed_move_pause
+        if failed_move_policy == "pause"
+        else move_changed_axes
+    )
+
     @bpp.run_decorator(md=_md)
     def _inner():
         scan_event_index = 0
         previous: tuple | None = None
         for bin_number, pos in enumerate(_positions, start=1):
-            # Deferred-pause boundary (issue #552): a checkpoint before the
-            # move and before every row means request_pause(defer=True)
-            # lands with an empty rewind cache — resume replays nothing.
-            # A between-rows pause sits inside a SCAN window; the pause
-            # supervisor owns driving the trigger to a safe state there.
+            # Checkpoint placement is a pause contract (issues #552/#641) —
+            # the full rationale lives in geecs_step_scan (same layout).
+            # Free-run specifics: the pre-move checkpoint sits in the
+            # disarmed STANDBY window, but the per-row checkpoints sit
+            # INSIDE the SCAN window — a pause landing there (either verb)
+            # relies on the ShotControlPauseQuiescer (pause_semantics) to
+            # stop the trigger; plan structure alone cannot make those
+            # windows quiescent without whole-bin pause latency.  The
+            # post-per_step checkpoint (issue #645 cross-vendor addendum,
+            # P1) keeps per_step's compiled ActionPlan writes out of a
+            # replay landing before arm — same rationale as geecs_step_scan;
+            # a hard pause landing DURING per_step() itself is an
+            # irreducible mid-action residual, same class as the documented
+            # bounded-refire windows.
             yield from bps.checkpoint()
             if _motors and pos is not None:
-                previous = yield from move_changed_axes(_motors, pos, previous)
+                previous = yield from move(_motors, pos, previous)
+            yield from bps.checkpoint()
             if per_step is not None:
                 # After the move, before arming: per-step actions run with
                 # the shot controller disarmed (outside the SCAN window).
                 yield from per_step()
+            yield from bps.checkpoint()
             if arm_trigger is not None:
                 yield from arm_trigger()
             for shot_index_in_bin in range(1, shots_per_step + 1):
@@ -289,6 +320,11 @@ def geecs_free_run_step_scan(
                     )
                 if scan_event_index == 1:
                     _t0_seed_check(detectors)
+            # Post-rows checkpoint: the bin's last completed row must never
+            # sit in a hard-pause replay landing in the disarm window
+            # (re-saving it would duplicate the event row) — see
+            # geecs_step_scan's placement rationale.
+            yield from bps.checkpoint()
             if disarm_trigger is not None:
                 yield from disarm_trigger()
         # End of scan: stop the trigger BEFORE the tail machinery — STANDBY
@@ -303,6 +339,10 @@ def geecs_free_run_step_scan(
             for dev in _read_devices:
                 yield from bps.read(dev)
             yield from bps.save()
+            # Post-flush checkpoint: a hard pause during the finalize chain
+            # must not replay the completed flush event (or the end quiesce)
+            # into the cleanup path.
+            yield from bps.checkpoint()
 
     _end_quiesced = {"done": False}
 

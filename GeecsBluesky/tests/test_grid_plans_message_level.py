@@ -107,12 +107,14 @@ def test_per_step_runs_after_move_before_shots_at_every_grid_point() -> None:
         if command != "per_step_marker":
             continue
         # No trigger/create between this step's moves and the marker.  The
-        # row's deferred-pause checkpoint (issue #552) sits between the
-        # marker and the first shot — skip it so the original "nothing
-        # hides between per_step and the first shot" pin keeps its teeth.
+        # pause checkpoints (issues #552/#641: the pre-row one after the
+        # marker, the post-move one before it) are placement contracts, not
+        # hidden work — skip them on both sides so the original "nothing
+        # hides between the move, per_step, and the first shot" pin keeps
+        # its teeth.
         after = next(c for c in commands[index + 1 :] if c != "checkpoint")
         assert after in ("trigger", "create"), after
-        before = commands[index - 1]
+        before = next(c for c in reversed(commands[:index]) if c != "checkpoint")
         assert before in ("wait", "open_run"), before
 
 
