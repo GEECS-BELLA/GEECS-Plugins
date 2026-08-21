@@ -1,8 +1,8 @@
 """The worker startup warm-up: pre-importing the optimization stack off-thread.
 
-PR #644 review row 6. Mirrors GEECS-Console's
-``tests/test_optimization_warmup.py`` — same fake-stack/event-gated-import
-technique — adapted to ``geecs_bluesky.optimization.worker_loader``.
+PR #644 review row 6. Uses the fake-stack/event-gated-import technique
+(originally shared with the console's deleted GUI-process loader tests)
+against ``geecs_bluesky.optimization.worker_loader``.
 
 Hermetic — the ``optimize`` extra's dependencies (xopt) are NOT installed
 in CI, where the no-op path is exercised against the real ``find_spec``
