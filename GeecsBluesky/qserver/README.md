@@ -57,6 +57,14 @@ qserver queue add plan '{"name": "geecs_scan_request_plan", "args": [{"mode": "n
 qserver queue start
 ```
 
+The `qserver` CLI parses that argument as a **Python literal, not JSON**:
+`null` / `true` / `false` are rejected with an unhelpful "Error occurred
+while parsing the plan" — use `None` / `True` / `False` instead (or omit
+optional fields; the example above works because it contains neither).
+A full `ScanRequest.model_dump(mode="json")` payload contains `null`s, so
+programmatic submitters should write `repr(item)` (Python literal) for
+the CLI, or use `bluesky-queueserver-api`, which takes real dicts.
+
 `QS_EXPERIMENT` (or `config.ini`'s `[Experiment] expt`) must resolve before
 the manager starts — the profile fails loud at import time otherwise (see
 `startup/startup.py`).

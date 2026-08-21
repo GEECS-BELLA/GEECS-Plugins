@@ -57,7 +57,10 @@ jobs:
 
       - name: Install GeecsBluesky dependencies
         working-directory: GeecsBluesky
-        run: poetry install --with dev
+        # --extras qserver: the queueserver manager-validation pin test
+        # (test_qserver_startup.py) importorskips bluesky_queueserver and
+        # would silently skip without it (review finding, 2026-08-21).
+        run: poetry install --with dev --extras qserver
 
       - name: Run GeecsBluesky pure unit tests
         working-directory: GeecsBluesky

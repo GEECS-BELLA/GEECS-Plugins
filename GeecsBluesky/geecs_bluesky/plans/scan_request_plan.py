@@ -399,6 +399,15 @@ def geecs_scan_request_plan(
         a strict request without usable shot control, an empty effective
         device set, or (optimize mode) no optimization loader registered
         (see :func:`set_optimization_loader`) — all pre-claim.
+
+    Notes
+    -----
+    This signature deliberately breaks the repo's type-hints-on-public-
+    functions rule: the RE Manager re-evaluates the annotation strings in
+    a bare namespace at ``queue add``, so any non-builtin name here
+    (``ScanRequest``, ``ConfigResolver``, even ``typing.Any``) makes every
+    submission fail validation. See the comment above the ``def`` and the
+    pin test named there before adding any annotation back.
     """
     if session is None:
         session = _worker_session

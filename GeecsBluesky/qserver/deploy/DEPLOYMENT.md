@@ -87,9 +87,10 @@ At minimum, verify that the service account's config resolves:
 - the GEECS data root on the mounted data share,
 - the scanner configs repository,
 - the scan-analysis configs path (`[Paths] scan_analysis_configs_path`) —
-  optimize-mode requests hard-require it (`BaseOptimizerConfig` refuses
-  without it; every other mode runs fine, so the gap surfaces only on the
-  first optimize submission),
+  required by optimize-mode requests whose evaluator uses `analyzers`
+  (`BaseOptimizerConfig` refuses those without it; analyzer-free optimize
+  requests and every other mode run fine, so the gap surfaces only on the
+  first analyzer-based optimize submission),
 - database credentials through the normal `Configurations.INI` chain,
 - Tiled connection details when Tiled publishing is enabled,
 - optional `[epics] ca_addr_list` if the unit-level `EPICS_CA_ADDR_LIST`

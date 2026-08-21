@@ -22,6 +22,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `test_qserver_startup.py::test_plan_signature_passes_manager_validation`,
   which runs the manager's own `_process_plan`/`validate_plan` pair over
   a real noscan item.
+- **Review fix wave on the above** (adversarial pass, 2026-08-21): CI now
+  installs the `qserver` extra for this package so the pin test actually
+  runs (it importorskips `bluesky_queueserver` and was silently skipped);
+  the signature constraint is restated in the function docstring's Notes
+  (linter/refactor discoverability); qserver docs clarified
+  (`scan_analysis_configs_path` needed only for analyzer-based optimize
+  requests; the `qserver` CLI parses plan payloads as Python literals,
+  not JSON).
 
 ## [0.55.2] - 2026-08-20
 
