@@ -1,33 +1,26 @@
 """Tests for the pre-flight pipeline runner mechanics.
 
-The two production checks' *semantics* are pinned end to end by
-``test_bluesky_scanner_progress_and_preflight.py`` (unchanged); these tests
-pin the pipeline plumbing itself: check ordering, abort short-circuiting,
-``skip_remaining``, and the ask→answer routing through the OperatorChannel.
+The production check's *semantics* are pinned in
+``test_preflight_unserved.py``; these tests pin the pipeline plumbing
+itself: check ordering, abort short-circuiting, ``skip_remaining``, and
+the headless Ask contract (queueserver decision 3, issue #649): engine-side
+there is no operator to answer, so an :class:`Ask` takes its
+``on_default`` branch with one WARNING naming the question — the
+continue/abort answering engine lives client-side, pre-submit.
 """
 
 from __future__ import annotations
 
-from geecs_bluesky.operator_channel import OperatorQuestion
+import logging
+
 from geecs_bluesky.preflight import (
     Aborted,
     Ask,
+    OperatorQuestion,
     Passed,
     PreflightContext,
     run_preflight,
 )
-
-
-class _ScriptedChannel:
-    """Answers questions from a scripted list and records them."""
-
-    def __init__(self, answers: list[str]) -> None:
-        self.answers = list(answers)
-        self.questions: list[OperatorQuestion] = []
-
-    def ask(self, question: OperatorQuestion) -> str:
-        self.questions.append(question)
-        return self.answers.pop(0)
 
 
 def _ctx(detectors: list | None = None) -> PreflightContext:
@@ -54,7 +47,6 @@ def test_all_checks_pass_returns_detectors_in_order() -> None:
     result = run_preflight(
         [_passing_check(calls, "one"), _passing_check(calls, "two")],
         ctx,
-        _ScriptedChannel([]),
     )
     assert result == ["a", "b"]
     assert calls == ["one", "two"]
@@ -66,9 +58,7 @@ def test_abort_outcome_short_circuits() -> None:
     def aborting(ctx: PreflightContext) -> Aborted:
         return Aborted(reason="config invalid")
 
-    result = run_preflight(
-        [aborting, _passing_check(calls, "never")], _ctx(), _ScriptedChannel([])
-    )
+    result = run_preflight([aborting, _passing_check(calls, "never")], _ctx())
     assert result is None
     assert calls == []
 
@@ -79,14 +69,12 @@ def test_skip_remaining_stops_the_pipeline_but_passes() -> None:
     def opt_in(ctx: PreflightContext) -> Passed:
         return Passed(skip_remaining=True)
 
-    result = run_preflight(
-        [opt_in, _passing_check(calls, "never")], _ctx(), _ScriptedChannel([])
-    )
+    result = run_preflight([opt_in, _passing_check(calls, "never")], _ctx())
     assert result == ["a", "b"]
     assert calls == []
 
 
-def _asking_check(outcomes: dict):
+def _asking_check(outcomes: dict, *, default_outcome=None):
     """One Ask check whose handlers record which branch ran."""
 
     def check(ctx: PreflightContext) -> Ask:
@@ -97,7 +85,7 @@ def _asking_check(outcomes: dict):
 
         def on_default():
             outcomes["branch"] = "default"
-            return Passed(skip_remaining=True)
+            return default_outcome if default_outcome is not None else Passed()
 
         return Ask(
             question=ctx.question(
@@ -113,42 +101,56 @@ def _asking_check(outcomes: dict):
     return check
 
 
-def test_ask_routes_continue_through_the_channel() -> None:
+def test_ask_takes_its_default_branch_with_one_warning(caplog) -> None:
+    """Headless: an Ask never routes to on_continue — on_default runs, and
+    one WARNING names the question so the choice is visible in scan.log."""
     outcomes: dict = {}
-    channel = _ScriptedChannel(["continue"])
-    result = run_preflight([_asking_check(outcomes)], _ctx(), channel)
-    assert outcomes["branch"] == "continue"
-    assert result == ["a"]  # the handler's mutation is what the runner returns
-    assert channel.questions[0].title == "Something Wrong"
-    assert channel.questions[0].continue_label == "Fix && Continue"
+    calls: list = []
+    with caplog.at_level(logging.WARNING, logger="geecs_bluesky.preflight"):
+        result = run_preflight(
+            [_asking_check(outcomes), _passing_check(calls, "later")],
+            _ctx(),
+        )
+    assert outcomes["branch"] == "default"
+    assert result == ["a", "b"]  # on_continue's mutation never happened
+    assert calls == ["later"]  # a plain Passed default continues the pipeline
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    assert "something is wrong" in warnings[0].getMessage()
 
 
-def test_ask_abort_answer_aborts_the_run() -> None:
-    outcomes: dict = {}
-    result = run_preflight(
-        [_asking_check(outcomes)], _ctx(), _ScriptedChannel(["abort"])
-    )
-    assert result is None
-    assert "branch" not in outcomes
-
-
-def test_ask_default_answer_runs_default_handler() -> None:
+def test_ask_default_skip_remaining_is_honored() -> None:
+    """The on_default outcome is treated exactly like a direct check result."""
     outcomes: dict = {}
     calls: list = []
     result = run_preflight(
-        [_asking_check(outcomes), _passing_check(calls, "later")],
+        [
+            _asking_check(outcomes, default_outcome=Passed(skip_remaining=True)),
+            _passing_check(calls, "never"),
+        ],
         _ctx(),
-        _ScriptedChannel(["default"]),
     )
     assert outcomes["branch"] == "default"
-    assert result == ["a", "b"]  # proceed unchanged
-    assert calls == []  # default handler asked to skip the rest
+    assert result == ["a", "b"]
+    assert calls == []  # the default handler asked to skip the rest
+
+
+def test_ask_default_returning_aborted_aborts_the_run() -> None:
+    """A check whose fail-loud default is abort still aborts headless."""
+    outcomes: dict = {}
+    result = run_preflight(
+        [_asking_check(outcomes, default_outcome=Aborted(reason="fail loud"))],
+        _ctx(),
+    )
+    assert outcomes["branch"] == "default"
+    assert result is None
 
 
 def test_context_question_carries_the_dialog_timeout() -> None:
     ctx = _ctx()
     ctx.dialog_timeout = 12.5
     question = ctx.question(RuntimeError("boom"), title="T", continue_label="C")
+    assert isinstance(question, OperatorQuestion)
     assert question.timeout == 12.5
     assert question.abort_label == "Abort Scan"
     assert question.message == "boom"

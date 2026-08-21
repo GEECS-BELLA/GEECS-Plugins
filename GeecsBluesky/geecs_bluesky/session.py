@@ -630,57 +630,99 @@ class GeecsSession:
             md=md,
         )
 
-    def _run_supervised(self, plan: Any, pause_supervisor: Any | None) -> str:
-        """Run *plan* on the RE, handling supervised pause windows (#552).
+    def build_claimed_scan_plan(
+        self,
+        *,
+        scan_number: int | None,
+        scan_folder: str | None,
+        detectors: Sequence[Any],
+        motor: Any | Sequence[Any] | None,
+        positions: Sequence[Any],
+        shots_per_step: int,
+        strict: bool,
+        controller: Any | None,
+        description: str = "",
+        md: dict | None = None,
+        scan_info_overrides: dict | None = None,
+        setup: Any | None = None,
+        per_step: Any | None = None,
+        closeout: Any | None = None,
+        failed_move_policy: str = "raise",
+    ) -> Any:
+        """The shared post-claim tail: ScanInfo → role wiring → saving → plan.
 
-        With no *pause_supervisor* this is exactly ``self.RE(plan)`` —
-        every interrupt propagates as before (headless default).  With one,
-        a deferred pause landing at a plan checkpoint hands control to
-        ``pause_supervisor.on_pause(self)`` on this (scan) thread: a
-        ``"resume"`` verdict re-enters ``RE.resume()`` (which may pause
-        again — the window can repeat), an ``"abort"`` verdict runs
-        ``RE.abort()`` (the plan's finalize chain executes) and reports
-        ``"aborted"``.
+        The ONE definition of what happens between a claimed scan number
+        and the inner plan, shared by :meth:`scan` and the queueserver
+        plan preamble (``plans/scan_request_plan``) — extracted per the
+        PR #639 disposition (the plan path used to carry a ~25-line copy
+        of this tail).  A ``None`` *scan_number* (failed claim, or
+        ``save_data=False``) skips the ScanInfo write and configures no
+        native saving, exactly as both call sites always did.
+
+        Parameters
+        ----------
+        scan_number, scan_folder :
+            The claimed pair (or ``None``/``None``).
+        detectors :
+            The full detector list; index 0 is the free-run reference.
+        motor, positions, shots_per_step, strict, controller :
+            The scan geometry and shot control, as in :meth:`scan`.
+        description, md, scan_info_overrides :
+            Metadata: the free-text description, extra run md, and the
+            ScanInfo ini overrides.
+        setup, per_step, closeout :
+            Optional compiled action-plan stubs.
+        failed_move_policy :
+            ``"raise"`` (default — headless callers have no operator to
+            answer a pause) or ``"pause"`` (the queueserver path: the
+            RE Manager renders the paused state and resume/stop are
+            first-class queue verbs).
 
         Returns
         -------
-        str
-            ``"completed"`` (the plan ran to its own end) or ``"aborted"``
-            (an abort verdict from a pause window).
-
-        Raises
-        ------
-        RunEngineInterrupted
-            Unsupervised pause (propagated, today's contract), or the
-            engine settling to idle from an operator stop — the caller's
-            existing handling owns both.
+        Any
+            The composed plan generator (``build_step_scan_plan``).
         """
-        try:
-            self.RE(plan)
-            return "completed"
-        except RunEngineInterrupted:
-            if pause_supervisor is None or self.RE.state != "paused":
-                raise
-        while True:
-            verdict = pause_supervisor.on_pause(self)
-            if verdict == "abort":
-                # The pause supervisor is the *sole* abort owner while
-                # paused (stop_scanning_thread deliberately skips its own
-                # RE.abort() when the RE is paused — #552 review): abort
-                # here, from the RE's own thread context, so the finalize
-                # chain runs to completion exactly once.
-                logger.info("pause window verdict: abort — stopping the scan")
-                self.RE.abort()
-                return "aborted"
-            try:
-                self.RE.resume()
-                return "completed"
-            except RunEngineInterrupted:
-                if self.RE.state != "paused":
-                    # An operator stop landed during the resumed stretch —
-                    # the caller's settled-to-idle handling owns it.
-                    raise
-                continue
+        detectors = list(detectors)
+        if scan_number is not None:
+            self._write_scan_info(
+                scan_number,
+                scan_folder,
+                motor=motor,
+                positions=positions,
+                shots_per_step=shots_per_step,
+                description=description,
+                overrides=scan_info_overrides,
+            )
+
+        # Role wiring: schema-v1 shot ids + contributor anchoring.
+        reference = detectors[0]
+        for det in detectors:
+            if hasattr(det, "configure_shot_id"):
+                det.configure_shot_id(self.rep_rate_hz)
+            if hasattr(det, "set_reference") and det is not reference:
+                det.set_reference(reference)
+
+        saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
+
+        return build_step_scan_plan(
+            strict=strict,
+            motor=motor,
+            positions=positions,
+            reference=reference,
+            detectors=detectors,
+            shots_per_step=shots_per_step,
+            controller=controller,
+            experiment=self.experiment,
+            scan_number=scan_number,
+            scan_folder=scan_folder,
+            saving_detectors=saving_detectors,
+            extra_md={"description": description, **(md or {})},
+            setup=setup,
+            per_step=per_step,
+            closeout=closeout,
+            failed_move_policy=failed_move_policy,
+        )
 
     def scan(
         self,
@@ -703,7 +745,6 @@ class GeecsSession:
         per_step: Any | None = None,
         closeout: Any | None = None,
         should_abort: Callable[[], bool] | None = None,
-        pause_supervisor: Any | None = None,
     ) -> str | None:
         """Run one scan with the full GEECS run discipline; return the run uid.
 
@@ -784,42 +825,21 @@ class GeecsSession:
             if scan_number is None:
                 scan_number, scan_folder = claim_scan_number(self.experiment)
                 claimed_here = True
-            if scan_number is not None:
-                self._write_scan_info(
-                    scan_number,
-                    scan_folder,
-                    motor=motor,
-                    positions=positions,
-                    shots_per_step=shots_per_step,
-                    description=description,
-                    overrides=scan_info,
-                )
         else:
             scan_number = scan_folder = None
 
-        # Role wiring: schema-v1 shot ids + contributor anchoring.
-        reference = detectors[0]
-        for det in detectors:
-            if hasattr(det, "configure_shot_id"):
-                det.configure_shot_id(self.rep_rate_hz)
-            if hasattr(det, "set_reference") and det is not reference:
-                det.set_reference(reference)
-
-        saving_detectors = self._configure_saving(detectors, scan_number, scan_folder)
-
-        plan = build_step_scan_plan(
-            strict=mode == _STRICT,
-            motor=motor,
-            positions=positions,
-            reference=reference,
-            detectors=detectors,
-            shots_per_step=shots_per_step,
-            controller=controller,
-            experiment=self.experiment,
+        plan = self.build_claimed_scan_plan(
             scan_number=scan_number,
             scan_folder=scan_folder,
-            saving_detectors=saving_detectors,
-            extra_md={"description": description, **(md or {})},
+            detectors=detectors,
+            motor=motor,
+            positions=positions,
+            shots_per_step=shots_per_step,
+            strict=mode == _STRICT,
+            controller=controller,
+            description=description,
+            md=md,
+            scan_info_overrides=scan_info,
             setup=setup,
             per_step=per_step,
             closeout=closeout,
@@ -837,7 +857,7 @@ class GeecsSession:
         # the scan.log handler, and a second one would duplicate every line.
         with scan_log(scan_number, scan_folder) if claimed_here else nullcontext():
             try:
-                supervised_outcome = self._run_supervised(plan, pause_supervisor)
+                self.RE(plan)
             except RunEngineInterrupted:
                 if self.RE.state == "paused":
                     # A pause is not a settled outcome — the operator may
@@ -851,17 +871,6 @@ class GeecsSession:
                 logger.info(
                     "Scan %s aborted by operator; cleanup completed "
                     "(trigger disarmed, saving stopped)",
-                    scan_number if scan_number is not None else "(unsaved)",
-                )
-                return self._last_run_uid
-
-            if supervised_outcome == "aborted":
-                # Abort verdict from a pause window: RE.abort() already ran
-                # the plan's finalize chain — an intentional outcome.
-                self.last_run_aborted = True
-                logger.info(
-                    "Scan %s aborted from the pause window; cleanup "
-                    "completed (trigger disarmed, saving stopped)",
                     scan_number if scan_number is not None else "(unsaved)",
                 )
                 return self._last_run_uid
@@ -899,7 +908,6 @@ class GeecsSession:
         scan_number: int | None = None,
         scan_folder: str | None = None,
         should_abort: Callable[[], bool] | None = None,
-        pause_supervisor: Any | None = None,
     ) -> tuple[str | None, list[dict]]:
         """Run an optimization **as a scan** (iteration = bin); return (uid, history).
 
@@ -1103,8 +1111,7 @@ class GeecsSession:
             self.last_run_aborted = False
             aborted = False
             try:
-                outcome = self._run_supervised(run_plan, pause_supervisor)
-                aborted = outcome == "aborted"
+                self.RE(run_plan)
             except RunEngineInterrupted:
                 if self.RE.state == "paused":
                     # A pause is not a settled outcome (the operator may

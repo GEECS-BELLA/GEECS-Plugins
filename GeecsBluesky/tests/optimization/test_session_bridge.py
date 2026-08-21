@@ -384,7 +384,7 @@ class TestObserveReadbackSubstitution:
 
 
 class TestDeviceRequirementsExposure:
-    """The bridge exposes optimizer device_requirements for BlueskyScanner."""
+    """The bridge exposes optimizer device_requirements for the runner."""
 
     def test_bridge_exposes_optimizer_device_requirements(self):
         reqs = {
@@ -638,8 +638,7 @@ class TestPlanContextWait:
     def test_propose_and_wait_run_off_the_plan_thread(self, tmp_path, monkeypatch):
         """Pin the RE-friendly wait mechanism end to end.
 
-        ``geecs_adaptive_scan`` (the plan ``BlueskyScanner`` submits via
-        ``GeecsSession.optimize``) must execute ``propose`` — the callable
+        ``geecs_adaptive_scan`` (the plan ``GeecsSession.optimize`` runs) must execute ``propose`` — the callable
         that chains into ``_await_bin_assets`` — on a worker thread, idling
         with ``Msg('sleep')`` (``bps.sleep``) on the plan side.  The thread
         iterating the plan here stands in for the RunEngine's event-loop

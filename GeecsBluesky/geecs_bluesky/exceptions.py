@@ -299,7 +299,7 @@ class ActionStepTimeoutError(GeecsError):
     """A direct-executed action step did not complete within its budget.
 
     Raised by
-    :func:`~geecs_bluesky.plans.action_direct.execute_action_steps_directly`
+    the direct action executor (deleted with the pause-window flow, W5 #649)
     when a blocking ``set``/``check`` dispatch is still pending at the end
     of its per-step budget (the in-loop coroutine is cancelled).  Sits in
     the same operational-timeout family as

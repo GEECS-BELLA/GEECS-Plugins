@@ -1,4 +1,4 @@
-"""The one scan-orchestration recipe shared by GeecsSession and BlueskyScanner.
+"""The one scan-orchestration recipe behind every GEECS scan entry point.
 
 Composes the acquisition-mode plan (free-run reference-paced vs strict
 plan-owned single-shot), the run wrapper (scan numbering, native saving, run
