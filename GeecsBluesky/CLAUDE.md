@@ -107,9 +107,13 @@ geecs_bluesky/
                             #   the plan preamble (validate → resolve →
                             #   construct+connect in-plan → claim → the same
                             #   inner plan); set_plan_session installs the
-                            #   worker default session; optimize refused
-                            #   loudly (later round); s-file export is NOT
-                            #   here (worker stop-doc callback seam)
+                            #   worker default session; optimize-mode
+                            #   requests run in-plan too (set_optimization_
+                            #   loader registers the worker's loader — see
+                            #   optimization/worker_loader.py — refused
+                            #   loudly, not mid-scan, when unregistered);
+                            #   s-file export is NOT here (worker stop-doc
+                            #   callback seam)
   devices/
     ca/                     # THE device family: CA-backed via GeecsCAGateway PVs (`ca` extra)
       triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
@@ -161,6 +165,13 @@ geecs_bluesky/
                             #   — the legacy engine re-imports them via shims).
                             #   Heavy deps ride the `optimize` extra; tests
                             #   skip whole without it
+    worker_loader.py         # the queueserver worker's optimization_loader:
+                            #   OptimizationSpec -> SessionOptimizationBridge
+                            #   (worker-side twin of GEECS-Console's
+                            #   geecs_console.services.optimization); also
+                            #   warm_up_optimization_stack(), called once at
+                            #   worker startup (qserver/startup/startup.py)
+                            #   to pre-import the heavy stack off-thread
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
   data_paths.py             # local ↔ device-server path mapping, asset roots
   scanner_configs.py        # configs-repo resolution + shot-control YAML loading

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.54.0"
+version = "0.55.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -51,11 +51,18 @@ gest-api = { version = ">=0.1", optional = true }
 # core engine never imports either.
 scananalysis = { path = "../ScanAnalysis", develop = true, optional = true }
 
+# The queueserver worker (GeecsBluesky/qserver/) — RE Manager itself, not a
+# runtime import of geecs_bluesky. Pinned to the sandbox-validated release
+# (Planning/cutover_strategy/02_queueserver_migration.md, RE Manager sandbox
+# spike, 2026-08-20).
+bluesky-queueserver = { version = "^0.0.25", optional = true }
+
 [tool.poetry.extras]
 tiled = ["tiled"]
 analysis = ["imageanalysis"]
 ca = ["aioca"]
 optimize = ["xopt", "gest-api", "scananalysis", "imageanalysis"]
+qserver = ["bluesky-queueserver"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

@@ -4,6 +4,67 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.55.0] - 2026-08-20
+
+### Added
+
+- **RE Manager startup profile — the worker is now runnable**
+  (`qserver/startup/startup.py`, issue #640, queueserver migration round 2).
+  Imports `geecs_bluesky` first (before any `aioca` import, so
+  `EPICS_CA_ADDR_LIST`/`EPICS_CA_AUTO_ADDR_LIST` are set from
+  `~/.config/geecs_python_api/config.ini` before libca's CA context is
+  created — config-file/systemd-env sourcing is deliberate, never
+  DB-sourced, to avoid an import-time network round trip and a bootstrap
+  circularity), resolves the experiment from `QS_EXPERIMENT` (falling back
+  to `config.ini`'s `[Experiment] expt`, failing loud at startup if
+  neither yields a name), builds the worker's `GeecsSession`, exposes
+  `session.RE` as the module-level `RE` the manager keeps alive
+  (`--keep-re`), subscribes `SFileExportCallback` (#635) and the session's
+  own best-effort Tiled subscription, and registers
+  `geecs_scan_request_plan` in the manager's plan list.
+- **The optimization loader seam is closed** (the deferred cross-vendor P1
+  from #639, decision 5 in
+  `Planning/cutover_strategy/02_queueserver_migration.md`):
+  `plans/scan_request_plan.py` gains `set_optimization_loader()`, and the
+  optimize-mode body of the preamble now invokes the registered loader
+  in-plan (worker-side construction with deferred connects, unserved-vars
+  pre-flight over the save-set devices plus the loader's
+  `device_requirements`, the claim boundary, then
+  `plans.optimize.geecs_adaptive_scan` wrapped exactly as
+  `GeecsSession.optimize` wraps it) instead of refusing loudly. A worker
+  without the `optimize` extra still refuses loudly — no loader registered
+  means no silent degradation. `geecs_bluesky/optimization/worker_loader.py`
+  is the loader implementation (`OptimizationSpec` → `SessionOptimizationBridge`
+  via `BaseOptimizer.from_config`), modeled on GEECS-Console's
+  `services/optimization.py` but independently implemented (GeecsBluesky
+  imports nothing from GEECS-Console).
+- New optional extra `qserver = ["bluesky-queueserver"]`, pinned `^0.0.25`
+  (the sandbox-validated release); `poetry.lock` refreshed to match.
+- `tests/test_qserver_startup.py` (hermetic — no lab, no redis): the
+  startup profile defines `RE`/`geecs_scan_request_plan` headlessly with
+  `QS_EXPERIMENT` set, fails loud with neither `QS_EXPERIMENT` nor
+  `config.ini`'s `[Experiment] expt`, and (when the `qserver` extra is
+  installed) `bluesky_queueserver`'s own
+  `gen_list_of_plans_and_devices` succeeds against `qserver/startup/` —
+  skipped by default since the CI job does not install the `qserver`
+  extra. `tests/test_scan_request_plan.py` gains the optimize-loader-seam
+  coverage: no loader registered still refuses loudly post-validation,
+  and a fake loader/bridge drives a scripted suggester through real bins
+  (mock acq-timestamp pacing seeded from the bridge's `bind(devices=...)`,
+  since the adaptive scan's t0 sync runs before any staging message).
+- PR #644 review fix wave: `worker_loader.py` gains
+  `warm_up_optimization_stack()`, which imports the heavy optimize-extra
+  modules (`xopt`, `scan_analysis`, the loader's own submodules) on a
+  daemon thread right after a loader is registered, so the first real
+  `geecs_scan_request_plan` optimize call in a worker session doesn't pay
+  that import cost in-plan; `startup.py` calls it immediately after
+  `set_optimization_loader()`, a no-op when the `optimize` extra isn't
+  installed. `tests/test_qserver_startup.py`'s import-order test is now a
+  `_qserver_startup_probe.py` subprocess run in a fresh interpreter — the
+  prior in-process `runpy.run_path` version could never actually observe
+  first-import order since `geecs_bluesky`/`aioca` are already cached in
+  `sys.modules` by the time any in-process test runs.
+
 ## [0.54.0] - 2026-08-20
 
 ### Added
