@@ -29,19 +29,28 @@ sudo systemctl enable --now redis-server.service
 
 Clone the repository if the host does not have it yet:
 
+**Everything below runs AS THE SERVICE ACCOUNT** (the unit's `User=`,
+`geecs` in this template): Poetry keys project virtualenvs under the
+*invoking user's* cache, so an env installed by an admin account is
+invisible to the service — the unit would crash-loop on a fresh,
+dependency-less env while admin-side verification passes. Clone, install,
+and verify as the service user (`sudo -u geecs -i` or a direct login):
+
 ```bash
-sudo mkdir -p /opt/geecs && sudo chown "$USER" /opt/geecs
-git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git /opt/geecs/GEECS-Plugins
+sudo mkdir -p /opt/geecs && sudo chown geecs:geecs /opt/geecs
+sudo -u geecs git clone https://github.com/GEECS-BELLA/GEECS-Plugins.git /opt/geecs/GEECS-Plugins
 ```
 
-Install Poetry by the method approved for the host image (note where it
-lands — the official installer uses `~/.local/bin`, which systemd's service
-PATH does not include; the unit template therefore takes poetry's absolute
-path). Then install the worker environment, pointing poetry at 3.11
-explicitly (jammy's default `python3` is 3.10, which this package refuses —
-the repo's documented top environment failure):
+Install Poetry **as the service user** by the method approved for the host
+image (note where it lands — the official installer uses `~/.local/bin`,
+which systemd's service PATH does not include; the unit template therefore
+takes poetry's absolute path). Then install the worker environment,
+pointing poetry at 3.11 explicitly (jammy's default `python3` is 3.10,
+which this package refuses — the repo's documented top environment
+failure):
 
 ```bash
+sudo -u geecs -i
 cd /opt/geecs/GEECS-Plugins/GeecsBluesky
 poetry env use python3.11
 poetry install --extras "ca tiled qserver"
@@ -111,7 +120,9 @@ Edit the placeholder values in `geecs-qserver.service` for the host:
 - `QS_STARTUP_DIR=` — the queueserver startup profile directory.
 - `QS_EXPERIMENT=` — the GEECS experiment name served by this manager.
 - `EPICS_CA_ADDR_LIST=` — the CA gateway host, for example `192.168.6.14`.
-- `ExecStart=` — the checked-out `qserver/launch_re_manager.sh`.
+- `ExecStart=` — the service user's **absolute poetry path** (locate with
+  `command -v poetry` as that user) followed by
+  `run <checkout>/GeecsBluesky/qserver/launch_re_manager.sh`.
 
 Install and start:
 
@@ -141,6 +152,8 @@ Run these commands from a shell that has the `qserver` CLI available. The
 Poetry environment from the checkout is the expected source:
 
 ```bash
+cd /opt/geecs/GEECS-Plugins/GeecsBluesky
+sudo -u geecs -i
 cd /opt/geecs/GEECS-Plugins/GeecsBluesky
 poetry run qserver status
 ```
