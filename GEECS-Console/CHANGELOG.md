@@ -4,6 +4,18 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.23.1] - 2026-08-21
+
+### Fixed
+
+- Live-session finding (Scan008, 2026-08-21): Start/Stop gating froze on
+  the pre-scan snapshot for the whole scan when the document stream
+  narrated RUNNING before the first running status poll — the
+  equal-state poll skipped the refresh, leaving Stop disabled and Start
+  enabled mid-scan. `_on_queue_status` now refreshes gating on every
+  snapshot, transition or not (pinned by
+  `test_equal_state_poll_still_refreshes_gating`).
+
 ## [0.23.0] - 2026-08-21
 
 ### Removed
