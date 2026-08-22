@@ -111,6 +111,7 @@ What each section is for, and who reads it:
 | `[Experiment] rep_rate_hz` | Machine rep rate, for shot-count estimates | Scanner/Console |
 | `[tiled] uri`, `[tiled] api_key` | Tiled data-server access (optional) | GeecsBluesky, Scan Browser |
 | `[epics] ca_addr_list` | EPICS client addressing (optional, gateway clients) | GeecsBluesky and other CA clients |
+| `[qserver] host` | The queueserver worker machine — scans submit to the RE Manager there. Without this section the Console runs but cannot submit scans. Optional per-address overrides: `control_addr` (`tcp://host:60615`), `info_addr` (`tcp://host:60625`), `doc_addr` (`host:5568`) | GEECS Console (queueserver client) |
 
 Database credentials are **not** stored here: tools follow
 `[Paths] geecs_data` to the `Configurations.INI` file on the data share

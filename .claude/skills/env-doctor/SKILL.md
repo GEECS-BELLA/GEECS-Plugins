@@ -45,10 +45,10 @@ diagnose the package the current task is about.
 
    | Package | Install for full test suite |
    |---|---|
-   | `GeecsBluesky` | `poetry install --extras "ca tiled"` |
+   | `GeecsBluesky` | `poetry install --extras "ca tiled qserver"` |
    | `GeecsCAGateway` | `poetry install` (path-deps geecs-core) |
    | `GEECS-Core` | `poetry install` (self-contained) |
-   | `GEECS-Console` | `poetry install` (+ `--extras optimization` for the Xopt path) |
+   | `GEECS-Console` | `poetry install` (the optimization stack is worker-side — no console extra) |
    | `GEECS-LogTriage` | `poetry install` |
 
    Symptom of missing `ca`: the whole GeecsBluesky mock-device test layer

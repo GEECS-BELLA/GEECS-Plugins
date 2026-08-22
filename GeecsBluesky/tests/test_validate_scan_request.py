@@ -1,13 +1,12 @@
 """validate_scan_request — THE one fail-fast definition (issue #529).
 
-Pins the contract that submission-time validation (the GUI bridge's
-``reinitialize``) and execution-time validation (``run_scan_request``'s
-first phase) are the same function, so they cannot drift:
+Pins the contract that every submission path validates through
+``run_scan_request``'s first phase, one function, so callers cannot
+drift:
 
 * every resolvable category refuses loudly through the one function;
 * ``run_scan_request`` fails a bad request *before* touching any session
-  state (no ``shot_control`` attach on a doomed request);
-* the bridge routes ``reinitialize`` through the same function object.
+  state (no ``shot_control`` attach on a doomed request).
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ from geecs_bluesky.scan_request_runner import (
     run_scan_request,
     validate_scan_request,
 )
-from geecs_bluesky.scanner_bridge import bluesky_scanner
 from geecs_schemas import (
     ActionPlan,
     PseudoScanVariable,
@@ -271,7 +269,7 @@ def test_valid_plan_names_resolve_clean() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The two callers route through the one definition
+# The runner routes through the one definition
 # ---------------------------------------------------------------------------
 
 
@@ -279,28 +277,3 @@ def test_runner_fails_fast_before_touching_the_session() -> None:
     """Phase 1 refuses a bad request before ANY session attribute is used."""
     with pytest.raises(GeecsConfigurationError, match="ghost"):
         run_scan_request(_RefusingSession(), _request(save_sets=["ghost"]), _resolver())
-
-
-def test_bridge_reinitialize_calls_the_shared_validator(monkeypatch) -> None:
-    """reinitialize IS validate_scan_request (structural no-drift pin)."""
-    calls: list[tuple] = []
-
-    def _spy(request, resolver):
-        calls.append((request, resolver))
-        return request, {}, None
-
-    monkeypatch.setattr(bluesky_scanner, "validate_scan_request", _spy)
-    scanner = bluesky_scanner.BlueskyScanner.__new__(bluesky_scanner.BlueskyScanner)
-    scanner._optimization_loader = None
-    scanner._experiment_dir = "TestExp"
-    scanner._scan_request = None
-    scanner._request_resolver = None
-    scanner._completed_shots = 0
-    scanner._total_shots = 0
-    scanner._total_steps = 0
-    scanner._scan_number = None
-
-    resolver = _resolver()
-    request = _request()
-    assert scanner.reinitialize(request, resolver=resolver) is True
-    assert calls == [(request, resolver)]

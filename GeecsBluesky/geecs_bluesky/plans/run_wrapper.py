@@ -2,7 +2,7 @@
 
 Wraps any plan so it inherits the GEECS event-schema run metadata (scan number,
 folder, ``scan_id``, experiment) and per-detector native file saving — the same
-bookkeeping :class:`~geecs_bluesky.scanner_bridge.BlueskyScanner` applies — so a
+bookkeeping the deleted GUI bridge used to apply — so a
 custom notebook plan lands data in the same place, numbered the same way, with
 the same start-document shape as a GUI scan.
 

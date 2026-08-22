@@ -3,6 +3,16 @@
 All notable changes to `geecs-ca-gateway` are documented here, following
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.19.1] - 2026-08-21
+
+### Changed
+
+- Docs-only: `DEPLOYMENT.md` gains "Two facilities, two stacks" (§5) — the
+  2026-07-10 decision of one gateway + Tiled stack per facility machine
+  (physics-dictated placement, fault isolation, per-machine config chain;
+  consolidation belongs at the monitoring layer, never the access layer),
+  extracted from the retired cutover-strategy Planning doc.
+
 ## [0.19.0] - 2026-08-20
 
 ### Changed

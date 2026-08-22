@@ -61,24 +61,21 @@ class ActionRunDialog(QDialog):
         (:meth:`Submitter.describe_action`); called once at construction on
         a daemon thread.  A raised exception becomes the inline message.
     run : callable
-        ``(name) -> None`` — the engine's blocking execution
-        (:meth:`Submitter.run_action`); raises with an operator-readable
-        message on refusal/failure (e.g. the scan-in-progress refusal).
+        ``(name) -> None`` — queues the action as its own item
+        (:meth:`Submitter.run_action`, idle manager only since the
+        queueserver migration); raises with an operator-readable message
+        on refusal/failure.
     execution_enabled : bool
         The Actions menu's arming state at open; the window pushes later
         toggles through :meth:`set_execution_enabled`.
     report : callable
         ``(message) -> None`` — the window's status-bar/log reporter for
-        the running/done/failed lines.
-    request_during_scan : callable, optional
-        ``(name) -> None`` — :meth:`Submitter.request_action_during_scan`,
-        the during-scan path (pause → decide → run).  When a scan is
-        active the Run button uses this instead of *run*; without it (or
-        without *is_scanning*) the dialog only ever runs idle.
-    is_scanning : callable, optional
-        ``() -> bool`` — whether a scan is active *now*, so the Run button
-        picks the path and shows the right label.  The window also pushes
-        state changes via :meth:`set_scanning`.
+        the running/queued/failed lines.
+    scanning : bool, optional
+        Whether a scan is active at open — Run is disabled while one is
+        (actions are idle-only queue items; the pause-window action flow
+        died with migration decision 2).  The window pushes state changes
+        via :meth:`set_scanning`.
     """
 
     def __init__(
@@ -89,16 +86,13 @@ class ActionRunDialog(QDialog):
         run: Callable[[str], None],
         execution_enabled: bool,
         report: Callable[[str], None],
-        request_during_scan: Optional[Callable[[str], None]] = None,
-        is_scanning: Optional[Callable[[], bool]] = None,
+        scanning: bool = False,
     ) -> None:
         super().__init__(parent)
         self._name = name
         self._describe = describe
         self._run = run
         self._report = report
-        self._request_during_scan = request_during_scan
-        self._is_scanning = is_scanning
         self._execution_enabled = bool(execution_enabled)
         self._run_in_flight = False
         #: Run stays disabled until the dry-run preview loads — a slow
@@ -106,7 +100,7 @@ class ActionRunDialog(QDialog):
         #: (issue #575 misfire hardening).
         self._preview_loaded = False
         self._step_count = 0
-        self._scanning = bool(is_scanning()) if is_scanning is not None else False
+        self._scanning = bool(scanning)
 
         self.setWindowTitle(f"Action: {name}")
         self._build_widgets()
@@ -188,55 +182,51 @@ class ActionRunDialog(QDialog):
         self._refresh_run_enabled()
 
     def set_scanning(self, scanning: bool) -> None:
-        """Push the live scan state so Run picks the path and label.
+        """Push the live scan state — Run disables while a scan is active.
 
         Parameters
         ----------
         scanning : bool
-            Whether a scan is active (the window pushes lifecycle changes).
+            Whether a scan is active (the window pushes state changes).
         """
         self._scanning = bool(scanning)
         self._refresh_run_enabled()
 
-    def _during_scan(self) -> bool:
-        """Whether the Run button should use the pause-scan path."""
-        return self._scanning and self._request_during_scan is not None
-
     def _refresh_run_enabled(self) -> None:
-        """Gate Run and set its label — armed, previewed, not in flight."""
+        """Gate Run and set its label — armed, previewed, idle, not in flight."""
         ready = (
-            self._execution_enabled and self._preview_loaded and not self._run_in_flight
+            self._execution_enabled
+            and self._preview_loaded
+            and not self._run_in_flight
+            and not self._scanning
         )
         self.run_button.setEnabled(ready)
         # Step count on the button (issue #575) — only once the preview has
         # loaded, so an in-flight describe never shows a misleading "(0
-        # steps)" on either path.
+        # steps)".
         steps = (
             f" ({self._step_count} step{'s' if self._step_count != 1 else ''})"
             if self._preview_loaded
             else ""
         )
-        if self._during_scan():
-            self.run_button.setText(f"Pause scan & run{steps}")
-        else:
-            self.run_button.setText(f"Run{steps}")
+        self.run_button.setText(f"Run{steps}")
 
         if not self._execution_enabled:
             self.run_button.setToolTip(
                 "Check 'Enable action execution' in the Actions menu to arm "
                 "Run (preview is always available)."
             )
+        elif self._scanning:
+            self.run_button.setToolTip(
+                "A scan is active — actions run as their own queue items "
+                "when the manager is idle (the mid-scan action flow was "
+                "retired with the queueserver migration)."
+            )
         elif not self._preview_loaded:
             self.run_button.setToolTip("Waiting for the dry-run preview to load…")
-        elif self._during_scan():
-            self.run_button.setToolTip(
-                "Pause the running scan at its next safe point, then decide "
-                "whether to run this action (a pop-up asks execute / ignore / "
-                "abort).  Refused if the action writes the scan's trigger."
-            )
         else:
             self.run_button.setToolTip(
-                "Execute this action plan through the scan engine now."
+                "Queue this action plan as its own item and run it now."
             )
 
     # ------------------------------------------------------------------
@@ -291,47 +281,28 @@ class ActionRunDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _on_run_clicked(self) -> None:
-        """Dispatch the action — idle ``run_action`` or the pause-scan path."""
+        """Queue the action as its own item (idle manager only)."""
         if (
             self._run_in_flight
             or not self._execution_enabled
             or not self._preview_loaded
+            or self._scanning
         ):
             return
         self._run_in_flight = True
         self._refresh_run_enabled()
         name = self._name
+        message = f"queueing action '{name}'…"
+        self._report(message)
+        self.message_label.setText(message)
+        run = self._run
 
-        if self._during_scan():
-            # During a scan: ask the engine to pause and stage the action;
-            # the operator's execute/ignore/abort decision then arrives as a
-            # separate three-way modal on the window.  This call returns
-            # promptly (or raises a refusal).
-            message = f"pausing scan to run '{name}'…"
-            self._report(message)
-            self.message_label.setText(message)
-            request = self._request_during_scan
-            done_ok = "scan pausing — decide in the pop-up"
-
-            def call() -> tuple[bool, str]:
-                try:
-                    request(name)
-                except Exception as exc:  # noqa: BLE001 — refusals are messages
-                    return (False, str(exc))
-                return (True, done_ok)
-
-        else:
-            message = f"running action '{name}'…"
-            self._report(message)
-            self.message_label.setText(message)
-            run = self._run
-
-            def call() -> tuple[bool, str]:
-                try:
-                    run(name)
-                except Exception as exc:  # noqa: BLE001 — refusals are messages
-                    return (False, str(exc))
-                return (True, f"action '{name}' done")
+        def call() -> tuple[bool, str]:
+            try:
+                run(name)
+            except Exception as exc:  # noqa: BLE001 — refusals are messages
+                return (False, str(exc))
+            return (True, f"action '{name}' queued — running now")
 
         self._run_worker.run_async(call, name="console-action-run")
 

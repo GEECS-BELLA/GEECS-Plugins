@@ -1,6 +1,6 @@
 """Run a ScanRequest: resolve config names, map onto the session machinery.
 
-``session.run(request)`` (or ``BlueskyScanner.reinitialize``) hands a
+``session.run(request)`` hands a
 :class:`~geecs_schemas.scan_request.ScanRequest` here.  :func:`run_scan_request`
 
 - resolves every config *name* through a :class:`ConfigResolver`
@@ -61,7 +61,6 @@ from geecs_bluesky.db_runtime import (
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
-from geecs_bluesky.operator_channel import OperatorChannel
 from geecs_bluesky.plans.action_compiler import compile_action_plan
 from geecs_bluesky.plans.run_wrapper import claim_scan
 from geecs_bluesky.preflight import run_unserved_variables_check
@@ -180,7 +179,7 @@ def save_set_to_devices_config(
     the unmarked synchronous entries).  Each recorded ``variable_list`` is
     resolved per the ``db_scalars`` contract via
     :func:`~geecs_bluesky.db_runtime.resolve_entry_scalars`; with
-    *scalar_policy* ``None`` (GUI bridge / off-network) only explicit scalars
+    *scalar_policy* ``None`` (no DB / off-network) only explicit scalars
     are recorded.
 
     Returns
@@ -761,6 +760,36 @@ def apply_experiment_defaults(
     return request, applied
 
 
+def metadata_applied_defaults(
+    applied_defaults: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """Return event-model-safe provenance records for applied defaults.
+
+    The execution-side merge logic keeps dotted field names such as
+    ``actions.setup`` because they are concise and useful internally.
+    Event-model validates metadata keys recursively, though, so those
+    dotted names cannot be emitted as dictionary keys in the start
+    document.  Emit them as values instead.
+    """
+    return [
+        {"field": field, "value": value} for field, value in applied_defaults.items()
+    ]
+
+
+def metadata_submission(request: ScanRequest) -> dict[str, Any] | None:
+    """Return the request's submission-provenance record for run metadata.
+
+    ``ScanRequest.submission`` (geecs-schemas 0.10.0) is stamped by the
+    submitting client at queue time — who queued the request, when, and the
+    pre-submit preflight outcomes.  The engine records it verbatim and never
+    acts on it.  ``None`` when the client stamped nothing (headless callers,
+    saved presets), so callers gate the metadata key on the return value.
+    """
+    if request.submission is None:
+        return None
+    return request.submission.model_dump(mode="json")
+
+
 def resolve_experiment_defaults(resolver: ConfigResolver) -> Any | None:
     """Return the resolver's experiment defaults, or ``None`` (tolerantly).
 
@@ -925,6 +954,148 @@ class PseudoMovableTarget:
 
 
 MovableTarget = PlainMovableTarget | PseudoMovableTarget
+
+
+@dataclass(frozen=True)
+class StepScanSpec:
+    """The pure execution picture of a step/noscan request (no devices).
+
+    Everything :func:`run_scan_request` derives from the request *before*
+    touching hardware, packaged so the legacy entry point and the
+    queueserver plan preamble
+    (:func:`~geecs_bluesky.plans.scan_request_plan.geecs_scan_request_plan`)
+    share one definition of the run metadata / ScanInfo / grid shapes and
+    cannot drift (the acceptance contract is document equality).
+
+    Attributes
+    ----------
+    md :
+        The run-metadata dict (``scan_request_mode``, provenance keys,
+        grid/pseudo metadata) — the caller merges ``description`` on top.
+    scan_info :
+        The ScanInfo ini overrides (``scan_mode``, ``scan_parameter``,
+        legacy 1-D grid fields).
+    positions :
+        The positions list handed to the scan plan: ``[None]`` for noscan,
+        the axis values for a single axis, grid-point tuples for a grid.
+    n_steps, n_shots :
+        Progress totals (recorded for consumers of the built spec; the
+        GUI's live totals now come from the run start document).
+    """
+
+    md: dict[str, Any]
+    scan_info: dict[str, Any]
+    positions: list[Any]
+    n_steps: int
+    n_shots: int
+
+
+def build_step_scan_spec(
+    request: ScanRequest,
+    axis_resolved: list["MovableTarget"],
+    *,
+    applied_defaults: Mapping[str, Any],
+    slots: Mapping[str, list[str]],
+    dropped_unserved: Mapping[str, list[str]],
+    dropped_unserved_devices: list[str],
+    telemetry_selected: Mapping[str, list[str]],
+) -> StepScanSpec:
+    """Assemble the pure run picture of a step/noscan request.
+
+    Relocated verbatim from :func:`run_scan_request`'s inline metadata
+    assembly (queueserver round 1) so the plan preamble reuses it; behavior
+    is pinned by the existing runner suite.  Multi-axis requests become an
+    outer-product grid (first axis outermost/slowest, one bin per grid
+    point) with the legacy 1-D ScanInfo fields describing the outermost
+    axis.
+
+    Parameters
+    ----------
+    request :
+        The **post-defaults** validated request (step or noscan mode).
+    axis_resolved :
+        The resolved movable target per ``request.axes`` entry (empty for
+        noscan) — :func:`resolve_movable_target` output, in axis order.
+    applied_defaults, slots, dropped_unserved, dropped_unserved_devices,
+    telemetry_selected :
+        The provenance records accumulated by the prologue; each lands in
+        run metadata only when non-empty (pass ``{}``/``[]`` to omit —
+        e.g. ``telemetry_selected`` must already be gated on the
+        telemetry-enabled flag).
+    """
+    md: dict[str, Any] = {"scan_request_mode": request.mode.value}
+    # Provenance: which named save sets were unioned for this scan.
+    md["save_sets"] = list(request.save_sets)
+    if dropped_unserved:
+        # Provenance: variables (and whole devices) dropped by the
+        # unserved-variables pre-flight — the run proceeded without them.
+        md["dropped_unserved_variables"] = {
+            dev: list(vars_) for dev, vars_ in dropped_unserved.items()
+        }
+    if dropped_unserved_devices:
+        md["dropped_unserved_devices"] = list(dropped_unserved_devices)
+    if applied_defaults:
+        # Provenance: the run records exactly which experiment defaults
+        # filled in fields the submitter left unset.
+        md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
+    submission = metadata_submission(request)
+    if submission is not None:
+        # Provenance: the submitting client's record — who queued the
+        # request, when, and the pre-submit preflight outcomes (#648).
+        md["submission"] = submission
+    if any(slots.values()):
+        # Provenance: the assembled per-slot execution order (defaults +
+        # entry rituals + the request's own, mirrored on closeout).
+        md["action_plans"] = {k: list(v) for k, v in slots.items() if v}
+    if telemetry_selected:
+        md["background_telemetry"] = {
+            dev: list(vars_) for dev, vars_ in telemetry_selected.items()
+        }
+    scan_info: dict[str, Any] = {
+        "shots": request.shots_per_step,
+        "background": request.background,
+    }
+
+    if request.mode is ScanRequestMode.NOSCAN:
+        scan_info["scan_mode"] = "noscan"
+        return StepScanSpec(md, scan_info, [None], 1, request.shots_per_step)
+
+    targets = [target.label for target in axis_resolved]
+    value_lists = [axis.positions.to_values() for axis in request.axes]
+    pseudo_meta = {
+        target.variable_name: target.metadata()
+        for target in axis_resolved
+        if isinstance(target, PseudoMovableTarget)
+    }
+    if pseudo_meta:
+        md["pseudo_variables"] = pseudo_meta
+
+    scan_info["scan_mode"] = "standard"
+    scan_info["scan_parameter"] = ",".join(targets)
+    if len(request.axes) == 1:
+        positions: list[Any] = list(value_lists[0])
+        md["scan_variable"] = request.axes[0].variable
+    else:
+        # Outer product, first axis outermost/slowest (the schema's
+        # documented grid semantics); one bin per grid point.
+        positions = [tuple(point) for point in itertools.product(*value_lists)]
+        md["scan_variable"] = ",".join(a.variable for a in request.axes)
+        md["scan_axes"] = [a.variable for a in request.axes]
+        md["grid_shape"] = list(request.grid_shape())
+        md["num_grid_points"] = request.n_steps()
+        # ScanInfo is a legacy 1-D format: Start/End/Step describe the
+        # outermost axis; the grid truth lives in the run metadata.
+        outer = value_lists[0]
+        scan_info["start"] = outer[0]
+        scan_info["end"] = outer[-1]
+        scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+    return StepScanSpec(
+        md,
+        scan_info,
+        positions,
+        len(positions),
+        len(positions) * request.shots_per_step,
+    )
 
 
 def resolve_movable_target(spec: ScanVariableSpec, name: str) -> MovableTarget:
@@ -1092,19 +1263,19 @@ def make_served_set_provider(session: Any) -> GeecsDbServedSetProvider | None:
 def _preflight_unserved(
     session: Any,
     devices_config: dict[str, dict[str, Any]],
-    operator_channel: "OperatorChannel | None",
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, list[str]], list[str]]:
     """Run the unserved-variables check over *devices_config* (pre-claim).
 
     Thin glue between :func:`make_served_set_provider` and
     :func:`~geecs_bluesky.preflight.run_unserved_variables_check`; returns
-    as the latter (``None`` config means the operator aborted).
+    as the latter.  Headless by construction (queueserver decision 3): the
+    operator was asked client-side at submission, so a raised question
+    takes its continue-and-drop default with a WARNING.
     """
     provider = make_served_set_provider(session)
     return run_unserved_variables_check(
         devices_config,
         provider.served_by_device if provider is not None else None,
-        operator_channel,
     )
 
 
@@ -1228,11 +1399,7 @@ def run_scan_request(
     suggester: Any | None = None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     device_requirements: Any | None = None,
-    preflight: Callable[[list, bool], list | None] | None = None,
-    on_scan_start: Callable[[int, int], None] | None = None,
-    operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
-    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Execute *request* on *session*; return the run uid.
 
@@ -1266,7 +1433,7 @@ def run_scan_request(
         be instantiated in this package.
     optimization_binder :
         Alternative to *objective*/*suggester* for ``optimize`` mode: a
-        scanner-layer hook (the GUI bridge's injected
+        scanner-layer hook (the queueserver worker's registered
         ``optimization_loader`` seam) called as
         ``binder(devices=..., scan_tag=..., scan_folder=...) ->
         (objective, suggester)`` with the connected movables + detectors
@@ -1285,44 +1452,19 @@ def run_scan_request(
         pre-flight as everything else and are recorded in run metadata as
         ``provisioned_device_requirements``.  ``None``/empty is a no-op;
         ignored on non-optimize modes.
-    preflight :
-        Optional scanner-layer hook (the GUI bridge's operator-dialog
-        seam), called pre-claim with the fully assembled detector list and
-        a strict flag: ``preflight(detectors, strict) -> list | None``.
-        The returned (possibly reduced) list becomes the scan's detectors;
-        ``None`` aborts the run (created devices are still disconnected).
-        Not called on the optimize path — a detector-level optimize
-        preflight is a later seam (the config-level unserved-variables
-        check *does* run there; see *operator_channel*).  Headless callers
-        omit it (behavior unchanged when ``None``).
-    on_scan_start :
-        Optional progress-totals hook (the GUI bridge's progress seam),
-        called with ``(total_steps, total_shots)`` immediately before the
-        session scan starts.  On the optimize path the totals are the
-        upper bound ``(max_iterations, max_iterations × shots_per_step)``
-        — the suggester may stop early.
-    operator_channel :
-        Where the runner's own pre-flight questions go (today: the
-        unserved-variables check, which runs pre-claim over the devices
-        config on **every** mode — noscan/step *and* optimize — before any
-        detector is built).  ``None`` (headless default) answers with each
-        question's default: continue-and-drop with a WARNING.  Distinct
-        from *preflight*, which vets the already-built detector list.
     should_abort :
-        Optional operator-stop probe (the GUI bridge passes
-        ``lambda: self._abort_requested``), consulted between the
+        Optional external-stop probe, consulted between the
         initialization stages — after configuration resolution, after
-        device connect, after the *preflight* hook, and immediately before
-        the scan-number claim — because ``RE.abort()`` cannot stop a scan
-        that has not reached the RunEngine yet.  Every checkpoint is
-        pre-claim, so an init-stage stop burns no scan number; on trip the
-        runner disconnects what it created, logs one INFO line, sets
-        ``session.last_run_aborted`` (the #563 aborted-outcome contract)
-        and returns ``None``.  The callable is also handed to
-        ``session.scan``/``session.optimize``, whose in-plan gate closes
-        the residual window between the last checkpoint here and the
-        engine reporting ``running``.  ``None`` (headless default) checks
-        nothing.
+        device connect, and immediately before the scan-number claim —
+        because ``RE.abort()`` cannot stop a scan that has not reached the
+        RunEngine yet.  Every checkpoint is pre-claim, so an init-stage
+        stop burns no scan number; on trip the runner disconnects what it
+        created, logs one INFO line, sets ``session.last_run_aborted``
+        (the #563 aborted-outcome contract) and returns ``None``.  The
+        callable is also handed to ``session.scan``/``session.optimize``,
+        whose in-plan gate closes the residual window between the last
+        checkpoint here and the engine reporting ``running``.  ``None``
+        (headless default) checks nothing.
 
     Returns
     -------
@@ -1341,9 +1483,9 @@ def run_scan_request(
         sets and no optimizer device requirements to provision).
     """
     # Phase 1 — the one fail-fast definition (issue #529): everything that
-    # must resolve does so here, before any session state is touched.  The
-    # GUI bridge's reinitialize calls the same function, so submission-time
-    # and execution-time validation cannot drift.
+    # must resolve does so here, before any session state is touched.
+    # Clients run the same function pre-submit (the console's preflight),
+    # so submission-time and execution-time validation cannot drift.
     # The returned raw defaults object serves execution-time flags that are
     # not request fields (background_telemetry) from the SAME file snapshot
     # the validation applied — one read per run, no torn-edit window.
@@ -1375,12 +1517,9 @@ def run_scan_request(
             suggester=suggester,
             optimization_binder=optimization_binder,
             device_requirements=device_requirements,
-            on_scan_start=on_scan_start,
             applied_defaults=applied_defaults,
             skipped_actions=skipped_actions,
-            operator_channel=operator_channel,
             should_abort=should_abort,
-            pause_supervisor=pause_supervisor,
         )
 
     # A step/noscan request without a save set was already refused by
@@ -1395,10 +1534,11 @@ def run_scan_request(
     devices_config = save_set_to_devices_config(save_set, scalar_policy)
     # Unserved-variables pre-flight (pre-claim, pre-device-build): a variable
     # the gateway does not serve has no PV, so its detector could never
-    # connect — ask the operator (or headless: drop with a WARNING) now
+    # connect — drop it now with a WARNING (headless; the operator was
+    # asked client-side pre-submit, decision 3)
     # instead of dying in a 20 s NotConnectedError during connect.
     checked_config, dropped_unserved, dropped_unserved_devices = _preflight_unserved(
-        session, devices_config, operator_channel
+        session, devices_config
     )
     if checked_config is None:
         logger.warning(
@@ -1467,130 +1607,47 @@ def run_scan_request(
         if _stopped_during_init(session, should_abort, "after device connect"):
             return None
 
-        if preflight is not None:
-            # Scanner-layer seam (operator dialogs): runs pre-claim by
-            # construction — the claim happens inside session.scan below.
-            checked = preflight(detectors, mode == "strict")
-            if checked is None:
-                logger.warning(
-                    "ScanRequest preflight aborted the scan (pre-claim; no "
-                    "scan number was burned)"
-                )
-                return None
-            detectors = list(checked)
-            if _stopped_during_init(session, should_abort, "after preflight"):
-                return None
-
-        md: dict[str, Any] = {"scan_request_mode": request.mode.value}
-        # Provenance: which named save sets were unioned for this scan.
-        md["save_sets"] = list(request.save_sets)
-        if dropped_unserved:
-            # Provenance: variables (and whole devices) dropped by the
-            # unserved-variables pre-flight — the run proceeded without them.
-            md["dropped_unserved_variables"] = {
-                dev: list(vars_) for dev, vars_ in dropped_unserved.items()
-            }
-        if dropped_unserved_devices:
-            md["dropped_unserved_devices"] = list(dropped_unserved_devices)
-        if applied_defaults:
-            # Provenance: the run records exactly which experiment defaults
-            # filled in fields the submitter left unset.
-            md["applied_defaults"] = applied_defaults
-        if any(slots.values()):
-            # Provenance: the assembled per-slot execution order (defaults +
-            # entry rituals + the request's own, mirrored on closeout).
-            md["action_plans"] = {k: v for k, v in slots.items() if v}
-        if telemetry_enabled and telemetry_selected:
-            md["background_telemetry"] = {
-                dev: list(vars_) for dev, vars_ in telemetry_selected.items()
-            }
-        scan_info: dict[str, Any] = {
-            "shots": request.shots_per_step,
-            "background": request.background,
-        }
-
-        if request.mode is ScanRequestMode.NOSCAN:
-            scan_info["scan_mode"] = "noscan"
-            # The last pre-claim checkpoint: the claim happens inside
-            # session.scan, immediately below.
-            if _stopped_during_init(session, should_abort, "before scan-number claim"):
-                return None
-            if on_scan_start is not None:
-                on_scan_start(1, request.shots_per_step)
-            return session.scan(
-                detectors=detectors,
-                motor=None,
-                positions=[None],
-                shots_per_step=request.shots_per_step,
-                mode=mode,
-                description=request.description,
-                md=md,
-                scan_info=scan_info,
-                setup=setup,
-                per_step=per_step,
-                closeout=closeout,
-                should_abort=should_abort,
-                pause_supervisor=pause_supervisor,
-            )
-
         movables: list = []
-        targets: list[str] = []
-        value_lists: list[list[float]] = []
-        for target, axis in zip(axis_resolved, request.axes):
+        for target in axis_resolved:
             movable = build_movable(session, target)
             created.append(movable)
             movables.append(movable)
-            targets.append(target.label)
-            value_lists.append(axis.positions.to_values())
-        pseudo_meta = {
-            target.variable_name: target.metadata()
-            for target in axis_resolved
-            if isinstance(target, PseudoMovableTarget)
-        }
-        if pseudo_meta:
-            md["pseudo_variables"] = pseudo_meta
-
-        scan_info["scan_mode"] = "standard"
-        scan_info["scan_parameter"] = ",".join(targets)
-        if len(request.axes) == 1:
-            motor_arg: Any = movables[0]
-            positions: list[Any] = value_lists[0]
-            md["scan_variable"] = request.axes[0].variable
+        if request.mode is ScanRequestMode.NOSCAN:
+            motor_arg: Any = None
+        elif len(request.axes) == 1:
+            motor_arg = movables[0]
         else:
-            # Outer product, first axis outermost/slowest (the schema's
-            # documented grid semantics); one bin per grid point.
             motor_arg = movables
-            positions = [tuple(point) for point in itertools.product(*value_lists)]
-            md["scan_variable"] = ",".join(a.variable for a in request.axes)
-            md["scan_axes"] = [a.variable for a in request.axes]
-            md["grid_shape"] = list(request.grid_shape())
-            md["num_grid_points"] = request.n_steps()
-            # ScanInfo is a legacy 1-D format: Start/End/Step describe the
-            # outermost axis; the grid truth lives in the run metadata.
-            outer = value_lists[0]
-            scan_info["start"] = outer[0]
-            scan_info["end"] = outer[-1]
-            scan_info["step"] = (outer[1] - outer[0]) if len(outer) > 1 else 0
+
+        # The pure run picture (md / ScanInfo / positions / totals) — one
+        # definition shared with the queueserver plan preamble.
+        spec = build_step_scan_spec(
+            request,
+            axis_resolved,
+            applied_defaults=applied_defaults,
+            slots=slots,
+            dropped_unserved=dropped_unserved,
+            dropped_unserved_devices=dropped_unserved_devices,
+            telemetry_selected=telemetry_selected if telemetry_enabled else {},
+        )
+
         # The last pre-claim checkpoint: the claim happens inside
         # session.scan, immediately below.
         if _stopped_during_init(session, should_abort, "before scan-number claim"):
             return None
-        if on_scan_start is not None:
-            on_scan_start(len(positions), len(positions) * request.shots_per_step)
         return session.scan(
             detectors=detectors,
             motor=motor_arg,
-            positions=positions,
+            positions=spec.positions,
             shots_per_step=request.shots_per_step,
             mode=mode,
             description=request.description,
-            md=md,
-            scan_info=scan_info,
+            md=spec.md,
+            scan_info=spec.scan_info,
             setup=setup,
             per_step=per_step,
             closeout=closeout,
             should_abort=should_abort,
-            pause_supervisor=pause_supervisor,
         )
     finally:
         if created and hasattr(session, "disconnect"):
@@ -1607,12 +1664,9 @@ def _run_optimize_request(
     suggester: Any | None,
     optimization_binder: Callable[..., tuple[Any, Any]] | None = None,
     device_requirements: Any | None = None,
-    on_scan_start: Callable[[int, int], None] | None = None,
     applied_defaults: dict[str, Any] | None = None,
     skipped_actions: dict[str, list[str]] | None = None,
-    operator_channel: "OperatorChannel | None" = None,
     should_abort: Callable[[], bool] | None = None,
-    pause_supervisor: Any | None = None,
 ) -> str | None:
     """Map an optimize-mode request onto :meth:`GeecsSession.optimize`.
 
@@ -1632,8 +1686,7 @@ def _run_optimize_request(
         ``"strict"`` or ``"free_run"``.
     objective, suggester :
         The ready-made optimization callables.
-    optimization_binder, device_requirements, on_scan_start, operator_channel,
-    should_abort :
+    optimization_binder, device_requirements, should_abort :
         As in :func:`run_scan_request` (the unserved-variables check runs
         here too, pre-claim, over the effective devices config — save-set
         devices *and* optimizer-provisioned ones; the *should_abort*
@@ -1723,7 +1776,7 @@ def _run_optimize_request(
             devices_config,
             dropped_unserved,
             dropped_unserved_devices,
-        ) = _preflight_unserved(session, devices_config, operator_channel)
+        ) = _preflight_unserved(session, devices_config)
         if devices_config is None:
             logger.warning(
                 "ScanRequest preflight aborted the optimization (unserved "
@@ -1776,7 +1829,10 @@ def _run_optimize_request(
         if dropped_unserved_devices:
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
         if applied_defaults:
-            md["applied_defaults"] = applied_defaults
+            md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
+        submission = metadata_submission(request)
+        if submission is not None:
+            md["submission"] = submission
         if skipped:
             md["skipped_action_plans"] = skipped
             logger.warning(
@@ -1816,9 +1872,6 @@ def _run_optimize_request(
                 )
 
             max_iterations = spec.max_iterations or 20
-            if on_scan_start is not None:
-                # Upper-bound totals: the suggester may stop early.
-                on_scan_start(max_iterations, max_iterations * request.shots_per_step)
 
             # The runner claimed → the runner attaches scan.log (the session
             # only self-attaches when *it* claimed the number).
@@ -1837,7 +1890,6 @@ def _run_optimize_request(
                     scan_number=scan_number,
                     scan_folder=scan_folder,
                     should_abort=should_abort,
-                    pause_supervisor=pause_supervisor,
                 )
             if claimed_here and getattr(session, "last_run_aborted", False):
                 # session.optimize returned the aborted outcome quietly

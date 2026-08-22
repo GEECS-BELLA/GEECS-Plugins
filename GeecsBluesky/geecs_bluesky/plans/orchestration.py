@@ -1,4 +1,4 @@
-"""The one scan-orchestration recipe shared by GeecsSession and BlueskyScanner.
+"""The one scan-orchestration recipe behind every GEECS scan entry point.
 
 Composes the acquisition-mode plan (free-run reference-paced vs strict
 plan-owned single-shot), the run wrapper (scan numbering, native saving, run
@@ -31,12 +31,13 @@ rationale: ``GeecsBluesky/CLAUDE.md`` (shot-control composition per mode).
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Literal, Sequence
 
 import bluesky.preprocessors as bpp
 
 from geecs_bluesky.exceptions import GeecsConfigurationError
 from geecs_bluesky.plans.free_run_step_scan import geecs_free_run_step_scan
+from geecs_bluesky.plans.pause_semantics import ShotControlPauseQuiescer
 from geecs_bluesky.plans.run_wrapper import geecs_run_wrapper, save_enable_plan
 from geecs_bluesky.plans.step_scan import geecs_step_scan, normalize_motors
 from geecs_bluesky.shot_controller import ShotController
@@ -47,6 +48,12 @@ logger = logging.getLogger(__name__)
 def _chain_setup(setup: Callable, inner):
     """Prepend the setup plan to *inner* (fresh generator via the callable)."""
     yield from setup()
+    yield from inner
+
+
+def _with_pause_quiescer(quiescer: ShotControlPauseQuiescer, inner):
+    """Register the quiescer as the plan's very first message, then run it."""
+    yield from quiescer.register()
     yield from inner
 
 
@@ -73,6 +80,7 @@ def build_step_scan_plan(
     setup: Callable | None = None,
     per_step: Callable | None = None,
     closeout: Callable | None = None,
+    failed_move_policy: Literal["raise", "pause"] = "raise",
 ):
     """Build the full scan plan for one step scan / statistics collection.
 
@@ -99,6 +107,12 @@ def build_step_scan_plan(
         Plan-stub callables (each call returns a fresh message generator) —
         typically compiled ActionPlans.  See the module docstring for the
         exact placement and abort semantics of each hook.
+    failed_move_policy : {"raise", "pause"}
+        Forwarded to :func:`~geecs_bluesky.plans.step_scan.geecs_step_scan` /
+        :func:`~geecs_bluesky.plans.free_run_step_scan.geecs_free_run_step_scan`.
+        ``"raise"`` (default) is exact pre-#641 behavior — every existing
+        caller (the bridge/console path via ``scan_request_plan.py``) is
+        unaffected until it explicitly opts into ``"pause"``.
 
     Returns
     -------
@@ -129,6 +143,7 @@ def build_step_scan_plan(
             fire_shot=controller.fire_shot,
             per_step=per_step,
             enable_saving=enable_saving,
+            failed_move_policy=failed_move_policy,
         )
     else:
         if reference is None:
@@ -160,6 +175,7 @@ def build_step_scan_plan(
             quiesce_trigger=controller.quiesce if controller else None,
             per_step=per_step,
             enable_saving=enable_saving,
+            failed_move_policy=failed_move_policy,
         )
 
     if setup is not None:
@@ -205,4 +221,13 @@ def build_step_scan_plan(
     # every exit path (ophyd-async staging is a bool, not a refcount — nested
     # plans must not re-stage these devices).
     plan = bpp.stage_wrapper(plan, scalar_devices)
+    # Quiesce-on-pause (queueserver decision 1, issue #641): register a
+    # Pausable quiescer as the very first message, so ANY pause — operator
+    # deferred/immediate or the in-plan failed-move pause — stops the
+    # trigger (OFF) and resume re-asserts the interrupted standing state
+    # before the rewind replay runs.  Registration must precede everything,
+    # staging included, so even a pause during setup is covered.  Mechanism
+    # rationale: geecs_bluesky/plans/pause_semantics.py.
+    if controller is not None:
+        plan = _with_pause_quiescer(ShotControlPauseQuiescer(controller), plan)
     return plan

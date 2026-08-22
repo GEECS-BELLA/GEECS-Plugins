@@ -4,6 +4,376 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.3] - 2026-08-21
+
+### Removed
+
+- **`ROADMAP.md` deleted** (Planning-prune audit finding): it presented
+  deleted machinery as current — `BlueskyScanner` (deleted W5, #649),
+  the `GEECS_BLUESKY_ACQUISITION_MODE` env var (died with the
+  exec_config path, G3), `RunControl`, and the pre-queueserver
+  architecture throughout.  Its historical record lives in git history
+  and at the `legacy-scanner-final` tag; its still-live content was
+  either already covered (CLAUDE.md Known Gaps — including the
+  acquisition-modes deferred list 0.57.2 extracted there — and
+  `TILED_SETUP.md`) or folded in below.
+
+### Changed
+
+- Docs-only: `README.md` "Still open" line corrected (setup/closeout
+  actions, optimization scans, and background mode — a noscan with the
+  `background` flag — are built and live; TDMS remains the open
+  feature), and the CLAUDE.md Known Gaps background bullet rewritten to
+  match (review finding on this PR); `TILED_SETUP.md` no longer
+  points at `ROADMAP.md` for the data-pipeline strategic question
+  (stated inline instead); CLAUDE.md Known Gaps picks up the one
+  otherwise-untracked roadmap item (requested rep-rate throttling).
+
+## [0.57.2] - 2026-08-21
+
+### Changed
+
+- Docs-only: the executed Planning docs (acquisition_modes, cutover
+  strategy 00+02, external_assets) are deleted repo-side; their
+  load-bearing content now lives in this package — the acquisition-modes
+  deferred list, the resumable-long-scans note, the
+  manual-intervention-provenance gap, and the ECS-dump→baseline-stream
+  pattern in `CLAUDE.md` (Known Gaps / worker section); the
+  incremental-vs-absolute shot-id rationale in `devices/shot_id.py`; the
+  arrival-latency emit-with-offsets rationale in `devices/contributor.py`;
+  the TDMS disposition and the asset-adapter gap in `TILED_SETUP.md`; the
+  deliberately-untested list in `qserver/README.md`. Remaining references
+  to the deleted docs retargeted (`EVENT_SCHEMA.md` is stated as the
+  canonical contract; CurveZMQ key management now tracked as issue #660);
+  `plans/pause_semantics.py`'s docstring trued up — the engine-side pause
+  supervisor is deleted (W5) and the quiescer is the one pause owner.
+
+## [0.57.1] - 2026-08-21
+
+### Changed
+
+- Docs-only: `optimization/worker_loader.py` un-twinned (its console-side
+  twin was deleted in the W5-adjacent cleanup — this is now the one
+  loader implementation); the last four present-tense "GUI bridge"
+  comment mentions rewritten (`scan_request_runner.py`, `session.py`,
+  `models/shot_control.py`) — the #655 review's residue list.
+
+## [0.57.0] - 2026-08-21
+
+### Removed
+
+- **The GUI bridge machinery (W5, issue #649)** — the RE Manager's
+  queue/status API is this functionality now:
+  - `scanner_bridge/` (`BlueskyScanner`) and its test suites.
+  - `plans/action_direct.py` and the three-way `ActionDecisionRequest`
+    (decision 2: pause-window actions dropped; actions are ordinary
+    queue items).
+  - `operator_channel.py` and the whole `events.py` vocabulary
+    (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`) — zero
+    emitters/consumers remained after the bridge; the mkdocs
+    `scan_events` API page removed with it.  `OperatorQuestion` and the
+    `ANSWER_*` constants moved into `preflight.py` (GEECS-Console's
+    pre-submit checks are their live consumer).
+  - `pause_supervisor.py` **whole** (the brief's "most of" was generous —
+    nothing had a consumer after the above; `ShotControlPauseQuiescer`
+    in `plans/pause_semantics.py` is the live pause-quiesce equivalent)
+    and `GeecsSession._run_supervised` with the `pause_supervisor`
+    parameters on `scan`/`optimize`.
+  - Bridge-only device checks `GatewayLivenessCheck` /
+    `FreeRunStalenessCheck` (their only invoker was the bridge's
+    preflight hook; the console's pre-submit CONNECTED/staleness reads
+    are the successors, run where an operator can answer).
+  - Bridge-only runner hooks: `run_scan_request` loses
+    `preflight=`, `on_scan_start=`, `operator_channel=`,
+    `pause_supervisor=` (`should_abort=` survives as the one external
+    stop probe); `run_preflight`/`run_unserved_variables_check` lose
+    their channel parameter (engine-side an `Ask` takes its
+    `on_default` with one WARNING).
+
+### Changed
+
+- **The `session.scan` tail-helper extraction** (PR #639 disposition
+  row 5): `GeecsSession.build_claimed_scan_plan` is THE one post-claim
+  tail (ScanInfo → role wiring → native-save configuration →
+  `build_step_scan_plan`), shared by `session.scan` and the queue plan's
+  preamble — the plan's ~25-line copy is gone.  `failed_move_policy` is
+  the helper's parameter: the queue plan opts into `"pause"`, the
+  headless default stays `"raise"` (no operator to answer a pause; the
+  #645 pin's rationale updated accordingly).
+- Stop-from-paused stays pinned hermetically
+  (`test_pause_semantics.py::test_failed_move_then_stop_ends_gracefully`
+  — pure RE + plan messages, no deleted machinery involved).
+
+## [0.56.0] - 2026-08-21
+
+### Added
+
+- Worker-side enablers for the W6 console queueserver client (#648):
+  - **`md["submission"]` recording** — a `ScanRequest.submission`
+    provenance record (geecs-schemas 0.10.0) is copied verbatim into run
+    metadata at all three emission sites (runner step/optimize, plan
+    optimize; the shared step-path builder covers both entry points).
+    `metadata_submission()` in `scan_request_runner` is the one helper.
+  - **`geecs_run_action_plan(name)`** — on-demand ActionPlan execution as
+    an ordinary queue item (decision 2: actions are queue items). Same
+    resolution/flattening/prefetch code paths as the in-scan action
+    slots, in-plan connects, finalize disconnect, no run opened. Manager
+    signature validation pinned (the 0.55.3 bare-namespace lesson).
+  - **ZMQ document publisher** — the startup profile publishes bluesky
+    documents to a `bluesky-0MQ-proxy` (launcher-started, 5567 in /
+    5568 out, `QS_DOC_PROXY*` / `QS_DOC_PUBLISH_ADDR` overrides,
+    best-effort; a startup TCP probe warns when no proxy answers, since
+    a zmq PUB connect succeeds silently). This is the GUI progress
+    stream; the manager's `--zmq-publish-console` stream is text, not
+    documents.
+  - **Manual-verb functions** — `geecs_move_variable` /
+    `geecs_describe_action` in the startup namespace for the manager's
+    `function_execute` (foreground calls require an idle manager — the
+    queueserver enforcement of the session's "scan in progress"
+    refusals); `operator` group allows exactly those two functions.
+    Both queue plans now check the session's manual-move lock before
+    starting (the PR #597 mutual exclusion, carried to the queue path —
+    background-executed moves leave the manager IDLE while converging).
+
+## [0.55.4] - 2026-08-21
+
+### Fixed
+
+- Formatting-only: `ruff format` applied to two files left unformatted by
+  0.55.3 (`scan_request_runner.py`, `tests/test_pause_semantics.py`) —
+  they failed the pre-commit CI job on every PR targeting the branch. No
+  behavior change.
+
+## [0.55.3] - 2026-08-21
+
+### Fixed
+
+- **`geecs_scan_request_plan` was unsubmittable through the RE Manager**
+  (live-integration-checkpoint finding, first real `qserver queue add`
+  against the merged assets): the manager re-evaluates the plan
+  signature's annotation strings in a bare namespace at submission, so
+  the `dict | ScanRequest` / `ConfigResolver | None` annotations made
+  *every* submission fail plan validation with "`Model` is not fully
+  defined" — list generation and all in-process tests never exercise
+  that path. The queue-facing signature is now `request: dict` with the
+  keyword-only injection seams unannotated (real types stay in the
+  docstring; runtime behaviour unchanged — the body still accepts a
+  validated `ScanRequest`). Pinned by
+  `test_qserver_startup.py::test_plan_signature_passes_manager_validation`,
+  which runs the manager's own `_process_plan`/`validate_plan` pair over
+  a real noscan item.
+- **Review fix wave on the above** (adversarial pass, 2026-08-21): CI now
+  installs the `qserver` extra for this package so the pin test actually
+  runs (it importorskips `bluesky_queueserver` and was silently skipped);
+  the signature constraint is restated in the function docstring's Notes
+  (linter/refactor discoverability); qserver docs clarified
+  (`scan_analysis_configs_path` needed only for analyzer-based optimize
+  requests; the `qserver` CLI parses plan payloads as Python literals,
+  not JSON).
+
+## [0.55.2] - 2026-08-20
+
+### Fixed
+
+- **Optimize-path quiesce-on-pause** (confirm-pass finding on the
+  decision-4 wiring): the queueserver optimize branch composes
+  `geecs_adaptive_scan` directly (never `build_step_scan_plan`), so no
+  pause quiescer was registered — an operator pause mid-optimization
+  would have left the trigger in SCAN with saving enabled. The branch now
+  wraps its run plan with `ShotControlPauseQuiescer` when a controller
+  exists. Also hardened the decision-4 pin to assert `session.py` does
+  not opt in (the reviewer's sabotage proved the runner-only pin hollow).
+
+## [0.55.1] - 2026-08-20
+
+### Changed
+
+- **Decision-4 activation**: `geecs_scan_request_plan` now passes
+  `failed_move_policy="pause"` into `build_step_scan_plan` — the
+  queueserver path opts into pause-on-failed-move (RE Manager renders the
+  paused state; resume retries, stop ends gracefully). The bridge/console
+  path deliberately keeps the `'raise'` default (PauseSupervisor
+  coexistence, PR #645 review). Pinned by test.
+
+## [0.55.0] - 2026-08-20
+
+### Added
+
+- **RE Manager startup profile — the worker is now runnable**
+  (`qserver/startup/startup.py`, issue #640, queueserver migration round 2).
+  Imports `geecs_bluesky` first (before any `aioca` import, so
+  `EPICS_CA_ADDR_LIST`/`EPICS_CA_AUTO_ADDR_LIST` are set from
+  `~/.config/geecs_python_api/config.ini` before libca's CA context is
+  created — config-file/systemd-env sourcing is deliberate, never
+  DB-sourced, to avoid an import-time network round trip and a bootstrap
+  circularity), resolves the experiment from `QS_EXPERIMENT` (falling back
+  to `config.ini`'s `[Experiment] expt`, failing loud at startup if
+  neither yields a name), builds the worker's `GeecsSession`, exposes
+  `session.RE` as the module-level `RE` the manager keeps alive
+  (`--keep-re`), subscribes `SFileExportCallback` (#635) and the session's
+  own best-effort Tiled subscription, and registers
+  `geecs_scan_request_plan` in the manager's plan list.
+- **The optimization loader seam is closed** (the deferred cross-vendor P1
+  from #639, decision 5 in
+  `Planning/cutover_strategy/02_queueserver_migration.md`):
+  `plans/scan_request_plan.py` gains `set_optimization_loader()`, and the
+  optimize-mode body of the preamble now invokes the registered loader
+  in-plan (worker-side construction with deferred connects, unserved-vars
+  pre-flight over the save-set devices plus the loader's
+  `device_requirements`, the claim boundary, then
+  `plans.optimize.geecs_adaptive_scan` wrapped exactly as
+  `GeecsSession.optimize` wraps it) instead of refusing loudly. A worker
+  without the `optimize` extra still refuses loudly — no loader registered
+  means no silent degradation. `geecs_bluesky/optimization/worker_loader.py`
+  is the loader implementation (`OptimizationSpec` → `SessionOptimizationBridge`
+  via `BaseOptimizer.from_config`), modeled on GEECS-Console's
+  `services/optimization.py` but independently implemented (GeecsBluesky
+  imports nothing from GEECS-Console).
+- New optional extra `qserver = ["bluesky-queueserver"]`, pinned `^0.0.25`
+  (the sandbox-validated release); `poetry.lock` refreshed to match.
+- `tests/test_qserver_startup.py` (hermetic — no lab, no redis): the
+  startup profile defines `RE`/`geecs_scan_request_plan` headlessly with
+  `QS_EXPERIMENT` set, fails loud with neither `QS_EXPERIMENT` nor
+  `config.ini`'s `[Experiment] expt`, and (when the `qserver` extra is
+  installed) `bluesky_queueserver`'s own
+  `gen_list_of_plans_and_devices` succeeds against `qserver/startup/` —
+  skipped by default since the CI job does not install the `qserver`
+  extra. `tests/test_scan_request_plan.py` gains the optimize-loader-seam
+  coverage: no loader registered still refuses loudly post-validation,
+  and a fake loader/bridge drives a scripted suggester through real bins
+  (mock acq-timestamp pacing seeded from the bridge's `bind(devices=...)`,
+  since the adaptive scan's t0 sync runs before any staging message).
+- PR #644 review fix wave: `worker_loader.py` gains
+  `warm_up_optimization_stack()`, which imports the heavy optimize-extra
+  modules (`xopt`, `scan_analysis`, the loader's own submodules) on a
+  daemon thread right after a loader is registered, so the first real
+  `geecs_scan_request_plan` optimize call in a worker session doesn't pay
+  that import cost in-plan; `startup.py` calls it immediately after
+  `set_optimization_loader()`, a no-op when the `optimize` extra isn't
+  installed. `tests/test_qserver_startup.py`'s import-order test is now a
+  `_qserver_startup_probe.py` subprocess run in a fresh interpreter — the
+  prior in-process `runpy.run_path` version could never actually observe
+  first-import order since `geecs_bluesky`/`aioca` are already cached in
+  `sys.modules` by the time any in-process test runs.
+
+## [0.54.0] - 2026-08-20
+
+### Added
+
+- **Plan-level pause semantics for the queueserver world** (issue #641;
+  decisions 1 + 4 of `Planning/cutover_strategy/02_queueserver_migration.md`
+  — the pause supervisor's successors, ahead of its Round-3 deletion):
+  - **Quiesce-on-pause** (`plans/pause_semantics.py`):
+    `ShotControlPauseQuiescer` rides the RunEngine's `Pausable` device
+    notification — the one seam covering both operator pause verbs *and*
+    the in-plan failed-move pause, with `RunEngine.resume()` awaiting the
+    re-assert **before** the rewind replay runs.  Pausing from a
+    free-running standing state (`SCAN`/`STANDBY`) drives the shot
+    controller's `OFF` writes (profile order, each completing first);
+    resume re-asserts the interrupted state.  `ARMED` (strict) is
+    deliberately skipped — already quiescent by construction (pinned);
+    a trigger profile without `OFF` writes draws a loud warning instead
+    of a silent no-quiesce.  `build_step_scan_plan` registers the
+    quiescer as the composed plan's first message whenever it has a
+    controller — both front doors get it for free.
+  - **Failed-move → pause** (`move_with_failed_move_pause`, wired at both
+    step plans' move sites): a failed move status records its reason as
+    the documented `FAILED MOVE - pausing for operator: ...` ERROR line
+    (scan.log captures it via the root-logger handler) and issues a hard
+    `bps.pause()`.  Resume **replays the failed `set`/`wait` from the
+    pre-move checkpoint** — the retry, at the same absolute target
+    (`pause` is uncacheable, so the pause itself never replays); a retry
+    that fails pauses again; stop ends the run gracefully through the
+    finalize chain.  Gated behind a new `failed_move_policy: "raise" |
+    "pause"` flag on `geecs_step_scan` / `geecs_free_run_step_scan` /
+    `build_step_scan_plan`, **default `"raise"`** — exact pre-#641
+    behavior, so the bridge/console path (which does not pass the flag)
+    is unaffected, sidestepping both the coexisting pause supervisor's
+    auto-resume-on-failed-move loop and the related stop-from-paused
+    bypass (cross-vendor review on #645; the queueserver-side opt-in wires
+    up separately once `plans/scan_request_plan.py`'s parallel PR merges).
+
+### Changed
+
+- **Checkpoint placement is now a hard-pause replay contract** (the #641
+  audit): both step plans add a post-move checkpoint (a replayed per-step
+  action prefix no longer re-runs the move), a post-per_step checkpoint
+  (a replayed arm can no longer drag a completed ActionPlan write along
+  with it — cross-vendor review on #645, item P1; the residual mid-action
+  pause is documented as irreducible, same class as strict's bounded
+  refire), and a post-rows checkpoint (a bin's last completed row can no
+  longer replay into the disarm window — previously a hard pause there
+  duplicated the event row and re-fired the shot); the free-run plan adds
+  a post-flush checkpoint (the tail-flush event can no longer replay into
+  the finalize chain).  A rewind-cache reconstruction walk over both
+  plans' message streams pins the invariant
+  (`tests/test_pause_semantics.py`); deferred-pause behavior is unchanged
+  (still lands at the next checkpoint, still replays nothing).
+
+## [0.53.1] - 2026-08-20
+
+### Added
+
+- Added queueserver host deployment assets under `qserver/deploy/`: Redis
+  package notes, a placeholder-only systemd service unit, and an Ubuntu 22.04
+  runbook for installing, starting, and verifying the RE Manager service
+  (issue #642).
+
+## [0.53.0] - 2026-08-20
+
+### Added
+
+- **`geecs_scan_request_plan` — "run this ScanRequest" as one Bluesky plan**
+  (`plans/scan_request_plan.py`), the queueserver migration's one structural
+  unit (issue #633, round 1;
+  `Planning/cutover_strategy/02_queueserver_migration.md`).  The
+  `run_scan_request` prologue relocates into the plan **preamble**, executed
+  worker-side inside the RunEngine: authoritative fail-fast validation →
+  name resolution → worker-side construction of the ShotController, action
+  signals, detectors, and scan-axis movables (bound methods/closures never
+  cross a process boundary) → in-plan connects (`ensure_connected` batches
+  for the strict tier, a soft gather for Tier-2 telemetry, the shot-control
+  reachability check) → the scan-number claim → the same inner plan as today
+  (`build_step_scan_plan`), with ScanInfo, per-scan `scan.log`, and a
+  finalize that disconnects everything the plan created.  Everything before
+  the claim burns no scan number.  `set_plan_session()` installs the
+  worker-wide default session so `RE(geecs_scan_request_plan(request))`
+  needs only the JSON request; no bluesky-queueserver import exists — a
+  later round registers the callable with a manager.  Optimize-mode requests
+  are validated then refused loudly (`NotImplementedError`; the in-worker
+  optimization-loader invocation is a later round); step and noscan produce
+  the same documents as `run_scan_request` (pinned by hermetic
+  document-parity tests in `tests/test_scan_request_plan.py`).  The post-run
+  s-file export is deliberately absent from the plan — it becomes a worker
+  stop-document callback (a parallel task owns that seam).
+
+### Changed
+
+- `run_scan_request`'s inline run-metadata / ScanInfo / grid assembly is
+  extracted into the pure `build_step_scan_spec()` (+ `StepScanSpec`),
+  shared verbatim with the new plan preamble so the two entry points cannot
+  drift.  No behavior change (pinned by the existing runner suite).
+
+## [0.52.4] - 2026-08-20
+
+### Added
+
+- Added `qserver/` launch mechanics for the queueserver migration: a
+  user-group permissions file, a user-level RE Manager launcher that brings up
+  local Redis when needed, operator README notes, and a placeholder startup
+  directory for the separate plan-preamble task.
+
+## [0.52.3] - 2026-08-20
+
+### Added
+
+- Legacy scalar s-file export can now run as a RunEngine stop-document
+  callback (`SFileExportCallback`), matching starts/stops by run UID,
+  reading the scan number from start metadata, and preserving the existing
+  best-effort Tiled export posture for queueserver worker wiring. Export
+  is **success-only** (`exit_status == "success"`): aborted/failed runs
+  write no s-file, matching the post-`RE()` call sites this replaces.
+
 ## [0.52.2] - 2026-08-20
 
 ### Changed
@@ -1598,7 +1968,6 @@ changes on the existing paths.
   bare-extension normalization as a local wrapper. No behavior change; the
   registry/asset tests pass unchanged.
 
-
 ## [0.19.1] - 2026-07-06
 
 ### Fixed
@@ -1642,7 +2011,6 @@ changes on the existing paths.
   PV, so event keys and source strings are unchanged.
   `ShotController.over_ca`'s setters intentionally keep bare PV names — they
   talk to aioca directly, which treats a prefix as part of the PV name.
-
 
 ## [0.19.0] - 2026-07-05
 

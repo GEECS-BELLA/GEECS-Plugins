@@ -13,7 +13,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Console/` | Greenfield PySide6 operator console (Bluesky/gateway architecture): scan submission, live health/device panels, config editors, Tiled scan browser |
 | `GEECS-Data-Utils/` | Scan path navigation, scalar loading, binning, Parquet database |
 | `GEECS-Schemas/` | Pydantic-only config vocabulary: versioned schemas for every scanner config kind (scan request, save set, scan variables, trigger profile, action plans, derived channels) + legacy-YAML converters + the docgen Markdown reference generator. Depends on pydantic alone — importable from anywhere |
-| `GeecsBluesky/` | Bluesky RunEngine backend: BlueskyScanner + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway's PVs), Tiled integration |
+| `GeecsBluesky/` | Bluesky RunEngine backend: the queueserver worker (`qserver/` — RE Manager profile serving `geecs_scan_request_plan`) + headless GeecsSession, CA-backed ophyd-async devices (via GeecsCAGateway's PVs), Tiled integration |
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
@@ -146,9 +146,11 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
                         GEECS-Core (GeecsDb for completions/health)
-                        (its `optimization` extra installs the heavy deps
-                        for geecs_bluesky.optimization — xopt/ScanAnalysis —
-                        no geecs-scanner-gui dependency remains)
+                        (scan execution is remote: the console submits to
+                        GeecsBluesky's queueserver worker via
+                        bluesky-queueserver-api; the optimization stack's
+                        heavy deps install worker-side via GeecsBluesky's
+                        `optimize` extra — the console ships none)
 ```
 
 `GEECS-Core` is the GEECS access library: the UDP/TCP wire protocol, the
@@ -252,8 +254,8 @@ has caused real production incidents; the consequences aren't abstract.
 
 ### Analysis code is a consumer of scan folders, never a producer
 
-Only the **scanner side** (BlueskyScanner — concretely `claim_scan_number`
-in GeecsBluesky's `plans/run_wrapper.py`)
+Only the **scanner side** (concretely `claim_scan_number`
+in GeecsBluesky's `plans/run_wrapper.py`, on every scan entry point)
 brings new `scans/ScanNNN/` folders into existence. Everything else — all of
 ScanAnalysis, ImageAnalysis, LogMaker4GoogleDocs, every offline analyzer —
 must treat the scan folder as preexisting and refuse to auto-create it.

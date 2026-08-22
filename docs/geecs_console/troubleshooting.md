@@ -44,10 +44,12 @@ one-time cost (creating CA channels for every telemetry device — tens of
 seconds over VPN, a few on the lab network). Subsequent scans start in
 about a second. Consistently slow *warm* starts are worth a report.
 
-**Optimization mode refused.** The optimization stack is an optional
-extra (`poetry install --extras optimization` in GEECS-Console); without
-it, optimize submissions are refused with a status-bar message and every
-other mode works normally.
+**Optimization mode refused.** The optimization stack runs on the
+queueserver worker, not in the console — a worker installed without the
+`optimize` extra (`poetry install --extras "ca tiled qserver optimize"`
+in GeecsBluesky on the worker host, then a **manager restart** — an
+environment reopen is not enough) refuses optimize submissions with a
+clear message; every other mode works normally.
 
 ## The log tools
 

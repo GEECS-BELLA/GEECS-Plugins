@@ -16,6 +16,19 @@ values, and downstream realignment is a per-device shift keyed on
 ``shot_id``.  An optional bounded **grace wait** (default one push period)
 raises the offset-0 fraction.
 
+Arrival latency is why rows emit immediately with offset labels instead of
+waiting for every device to reach offset 0: ``acq_timestamp`` is back-dated
+to acquisition start, so shot IDs agree across devices regardless of
+exposure, but the TCP frame carrying it arrives exposure + readout + push
+later.  A 900 ms-exposure camera's frame for shot N arrives as shot N+1
+fires — a row emitted at reference-acceptance time *cannot* contain that
+camera's shot-N data.  Grace-waiting every device to offset 0 would drag
+every row by the slowest exposure and skip shots (the reference trigger
+drains stale queue frames on each call).  Accepted cosmetic effect: a
+device whose arrival delay straddles the row-emission boundary flickers
+between offset 0 and −1 row to row — correctness is unaffected (cells
+self-label); only the valid-fraction statistic looks noisy.
+
 This mixin is the transport-agnostic domain layer: the host provides
 ``last_acq_timestamp`` plus the
 :class:`~geecs_bluesky.devices.shot_id.ShotIdSupport` and

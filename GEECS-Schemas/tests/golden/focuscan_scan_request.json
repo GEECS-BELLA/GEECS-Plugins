@@ -25,6 +25,7 @@
   ],
   "schema_version": 1,
   "shots_per_step": 10,
+  "submission": null,
   "trigger_profile": null,
   "trigger_variant": null
 }

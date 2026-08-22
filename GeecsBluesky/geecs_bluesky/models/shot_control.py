@@ -25,7 +25,7 @@ state" (leave the variable untouched) — matching the legacy
 This module gives that document a typed home so callers validate once and then
 ask structured questions (``defines_state``, ``values_for_state``) instead of
 digging raw nested dicts.  It is pure data — no hardware, no GEECS engine
-imports — so both :class:`~geecs_bluesky.scanner_bridge.BlueskyScanner` and any
+imports — so every scan entry point and any
 future GUI/editor can share it without dragging in the legacy engine.
 """
 
@@ -138,7 +138,7 @@ class ShotControlWrites(BaseModel):
     This model stays pure data (no hardware, no schema imports) so the
     trigger-profile adapter lives bluesky-side
     (:func:`~geecs_bluesky.scan_request_runner.trigger_writes_from_profile`)
-    and the GUI bridge can store either generation in one slot.
+    and callers can store either generation in one slot.
 
     Parameters
     ----------

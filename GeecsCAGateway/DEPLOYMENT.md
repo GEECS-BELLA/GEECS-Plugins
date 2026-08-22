@@ -418,6 +418,35 @@ no-hardware smoke test.)
 
 ## 5. Target production shape
 
+### Two facilities, two stacks (decided 2026-07-10)
+
+BELLA runs two facilities on two independent Linux centers, each hosting
+its own MySQL with the identical schema. The deployment decision: **one
+gateway + Tiled stack per facility machine — separate deployments,
+consolidated recipe.**
+
+- Gateway placement is dictated by physics: it speaks UDP/TCP to that
+  facility's devices and reads that facility's local MySQL. No cross-subnet
+  routing project.
+- Fault isolation: one facility's incident or maintenance never stops the
+  other's DAQ. The experiments run on different schedules; coupling their
+  infrastructure means coordinating maintenance forever.
+- The config chain supports this natively: per-machine `config.ini` →
+  `Configurations.INI` → local DB; per-control-machine CA `addr_list`; the
+  `[Experiment:]` PV prefix keeps the namespaces distinct.
+- The solo-maintainer investment goes into the **recipe** — this document
+  plus `deploy/`, versioned in git — so standing up the second facility is
+  an hour's work and both stay in lockstep.
+- Central consolidation belongs at the **monitoring layer** (a future
+  archiver pulling from both CA servers), never at the access layer. A
+  central Tiled is a possible later analytics consolidation — not now
+  (writes fail soft, but mixed topology means two mental models).
+
+Rollout order: facility #1 (HTU/Undulator, where all hardware verification
+lives) cuts over and soaks first; facility #2 then serves as the recipe's
+first true test. Pre-work: one sanity pass that nothing assumes a single
+global gateway host.
+
 ### systemd unit
 
 The unit for the lab deployment ships in

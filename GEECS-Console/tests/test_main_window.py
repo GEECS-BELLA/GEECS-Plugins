@@ -70,36 +70,47 @@ class FakeConfigs:
 
 
 class FakeSubmitter:
-    """Submitter stand-in with a controllable active flag."""
+    """Queue-submitter stand-in (the #648 Submitter protocol shape)."""
 
     def __init__(self):
-        self.active = False
-        self.requests = []
-        self.started = 0
-        self.stopped = 0
+        from geecs_console.services.queue_client import SubmitResult
+
+        self.submitted = []  # (request_dict, clear_pending) per submit call
+        self.stops = 0
         self.pauses = 0
         self.resumes = 0
+        self.submit_result = SubmitResult(ok=True, item_uid="uid-1")
+        self.stop_result = (True, "stop requested (from paused)")
 
-    def reinitialize(self, request):
-        self.requests.append(request)
-        return True
+    def submit(self, request, *, clear_pending=False):
+        self.submitted.append((request, clear_pending))
+        return self.submit_result
 
-    def start_scan_thread(self):
-        self.started += 1
-        self.active = True
-
-    def stop_scanning_thread(self):
-        self.stopped += 1
-        self.active = False
-
-    def is_scanning_active(self):
-        return self.active
+    def stop_scan(self):
+        self.stops += 1
+        return self.stop_result
 
     def request_pause(self):
         self.pauses += 1
+        return (True, "pause requested")
 
     def request_resume(self):
         self.resumes += 1
+        return (True, "resumed")
+
+    def run_action(self, name):
+        return None
+
+    def describe_action(self, name):
+        return []
+
+    def move_variable(self, name, value):
+        return {"variable": name, "value": value}
+
+    def status(self):
+        from geecs_console.services.queue_client import QueueStatus
+
+        return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 
 
 class FakeHealth:
@@ -166,7 +177,36 @@ def window(qtbot):
         submitter=FakeSubmitter(),
     )
     qtbot.addWidget(win)
+    # Stop the scan-monitor poll so tests drive the state slots directly
+    # (deterministic — no background poll can re-render the pill mid-test).
+    if win._monitor is not None:
+        win._monitor.dispose()
     return win
+
+
+def drive_status(window, re_state, connected=True, worker_exists=None):
+    """Feed one manager status snapshot straight into the window's slot."""
+    from geecs_console.services.queue_client import QueueStatus
+
+    if worker_exists is None:
+        worker_exists = connected and re_state is not None
+    window._on_queue_status(
+        QueueStatus(connected=connected, re_state=re_state, worker_exists=worker_exists)
+    )
+
+
+def passing_preflight(monkeypatch, questions=()):
+    """Patch the preflight phase to a canned report (no engine, no CA)."""
+    from geecs_console.app import main_window as module
+    from geecs_console.services.submit_preflight import PreflightReport
+
+    report = PreflightReport(
+        outcomes=[("validate", "passed", "")], questions=list(questions)
+    )
+    monkeypatch.setattr(
+        module, "run_submit_preflight", lambda request, experiment: report
+    )
+    return report
 
 
 def select_save_set(window, name):
@@ -337,7 +377,14 @@ class TestOptimizationMode:
             submitter=FakeSubmitter(),
         )
         qtbot.addWidget(win)
+        if win._monitor is not None:
+            win._monitor.dispose()  # tests drive the state slots directly
         return win
+
+    def _submit(self, opt_window, qtbot, monkeypatch):
+        passing_preflight(monkeypatch)
+        opt_window._on_start_clicked()
+        qtbot.waitUntil(lambda: not opt_window._submit_in_flight, timeout=4000)
 
     def test_combo_hidden_outside_optimization_mode(self, opt_window):
         opt_window.show()
@@ -371,17 +418,21 @@ class TestOptimizationMode:
         opt_window.optimization_combo.setCurrentText("bayes_jet")
         assert opt_window.start_button.isEnabled()
 
-    def test_start_submits_optimize_request_with_loaded_spec(self, opt_window):
+    def test_start_submits_optimize_request_with_loaded_spec(
+        self, opt_window, qtbot, monkeypatch
+    ):
         select_save_set(opt_window, "Amp4In")
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
-        opt_window._on_start_clicked()
-        submitter = opt_window._submitter
-        assert len(submitter.requests) == 1
-        request = submitter.requests[0]
-        assert request.mode is ScanRequestMode.OPTIMIZE
-        assert request.optimization == _optimization_spec()
-        assert request.save_sets == ["Amp4In"]
+        self._submit(opt_window, qtbot, monkeypatch)
+        ((request_dict, _),) = opt_window._submitter.submitted
+        assert request_dict["mode"] == "optimize"
+        assert request_dict["save_sets"] == ["Amp4In"]
+        expected = _optimization_spec().model_dump(mode="json")
+        got = dict(request_dict["optimization"])
+        # max_iterations belongs to the spinner (auto -> None here).
+        expected.pop("max_iterations", None), got.pop("max_iterations", None)
+        assert got == expected
 
     def test_zero_save_sets_enables_start_in_optimization_mode(self, opt_window):
         """Optimize needs no selected save sets: the engine auto-provisions
@@ -401,15 +452,15 @@ class TestOptimizationMode:
             radio.setChecked(True)
             assert not opt_window.start_button.isEnabled()
 
-    def test_zero_save_sets_optimize_submits_empty_save_sets(self, opt_window):
+    def test_zero_save_sets_optimize_submits_empty_save_sets(
+        self, opt_window, qtbot, monkeypatch
+    ):
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
-        opt_window._on_start_clicked()
-        submitter = opt_window._submitter
-        assert len(submitter.requests) == 1
-        request = submitter.requests[0]
-        assert request.mode is ScanRequestMode.OPTIMIZE
-        assert request.save_sets == []
+        self._submit(opt_window, qtbot, monkeypatch)
+        ((request_dict, _),) = opt_window._submitter.submitted
+        assert request_dict["mode"] == "optimize"
+        assert request_dict["save_sets"] == []
 
     def test_union_label_notes_optimizer_diagnostics(self, opt_window):
         """The R2 union line stays honest in optimize mode — the optimizer
@@ -425,38 +476,38 @@ class TestOptimizationMode:
         opt_window.radio_1d.setChecked(True)
         assert opt_window.union_label.text() == "union: 3 devices"
 
-    def test_engine_refusal_is_surfaced_not_preblocked(self, opt_window):
-        """The current engine refuses optimize requests — the GUI submits
-        anyway and shows the engine's answer in the status bar."""
+    def test_manager_refusal_is_surfaced_not_preblocked(
+        self, opt_window, qtbot, monkeypatch
+    ):
+        """A refused queue submission is surfaced, never pre-blocked."""
+        from geecs_console.services.queue_client import SubmitResult
 
-        class RefusingSubmitter(FakeSubmitter):
-            def reinitialize(self, request):
-                super().reinitialize(request)
-                return False
-
-        opt_window._submitter = RefusingSubmitter()
-        select_save_set(opt_window, "Amp4In")
-        opt_window.radio_optimization.setChecked(True)
-        opt_window.optimization_combo.setCurrentText("bayes_jet")
-        opt_window._on_start_clicked()
-        assert len(opt_window._submitter.requests) == 1  # not pre-blocked
-        assert opt_window._submitter.started == 0
-        assert "refused" in opt_window.log_tail.toPlainText()
-
-    def test_engine_exception_is_surfaced(self, opt_window):
-        class RaisingSubmitter(FakeSubmitter):
-            def reinitialize(self, request):
-                raise RuntimeError("optimize mode not supported by this engine")
-
-        opt_window._submitter = RaisingSubmitter()
-        select_save_set(opt_window, "Amp4In")
-        opt_window.radio_optimization.setChecked(True)
-        opt_window.optimization_combo.setCurrentText("bayes_jet")
-        opt_window._on_start_clicked()
-        assert (
-            "Submission failed: optimize mode not supported"
-            in opt_window.log_tail.toPlainText()
+        opt_window._submitter.submit_result = SubmitResult(
+            ok=False, message="optimization loader not registered"
         )
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        self._submit(opt_window, qtbot, monkeypatch)
+        assert len(opt_window._submitter.submitted) == 1  # not pre-blocked
+        assert "loader not registered" in opt_window.log_tail.toPlainText()
+
+    def test_submitter_exception_is_surfaced_and_releases_start(
+        self, opt_window, qtbot, monkeypatch
+    ):
+        """A raise inside the worker must deliver a failure, not strand the
+        pipeline in-flight (BackgroundResult swallows raises silently)."""
+
+        def boom(request, *, clear_pending=False):
+            raise RuntimeError("manager exploded")
+
+        opt_window._submitter.submit = boom
+        select_save_set(opt_window, "Amp4In")
+        opt_window.radio_optimization.setChecked(True)
+        opt_window.optimization_combo.setCurrentText("bayes_jet")
+        self._submit(opt_window, qtbot, monkeypatch)
+        assert "manager exploded" in opt_window.log_tail.toPlainText()
+        assert not opt_window._submit_in_flight
 
     def test_unloadable_config_reports_and_does_not_submit(self, opt_window):
         opt_window._configs.optimization_specs["bayes_jet"] = None  # placeholder
@@ -465,7 +516,7 @@ class TestOptimizationMode:
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
         opt_window._on_start_clicked()
-        assert opt_window._submitter.requests == []
+        assert opt_window._submitter.submitted == []
         assert "Cannot load optimizer config" in opt_window.log_tail.toPlainText()
 
     def test_optimize_preset_applies_matching_config(self, opt_window):
@@ -497,23 +548,23 @@ class TestOptimizationMode:
         assert opt_window.iterations_spin.value() == 0
         assert opt_window.iterations_spin.specialValueText() == "auto"
 
-    def test_start_submits_the_iteration_count(self, opt_window):
+    def test_start_submits_the_iteration_count(self, opt_window, qtbot, monkeypatch):
         select_save_set(opt_window, "Amp4In")
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
         opt_window.iterations_spin.setValue(25)
-        opt_window._on_start_clicked()
-        request = opt_window._submitter.requests[0]
-        assert request.optimization.max_iterations == 25
+        self._submit(opt_window, qtbot, monkeypatch)
+        ((request_dict, _),) = opt_window._submitter.submitted
+        assert request_dict["optimization"]["max_iterations"] == 25
 
-    def test_start_with_auto_submits_no_limit(self, opt_window):
+    def test_start_with_auto_submits_no_limit(self, opt_window, qtbot, monkeypatch):
         select_save_set(opt_window, "Amp4In")
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
         assert opt_window.iterations_spin.value() == 0  # "auto"
-        opt_window._on_start_clicked()
-        request = opt_window._submitter.requests[0]
-        assert request.optimization.max_iterations is None
+        self._submit(opt_window, qtbot, monkeypatch)
+        ((request_dict, _),) = opt_window._submitter.submitted
+        assert request_dict["optimization"]["max_iterations"] is None
 
     def test_selecting_config_seeds_spinner_from_its_limit(self, opt_window):
         """A config's own max_iterations surfaces on the spinner (the
@@ -655,65 +706,162 @@ class TestSaveSets:
 
 
 class TestSubmission:
-    def test_start_submits_built_request(self, window):
+    def _submit(self, window, qtbot, monkeypatch, questions=()):
+        """Click Start with a canned preflight and wait for the pipeline."""
+        passing_preflight(monkeypatch, questions)
         select_save_set(window, "Amp4In")
         window.variable_combo.setCurrentText("jet_x")
         window._on_start_clicked()
+        qtbot.waitUntil(lambda: not window._submit_in_flight, timeout=4000)
+
+    def test_start_queues_the_stamped_request(self, window, qtbot, monkeypatch):
+        self._submit(window, qtbot, monkeypatch)
+        ((request_dict, clear_pending),) = window._submitter.submitted
+        assert clear_pending is False
+        assert request_dict["mode"] == "step"
+        assert request_dict["save_sets"] == ["Amp4In"]
+        # The submission provenance record travels with the queue item.
+        record = request_dict["submission"]
+        assert record["client"].startswith("geecs-console")
+        assert [o["check"] for o in record["preflight"]] == ["validate"]
+
+    def test_preflight_refusal_never_queues(self, window, qtbot, monkeypatch):
+        from geecs_console.app import main_window as module
+        from geecs_console.services.submit_preflight import PreflightReport
+
+        monkeypatch.setattr(
+            module,
+            "run_submit_preflight",
+            lambda request, experiment: PreflightReport(
+                refusal="save set 'Nope' is unknown"
+            ),
+        )
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        window._on_start_clicked()
+        qtbot.waitUntil(lambda: not window._submit_in_flight, timeout=4000)
+        assert window._submitter.submitted == []
+        assert "Nope" in window.log_tail.toPlainText()
+
+    def test_preflight_question_continue_stamps_the_answer(
+        self, window, qtbot, monkeypatch
+    ):
+        from PySide6.QtWidgets import QMessageBox
+
+        from geecs_console.services.submit_preflight import PreflightQuestion
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
+        question = PreflightQuestion(
+            check="gateway_liveness",
+            title="Devices disconnected",
+            message="UC_Cam1 is Disconnected. Continue anyway?",
+        )
+        self._submit(window, qtbot, monkeypatch, questions=[question])
+        ((request_dict, _),) = window._submitter.submitted
+        outcomes = {
+            o["check"]: o["result"] for o in request_dict["submission"]["preflight"]
+        }
+        assert outcomes["gateway_liveness"] == "continued"
+
+    def test_preflight_question_abort_never_queues(self, window, qtbot, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        from geecs_console.services.submit_preflight import PreflightQuestion
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
+        question = PreflightQuestion(
+            check="free_run_staleness",
+            title="Trigger looks stopped",
+            message="No shots seen. Continue anyway?",
+        )
+        self._submit(window, qtbot, monkeypatch, questions=[question])
+        assert window._submitter.submitted == []
+        assert "aborted at the free_run_staleness check" in (
+            window.log_tail.toPlainText()
+        )
+
+    def test_pending_items_question_clears_and_resubmits(
+        self, window, qtbot, monkeypatch
+    ):
+        """The failed-item-at-front trap (#648 item 3): surface, ask, clear."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from geecs_console.services.queue_client import SubmitResult
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
         submitter = window._submitter
-        assert submitter.started == 1
-        (request,) = submitter.requests
-        assert request.mode is ScanRequestMode.STEP
-        assert request.save_sets == ["Amp4In"]
+        submitter.submit_result = SubmitResult(
+            ok=False, pending_items=[{"item_uid": "failed-old"}]
+        )
 
-    def test_refused_reinitialize_does_not_start(self, window):
-        """A False from reinitialize must not start the scan thread — starting
-        anyway would run the scanner on stale state (review P1 on the
-        scaffold PR)."""
-        select_save_set(window, "Amp4In")
-        window.variable_combo.setCurrentText("jet_x")
-        window._submitter.reinitialize = lambda request: False
-        window._on_start_clicked()
-        assert window._submitter.started == 0
-        assert not window._submitter.active
+        def arm_second_try():
+            # After the first refusal, the retry succeeds.
+            if len(submitter.submitted) == 1:
+                submitter.submit_result = SubmitResult(ok=True, item_uid="uid-2")
 
-    def test_start_disabled_while_submitter_active(self, window):
+        original = submitter.submit
+
+        def submit(request, *, clear_pending=False):
+            result = original(request, clear_pending=clear_pending)
+            arm_second_try()
+            return result
+
+        submitter.submit = submit
+        self._submit(window, qtbot, monkeypatch)
+        assert [clear for _, clear in submitter.submitted] == [False, True]
+
+    def test_pending_items_cancel_leaves_the_queue(self, window, qtbot, monkeypatch):
+        from PySide6.QtWidgets import QMessageBox
+
+        from geecs_console.services.queue_client import SubmitResult
+
+        _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
+        window._submitter.submit_result = SubmitResult(
+            ok=False, pending_items=[{"item_uid": "failed-old"}]
+        )
+        self._submit(window, qtbot, monkeypatch)
+        assert [clear for _, clear in window._submitter.submitted] == [False]
+        assert "cancelled" in window.log_tail.toPlainText()
+
+    def test_start_disabled_while_manager_reports_a_scan(self, window):
         select_save_set(window, "Amp4In")
-        window._submitter.active = True
-        window._refresh_submit_enabled()
+        drive_status(window, "running")
         assert not window.start_button.isEnabled()
         assert window.stop_button.isEnabled()
 
-    def test_stop_clears_active_and_reenables(self, window, qtbot):
-        """Stop is asynchronous (issue #571): the worker delivers the call,
-        the terminal lifecycle event — not the click — restores gating."""
-        from fake_events import ScanLifecycleEvent
-
+    def test_stop_dispatches_the_worker_and_terminal_state_releases(
+        self, window, qtbot
+    ):
+        """Stop is asynchronous (#571 shape): the worker calls stop_scan,
+        the terminal state — not the click — restores gating."""
         select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        assert window._submitter.is_scanning_active()
+        drive_status(window, "running")
+        label = window.stop_button.text()
         window._on_stop_clicked()
-        qtbot.waitUntil(lambda: window._submitter.stopped == 1, timeout=2000)
-        window.events.handle(ScanLifecycleEvent(state="aborted"))
+        assert window._stop_in_flight
+        assert window.stop_button.text() == "Stopping…"
+        qtbot.waitUntil(lambda: window._submitter.stops == 1, timeout=2000)
+        # The stop document ends the run; the hold releases.
+        window._on_scan_state("done")
+        assert not window._stop_in_flight
+        assert window.stop_button.text() == label
+        drive_status(window, "idle")
         assert window.start_button.isEnabled()
 
     def test_stop_click_never_blocks_the_gui_thread(self, window, qtbot):
-        """The pinwheel half of issue #571: a stop that takes engine-side
-        time (the old path joined the scan thread for up to 15 s) must
-        return immediately, with the button disabled and 'Stopping…'."""
         import time
 
         select_save_set(window, "Amp4In")
-        window._on_start_clicked()
+        drive_status(window, "running")
         submitter = window._submitter
         finished: list[bool] = []
 
         def slow_stop():
-            time.sleep(0.5)  # engine-side bookkeeping join stand-in
-            submitter.active = False
-            submitter.stopped += 1
+            time.sleep(0.5)  # pause-then-stop sequencing stand-in
             finished.append(True)
+            return (True, "stop requested (paused, then stopped)")
 
-        submitter.stop_scanning_thread = slow_stop
+        submitter.stop_scan = slow_stop
         started = time.monotonic()
         window._on_stop_clicked()
         assert time.monotonic() - started < 0.3, "stop must not block the GUI"
@@ -721,103 +869,173 @@ class TestSubmission:
         assert window.stop_button.text() == "Stopping…"
         qtbot.waitUntil(lambda: bool(finished), timeout=2000)
 
-    def test_stopping_hold_releases_on_terminal_lifecycle_event(self, window, qtbot):
-        from fake_events import ScanLifecycleEvent
-
+    def test_failed_stop_sequencing_releases_the_hold(self, window, qtbot):
+        """A stop whose pause never landed re-arms the button for a retry."""
         select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        label = window.stop_button.text()
+        drive_status(window, "running")
+        window._submitter.stop_result = (False, "pause did not land — still running")
         window._on_stop_clicked()
-        assert window._stop_in_flight
-        # The engine's STOPPING event is not terminal: the hold stays.
-        window.events.handle(ScanLifecycleEvent(state="stopping"))
-        assert window._stop_in_flight
-        assert not window.stop_button.isEnabled()
-        assert "STOPPING" in window.state_pill.text()
-        qtbot.waitUntil(lambda: window._submitter.stopped == 1, timeout=2000)
-        # The terminal event releases the hold and normal gating resumes.
-        window.events.handle(ScanLifecycleEvent(state="aborted"))
-        assert not window._stop_in_flight
-        assert window.stop_button.text() == label
-        assert window.start_button.isEnabled()
-        assert not window.stop_button.isEnabled()  # nothing scanning now
+        qtbot.waitUntil(lambda: not window._stop_in_flight, timeout=2000)
+        assert "pause did not land" in window.log_tail.toPlainText()
+        assert window.stop_button.isEnabled()
 
     def test_stop_click_with_no_active_scan_is_a_no_op(self, window):
         window._on_stop_clicked()
-        assert window._submitter.stopped == 0
+        assert window._submitter.stops == 0
         assert not window._stop_in_flight
 
     def test_pause_button_disabled_when_not_scanning(self, window):
         assert not window.pause_button.isEnabled()
 
     def test_pause_button_enabled_while_running_reads_pause(self, window):
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="running"))
+        drive_status(window, "running")
         assert window.pause_button.isEnabled()
         assert "Pause" in window.pause_button.text()
 
     def test_pause_click_requests_pause_then_button_becomes_resume(self, window):
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="running"))
+        drive_status(window, "running")
         window.pause_button.click()
         assert window._submitter.pauses == 1
-        # The engine confirms with PAUSED; the button flips to Resume.
-        window.events.handle(ScanLifecycleEvent(state="paused"))
+        # The manager status confirms paused; the button flips to Resume.
+        drive_status(window, "paused")
         assert "Resume" in window.pause_button.text()
         assert window.pause_button.isEnabled()
 
     def test_resume_click_calls_request_resume(self, window):
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="paused"))
+        drive_status(window, "paused")
         window.pause_button.click()
         assert window._submitter.resumes == 1
         assert window._submitter.pauses == 0  # resume, not a second pause
 
-    def test_button_returns_to_pause_after_resume_running_event(self, window):
-        """Multiple pauses per scan: the engine emits RUNNING on resume, so
-        the button flips back to Pause and a second Pause click works."""
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="running"))
+    def test_button_returns_to_pause_after_resume(self, window):
+        """Multiple pauses per scan: resume flips the button back."""
+        drive_status(window, "running")
         window.pause_button.click()  # pause
-        window.events.handle(ScanLifecycleEvent(state="paused"))
+        drive_status(window, "paused")
         assert "Resume" in window.pause_button.text()
         window.pause_button.click()  # resume
-        # The engine's resume emits RUNNING; the button must flip back.
-        window.events.handle(ScanLifecycleEvent(state="running"))
+        drive_status(window, "running")
         assert "Pause" in window.pause_button.text()
-        assert window.pause_button.isEnabled()
         window.pause_button.click()  # a SECOND pause must work
         assert window._submitter.pauses == 2
 
-    def test_pause_button_disabled_during_pausing_transition(self, window):
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="pausing"))
-        assert not window.pause_button.isEnabled()  # transitional
+    def test_pause_reason_reaches_the_log(self, window):
+        drive_status(window, "paused")
+        window._on_pause_reason("commanded u_s1h -> 1.05, one axis failed")
+        assert "paused: commanded u_s1h" in window.log_tail.toPlainText()
 
     def test_terminal_state_disables_the_pause_button(self, window):
-        from fake_events import ScanLifecycleEvent
-
-        select_save_set(window, "Amp4In")
-        window._on_start_clicked()
-        window.events.handle(ScanLifecycleEvent(state="paused"))
-        window.events.handle(ScanLifecycleEvent(state="aborted"))
+        drive_status(window, "paused")
+        window._on_scan_state("aborted")
         assert not window.pause_button.isEnabled()
         assert "Pause" in window.pause_button.text()
+
+    def test_equal_state_poll_still_refreshes_gating(self, window):
+        """2026-08-21 live finding (Scan008): the start document narrates
+        RUNNING before the first running poll; the equal-state poll must
+        still refresh gating, or Stop stays disabled (and Start enabled)
+        for the whole scan."""
+        select_save_set(window, "Amp4In")
+        window.variable_combo.setCurrentText("jet_x")
+        # Doc stream narrates first — the pill flips, but the stored
+        # snapshot still says idle (the bug's setup).
+        window._on_scan_document("start", {"scan_number": 8})
+        assert "RUNNING" in window.state_pill.text()
+        # The poll catches up, agreeing with the pill.
+        drive_status(window, "running")
+        assert window.stop_button.isEnabled()
+        assert not window.start_button.isEnabled()
+
+    def test_disconnected_manager_reads_unknown(self, window):
+        drive_status(window, None, connected=False)
+        assert "UNKNOWN" in window.state_pill.text()
+        assert not window.pause_button.isEnabled()
+
+
+class TestStateModel:
+    """The poll/document split's edge branches (#654 review findings 1/3/5)."""
+
+    def test_stream_down_scan_end_falls_back_to_idle(self, window):
+        """Doc stream dead: the poll's idle both ends the pill and releases
+        an in-flight stop hold ("idle" is in _TERMINAL_SCAN_STATES)."""
+        select_save_set(window, "Amp4In")
+        drive_status(window, "running")
+        window._on_stop_clicked()
+        assert window._stop_in_flight
+        drive_status(window, "idle")
+        assert "IDLE" in window.state_pill.text()
+        assert not window._stop_in_flight
+        assert window.start_button.isEnabled()
+
+    def test_worker_environment_death_reads_unknown_and_reports(self, window):
+        """re_state None with the manager up = the worker crashed mid-scan;
+        the pill must never keep saying RUNNING (#654 finding 1)."""
+        drive_status(window, "running")
+        drive_status(window, None, worker_exists=False)
+        assert "UNKNOWN" in window.state_pill.text()
+        assert "worker environment is down" in window.log_tail.toPlainText()
+        assert not window.pause_button.isEnabled()
+        # Recovery: the worker comes back idle → pill idle.
+        drive_status(window, "idle")
+        assert "IDLE" in window.state_pill.text()
+
+    def test_stale_running_snapshot_cannot_undo_a_terminal_pill(self, window):
+        """A pre-stop snapshot delivered after the stop document must not
+        narrate the transition backwards (#654 finding 3)."""
+        window._on_scan_document("start", {"scan_number": 5})
+        window._on_scan_document("stop", {"exit_status": "success"})
+        assert "DONE" in window.state_pill.text()
+        drive_status(window, "running")  # stale — inside the grace window
+        assert "DONE" in window.state_pill.text()
+        # After the grace window a live assert is authoritative again.
+        window._terminal_state_at = 0.0
+        drive_status(window, "running")
+        assert "RUNNING" in window.state_pill.text()
+
+    def test_transitional_states_render_and_count_as_scanning(self, window):
+        select_save_set(window, "Amp4In")
+        drive_status(window, "stopping")
+        assert "STOPPING" in window.state_pill.text()
+        assert not window.start_button.isEnabled()
+        assert window.stop_button.isEnabled()
+        assert not window.pause_button.isEnabled()  # not running/paused
+
+    def test_stop_worker_raise_releases_the_hold(self, window, qtbot):
+        """A raising stop_scan must deliver a failure, not strand the
+        'Stopping…' hold (#654 finding 4 — the submit-pipeline rule)."""
+
+        def boom():
+            raise RuntimeError("manager exploded mid-stop")
+
+        window._submitter.stop_scan = boom
+        drive_status(window, "running")
+        window._on_stop_clicked()
+        qtbot.waitUntil(lambda: not window._stop_in_flight, timeout=2000)
+        assert "manager exploded mid-stop" in window.log_tail.toPlainText()
+        assert window.stop_button.isEnabled()
+
+    def test_stream_failure_is_surfaced_to_the_operator(self, qtbot):
+        """stream_failed is wired to the status bar/log (#654 finding 2)."""
+
+        class StreamySubmitter(FakeSubmitter):
+            info_addr = "tcp://127.0.0.1:1"
+            doc_addr = "127.0.0.1:1"
+
+        win = MainWindow(
+            configs=FakeConfigs(save_sets=["Amp4In"]),
+            presets=FakePresetStore(),
+            settings=FakeSettings(),
+            submitter=StreamySubmitter(),
+        )
+        qtbot.addWidget(win)
+        monitor = win._monitor
+        assert monitor is not None and monitor.documents is not None
+        monitor.documents.stream_failed.emit("document stream unavailable (test)")
+        qtbot.waitUntil(
+            lambda: "document stream unavailable" in win.log_tail.toPlainText(),
+            timeout=2000,
+        )
+        monitor.dispose()
 
     def test_form_round_trips_into_build_scan_request(self, window):
         select_save_set(window, "Amp4In")
@@ -842,19 +1060,58 @@ class TestSubmission:
 
 
 class TestNowAndDevicePanel:
-    def test_scan_events_drive_pill_and_progress(self, window):
-        from fake_events import ScanLifecycleEvent, ScanStepEvent
-
-        window.events.handle(ScanLifecycleEvent(state="initializing", total_shots=20))
-        window.events.handle(ScanLifecycleEvent(state="running"))
-        window.events.handle(
-            ScanStepEvent(step_index=0, total_steps=2, shots_completed=10)
+    def test_scan_documents_drive_pill_and_progress(self, window):
+        window._on_scan_document(
+            "start",
+            {"scan_number": 7, "num_points": 4, "shots_per_step": 5},
         )
+        window._on_scan_document("descriptor", {"uid": "d1", "name": "primary"})
+        window._on_scan_document("event", {"descriptor": "d1", "seq_num": 10})
         # The pill is rich text (colored dot + uppercase word).
         assert "RUNNING" in window.state_pill.text()
         assert window.progress_bar.maximum() == 20
         assert window.progress_bar.value() == 10
         assert "running" in window.log_tail.toPlainText()
+
+    def test_non_primary_stream_events_do_not_advance_progress(self, window):
+        window._on_scan_document("start", {"num_points": 2, "shots_per_step": 5})
+        window._on_scan_document("descriptor", {"uid": "b1", "name": "baseline"})
+        window._on_scan_document("event", {"descriptor": "b1", "seq_num": 3})
+        assert window.progress_bar.value() == 0
+
+    def test_optimize_start_doc_totals_come_from_max_iterations(self, window):
+        """Adaptive plans record max_iterations, not num_points — the bar
+        must size from the iteration bound (2026-08-21 live finding)."""
+        window._on_scan_document(
+            "start", {"scan_number": 13, "max_iterations": 5, "shots_per_step": 5}
+        )
+        assert window.progress_bar.maximum() == 25
+
+    def test_totals_less_start_doc_resets_a_stale_bar(self, window):
+        """A start doc with no computable totals must reset the bar, never
+        inherit the previous scan's (Scan013: 25 shots filled a stale
+        15-shot bar at iteration 3)."""
+        window._on_scan_document(
+            "start", {"scan_number": 7, "num_points": 3, "shots_per_step": 5}
+        )
+        assert window.progress_bar.maximum() == 15
+        window._on_scan_document("start", {"scan_number": 13})
+        assert window.progress_bar.maximum() == 1  # reset (empty), not 15
+        window._descriptor_names["d1"] = "primary"
+        window._on_scan_document("event", {"descriptor": "d1", "seq_num": 20})
+        assert window.progress_bar.value() == 0  # unknown totals: bar stays honest
+
+    def test_stop_document_ends_the_run(self, window):
+        window._on_scan_document("start", {"scan_number": 8})
+        window._on_scan_document("stop", {"exit_status": "success"})
+        assert "DONE" in window.state_pill.text()
+        assert "scan done" in window.log_tail.toPlainText()
+        window._on_scan_document("start", {"scan_number": 9})
+        window._on_scan_document(
+            "stop", {"exit_status": "abort", "reason": "operator abort"}
+        )
+        assert "ABORTED" in window.state_pill.text()
+        assert "operator abort" in window.log_tail.toPlainText()
 
     def test_concurrent_idle_probes_for_one_experiment_are_deduplicated(
         self, window, monkeypatch
@@ -908,13 +1165,11 @@ class TestNowAndDevicePanel:
         window._now._expire_scan_number()
         assert window.scan_number_label.text() == "Scan 042 (previous)"
 
-    def test_lifecycle_scan_number_drives_the_label(self, window):
-        from fake_events import ScanLifecycleEvent
-
+    def test_start_document_scan_number_drives_the_label(self, window):
         before = window.scan_number_label.text()
-        window.events.handle(ScanLifecycleEvent(state="initializing"))
-        assert window.scan_number_label.text() == before  # None -> untouched
-        window.events.handle(ScanLifecycleEvent(state="running", scan_number=7))
+        window._on_scan_document("start", {"num_points": 1})
+        assert window.scan_number_label.text() == before  # no number -> untouched
+        window._on_scan_document("start", {"scan_number": 7})
         assert window.scan_number_label.text() == "Scan 007"
         assert window._now._scan_number_timer.isActive()  # 10 s expiry armed
 
@@ -1052,17 +1307,9 @@ class TestBeeps:
         return count
 
     def drive_shots(self, window, n):
-        from fake_events import ScanStepEvent
-
+        window._descriptor_names["d1"] = "primary"
         for shot in range(1, n + 1):
-            window.events.handle(
-                ScanStepEvent(
-                    step_index=shot - 1,
-                    total_steps=n,
-                    shots_completed=shot,
-                    phase="completed",
-                )
-            )
+            window._on_scan_document("event", {"descriptor": "d1", "seq_num": shot})
 
     def test_default_off_never_beeps(self, window, beeps):
         assert not window.beep_action.isChecked()
@@ -1076,20 +1323,18 @@ class TestBeeps:
         assert len(beeps) == 10
 
     def test_repeated_progress_without_increment_does_not_beep(self, window, beeps):
-        from fake_events import ScanStepEvent
-
         window.beep_action.setChecked(True)
-        event = ScanStepEvent(step_index=0, total_steps=2, shots_completed=5)
-        window.events.handle(event)
-        window.events.handle(event)  # started + completed at the same count
+        window._descriptor_names["d1"] = "primary"
+        event = {"descriptor": "d1", "seq_num": 5}
+        window._on_scan_document("event", dict(event))
+        window._on_scan_document("event", dict(event))  # same count, no beep
         assert len(beeps) == 1
 
     def test_new_scan_rearms_the_counter(self, window, beeps):
-        from fake_events import ScanLifecycleEvent
-
         window.beep_action.setChecked(True)
         self.drive_shots(window, 3)
-        window.events.handle(ScanLifecycleEvent(state="initializing", total_shots=6))
+        # A new run's start document re-arms the counter via the totals.
+        window._on_scan_document("start", {"num_points": 2, "shots_per_step": 3})
         self.drive_shots(window, 3)  # counts restart at 1
         assert len(beeps) == 6
 
@@ -1391,54 +1636,6 @@ def _auto_answer(monkeypatch, role):
         return None
 
     monkeypatch.setattr(QMessageBox, "clickedButton", _clicked)
-
-
-class TestOperatorDialog:
-    """ScanDialogEvent -> modal QMessageBox -> unblock the engine thread."""
-
-    def test_continue_sets_response_event_without_aborting(self, window, monkeypatch):
-        from PySide6.QtWidgets import QMessageBox
-
-        from fake_events import ScanDialogEvent, _Request
-
-        _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
-        request = _Request(
-            exc=RuntimeError("gateway down — proceed anyway?"),
-            title="Pre-flight",
-            continue_label="Drop && Continue",
-            abort_label="Abort scan",
-        )
-        # handle() runs on this (GUI) thread here, so the auto-connected signal
-        # delivers the slot synchronously; in production the engine thread's
-        # emit is queued to the GUI thread instead.
-        window.events.handle(ScanDialogEvent(request=request))
-
-        assert request.response_event.is_set()
-        assert request.abort == [False]
-        assert "operator: continue" in window.log_tail.toPlainText()
-
-    def test_abort_sets_flag_and_response_event(self, window, monkeypatch):
-        from PySide6.QtWidgets import QMessageBox
-
-        from fake_events import ScanDialogEvent, _Request
-
-        _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
-        request = _Request(exc=RuntimeError("device missing"))
-        window.events.handle(ScanDialogEvent(request=request))
-
-        assert request.response_event.is_set()
-        assert request.abort == [True]
-        assert "operator: abort" in window.log_tail.toPlainText()
-
-    def test_adapter_has_gui_thread_affinity(self, window):
-        """The adapter lives on the GUI thread, so an engine-thread emit queues.
-
-        The dialog connection uses Qt's default AutoConnection (not a forced
-        DirectConnection): because the adapter's thread affinity is the GUI
-        thread, a ``dialog_requested`` emitted from the engine/scan thread is
-        delivered queued onto the GUI thread — the only place the modal may run.
-        """
-        assert window.events.thread() is window.thread()
 
 
 def preset_request(**overrides):

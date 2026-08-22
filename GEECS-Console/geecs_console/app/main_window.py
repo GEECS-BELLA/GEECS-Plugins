@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import random
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -43,11 +44,11 @@ from pydantic import ValidationError
 from geecs_console.app.actions_menu import ActionsMenuController
 from geecs_console.app.movable_panel import MovablePanelController
 from geecs_console.app.now_panel import NowPanelController
+from geecs_console.app.scan_monitor import ScanMonitorController
 from geecs_console.editors.action_library_editor import open_action_library_editor
 from geecs_console.editors.save_set_editor import open_save_set_editor
 from geecs_console.editors.scan_variable_editor import open_scan_variable_editor
 from geecs_console.editors.shot_control_editor import open_shot_control_editor
-from geecs_console.events_adapter import ScanEventsAdapter
 from geecs_console.services import ops_paths
 from geecs_console.services.action_library_store import ActionLibraryStore
 from geecs_console.app.tooltips import ToolTipSuppressor, apply_operator_tooltips
@@ -80,7 +81,13 @@ from geecs_console.services.health import (
     HealthStatus,
     StubHealth,
 )
-from geecs_console.submission import Submitter, make_bluesky_submitter
+from geecs_console.services.queue_client import QueueStatus, SubmitResult
+from geecs_console.services.submit_preflight import (
+    PreflightReport,
+    run_submit_preflight,
+    stamp_submission,
+)
+from geecs_console.submission import Submitter, make_queue_submitter
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +114,19 @@ _HEALTH_DOT_COLORS = {
     HealthStatus.UNKNOWN: _COLOR_GREY,
 }
 
-# Lifecycle states that settle an in-flight Stop request, releasing the Stop
-# button's "Stopping…" hold.  Exactly the engine's terminal vocabulary: the
-# bridge's scan-thread cleanup always ends in ABORTED or DONE
-# (geecs_bluesky.events.ScanState; BlueskyScanner._run_scan).  Deliberately
-# NOT paused_on_error — that state is resumable, the scan is not over.
-_TERMINAL_SCAN_STATES = frozenset({"aborted", "done"})
+# States that settle an in-flight Stop request, releasing the Stop button's
+# "Stopping…" hold.  "done"/"aborted" come from the document stream's stop
+# document (exit_status success / anything else); "idle" is the manager
+# status poll's fallback for when the document stream is down — the worker
+# RE returning to idle means the scan is over either way.  Deliberately NOT
+# "paused" — that state is resumable, the scan is not over.
+_TERMINAL_SCAN_STATES = frozenset({"aborted", "done", "idle"})
+
+#: After a terminal document renders, live-state asserts from the status
+#: poll are suppressed this long — a snapshot *taken* pre-stop but
+#: *delivered* post-stop must not narrate the transition backwards (the
+#: poll cadence is 1 s; two periods + slack).
+_TERMINAL_GRACE_S = 2.5
 
 
 def _default_completions_factory(experiment: str) -> CompletionsProvider:
@@ -184,11 +198,12 @@ class MainWindow(QMainWindow):
         Persisted GUI state (last selected experiment); tests inject one
         backed by a tmp INI file, default is the user-scope QSettings store.
     submitter : Submitter, optional
-        Scan engine; tests inject a fake.  When ``None`` one is built
-        lazily by *submitter_factory* on the first Start click.
+        The scan service (a queueserver-manager client since #648); tests
+        inject a fake.  When ``None`` one is built by *submitter_factory*
+        at construction (cheap — no sockets until the first call).
     submitter_factory : callable, optional
-        ``(experiment, on_event) -> Submitter``; defaults to
-        :func:`~geecs_console.submission.make_bluesky_submitter`.
+        ``(experiment) -> Submitter``; defaults to
+        :func:`~geecs_console.submission.make_queue_submitter`.
     rng : random.Random, optional
         The source of randomness for the "Randomized beeps" option; tests
         inject a seeded instance.  Defaults to a fresh ``random.Random()``.
@@ -237,11 +252,17 @@ class MainWindow(QMainWindow):
         self._settings = settings if settings is not None else ConsoleSettings()
         self._submitter = submitter
         self._submitter_factory = (
-            submitter_factory
-            if submitter_factory is not None
-            else make_bluesky_submitter
+            submitter_factory if submitter_factory is not None else make_queue_submitter
         )
-        self.events = ScanEventsAdapter(self)
+        #: Latest manager status snapshot (the scan-monitor poll); the
+        #: disconnected default until the first poll lands.
+        self._queue_status = QueueStatus()
+        #: The engine's recorded failed-move reason for the current pause
+        #: ("" when the pause was operator-requested or none is known).
+        self._pause_reason = ""
+        #: Document-stream bookkeeping: descriptor uid → stream name, so
+        #: per-shot progress counts only the primary stream's events.
+        self._descriptor_names: dict = {}
         self._shot_count_valid = False
         self._beep_rng = rng if rng is not None else random.Random()
         self._last_beep_shots = 0
@@ -251,9 +272,6 @@ class MainWindow(QMainWindow):
         #: garbage-collects an unreferenced dialog wrapper and tears down the
         #: C++ dialog with it, so every opened editor is kept here.
         self._open_editors: list = []
-        #: The open three-way action-decision modal (G-actions v2), or None
-        #: — kept so a terminal lifecycle state can dismiss a dangling one.
-        self._decision_box: Optional[object] = None
 
         self._apply_stylesheet()
         self._load_ui()
@@ -311,6 +329,7 @@ class MainWindow(QMainWindow):
         self._movable.start_completions_fetch()
         self._now.start_idle_probe()
         self._actions.start_fetch()
+        self._start_scan_monitor()
 
     # ------------------------------------------------------------------
     # Construction
@@ -585,26 +604,38 @@ class MainWindow(QMainWindow):
         self.variable2_combo.textActivated.connect(self._movable.select_from_scan_combo)
         # (The actions-menu fetch worker lives on ActionsMenuController;
         # the idle scan-number probe worker on NowPanelController.)
-        # Stop dispatch (issue #571): stop_scanning_thread may block briefly
-        # (engine bookkeeping join), so it runs on a worker — never the GUI
-        # thread.  No result slot: completion is announced by the terminal
-        # lifecycle event (_on_scan_state clears the in-flight hold).
+        # Stop dispatch (issue #571 shape, queue edition): stop_scan blocks —
+        # from a running scan it sequences deferred-pause → stop, waiting
+        # out an in-flight blocking move — so it runs on a worker, never
+        # the GUI thread.  The terminal state (stop document, or the status
+        # poll's idle) clears the in-flight hold in _on_scan_state.
         self._stop_worker = BackgroundResult()
+        self._stop_worker.result_ready.connect(
+            self._on_stop_result, Qt.ConnectionType.QueuedConnection
+        )
         self._stop_in_flight = False
         self._stop_button_label = self.stop_button.text()
-        #: Last lifecycle state word (lowercase) — drives the Pause/Resume
-        #: button (G-actions v2 operator pause).
+        # Submission worker: the pre-submit preflight (config + DB + CA
+        # reads) and the queue submission (0MQ round trips) both block, so
+        # each phase runs here; the phases hand off through queued results
+        # (_on_submit_phase_done).
+        self._submit_worker = BackgroundResult()
+        self._submit_worker.result_ready.connect(
+            self._on_submit_phase_done, Qt.ConnectionType.QueuedConnection
+        )
+        self._submit_in_flight = False
+        #: The stamped request held across the pending-items question (a
+        #: clear-and-retry resubmits it verbatim, no re-stamp).
+        self._pending_submission = None
+        self._start_button_label = self.start_button.text()
+        #: Last scan state word (lowercase) — drives the Pause/Resume
+        #: button and the stop hold.
         self._scan_state_text = "idle"
+        #: When a terminal document last rendered (monotonic; arms the
+        #: status poll's backwards-narration grace window).
+        self._terminal_state_at = 0.0
         self._pause_button_label = self.pause_button.text()
         self._refresh_pause_button()
-
-        self.events.state_changed.connect(self._on_scan_state)
-        self.events.totals_known.connect(self._on_totals_known)
-        self.events.scan_number_known.connect(self.set_scan_number)
-        self.events.progress.connect(self._on_progress)
-        self.events.error.connect(self._on_scan_error)
-        self.events.log_line.connect(self.append_log)
-        self.events.dialog_requested.connect(self._on_operator_dialog)
 
     # ------------------------------------------------------------------
     # Configs / health population
@@ -743,6 +774,161 @@ class MainWindow(QMainWindow):
         self._health_timer.start()
         self._health_poller.poll_async()
 
+    def _start_scan_monitor(self) -> None:
+        """Start the queueserver scan monitor (status poll + streams).
+
+        Built from the submitter: its ``status()`` is the poll probe, and a
+        real :class:`~geecs_console.submission.QueueSubmitter` carries the
+        stream addresses (fakes without them get a poll-only monitor).  A
+        submitter that cannot be built leaves the monitor off — the pill
+        stays wherever the last state put it and submission reports the
+        reason on Start.
+        """
+        submitter = self._ensure_submitter()
+        if submitter is None:
+            self._monitor = None
+            return
+        self._monitor = ScanMonitorController(
+            submitter,
+            info_addr=getattr(submitter, "info_addr", None),
+            doc_addr=getattr(submitter, "doc_addr", None),
+        )
+        # Queued connections throughout — poll results and stream documents
+        # arrive from daemon threads and must never paint widgets directly.
+        self._monitor.status_ready.connect(
+            self._on_queue_status, Qt.ConnectionType.QueuedConnection
+        )
+        if self._monitor.documents is not None:
+            self._monitor.documents.document.connect(
+                self._on_scan_document, Qt.ConnectionType.QueuedConnection
+            )
+        if self._monitor.console is not None:
+            self._monitor.console.line.connect(
+                self.append_log, Qt.ConnectionType.QueuedConnection
+            )
+            self._monitor.console.pause_reason.connect(
+                self._on_pause_reason, Qt.ConnectionType.QueuedConnection
+            )
+        # Degraded mode must be visible (#654 review finding 2): a stream
+        # that cannot set up says so in the status bar + log tail instead
+        # of leaving progress/log silently empty.
+        for worker in (self._monitor.documents, self._monitor.console):
+            if worker is not None:
+                worker.stream_failed.connect(
+                    self._report, Qt.ConnectionType.QueuedConnection
+                )
+        self._monitor.start(self)
+
+    @Slot(object)
+    def _on_queue_status(self, status: QueueStatus) -> None:
+        """Render one manager status snapshot (GUI-thread slot).
+
+        The manager poll is the state pill's *fallback* narrator: the
+        document stream announces the interesting transitions (start / stop
+        documents → running / done / aborted), so this slot asserts the
+        worker RE's live states (running/paused and the transitional
+        pausing/stopping/… — rendered as-is), falls an active pill back to
+        idle when the RE is idle (stream down, or another client's stop),
+        and reads "unknown" when the manager is unreachable **or the
+        worker environment is gone mid-scan** (``re_state`` ``None`` —
+        the crash case must never leave a RUNNING pill lying; #654 review
+        finding 1).  A snapshot taken before a stop document but delivered
+        after it must not narrate the transition backwards, so live-state
+        asserts are suppressed for a short grace window after a terminal
+        document (#654 review finding 3).
+        """
+        self._queue_status = status
+        self._apply_status_state(status)
+        # Gating refresh on EVERY snapshot, transition or not: _scanning()
+        # reads the stored snapshot, so a poll that merely agrees with a
+        # pill the document stream already set still changes what
+        # Start/Stop must allow (2026-08-21 live finding: the start doc
+        # narrated RUNNING before the first running poll, the equal-state
+        # poll then skipped the refresh, and Stop stayed disabled — with
+        # Start enabled — for the whole scan).
+        self._refresh_submit_enabled()
+
+    def _apply_status_state(self, status: QueueStatus) -> None:
+        """Apply one snapshot's pill/state transitions (see `_on_queue_status`)."""
+        pill = self._scan_state_text
+        active_pill = pill not in ("idle", "done", "aborted", "unknown")
+        if not status.connected or status.re_state is None:
+            if pill != "unknown":
+                self._on_scan_state("unknown")
+                if status.connected and active_pill:
+                    self._report(
+                        "worker environment is down — scan state lost "
+                        "(restart the worker; check its journal)"
+                    )
+            return
+        re_state = status.re_state
+        if re_state == "idle":
+            if active_pill or pill == "unknown":
+                self._on_scan_state("idle")
+            return
+        # A live RE state (running/paused/pausing/stopping/…): assert it,
+        # unless a terminal document just rendered — a pre-stop snapshot
+        # arriving late would flip DONE/ABORTED back to RUNNING for a poll.
+        if (
+            pill in ("done", "aborted")
+            and time.monotonic() - self._terminal_state_at < _TERMINAL_GRACE_S
+        ):
+            return
+        if pill != re_state:
+            self._on_scan_state(re_state)
+
+    @Slot(str, object)
+    def _on_scan_document(self, name: str, doc: dict) -> None:
+        """Consume one bluesky document from the worker's stream (GUI thread).
+
+        Start documents open the run (scan number, totals, narration),
+        primary-stream events drive per-shot progress and the beep, and the
+        stop document ends it (done/aborted per ``exit_status``).
+        """
+        if name == "start":
+            self._descriptor_names = {}
+            number = doc.get("scan_number")
+            if number is not None:
+                self.set_scan_number(int(number))
+                self.append_log(f"scan running (Scan {int(number):03d})")
+            else:
+                self.append_log("scan running")
+            num_points = doc.get("num_points")
+            shots_per_step = doc.get("shots_per_step")
+            if not num_points:
+                # Adaptive plans (geecs_adaptive_scan) record their
+                # iteration bound instead of num_points; the suggester may
+                # stop early, so the bar may finish under 100% — honestly.
+                num_points = doc.get("max_iterations")
+            if num_points and shots_per_step:
+                self._on_totals_known(int(num_points) * int(shots_per_step))
+            else:
+                # Unknown totals: reset the bar — never inherit the
+                # previous scan's (2026-08-21 live finding, Scan013: a
+                # 25-shot optimization filled a stale 15-shot bar at
+                # iteration 3).
+                self._on_totals_known(0)
+            self._on_scan_state("running")
+        elif name == "descriptor":
+            self._descriptor_names[doc.get("uid")] = doc.get("name")
+        elif name == "event":
+            if self._descriptor_names.get(doc.get("descriptor")) == "primary":
+                shots = int(doc.get("seq_num") or 0)
+                self._on_progress(0, 0, shots)
+        elif name == "stop":
+            exit_status = str(doc.get("exit_status") or "")
+            word = "done" if exit_status == "success" else "aborted"
+            reason = str(doc.get("reason") or "").strip()
+            line = f"scan {word}" + (f" — {reason}" if reason else "")
+            self.append_log(line)
+            self._on_scan_state(word)
+
+    @Slot(str)
+    def _on_pause_reason(self, reason: str) -> None:
+        """Record and announce the engine's failed-move pause reason."""
+        self._pause_reason = reason
+        self._report(f"paused: {reason}")
+
     def _push_experiment_to_probe(self, experiment: str) -> None:
         """Point the probe at *experiment*'s gateway PV, if it supports it.
 
@@ -782,6 +968,16 @@ class MainWindow(QMainWindow):
                 poller.report_ready.disconnect(self._apply_health_report)
             except (RuntimeError, TypeError):
                 pass
+        monitor = getattr(self, "_monitor", None)
+        if monitor is not None:
+            monitor.dispose()
+        for worker_name in ("_stop_worker", "_submit_worker"):
+            worker = getattr(self, worker_name, None)
+            if worker is not None:
+                try:
+                    worker.result_ready.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
         movable = getattr(self, "_movable", None)
         if movable is not None:
             movable.dispose()
@@ -1332,8 +1528,18 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _scanning(self) -> bool:
-        """Whether the submitter reports an active scan."""
-        return self._submitter is not None and self._submitter.is_scanning_active()
+        """Whether the manager reports an active plan (any live RE state).
+
+        From the polled status snapshot — under the queue this covers any
+        client's scan, not just this console's, which is exactly right for
+        Start gating (one worker, one machine).  Transitional states
+        (pausing/stopping/…) count as active; ``None`` (worker environment
+        gone) does not — there is nothing to stop.
+        """
+        return self._queue_status.connected and self._queue_status.re_state not in (
+            None,
+            "idle",
+        )
 
     def _refresh_submit_enabled(self) -> None:
         """Recompute Start/Stop enabled state from form + engine.
@@ -1351,6 +1557,7 @@ class MainWindow(QMainWindow):
         optimize = self.current_mode() is ConsoleMode.OPTIMIZATION
         ready = (
             not scanning
+            and not self._submit_in_flight
             and self._shot_count_valid
             and (bool(self.selected_save_sets()) or optimize)
             and (not optimize or bool(self.optimization_combo.currentText()))
@@ -1386,90 +1593,250 @@ class MainWindow(QMainWindow):
             self.pause_button.setEnabled(False)
 
     def _ensure_submitter(self) -> Optional[Submitter]:
-        """Return the injected submitter, or lazily build the real engine."""
+        """Return the injected submitter, or lazily build the queue client."""
         if self._submitter is not None:
             return self._submitter
         try:
             self._submitter = self._submitter_factory(
-                self.experiment_combo.currentText(), self.events.handle
+                self.experiment_combo.currentText()
             )
         except Exception as exc:
-            message = f"Scan engine unavailable: {exc}"
+            message = f"Scan service unavailable: {exc}"
             self.statusBar().showMessage(message, 10_000)
             self.append_log(message)
             return None
         return self._submitter
 
     def _on_start_clicked(self) -> None:
-        """Build the request from the form and submit it."""
+        """Build the request and run the pre-submit → stamp → queue pipeline.
+
+        Decision 3 of the queueserver migration: the preflight checks run
+        client-side *before* queueing (a typo must fail at submit, not at
+        queue-front) with their questions as ordinary modals; the answers
+        are stamped into the request's ``submission`` record.  Both
+        blocking phases (checks: config/DB/CA reads; submission: 0MQ round
+        trips) run on the submit worker — the GUI thread only builds,
+        asks, and reports.  The worker re-validates authoritatively at
+        execution; the duplication is by design.
+        """
+        if self._submit_in_flight:
+            return
         try:
             request = build_scan_request(self.form_state())
         except (ConsoleFormError, ValidationError) as exc:
-            message = f"Cannot submit: {exc}"
-            self.statusBar().showMessage(message, 10_000)
-            self.append_log(message)
+            self._report(f"Cannot submit: {exc}")
             return
         submitter = self._ensure_submitter()
         if submitter is None:
             return
-        try:
-            accepted = submitter.reinitialize(request)
-            if not accepted:
-                # The Submitter protocol returns False on a refused request
-                # (e.g. unresolvable names) — starting anyway would run the
-                # scanner on stale state from a previous reinitialize.
-                message = "Submission refused: the scanner did not accept the request"
-                self.statusBar().showMessage(message, 10_000)
-                self.append_log(message)
-                return
-            submitter.start_scan_thread()
-        except Exception as exc:
-            message = f"Submission failed: {exc}"
-            self.statusBar().showMessage(message, 10_000)
-            self.append_log(message)
+        experiment = self.experiment_combo.currentText()
+        self._submit_in_flight = True
+        self.start_button.setText("Checking…")
         self._refresh_submit_enabled()
 
-    def _on_stop_clicked(self) -> None:
-        """Request the running scan to stop — never blocking the GUI thread.
+        # Both worker callables must capture their own exceptions:
+        # BackgroundResult swallows a raise without emitting, which would
+        # strand the pipeline in-flight (Start disabled) forever.
+        def check() -> tuple:
+            try:
+                return ("preflight", request, run_submit_preflight(request, experiment))
+            except Exception as exc:  # noqa: BLE001 — deliver as a refusal
+                return ("preflight", request, PreflightReport(refusal=str(exc)))
 
-        ``stop_scanning_thread`` can block (during initialization the
-        engine's scan thread may sit in a 20 s device connect; calling it
-        here used to pinwheel the window — issue #571), so it is
-        dispatched through the stop worker.  The button disables and shows
-        "Stopping…" until the lifecycle stream reports a terminal state
-        (:meth:`_on_scan_state` releases the hold), then normal gating
-        resumes.
+        self._submit_worker.run_async(check, "submit-preflight")
+
+    def _queue_submission(self, stamped, *, clear_pending: bool, name: str) -> None:
+        """Run one submit call on the worker (exception-capturing)."""
+        submitter = self._submitter
+
+        def call() -> tuple:
+            try:
+                return (
+                    "submit",
+                    submitter.submit(
+                        stamped.model_dump(mode="json"), clear_pending=clear_pending
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 — deliver as a failure
+                return ("submit", SubmitResult(ok=False, message=str(exc)))
+
+        self._submit_worker.run_async(call, name)
+
+    def _finish_submission(self, message: str) -> None:
+        """End the submission pipeline, restoring the Start button."""
+        self._submit_in_flight = False
+        self.start_button.setText(self._start_button_label)
+        self._report(message)
+        self._refresh_submit_enabled()
+
+    @Slot(object)
+    def _on_submit_phase_done(self, payload: object) -> None:
+        """Advance the submission pipeline as each worker phase completes."""
+        if not self._submit_in_flight or not isinstance(payload, tuple):
+            return
+        phase = payload[0]
+        if phase == "preflight":
+            _, request, report = payload
+            self._continue_after_preflight(request, report)
+        elif phase == "submit":
+            _, result = payload
+            self._continue_after_submit(result)
+
+    def _continue_after_preflight(self, request, report) -> None:
+        """Ask the preflight questions and queue the stamped request."""
+        if report.refusal is not None:
+            self._finish_submission(f"Cannot submit: {report.refusal}")
+            return
+        outcomes = list(report.outcomes)
+        for question in report.questions:
+            if self._ask_binary(
+                question.title,
+                question.message,
+                continue_label=question.continue_label,
+                abort_label=question.abort_label,
+            ):
+                # The detail travels into run metadata in the operator's
+                # own words (the question they actually saw).
+                outcomes.append((question.check, "continued", question.message))
+                self.append_log(f"preflight {question.check}: operator continued")
+            else:
+                self._finish_submission(
+                    f"Submission aborted at the {question.check} check"
+                )
+                return
+        stamped = stamp_submission(
+            request, outcomes, client=f"geecs-console {console_version()}"
+        )
+        self.start_button.setText("Submitting…")
+        # Keep the stamped payload for a clear-and-retry after the
+        # pending-items question (no re-stamp: same outcomes, same click).
+        self._pending_submission = stamped
+        self._queue_submission(stamped, clear_pending=False, name="submit-queue")
+
+    def _continue_after_submit(self, result) -> None:
+        """Handle the queue's answer, including the failed-item-front trap."""
+        if result.ok:
+            self._finish_submission("Scan queued — starting")
+            return
+        if result.pending_items:
+            count = len(result.pending_items)
+            if self._ask_binary(
+                "Queue not empty",
+                (
+                    f"The queue already holds {count} item(s) — usually a "
+                    "failed scan returned to the queue front, which would "
+                    "re-run before yours. Remove the pending item(s) and "
+                    "submit this scan?"
+                ),
+                continue_label="Remove && submit",
+                abort_label="Cancel",
+            ):
+                self._queue_submission(
+                    self._pending_submission,
+                    clear_pending=True,
+                    name="submit-queue-clear",
+                )
+                return
+            self._finish_submission("Submission cancelled (queue left as-is)")
+            return
+        self._finish_submission(f"Submission failed: {result.message}")
+
+    def _ask_binary(
+        self,
+        title: str,
+        message: str,
+        *,
+        continue_label: str = "Continue",
+        abort_label: str = "Abort",
+    ) -> bool:
+        """One modal continue/abort question; ``True`` means continue.
+
+        A render failure reads as abort — a warning the operator could not
+        see must never wave a submission through.
+        """
+        try:
+            box = QMessageBox(self)
+            box.setIcon(QMessageBox.Icon.Warning)
+            box.setWindowTitle(str(title))
+            box.setText(str(message))
+            continue_button = box.addButton(
+                str(continue_label), QMessageBox.ButtonRole.AcceptRole
+            )
+            box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(continue_button)
+            box.exec()
+            return box.clickedButton() is continue_button
+        except Exception:  # noqa: BLE001 — unrenderable question = abort
+            logger.exception("question dialog render failed; treating as abort")
+            return False
+
+    def _on_stop_clicked(self) -> None:
+        """Gracefully stop the current scan — never blocking the GUI thread.
+
+        ``stop_scan`` blocks (from a running scan it sequences deferred
+        pause → stop, waiting out an in-flight blocking move — the #571
+        rule with a longer worst case), so it runs on the stop worker.
+        The button shows "Stopping…" until a terminal state releases the
+        hold (:meth:`_on_scan_state`); the sequencing outcome itself lands
+        in :meth:`_on_stop_result`.
         """
         submitter = self._submitter
-        if submitter is None or not submitter.is_scanning_active():
+        if submitter is None or not self._scanning():
             self._refresh_submit_enabled()
             return
         self._stop_in_flight = True
         self.stop_button.setText("Stopping…")
-        self._stop_worker.run_async(submitter.stop_scanning_thread, "scan-stop")
-        self.append_log("stop requested")
+
+        # Same rule as the submit pipeline: a raise inside the worker is
+        # swallowed by BackgroundResult without emitting, which would leave
+        # the "Stopping…" hold stuck forever — capture into a failure tuple.
+        def call() -> tuple[bool, str]:
+            try:
+                return submitter.stop_scan()
+            except Exception as exc:  # noqa: BLE001 — deliver as a failure
+                return (False, str(exc))
+
+        self._stop_worker.run_async(call, "scan-stop")
+        self.append_log("stop requested (partial data is preserved)")
         self._refresh_submit_enabled()
+
+    @Slot(object)
+    def _on_stop_result(self, result: object) -> None:
+        """Report the stop sequencing's outcome (GUI-thread slot).
+
+        A failed sequencing (e.g. the pause never landed) releases the
+        hold so the operator can retry or escalate; a successful one keeps
+        it — the terminal state arrives via the document stream / status
+        poll and clears it in :meth:`_on_scan_state`.
+        """
+        if not isinstance(result, tuple) or len(result) != 2:
+            return
+        ok, message = result
+        self.append_log(f"stop: {message}")
+        if not ok:
+            self._stop_in_flight = False
+            self.stop_button.setText(self._stop_button_label)
+            self._refresh_submit_enabled()
 
     def _on_pause_clicked(self) -> None:
         """Pause the running scan, or resume it if already paused.
 
-        Both engine calls return promptly (``request_pause`` asks the
-        RunEngine to pause at its next checkpoint; ``request_resume`` signals
-        the parked pause supervisor), so they run on the GUI thread — no
-        worker.  The actual pause/resume happens on the engine's scan
-        thread and is announced back through the lifecycle stream (the
-        PAUSED/RUNNING states flip this button via
-        :meth:`_refresh_pause_button`).
+        Both manager calls are single short-timeout requests, so they run
+        on the GUI thread (the old prompt-returning pause semantics); the
+        actual pause lands at the plan's next checkpoint and is announced
+        back by the status poll (the PAUSED/RUNNING states flip this
+        button via :meth:`_refresh_pause_button`).
         """
         submitter = self._submitter
-        if submitter is None or not submitter.is_scanning_active():
+        if submitter is None or not self._scanning():
             return
         if self._scan_state_text == "paused":
-            submitter.request_resume()
-            self.append_log("resume requested")
+            ok, message = submitter.request_resume()
+            self._pause_reason = ""
+            self.append_log(message if ok else f"resume refused: {message}")
         else:
-            submitter.request_pause()
-            self.append_log("pause requested")
+            ok, message = submitter.request_pause()
+            self.append_log(message if ok else f"pause refused: {message}")
 
     # ------------------------------------------------------------------
     # R4 presets (a preset IS a saved ScanRequest)
@@ -1742,6 +2109,11 @@ class MainWindow(QMainWindow):
         """
         lowered = (state or "").lower()
         self._scan_state_text = lowered or "idle"
+        if lowered in ("done", "aborted"):
+            # Arms the status poll's post-terminal grace window (a stale
+            # pre-stop snapshot must not repaint RUNNING — see
+            # _on_queue_status).
+            self._terminal_state_at = time.monotonic()
         if self._stop_in_flight and lowered in _TERMINAL_SCAN_STATES:
             self._stop_in_flight = False
             self.stop_button.setText(self._stop_button_label)
@@ -1749,17 +2121,9 @@ class MainWindow(QMainWindow):
         self._refresh_submit_enabled()
 
         # Push the live scan state into open action dialogs so their Run
-        # button flips between "Run" and "Pause scan & run" (G-actions v2).
-        scanning = lowered not in _TERMINAL_SCAN_STATES and lowered != "idle"
-        self._actions.set_scanning(scanning)
-
-        # A terminal state dismisses a dangling action-decision modal: an
-        # operator Stop during the pause window aborts the scan without the
-        # engine answering the three-way dialog, so the console must tear it
-        # down itself (the #552 PR-3 review contract — the engine has no
-        # dialog-cancel signal).
-        if lowered in _TERMINAL_SCAN_STATES and self._decision_box is not None:
-            self._decision_box.reject()
+        # button disables while a scan is active (actions are idle-only
+        # queue items since decision 2 dropped the pause-window flow).
+        self._actions.set_scanning(lowered in ("running", "paused"))
 
     def _on_totals_known(self, total_shots: int) -> None:
         """Size the progress bar once the scan announces its totals."""
@@ -1777,140 +2141,3 @@ class MainWindow(QMainWindow):
         elif shots_completed < self._last_beep_shots:
             # A scan that never announced totals restarted the count.
             self._last_beep_shots = shots_completed
-
-    def _on_scan_error(self, message: str) -> None:
-        """Show scan errors in the status bar."""
-        self.statusBar().showMessage(message, 10_000)
-
-    # ------------------------------------------------------------------
-    # Operator / pre-flight dialogs
-    # ------------------------------------------------------------------
-
-    def _on_operator_dialog(self, request: object) -> None:
-        """Render an operator question modally and unblock the engine thread.
-
-        Delivered queued from :meth:`ScanEventsAdapter.handle` (which runs on
-        the engine/scan thread, blocked on ``request.response_event``), so this
-        slot runs on the GUI thread — where a modal must live.  The engine
-        resumes with the operator's choice: Abort sets ``request.abort[0]``
-        before the response event is set.
-
-        Parameters
-        ----------
-        request : object
-            A ``DialogRequest`` (duck-typed): ``exc``, optional ``title`` /
-            ``continue_label`` / ``abort_label``, a mutable one-element
-            ``abort`` list, and a ``response_event`` (:class:`threading.Event`).
-            An ``ActionDecisionRequest`` (carrying a ``verdict`` list) is
-            rendered as the three-way action pop-up instead (G-actions v2).
-        """
-        if getattr(request, "verdict", None) is not None:
-            self._on_action_decision(request)
-            return
-        try:
-            exc = getattr(request, "exc", None)
-            title = getattr(request, "title", None) or "Operator confirmation"
-            continue_label = getattr(request, "continue_label", None) or "Continue"
-            abort_label = getattr(request, "abort_label", None) or "Abort"
-
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Warning)
-            box.setWindowTitle(str(title))
-            box.setText(str(exc) if exc is not None else str(title))
-            continue_button = box.addButton(
-                str(continue_label), QMessageBox.ButtonRole.AcceptRole
-            )
-            box.addButton(str(abort_label), QMessageBox.ButtonRole.RejectRole)
-            box.setDefaultButton(continue_button)
-            box.exec()
-
-            aborted = box.clickedButton() is not continue_button
-            abort_flag = getattr(request, "abort", None)
-            if aborted and isinstance(abort_flag, list) and abort_flag:
-                abort_flag[0] = True
-            self.append_log(f"operator: {'abort' if aborted else 'continue'}")
-        except Exception:  # noqa: BLE001 — must never leave the engine parked
-            logger.exception("operator dialog render failed; aborting to be safe")
-            abort_flag = getattr(request, "abort", None)
-            if isinstance(abort_flag, list) and abort_flag:
-                abort_flag[0] = True  # a warning we cannot show → do not proceed
-        finally:
-            self._unblock_engine(request)
-
-    @staticmethod
-    def _unblock_engine(request: object) -> None:
-        """Set the request's response event so the parked engine thread runs.
-
-        Called from a ``finally`` in both dialog handlers: an exception in
-        the render path must never leave the engine's scan thread blocked
-        on ``response_event`` forever (the engine has no dialog-cancel
-        signal; #552 PR-3/PR-4 contract).
-        """
-        response_event = getattr(request, "response_event", None)
-        if response_event is not None and hasattr(response_event, "set"):
-            response_event.set()
-
-    def _on_action_decision(self, request: object) -> None:
-        """Render the three-way action-decision pop-up (G-actions v2).
-
-        The scan is paused (machine in its safe state) and the engine's
-        scan thread is parked on ``request.response_event``.  This modal
-        offers Execute / Ignore / Abort; the choice goes into
-        ``request.verdict[0]`` before the event is set.  The box is tracked
-        on ``self._decision_box`` so a terminal lifecycle state (an operator
-        Stop that aborted the scan out of band) can dismiss it — the engine
-        provides no dialog-cancel signal (#552 PR-3 contract).
-
-        Parameters
-        ----------
-        request : object
-            An ``ActionDecisionRequest`` (duck-typed): ``action_name``,
-            ``message``, ``step_count``, a mutable one-element ``verdict``
-            list, and a ``response_event``.
-        """
-        try:
-            name = str(getattr(request, "action_name", "action"))
-            message = str(getattr(request, "message", "")) or f"Action '{name}'"
-            steps = int(getattr(request, "step_count", 0) or 0)
-
-            box = QMessageBox(self)
-            box.setIcon(QMessageBox.Icon.Question)
-            box.setWindowTitle(f"Scan paused — action '{name}'")
-            box.setText(message)
-            execute_button = box.addButton(
-                f"Execute ({steps} step{'s' if steps != 1 else ''})",
-                QMessageBox.ButtonRole.AcceptRole,
-            )
-            ignore_button = box.addButton(
-                "Ignore & resume", QMessageBox.ButtonRole.RejectRole
-            )
-            box.addButton("Abort scan", QMessageBox.ButtonRole.DestructiveRole)
-            box.setDefaultButton(ignore_button)
-
-            self._decision_box = box
-            try:
-                box.exec()
-            finally:
-                self._decision_box = None
-
-            clicked = box.clickedButton()
-            if clicked is execute_button:
-                verdict = "execute"
-            elif clicked is ignore_button:
-                verdict = "ignore"
-            else:
-                # Abort, or a programmatic dismiss (terminal-state reject()):
-                # a dismiss already means the scan is ending, so "abort" is
-                # the safe read either way.
-                verdict = "abort"
-
-            verdict_list = getattr(request, "verdict", None)
-            if isinstance(verdict_list, list) and verdict_list:
-                verdict_list[0] = verdict
-            self.append_log(f"action decision: {verdict}")
-        except Exception:  # noqa: BLE001 — must never leave the engine parked
-            # The request's verdict default is "ignore" (resume, run
-            # nothing) — the safe outcome when the pop-up could not render.
-            logger.exception("action-decision dialog render failed; resuming")
-        finally:
-            self._unblock_engine(request)

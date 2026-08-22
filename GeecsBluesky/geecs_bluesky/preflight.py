@@ -1,48 +1,87 @@
 """Pre-flight checks as a pipeline (vision doc §2).
 
 A check inspects the scan about to start and returns *pass*, *ask the
-operator a question*, or *abort*; :func:`run_preflight` executes a list of
-checks in order, routing questions through the injected
-:class:`~geecs_bluesky.operator_channel.OperatorChannel`.  New checks are
-additions to the list, not new branches in the scanner class.  All checks run
-**before the scan folder is claimed**, so an abort here burns no scan number.
+operator a question*, or *abort*.  Since the queueserver migration
+(decision 3, issue #649) questions are answered **client-side pre-submit**
+— GEECS-Console runs the checks itself and renders each :class:`Ask` as an
+ordinary modal (``geecs_console.services.submit_preflight``, the live
+consumer of this module's :class:`UnservedVariablesCheck` /
+:class:`PreflightContext` / :class:`Ask` / :class:`Passed`).  Engine-side,
+:func:`run_preflight` runs headless: an :class:`Ask` takes its
+``on_default`` branch (for the unserved-variables check:
+continue-and-drop with a WARNING — the telemetry philosophy, a headless
+scan is never aborted for a soft reason).  The cross-thread
+``OperatorChannel`` dialog transport died with the GUI bridge; new checks
+are additions to the list, not new branches anywhere.  All checks run
+**before the scan folder is claimed**, so an abort here burns no scan
+number.
 
-Today's checks: :class:`UnservedVariablesCheck` (ScanRequest paths, all modes
-— it inspects the devices config, so it runs *before* detectors are built),
-:class:`GatewayLivenessCheck` (both acquisition modes) and
-:class:`FreeRunStalenessCheck` (free-run only).  Headless / no answer → the
-device checks pass unchanged and the scan fails loudly downstream; the
-unserved-variables check instead defaults to continue-and-drop with a
-WARNING (matching the telemetry philosophy: a headless scan is never
-aborted for a soft reason).
+(The old device-level ``GatewayLivenessCheck`` / ``FreeRunStalenessCheck``
+were bridge-hook-only and died with it — the console's pre-submit
+liveness/staleness reads are their successors, run where an operator can
+actually answer.)
 """
 
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol, Union
 
-from geecs_bluesky.exceptions import (
-    GeecsDeviceDownError,
-    GeecsStaleDevicesError,
-    GeecsUnservedVariablesError,
-)
+from geecs_bluesky.exceptions import GeecsUnservedVariablesError
 from geecs_bluesky.db_runtime import GATEWAY_SYNTHESIZED_VARIABLES
-from geecs_bluesky.operator_channel import (
-    ANSWER_ABORT,
-    ANSWER_CONTINUE,
-    NullOperator,
-    OperatorChannel,
-    OperatorQuestion,
-)
 
 logger = logging.getLogger(__name__)
 
-# Seconds between the LabVIEW epoch (1904-01-01) and the Unix epoch
-# (1970-01-01).  Device ``acq_timestamp`` values are LabVIEW-epoch.
-LABVIEW_EPOCH_OFFSET = 2_082_844_800
+# Canonical answer strings for a question's resolution (the operator's two
+# buttons plus the nobody-answered default).  Formerly the operator-channel
+# vocabulary; the strings are part of the check contract, so they live on.
+ANSWER_CONTINUE = "continue"
+ANSWER_ABORT = "abort"
+ANSWER_DEFAULT = "default"
+
+
+@dataclass
+class OperatorQuestion:
+    """One question for the operator, with its two answers spelled out.
+
+    Rendered client-side pre-submit (a console modal) — the fields are the
+    dialog's wording, owned by the check that raised it.
+
+    Parameters
+    ----------
+    message :
+        Operator-facing body text.  When ``exc`` is set, consumers may
+        render ``str(exc)`` instead (the two should agree).
+    title :
+        Dialog window title.
+    continue_label :
+        Text for the non-abort button (e.g. ``"Drop && Continue"``) — the
+        question author owns the wording of what "continue" means.
+    abort_label :
+        Text for the abort button.
+    default :
+        Answer applied when nobody can be asked (the engine's headless
+        path).  The conventional value is :data:`ANSWER_DEFAULT`, telling
+        the caller to preserve its fail-loud default behavior.
+    timeout :
+        Seconds a renderer may wait for an answer; ``None`` for its
+        default.  Informational for synchronous modals.
+    exc :
+        Optional exception behind the question, for consumers that render
+        exceptions.
+    context :
+        Optional extra information for the dialog body.
+    """
+
+    message: str
+    title: Optional[str] = None
+    continue_label: Optional[str] = None
+    abort_label: Optional[str] = None
+    default: str = ANSWER_DEFAULT
+    timeout: Optional[float] = None
+    exc: Optional[Exception] = None
+    context: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -187,9 +226,14 @@ class PreflightCheck(Protocol):
 def run_preflight(
     checks: list[PreflightCheck],
     ctx: PreflightContext,
-    channel: OperatorChannel,
 ) -> list | None:
-    """Execute *checks* in order, asking the operator through *channel*.
+    """Execute *checks* in order — headless (no operator to ask).
+
+    An :class:`Ask` takes its ``on_default`` branch with one WARNING naming
+    the question: engine-side there is nobody to answer (queueserver
+    decision 3 — questions are asked client-side *before* submission, and
+    the client records the answers in the request's ``submission``
+    provenance).
 
     Parameters
     ----------
@@ -197,8 +241,6 @@ def run_preflight(
         The pipeline, run first to last.
     ctx :
         Shared context; checks may replace ``ctx.detectors``.
-    channel :
-        Where questions go (GUI event stream, headless default, ...).
 
     Returns
     -------
@@ -209,332 +251,17 @@ def run_preflight(
     for check in checks:
         result = check(ctx)
         if isinstance(result, Ask):
-            answer = channel.ask(result.question)
-            if answer == ANSWER_ABORT:
-                logger.warning(result.abort_reason)
-                return None
-            if answer == ANSWER_CONTINUE:
-                result = result.on_continue()
-            else:
-                result = result.on_default()
+            logger.warning(
+                "Pre-flight question (headless default applies): %s",
+                result.question.message,
+            )
+            result = result.on_default()
         if isinstance(result, Aborted):
             logger.warning(result.reason)
             return None
         if result.skip_remaining:
             return ctx.detectors
     return ctx.detectors
-
-
-# ---------------------------------------------------------------------------
-# Check 1 — gateway CONNECTED liveness (both modes)
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class GatewayLivenessCheck:
-    """Catch dead sync devices via the gateway ``CONNECTED`` PV (both modes).
-
-    ``CONNECTED`` is the authoritative liveness signal — CA-connect success
-    never implied device liveness (see ``GeecsBluesky/CLAUDE.md``).  Outcomes:
-    a disconnected free-run *reference* → abort-recommended dialog ("Try
-    Anyway" opt-in skips later checks); any other disconnected device(s) →
-    drop-and-continue vs abort; an unreadable ``CONNECTED`` PV → fail-open
-    (the injected ``read_liveness`` treats it as live).
-    """
-
-    def __call__(self, ctx: PreflightContext) -> CheckResult:
-        """Run the liveness stage against the current detector list.
-
-        Parameters
-        ----------
-        ctx :
-            The pre-flight context.
-
-        Returns
-        -------
-        CheckResult
-            ``Passed`` (possibly skipping later checks), or an ``Ask``.
-        """
-        sync_devices = ctx.sync_devices()
-        if not sync_devices:
-            return Passed(skip_remaining=True)
-
-        dead = [d for d in sync_devices if not ctx.read_liveness(d)]
-        if not dead:
-            return Passed()
-
-        dead_ids = {id(d) for d in dead}
-        details = ", ".join(
-            f"{ctx.device_label(d)} (gateway reports DISCONNECTED)" for d in dead
-        )
-        reference = sync_devices[0]
-
-        if not ctx.strict and id(reference) in dead_ids:
-            # v1: a dead reference (pacemaker) is abort-only — promotion is
-            # deliberately out of scope. (Strict mode has no pacemaker; a
-            # dead first device there is just another droppable device.)
-            exc = GeecsDeviceDownError(
-                f"The free-run reference (pacemaker) device is down: "
-                f"{details}. The gateway's CONNECTED PV says its TCP "
-                "stream is dead — the scan cannot pace without it; "
-                "aborting is recommended. Trying anyway will fail at "
-                "t0 sync.",
-                device_name=ctx.device_label(reference),
-            )
-
-            def _proceed_anyway() -> Passed:
-                logger.warning(
-                    "Pre-flight: proceeding with a DISCONNECTED reference "
-                    "(%s) — t0 sync will fail loudly",
-                    details,
-                )
-                # The operator explicitly opted in; skip further pre-flight
-                # dialogs rather than stack a staleness dialog on top.
-                return Passed(skip_remaining=True)
-
-            return Ask(
-                question=ctx.question(
-                    exc,
-                    title="Reference Device Disconnected",
-                    continue_label="Try Anyway",
-                ),
-                on_continue=_proceed_anyway,
-                on_default=_proceed_anyway,
-                abort_reason="Pre-flight: operator aborted (reference disconnected)",
-            )
-
-        exc = GeecsDeviceDownError(
-            f"Synchronous device(s) are down: {details}. The gateway's "
-            "CONNECTED PV says their TCP stream is dead (an off/crashed "
-            "GEECS device — its data PVs still connect, so this is the "
-            "authoritative check). Drop them and continue the scan "
-            "without their data, or abort."
-        )
-
-        def _drop_dead() -> Passed:
-            ctx.detectors = ctx.drop_devices(ctx.detectors, dead_ids)
-            if not ctx.sync_devices():
-                return Passed(skip_remaining=True)
-            return Passed()
-
-        def _proceed_unchanged() -> Passed:
-            logger.warning(
-                "Pre-flight: device(s) %s are DISCONNECTED per the "
-                "gateway but no operator answer — proceeding unchanged; "
-                "the scan will fail loudly downstream (t0 sync in "
-                "free-run, device-down abort in strict)",
-                details,
-            )
-            return Passed(skip_remaining=True)
-
-        return Ask(
-            question=ctx.question(
-                exc,
-                title="Disconnected Device(s)",
-                continue_label="Drop && Continue",
-            ),
-            on_continue=_drop_dead,
-            on_default=_proceed_unchanged,
-            abort_reason="Pre-flight: operator aborted (disconnected devices)",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Check 2 — free-run trigger-running staleness (free-run mode ONLY)
-# ---------------------------------------------------------------------------
-
-
-def find_stale_sync_devices(
-    sync_devices: list, threshold_s: float
-) -> list[tuple[Any, float | None]]:
-    """Return ``(device, age_seconds_or_None)`` for stale sync devices.
-
-    Parameters
-    ----------
-    sync_devices :
-        Devices carrying a persistent-monitor cache (``_last_acq``,
-        LabVIEW-epoch seconds).
-    threshold_s :
-        Frames older than this (wall-clock seconds; control machines are
-        NTP-synced) count as stale.
-
-    Returns
-    -------
-    list of tuple
-        Stale devices with their frame age; ``None`` age means "never
-        acquired" (no frame seen since connect).
-    """
-    now_labview = time.time() + LABVIEW_EPOCH_OFFSET
-    stale: list[tuple[Any, float | None]] = []
-    for device in sync_devices:
-        last = device._last_acq
-        if last is None:
-            stale.append((device, None))
-            continue
-        age = now_labview - float(last)
-        if age > threshold_s:
-            stale.append((device, age))
-    return stale
-
-
-@dataclass
-class FreeRunStalenessCheck:
-    """Free-run only: is the trigger free-running? (staleness heuristics).
-
-    With every device CONNECTED (the liveness check ran first), cached
-    ``acq_timestamp`` freshness answers whether the trigger is free-running.
-    All frames stale → the "trigger may be off" dialog; a stale contributor
-    while the reference frames → per-device drop offer (the fresh reference
-    proves the trigger is running); a stale *reference* → abort-only (v1).
-    Strict mode passes immediately: frames are not needed before a strict
-    scan (the trigger may legitimately sit OFF; ``ARMED`` starts it).
-
-    Parameters
-    ----------
-    threshold_s :
-        Frame age beyond which a device counts as stale.
-    recheck_wait_s :
-        Grace period before one re-check (a just-connected monitor may not
-        have delivered its first frame yet).
-    """
-
-    threshold_s: float
-    recheck_wait_s: float = 0.0
-
-    def __call__(self, ctx: PreflightContext) -> CheckResult:
-        """Run the staleness stage against the current detector list.
-
-        Parameters
-        ----------
-        ctx :
-            The pre-flight context.
-
-        Returns
-        -------
-        CheckResult
-            ``Passed``, or an ``Ask`` for one of the three stale cases.
-        """
-        if ctx.strict:
-            # Frames are not needed before a strict scan (the trigger may
-            # legitimately sit OFF; ARMED starts it) and CONNECTED already
-            # answered liveness — nothing left to check.
-            return Passed()
-
-        sync_devices = ctx.sync_devices()
-        if not sync_devices:
-            return Passed()
-
-        stale = find_stale_sync_devices(sync_devices, self.threshold_s)
-        if stale and self.recheck_wait_s > 0:
-            # A just-connected monitor may not have delivered its first frame
-            # yet; give the free-running trigger one more period.
-            time.sleep(self.recheck_wait_s)
-            stale = find_stale_sync_devices(sync_devices, self.threshold_s)
-        if not stale:
-            return Passed()
-
-        def _describe(device: Any, age: float | None) -> str:
-            if age is None:
-                return f"{ctx.device_label(device)} (no frames since connect)"
-            return f"{ctx.device_label(device)} (last frame {age:.0f} s ago)"
-
-        details = ", ".join(_describe(dev, age) for dev, age in stale)
-        stale_ids = {id(dev) for dev, _age in stale}
-        reference = sync_devices[0]
-
-        if len(stale) == len(sync_devices):
-            # Every sync device is CONNECTED but frameless — unambiguous now:
-            # the trigger is off / not free-running.
-            exc = GeecsStaleDevicesError(
-                f"All synchronous devices are CONNECTED per the gateway but "
-                f"none has a fresh frame ({details}). The trigger appears to "
-                "be off / not free-running — free-run scans need the trigger "
-                "free-running before start. Starting anyway will fail at "
-                "t0 sync if nothing is firing."
-            )
-
-            def _start_anyway() -> Passed:
-                logger.warning(
-                    "Pre-flight: proceeding with all sync devices stale (%s) "
-                    "— t0 sync will fail loudly if the trigger is really off",
-                    details,
-                )
-                return Passed()
-
-            return Ask(
-                question=ctx.question(
-                    exc,
-                    title="Trigger May Be Off",
-                    continue_label="Start Anyway",
-                ),
-                on_continue=_start_anyway,
-                on_default=_start_anyway,
-                abort_reason="Pre-flight: operator aborted (all sync stale)",
-            )
-
-        if id(reference) in stale_ids:
-            # v1: a frameless reference (pacemaker) is abort-only, same as a
-            # disconnected one — promotion is deliberately out of scope.
-            exc = GeecsStaleDevicesError(
-                f"The free-run reference (pacemaker) device is CONNECTED but "
-                f"has no fresh frames: {details}. The scan cannot pace "
-                "without it; aborting is recommended. Trying anyway will "
-                "fail at t0 sync if it is really not acquiring."
-            )
-
-            def _try_anyway() -> Passed:
-                logger.warning(
-                    "Pre-flight: proceeding with a stale reference (%s) — "
-                    "t0 sync will fail loudly if it is really not acquiring",
-                    details,
-                )
-                return Passed()
-
-            return Ask(
-                question=ctx.question(
-                    exc,
-                    title="Reference Device Not Acquiring",
-                    continue_label="Try Anyway",
-                ),
-                on_continue=_try_anyway,
-                on_default=_try_anyway,
-                abort_reason="Pre-flight: operator aborted (stale reference)",
-            )
-
-        # Residual case: CONNECTED-but-stale contributor(s) while the
-        # reference frames.  The fresh reference proves the trigger is
-        # running, so this is a per-device acquisition problem (camera
-        # acquisition stopped while its TCP stream stays up) — offer to drop.
-        exc = GeecsStaleDevicesError(
-            f"Synchronous device(s) are CONNECTED but not producing frames: "
-            f"{details}. The reference is framing, so the trigger is "
-            "running — these devices are not acquiring. Drop them and "
-            "continue the scan without their data, or abort."
-        )
-
-        def _drop_stale() -> Passed:
-            ctx.detectors = ctx.drop_devices(ctx.detectors, stale_ids)
-            return Passed()
-
-        def _proceed_unchanged() -> Passed:
-            logger.warning(
-                "Pre-flight: stale sync device(s) %s but no operator answer "
-                "— proceeding unchanged; t0 sync will fail loudly if they "
-                "are really not acquiring",
-                details,
-            )
-            return Passed()
-
-        return Ask(
-            question=ctx.question(
-                exc,
-                title="Device(s) Not Acquiring",
-                continue_label="Drop && Continue",
-            ),
-            on_continue=_drop_stale,
-            on_default=_proceed_unchanged,
-            abort_reason="Pre-flight: operator aborted (stale sync devices)",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -693,15 +420,15 @@ class UnservedVariablesCheck:
 def run_unserved_variables_check(
     devices_config: dict[str, dict[str, Any]],
     served_by_device: Callable[[], "dict[str, set[str]] | None"] | None,
-    channel: OperatorChannel | None,
-    *,
-    dialog_timeout: Optional[float] = None,
 ) -> tuple[dict[str, dict[str, Any]] | None, dict[str, list[str]], list[str]]:
-    """Run :class:`UnservedVariablesCheck` as a one-check pipeline.
+    """Run :class:`UnservedVariablesCheck` as a one-check headless pipeline.
 
     The scan-request runner's entry point for the config-level pre-flight
-    stage: builds a minimal context (no detectors exist yet), routes the one
-    question through *channel*, and unpacks the check's outputs.
+    stage: builds a minimal context (no detectors exist yet) and unpacks
+    the check's outputs.  Headless by construction (queueserver decision
+    3): a raised question takes its default — continue-and-drop with a
+    WARNING — because the operator was already asked client-side at
+    submission time.
 
     Parameters
     ----------
@@ -710,20 +437,15 @@ def run_unserved_variables_check(
     served_by_device :
         The served-set callable; ``None`` (no experiment / no provider)
         skips the check entirely.
-    channel :
-        Where the question goes; ``None`` → :class:`NullOperator`
-        (headless: continue-and-drop with a WARNING).
-    dialog_timeout :
-        Per-question wait budget (``None`` → channel default).
 
     Returns
     -------
     tuple
         ``(effective_config, dropped, dropped_devices)`` —
-        ``effective_config`` is ``None`` when the operator aborted (pre-claim
-        — no scan number burned); ``dropped`` is ``{device: [variables]}``
-        and ``dropped_devices`` the devices removed whole (both empty when
-        nothing was dropped).
+        ``effective_config`` is ``None`` when the check aborted (pre-claim
+        — no scan number burned; the headless default never aborts);
+        ``dropped`` is ``{device: [variables]}`` and ``dropped_devices``
+        the devices removed whole (both empty when nothing was dropped).
     """
     if served_by_device is None:
         return devices_config, {}, []
@@ -736,9 +458,8 @@ def run_unserved_variables_check(
         read_liveness=lambda device: True,
         drop_devices=lambda detectors, ids: detectors,
         device_label=str,
-        dialog_timeout=dialog_timeout,
     )
-    outcome = run_preflight([check], ctx, channel or NullOperator())
+    outcome = run_preflight([check], ctx)
     if outcome is None:
         return None, {}, []
     return check.effective_config, check.dropped, check.dropped_devices

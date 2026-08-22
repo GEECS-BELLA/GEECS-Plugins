@@ -90,6 +90,8 @@ class ActionsMenuController(QObject):
         self._plan_actions: list = []
         #: Open ActionRunDialogs — referenced here so GC cannot take them.
         self.open_dialogs: list = []
+        #: Last pushed scan state (window hub) — new dialogs open with it.
+        self._scanning = False
 
         self._worker = BackgroundResult()
         self._worker.result_ready.connect(
@@ -222,8 +224,7 @@ class ActionsMenuController(QObject):
             run=submitter.run_action,
             execution_enabled=self.enable_action.isChecked(),
             report=self._report,
-            request_during_scan=submitter.request_action_during_scan,
-            is_scanning=submitter.is_scanning_active,
+            scanning=self._scanning,
         )
         self.open_dialogs = [d for d in self.open_dialogs if d.isVisible()]
         self.open_dialogs.append(dialog)
@@ -232,14 +233,17 @@ class ActionsMenuController(QObject):
     def set_scanning(self, scanning: bool) -> None:
         """Push live scan state into every open dialog.
 
-        The window's scan-lifecycle hub calls this so each dialog's Run
-        button flips between "Run" and "Pause scan & run".
+        The window's state hub calls this so each dialog's Run button
+        disables while a scan is active (actions are idle-only queue
+        items since the queueserver migration dropped the pause-window
+        flow).
 
         Parameters
         ----------
         scanning : bool
-            Whether a scan is currently active (non-terminal, non-idle).
+            Whether a scan is currently active (running or paused).
         """
+        self._scanning = bool(scanning)
         self.open_dialogs = [d for d in self.open_dialogs if d.isVisible()]
         for dialog in self.open_dialogs:
             dialog.set_scanning(scanning)

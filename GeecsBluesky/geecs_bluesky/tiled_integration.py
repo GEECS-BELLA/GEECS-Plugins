@@ -1,4 +1,4 @@
-"""Tiled catalog integration shared by BlueskyScanner and GeecsSession.
+"""Tiled catalog integration for GeecsSession (and the queueserver worker).
 
 One call — :func:`subscribe_tiled` — reads the catalog location from the
 standard ``~/.config/geecs_python_api/config.ini`` (unless given explicitly),

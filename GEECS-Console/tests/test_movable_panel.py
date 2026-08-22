@@ -67,9 +67,6 @@ class FakeMoveSubmitter:
         self.moves = []
         self.error = error
 
-    def is_scanning_active(self):
-        return False
-
     def move_variable(self, name, value):
         self.moves.append((name, value))
         if self.error is not None:

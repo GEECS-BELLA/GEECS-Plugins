@@ -4,6 +4,126 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.23.3] - 2026-08-21
+
+### Changed
+
+- Docs-only: the spec pointer in `CLAUDE.md` / `README.md` no longer names
+  the deleted `Planning/cutover_strategy/00_overview.md` — the spec is the
+  kept `Planning/cutover_strategy/01_gui_feature_inventory.md` plus the
+  approved screen-map artifact (Planning prune, post-queueserver-migration
+  audit).
+
+## [0.23.2] - 2026-08-21
+
+### Fixed
+
+- Live-session finding (Scan013, 2026-08-21): the optimize progress bar
+  hit 100% at iteration 3 of 5 — `geecs_adaptive_scan` records
+  `max_iterations`, not `num_points`, so the console skipped the totals
+  update and inherited the previous scan's bar. Start-document totals
+  now fall back to `max_iterations × shots_per_step` (an upper bound —
+  early suggester stops finish under 100%, honestly), and a start doc
+  with no computable totals resets the bar instead of inheriting stale
+  totals. Pinned by two tests.
+
+## [0.23.1] - 2026-08-21
+
+### Fixed
+
+- Live-session finding (Scan008, 2026-08-21): Start/Stop gating froze on
+  the pre-scan snapshot for the whole scan when the document stream
+  narrated RUNNING before the first running status poll — the
+  equal-state poll skipped the refresh, leaving Stop disabled and Start
+  enabled mid-scan. `_on_queue_status` now refreshes gating on every
+  snapshot, transition or not (pinned by
+  `test_equal_state_poll_still_refreshes_gating`).
+
+## [0.23.0] - 2026-08-21
+
+### Removed
+
+- **The dead GUI-process optimization loader** (W5-adjacent cleanup, the
+  #655 follow-up): `services/optimization.py` + its two test modules and
+  the `optimization` extra (xopt / gest-api / ScanAnalysis /
+  ImageAnalysis optional deps) — consumer-less since the window switch
+  (0.22.0); optimizations run worker-side
+  (`geecs_bluesky.optimization.worker_loader`, decision 5), and the
+  console needs no heavy dependencies to submit them.  README and the
+  geecs-bluesky dependency comment truthed to the queueserver
+  architecture (the #655 review's deferred console-side prose).
+
+## [0.22.0] - 2026-08-21
+
+### Changed
+
+- **The console is now a queueserver client end to end (#648, W6 part
+  2 — the window switch).** The in-process BlueskyScanner bridge path is
+  gone from the console:
+  - **Submission** runs the decision-3 pipeline: pre-submit preflight on
+    the submit worker → questions as ordinary modals → `SubmissionRecord`
+    stamped → queue add + start via the manager API, with the
+    failed-item-at-front question ("Remove && submit?") on a non-empty
+    queue. Worker callables capture their own exceptions (a raise can no
+    longer strand the pipeline in-flight — pinned by test).
+  - **State/progress** come from the scan monitor: the manager status
+    poll drives the pill (running/paused authoritative, idle fallback,
+    "unknown" when unreachable), the document stream drives totals
+    (`num_points × shots_per_step`), scan number, per-shot progress +
+    beeps (primary-stream `seq_num`), and done/aborted (stop-doc
+    `exit_status`); the console-output stream feeds the log tail and the
+    paused pill's failed-move reason.
+  - **Stop** sequences pause-then-stop via `Submitter.stop_scan` on the
+    stop worker (a failed sequencing releases the hold for a retry);
+    **Pause/Resume** are direct short-timeout manager calls.
+  - **Actions are idle-only queue items** (decision 2): the Run dialog
+    queues `geecs_run_action_plan`, previews via the worker's
+    `geecs_describe_action`, and disables while a scan is active; the
+    G-actions v2 pause-window flow (`request_action_during_scan`, the
+    three-way decision modal, the mid-run operator-dialog transport) is
+    removed. The Movable panel's catalog moves run the worker's
+    `geecs_move_variable`.
+  - `submission.py` is rewritten around `QueueSubmitter`
+    (`make_queue_submitter` factory); `events_adapter.py` and its fakes
+    are deleted; `main.py` no longer warms the GUI-process optimization
+    stack (`services/optimization.py` is consumer-less, slated for the
+    W5 cleanup).
+  - Docs: `docs/tutorials/getting_started.md` documents the `[qserver]`
+    config section (the #653 review's owed item); CLAUDE.md truth-up.
+
+## [0.21.0] - 2026-08-21
+
+### Added
+
+- The queueserver client services layer (#648, W6 part 1 — built and
+  tested, not yet wired into the window; the window switch is the next
+  PR):
+  - `services/queue_client.py` — the RE Manager client seam
+    (protocol + `ZmqQueueClient` over `bluesky-queueserver-api` +
+    offline `StubQueueClient`): submission with the failed-item-at-front
+    guard (surface pending items, clear only on explicit confirm),
+    deferred pause / resume, graceful stop (from paused directly; from
+    running via pause-then-stop sequencing), `function_execute` manual
+    verbs with task polling, and a never-raises `status()` for polling.
+    Config: the new `[qserver]` section (`host` + optional address
+    overrides) of the shared config file.
+  - `services/submit_preflight.py` — client-side pre-submit checks
+    (decision 3): the engine's own `validate_scan_request` (hard gate),
+    the engine's `UnservedVariablesCheck` (reused, not reimplemented),
+    gateway `CONNECTED` liveness reads (fail-open), and a free-run
+    trigger-staleness sample; plus `stamp_submission`, which stamps the
+    geecs-schemas 0.10.0 `SubmissionRecord` (aware timestamp pinned by
+    test) onto the outgoing request.
+  - `app/scan_monitor.py` — `ScanMonitorController` (#534 controller
+    shape): manager status polling on the `HealthPoller` pattern, the
+    document stream (`RemoteDispatcher`, per-shot progress source), and
+    the manager console-output stream with failed-move reason
+    extraction (pinned against the engine's `FAILED_MOVE_LOG_PREFIX`).
+- New dependency: `bluesky-queueserver-api` (pulls pyzmq).
+- Cross-reference rider (#648 item 6): `services/optimization.py` now
+  names its worker-side twin (`geecs_bluesky.optimization.worker_loader`)
+  with the keep-in-sync rule; the twin already pointed here.
+
 ## [0.20.2] - 2026-08-20
 
 ### Changed

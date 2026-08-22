@@ -2,17 +2,20 @@
 
 Bridges the GEECS hardware control system to the
 [Bluesky](https://blueskyproject.io/) experiment orchestration ecosystem.
-The primary product is `BlueskyScanner` — a RunEngine-backed scan executor
-consumed by `GEECS-Console` through its `Submitter` protocol (and headless
-via `GeecsSession`).  Hardware-verified for both acquisition modes
-(free-run and strict) including DG645 shot control; first GUI-launched
-scans ran in production on 2026-07-06.
+The primary product is the **queueserver worker** (`qserver/` — a
+bluesky-queueserver RE Manager whose startup profile serves
+`geecs_scan_request_plan`, the one plan every ScanRequest runs through)
+plus the headless `GeecsSession`.  GEECS-Console and every other client
+talk to the RE Manager over its queue/status API — the in-process
+`BlueskyScanner` GUI bridge was **deleted** (W5, issue #649, 2026-08-21)
+after the console became a manager client (W6, #648).  Hardware-verified
+for both acquisition modes (free-run and strict) including DG645 shot
+control; first GUI-launched scans ran in production on 2026-07-06, first
+queue-launched scans 2026-08-21 (Scans 001–004).
 
 **The one submission shape is `geecs_schemas.ScanRequest`.**  The legacy
 duck-typed `exec_config` path was deleted root-and-stem (G3, executed
-early 2026-07-16 by owner decision — the cutover doc had re-timed it to
-M6): `reinitialize` raises `TypeError` for anything but a `ScanRequest`,
-and the `shot_control_information` constructor kwarg is gone.
+early 2026-07-16 by owner decision).
 GEECS-Scanner-GUI itself was **deleted** (2026-08-20, geecs-core arc)
 after its `optimization` module relocated into this package; the legacy
 scanner line's final state is preserved at the tag `legacy-scanner-final`
@@ -53,19 +56,14 @@ geecs_bluesky/
                             #   call, refused mid-scan)
                             #   + run_action / describe_action — on-demand
                             #   ActionPlan execution & dry-run (G-actions v1)
-  events.py                 # THE typed event vocabulary: ScanEvent hierarchy,
-                            #   ScanState, DialogRequest — moved down from
-                            #   the legacy geecs_scanner engine (vision §2);
-                            #   the shims that re-exported them died with
-                            #   GEECS-Scanner-GUI's deletion (2026-08-20)
-  operator_channel.py       # OperatorChannel seam: ask(OperatorQuestion) →
-                            #   "continue"/"abort"/default; EventStreamOperator
-                            #   (GUI dialog path) / NullOperator (headless)
   preflight.py              # Pre-flight checks as a pipeline (pass/ask/abort);
                             #   UnservedVariablesCheck (devices-config level,
-                            #   pre-device-build) + GatewayLivenessCheck +
-                            #   FreeRunStalenessCheck, run pre-claim,
-                            #   questions via OperatorChannel
+                            #   pre-device-build), run pre-claim.  Headless
+                            #   engine-side (an Ask takes its on_default);
+                            #   the console runs the checks pre-submit and
+                            #   renders Ask as a modal (its submit_preflight
+                            #   is the live consumer — OperatorQuestion +
+                            #   ANSWER_* live here since W5)
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
                             #   ScanRequest names → schema models (new-schema
                             #   YAML directly, else legacy-convert)
@@ -81,9 +79,6 @@ geecs_bluesky/
                             #   multi-device) adapters, save-set union,
                             #   action slot assembly (§4.4b layers) + compile
                             #   + signal prefetch, multi-axis grid execution
-  scanner_bridge/
-    bluesky_scanner.py      # BlueskyScanner — the GUI/console bridge
-                            #   (reinitialize accepts ONLY a ScanRequest)
   plans/
     orchestration.py        # build_step_scan_plan — THE one scan recipe (both front
                             #   doors); setup/per_step/closeout action hooks +
@@ -101,6 +96,19 @@ geecs_bluesky/
     single_shot.py          # geecs_single_shot + geecs_confirm_quiescent
     t0_sync.py              # geecs_t0_sync — coordinated per-device t0 capture
     run_wrapper.py          # geecs_run_wrapper + claim_scan_number (numbering + save + md)
+    scan_request_plan.py    # geecs_scan_request_plan — "run this ScanRequest"
+                            #   as ONE plan (queueserver round 1, issue #633):
+                            #   the run_scan_request prologue relocated into
+                            #   the plan preamble (validate → resolve →
+                            #   construct+connect in-plan → claim → the same
+                            #   inner plan); set_plan_session installs the
+                            #   worker default session; optimize-mode
+                            #   requests run in-plan too (set_optimization_
+                            #   loader registers the worker's loader — see
+                            #   optimization/worker_loader.py — refused
+                            #   loudly, not mid-scan, when unregistered);
+                            #   s-file export is NOT here (worker stop-doc
+                            #   callback seam)
   devices/
     ca/                     # THE device family: CA-backed via GeecsCAGateway PVs (`ca` extra)
       triggerable.py        # CaAcqTimestampReadable (persistent CA monitor) + CaTriggerable
@@ -152,6 +160,13 @@ geecs_bluesky/
                             #   — the legacy engine re-imports them via shims).
                             #   Heavy deps ride the `optimize` extra; tests
                             #   skip whole without it
+    worker_loader.py         # the queueserver worker's optimization_loader:
+                            #   OptimizationSpec -> SessionOptimizationBridge
+                            #   (the ONE loader implementation — its former
+                            #   console twin died with the cutover); also
+                            #   warm_up_optimization_stack(), called once at
+                            #   worker startup (qserver/startup/startup.py)
+                            #   to pre-import the heavy stack off-thread
   tiled_integration.py      # subscribe_tiled + descriptor patch + safe callback
   data_paths.py             # local ↔ device-server path mapping, asset roots
   scanner_configs.py        # configs-repo resolution + shot-control YAML loading
@@ -168,90 +183,58 @@ service (its PVs) for all device I/O; no gateway code is imported.
 
 EVENT_SCHEMA.md — the canonical event-schema v1 data contract (read it).
 
-## BlueskyScanner — Key Design Points
+## The scan service — key design points
 
-### Public API (the console `Submitter` protocol)
+### The queueserver worker (the one service surface)
 
-```python
-scanner = BlueskyScanner(
-    experiment_dir="Undulator",
-    on_event=...,                    # optional GUI event callback
-    optimization_loader=...,         # optional, optimize mode only
-)
-scanner.reinitialize(request)       # ScanRequest ONLY; validates fail-fast
-scanner.start_scan_thread()         # runs it via run_scan_request in a thread
-scanner.is_scanning_active()        # → bool
-scanner.estimate_current_completion()  # → 0.0–1.0
-scanner.stop_scanning_thread()      # request stop, returns promptly;
-                                    # ABORTED/DONE arrives via events
-scanner.run_action(name)            # on-demand ActionPlan (refused mid-scan)
-scanner.describe_action(name)       # pure dry-run (allowed mid-scan)
-scanner.move_variable(name, value)  # manual move of a catalog scan variable
-                                    # or raw Device:Variable (refused
-                                    # mid-scan: "scan in progress — move
-                                    # not started"); scan-identical
-                                    # completion semantics via build_movable
-                                    # (motor poll, confirm poll, pseudo
-                                    # fan-out); a relative pseudo
-                                    # re-baselines from *now* each call;
-                                    # returns {variable, kind, value,
-                                    # targets} (0.48.0)
-```
+`qserver/` holds the worker: `launch_re_manager.sh` (Redis + the
+bluesky-0MQ-proxy document stream + `start-re-manager --keep-re`),
+`startup/startup.py` (builds the headless `GeecsSession`, exposes its
+`RE`, registers `geecs_scan_request_plan` + `geecs_run_action_plan` and
+the `function_execute` manual verbs `geecs_move_variable` /
+`geecs_describe_action`, subscribes Tiled + the s-file stop-doc callback,
+registers the optimization loader), `user_group_permissions.yaml`, and
+`deploy/` (systemd unit + runbook).  Read `qserver/README.md` first —
+its Troubleshooting section is the empirical contract (permissions file,
+`--keep-re`, manager-restart-after-install, failed-items-requeue-at-front,
+CLI parses Python literals not JSON).
 
-`GEECS-Console` builds the scanner via `make_bluesky_submitter`
-(`geecs_console/submission.py`) and passes the `on_event` callback:
-BlueskyScanner emits `ScanLifecycleEvent`s through it via `_set_state` —
-each carrying the claimed scan number (`scan_number=None` until the
-`ScanNNN` folder is claimed; `session.scan` claims inside the engine, and
-the bridge picks the number up from the run start document and re-emits
-RUNNING with it, so a "Scan NNN" GUI label works) — shot-level
-`ScanStepEvent`s per event document via `_on_document` (so the GUI
-progress bar works), and pre-flight `ScanDialogEvent`s from the
-gateway-liveness pipeline (both modes: each sync device's
-`connected_status` — the gateway `CONNECTED` PV — is read pre-claim; free-run
-adds a staleness stage for the trigger-must-be-free-running requirement).
-`DeviceCommandEvent` translation is deliberately skipped (no consumer).
-Manual (operator-clicked) action execution:
-`BlueskyScanner.run_action(name)` / `describe_action(name)` (0.35.0)
-execute/dry-run a named ActionPlan on demand, refusing while a scan is
-active with the exact message `"scan in progress — action not started"`
-(the GUI surfaces it verbatim; these two signatures are part of the
-console Submitter contract).  The richer **pause/decide/resume during-scan
-flow is `request_action_during_scan(name)`** (G-actions v2, issue #552, engine
-half landed 0.44.0): validated fail-fast on the GUI thread (unknown name /
-unreachable target / cycle), **refused if the action writes to the active
-scan's shot-control device(s)** (owner decision 11 — an action must not
-perturb the trigger the scan drives), then it stages the flattened steps +
-a connected factory on the run's `PauseSupervisor`, emits `PAUSING`, and
-asks the RE to pause at its next checkpoint (deferred).  The supervisor
-(`pause_supervisor.py`, on the scan thread inside `session.scan`'s
-interrupt handling) drives the mode-specific safe state (free-run → `OFF`;
-strict → nothing, already quiescent), delivers the three-way
-`ActionDecisionRequest` (execute / ignore / abort) through the same
-`ScanDialogEvent` transport as the pre-flight dialogs, executes an
-approved action via the direct executor (`plans/action_direct.py`, 0.43.0)
-against the paused RE's loop, then re-asserts the captured `last_state` and
-resumes — abort skips the restore (the finalize chain owns the end state).
-A pause requested but never delivered (scan ended first) is withdrawn and
-logged, not an error (design-note contract on #552).  `PAUSING`/`PAUSED`
-are non-terminal ScanStates; `RE.record_interruptions = True` puts the
-pause window in the data record.  The bare operator pause
-(`request_pause`/`request_resume`, #582/#583) rides the same supervisor:
-no action staged, park non-modally until Resume/Stop, emit
-`on_state("running")` on resume so the GUI relabels (multiple pauses per
-scan).  **Expected pause latency — do not "fix" (live-investigated
-2026-07-16):** 1–2 shots complete after the pause request.  The in-flight
-shot always finishes (checkpoints deliberately never split a shot), and
-the deferred flag is set by a coroutine dispatched onto the busy RE loop
-(`request_pause` → `run_coroutine_threadsafe`), which on a loaded/VPN
-loop can land after the next shot's checkpoint has already passed — one
-more shot slips.  This is the architectural floor; getting under it means
-reintroducing the hard-pause replay trap.  (The console's log tail can
-make the latency look worse than it is — its per-shot lines and the
-terminal log are two independent streams with different timing; the
-canonical description lives in `GEECS-Console/CLAUDE.md`'s R6 bullet.)
-Acquisition mode comes from `ScanRequest.acquisition` — deliberately no
-env override, a request declares intent.
+Clients submit `ScanRequest.model_dump(mode="json")` dicts as queue items;
+GEECS-Console's client lives in `geecs_console/services/queue_client.py`.
+Operator pause/resume/stop are the manager's own verbs (decision 4):
+deferred pause lands at the next plan checkpoint and resume replays
+nothing; stop-from-paused finalizes gracefully with partial data (both
+live-verified 2026-08-21).  **Expected pause latency — do not "fix"
+(live-investigated 2026-07-16):** 1–2 shots complete after the pause
+request — the in-flight shot always finishes (checkpoints deliberately
+never split a shot) and the in-flight GEECS blocking set is always waited
+out; this is the architectural floor, and getting under it means
+reintroducing the hard-pause replay trap (a HARD pause replays from the
+last checkpoint and re-executes GEECS sets — scoping note in
+`plans/pause_semantics.py`).
+
+On a failed axis move the queue plan pauses instead of raising
+(`failed_move_policy="pause"`, decision 4 — the reason line is the
+`FAILED_MOVE_LOG_PREFIX` ERROR record; resume retries the move, stop ends
+the scan gracefully).  Headless `session.scan` keeps the `raise` default:
+with no operator to answer, a pause would hang.
+
+The deleted bridge's other verbs re-homed as follows (W6, #648): manual
+actions → `geecs_run_action_plan` queue items (idle-only by queue
+semantics); manual moves → `geecs_move_variable` via `function_execute`
+(foreground function execution requires an idle manager; both queue
+plans additionally refuse while the session's manual-move lock is held —
+background function execution bypasses the manager's idle gate);
+pre-flight questions → client-side pre-submit (decision 3, provenance in
+`ScanRequest.submission`); GUI progress → the ZMQ document stream; the
+pause-window action flow (G-actions v2) was **dropped** (decision 2) —
+its `action_direct`/`PauseSupervisor`/`OperatorChannel`/`events`
+machinery is deleted (W5; `ShotControlPauseQuiescer` in
+`plans/pause_semantics.py` is the live pause-quiesce equivalent).
+Recovery for a long scan that hits trouble is therefore stop → fix →
+restart; if that ever becomes operationally painful, the answer is
+resumable scan design (progress checkpointing), not resurrecting
+`action_direct`.
 
 ### Shot control — `ShotControlConfig` + named states
 
@@ -328,7 +311,8 @@ roles across merged sets raise).  STEP and NOSCAN share one plan body
 
 ### Tiled integration
 
-`BlueskyScanner.__init__` reads `[tiled] uri` and `[tiled] api_key` from
+`GeecsSession` (with `tiled=True` — the worker startup profile's setting)
+reads `[tiled] uri` and `[tiled] api_key` from
 `~/.config/geecs_python_api/config.ini` and subscribes a `TiledWriter` to the
 `RunEngine`.  All event documents (start, descriptor, event, stop) are written to
 the Tiled catalog at `http://192.168.6.14:8000`.  Silently skips if the server is
@@ -336,9 +320,11 @@ unreachable or `tiled[client]` is not installed.
 
 ### Threading model
 
-The `RunEngine` runs in a background thread (`bluesky-scan`).  The RE's internal
-`asyncio` event loop is persistent — devices are connected into it and remain
-connected across the scan.  `RunEngine(context_managers=[])` disables SIGINT
+Under the queueserver the RE Manager's worker process owns the RunEngine
+(`--keep-re`: one module-level `RE` alive across queue items); headless
+`GeecsSession` runs it in a background thread (`bluesky-scan`).  The RE's
+internal `asyncio` event loop is persistent — devices are connected into
+it and remain connected across the scan.  `RunEngine(context_managers=[])` disables SIGINT
 handling, which fails when the RE is not on the main thread.
 
 Device connect/disconnect uses `asyncio.run_coroutine_threadsafe(...).result(timeout=...)`.
@@ -549,36 +535,33 @@ api_key = <key>
 
 `GeecsDb` reads `Configurations.INI` (in `geecs_data`) for MySQL credentials.
 
-## Engine consolidation (0.22.0) — shim state
+## Engine consolidation — current state (post-W5)
 
-The event vocabulary (`ScanEvent` hierarchy, `ScanState`, `DialogRequest`)
-lives in `geecs_bluesky/events.py`. The `geecs_scanner.engine.*` re-export
-shims that used to alias these class objects were deleted with
-GEECS-Scanner-GUI (2026-08-20). The remaining `is None` guards on the
-module-level names exist purely as test seams (hermetic tests monkeypatch
-them to simulate a consumer-less install).
+The bridge-era event vocabulary (`events.py`), the `OperatorChannel`
+dialog transport, `pause_supervisor.py`, and `plans/action_direct.py`
+were deleted with the GUI bridge (W5, #649) — the manager status /
+document stream / console-output stream are the client-facing vocabulary
+now.
 
-Operator interaction is one seam: `operator_channel.OperatorChannel`
-(`EventStreamOperator` = today's GUI dialog behavior, `NullOperator` =
-headless default-and-log).  Pre-flight is a pipeline
-(`preflight.run_preflight`); new checks are list entries.  Three checks
-exist (0.36.0): the device-level pair (`GatewayLivenessCheck` +
-`FreeRunStalenessCheck`, run by the bridge's `preflight` hook over the
-built detector list) and the config-level `UnservedVariablesCheck`, which
-the **runner itself** runs over the resolved devices config *before any
-detector is built* — a save-set variable outside the gateway's served set
-(`get='yes'` ∪ settable of enabled devices; `GeecsCAGateway/DEPLOYMENT.md`)
-has no PV, so building its detector used to die in a 20 s ophyd
+Pre-flight is a pipeline (`preflight.run_preflight`); new checks are list
+entries.  One engine-side check exists: the config-level
+`UnservedVariablesCheck`, which the **runner and the queue plan** run
+over the resolved devices config *before any detector is built* — a
+save-set variable outside the gateway's served set (`get='yes'` ∪
+settable of enabled devices; `GeecsCAGateway/DEPLOYMENT.md`) has no PV,
+so building its detector used to die in a 20 s ophyd
 `NotConnectedError` (live incident 2026-07-15: `UC_TopView`
-`2ndmomW0x`/`2ndmomW0y`).  One dialog names every unserved variable;
-continue (and the headless default, with a WARNING) drops exactly those
-variables — a fully-unserved device is dropped whole — recorded in run
-metadata (`dropped_unserved_variables` / `dropped_unserved_devices`);
-abort is pre-claim.  The served set comes from the failure-tolerant
-`db_runtime.GeecsDbServedSetProvider`, whose DB failure reads as
-*unknown* (check skipped with one warning), never as *empty*.  Questions
-route through the runner's `operator_channel` parameter (the bridge
-passes its dialog channel; headless callers get `NullOperator`).
+`2ndmomW0x`/`2ndmomW0y`).  Engine-side the check is headless
+(continue-and-drop with a WARNING); the console asks the same question
+pre-submit (decision 3) and stamps the answer into
+`ScanRequest.submission`.  Dropped variables — a fully-unserved device
+is dropped whole — are recorded in run metadata
+(`dropped_unserved_variables` / `dropped_unserved_devices`).  The served
+set comes from the failure-tolerant `db_runtime.GeecsDbServedSetProvider`,
+whose DB failure reads as *unknown* (check skipped with one warning),
+never as *empty*.  (The old device-level `GatewayLivenessCheck` /
+`FreeRunStalenessCheck` were bridge-hook-only and died with it; the
+console's pre-submit CONNECTED/staleness reads are their successors.)
 
 `ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
 the full schema surface as of 0.23.0 (M3b): **actions execute**
@@ -602,47 +585,34 @@ action hooks yet, so the actions (request, experiment defaults, and
 save-set rituals) are skipped, logged (WARNING), and recorded in run
 metadata under `skipped_action_plans` (refusing would block every
 optimization the moment an experiment defines default bracket actions;
-unknown names still fail fast).  **The GUI bridge delegates ScanRequest
-execution to `run_scan_request`** (0.28.0, M4 step i; since G3 this is
-the bridge's *only* path — `reinitialize` raises `TypeError` for anything
-but a `ScanRequest`): it validates every name fail-fast (discarding the
-results) and stores the **original pre-defaults** request; the scan thread
-runs it through the one engine definition, so actions, entry rituals,
-multi-axis grids, db_scalars, and telemetry all execute through the bridge
-too.  The bridge contributes its two seams via runner hooks:
-`preflight(detectors, strict)` (operator-dialog pipeline, pre-claim,
-`None` aborts; dropped devices are left connected — the runner's `finally`
-owns disconnection) and `on_scan_start(total_steps, total_shots)` (GUI
-progress totals).  The bridge never pre-claims on this path —
-`session.scan` claims and self-attaches `scan.log`.  **As of 0.31.0 (M4
-step iii) optimize-mode requests run through the delegated path too**:
-`reinitialize` requires the GUI-injected `optimization_loader` for
-`mode: optimize` (refused with an explicit error otherwise — headless
-callers use `GeecsSession.run(request, resolver, objective=...,
-suggester=...)`) and fail-fast validates the VOCS catalog names; the scan
-thread calls `optimization_loader(request.optimization)` — the loader's
-one argument is the resolved `OptimizationSpec` (the optimizer-YAML
-path-string calling convention died with the exec_config path, G3) — and
-threads the returned bridge's `bind` into `run_scan_request` as its
-`optimization_binder` hook.  Because the binder's analyzers need the real
-`ScanTag`, the **runner claims the scan itself just before binding**
-(after every fail-fast resolution and device connect — the one delegated
-path where the claim is not inside the session call) and passes the
-pre-claimed number/folder to `session.optimize`, owning the `scan.log`
-attach; the bridge's optional `finish()` (legacy `xopt_dump.yaml`) runs
-after a successful run.  `on_scan_start` fires on the optimize path with
-the `(max_iterations, max_iterations × shots_per_step)` upper bound (the
-suggester may stop early); the detector-level operator-dialog `preflight`
-hook still does not run on optimize (later seam), but the config-level
-unserved-variables check does (0.36.0) — it runs pre-claim on every mode,
-inside the runner.  **Optimizer `device_requirements` auto-provisioning
-is wired on this path too (0.38.0)** — reversing the deliberate #520
-deferral after a field incident (2026-07-15: `TopViewMax` optimize runs
-produced NaN objectives on every iteration because the evaluator's
-auto-generated requirements were ignored and `UC_TopView` never saved).
-The bridge reads the loader-returned bridge's `device_requirements`
-duck-typed (like `finish`) and hands the opaque mapping to
-`run_scan_request(device_requirements=...)`;
+unknown names still fail fast).  **Both execution paths run through the
+one engine definition**: the queue plan (`geecs_scan_request_plan`) and
+the headless runner (`run_scan_request`, via `GeecsSession.run`) share
+the runner's module-level prologue functions, so actions, entry rituals,
+multi-axis grids, db_scalars, and telemetry execute identically.  The
+runner's bridge-era hooks (`preflight`, `on_scan_start`,
+`operator_channel`, `pause_supervisor`) died with the bridge (W5);
+`should_abort` survives as the one external-stop probe (pre-claim
+init-stage checkpoints + the in-plan gate).  **Optimize-mode requests**:
+the worker's startup-registered `optimization_loader`
+(`optimization/worker_loader.py`, decision 5) — or a headless caller's
+injected objective/suggester — builds the stack; the loader's one
+argument is the request's resolved `OptimizationSpec`, and the returned
+bridge's `bind` threads in as the `optimization_binder` hook.  Because
+the binder's analyzers need the real `ScanTag`, the **runner claims the
+scan itself just before binding** (after every fail-fast resolution and
+device connect — the one path where the claim is not inside the session
+call) and passes the pre-claimed number/folder to `session.optimize`,
+owning the `scan.log` attach; the optional `finish()` (legacy
+`xopt_dump.yaml`) runs after a successful run.  The config-level
+unserved-variables check runs pre-claim on every mode.  **Optimizer
+`device_requirements` auto-provisioning (0.38.0)** — reversing the
+deliberate #520 deferral after a field incident (2026-07-15:
+`TopViewMax` optimize runs produced NaN objectives on every iteration
+because the evaluator's auto-generated requirements were ignored and
+`UC_TopView` never saved).  The runner reads the loader-returned
+bridge's `device_requirements` duck-typed (like `finish`) and hands the
+opaque mapping to `run_scan_request(device_requirements=...)`;
 `merge_optimizer_device_requirements` unions it into the effective
 devices config with `merge_save_sets` semantics (variable lists deduped,
 `save_nonscalar_data` ORs; an already-configured device keeps its
@@ -680,9 +650,9 @@ deduped by plan name so a shared ritual runs once
 merged set: `save_set_to_devices_config`, the reserved-boundary warning, and —
 crucially — **telemetry exclusion** (`select_telemetry_variables` gets the
 merged set, so Tier-2 telemetry excludes devices in *any* named set).  Run
-metadata records the list under `save_sets`.  The GUI bridge delegates to
-`run_scan_request` (0.28.0), so the union — entry rituals included —
-applies identically through the bridge.
+metadata records the list under `save_sets`.  The queue plan shares the
+same resolution functions, so the union — entry rituals included —
+applies identically on both paths.
 
 **M3c (0.24.0) — the DB-integration runtime tier, GET-SIDE ONLY.**  Two
 get-side capabilities are live, all gated by schema flags that already
@@ -697,7 +667,7 @@ the DB blipped):
   (`db_scalars=True`, default); `all_scalars=True` unions *every* DB variable;
   `db_scalars=False` (the legacy-converter pin) = explicit-only.
   `save_set_to_devices_config(save_set, scalar_policy)` threads it; with no
-  policy (GUI bridge / off-network) only the explicit list is recorded — M3b
+  policy (no DB / off-network) only the explicit list is recorded — M3b
   behavior, strictly additive.
 - **Background telemetry (Tier 2).**  Every live device with a `get='yes'`
   variable not in *any* named save set (the merged set — see M4 above) → soft
@@ -742,54 +712,79 @@ scan-boundary hook on `GeecsSession.optimize`) — recorded as
 new analyzer/writer still must not create scan folders (cross-package
 invariant); M3c is scanner-side but touches no scan-folder creation.
 
-## Known Gaps (as of 0.21.0)
+## Known Gaps
 
 The acquisition-modes architecture is complete and hardware-verified (both
 modes, including single-shot; GUI-launched scans verified live 2026-07-06).
-Remaining items are features/tuning, not architecture — see
-`Planning/acquisition_modes/00_overview.md` "Deferred".
+Remaining items are features/tuning, not architecture.
+
+- **Deferred from the retired acquisition-modes plan** (deliberate, not
+  forgotten): a persistent t0 registry / central subscription daemon (an
+  "event-builder service") — per-scan t0 sync is self-healing against
+  rep-rate changes and device restarts, so revisit only when per-scan
+  build/teardown actually hurts; DG645 per-trigger TCP events (a LabVIEW
+  driver change that would make the shot controller the ideal pacemaker);
+  multi-stream flyer/collect acquisition (Bluesky-native offline event
+  building) — keep `shot_id` as the universal join key so that migration
+  stays mechanical; and the **any-of gate** for a flaky free-run
+  reference (a shot the reference misses produces no row — recoverable
+  via offsets/flush; the designed remedy, same schema, is to emit a row
+  when *any* sync device's shot id advances — build only if a flaky
+  reference actually bites).
+- **Manual-intervention provenance:** PV changes made from Phoebus during a
+  pause are captured by readbacks/telemetry but not annotated as operator
+  interventions; consider a console habit or an annotation hook.
+- **Full-PV-space snapshots (the legacy ECS dump) were dropped** — recorded
+  as the pattern to use if one is ever wanted again: wire gateway PVs as
+  baseline readables via `SupplementalData.baseline` (read once at run
+  start and once at run end, into the run's own document stream, queryable
+  from Tiled) — no client commands, no separate dump file.
 
 - **Strict single-shot needs an `ARMED` state** in the shot-control YAML to
   engage (the production experiment configs have one).  Without `ARMED` or a
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
-- **`DeviceCommandEvent`s are not translated** (deliberate — no GUI ever
-  rendered them, so emitting them would be dead traffic).
-  Lifecycle, step/progress, and pre-flight dialog events are emitted as of
-  0.21.0.  Pre-flight liveness is CONNECTED-based (the gateway serves every
-  DB device's data PVs whether or not the device is up, so CA-connect
-  success never implied liveness); the 10 s staleness threshold now only
-  matters for the free-run trigger-off check and still needs a lab session
-  of tuning against real rep rates.
+- **Requested rep-rate throttling is unbuilt** — firing strict single
+  shots slower than the external rate (gas-jet economy), or free-run
+  subsampling every Nth reference shot.  Carried over from the retired
+  pre-queueserver roadmap; not tracked anywhere else.
+- **The bridge-era GUI event stream is gone** (W5 — lifecycle/step/dialog
+  events; clients observe the manager status, document, and console-output
+  streams instead).  Liveness remains CONNECTED-based (the gateway serves
+  every DB device's data PVs whether or not the device is up, so
+  CA-connect success never implied liveness) — read pre-submit by the
+  console's preflight; its staleness sample window still deserves a lab
+  session of tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
-- **Background scan mode not implemented.**  Optimization runs as a scan via
+- **Background mode is a metadata flag, not a distinct behaviour** —
+  the legacy `Background` scan mode executes as a noscan with
+  `ScanRequest.background` set (the schema's own definition), recorded
+  as `Background = true` in `ScanInfoScanNNN.ini`; the console's
+  BACKGROUND mode submits it.  Optimization runs as a scan via
   `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
   tree as any scan — see `plans/optimize.py`), both headless (suggester +
-  objective in hand) and from the GUI: `BlueskyScanner` handles optimization
-  through an injected `optimization_loader`
-  (`geecs_console.services.optimization` builds it from
+  objective in hand) and through the queue: the worker's startup-registered
+  `optimization_loader` (`optimization/worker_loader.py` builds it from
   `geecs_bluesky.optimization` — the Xopt/evaluator stack relocated INTO
-  this package 2026-08-20, heavy deps behind the `optimize` extra), which
-  runs the config-driven Xopt 3.1 / evaluator / ScanAnalysis stack against
-  the session's bin rows on the delegated ScanRequest path (loader
-  argument: the request's resolved `OptimizationSpec`; see the
-  engine-consolidation section).  The evaluator seam is
+  this package 2026-08-20, heavy deps behind the `optimize` extra) runs
+  the config-driven Xopt 3.1 / evaluator / ScanAnalysis stack against
+  the session's bin rows (loader argument: the request's resolved
+  `OptimizationSpec`; see the engine-consolidation section).  The evaluator seam is
   `EvaluatorDataSource` in `geecs_bluesky.optimization.base_evaluator`;
   the package stays free of any geecs_scanner import (pinned by an
   AST-level test, which now also guards the relocated stack).
-- **Action sequences run per request.**  `GeecsSession.run(request)` /
-  the bridge's delegated path execute setup/per_step/closeout ActionPlans
-  (0.23.0 / 0.28.0); legacy save elements' actions are executed when the
-  element is resolved as a save set through a ScanRequest — the converter
-  extracts them into entry rituals.
-  On-demand execution (0.35.0): `GeecsSession.run_action` /
-  `describe_action` and the bridge's thin delegations run/dry-run a named
-  plan outside any scan (v1 refuses during a scan; the pause/decide/resume
-  flow is issue #552 — the flatten/compile split in `action_compiler` is
-  kept factored so #552 can dispatch the same compiled steps differently).
+- **Action sequences run per request.**  `GeecsSession.run(request)` and
+  the queue plan execute setup/per_step/closeout ActionPlans; legacy save
+  elements' actions are executed when the element is resolved as a save
+  set through a ScanRequest — the converter extracts them into entry
+  rituals.  On-demand execution: `GeecsSession.run_action` /
+  `describe_action` headless, `geecs_run_action_plan` /
+  `geecs_describe_action` through the manager (idle-only; the
+  pause/decide/resume during-scan flow was dropped with the queueserver
+  migration, decision 2).
 - **Scan-folder creation invariant:** `claim_scan_number`
   (`plans/run_wrapper.py`) is the one place (outside the GUI's `ScanDataManager`)
   allowed to create a `scans/ScanNNN/` folder.  It logs a warning and returns
