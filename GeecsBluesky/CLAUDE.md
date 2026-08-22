@@ -137,10 +137,14 @@ geecs_bluesky/
       action_signals.py     # CaActionSignalFactory — the production
                             #   SettableFactory for compiled action plans
                             #   (cached :SP settables + str readbacks)
-      oneshot.py            # caget_once/try_caget_once — THE one-shot
-                            #   blocking CA read (one persistent reader
-                            #   loop; a per-call asyncio.run leaks aioca's
-                            #   per-loop channel cache)
+      oneshot.py            # caget_once/try_caget_once/try_caget_many —
+                            #   THE one-shot blocking CA read (one
+                            #   persistent reader loop; a per-call
+                            #   asyncio.run leaks aioca's per-loop cache)
+      liveness.py           # probe_disconnected — THE out-of-plan
+                            #   CONNECTED probe (concurrent batch, the
+                            #   DBR_ENUM datatype=str subtlety in one
+                            #   place); in-plan twin: plans/liveness.py
       gateway_put.py        # GatewaySetpointPut — THE one gateway :SP put
                             #   primitive (addressing rule ca://-vs-bare,
                             #   wire conventions, timeout, mock); every
@@ -594,15 +598,22 @@ console's pre-submit CONNECTED/staleness reads are their successors.)
 Since 0.59.0 the worker **re-checks CONNECTED at execution** too
 (`_preflight_connected`, pre-claim on all four runner/queue-plan paths —
 the submission-to-execution gap is long and clients can skip preflight;
-live incident 2026-08-22, issue #664): a Disconnected **load-bearing**
-device refuses with `GeecsDeviceDownError` (free-run: the reference;
-strict: any synchronous device), others warn-and-continue with the list
-recorded as `disconnected_devices` in run metadata; unreadable is never
-a verdict (fail-open).  `geecs_t0_sync` carries the same gate in-plan
-(`connected_status` read; a dead device's stale cache must never seed
-t0 — timestamp freshness deliberately cannot be the guard, because a
-parked trigger at laser-off rest makes a *healthy* cache legitimately
-old).
+live incident 2026-08-22, issue #664): a Disconnected **synchronous**
+device refuses with `GeecsDeviceDownError` in both modes (strict rows
+await all of them; a dead free-run sync device would fail t0 sync
+post-claim anyway, so warn-and-continue there would be a fiction),
+while a Disconnected asynchronous (snapshot) device warns-and-continues
+with the list recorded as `disconnected_devices` in run metadata;
+unreadable is never a verdict (fail-open).  `geecs_t0_sync` carries the
+same gate in-plan (a dead device's stale cache must never seed t0 —
+timestamp freshness deliberately cannot be the guard, because a parked
+trigger at laser-off rest makes a *healthy* cache legitimately old).
+The liveness idioms live in exactly two shared homes so the fail-open
+convention cannot drift: `devices/ca/liveness.py::probe_disconnected`
+(out-of-plan, concurrent batch — one timeout budget regardless of
+device count, used by the client preflight AND the worker re-check) and
+`plans/liveness.py::rd_confirmed_down` (in-plan `connected_status` read
+on built devices, used by the strict refire gate and the t0 seed gate).
 
 `ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
 the full schema surface as of 0.23.0 (M3b): **actions execute**

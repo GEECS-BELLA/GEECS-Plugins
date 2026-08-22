@@ -60,6 +60,19 @@ def engine(monkeypatch):
         _make_provider({"UC_Cam1": {"MeanCounts"}, "UC_Cam2": {"Exposure"}}),
     )
     reads = {"CONNECTED": "Connected", "acq_timestamp": [100.0, 101.5]}
+
+    # The liveness check delegates to the shared probe (its own DBR_ENUM
+    # datatype=str contract is pinned in tests/test_preflight_connected.py);
+    # here the probe outcome is faked from reads["CONNECTED"] — None means
+    # unreadable, which the real probe reads as fail-open (not down).
+    def fake_probe(experiment, device_names, *, timeout):
+        if reads["CONNECTED"] == "Disconnected":
+            return list(device_names)
+        return []
+
+    monkeypatch.setattr(
+        "geecs_bluesky.devices.ca.liveness.probe_disconnected", fake_probe
+    )
     monkeypatch.setattr(submit_preflight, "_read_pv", _make_pv_reader(reads))
     monkeypatch.setattr(submit_preflight, "_STALENESS_WINDOW_S", 0.0)
     return reads
@@ -80,18 +93,8 @@ def _make_pv_reader(reads):
     state = {"ts_calls": 0}
 
     def _read(pv, timeout, datatype=None):
-        if pv.endswith(":connected"):
-            # Enum-faithful fake (#653 review finding 1): the gateway's
-            # CONNECTED is a DBR_ENUM, so a native read returns the integer
-            # index — only datatype=str yields the choice string the check
-            # compares against.  A regression back to a native read gets
-            # the index and can never see "Disconnected".
-            value = reads["CONNECTED"]
-            if value is None:
-                return None
-            if datatype is str:
-                return value
-            return {"Disconnected": 0, "Connected": 1}[value]
+        # _read_pv's remaining consumer is the staleness sample (native
+        # reads); CONNECTED goes through the shared probe, faked above.
         if pv.endswith(":acq_timestamp"):
             values = reads["acq_timestamp"]
             value = values[min(state["ts_calls"], len(values) - 1)]

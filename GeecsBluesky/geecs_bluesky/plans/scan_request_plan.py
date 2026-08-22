@@ -506,9 +506,7 @@ def _scan_request_body(
     # CONNECTED liveness re-check (#664): the client asked pre-submit, but
     # the queue's submission-to-execution gap is long — re-check here,
     # refusing only when a row could never complete.
-    disconnected_devices = _preflight_connected(
-        session, devices_config, free_run=not strict
-    )
+    disconnected_devices = _preflight_connected(session, devices_config)
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
     warn_if_reserved_boundary_overrides(save_set)
     axis_resolved = [
@@ -746,11 +744,7 @@ def _optimize_request_body(
             "would have nothing to read"
         )
     # CONNECTED liveness re-check (#664), same terms as the step/noscan path.
-    disconnected_devices = _preflight_connected(
-        session,
-        devices_config,
-        free_run=request.acquisition is not AcquisitionMode.STRICT,
-    )
+    disconnected_devices = _preflight_connected(session, devices_config)
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
     factories = _DeferredConnectFactories(session)

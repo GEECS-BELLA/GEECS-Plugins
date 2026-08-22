@@ -1284,16 +1284,9 @@ def _preflight_unserved(
     )
 
 
-#: CA read budget per pre-claim CONNECTED probe (seconds) — a dead PV costs
-#: this once per device; matches the client-side preflight's budget.
-_CONNECTED_TIMEOUT_S = 2.0
-
-
 def _preflight_connected(
     session: Any,
     devices_config: dict[str, dict[str, Any]],
-    *,
-    free_run: bool,
 ) -> list[str]:
     """Pre-claim CONNECTED liveness re-check over *devices_config* (#664).
 
@@ -1303,16 +1296,26 @@ def _preflight_connected(
     worker re-checks at execution, exactly like it re-runs validation and
     the unserved-variables check.  Headless dispositions:
 
-    - A **load-bearing** device reading the exact ``Disconnected`` choice
+    - A **synchronous** device reading the exact ``Disconnected`` choice
       string refuses the scan pre-claim (:class:`GeecsDeviceDownError`
-      naming the device) — free-run: the reference (row completion is
-      paced by it, so the scan cannot produce a single row); strict:
-      every synchronous device (each row awaits all of them).
-    - Any other Disconnected device warns and continues — its columns
-      will be missing/invalid, which a queued scan survives.  The list is
-      recorded in run metadata as ``disconnected_devices``.
+      naming it) — in both modes.  Strict rows await every synchronous
+      device; free-run rows are paced by the reference AND every dead
+      sync contributor would fail t0 sync post-claim anyway (its stale
+      cached timestamp blows the spread window, and the seed gate refuses
+      it by name) — so a warn-and-continue disposition for free-run
+      contributors would be a fiction, deferring the same death past the
+      claim.  Refusing pre-claim burns no scan number.
+    - A Disconnected **asynchronous** (snapshot) device warns and
+      continues — its columns are sampled best-effort and a queued scan
+      survives without them.  The list is recorded in run metadata as
+      ``disconnected_devices``.
     - Fail-open everywhere else (the liveness doctrine): an unreadable
       PV, no experiment, or missing CA support is never a verdict.
+
+    The probe itself (one concurrent batch read, one timeout budget — the
+    queue-plan paths run this inside the RE loop, so per-device
+    sequential timeouts are not acceptable) is the shared
+    :func:`~geecs_bluesky.devices.ca.liveness.probe_disconnected`.
 
     Returns
     -------
@@ -1323,41 +1326,24 @@ def _preflight_connected(
     if not experiment or not devices_config:
         return []
     try:
-        from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED, ca_pv
-        from geecs_bluesky.devices.ca.gateway_put import bare_pv
-        from geecs_bluesky.devices.ca.oneshot import try_caget_once
+        from geecs_bluesky.devices.ca.liveness import probe_disconnected
     except Exception as exc:  # ca support absent — fail open
         logger.warning("CONNECTED pre-flight skipped (no CA support): %s", exc)
         return []
-    down: list[str] = []
-    for device in devices_config:
-        # datatype=str is load-bearing: CONNECTED is a DBR_ENUM and the
-        # comparison is against its choice string (a native read returns
-        # the integer index, which never matches).
-        reading = try_caget_once(
-            bare_pv(ca_pv(experiment, device, "CONNECTED")),
-            timeout=_CONNECTED_TIMEOUT_S,
-            datatype=str,
-        )
-        if reading is not None and str(reading) == GATEWAY_DISCONNECTED:
-            down.append(device)
+    down = probe_disconnected(experiment, devices_config)
     if not down:
         return []
-    # devices_config is role-derived-ordered: the reference is the first
-    # synchronous entry (save_set_to_devices_config's contract).
-    sync_devices = [d for d, cfg in devices_config.items() if cfg.get("synchronous")]
-    load_bearing = sync_devices[:1] if free_run else sync_devices
-    fatal = [d for d in down if d in load_bearing]
+    fatal = [d for d in down if devices_config[d].get("synchronous")]
     if fatal:
         raise GeecsDeviceDownError(
             f"gateway reports {', '.join(sorted(fatal))} as Disconnected — "
-            "the scan cannot complete a row without it (free-run reference / "
-            "strict synchronous device); restart the device and resubmit "
-            "(pre-claim — no scan number was burned)",
+            "a synchronous device the scan's rows cannot complete without; "
+            "restart the device and resubmit (pre-claim — no scan number "
+            "was burned)",
             device_name=fatal[0],
         )
     logger.warning(
-        "gateway reports %s as Disconnected — continuing; their rows/columns "
+        "gateway reports %s as Disconnected — continuing; their columns "
         "will be missing or invalid (recorded as disconnected_devices)",
         ", ".join(sorted(down)),
     )
@@ -1635,9 +1621,7 @@ def run_scan_request(
     # CONNECTED liveness re-check (#664): the client asked pre-submit, but
     # the queue's submission-to-execution gap is long — re-check here,
     # refusing only when a row could never complete.
-    disconnected_devices = _preflight_connected(
-        session, devices_config, free_run=mode == "free_run"
-    )
+    disconnected_devices = _preflight_connected(session, devices_config)
     if _stopped_during_init(session, should_abort, "after configuration resolution"):
         return None
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
@@ -1873,9 +1857,7 @@ def _run_optimize_request(
         if devices_config is not None:
             # CONNECTED liveness re-check (#664), same terms as the
             # scan/noscan path.
-            disconnected_devices = _preflight_connected(
-                session, devices_config, free_run=mode == "free_run"
-            )
+            disconnected_devices = _preflight_connected(session, devices_config)
         if devices_config is None:
             logger.warning(
                 "ScanRequest preflight aborted the optimization (unserved "

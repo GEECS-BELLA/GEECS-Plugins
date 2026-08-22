@@ -11,7 +11,13 @@ every read through it, so each PV's channel is created once and reused.
 
 This is the one blessed one-shot blocking read; long-lived subscriptions
 belong on a caller-owned loop (the console device-panel pattern), and
-in-plan reads belong to ophyd-async signals — never this module.
+in-plan reads belong to ophyd-async signals — never this module.  The
+one sanctioned in-plan exception is the pre-claim liveness probe
+(:func:`~geecs_bluesky.devices.ca.liveness.probe_disconnected`, used by
+the queue-plan preamble): it runs before the devices exist, so there is
+no signal to read yet — and it must gather its reads concurrently
+(:func:`try_caget_many`) so the worst case blocks the RE loop for one
+timeout budget, never one per device.
 
 ``aioca`` is imported lazily on first use (the ``ca`` extra), so the
 module itself imports anywhere.
@@ -99,3 +105,35 @@ def try_caget_once(pv: str, *, timeout: float, datatype: Any = None) -> Any:
         return caget_once(pv, timeout=timeout, datatype=datatype)
     except Exception:
         return None
+
+
+def try_caget_many(
+    pvs: list[str], *, timeout: float, datatype: Any = None
+) -> list[Any]:
+    """Concurrent fail-open reads of *pvs* on the shared loop.
+
+    One gather, one ``timeout`` budget for the whole batch — N dead PVs
+    cost the same wall time as one (the sequential per-PV alternative
+    would block the caller — possibly the RE loop — for ``N × timeout``).
+    Each failed read is ``None`` in the result, positionally matching
+    *pvs*.
+    """
+    from aioca import caget
+
+    async def _one(pv: str) -> Any:
+        try:
+            if datatype is None:
+                return await caget(pv, timeout=timeout)
+            return await caget(pv, datatype=datatype, timeout=timeout)
+        except Exception:
+            return None
+
+    async def _all() -> list[Any]:
+        return list(await asyncio.gather(*(_one(pv) for pv in pvs)))
+
+    future = asyncio.run_coroutine_threadsafe(_all(), _shared_loop())
+    try:
+        return future.result(timeout=timeout + _RESULT_GRACE_S)
+    except BaseException:
+        future.cancel()
+        return [None] * len(pvs)

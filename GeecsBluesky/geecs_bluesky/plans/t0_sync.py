@@ -20,8 +20,8 @@ from typing import Any, Sequence
 
 import bluesky.plan_stubs as bps
 
-from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import GeecsT0SyncError
+from geecs_bluesky.plans.liveness import rd_confirmed_down
 
 logger = logging.getLogger(__name__)
 
@@ -37,27 +37,17 @@ def _refuse_disconnected_devices(devices: Sequence[Any]):
     live incident 2026-08-22: a camera server rebooted uncleanly).
     Timestamp freshness cannot be the guard — at rest with the trigger
     parked (e.g. laser-off operation) a *healthy* cache is legitimately
-    old — so liveness is read from ``connected_status``, the
-    authoritative signal (the same read as the strict refire gate).
-
-    **Fail-open**: no ``connected_status`` attribute or a failed read is
-    not a verdict; only the exact ``Disconnected`` choice string refuses,
-    naming the device(s).
+    old — so liveness is read from ``connected_status`` via the shared
+    :func:`~geecs_bluesky.plans.liveness.rd_confirmed_down` (fail-open;
+    only the exact ``Disconnected`` choice string refuses, naming the
+    device(s)).  Every device here is synchronous, so any dead one would
+    also fail the spread check — refusing them all pre-seed, by name, is
+    the honest version of that failure.
     """
     down: list[str] = []
     for dev in devices:
-        signal = getattr(dev, "connected_status", None)
-        if signal is None:
-            continue
-        try:
-            value = yield from bps.rd(signal)
-        except Exception:
-            logger.debug(
-                "CONNECTED read failed during t0 sync; assuming live (fail-open)",
-                exc_info=True,
-            )
-            continue
-        if value == GATEWAY_DISCONNECTED:
+        confirmed = yield from rd_confirmed_down(dev)
+        if confirmed:
             down.append(getattr(dev, "_geecs_device_name", dev.name))
     if down:
         raise GeecsT0SyncError(
