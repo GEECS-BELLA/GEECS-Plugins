@@ -19,6 +19,7 @@ resolvers that the tools turn into ``invalid_request`` envelopes.
 from __future__ import annotations
 
 import configparser
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -31,59 +32,80 @@ _USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 CLIENT_IDENTITY = f"geecs-scan-mcp {__version__}"
 
 _cache: dict[str, Any] = {}
+# First-use builds race under FastMCP's concurrent tool dispatch (one agent
+# turn can issue parallel calls); without the lock two threads could each
+# build a ZmqQueueClient and the loser's zmq receive thread would leak for
+# the process lifetime — the same failure mode qs_client's own #653 lock
+# prevents one level down.
+_cache_lock = threading.Lock()
 
 
 def clear_runtime_cache() -> None:
     """Drop every cached singleton (tests; config re-read on next call)."""
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()
+
+
+def _cached(key: str, build) -> Any:
+    """Return ``_cache[key]``, building it under the lock on first use."""
+    with _cache_lock:
+        if key not in _cache:
+            _cache[key] = build()
+        return _cache[key]
+
+
+def _read_experiment() -> Optional[str]:
+    path = _USER_CONFIG_PATH.expanduser()
+    if not path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path)
+        return parser.get("Experiment", "expt", fallback="").strip() or None
+    except (OSError, configparser.Error):
+        return None
 
 
 def get_experiment() -> Optional[str]:
     """The configured experiment name (``[Experiment] expt``), or ``None``."""
-    if "experiment" not in _cache:
-        experiment: Optional[str] = None
-        path = _USER_CONFIG_PATH.expanduser()
-        if path.exists():
-            parser = configparser.ConfigParser()
-            try:
-                parser.read(path)
-                experiment = (
-                    parser.get("Experiment", "expt", fallback="").strip() or None
-                )
-            except (OSError, configparser.Error):
-                experiment = None
-        _cache["experiment"] = experiment
-    return _cache["experiment"]
+    return _cached("experiment", _read_experiment)
 
 
 def get_queue_client() -> Any:
     """The shared RE Manager client, stamped with this server's identity."""
-    if "queue_client" not in _cache:
+
+    def build() -> Any:
         from geecs_bluesky.qs_client import make_queue_client
 
-        _cache["queue_client"] = make_queue_client(
-            get_experiment() or "", user=CLIENT_IDENTITY
-        )
-    return _cache["queue_client"]
+        return make_queue_client(_read_experiment() or "", user=CLIENT_IDENTITY)
+
+    return _cached("queue_client", build)
 
 
 def get_resolver() -> Any:
-    """The experiment's ``ConfigsRepoResolver``, or ``None`` without an experiment."""
-    if "resolver" not in _cache:
-        experiment = get_experiment()
-        if experiment is None:
-            _cache["resolver"] = None
-        else:
-            from geecs_bluesky.config_resolver import ConfigsRepoResolver
+    """A FRESH ``ConfigsRepoResolver``, or ``None`` without an experiment.
 
-            _cache["resolver"] = ConfigsRepoResolver(experiment)
-    return _cache["resolver"]
+    Deliberately not cached (unlike the other singletons): the resolver
+    caches its scan-variable and action catalogs internally, and config
+    edits mid-session (the console editors write these files during
+    operations) must appear on the next listing call — a cached resolver
+    would serve four kinds fresh and two kinds stale forever.
+    Construction is lazy and cheap.
+    """
+    experiment = get_experiment()
+    if experiment is None:
+        return None
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+    return ConfigsRepoResolver(experiment)
 
 
 def get_catalog() -> Any:
     """The Tiled scan catalog (unconfigured installs get an honest probe)."""
-    if "catalog" not in _cache:
+
+    def build() -> Any:
         from geecs_data_utils.tiled_catalog import TiledScanCatalog
 
-        _cache["catalog"] = TiledScanCatalog.from_config()
-    return _cache["catalog"]
+        return TiledScanCatalog.from_config()
+
+    return _cached("catalog", build)

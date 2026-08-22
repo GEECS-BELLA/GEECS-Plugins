@@ -235,15 +235,31 @@ class _FakeResolver:
         return []
 
     def scan_variable_catalog(self):
-        spec = SimpleNamespace(
-            kind=SimpleNamespace(value="pseudo"),
-            device=None,
-            variable=None,
-            min=-1.0,
-            max=1.0,
-            units="mm",
+        # REAL schema models, not shape-invented fakes — the row builder
+        # must work against what a resolver can actually produce (review
+        # finding: a SimpleNamespace with min/max pinned a surface the
+        # schema deliberately does not carry).
+        from geecs_schemas import PseudoScanVariable, ScanVariable
+
+        plain = ScanVariable(target="U_S1H:Current", kind="setpoint")
+        confirm = ScanVariable(
+            target="U_EMQ:Current_Limit.Ch1",
+            kind="setpoint",
+            confirm="U_EMQ:Current.Ch1",
         )
-        return SimpleNamespace(variables={"jet_z": spec})
+        pseudo = PseudoScanVariable.model_validate(
+            {
+                "kind": "pseudo",
+                "targets": [
+                    {"target": "U_Hex:X", "forward": "composite_var"},
+                    {"target": "U_Hex:Y", "forward": "2 * composite_var"},
+                ],
+                "mode": "relative",
+            }
+        )
+        return SimpleNamespace(
+            variables={"s1h": plain, "emq1": confirm, "jet_tilt": pseudo}
+        )
 
     def action_plan_registry(self):
         return {"close_shutters": object()}
@@ -264,9 +280,18 @@ def test_list_scan_configs_all_kinds(monkeypatch):
         "close_shutters"
     ]
     rows = _load(read_tools._list_scan_configs_impl("scan_variables"))["names"]
-    assert rows == [
-        {"name": "jet_z", "kind": "pseudo", "min": -1.0, "max": 1.0, "units": "mm"}
-    ]
+    by_name = {row["name"]: row for row in rows}
+    assert by_name["s1h"] == {
+        "name": "s1h",
+        "kind": "setpoint",
+        "target": "U_S1H:Current",
+    }
+    assert by_name["emq1"]["confirm"] == "U_EMQ:Current.Ch1"
+    assert by_name["jet_tilt"]["kind"] == "pseudo"
+    assert by_name["jet_tilt"]["targets"] == ["U_Hex:X", "U_Hex:Y"]
+    assert by_name["jet_tilt"]["mode"] == "relative"
+    # Limits deliberately never appear (they are hardware truth, not schema).
+    assert not any(k in by_name["s1h"] for k in ("min", "max", "units"))
 
 
 def test_list_scan_configs_bad_kind(monkeypatch):
@@ -346,6 +371,49 @@ def test_validate_engine_refusal(monkeypatch):
     result = _load(read_tools._validate_scan_request_impl(request))
     assert result["ok"] and result["valid"] is False
     assert "Nope" in result["refusal"]
+
+
+def test_get_scan_result_one_row_run_is_valid_json(monkeypatch):
+    # Review finding: a one-row run's ddof=1 std is NaN, and json.dumps
+    # writes NaN as a bare token strict parsers reject. Non-finite stats
+    # must serialize as null.
+    import pandas as pd
+
+    base = _detail()
+    detail = SimpleNamespace(
+        summary=base.summary,
+        start_doc=base.start_doc,
+        stop_doc={},
+        data=pd.DataFrame({"cam-MeanCounts": [1.0], "dead-col": [float("nan")]}),
+    )
+    monkeypatch.setattr(runtime, "get_catalog", lambda: _FakeCatalog([], detail))
+    payload = read_tools._get_scan_result_impl(None, None, "uid-7")
+    assert "NaN" not in payload
+    stats = json.loads(payload)["data"]["stats"]
+    assert stats["cam-MeanCounts"]["mean"] == pytest.approx(1.0)
+    assert stats["cam-MeanCounts"]["std"] is None  # one row: ddof=1 std
+    assert stats["dead-col"]["mean"] is None  # all-NaN column
+
+
+def test_get_scan_result_unknown_uid_is_not_found(monkeypatch):
+    # The catalog's unknown-uid contract is KeyError — a typo'd uid is
+    # not_found, never a tiled outage (review finding).
+    monkeypatch.setattr(runtime, "get_catalog", lambda: _FakeCatalog([], None))
+    result = _load(read_tools._get_scan_result_impl(None, None, "no-such-uid"))
+    assert not result["ok"] and result["error_kind"] == "not_found"
+
+
+def test_wrapper_guard_envelopes_an_impl_bug():
+    # The tools-never-raise backstop: a raising impl reaches the agent as
+    # an internal_error envelope, never a protocol exception.
+    import anyio
+
+    def boom():
+        raise RuntimeError("unexpected bug")
+
+    result = _load(anyio.run(read_tools._run_guarded, boom))
+    assert not result["ok"] and result["error_kind"] == "internal_error"
+    assert "unexpected bug" in result["message"]
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,8 @@ request's fault):
 - ``task_timeout`` — a bounded worker task did not finish in budget.
 - ``not_found`` — results/configs that do not exist.
 - ``tiled_unreachable`` — the archive did not answer.
+- ``internal_error`` — a bug in this server (the tools-never-raise
+  backstop; the message carries the exception text for the log trail).
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ ERROR_KINDS = (
     "task_timeout",
     "not_found",
     "tiled_unreachable",
+    "internal_error",
 )
 
 

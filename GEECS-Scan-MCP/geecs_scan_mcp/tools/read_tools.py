@@ -21,6 +21,21 @@ from geecs_scan_mcp.server import mcp
 
 logger = logging.getLogger("geecs_scan_mcp.tools.read")
 
+
+async def _run_guarded(impl, *args) -> str:
+    """Dispatch one impl to a worker thread; a raise becomes an envelope.
+
+    The tools-never-raise backstop: every async wrapper routes through
+    here, so a bug anywhere in an impl reaches the agent as
+    ``internal_error`` instead of a protocol exception.
+    """
+    try:
+        return await anyio.to_thread.run_sync(impl, *args)
+    except Exception as exc:
+        logger.exception("tool %s failed", getattr(impl, "__name__", impl))
+        return errors.make_error("internal_error", str(exc))
+
+
 #: Cap on per-column summary statistics in get_scan_result — metadata and
 #: shapes always return; a wide run's full stats table would bloat agent
 #: context for little value.
@@ -80,7 +95,7 @@ async def scan_status() -> str:
     a failed item returned to the queue front (nothing new can be
     submitted until an operator clears it).
     """
-    return await anyio.to_thread.run_sync(_scan_status_impl)
+    return await _run_guarded(_scan_status_impl)
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +137,26 @@ async def scan_history(limit: int = 10) -> str:
     ``error`` carries the final line of a failed item's traceback — the
     engine's operator-facing message (e.g. which device was down).
     """
-    return await anyio.to_thread.run_sync(_scan_history_impl, limit)
+    return await _run_guarded(_scan_history_impl, limit)
 
 
 # ---------------------------------------------------------------------------
 # get_scan_result
 # ---------------------------------------------------------------------------
+
+
+def _finite(value) -> float | None:
+    """A JSON-safe float: non-finite (NaN/inf) reads as ``None``.
+
+    ``json.dumps`` serializes NaN as a bare ``NaN`` token — invalid JSON
+    that strict consumers reject — and NaN stats are routine here: a
+    one-row run's ddof=1 std, or an all-NaN column from a device that
+    was dead for the whole scan (the event schema's designed null cell).
+    """
+    import math
+
+    number = float(value)
+    return number if math.isfinite(number) else None
 
 
 def _summarize_dataframe(data) -> dict:
@@ -140,8 +169,8 @@ def _summarize_dataframe(data) -> dict:
     for column in list(numeric.columns)[:_MAX_STAT_COLUMNS]:
         series = numeric[column]
         stats[str(column)] = {
-            "mean": float(series.mean()),
-            "std": float(series.std()),
+            "mean": _finite(series.mean()),
+            "std": _finite(series.std()),
         }
     return {"columns": columns, "rows": int(len(data)), "stats": stats}
 
@@ -150,6 +179,10 @@ def _get_scan_result_impl(
     scan_number: int | None, day: str | None, uid: str | None
 ) -> str:
     """Completed-run lookup: by uid, or by day-scoped GEECS scan number."""
+    try:
+        when = date.fromisoformat(day) if day else date.today()
+    except ValueError as exc:  # bad day string — decided before any catalog I/O
+        return errors.make_error("invalid_request", str(exc))
     catalog = runtime.get_catalog()
     try:
         if uid:
@@ -165,7 +198,6 @@ def _get_scan_result_impl(
                     "invalid_request",
                     "no experiment configured ([Experiment] expt in config.ini)",
                 )
-            when = date.fromisoformat(day) if day else date.today()
             runs = catalog.list_runs(experiment, when)
             match = next((r for r in runs if r.scan_number == int(scan_number)), None)
             if match is None:
@@ -175,8 +207,8 @@ def _get_scan_result_impl(
                     f"{experiment} on {when.isoformat()}",
                 )
             detail = catalog.load_run(match.uid)
-    except ValueError as exc:  # bad day string
-        return errors.make_error("invalid_request", str(exc))
+    except KeyError as exc:  # the catalog's unknown-uid contract
+        return errors.make_error("not_found", f"no run with uid {exc}")
     except Exception as exc:  # network / unconfigured catalog
         return errors.make_error("tiled_unreachable", str(exc))
     summary = detail.summary
@@ -206,11 +238,11 @@ async def get_scan_result(
     """Look up one completed run in the Tiled archive.
 
     Pass ``scan_number`` (day-scoped; ``day`` as YYYY-MM-DD, default
-    today) or a run ``uid``. Returns run metadata — including the
+    today in the server host's local timezone) or a run ``uid``. Returns run metadata — including the
     ``submission`` provenance record — plus column names and capped
     per-column mean/std. Never the full event table.
     """
-    return await anyio.to_thread.run_sync(_get_scan_result_impl, scan_number, day, uid)
+    return await _run_guarded(_get_scan_result_impl, scan_number, day, uid)
 
 
 # ---------------------------------------------------------------------------
@@ -219,12 +251,28 @@ async def get_scan_result(
 
 
 def _scan_variable_row(name: str, spec) -> dict:
-    """A compact catalog row: name plus whatever bounds/kind the spec carries."""
-    row: dict = {"name": name}
-    for field in ("kind", "device", "variable", "min", "max", "units"):
-        value = getattr(spec, field, None)
-        if value is not None:
-            row[field] = getattr(value, "value", value)  # enums → their value
+    """A compact catalog row from the real schema shape.
+
+    ``ScanVariable`` carries ``target``/``kind``/``confirm``;
+    ``PseudoScanVariable`` carries ``kind``/``targets``/``mode``.  Limits
+    and units deliberately do NOT live in this schema (device limits are
+    hardware truth — the schema module's own rule), so rows never carry
+    bounds; an agent that needs limits must not infer "unbounded" from
+    their absence here.
+    """
+    row: dict = {"name": name, "kind": getattr(spec, "kind", None)}
+    target = getattr(spec, "target", None)
+    if target is not None:
+        row["target"] = target
+    confirm = getattr(spec, "confirm", None)
+    if confirm is not None:
+        row["confirm"] = confirm
+    targets = getattr(spec, "targets", None)
+    if targets is not None:
+        row["targets"] = [getattr(t, "target", str(t)) for t in targets]
+        mode = getattr(spec, "mode", None)
+        if mode is not None:
+            row["mode"] = getattr(mode, "value", mode)
     return row
 
 
@@ -262,9 +310,11 @@ async def list_scan_configs(kind: str) -> str:
 
     ``kind``: save_sets | trigger_profiles | presets | optimizer_configs |
     scan_variables | actions. NEVER invent catalog names — resolve them
-    here. scan_variables rows carry bounds/kind where declared.
+    here. scan_variables rows carry kind/target(s) — never limits (device
+    limits are hardware truth, not catalog data; absence here does NOT
+    mean unbounded).
     """
-    return await anyio.to_thread.run_sync(_list_scan_configs_impl, kind)
+    return await _run_guarded(_list_scan_configs_impl, kind)
 
 
 # ---------------------------------------------------------------------------
@@ -317,4 +367,4 @@ async def validate_scan_request(request: dict) -> str:
     (each will require explicit acknowledgement at submission, once the
     v1 submit verb exists). Costs a DB query and a few CA reads.
     """
-    return await anyio.to_thread.run_sync(_validate_scan_request_impl, request)
+    return await _run_guarded(_validate_scan_request_impl, request)

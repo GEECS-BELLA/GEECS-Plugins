@@ -26,11 +26,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     metadata incl. the `submission` provenance record, column names, and
     capped per-column mean/std — never the full event table.
   - `list_scan_configs(kind)` — save_sets / trigger_profiles / presets /
-    optimizer_configs / scan_variables (with bounds/kind) / actions,
-    via the resolver's listing surface (GeecsBluesky 0.60.0, #666).
+    optimizer_configs / scan_variables (kind/target(s)/confirm — never
+    limits: those are hardware truth, not schema data) / actions, via
+    the resolver's listing surface (GeecsBluesky 0.60.0, #666).
   - `validate_scan_request(request)` — schema + engine validation + the
     full client-side preflight, nothing submitted.
 - Runtime singletons resolve from the standard
   `~/.config/geecs_python_api/config.ini`; every unconfigured piece
   degrades honestly (stub queue client, unconfigured catalog, no
   experiment → `invalid_request` envelopes).
+
+### Review hardening (same release, adversarial review on the PR)
+
+- Non-finite stats serialize as `null` (a one-row run's ddof-1 std and
+  all-NaN dead-device columns are routine; bare `NaN` tokens are not
+  JSON), and every tool wrapper routes through a guard that turns any
+  impl bug into an `internal_error` envelope — the tools-never-raise
+  contract is now enforced, not aspirational.
+- Scan-variable rows rebuilt from the REAL schema shape
+  (target/kind/confirm, targets/mode for pseudo) and pinned with real
+  `ScanVariable`/`PseudoScanVariable` models — the earlier fake pinned
+  fields the schema deliberately does not carry.
+- Unknown run uid reads as `not_found` (the catalog's KeyError
+  contract), not `tiled_unreachable`; bad `day` strings are decided
+  before any catalog I/O.
+- `runtime` singletons build under a lock (the concurrent-first-use zmq
+  leak qs_client's #653 lock prevents one level down); the resolver is
+  deliberately NOT cached so mid-session config edits appear on the
+  next listing call.
+- `anyio` declared as a direct dependency.
