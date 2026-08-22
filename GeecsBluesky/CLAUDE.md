@@ -724,9 +724,13 @@ Remaining items are features/tuning, not architecture.
   rep-rate changes and device restarts, so revisit only when per-scan
   build/teardown actually hurts; DG645 per-trigger TCP events (a LabVIEW
   driver change that would make the shot controller the ideal pacemaker);
-  and multi-stream flyer/collect acquisition (Bluesky-native offline event
+  multi-stream flyer/collect acquisition (Bluesky-native offline event
   building) — keep `shot_id` as the universal join key so that migration
-  stays mechanical.
+  stays mechanical; and the **any-of gate** for a flaky free-run
+  reference (a shot the reference misses produces no row — recoverable
+  via offsets/flush; the designed remedy, same schema, is to emit a row
+  when *any* sync device's shot id advances — build only if a flaky
+  reference actually bites).
 - **Manual-intervention provenance:** PV changes made from Phoebus during a
   pause are captured by readbacks/telemetry but not annotated as operator
   interventions; consider a console habit or an annotation hook.

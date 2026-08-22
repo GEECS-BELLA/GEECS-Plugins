@@ -16,12 +16,14 @@ never crosses a process boundary.
 The prologue pieces are the runner's own module-level functions — shared,
 not copied — so the headless entry point (``run_scan_request``, via
 ``GeecsSession.run``) and this plan cannot drift.  Differences from that
-path are deliberate, per the queueserver-migration decisions (recorded in
-``GeecsBluesky/CLAUDE.md``, "The queueserver worker"):
+path are deliberate, per the queueserver-migration decisions (each glossed
+inline below; ``GeecsBluesky/CLAUDE.md``'s worker section carries the
+operational summary):
 
-- **Validation runs here, authoritatively** (amendment 2: no separate
-  validation plan stub; clients re-run :func:`validate_scan_request`
-  pre-submit for immediate feedback).
+- **Validation runs here, authoritatively** — no separate validation plan
+  stub; clients re-run :func:`validate_scan_request` pre-submit for
+  immediate feedback (a queue makes submission-to-execution gaps long, so
+  a typo must fail at submit).
 - **No operator seams.**  Pre-flight questions move client-side pre-submit
   (decision 3), so the unserved-variables check runs with the headless
   default (continue-and-drop with a WARNING); the old GUI-bridge hooks

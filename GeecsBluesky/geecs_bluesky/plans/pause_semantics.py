@@ -1,7 +1,8 @@
 """Plan-level pause semantics for the queueserver world (issue #641).
 
-Implements decisions 1 and 4 of the queueserver migration (recorded in
-``GeecsBluesky/CLAUDE.md``, "The queueserver worker") at the plan layer,
+Implements decisions 1 and 4 of the queueserver migration — both defined
+in full below (``GeecsBluesky/CLAUDE.md``'s worker section carries the
+operational summary) — at the plan layer,
 replacing the engine-side pause supervisor (deleted in W5) for the two
 behaviors that had to survive it:
 
