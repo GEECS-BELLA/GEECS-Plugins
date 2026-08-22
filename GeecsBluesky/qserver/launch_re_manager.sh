@@ -9,7 +9,11 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PERMISSIONS_FILE="${SCRIPT_DIR}/user_group_permissions.yaml"
-QS_STARTUP_DIR="${QS_STARTUP_DIR:-./startup}"
+# Default beside this script, not the CWD — the launcher must work when
+# invoked from anywhere (a CWD-relative ./startup made a launch from the
+# package root fail with a missing-startup-dir error; live finding
+# 2026-08-21).
+QS_STARTUP_DIR="${QS_STARTUP_DIR:-${SCRIPT_DIR}/startup}"
 QS_REDIS_SERVER="${QS_REDIS_SERVER:-redis-server}"
 
 port_is_answering() {

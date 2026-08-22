@@ -94,7 +94,7 @@ class FakeActionSubmitter:
         self.run_release.set()
 
     def status(self):
-        from geecs_console.services.queue_client import QueueStatus
+        from geecs_bluesky.qs_client import QueueStatus
 
         return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 

@@ -1,8 +1,10 @@
-"""Hermetic tests for the queueserver client seam (services/queue_client.py).
+"""Hermetic tests for the queueserver client seam (qs_client/client.py).
 
 No manager, no network: the real client's lazy ``REManagerAPI`` is replaced
 by setting the ``_api`` cache directly (the documented injection point for
-tests), and the config reader runs against a temp home.
+tests), and the config reader runs against a temp home.  The submit paths
+build ``BPlan``/``BFunc`` items, so the module needs the ``qs-client``
+extra (skipped whole without it — the optimize-extra pattern).
 """
 
 from __future__ import annotations
@@ -12,7 +14,9 @@ from pathlib import Path
 
 import pytest
 
-from geecs_console.services.queue_client import (
+pytest.importorskip("bluesky_queueserver_api")
+
+from geecs_bluesky.qs_client import (  # noqa: E402
     QserverConfig,
     QueueClient,
     QueueStatus,
@@ -25,9 +29,8 @@ from geecs_console.services.queue_client import (
 
 @pytest.fixture
 def home(tmp_path, monkeypatch):
-    # The reader expands ops_paths.USER_CONFIG_PATH ("~/...") — point the
-    # tilde at a temp home on both POSIX and Windows (the console-windows
-    # CI job runs this suite too).
+    # The reader expands the "~/..." config path — point the tilde at a
+    # temp home on both POSIX and Windows.
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
     return tmp_path
@@ -89,6 +92,14 @@ class TestStubQueueClient:
         assert not stub.request_pause()[0]
         with pytest.raises(RuntimeError, match=r"\[qserver\]"):
             stub.move_variable("x", 1.0)
+        with pytest.raises(RuntimeError, match=r"\[qserver\]"):
+            stub.run_action("close_shutters")
+        with pytest.raises(RuntimeError, match=r"\[qserver\]"):
+            stub.queue_items()
+
+    def test_stream_addresses_are_none(self):
+        stub = StubQueueClient()
+        assert stub.info_addr is None and stub.doc_addr is None
 
 
 class _FakeManagerAPI:
@@ -226,6 +237,26 @@ class TestZmqQueueClient:
         added = next(c[1] for c in fake.calls if c[0] == "item_add")
         assert added["name"] == "geecs_run_action_plan"
         assert added["args"] == ["close_shutters"]
+
+    def test_run_action_raises_the_refusal_with_pending_items(self):
+        # The raise-mapping the console's QueueSubmitter used to own.
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "old"}]
+        with pytest.raises(RuntimeError, match="queue not empty"):
+            _client(fake).run_action("close_shutters")
+
+    def test_stream_addresses_come_from_the_config(self):
+        client = _client(_FakeManagerAPI())
+        assert client.info_addr == "tcp://x:2"
+        assert client.doc_addr == "x:3"
+
+    def test_queue_and_history_read_verbs(self):
+        fake = _FakeManagerAPI()
+        fake.queue_items = [{"item_uid": "a"}]
+        fake.history_get = lambda: {"items": [{"item_uid": "done"}]}
+        client = _client(fake)
+        assert client.queue_items() == [{"item_uid": "a"}]
+        assert client.history_items() == [{"item_uid": "done"}]
 
     def test_stop_from_paused_stops_directly(self):
         fake = _FakeManagerAPI()

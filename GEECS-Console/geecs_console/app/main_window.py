@@ -81,9 +81,10 @@ from geecs_console.services.health import (
     HealthStatus,
     StubHealth,
 )
-from geecs_console.services.queue_client import QueueStatus, SubmitResult
-from geecs_console.services.submit_preflight import (
+from geecs_bluesky.qs_client import (
     PreflightReport,
+    QueueStatus,
+    SubmitResult,
     run_submit_preflight,
     stamp_submission,
 )
@@ -777,9 +778,9 @@ class MainWindow(QMainWindow):
     def _start_scan_monitor(self) -> None:
         """Start the queueserver scan monitor (status poll + streams).
 
-        Built from the submitter: its ``status()`` is the poll probe, and a
-        real :class:`~geecs_console.submission.QueueSubmitter` carries the
-        stream addresses (fakes without them get a poll-only monitor).  A
+        Built from the submitter: its ``status()`` is the poll probe, and
+        the real :class:`~geecs_bluesky.qs_client.ZmqQueueClient` carries
+        the stream addresses (fakes without them get a poll-only monitor).  A
         submitter that cannot be built leaves the monitor off — the pill
         stays wherever the last state put it and submission reports the
         reason on Start.
@@ -1653,7 +1654,7 @@ class MainWindow(QMainWindow):
             try:
                 return (
                     "submit",
-                    submitter.submit(
+                    submitter.submit_scan(
                         stamped.model_dump(mode="json"), clear_pending=clear_pending
                     ),
                 )

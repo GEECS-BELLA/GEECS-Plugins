@@ -14,7 +14,7 @@ from geecs_console.app.scan_monitor import (
     _FAILED_MOVE_PREFIX_FALLBACK,
     _failed_move_prefix,
 )
-from geecs_console.services.queue_client import StubQueueClient
+from geecs_bluesky.qs_client import StubQueueClient
 
 
 class TestFailedMovePrefix:

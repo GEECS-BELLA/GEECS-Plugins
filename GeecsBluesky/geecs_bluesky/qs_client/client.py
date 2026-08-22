@@ -1,23 +1,26 @@
-"""Queueserver manager client seam (#648): the console as a peer RE Manager client.
+"""Queueserver manager client: any GEECS client as a peer of the RE Manager.
 
-The console submits scans to a bluesky-queueserver RE Manager (the GEECS
-worker, ``GeecsBluesky/qserver/``) instead of an in-process engine.  This
-module is the one place that speaks ``bluesky-queueserver-api``:
+Clients (the console, notebooks, the OSPREY scan MCP) submit scans to a
+bluesky-queueserver RE Manager (the GEECS worker, ``GeecsBluesky/qserver/``)
+as queue items.  This module is the one place that speaks
+``bluesky-queueserver-api``:
 
-- :class:`QueueClient` — the protocol the window and controllers depend on;
+- :class:`QueueClient` — the ONE protocol clients depend on (it absorbed
+  the console's former ``Submitter`` twin in the extraction);
 - :class:`ZmqQueueClient` — the real client (0MQ control socket, lazy
-  imports so the module stays import-safe offline);
-- :class:`StubQueueClient` — the offline/test default (disconnected status,
-  every verb refuses with a clear message);
+  imports so the module stays import-safe offline and without the
+  ``qs-client`` extra);
+- :class:`StubQueueClient` — the offline/test default (disconnected
+  status, every verb refuses with a clear message);
 - :func:`read_qserver_config` — the ``[qserver]`` section of the shared
-  ``~/.config/geecs_python_api/config.ini``.
+  ``~/.config/geecs_python_api/config.ini``;
+- :func:`make_queue_client` — the factory (stub when unconfigured).
 
-Threading contract (the console's standing rules): every method here
-**blocks** — 0MQ request/reply with a short timeout, or a polled
-``function_execute`` task.  :meth:`QueueClient.status` is cheap and bounded
-(one request, ``timeout_recv``) and is polled from a background thread
-(``HealthPoller`` pattern); the submit/stop/manual-verb calls run on
-``BackgroundResult`` workers.  Nothing here touches Qt.
+Threading contract: every method here **blocks** — 0MQ request/reply with
+a short timeout, or a polled ``function_execute`` task.
+:meth:`QueueClient.status` is cheap and bounded (one request,
+``timeout_recv``) and safe to poll from a background thread; dispatch the
+submit/stop/manual-verb calls off any GUI thread.  Nothing here touches Qt.
 
 Queue semantics this client owns (#648 item 3): on plan failure the manager
 returns the failed item to the **front** of the queue (``ignore_failures``
@@ -33,9 +36,13 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Optional, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+
+#: The shared GEECS user config (the permanent fleet contract path).
+_USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
 #: The manager's default 0MQ control / console-info ports and the document
 #: stream's default out port (see GeecsBluesky/qserver/deploy/DEPLOYMENT.md,
@@ -80,14 +87,12 @@ def read_qserver_config() -> Optional[QserverConfig]:
     Returns
     -------
     QserverConfig or None
-        ``None`` when the file or section is absent — the console then runs
+        ``None`` when the file or section is absent — clients then run
         with the stub client (submission disabled, everything else works).
     """
     import configparser
 
-    from geecs_console.services.ops_paths import USER_CONFIG_PATH
-
-    path = USER_CONFIG_PATH.expanduser()
+    path = _USER_CONFIG_PATH.expanduser()
     if not path.exists():
         return None
     parser = configparser.ConfigParser()
@@ -114,7 +119,7 @@ def read_qserver_config() -> Optional[QserverConfig]:
 
 @dataclass(frozen=True)
 class QueueStatus:
-    """One poll's snapshot of the manager, GUI-shaped.
+    """One poll's snapshot of the manager, client-shaped.
 
     ``connected=False`` means the manager did not answer — every other
     field is then meaningless and ``detail`` says why.  ``re_state`` is the
@@ -149,7 +154,16 @@ class SubmitResult:
 
 @runtime_checkable
 class QueueClient(Protocol):
-    """What the console needs from a RE Manager (all methods block; see module doc)."""
+    """What a GEECS client needs from a RE Manager (all methods block).
+
+    The one client protocol (it replaced the console's ``Submitter`` twin
+    in the extraction).  ``info_addr`` / ``doc_addr`` carry the manager's
+    console-output and document stream addresses (``None`` when
+    unconfigured) so stream consumers build from the same configuration.
+    """
+
+    info_addr: Optional[str]
+    doc_addr: Optional[str]
 
     def status(self) -> QueueStatus:
         """Return the manager snapshot. Never raises."""
@@ -165,6 +179,14 @@ class QueueClient(Protocol):
         """Queue ``geecs_run_action_plan(name)`` and start the queue."""
         ...
 
+    def run_action(self, name: str) -> None:
+        """:meth:`submit_action`, raising ``RuntimeError`` on refusal.
+
+        Completion/failure of the action itself is observed through the
+        manager status, not this call.
+        """
+        ...
+
     def request_pause(self) -> tuple[bool, str]:
         """Deferred-pause the running plan. Returns ``(ok, message)``."""
         ...
@@ -175,6 +197,14 @@ class QueueClient(Protocol):
 
     def stop_scan(self) -> tuple[bool, str]:
         """Gracefully stop: from paused directly, from running via pause."""
+        ...
+
+    def queue_items(self) -> list[dict]:
+        """Return the queued items (front first); raises on failure."""
+        ...
+
+    def history_items(self) -> list[dict]:
+        """Return the manager's item history; raises on failure."""
         ...
 
     def move_variable(self, name: str, value: float) -> dict:
@@ -195,6 +225,9 @@ _STUB_MESSAGE = (
 class StubQueueClient:
     """The offline default: disconnected status, every verb refuses clearly."""
 
+    info_addr: Optional[str] = None
+    doc_addr: Optional[str] = None
+
     def status(self) -> QueueStatus:
         """Return a disconnected snapshot naming the missing config."""
         return QueueStatus(connected=False, detail=_STUB_MESSAGE)
@@ -209,6 +242,10 @@ class StubQueueClient:
         """Refuse with the missing-config message."""
         return SubmitResult(ok=False, message=_STUB_MESSAGE)
 
+    def run_action(self, name: str) -> None:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
     def request_pause(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
         return False, _STUB_MESSAGE
@@ -220,6 +257,14 @@ class StubQueueClient:
     def stop_scan(self) -> tuple[bool, str]:
         """Refuse with the missing-config message."""
         return False, _STUB_MESSAGE
+
+    def queue_items(self) -> list[dict]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def history_items(self) -> list[dict]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
 
     def move_variable(self, name: str, value: float) -> dict:
         """Refuse with the missing-config message."""
@@ -234,10 +279,10 @@ class ZmqQueueClient:
     """The real manager client over the 0MQ control socket.
 
     One :class:`bluesky_queueserver_api.zmq.REManagerAPI` is created lazily
-    on first use and reused (it is thread-safe for the console's usage: the
-    status poller and the one-at-a-time worker calls).  All
-    ``bluesky_queueserver_api`` imports live inside methods — the module
-    must import offline (console standing rule).
+    on first use and reused (it is thread-safe for this usage: a status
+    poller plus one-at-a-time verb calls).  All ``bluesky_queueserver_api``
+    imports live inside methods — the module must import without the
+    ``qs-client`` extra installed.
 
     Parameters
     ----------
@@ -247,15 +292,25 @@ class ZmqQueueClient:
         Submitted-as identity recorded by the manager on every queue item.
     """
 
-    def __init__(self, config: QserverConfig, *, user: str = "geecs-console") -> None:
+    def __init__(self, config: QserverConfig, *, user: str = "geecs-qs-client") -> None:
         self._config = config
         self._user = user
         self._api: Any = None
-        # The status poller's first call and an early worker-thread verb can
+        # A status poller's first call and an early worker-thread verb can
         # race the lazy init; without the lock the loser's REManagerAPI (and
         # its zmq receive thread) would leak for the process lifetime (#653
         # review finding 5).
         self._api_lock = threading.Lock()
+
+    @property
+    def info_addr(self) -> Optional[str]:
+        """The manager's console-output stream address."""
+        return self._config.info_addr
+
+    @property
+    def doc_addr(self) -> Optional[str]:
+        """The document stream's out-port address."""
+        return self._config.doc_addr
 
     # -- plumbing -----------------------------------------------------------
 
@@ -389,6 +444,17 @@ class ZmqQueueClient:
         """Queue the on-demand action plan (actions are queue items, decision 2)."""
         return self._submit_item("geecs_run_action_plan", [name], clear_pending=False)
 
+    def run_action(self, name: str) -> None:
+        """Queue the action item; raise the refusal message on failure."""
+        result = self.submit_action(name)
+        if not result.ok:
+            if result.pending_items:
+                raise RuntimeError(
+                    f"queue not empty ({len(result.pending_items)} item(s) "
+                    "pending) — clear the queue before running an action"
+                )
+            raise RuntimeError(result.message or "action submission refused")
+
     def request_pause(self) -> tuple[bool, str]:
         """Deferred pause (the stock verb; hard pause replays — never default it)."""
         try:
@@ -447,6 +513,14 @@ class ZmqQueueClient:
         except Exception as exc:
             return False, str(exc)
 
+    def queue_items(self) -> list[dict]:
+        """Return the queued items, front first (read-only; raises on failure)."""
+        return list(self._manager().queue_get().get("items") or [])
+
+    def history_items(self) -> list[dict]:
+        """Return the manager's item history (read-only; raises on failure)."""
+        return list(self._manager().history_get().get("items") or [])
+
     def move_variable(self, name: str, value: float) -> dict:
         """Run the worker's manual move; idle-only (the manager enforces it)."""
         from bluesky_queueserver_api import BFunc
@@ -468,8 +542,29 @@ class ZmqQueueClient:
         return self._wait_for_task(response["task_uid"], timeout_s=30.0)
 
 
-def make_queue_client(user: str = "geecs-console") -> QueueClient:
-    """Build the configured client, or the stub when no ``[qserver]`` exists."""
+def make_queue_client(
+    experiment: str = "", *, user: str = "geecs-qs-client"
+) -> QueueClient:
+    """Build the configured client, or the stub when no ``[qserver]`` exists.
+
+    Parameters
+    ----------
+    experiment : str, optional
+        The selected experiment.  Currently informational — one manager
+        serves one experiment by deployment contract (``QS_EXPERIMENT``),
+        and the ``[qserver]`` config names that manager; a mismatch
+        surfaces as the worker refusing the request's names at validation.
+    user : str
+        Submitted-as identity the manager records on every queue item
+        (e.g. ``"geecs-console"``, ``"osprey-htu-assistant"``).
+
+    Returns
+    -------
+    QueueClient
+        Ready to use; unconfigured installs get the stub client (every
+        verb refuses with the missing-config message, stream addresses
+        ``None``).
+    """
     config = read_qserver_config()
     if config is None:
         return StubQueueClient()

@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-console"
-version = "0.23.3"
+version = "0.24.0"
 description = "Greenfield PySide6 operator console for GEECS (Bluesky/gateway architecture)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -10,12 +10,12 @@ packages = [{ include = "geecs_console" }]
 python = ">=3.11,<3.12"
 pyside6 = ">=6.7"
 
-# The scan engine package: the preflight checks the console runs
-# pre-submit, configs-repo resolution, and the CA helpers behind the
-# device panel / health probes.  Scan execution itself is remote — the
-# queueserver worker (GeecsBluesky/qserver/) — reached via
-# bluesky-queueserver-api below.
-geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "ca"] }
+# The scan engine package: the RE Manager client + pre-submit preflight
+# (geecs_bluesky.qs_client, via the qs-client extra — it pulls
+# bluesky-queueserver-api), configs-repo resolution, and the CA helpers
+# behind the device panel / health probes.  Scan execution itself is
+# remote — the queueserver worker (GeecsBluesky/qserver/).
+geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["tiled", "ca", "qs-client"] }
 
 # The config vocabulary: ScanRequest is the one submission object this GUI
 # builds.  Pydantic-only — the request builder imports nothing heavier.
@@ -34,12 +34,6 @@ geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["ti
 # B4 plotting (scan browser): Qt-native, imported lazily with
 # PYQTGRAPH_QT_LIB=PySide6 pinned before the first import.
 pyqtgraph = "^0.13"
-
-# The RE Manager client (queueserver migration, #648): queue submission,
-# status polling, and the manager's console-output monitor all ride this
-# small api package (it pulls pyzmq; the document stream's
-# RemoteDispatcher comes from bluesky via geecs-bluesky).
-bluesky-queueserver-api = "^0.0.13"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0"

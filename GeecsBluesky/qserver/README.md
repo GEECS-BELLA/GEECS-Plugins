@@ -28,8 +28,9 @@ default is `redis-server`.
 QS_REDIS_SERVER=/path/to/redis-server ./launch_re_manager.sh
 ```
 
-The startup directory defaults to `./startup` and can be overridden with
-`QS_STARTUP_DIR`.
+The startup directory defaults to the `startup/` folder beside the
+launcher (so the script works from any working directory) and can be
+overridden with `QS_STARTUP_DIR`.
 
 ```bash
 QS_STARTUP_DIR=/path/to/startup ./launch_re_manager.sh

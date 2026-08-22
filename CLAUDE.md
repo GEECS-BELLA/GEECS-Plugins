@@ -142,15 +142,19 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
                         post-run image analysis over archived Tiled runs;
                         + ScanAnalysis/ImageAnalysis/xopt, optional via the
                         `optimize` extra — the relocated Xopt/evaluator
-                        stack in geecs_bluesky.optimization)
+                        stack in geecs_bluesky.optimization;
+                        + bluesky-queueserver-api, optional via the
+                        `qs-client` extra — geecs_bluesky.qs_client, the
+                        RE Manager client every queue client uses)
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
 GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
                         GEECS-Core (GeecsDb for completions/health)
                         (scan execution is remote: the console submits to
-                        GeecsBluesky's queueserver worker via
-                        bluesky-queueserver-api; the optimization stack's
-                        heavy deps install worker-side via GeecsBluesky's
-                        `optimize` extra — the console ships none)
+                        GeecsBluesky's queueserver worker through
+                        geecs_bluesky.qs_client — the `qs-client` extra;
+                        the optimization stack's heavy deps install
+                        worker-side via GeecsBluesky's `optimize` extra —
+                        the console ships none)
 ```
 
 `GEECS-Core` is the GEECS access library: the UDP/TCP wire protocol, the

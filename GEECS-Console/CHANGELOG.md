@@ -4,6 +4,27 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.24.0] - 2026-08-21
+
+### Changed
+
+- **The RE Manager client moved to `geecs_bluesky.qs_client`** (the
+  console is one queue client among several — notebooks and the OSPREY
+  scan MCP use the same seam): `services/queue_client.py` and
+  `services/submit_preflight.py` are deleted, and `submission.py` is now
+  the console's thin identity layer — `Submitter` is an alias of the one
+  `geecs_bluesky.qs_client.QueueClient` protocol (the former twin
+  protocols are collapsed; the `QueueSubmitter` adapter is gone, its
+  `run_action` mapping and stream addresses live on the client itself),
+  and `make_queue_submitter` builds the shared client with the
+  `geecs-console` submitted-as identity.  The window's submit call is
+  `submit_scan` (was `submit`).  `bluesky-queueserver-api` now arrives
+  via geecs-bluesky's `qs-client` extra instead of a direct dependency.
+- The health probe's gateway check reads through the shared
+  `geecs_bluesky.devices.ca.oneshot` helper (one persistent reader
+  loop) — the previous per-poll `asyncio.run()` re-created the CA
+  channels and leaked aioca's per-loop cache on every 5 s poll.
+
 ## [0.23.3] - 2026-08-21
 
 ### Changed

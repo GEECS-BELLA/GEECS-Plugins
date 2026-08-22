@@ -73,7 +73,7 @@ class FakeSubmitter:
     """Queue-submitter stand-in (the #648 Submitter protocol shape)."""
 
     def __init__(self):
-        from geecs_console.services.queue_client import SubmitResult
+        from geecs_bluesky.qs_client import SubmitResult
 
         self.submitted = []  # (request_dict, clear_pending) per submit call
         self.stops = 0
@@ -82,7 +82,7 @@ class FakeSubmitter:
         self.submit_result = SubmitResult(ok=True, item_uid="uid-1")
         self.stop_result = (True, "stop requested (from paused)")
 
-    def submit(self, request, *, clear_pending=False):
+    def submit_scan(self, request, *, clear_pending=False):
         self.submitted.append((request, clear_pending))
         return self.submit_result
 
@@ -108,7 +108,7 @@ class FakeSubmitter:
         return {"variable": name, "value": value}
 
     def status(self):
-        from geecs_console.services.queue_client import QueueStatus
+        from geecs_bluesky.qs_client import QueueStatus
 
         return QueueStatus(connected=True, re_state="idle", worker_exists=True)
 
@@ -186,7 +186,7 @@ def window(qtbot):
 
 def drive_status(window, re_state, connected=True, worker_exists=None):
     """Feed one manager status snapshot straight into the window's slot."""
-    from geecs_console.services.queue_client import QueueStatus
+    from geecs_bluesky.qs_client import QueueStatus
 
     if worker_exists is None:
         worker_exists = connected and re_state is not None
@@ -198,7 +198,7 @@ def drive_status(window, re_state, connected=True, worker_exists=None):
 def passing_preflight(monkeypatch, questions=()):
     """Patch the preflight phase to a canned report (no engine, no CA)."""
     from geecs_console.app import main_window as module
-    from geecs_console.services.submit_preflight import PreflightReport
+    from geecs_bluesky.qs_client import PreflightReport
 
     report = PreflightReport(
         outcomes=[("validate", "passed", "")], questions=list(questions)
@@ -480,7 +480,7 @@ class TestOptimizationMode:
         self, opt_window, qtbot, monkeypatch
     ):
         """A refused queue submission is surfaced, never pre-blocked."""
-        from geecs_console.services.queue_client import SubmitResult
+        from geecs_bluesky.qs_client import SubmitResult
 
         opt_window._submitter.submit_result = SubmitResult(
             ok=False, message="optimization loader not registered"
@@ -501,7 +501,7 @@ class TestOptimizationMode:
         def boom(request, *, clear_pending=False):
             raise RuntimeError("manager exploded")
 
-        opt_window._submitter.submit = boom
+        opt_window._submitter.submit_scan = boom
         select_save_set(opt_window, "Amp4In")
         opt_window.radio_optimization.setChecked(True)
         opt_window.optimization_combo.setCurrentText("bayes_jet")
@@ -727,7 +727,7 @@ class TestSubmission:
 
     def test_preflight_refusal_never_queues(self, window, qtbot, monkeypatch):
         from geecs_console.app import main_window as module
-        from geecs_console.services.submit_preflight import PreflightReport
+        from geecs_bluesky.qs_client import PreflightReport
 
         monkeypatch.setattr(
             module,
@@ -748,7 +748,7 @@ class TestSubmission:
     ):
         from PySide6.QtWidgets import QMessageBox
 
-        from geecs_console.services.submit_preflight import PreflightQuestion
+        from geecs_bluesky.qs_client import PreflightQuestion
 
         _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
         question = PreflightQuestion(
@@ -766,7 +766,7 @@ class TestSubmission:
     def test_preflight_question_abort_never_queues(self, window, qtbot, monkeypatch):
         from PySide6.QtWidgets import QMessageBox
 
-        from geecs_console.services.submit_preflight import PreflightQuestion
+        from geecs_bluesky.qs_client import PreflightQuestion
 
         _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
         question = PreflightQuestion(
@@ -786,7 +786,7 @@ class TestSubmission:
         """The failed-item-at-front trap (#648 item 3): surface, ask, clear."""
         from PySide6.QtWidgets import QMessageBox
 
-        from geecs_console.services.queue_client import SubmitResult
+        from geecs_bluesky.qs_client import SubmitResult
 
         _auto_answer(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
         submitter = window._submitter
@@ -799,21 +799,21 @@ class TestSubmission:
             if len(submitter.submitted) == 1:
                 submitter.submit_result = SubmitResult(ok=True, item_uid="uid-2")
 
-        original = submitter.submit
+        original = submitter.submit_scan
 
-        def submit(request, *, clear_pending=False):
+        def submit_scan(request, *, clear_pending=False):
             result = original(request, clear_pending=clear_pending)
             arm_second_try()
             return result
 
-        submitter.submit = submit
+        submitter.submit_scan = submit_scan
         self._submit(window, qtbot, monkeypatch)
         assert [clear for _, clear in submitter.submitted] == [False, True]
 
     def test_pending_items_cancel_leaves_the_queue(self, window, qtbot, monkeypatch):
         from PySide6.QtWidgets import QMessageBox
 
-        from geecs_console.services.queue_client import SubmitResult
+        from geecs_bluesky.qs_client import SubmitResult
 
         _auto_answer(monkeypatch, QMessageBox.ButtonRole.RejectRole)
         window._submitter.submit_result = SubmitResult(

@@ -214,7 +214,7 @@ class ScanMonitorController(QObject):
     Parameters
     ----------
     queue_client :
-        The :class:`~geecs_console.services.queue_client.QueueClient` whose
+        The :class:`~geecs_bluesky.qs_client.QueueClient` whose
         ``status()`` the poller runs.
     info_addr, doc_addr :
         Stream addresses (``None`` disables that stream — the stub/offline
