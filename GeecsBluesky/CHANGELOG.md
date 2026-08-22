@@ -4,6 +4,22 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.60.0] - 2026-08-22
+
+### Added
+
+- **Config listings on `ConfigsRepoResolver`** (#666, the scan-MCP
+  prerequisite): `list_save_sets()`, `list_trigger_profiles()`,
+  `list_presets()`, and `list_optimizer_configs()` — sorted YAML stems
+  with the console's listing semantics (a missing configs root,
+  experiment folder, or kind folder reads as `[]`, never an exception;
+  a listed name is a file, not a promise — resolution can still refuse
+  it).  Non-GUI clients (the scan MCP, notebooks) can now enumerate an
+  experiment's catalogs without importing console code; the resolver
+  gains the `PRESET_FOLDER`/`OPTIMIZER_FOLDER` constants so the folder
+  layout has one owner.  Console consumption of the shared surface is
+  deferred to the next console-touching PR.
+
 ## [0.59.0] - 2026-08-22
 
 ### Added

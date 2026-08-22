@@ -108,6 +108,8 @@ class ConfigsRepoResolver:
     TRIGGER_FOLDER = SHOT_CONTROL_FOLDER
     SCAN_VARIABLES_FOLDER = "scan_devices"
     ACTION_FOLDER = "action_library"
+    PRESET_FOLDER = "presets"
+    OPTIMIZER_FOLDER = "optimizer_configs"
 
     def __init__(
         self, experiment: str, experiments_root: str | Path | None = None
@@ -153,6 +155,45 @@ class ConfigsRepoResolver:
                 f"{path}, got {type(document).__name__}"
             )
         return document
+
+    # ------------------------------------------------------------------
+    # Listings (folder scans — no YAML parsing, never raise)
+    # ------------------------------------------------------------------
+
+    def _list_folder(self, folder: str) -> list[str]:
+        """Sorted YAML stems of one config folder; ``[]`` when anything is missing.
+
+        Never raises — an unresolvable configs root, a missing experiment
+        folder, or a missing kind folder all read as an empty listing
+        (clients render "nothing available", they do not crash).  A listed
+        name is a *file*, not a promise: resolution/validation can still
+        refuse it (e.g. an action-only legacy save element).
+        """
+        try:
+            path = self._root / folder
+        except Exception:  # configs root unresolvable — empty, not an error
+            return []
+        if not path.is_dir():
+            return []
+        return sorted(
+            entry.stem for entry in path.iterdir() if entry.suffix in (".yaml", ".yml")
+        )
+
+    def list_save_sets(self) -> list[str]:
+        """Names accepted by :meth:`resolve_save_set` (sorted; ``[]`` if none)."""
+        return self._list_folder(self.SAVE_SET_FOLDER)
+
+    def list_trigger_profiles(self) -> list[str]:
+        """Names accepted by :meth:`resolve_trigger_profile` (sorted; ``[]`` if none)."""
+        return self._list_folder(self.TRIGGER_FOLDER)
+
+    def list_presets(self) -> list[str]:
+        """Saved preset names (each file is a ``ScanRequest``; sorted; ``[]`` if none)."""
+        return self._list_folder(self.PRESET_FOLDER)
+
+    def list_optimizer_configs(self) -> list[str]:
+        """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
+        return self._list_folder(self.OPTIMIZER_FOLDER)
 
     def resolve_save_set(self, name: str) -> SaveSet:
         """Load the save set *name* (new schema, else converted save element).
