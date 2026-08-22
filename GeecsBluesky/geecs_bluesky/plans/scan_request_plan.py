@@ -1,8 +1,7 @@
 """geecs_scan_request_plan — "run this ScanRequest" as one Bluesky plan.
 
-The queueserver migration's one structural unit
-(``Planning/cutover_strategy/02_queueserver_migration.md`` § The one
-structural task): a plan generator whose **preamble** relocates the
+The queueserver migration's one structural unit: a plan generator whose
+**preamble** relocates the
 :func:`~geecs_bluesky.scan_request_runner.run_scan_request` prologue to the
 worker side — validate → resolve save sets/actions/trigger → construct +
 connect devices → claim the scan number — and then yields the same inner
@@ -17,7 +16,8 @@ never crosses a process boundary.
 The prologue pieces are the runner's own module-level functions — shared,
 not copied — so the headless entry point (``run_scan_request``, via
 ``GeecsSession.run``) and this plan cannot drift.  Differences from that
-path are deliberate, per the Planning doc's decisions and amendments:
+path are deliberate, per the queueserver-migration decisions (recorded in
+``GeecsBluesky/CLAUDE.md``, "The queueserver worker"):
 
 - **Validation runs here, authoritatively** (amendment 2: no separate
   validation plan stub; clients re-run :func:`validate_scan_request`

@@ -1,7 +1,7 @@
 """The queueserver worker's ``optimization_loader``: OptimizationSpec → bridge.
 
-Decision 5 (``Planning/cutover_strategy/02_queueserver_migration.md``):
-optimization stays in-worker — the stack's code
+Decision 5 of the queueserver migration (recorded in
+``GeecsBluesky/CLAUDE.md``): optimization stays in-worker — the stack's code
 (``geecs_bluesky.optimization``) does not move, only the *call site* that
 invokes it moves from the GUI process into the queueserver worker's plan
 preamble (``geecs_bluesky.plans.scan_request_plan``,

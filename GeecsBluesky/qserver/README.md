@@ -151,3 +151,10 @@ correctly — only live GUI progress is lost.
   truncates long histories for display; the newest items may not be
   shown. Read history through the API (`bluesky-queueserver-api`) for
   anything programmatic.
+
+## Not yet exercised live
+
+Deliberately untested as of the 2026-08-21 live checkpoint — treat the
+first real use as a verification event: hard/immediate pause (the operator
+surface is the deferred verb), pause during an optimize-mode scan, a live
+`failed_move_policy` trigger, and `move_to_best_on_finish`.

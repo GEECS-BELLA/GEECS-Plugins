@@ -6,9 +6,9 @@ without the GUI: a session owns a RunEngine in the calling thread and composes
 the CA device family (gateway PVs), the existing plans, and
 :func:`~geecs_bluesky.plans.run_wrapper.geecs_run_wrapper`.
 
-The session is **CA-only by design**: the gateway is the standard access layer
-(see ``Planning/geecs_session/00_overview.md``).  Requires the ``ca`` extra and
-a running GeecsCAGateway; set ``EPICS_CA_ADDR_LIST`` before constructing.
+The session is **CA-only by design**: the gateway is the standard access
+layer.  Requires the ``ca`` extra and a running GeecsCAGateway; set
+``EPICS_CA_ADDR_LIST`` before constructing.
 
 Example::
 

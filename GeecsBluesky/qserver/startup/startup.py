@@ -195,10 +195,7 @@ def geecs_describe_action(name: str) -> list[dict]:
 # geecs_bluesky/scan_log.py) needs no wiring here: geecs_scan_request_plan
 # itself calls begin_pre_scan_capture() at submission and the scan_log(...)
 # context manager attaches the per-scan file handler directly to the root
-# logger at the claim. The doc's "scan-log root capture" worker-startup
-# build item is this existing mechanism relocated, not new design (see
-# Planning/cutover_strategy/02_queueserver_migration.md, "Amendments from
-# the console test-scan review").
+# logger at the claim — see geecs_bluesky/scan_log.py, the mechanism itself.
 
 # Optimize-mode ScanRequests: registered only when the `optimize` extra's
 # heavy deps (xopt, ScanAnalysis) are importable — a headless worker without

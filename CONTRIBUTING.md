@@ -70,7 +70,11 @@ moves to the owning package's `CLAUDE.md` or the docs site first.
 "purged before reaching master" rule died with the two-branch layout;
 delete-when-executed is the whole discipline. Audited 2026-07-13: five
 executed/superseded plans deleted; the survivors each hold live
-deferred-work or strategy content.)
+deferred-work or strategy content. Re-audited 2026-08-21
+post-queueserver-migration: eight executed plans deleted
+(acquisition_modes, cutover 00+02, external_assets) with load-bearing
+content extracted to package docs; survivors each hold live deferred
+work.)
 
 ## Every PR that changes a package
 
