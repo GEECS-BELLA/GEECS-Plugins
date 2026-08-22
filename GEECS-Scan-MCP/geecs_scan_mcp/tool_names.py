@@ -16,12 +16,29 @@ SCAN_HISTORY = "scan_history"
 GET_SCAN_RESULT = "get_scan_result"
 LIST_SCAN_CONFIGS = "list_scan_configs"
 VALIDATE_SCAN_REQUEST = "validate_scan_request"
+SCAN_PROGRESS = "scan_progress"
+SUBMIT_SCAN = "submit_scan"
+STOP_SCAN = "stop_scan"
+CLEAR_QUEUE = "clear_queue"
 
-#: Every v0 tool — read-only, safe to auto-allow in profile.yml.
+#: Read-only tools (R) — safe to auto-allow in profile.yml.
 READ_TOOLS = (
     SCAN_STATUS,
     SCAN_HISTORY,
     GET_SCAN_RESULT,
     LIST_SCAN_CONFIGS,
     VALIDATE_SCAN_REQUEST,
+    SCAN_PROGRESS,
 )
+
+#: Queueing tools (Q) — `ask` + the writes_check (kill switch) preset.
+QUEUE_TOOLS = (
+    SUBMIT_SCAN,
+    CLEAR_QUEUE,
+)
+
+#: Stop direction (S) — `ask` ONLY, never behind the kill switch: a halt
+#: must always be possible (the osprey bluesky-server doctrine; the
+#: exemption is enforced in-tool since per-tool hook matchers don't
+#: exist for custom servers).
+STOP_TOOLS = (STOP_SCAN,)

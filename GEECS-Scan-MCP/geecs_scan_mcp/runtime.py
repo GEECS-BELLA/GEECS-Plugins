@@ -27,9 +27,16 @@ from geecs_scan_mcp import __version__
 
 _USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
-#: The submitted-as identity the manager records on queue items, and the
-#: ``SubmissionRecord.client`` prefix — how runs trace back to this server.
+#: The default submitted-as identity — how runs trace back to this
+#: server.  A deployment can override it via ``[scan_mcp]
+#: client_identity`` (e.g. ``osprey-htu-assistant``); the queue item's
+#: ``user`` and the ``SubmissionRecord.client`` always use the same
+#: value, or stop_scan's ownership check would never match.
 CLIENT_IDENTITY = f"geecs-scan-mcp {__version__}"
+
+#: The agent scan-size cap default (owner decision 2026-08-22:
+#: conservative first posture).  Override: ``[scan_mcp] max_shots``.
+DEFAULT_MAX_SHOTS = 1000
 
 _cache: dict[str, Any] = {}
 # First-use builds race under FastMCP's concurrent tool dispatch (one agent
@@ -66,9 +73,43 @@ def _read_experiment() -> Optional[str]:
         return None
 
 
+def _read_scan_mcp_option(option: str) -> Optional[str]:
+    """One ``[scan_mcp]`` option from the shared config, or ``None``."""
+    path = _USER_CONFIG_PATH.expanduser()
+    if not path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path)
+        return parser.get("scan_mcp", option, fallback="").strip() or None
+    except (OSError, configparser.Error):
+        return None
+
+
 def get_experiment() -> Optional[str]:
     """The configured experiment name (``[Experiment] expt``), or ``None``."""
     return _cached("experiment", _read_experiment)
+
+
+def client_identity() -> str:
+    """The deployment's submitted-as identity (config override or default)."""
+    return _cached(
+        "client_identity",
+        lambda: _read_scan_mcp_option("client_identity") or CLIENT_IDENTITY,
+    )
+
+
+def max_shots() -> int:
+    """The agent scan-size cap (``[scan_mcp] max_shots``, default 1000)."""
+
+    def build() -> int:
+        raw = _read_scan_mcp_option("max_shots")
+        try:
+            return int(raw) if raw else DEFAULT_MAX_SHOTS
+        except ValueError:
+            return DEFAULT_MAX_SHOTS
+
+    return _cached("max_shots", build)
 
 
 def get_queue_client() -> Any:
@@ -77,7 +118,10 @@ def get_queue_client() -> Any:
     def build() -> Any:
         from geecs_bluesky.qs_client import make_queue_client
 
-        return make_queue_client(_read_experiment() or "", user=CLIENT_IDENTITY)
+        return make_queue_client(
+            _read_experiment() or "",
+            user=_read_scan_mcp_option("client_identity") or CLIENT_IDENTITY,
+        )
 
     return _cached("queue_client", build)
 

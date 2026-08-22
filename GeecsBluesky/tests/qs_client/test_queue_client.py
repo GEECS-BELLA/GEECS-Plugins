@@ -109,6 +109,7 @@ class _FakeManagerAPI:
         self.calls: list[tuple] = []
         self.status_payloads: list[dict] = []
         self.queue_items: list[dict] = []
+        self.running: dict | None = None
         self.task_results: list[dict] = []
         self.raise_on_status: Exception | None = None
 
@@ -127,7 +128,10 @@ class _FakeManagerAPI:
 
     def queue_get(self) -> dict:
         self.calls.append(("queue_get",))
-        return {"items": list(self.queue_items)}
+        return {
+            "items": list(self.queue_items),
+            "running_item": dict(self.running) if self.running else {},
+        }
 
     def queue_clear(self) -> None:
         self.calls.append(("queue_clear",))
@@ -249,6 +253,26 @@ class TestZmqQueueClient:
         client = _client(_FakeManagerAPI())
         assert client.info_addr == "tcp://x:2"
         assert client.doc_addr == "x:3"
+
+    def test_running_item_maps_empty_to_none(self):
+        fake = _FakeManagerAPI()
+        client = _client(fake)
+        assert client.running_item() is None  # manager reports {} while idle
+        fake.running = {"item_uid": "r1", "user": "geecs-console"}
+        assert client.running_item() == {"item_uid": "r1", "user": "geecs-console"}
+
+    def test_clear_queue_reports_ok_and_failure(self):
+        fake = _FakeManagerAPI()
+        client = _client(fake)
+        assert client.clear_queue() == (True, "queue cleared")
+        assert ("queue_clear",) in fake.calls
+
+        def boom():
+            raise RuntimeError("manager busy")
+
+        fake.queue_clear = boom
+        ok, message = client.clear_queue()
+        assert not ok and "busy" in message
 
     def test_queue_and_history_read_verbs(self):
         fake = _FakeManagerAPI()

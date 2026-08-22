@@ -71,8 +71,22 @@ def make_ok(**payload: Any) -> str:
     return json.dumps({"ok": True, **_json_safe(payload)}, default=str, allow_nan=False)
 
 
-def make_error(error_kind: str, message: str) -> str:
-    """Serialize a failure envelope: ``{"ok": false, error_kind, message}``."""
+def make_error(error_kind: str, message: str, **extra: Any) -> str:
+    """Serialize a failure envelope: ``{"ok": false, error_kind, message}``.
+
+    ``extra`` carries structured refusal context (``pending_items``,
+    ``needs_acknowledgement``) — same strict-JSON discipline as
+    :func:`make_ok`.
+    """
     if error_kind not in ERROR_KINDS:  # programmer error — fail loudly in tests
         raise ValueError(f"unknown error_kind {error_kind!r}")
-    return json.dumps({"ok": False, "error_kind": error_kind, "message": message})
+    return json.dumps(
+        {
+            "ok": False,
+            "error_kind": error_kind,
+            "message": message,
+            **_json_safe(extra),
+        },
+        default=str,
+        allow_nan=False,
+    )

@@ -4,6 +4,32 @@ All notable changes to `geecs-scan-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-08-22
+
+### Added
+
+- **The v1 control tools** (owner decisions 2026-08-22: presets AND
+  composed dicts from day one, 1,000-shot cap, approval-gated force):
+  - `submit_scan(request|preset, description?, acknowledge_warnings?)` —
+    validate → agent shot cap (`[scan_mcp] max_shots`, default 1,000;
+    optimize needs an explicit `max_iterations`) → queue etiquette (one
+    scan in flight; refuses while anything is queued or running, never
+    clears implicitly) → full preflight with the
+    **acknowledge-warnings loop** (unacknowledged questions return as
+    `needs_acknowledgement`; acknowledgements stamp `continued` into
+    the run's `SubmissionRecord`) → stamp with the deployment identity
+    (`[scan_mcp] client_identity`, default `geecs-scan-mcp <version>`)
+    → queue. Submit-and-poll: returns `item_uid` immediately.
+  - `stop_scan(force?)` — graceful stop; refuses another client's scan
+    naming its submitting identity unless `force=true` (approval-gated
+    osprey-side, logged in the result). Approval-only, never behind the
+    kill switch (in-tool doctrine).
+  - `clear_queue()` — the one remover; lists exactly what it removed.
+  - `scan_progress()` — poll-shaped (read-only): RE state, running item
+    + submitting client, queue depth, last outcome.
+- Backed by GeecsBluesky 0.61.0's `running_item()`/`clear_queue()` on
+  the client protocol and `resolve_preset()` on the resolver.
+
 ## [0.1.0] - 2026-08-22
 
 ### Added
