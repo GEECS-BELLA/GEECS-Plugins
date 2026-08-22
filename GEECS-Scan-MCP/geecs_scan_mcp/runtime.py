@@ -23,7 +23,11 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+import logging
+
 from geecs_scan_mcp import __version__
+
+logger = logging.getLogger("geecs_scan_mcp.runtime")
 
 _USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
@@ -107,6 +111,13 @@ def max_shots() -> int:
         try:
             return int(raw) if raw else DEFAULT_MAX_SHOTS
         except ValueError:
+            # A deployment that intended a STRICTER cap must not silently
+            # run at the default (review finding) — warn loudly.
+            logger.warning(
+                "[scan_mcp] max_shots = %r is not an integer — using the default of %d",
+                raw,
+                DEFAULT_MAX_SHOTS,
+            )
             return DEFAULT_MAX_SHOTS
 
     return _cached("max_shots", build)
@@ -114,14 +125,17 @@ def max_shots() -> int:
 
 def get_queue_client() -> Any:
     """The shared RE Manager client, stamped with this server's identity."""
+    # THE one identity spelling: the queue item's user and the
+    # SubmissionRecord.client must match or the ownership check never
+    # fires — both read client_identity() (review finding).  Resolved
+    # BEFORE the cached build: _cached holds the non-reentrant lock, and
+    # client_identity() takes it too.
+    identity = client_identity()
 
     def build() -> Any:
         from geecs_bluesky.qs_client import make_queue_client
 
-        return make_queue_client(
-            _read_experiment() or "",
-            user=_read_scan_mcp_option("client_identity") or CLIENT_IDENTITY,
-        )
+        return make_queue_client(_read_experiment() or "", user=identity)
 
     return _cached("queue_client", build)
 

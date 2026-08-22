@@ -153,21 +153,70 @@ def test_submit_enforces_the_shot_cap(wired, monkeypatch):
     assert wired.submitted == []
 
 
+def _valid_optimization_spec(**overrides) -> dict:
+    """A minimal schema-VALID OptimizationSpec (review finding: the old
+    fake was invalid on three counts, so the policy branch was never
+    genuinely pinned)."""
+    spec = {
+        "variables": {"jet_z": (0.0, 1.0)},
+        "objectives": {"counts": "MAXIMIZE"},
+        "evaluator": {"module": "geecs.eval", "class_name": "CountsEval"},
+        "generator": {"name": "random"},
+    }
+    spec.update(overrides)
+    return spec
+
+
 def test_submit_optimize_without_iterations_refused(wired):
+    optimize = dict(
+        GOOD_REQUEST, mode="optimize", optimization=_valid_optimization_spec()
+    )
+    result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
+    assert result["error_kind"] == "policy_refusal"
+    assert "max_iterations" in result["message"]
+    assert wired.submitted == []
+
+
+def test_submit_optimize_with_iterations_counts_against_cap(wired, monkeypatch):
+    monkeypatch.setattr(runtime, "max_shots", lambda: 100)
     optimize = dict(
         GOOD_REQUEST,
         mode="optimize",
-        optimization={
-            "objective": {"device": "UC_X", "expression": "x"},
-            "variables": [
-                {"variable": "jet_z", "range": [0.0, 1.0]},
-            ],
-        },
+        optimization=_valid_optimization_spec(max_iterations=30),
+        shots_per_step=5,
     )
     result = _load(control_tools._submit_scan_impl(optimize, None, None, None))
-    # Either schema-invalid (spec shape drift in this fake) or the explicit
-    # policy refusal — but never a submission.
-    assert not result["ok"]
+    assert result["error_kind"] == "policy_refusal"
+    assert "150" in result["message"]
+    assert wired.submitted == []
+
+
+def test_submit_pathological_range_is_counted_not_expanded(wired):
+    # Review HIGH: {start: 0, end: 1e15, step: 1e-9} validates cleanly;
+    # the cap must refuse it arithmetically — expanding it to count it
+    # would OOM the server inside its own guard. Completing at all IS the
+    # assertion (the old code would hang here).
+    huge = dict(
+        GOOD_REQUEST,
+        mode="step",
+        axes=[
+            {
+                "variable": "jet_z",
+                "positions": {"start": 0.0, "end": 1.0e15, "step": 1.0e-9},
+            }
+        ],
+    )
+    result = _load(control_tools._submit_scan_impl(huge, None, None, None))
+    assert result["error_kind"] == "policy_refusal"
+    assert wired.submitted == []
+
+
+def test_submit_unknown_acknowledgement_names_refused(wired):
+    result = _load(
+        control_tools._submit_scan_impl(GOOD_REQUEST, None, None, ["not_a_check"])
+    )
+    assert result["error_kind"] == "invalid_request"
+    assert "not_a_check" in result["message"]
     assert wired.submitted == []
 
 
@@ -249,6 +298,15 @@ def test_stop_foreign_scan_with_force(wired):
     wired.running = {"item_uid": "r1", "user": "geecs-console"}
     result = _load(control_tools._stop_scan_impl(True))
     assert result["ok"] and result["forced"] is True
+
+
+def test_stop_own_scan_with_force_is_not_marked_forced(wired):
+    # The audit marker means "an operator authorized stopping ANOTHER
+    # client's scan" — habitual force=true on our own scan must not
+    # pollute it (review finding).
+    wired.running = {"item_uid": "r1", "user": runtime.client_identity()}
+    result = _load(control_tools._stop_scan_impl(True))
+    assert result["ok"] and result["forced"] is False
 
 
 def test_stop_failure_is_worker_refused(wired):

@@ -91,3 +91,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `get_scan_result`'s missing-selector check runs before the catalog is
   constructed — pure argument validation no longer depends on archive
   setup, and its test needs no catalog patch (P3).
+
+### v1 review hardening (same release, adversarial review on the PR)
+
+- The shot cap counts via the schema's new non-materializing
+  `planned_shots()` (GEECS-Schemas 0.11.0) — a pathological
+  agent-composed range is refused arithmetically instead of OOMing the
+  server inside its own guard (HIGH finding); the three parallel
+  size-counters consolidate to one.
+- `acknowledge_warnings` names outside the known check vocabulary are
+  refused (typo guard), and the honest residual is documented: a
+  stateless server cannot stop a first-call pre-acknowledgement — the
+  backstops are OSPREY's approval prompt (which shows the arguments)
+  and the provenance record (`continued` stamps only for questions
+  actually raised).
+- The optimize-without-`max_iterations` refusal is genuinely pinned (the
+  old test's spec was schema-invalid and never reached the branch) and
+  its message no longer misstates the engine (which defaults to 20).
+- `forced` in stop results marks ONLY operator-authorized stops of
+  another client's scan — a habitual `force=true` on the MCP's own scan
+  no longer pollutes the audit marker.
+- One spelling of the must-match identity (`client_identity()` feeds
+  both the queue user and the SubmissionRecord), resolved outside the
+  runtime lock; unparseable `[scan_mcp] max_shots` warns instead of
+  silently running at the default.

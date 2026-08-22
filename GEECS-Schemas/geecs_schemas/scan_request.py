@@ -115,6 +115,23 @@ class PositionRange(SchemaModel):
             raise ValueError("Position step size must not be 0.")
         return self
 
+    def n_positions(self) -> int:
+        """Count the positions WITHOUT materializing them.
+
+        The arithmetic twin of :meth:`to_values` (same derivation, same
+        tolerance).  Size guards must use this, never ``len(to_values())``
+        — an agent-composed range like ``{start: 0, end: 1e15, step:
+        1e-9}`` validates cleanly, and expanding it to count it is the
+        crash the guard exists to prevent.
+
+        Returns
+        -------
+        int
+            How many positions :meth:`to_values` would return.
+        """
+        span = self.end - self.start
+        return int(abs(span) / abs(self.step) + 1e-9) + 1
+
     def to_values(self) -> list[float]:
         """Expand the range into the explicit list of positions.
 
@@ -126,8 +143,7 @@ class PositionRange(SchemaModel):
         """
         span = self.end - self.start
         step = abs(self.step) * (1 if span >= 0 else -1)
-        count = int(abs(span) / abs(self.step) + 1e-9) + 1
-        return [self.start + i * step for i in range(count)]
+        return [self.start + i * step for i in range(self.n_positions())]
 
 
 class PositionList(SchemaModel):
@@ -141,6 +157,16 @@ class PositionList(SchemaModel):
         min_length=1,
         description="The exact positions to visit, in the order given.",
     )
+
+    def n_positions(self) -> int:
+        """Count the positions (the listed length).
+
+        Returns
+        -------
+        int
+            ``len(values)``.
+        """
+        return len(self.values)
 
     def to_values(self) -> list[float]:
         """Return the positions as a plain list.
@@ -662,7 +688,10 @@ class ScanRequest(VersionedSchemaModel):
         tuple of int
             One count per axis, in list order (empty for noscan/optimize).
         """
-        return tuple(len(axis.positions.to_values()) for axis in self.axes)
+        # n_positions, never len(to_values()): the shape must be computable
+        # without materializing a possibly-huge range (size guards call
+        # through here).
+        return tuple(axis.positions.n_positions() for axis in self.axes)
 
     def n_steps(self) -> int:
         """Return the total number of grid points the scan visits.
@@ -677,3 +706,29 @@ class ScanRequest(VersionedSchemaModel):
         for count in self.grid_shape():
             total *= count
         return total
+
+    def planned_shots(self) -> int | None:
+        """Total planned shots, or ``None`` when the request cannot say.
+
+        THE one scan-size derivation (consolidating the console's and the
+        scan MCP's former private counters): step/noscan =
+        ``n_steps() × shots_per_step`` (noscan is one motionless bin);
+        optimize = ``max_iterations × shots_per_step``, or ``None`` when
+        ``max_iterations`` is unset (the engine then applies its own
+        default budget — a size guard that needs a number should require
+        the field explicitly).  Never materializes positions
+        (:meth:`PositionRange.n_positions`), so it is safe on arbitrary
+        agent-composed input.
+
+        Returns
+        -------
+        int or None
+            The planned shot total, or ``None`` for an open budget.
+        """
+        if self.mode is ScanRequestMode.OPTIMIZE:
+            spec = self.optimization
+            iterations = spec.max_iterations if spec is not None else None
+            if not iterations:
+                return None
+            return int(iterations) * int(self.shots_per_step)
+        return self.n_steps() * int(self.shots_per_step)

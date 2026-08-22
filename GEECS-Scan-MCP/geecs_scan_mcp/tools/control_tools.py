@@ -38,28 +38,19 @@ logger = logging.getLogger("geecs_scan_mcp.tools.control")
 # ---------------------------------------------------------------------------
 
 
-def _planned_shots(request) -> int | None:
-    """Total planned shots, or ``None`` when the request cannot say.
-
-    step/noscan: product of axis position counts × ``shots_per_step``
-    (noscan = one no-move bin).  optimize: ``max_iterations ×
-    shots_per_step`` — an optimize request WITHOUT an explicit
-    ``max_iterations`` returns ``None`` (the engine's auto budget is
-    open-ended; the agent cap needs a number, so submission requires one).
-    """
-    mode = getattr(request.mode, "value", request.mode)
-    if mode == "optimize":
-        spec = request.optimization
-        iterations = getattr(spec, "max_iterations", None) if spec else None
-        if not iterations:
-            return None
-        return int(iterations) * int(request.shots_per_step)
-    steps = 1
-    for axis in request.axes or []:
-        positions = axis.positions
-        values = getattr(positions, "values", None)
-        steps *= len(values) if values is not None else len(positions.to_values())
-    return steps * int(request.shots_per_step)
+#: The preflight checks whose warnings can be acknowledged.  Names outside
+#: this vocabulary in ``acknowledge_warnings`` are refused (typo guard).
+#: HONEST RESIDUAL (review finding): the server is stateless, so an agent
+#: that pre-acknowledges these known names on its FIRST call skips the
+#: warning round trip — the backstop is OSPREY's approval prompt, which
+#: shows the tool arguments (a human sees the pre-acknowledgement), and
+#: the provenance record, which stamps ``continued`` only for questions
+#: actually raised.
+_ACKNOWLEDGEABLE_CHECKS = (
+    "unserved_variables",
+    "gateway_liveness",
+    "free_run_staleness",
+)
 
 
 def _submit_scan_impl(
@@ -94,14 +85,18 @@ def _submit_scan_impl(
         validated = validated.model_copy(update={"description": description})
 
     # -- agent scan-size cap -------------------------------------------------
+    # planned_shots() is THE schema derivation — arithmetic, never
+    # materializing positions, so an agent-composed pathological range
+    # ({start: 0, end: 1e15, step: 1e-9}) is counted, not expanded
+    # (review finding: the old expanding count made the guard the crash).
     cap = runtime.max_shots()
-    shots = _planned_shots(validated)
+    shots = validated.planned_shots()
     if shots is None:
         return errors.make_error(
             "policy_refusal",
-            "optimize submissions need an explicit max_iterations (the "
-            f"engine's auto budget is open-ended; the agent cap is {cap} "
-            "shots)",
+            "optimize submissions need an explicit max_iterations (without "
+            "one the engine applies its own default budget; the agent cap "
+            f"of {cap} shots needs the number stated up front)",
         )
     if shots > cap:
         return errors.make_error(
@@ -149,6 +144,13 @@ def _submit_scan_impl(
     if report.refusal is not None:
         return errors.make_error("invalid_request", report.refusal)
     acknowledged = set(acknowledge_warnings or [])
+    unknown = acknowledged - set(_ACKNOWLEDGEABLE_CHECKS)
+    if unknown:
+        return errors.make_error(
+            "invalid_request",
+            f"unknown acknowledge_warnings name(s): {', '.join(sorted(unknown))} "
+            f"— acknowledgeable checks are {', '.join(_ACKNOWLEDGEABLE_CHECKS)}",
+        )
     unacknowledged = [q for q in report.questions if q.check not in acknowledged]
     if unacknowledged:
         return errors.make_error(
@@ -222,18 +224,21 @@ def _stop_scan_impl(force: bool) -> str:
         running = client.running_item()
     except Exception:  # fail-open: an unreadable item never blocks a halt
         logger.debug("running-item read failed before stop", exc_info=True)
-    if running and not force:
-        owner = running.get("user")
-        if owner and owner != runtime.client_identity():
-            return errors.make_error(
-                "policy_refusal",
-                f"the running scan was submitted by {owner!r} — pass "
-                "force=true only if the operator explicitly asks for the stop",
-            )
+    owner = (running or {}).get("user")
+    foreign = bool(owner and owner != runtime.client_identity())
+    if foreign and not force:
+        return errors.make_error(
+            "policy_refusal",
+            f"the running scan was submitted by {owner!r} — pass "
+            "force=true only if the operator explicitly asks for the stop",
+        )
     ok, message = client.stop_scan()
     if not ok:
         return errors.make_error("worker_refused", message)
-    return errors.make_ok(message=message, forced=bool(force and running))
+    # forced marks "an operator authorized stopping ANOTHER client's scan"
+    # — a habitual force=true on the MCP's own scan must not pollute the
+    # audit marker (review finding).
+    return errors.make_ok(message=message, forced=bool(force and foreign))
 
 
 @mcp.tool(name=tool_names.STOP_SCAN)
