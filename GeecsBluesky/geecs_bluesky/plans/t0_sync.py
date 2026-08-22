@@ -21,8 +21,40 @@ from typing import Any, Sequence
 import bluesky.plan_stubs as bps
 
 from geecs_bluesky.exceptions import GeecsT0SyncError
+from geecs_bluesky.plans.liveness import rd_confirmed_down
 
 logger = logging.getLogger(__name__)
+
+
+def _refuse_disconnected_devices(devices: Sequence[Any]):
+    """Plan stub: refuse to seed from a device the gateway reports down.
+
+    The seed comes from each device's **cached** ``acq_timestamp`` under a
+    quiescent trigger, and a dead device serves its stale cache forever —
+    with one sync device (or all dead) the spread check is trivially
+    satisfied and a dead reference "seeds" from an hours-old frame,
+    deferring the failure to a cryptic mid-scan trigger timeout (#664,
+    live incident 2026-08-22: a camera server rebooted uncleanly).
+    Timestamp freshness cannot be the guard — at rest with the trigger
+    parked (e.g. laser-off operation) a *healthy* cache is legitimately
+    old — so liveness is read from ``connected_status`` via the shared
+    :func:`~geecs_bluesky.plans.liveness.rd_confirmed_down` (fail-open;
+    only the exact ``Disconnected`` choice string refuses, naming the
+    device(s)).  Every device here is synchronous, so any dead one would
+    also fail the spread check — refusing them all pre-seed, by name, is
+    the honest version of that failure.
+    """
+    down: list[str] = []
+    for dev in devices:
+        confirmed = yield from rd_confirmed_down(dev)
+        if confirmed:
+            down.append(getattr(dev, "_geecs_device_name", dev.name))
+    if down:
+        raise GeecsT0SyncError(
+            f"cannot seed t0: the gateway reports {', '.join(sorted(down))} "
+            "as Disconnected — the cached acq_timestamp is stale, not a "
+            "shot; restart the device(s) and resubmit"
+        )
 
 
 def geecs_t0_sync(
@@ -61,6 +93,9 @@ def geecs_t0_sync(
         If a common physical shot cannot be established.  Never proceed
         unseeded — shot IDs from unsynchronized t0s are not comparable.
     """
+    # Liveness gate first (#664): a dead device's cache would "seed" —
+    # see _refuse_disconnected_devices.
+    yield from _refuse_disconnected_devices(devices)
     last_error = ""
     timestamps: dict[str, float | None] = {}
     for attempt in range(retries + 1):

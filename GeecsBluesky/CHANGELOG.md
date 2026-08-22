@@ -4,6 +4,49 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.59.0] - 2026-08-22
+
+### Added
+
+- **Worker-side CONNECTED liveness re-check at execution** (#664 — live
+  incident 2026-08-22: a camera server rebooted uncleanly while items
+  sat queued, and the dead free-run reference surfaced only as a cryptic
+  mid-scan `GeecsTriggerTimeoutError`).  `_preflight_connected` runs
+  pre-claim on all four execution paths (runner + queue plan, scan and
+  optimize): a Disconnected **synchronous** device refuses with
+  `GeecsDeviceDownError` naming it (no scan number burned) in both
+  modes — strict rows await every sync device, and a dead free-run sync
+  device would fail t0 sync post-claim anyway (its stale cached
+  timestamp blows the spread window), so a softer disposition would
+  just defer the same death past the claim (review finding on the PR).
+  A Disconnected asynchronous (snapshot) device warns and continues,
+  recorded in run metadata as `disconnected_devices`.  Fail-open per
+  the liveness doctrine: an unreadable PV, no experiment, or missing CA
+  support is never a verdict.  The client-side pre-submit read stays —
+  this covers the submission-to-execution gap and clients that skip
+  preflight.
+- **t0-sync liveness gate**: `geecs_t0_sync` refuses to seed from a
+  device whose `connected_status` reads the exact `Disconnected` choice
+  string (in-plan, the strict refire gate's read; fail-open otherwise).
+  The seed comes from the *cached* `acq_timestamp` under a quiescent
+  trigger, and a dead device serves its stale cache forever — with one
+  sync device the spread check is trivially satisfied and the failure
+  deferred to the mid-scan timeout above.  Timestamp freshness
+  deliberately cannot be the guard: at rest with the trigger parked
+  (laser-off operation) a *healthy* cache is legitimately hours old.
+- **The liveness idioms consolidated into two shared homes** (review
+  finding — four hand-rolled copies risked silent drift of the
+  fail-open convention): `devices/ca/liveness.py::probe_disconnected`,
+  the out-of-plan CONNECTED probe (concurrent batch via the new
+  `oneshot.try_caget_many` — one timeout budget regardless of device
+  count, so the queue-plan preamble never blocks the RE loop per
+  device; owns the DBR_ENUM `datatype=str` subtlety; now used by BOTH
+  the client-side preflight and the worker re-check), and
+  `plans/liveness.py::rd_confirmed_down`, the in-plan read on built
+  devices (now used by BOTH the strict refire gate and the t0 seed
+  gate).  `oneshot.py`'s contract text names the pre-claim preamble as
+  its one sanctioned in-plan use (the devices don't exist yet).
+
 ## [0.58.0] - 2026-08-21
 
 ### Added

@@ -126,8 +126,10 @@ class TestTelemetryGroup:
             pacer.cancel()
 
         # Primary row + tail flush each read: ref, cam, group, scan_context
-        # — 4 reads/row regardless of how many devices the group holds.
-        assert commands.count("read") == 8
+        # — 4 reads/row regardless of how many devices the group holds —
+        # plus the t0-sync liveness gate's one connected_status read per
+        # sync device, once per scan (#664): 4×2 + 2.
+        assert commands.count("read") == 10
 
     def test_group_disconnect_forwards_to_members(self) -> None:
         RE = RunEngine()

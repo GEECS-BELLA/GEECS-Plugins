@@ -233,13 +233,11 @@ def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:
     timeout : float
         CA read budget in seconds.
     datatype :
-        Passed to ``caget``.  **Must be ``str`` for enum PVs whose choice
-        string is compared** (the gateway's ``CONNECTED`` is a DBR_ENUM —
-        a native read returns the integer index, and ``str(1)`` never
-        equals ``"Disconnected"``; #653 review finding 1, the same rule as
-        the engine's ``epics_signal_r(str, ...)`` liveness child).
-        ``None`` reads the channel's native type (right for
-        ``acq_timestamp``, natively a double).
+        Passed to ``caget``.  ``None`` reads the channel's native type
+        (right for ``acq_timestamp``, natively a double).  The staleness
+        sample is this seam's remaining consumer — CONNECTED reads go
+        through the shared ``probe_disconnected``, which owns the
+        DBR_ENUM ``datatype=str`` subtlety (#653 review finding 1).
     """
     from geecs_bluesky.devices.ca.oneshot import try_caget_once
 
@@ -249,23 +247,19 @@ def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:
 def _check_liveness(
     report: PreflightReport, devices_config: dict[str, dict], experiment: str
 ) -> None:
-    """Read each device's gateway ``CONNECTED`` PV; question the down ones."""
-    from geecs_bluesky.devices.ca._pv import ca_pv
-    from geecs_bluesky.devices.ca.gateway_put import bare_pv
+    """Read each device's gateway ``CONNECTED`` PV; question the down ones.
 
-    down: list[str] = []
-    for device in devices_config:
-        # datatype=str is load-bearing: CONNECTED is an enum PV and the
-        # comparison below is against its choice string (see _read_pv).
-        reading = _read_pv(
-            bare_pv(ca_pv(experiment, device, "CONNECTED")),
-            _LIVENESS_TIMEOUT_S,
-            datatype=str,
-        )
-        # Fail-open: only the exact "Disconnected" reading means down (the
-        # engine's liveness doctrine — an unreadable status is not a verdict).
-        if reading is not None and str(reading) == "Disconnected":
-            down.append(device)
+    The probe (concurrent batch read, fail-open, the DBR_ENUM
+    ``datatype=str`` subtlety) is the shared
+    :func:`geecs_bluesky.devices.ca.liveness.probe_disconnected` — the
+    same one the worker's pre-claim re-check uses, so the two sides
+    cannot drift.  Only the disposition differs: here a down device
+    becomes an operator question; worker-side it refuses or warns
+    headlessly.
+    """
+    from geecs_bluesky.devices.ca.liveness import probe_disconnected
+
+    down = probe_disconnected(experiment, devices_config, timeout=_LIVENESS_TIMEOUT_S)
     if not down:
         report.outcomes.append(("gateway_liveness", "passed", ""))
         return

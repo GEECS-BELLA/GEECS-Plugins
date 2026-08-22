@@ -58,7 +58,7 @@ from geecs_bluesky.db_runtime import (
     resolve_entry_scalars,
     select_telemetry_variables,
 )
-from geecs_bluesky.exceptions import GeecsConfigurationError
+from geecs_bluesky.exceptions import GeecsConfigurationError, GeecsDeviceDownError
 from geecs_bluesky.forward_expr import CompiledForward, compile_forward
 from geecs_bluesky.models.shot_control import ShotControlWrites
 from geecs_bluesky.plans.action_compiler import compile_action_plan
@@ -998,6 +998,7 @@ def build_step_scan_spec(
     slots: Mapping[str, list[str]],
     dropped_unserved: Mapping[str, list[str]],
     dropped_unserved_devices: list[str],
+    disconnected_devices: list[str],
     telemetry_selected: Mapping[str, list[str]],
 ) -> StepScanSpec:
     """Assemble the pure run picture of a step/noscan request.
@@ -1034,6 +1035,11 @@ def build_step_scan_spec(
         }
     if dropped_unserved_devices:
         md["dropped_unserved_devices"] = list(dropped_unserved_devices)
+    if disconnected_devices:
+        # Provenance: snapshot devices the CONNECTED re-check found down
+        # at execution — the run proceeded without their columns (#664;
+        # dead synchronous devices refuse pre-claim and never get here).
+        md["disconnected_devices"] = list(disconnected_devices)
     if applied_defaults:
         # Provenance: the run records exactly which experiment defaults
         # filled in fields the submitter left unset.
@@ -1277,6 +1283,73 @@ def _preflight_unserved(
         devices_config,
         provider.served_by_device if provider is not None else None,
     )
+
+
+def _preflight_connected(
+    session: Any,
+    devices_config: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Pre-claim CONNECTED liveness re-check over *devices_config* (#664).
+
+    The client-side pre-submit preflight reads the same PVs, but the
+    submission-to-execution gap under the queue is long (a device can die
+    while the item waits, or the client skipped its checks) — so the
+    worker re-checks at execution, exactly like it re-runs validation and
+    the unserved-variables check.  Headless dispositions:
+
+    - A **synchronous** device reading the exact ``Disconnected`` choice
+      string refuses the scan pre-claim (:class:`GeecsDeviceDownError`
+      naming it) — in both modes.  Strict rows await every synchronous
+      device; free-run rows are paced by the reference AND every dead
+      sync contributor would fail t0 sync post-claim anyway (its stale
+      cached timestamp blows the spread window, and the seed gate refuses
+      it by name) — so a warn-and-continue disposition for free-run
+      contributors would be a fiction, deferring the same death past the
+      claim.  Refusing pre-claim burns no scan number.
+    - A Disconnected **asynchronous** (snapshot) device warns and
+      continues — its columns are sampled best-effort and a queued scan
+      survives without them.  The list is recorded in run metadata as
+      ``disconnected_devices``.
+    - Fail-open everywhere else (the liveness doctrine): an unreadable
+      PV, no experiment, or missing CA support is never a verdict.
+
+    The probe itself (one concurrent batch read, one timeout budget — the
+    queue-plan paths run this inside the RE loop, so per-device
+    sequential timeouts are not acceptable) is the shared
+    :func:`~geecs_bluesky.devices.ca.liveness.probe_disconnected`.
+
+    Returns
+    -------
+    list of str
+        The Disconnected devices the scan continues without.
+    """
+    experiment = getattr(session, "experiment", None)
+    if not experiment or not devices_config:
+        return []
+    try:
+        from geecs_bluesky.devices.ca.liveness import probe_disconnected
+
+        down = probe_disconnected(experiment, devices_config)
+    except Exception as exc:  # probe machinery broke — fail open, never block
+        logger.warning("CONNECTED pre-flight skipped: %s", exc)
+        return []
+    if not down:
+        return []
+    fatal = [d for d in down if devices_config[d].get("synchronous")]
+    if fatal:
+        raise GeecsDeviceDownError(
+            f"gateway reports {', '.join(sorted(fatal))} as Disconnected — "
+            "a synchronous device the scan's rows cannot complete without; "
+            "restart the device and resubmit (pre-claim — no scan number "
+            "was burned)",
+            device_name=fatal[0],
+        )
+    logger.warning(
+        "gateway reports %s as Disconnected — continuing; their columns "
+        "will be missing or invalid (recorded as disconnected_devices)",
+        ", ".join(sorted(down)),
+    )
+    return down
 
 
 def warn_if_reserved_boundary_overrides(save_set: SaveSet | None) -> None:
@@ -1547,6 +1620,10 @@ def run_scan_request(
         )
         return None
     devices_config = checked_config
+    # CONNECTED liveness re-check (#664): the client asked pre-submit, but
+    # the queue's submission-to-execution gap is long — re-check here,
+    # refusing only when a row could never complete.
+    disconnected_devices = _preflight_connected(session, devices_config)
     if _stopped_during_init(session, should_abort, "after configuration resolution"):
         return None
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
@@ -1628,6 +1705,7 @@ def run_scan_request(
             slots=slots,
             dropped_unserved=dropped_unserved,
             dropped_unserved_devices=dropped_unserved_devices,
+            disconnected_devices=disconnected_devices,
             telemetry_selected=telemetry_selected if telemetry_enabled else {},
         )
 
@@ -1731,6 +1809,7 @@ def _run_optimize_request(
     created: list = []
     dropped_unserved: dict[str, list[str]] = {}
     dropped_unserved_devices: list[str] = []
+    disconnected_devices: list[str] = []
     try:
         skipped = {k: list(v) for k, v in (skipped_actions or {}).items() if v}
         # db_scalars applies to optimize too; telemetry does not run here yet
@@ -1777,6 +1856,10 @@ def _run_optimize_request(
             dropped_unserved,
             dropped_unserved_devices,
         ) = _preflight_unserved(session, devices_config)
+        if devices_config is not None:
+            # CONNECTED liveness re-check (#664), same terms as the
+            # scan/noscan path.
+            disconnected_devices = _preflight_connected(session, devices_config)
         if devices_config is None:
             logger.warning(
                 "ScanRequest preflight aborted the optimization (unserved "
@@ -1828,6 +1911,8 @@ def _run_optimize_request(
             }
         if dropped_unserved_devices:
             md["dropped_unserved_devices"] = list(dropped_unserved_devices)
+        if disconnected_devices:
+            md["disconnected_devices"] = list(disconnected_devices)
         if applied_defaults:
             md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
         submission = metadata_submission(request)

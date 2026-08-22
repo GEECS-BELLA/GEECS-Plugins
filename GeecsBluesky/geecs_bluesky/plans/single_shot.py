@@ -29,7 +29,7 @@ import bluesky.plan_stubs as bps
 from bluesky.protocols import Triggerable
 from bluesky.utils import FailedStatus, short_uid
 
-from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
+from geecs_bluesky.plans.liveness import rd_confirmed_down
 from geecs_bluesky.exceptions import (
     GeecsDeviceDownError,
     GeecsQuiescenceTimeoutError,
@@ -61,13 +61,14 @@ def _confirm_device_down(devices: Sequence[Any], device_name: str):
     (its TCP stream to the gateway died — re-firing cannot help).  The
     frameless device is matched by GEECS device name (``_geecs_device_name``,
     falling back to the ophyd name) against *devices*, and its
-    ``connected_status`` signal is read in plan context via ``bps.rd``.
+    ``connected_status`` signal is read via the shared
+    :func:`~geecs_bluesky.plans.liveness.rd_confirmed_down` stub.
 
     **Fail-open**: no matching device, no ``connected_status`` attribute, or
     a failed read (old gateway without status PVs) all return ``False``
     ("not confirmed down"), preserving the refire behavior.  Only the exact
-    :data:`~geecs_bluesky.devices.ca._pv.GATEWAY_DISCONNECTED` choice string
-    confirms the device is down — a mock backend's ``""`` default reads live.
+    ``Disconnected`` choice string confirms the device is down — a mock
+    backend's ``""`` default reads live.
     """
     device = next(
         (
@@ -78,19 +79,12 @@ def _confirm_device_down(devices: Sequence[Any], device_name: str):
         ),
         None,
     )
-    signal = getattr(device, "connected_status", None)
-    if signal is None:
+    if device is None:
         return False
-    try:
-        value = yield from bps.rd(signal)
-    except Exception:
-        logger.debug(
-            "CONNECTED read failed for %s; assuming live (fail-open)",
-            device_name,
-            exc_info=True,
-        )
-        return False
-    return value == GATEWAY_DISCONNECTED
+    # The shared fail-open read (plans/liveness.py) — the one in-plan
+    # CONNECTED idiom, so the convention cannot drift between copies.
+    confirmed = yield from rd_confirmed_down(device)
+    return confirmed
 
 
 def geecs_single_shot(

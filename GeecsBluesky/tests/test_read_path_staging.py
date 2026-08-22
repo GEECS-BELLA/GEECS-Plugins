@@ -102,7 +102,15 @@ class TestStagingContract:
         finally:
             pacer.cancel()
 
-        assert counters == {}, (
+        # The t0-sync liveness gate (#664) reads each sync device's
+        # connected_status ONCE per scan — deliberately outside the staged
+        # cache (a liveness probe must not be served from a possibly-dead
+        # monitor).  Once-per-scan is not a per-row cost; anything else is.
+        allowed = {"ref-connected_status", "cam-connected_status"}
+        unexpected = {
+            key: n for key, n in counters.items() if key not in allowed or n > 1
+        }
+        assert unexpected == {}, (
             "per-row reads issued uncached backend gets — the staging "
             f"contract is broken: {counters}"
         )
