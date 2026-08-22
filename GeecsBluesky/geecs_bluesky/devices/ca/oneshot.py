@@ -116,9 +116,14 @@ def try_caget_many(
     cost the same wall time as one (the sequential per-PV alternative
     would block the caller — possibly the RE loop — for ``N × timeout``).
     Each failed read is ``None`` in the result, positionally matching
-    *pvs*.
+    *pvs* — including the whole batch when ``aioca`` itself is missing
+    (the ``ca`` extra): fail-open covers the import too, matching
+    :func:`try_caget_once`.
     """
-    from aioca import caget
+    try:
+        from aioca import caget
+    except Exception:
+        return [None] * len(pvs)
 
     async def _one(pv: str) -> Any:
         try:

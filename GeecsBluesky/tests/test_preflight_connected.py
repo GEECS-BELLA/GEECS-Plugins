@@ -112,3 +112,14 @@ def test_no_experiment_skips_without_reading(ca_reads):
 def test_empty_config_skips_without_reading(ca_reads):
     assert _preflight_connected(_Session(), {}) == []
     assert ca_reads["batches"] == 0
+
+
+def test_missing_aioca_is_fail_open(monkeypatch):
+    # No fixture: the REAL probe chain runs, but with aioca unimportable
+    # (a worker without the ca extra).  The fail-open contract covers the
+    # import itself — the check skips, it never refuses (reviewer-caught
+    # regression on the consolidation commit).
+    import sys
+
+    monkeypatch.setitem(sys.modules, "aioca", None)
+    assert _preflight_connected(_Session(), _config()) == []

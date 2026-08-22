@@ -1036,8 +1036,9 @@ def build_step_scan_spec(
     if dropped_unserved_devices:
         md["dropped_unserved_devices"] = list(dropped_unserved_devices)
     if disconnected_devices:
-        # Provenance: devices the CONNECTED re-check found down at
-        # execution — the run proceeded without their rows/columns (#664).
+        # Provenance: snapshot devices the CONNECTED re-check found down
+        # at execution — the run proceeded without their columns (#664;
+        # dead synchronous devices refuse pre-claim and never get here).
         md["disconnected_devices"] = list(disconnected_devices)
     if applied_defaults:
         # Provenance: the run records exactly which experiment defaults
@@ -1327,10 +1328,11 @@ def _preflight_connected(
         return []
     try:
         from geecs_bluesky.devices.ca.liveness import probe_disconnected
-    except Exception as exc:  # ca support absent — fail open
-        logger.warning("CONNECTED pre-flight skipped (no CA support): %s", exc)
+
+        down = probe_disconnected(experiment, devices_config)
+    except Exception as exc:  # probe machinery broke — fail open, never block
+        logger.warning("CONNECTED pre-flight skipped: %s", exc)
         return []
-    down = probe_disconnected(experiment, devices_config)
     if not down:
         return []
     fatal = [d for d in down if devices_config[d].get("synchronous")]
