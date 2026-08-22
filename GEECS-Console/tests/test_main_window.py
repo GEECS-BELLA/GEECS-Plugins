@@ -1079,6 +1079,28 @@ class TestNowAndDevicePanel:
         window._on_scan_document("event", {"descriptor": "b1", "seq_num": 3})
         assert window.progress_bar.value() == 0
 
+    def test_optimize_start_doc_totals_come_from_max_iterations(self, window):
+        """Adaptive plans record max_iterations, not num_points — the bar
+        must size from the iteration bound (2026-08-21 live finding)."""
+        window._on_scan_document(
+            "start", {"scan_number": 13, "max_iterations": 5, "shots_per_step": 5}
+        )
+        assert window.progress_bar.maximum() == 25
+
+    def test_totals_less_start_doc_resets_a_stale_bar(self, window):
+        """A start doc with no computable totals must reset the bar, never
+        inherit the previous scan's (Scan013: 25 shots filled a stale
+        15-shot bar at iteration 3)."""
+        window._on_scan_document(
+            "start", {"scan_number": 7, "num_points": 3, "shots_per_step": 5}
+        )
+        assert window.progress_bar.maximum() == 15
+        window._on_scan_document("start", {"scan_number": 13})
+        assert window.progress_bar.maximum() == 1  # reset (empty), not 15
+        window._descriptor_names["d1"] = "primary"
+        window._on_scan_document("event", {"descriptor": "d1", "seq_num": 20})
+        assert window.progress_bar.value() == 0  # unknown totals: bar stays honest
+
     def test_stop_document_ends_the_run(self, window):
         window._on_scan_document("start", {"scan_number": 8})
         window._on_scan_document("stop", {"exit_status": "success"})

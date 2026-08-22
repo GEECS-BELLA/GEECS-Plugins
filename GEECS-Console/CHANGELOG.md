@@ -4,6 +4,19 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.23.2] - 2026-08-21
+
+### Fixed
+
+- Live-session finding (Scan013, 2026-08-21): the optimize progress bar
+  hit 100% at iteration 3 of 5 — `geecs_adaptive_scan` records
+  `max_iterations`, not `num_points`, so the console skipped the totals
+  update and inherited the previous scan's bar. Start-document totals
+  now fall back to `max_iterations × shots_per_step` (an upper bound —
+  early suggester stops finish under 100%, honestly), and a start doc
+  with no computable totals resets the bar instead of inheriting stale
+  totals. Pinned by two tests.
+
 ## [0.23.1] - 2026-08-21
 
 ### Fixed

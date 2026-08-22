@@ -895,8 +895,19 @@ class MainWindow(QMainWindow):
                 self.append_log("scan running")
             num_points = doc.get("num_points")
             shots_per_step = doc.get("shots_per_step")
+            if not num_points:
+                # Adaptive plans (geecs_adaptive_scan) record their
+                # iteration bound instead of num_points; the suggester may
+                # stop early, so the bar may finish under 100% — honestly.
+                num_points = doc.get("max_iterations")
             if num_points and shots_per_step:
                 self._on_totals_known(int(num_points) * int(shots_per_step))
+            else:
+                # Unknown totals: reset the bar — never inherit the
+                # previous scan's (2026-08-21 live finding, Scan013: a
+                # 25-shot optimization filled a stale 15-shot bar at
+                # iteration 3).
+                self._on_totals_known(0)
             self._on_scan_state("running")
         elif name == "descriptor":
             self._descriptor_names[doc.get("uid")] = doc.get("name")
