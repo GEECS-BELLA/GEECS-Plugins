@@ -4,6 +4,32 @@ All notable changes to `geecs-scan-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.2.0] - 2026-08-22
+
+### Added
+
+- **The v1 control tools** (owner decisions 2026-08-22: presets AND
+  composed dicts from day one, 1,000-shot cap, approval-gated force):
+  - `submit_scan(request|preset, description?, acknowledge_warnings?)` —
+    validate → agent shot cap (`[scan_mcp] max_shots`, default 1,000;
+    optimize needs an explicit `max_iterations`) → queue etiquette (one
+    scan in flight; refuses while anything is queued or running, never
+    clears implicitly) → full preflight with the
+    **acknowledge-warnings loop** (unacknowledged questions return as
+    `needs_acknowledgement`; acknowledgements stamp `continued` into
+    the run's `SubmissionRecord`) → stamp with the deployment identity
+    (`[scan_mcp] client_identity`, default `geecs-scan-mcp <version>`)
+    → queue. Submit-and-poll: returns `item_uid` immediately.
+  - `stop_scan(force?)` — graceful stop; refuses another client's scan
+    naming its submitting identity unless `force=true` (approval-gated
+    osprey-side, logged in the result). Approval-only, never behind the
+    kill switch (in-tool doctrine).
+  - `clear_queue()` — the one remover; lists exactly what it removed.
+  - `scan_progress()` — poll-shaped (read-only): RE state, running item
+    + submitting client, queue depth, last outcome.
+- Backed by GeecsBluesky 0.61.0's `running_item()`/`clear_queue()` on
+  the client protocol and `resolve_preset()` on the resolver.
+
 ## [0.1.0] - 2026-08-22
 
 ### Added
@@ -65,3 +91,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `get_scan_result`'s missing-selector check runs before the catalog is
   constructed — pure argument validation no longer depends on archive
   setup, and its test needs no catalog patch (P3).
+
+### v1 review hardening (same release, adversarial review on the PR)
+
+- The shot cap counts via the schema's new non-materializing
+  `planned_shots()` (GEECS-Schemas 0.11.0) — a pathological
+  agent-composed range is refused arithmetically instead of OOMing the
+  server inside its own guard (HIGH finding); the three parallel
+  size-counters consolidate to one.
+- `acknowledge_warnings` names outside the known check vocabulary are
+  refused (typo guard), and the honest residual is documented: a
+  stateless server cannot stop a first-call pre-acknowledgement — the
+  backstops are OSPREY's approval prompt (which shows the arguments)
+  and the provenance record (`continued` stamps only for questions
+  actually raised).
+- The optimize-without-`max_iterations` refusal is genuinely pinned (the
+  old test's spec was schema-invalid and never reached the branch) and
+  its message no longer misstates the engine (which defaults to 20).
+- `forced` in stop results marks ONLY operator-authorized stops of
+  another client's scan — a habitual `force=true` on the MCP's own scan
+  no longer pollutes the audit marker.
+- One spelling of the must-match identity (`client_identity()` feeds
+  both the queue user and the SubmissionRecord), resolved outside the
+  runtime lock; unparseable `[scan_mcp] max_shots` warns instead of
+  silently running at the default.

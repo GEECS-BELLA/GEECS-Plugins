@@ -5,6 +5,22 @@ All notable changes to GEECS-Schemas are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-08-22
+
+### Added
+
+- **The one non-materializing scan-size derivation** (review finding on
+  the scan-MCP v1 PR — the third parallel counter, and the expanding
+  ones could OOM a guard on agent-composed input like
+  `{start: 0, end: 1e15, step: 1e-9}`): `Positions.n_positions()`
+  (arithmetic twin of `to_values()`, exact same derivation and
+  tolerance) and `ScanRequest.planned_shots()` (step/noscan =
+  `n_steps() × shots_per_step`; optimize = `max_iterations ×
+  shots_per_step` or `None` when unset).  `grid_shape()`/`n_steps()`
+  now count without expanding.  Consumers (the scan MCP's agent cap;
+  the console's `_position_count` at its next touch) should use these
+  instead of private counters.
+
 ## [0.10.2] - 2026-08-21
 
 ### Changed

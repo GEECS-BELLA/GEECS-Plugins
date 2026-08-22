@@ -100,3 +100,31 @@ def test_unresolvable_configs_root_is_empty(monkeypatch):
     resolver = ConfigsRepoResolver("TestExp")
     assert resolver.list_save_sets() == []
     assert resolver.list_trigger_profiles() == []
+
+
+def test_resolve_preset_round_trips_a_scan_request(repo):
+    import yaml
+
+    from geecs_schemas import ScanRequest
+
+    preset = {
+        "mode": "noscan",
+        "shots_per_step": 3,
+        "acquisition": "free_run",
+        "save_sets": ["Amp4In"],
+    }
+    folder = repo / "TestExp" / ConfigsRepoResolver.PRESET_FOLDER
+    (folder / "smoke.yml").write_text(yaml.safe_dump(preset))  # .yml round-trips
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert "smoke" in resolver.list_presets()
+    request = resolver.resolve_preset("smoke")
+    assert isinstance(request, ScanRequest)
+    assert request.shots_per_step == 3
+
+
+def test_resolve_preset_missing_raises_with_kind(repo):
+    from geecs_bluesky.exceptions import GeecsConfigurationError
+
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    with pytest.raises(GeecsConfigurationError, match="preset 'nope'"):
+        resolver.resolve_preset("nope")

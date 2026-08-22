@@ -4,10 +4,14 @@ MCP server giving AI agents (the OSPREY HTU assistant) access to the GEECS
 scan service: the bluesky-queueserver RE Manager, the configs repo, and
 the Tiled archive.
 
-**v0 (current): read-only.** Five tools — `scan_status`, `scan_history`,
-`get_scan_result`, `list_scan_configs`, `validate_scan_request` — zero
-write risk. Submission and control verbs (`submit_scan`, `stop_scan`, …)
-arrive in v1 behind OSPREY's approval hooks.
+**v0 + v1 (current).** Read-only: `scan_status`, `scan_history`,
+`get_scan_result`, `list_scan_configs`, `validate_scan_request`,
+`scan_progress`. Control (put these under OSPREY `ask` + hooks):
+`submit_scan` (one scan in flight, 1,000-shot cap, preflight warnings
+need explicit acknowledgement), `stop_scan` (graceful; `force` for
+another client's scan is approval territory — and keep stop OUT of the
+kill-switch hook so a halt is always possible), `clear_queue` (the one
+remover).
 
 ## Run
 

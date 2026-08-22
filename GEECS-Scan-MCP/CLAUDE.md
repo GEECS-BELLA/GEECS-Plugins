@@ -64,24 +64,29 @@ geecs_scan_mcp/
   history mapping) — the queueserver's payload fields are not a contract
   we own.
 
-## Verb roadmap (the planning doc's phasing — v0 is built)
+## Verb roadmap (the planning doc's phasing, as amended by owner decisions)
 
 - **v0 (built)**: `scan_status`, `scan_history`, `get_scan_result`,
-  `list_scan_configs`, `validate_scan_request` — all read-only (R),
+  `list_scan_configs`, `validate_scan_request` — read-only (R),
   auto-allow.
-- **v1a**: `submit_scan` (presets only) + `stop_scan` + `clear_queue` +
-  poll `scan_progress`.  Blockers before building: the owner's answers
-  to the plan's open questions (agent shot cap — recommended 10,000;
-  force-override semantics; runtime host).  Key rules already decided:
-  acknowledge-warnings loop (no silent continue past a preflight
-  question; acknowledgements stamp `continued` into
-  `SubmissionRecord.preflight`), `clear_pending=False` always
-  (`clear_queue` is its own approval-gated verb), ownership etiquette
-  (refuse to stop a scan whose `submission.client` isn't ours without
-  `force`), stop is approval-only and must survive the kill switch
-  (in-tool guard, the osprey bluesky-server doctrine).
-- **v1b**: composed `request:` dicts.  **v2**: actions, moves,
-  pause/resume, doc-stream `scan_progress`.
+- **v1 (built — owner decisions 2026-08-22)**: `submit_scan` takes
+  presets AND composed dicts from day one (the plan's presets-first
+  de-risk was dropped: presets are barely used in practice), agent shot
+  cap 1,000 (`[scan_mcp] max_shots`; optimize needs explicit
+  `max_iterations`), `stop_scan` with approval-gated `force` for
+  foreign scans, `clear_queue` as the one remover, poll
+  `scan_progress`.  The standing rules, all enforced in
+  `tools/control_tools.py`: acknowledge-warnings loop (no silent
+  continue past a preflight question; acknowledgements stamp
+  `continued` into `SubmissionRecord.preflight`), `clear_pending=False`
+  always, ownership etiquette on stop, stop approval-only and never
+  behind the kill switch (in-tool doctrine — per-tool hook matchers
+  don't exist for custom servers).  The submitted-as identity is
+  `[scan_mcp] client_identity` (deployment-owned, e.g.
+  `osprey-htu-assistant`) and MUST match on the queue item and the
+  `SubmissionRecord` — the ownership check compares against it.
+- **v2**: actions, moves, pause/resume, doc-stream `scan_progress`
+  (per-shot counts, paused reasons from the console-text stream).
 
 ## Testing
 

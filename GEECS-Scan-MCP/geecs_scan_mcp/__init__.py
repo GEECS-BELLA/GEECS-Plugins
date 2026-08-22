@@ -7,4 +7,4 @@ and request validation — zero write risk.  See ``CLAUDE.md`` for the
 verb roadmap (submit/stop in v1) and the safety doctrine.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
