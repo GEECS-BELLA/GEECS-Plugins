@@ -15,8 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from geecs_scan_mcp import runtime
-from geecs_scan_mcp.tools import read_tools
+from geecs_mcp import runtime
+from geecs_mcp.scans import read_tools
 
 
 @pytest.fixture(autouse=True)
@@ -162,7 +162,7 @@ def _detail(scan_number=7, uid="uid-7"):
         summary=summary,
         start_doc={
             "scan_folder": "/data/Scan007",
-            "submission": {"client": "geecs-scan-mcp 0.1.0"},
+            "submission": {"client": "geecs-mcp 0.1.0"},
         },
         stop_doc={},
         data=frame,
@@ -177,7 +177,7 @@ def test_get_scan_result_by_number(monkeypatch):
     )
     result = _load(read_tools._get_scan_result_impl(7, "2026-08-22", None))
     assert result["ok"] and result["scan_number"] == 7
-    assert result["submission"]["client"].startswith("geecs-scan-mcp")
+    assert result["submission"]["client"].startswith("geecs-mcp")
     assert result["data"]["rows"] == 3
     assert "cam-MeanCounts" in result["data"]["stats"]
     assert result["data"]["stats"]["cam-MeanCounts"]["mean"] == pytest.approx(2.0)
@@ -426,8 +426,8 @@ def test_wrapper_guard_envelopes_an_impl_bug():
 def test_every_v0_tool_is_registered():
     import anyio
 
-    from geecs_scan_mcp import tool_names
-    from geecs_scan_mcp.server import create_server
+    from geecs_mcp import tool_names
+    from geecs_mcp.server import create_server
 
     server = create_server()
     registered = {tool.name for tool in anyio.run(server.list_tools)}
@@ -436,7 +436,7 @@ def test_every_v0_tool_is_registered():
 
 
 def test_make_error_rejects_unknown_kind():
-    from geecs_scan_mcp.errors import make_error
+    from geecs_mcp.errors import make_error
 
     with pytest.raises(ValueError):
         make_error("surprise", "boom")
@@ -446,7 +446,7 @@ def test_make_ok_is_strict_json_for_nonfinite_floats():
     # Codex finding P2: the serializer itself owns the strict-JSON
     # contract — any payload field, nested or not, with a non-finite
     # float must serialize as null, never a bare NaN/Infinity token.
-    from geecs_scan_mcp.errors import make_ok
+    from geecs_mcp.errors import make_ok
 
     payload = make_ok(
         x=float("nan"),

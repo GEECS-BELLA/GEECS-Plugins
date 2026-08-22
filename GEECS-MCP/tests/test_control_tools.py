@@ -15,8 +15,8 @@ from types import SimpleNamespace
 import pytest
 
 from geecs_bluesky import qs_client
-from geecs_scan_mcp import runtime
-from geecs_scan_mcp.tools import control_tools
+from geecs_mcp import runtime
+from geecs_mcp.scans import control_tools
 
 
 @pytest.fixture(autouse=True)
@@ -357,8 +357,8 @@ def test_scan_progress_shapes(wired):
 def test_all_v1_tools_registered():
     import anyio
 
-    from geecs_scan_mcp import tool_names
-    from geecs_scan_mcp.server import create_server
+    from geecs_mcp import tool_names
+    from geecs_mcp.server import create_server
 
     server = create_server()
     registered = {tool.name for tool in anyio.run(server.list_tools)}

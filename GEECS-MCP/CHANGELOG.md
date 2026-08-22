@@ -1,8 +1,35 @@
 # Changelog
 
-All notable changes to `geecs-scan-mcp` are documented here.
+All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+
+## [0.3.0] - 2026-08-22
+
+### Changed
+
+- **Renamed: `GEECS-Scan-MCP` → `GEECS-MCP`** (`geecs_scan_mcp` →
+  `geecs_mcp`; owner decision, before anything reached master): one
+  general GEECS server with domains as subpackages — scans are the
+  first domain (`tools/` → `scans/`), not the identity.  FastMCP server
+  name `geecs`; config section `[scan_mcp]` → `[mcp]`; default client
+  identity `geecs-mcp <version>`.  Future domains (health, db, logs,
+  analysis) register on the same server; Windows-only-SDK analysis
+  capabilities become a satellite server on a Windows box rather than
+  moving this one (CLAUDE.md records the pattern).
+
+### Added
+
+- **HTTP transport** (`python -m geecs_mcp --transport http --host
+  --port`, default port 8100) — the central-deployment mode: one server
+  on the qserver box (everything it talks to is local, and client-side
+  validation resolves the SAME configs checkout the worker uses), every
+  osprey machine integrating with one `url:` line and zero GEECS
+  installs.  `deploy/geecs-mcp.service` (resource-capped systemd unit —
+  the box is shared with the production manager) + `deploy/DEPLOYMENT.md`
+  (both modes, the shared-drive-clone install rule: non-editable only —
+  an editable install on an SMB share reads source off the share at
+  runtime, a documented fleet failure class).
 
 ## [0.2.0] - 2026-08-22
 
@@ -11,14 +38,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The v1 control tools** (owner decisions 2026-08-22: presets AND
   composed dicts from day one, 1,000-shot cap, approval-gated force):
   - `submit_scan(request|preset, description?, acknowledge_warnings?)` —
-    validate → agent shot cap (`[scan_mcp] max_shots`, default 1,000;
+    validate → agent shot cap (`[mcp] max_shots`, default 1,000;
     optimize needs an explicit `max_iterations`) → queue etiquette (one
     scan in flight; refuses while anything is queued or running, never
     clears implicitly) → full preflight with the
     **acknowledge-warnings loop** (unacknowledged questions return as
     `needs_acknowledgement`; acknowledgements stamp `continued` into
     the run's `SubmissionRecord`) → stamp with the deployment identity
-    (`[scan_mcp] client_identity`, default `geecs-scan-mcp <version>`)
+    (`[mcp] client_identity`, default `geecs-mcp <version>`)
     → queue. Submit-and-poll: returns `item_uid` immediately.
   - `stop_scan(force?)` — graceful stop; refuses another client's scan
     naming its submitting identity unless `force=true` (approval-gated
@@ -37,7 +64,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The package** — the GEECS scan MCP server, homed in GEECS-Plugins by
   owner decision (2026-08-22; the design is the scan-MCP planning
   document, verb surface §1, architecture §3).  FastMCP stdio server
-  (`python -m geecs_scan_mcp`), the osprey house pattern: module-level
+  (`python -m geecs_mcp`), the osprey house pattern: module-level
   `mcp`, self-registering tool modules, a `tool_names` constants leaf
   module for profile permission lists, structured JSON envelopes
   (`{ok, ...}` / `{ok: false, error_kind, message}`) — tools never raise
@@ -113,5 +140,5 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   no longer pollutes the audit marker.
 - One spelling of the must-match identity (`client_identity()` feeds
   both the queue user and the SubmissionRecord), resolved outside the
-  runtime lock; unparseable `[scan_mcp] max_shots` warns instead of
+  runtime lock; unparseable `[mcp] max_shots` warns instead of
   silently running at the default.

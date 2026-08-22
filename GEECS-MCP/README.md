@@ -1,8 +1,10 @@
-# GEECS-Scan-MCP
+# GEECS-MCP
 
-MCP server giving AI agents (the OSPREY HTU assistant) access to the GEECS
-scan service: the bluesky-queueserver RE Manager, the configs repo, and
-the Tiled archive.
+The general GEECS MCP server — AI-agent access to GEECS, one server with
+domains as modules. The first domain is **scans**: the
+bluesky-queueserver RE Manager, the configs repo, and the Tiled archive.
+Future domains (health, DB metadata, log triage, analysis) register on
+the same server.
 
 **v0 + v1 (current).** Read-only: `scan_status`, `scan_history`,
 `get_scan_result`, `list_scan_configs`, `validate_scan_request`,
@@ -16,7 +18,7 @@ remover).
 ## Run
 
 ```bash
-python -m geecs_scan_mcp
+python -m geecs_mcp
 ```
 
 A stdio MCP server (FastMCP). Configuration is the standard
@@ -28,10 +30,16 @@ honest refusal/empty answer — the server always starts.
 
 OSPREY integration: point a `mcp_servers:` stdio `command:` at this
 module in `profile.yml`; permission lists import
-`geecs_scan_mcp.tool_names` symbols (all v0 tools are read-only →
+`geecs_mcp.tool_names` symbols (all v0 tools are read-only →
 `allow`).
 
 ## Development
 
 `poetry install --with dev`, `poetry run pytest`. See `CLAUDE.md` for the
 architecture, the verb roadmap, and the safety doctrine.
+
+## Deployment
+
+See `deploy/DEPLOYMENT.md`: central HTTP service on the qserver box (the
+multi-machine mode — osprey machines need no GEECS install, just a URL
+in `profile.yml`) or per-machine stdio (the dev loop).

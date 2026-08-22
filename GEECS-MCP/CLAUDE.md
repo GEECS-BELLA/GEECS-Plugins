@@ -1,11 +1,22 @@
-# GEECS-Scan-MCP — Developer Context for Claude
+# GEECS-MCP — Developer Context for Claude
 
-The MCP server exposing the GEECS scan service to AI agents — the OSPREY
-HTU assistant is the first consumer.  **The spec is the scan-MCP planning
-document** (2026-08-21/22, delivered to the owner; verb surface §1,
-safety §2, architecture §3, phasing §4) as amended by the relocation
-decision: the server code lives HERE, not in the osprey repo; osprey's
-`profile.yml` points a stdio `command:` at `python -m geecs_scan_mcp`.
+The **general GEECS MCP server** — AI-agent access to GEECS, one server
+process with domains as subpackages.  Renamed from `GEECS-Scan-MCP`
+(owner decision 2026-08-22, before anything reached master): scans are
+the first domain, not the identity.  **The spec for the scans domain is
+the scan-MCP planning document** (2026-08-21/22; verb surface §1, safety
+§2, phasing §4) as amended by owner decisions recorded in the CHANGELOG.
+
+Domain roadmap (add as they earn their keep, never speculatively):
+`scans/` (built: v0 read + v1 control), then candidates in rough value
+order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
+(device-variable metadata lookups), `logs/` (the /triage analysis as a
+tool), `analysis/` (over archived Tiled runs — pure-numpy analysis is
+cross-platform; capabilities needing **Windows-only acquisition SDKs**
+do NOT force this server onto Windows — they become a small *satellite
+MCP server* on a Windows box (the PVA-gateway camera-server precedent),
+registered as a second `profile.yml` entry with the same envelope
+conventions), `archiver/` when that project reactivates.
 
 ## Boundaries (load-bearing)
 
@@ -22,8 +33,13 @@ decision: the server code lives HERE, not in the osprey repo; osprey's
   submits ScanRequests, never drives devices shot-by-shot; raw gateway
   PVs are read-only to the agent.
 - **No osprey imports.**  The integration surface is `profile.yml` +
-  stdio; `tool_names.py` exists so osprey permission lists import
-  symbols, not strings.
+  stdio or HTTP (`deploy/DEPLOYMENT.md` — central HTTP on the qserver
+  box is the multi-machine mode; stdio is the dev loop);
+  `tool_names.py` exists so osprey permission lists import symbols,
+  not strings.
+- **Never duplicate osprey's raw-PV channel tools** — this server
+  exposes GEECS-semantic surfaces (scan service, config catalogs,
+  archived results, DB metadata) that raw EPICS access cannot provide.
 - Configuration is ONLY the standard
   `~/.config/geecs_python_api/config.ini` (the fleet contract — no new
   config format): `[Experiment] expt`, `[qserver]`, `[tiled]`, the
@@ -33,9 +49,10 @@ decision: the server code lives HERE, not in the osprey repo; osprey's
 ## Layout
 
 ```
-geecs_scan_mcp/
-  server.py       # module-level FastMCP + create_server() (osprey pattern)
-  __main__.py     # python -m geecs_scan_mcp → stdio
+geecs_mcp/
+  server.py       # module-level FastMCP ("geecs") + create_server()
+  __main__.py     # python -m geecs_mcp → stdio (default) or
+                  #   --transport http (the central service mode)
   tool_names.py   # THE tool-name constants (profile lists import these)
   runtime.py      # lazy cached singletons: experiment, queue client
                   #   (user=CLIENT_IDENTITY — how runs trace back to this
@@ -45,8 +62,8 @@ geecs_scan_mcp/
   errors.py       # the JSON envelope: make_ok / make_error(error_kind)
                   #   — taxonomy in the module docstring; tools NEVER
                   #   raise to the agent; engine text preserved verbatim
-  tools/
-    read_tools.py # the five v0 tools: async wrappers (anyio.to_thread)
+  scans/          # THE scans domain (future domains = sibling packages)
+    read_tools.py # the v0 read tools: async wrappers (anyio.to_thread)
                   #   over sync _*_impl functions — the impls are the
                   #   tested surface
 ```
@@ -72,7 +89,7 @@ geecs_scan_mcp/
 - **v1 (built — owner decisions 2026-08-22)**: `submit_scan` takes
   presets AND composed dicts from day one (the plan's presets-first
   de-risk was dropped: presets are barely used in practice), agent shot
-  cap 1,000 (`[scan_mcp] max_shots`; optimize needs explicit
+  cap 1,000 (`[mcp] max_shots`; optimize needs explicit
   `max_iterations`), `stop_scan` with approval-gated `force` for
   foreign scans, `clear_queue` as the one remover, poll
   `scan_progress`.  The standing rules, all enforced in
@@ -82,7 +99,7 @@ geecs_scan_mcp/
   always, ownership etiquette on stop, stop approval-only and never
   behind the kill switch (in-tool doctrine — per-tool hook matchers
   don't exist for custom servers).  The submitted-as identity is
-  `[scan_mcp] client_identity` (deployment-owned, e.g.
+  `[mcp] client_identity` (deployment-owned, e.g.
   `osprey-htu-assistant`) and MUST match on the queue item and the
   `SubmissionRecord` — the ownership check compares against it.
 - **v2**: actions, moves, pause/resume, doc-stream `scan_progress`

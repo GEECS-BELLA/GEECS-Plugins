@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import logging
 
-from geecs_scan_mcp import errors, runtime, tool_names
-from geecs_scan_mcp.server import mcp
-from geecs_scan_mcp.tools.read_tools import _run_guarded
+from geecs_mcp import errors, runtime, tool_names
+from geecs_mcp.server import mcp
+from geecs_mcp.scans.read_tools import _run_guarded
 
-logger = logging.getLogger("geecs_scan_mcp.tools.control")
+logger = logging.getLogger("geecs_mcp.scans.control")
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ def _submit_scan_impl(
         return errors.make_error(
             "policy_refusal",
             f"{shots} planned shots exceeds the agent cap of {cap} "
-            "([scan_mcp] max_shots) — shrink the scan or have an operator "
+            "([mcp] max_shots) — shrink the scan or have an operator "
             "run it from the console",
         )
 

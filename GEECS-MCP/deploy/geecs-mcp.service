@@ -1,0 +1,23 @@
+# GEECS MCP server — central HTTP deployment (see DEPLOYMENT.md).
+# Install: copy to /etc/systemd/system/, adjust paths, then
+#   systemctl daemon-reload && systemctl enable --now geecs-mcp
+[Unit]
+Description=GEECS MCP server (agent access to the scan service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Generic account placeholder — set to the deployment user (public-repo
+# hygiene: never commit real account names).
+User=geecs
+ExecStart=/opt/geecs-mcp-venv/bin/python -m geecs_mcp --transport http --host 0.0.0.0 --port 8100
+Restart=on-failure
+RestartSec=5
+# The MCP shares the box with the production manager/gateway/Tiled —
+# cap it so even a pathological failure cannot starve them.
+MemoryMax=1G
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target
