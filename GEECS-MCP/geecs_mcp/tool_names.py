@@ -4,9 +4,9 @@ The osprey ``bluesky_tool_names.py`` pattern: profile permission lists and
 hook matchers import these symbols instead of retyping strings, so a
 rename cannot silently strand a permission entry.
 
-Safety classes (the planning doc's vocabulary): every v0 tool is **R**
-(read-only, auto-allow).  The v1 queueing/stop verbs will be added here
-with their classes when they land.
+Safety classes (the planning doc's vocabulary): **R** read-only
+(auto-allow), **Q** queueing (`ask` + `writes_check`), **S** stop
+direction (`ask`; see the kill-switch caveat on ``STOP_TOOLS``).
 """
 
 from __future__ import annotations
@@ -37,8 +37,11 @@ QUEUE_TOOLS = (
     CLEAR_QUEUE,
 )
 
-#: Stop direction (S) — `ask` ONLY, never behind the kill switch: a halt
-#: must always be possible (the osprey bluesky-server doctrine; the
-#: exemption is enforced in-tool since per-tool hook matchers don't
-#: exist for custom servers).
+#: Stop direction (S) — `ask` only.  Doctrine: a halt should never sit
+#: behind the kill switch — but osprey hook presets attach SERVER-WIDE
+#: for custom servers, so a `writes_check` on this server gates stop too
+#: (this server cannot see the kill switch to exempt itself in-tool the
+#: way osprey's native bluesky server does).  Honest posture: the
+#: console/manager remain the kill-switch-proof stop paths; per-tool
+#: matchers are the osprey-side fix.  See deploy/DEPLOYMENT.md.
 STOP_TOOLS = (STOP_SCAN,)

@@ -1,17 +1,17 @@
 [tool.poetry]
-name = "geecs-scan-mcp"
-version = "0.2.0"
+name = "geecs-mcp"
+version = "0.3.0"
 description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
-packages = [{ include = "geecs_scan_mcp" }]
+packages = [{ include = "geecs_mcp" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 
-# The MCP framework — the same one osprey's native servers use (FastMCP 2.x,
-# stdio transport by default), so the profile.yml integration is the house
-# pattern verbatim.
+# The MCP framework — the same one osprey's native servers use (FastMCP,
+# 2.x+; stdio transport by default), so the profile.yml integration is the
+# house pattern verbatim.
 fastmcp = ">=2.0"
 
 # Imported directly (the to-thread tool dispatch) — declared, not ridden

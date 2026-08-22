@@ -68,12 +68,12 @@ jobs:
         working-directory: GeecsBluesky
         run: poetry run pytest tests -m "not integration and not fake_server" --tb=short -q
 
-      - name: Install GEECS-Scan-MCP dependencies
-        working-directory: GEECS-Scan-MCP
+      - name: Install GEECS-MCP dependencies
+        working-directory: GEECS-MCP
         run: poetry install --with dev
 
-      - name: Run GEECS-Scan-MCP tests
-        working-directory: GEECS-Scan-MCP
+      - name: Run GEECS-MCP tests
+        working-directory: GEECS-MCP
         run: poetry run pytest tests --tb=short -q
 
       - name: Install GeecsPvaGateway dependencies

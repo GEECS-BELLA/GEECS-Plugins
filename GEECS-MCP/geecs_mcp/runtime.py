@@ -25,21 +25,21 @@ from typing import Any, Optional
 
 import logging
 
-from geecs_scan_mcp import __version__
+from geecs_mcp import __version__
 
-logger = logging.getLogger("geecs_scan_mcp.runtime")
+logger = logging.getLogger("geecs_mcp.runtime")
 
 _USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
 
 #: The default submitted-as identity — how runs trace back to this
-#: server.  A deployment can override it via ``[scan_mcp]
+#: server.  A deployment can override it via ``[mcp]
 #: client_identity`` (e.g. ``osprey-htu-assistant``); the queue item's
 #: ``user`` and the ``SubmissionRecord.client`` always use the same
 #: value, or stop_scan's ownership check would never match.
-CLIENT_IDENTITY = f"geecs-scan-mcp {__version__}"
+CLIENT_IDENTITY = f"geecs-mcp {__version__}"
 
 #: The agent scan-size cap default (owner decision 2026-08-22:
-#: conservative first posture).  Override: ``[scan_mcp] max_shots``.
+#: conservative first posture).  Override: ``[mcp] max_shots``.
 DEFAULT_MAX_SHOTS = 1000
 
 _cache: dict[str, Any] = {}
@@ -77,15 +77,33 @@ def _read_experiment() -> Optional[str]:
         return None
 
 
-def _read_scan_mcp_option(option: str) -> Optional[str]:
-    """One ``[scan_mcp]`` option from the shared config, or ``None``."""
+#: One-shot flag for the retired-section warning below.
+_warned_old_section = False
+
+
+def _read_mcp_option(option: str) -> Optional[str]:
+    """One ``[mcp]`` option from the shared config, or ``None``.
+
+    A leftover ``[scan_mcp]`` section (the pre-rename spelling, 0.2.0)
+    is IGNORED but warned about once — a stricter ``max_shots`` or a
+    custom ``client_identity`` written there would otherwise silently
+    revert to defaults (review finding on the rename PR).
+    """
+    global _warned_old_section
     path = _USER_CONFIG_PATH.expanduser()
     if not path.exists():
         return None
     parser = configparser.ConfigParser()
     try:
         parser.read(path)
-        return parser.get("scan_mcp", option, fallback="").strip() or None
+        if parser.has_section("scan_mcp") and not _warned_old_section:
+            _warned_old_section = True
+            logger.warning(
+                "config.ini has a [scan_mcp] section — that spelling was "
+                "retired in the GEECS-MCP rename and is IGNORED; move the "
+                "keys to [mcp]"
+            )
+        return parser.get("mcp", option, fallback="").strip() or None
     except (OSError, configparser.Error):
         return None
 
@@ -99,22 +117,22 @@ def client_identity() -> str:
     """The deployment's submitted-as identity (config override or default)."""
     return _cached(
         "client_identity",
-        lambda: _read_scan_mcp_option("client_identity") or CLIENT_IDENTITY,
+        lambda: _read_mcp_option("client_identity") or CLIENT_IDENTITY,
     )
 
 
 def max_shots() -> int:
-    """The agent scan-size cap (``[scan_mcp] max_shots``, default 1000)."""
+    """The agent scan-size cap (``[mcp] max_shots``, default 1000)."""
 
     def build() -> int:
-        raw = _read_scan_mcp_option("max_shots")
+        raw = _read_mcp_option("max_shots")
         try:
             return int(raw) if raw else DEFAULT_MAX_SHOTS
         except ValueError:
             # A deployment that intended a STRICTER cap must not silently
             # run at the default (review finding) — warn loudly.
             logger.warning(
-                "[scan_mcp] max_shots = %r is not an integer — using the default of %d",
+                "[mcp] max_shots = %r is not an integer — using the default of %d",
                 raw,
                 DEFAULT_MAX_SHOTS,
             )

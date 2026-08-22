@@ -1,6 +1,6 @@
 """Queueserver manager client: any GEECS client as a peer of the RE Manager.
 
-Clients (the console, notebooks, the OSPREY scan MCP) submit scans to a
+Clients (the console, notebooks, the GEECS MCP) submit scans to a
 bluesky-queueserver RE Manager (the GEECS worker, ``GeecsBluesky/qserver/``)
 as queue items.  This module is the one place that speaks
 ``bluesky-queueserver-api``:

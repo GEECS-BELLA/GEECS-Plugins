@@ -2,11 +2,11 @@
 
 Conventions (the osprey bluesky-server pattern): ``async def`` tool
 wrappers whose blocking body runs via ``anyio.to_thread.run_sync``; every
-return is a JSON envelope from :mod:`geecs_scan_mcp.errors` — tools never
+return is a JSON envelope from :mod:`geecs_mcp.errors` — tools never
 raise to the agent, and engine message text is preserved verbatim.  Each
 tool's synchronous ``_*_impl`` sibling is the tested surface; the
 wrappers are transport glue.  Singletons come from
-:mod:`geecs_scan_mcp.runtime` via module-attribute calls (the patch seam).
+:mod:`geecs_mcp.runtime` via module-attribute calls (the patch seam).
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from datetime import date
 
 import anyio
 
-from geecs_scan_mcp import errors, runtime, tool_names
-from geecs_scan_mcp.server import mcp
+from geecs_mcp import errors, runtime, tool_names
+from geecs_mcp.server import mcp
 
-logger = logging.getLogger("geecs_scan_mcp.tools.read")
+logger = logging.getLogger("geecs_mcp.scans.read")
 
 
 async def _run_guarded(impl, *args) -> str:
