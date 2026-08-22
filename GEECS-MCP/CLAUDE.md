@@ -42,9 +42,9 @@ conventions), `archiver/` when that project reactivates.
   archived results, DB metadata) that raw EPICS access cannot provide.
 - Configuration is ONLY the standard
   `~/.config/geecs_python_api/config.ini` (the fleet contract — no new
-  config format): `[Experiment] expt`, `[qserver]`, `[tiled]`, the
-  configs-repo path.  Every unconfigured piece degrades honestly and the
-  server always starts.
+  config format).  **`deploy/DEPLOYMENT.md` is the one full key
+  inventory** — don't duplicate it here.  Every unconfigured piece
+  degrades honestly and the server always starts.
 
 ## Layout
 
@@ -66,6 +66,9 @@ geecs_mcp/
     read_tools.py # the v0 read tools: async wrappers (anyio.to_thread)
                   #   over sync _*_impl functions — the impls are the
                   #   tested surface
+    control_tools.py # the v1 verbs: submit (cap + etiquette + the
+                  #   acknowledge-warnings loop), stop (ownership),
+                  #   clear_queue, scan_progress
 ```
 
 ## Conventions
@@ -93,12 +96,18 @@ geecs_mcp/
   `max_iterations`), `stop_scan` with approval-gated `force` for
   foreign scans, `clear_queue` as the one remover, poll
   `scan_progress`.  The standing rules, all enforced in
-  `tools/control_tools.py`: acknowledge-warnings loop (no silent
+  `geecs_mcp/scans/control_tools.py`: acknowledge-warnings loop (no silent
   continue past a preflight question; acknowledgements stamp
   `continued` into `SubmissionRecord.preflight`), `clear_pending=False`
-  always, ownership etiquette on stop, stop approval-only and never
-  behind the kill switch (in-tool doctrine — per-tool hook matchers
-  don't exist for custom servers).  The submitted-as identity is
+  always, ownership etiquette on stop, stop approval-only.
+  **Kill-switch caveat (honest)**: osprey hook presets attach
+  server-wide for custom servers (no per-tool matchers), so the
+  recommended `writes_check` on this server ALSO gates `stop_scan` —
+  unlike osprey's native bluesky server, which exempts stop in-tool
+  because it can see the kill switch; this server cannot.  The
+  kill-switch-proof stop paths remain the console and the manager
+  itself; per-tool hook matchers are the osprey-side ask that would
+  close the gap (see `deploy/DEPLOYMENT.md`).  The submitted-as identity is
   `[mcp] client_identity` (deployment-owned, e.g.
   `osprey-htu-assistant`) and MUST match on the queue item and the
   `SubmissionRecord` — the ownership check compares against it.

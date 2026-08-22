@@ -9,9 +9,9 @@ packages = [{ include = "geecs_mcp" }]
 [tool.poetry.dependencies]
 python = ">=3.11,<3.12"
 
-# The MCP framework — the same one osprey's native servers use (FastMCP 2.x,
-# stdio transport by default), so the profile.yml integration is the house
-# pattern verbatim.
+# The MCP framework — the same one osprey's native servers use (FastMCP,
+# 2.x+; stdio transport by default), so the profile.yml integration is the
+# house pattern verbatim.
 fastmcp = ">=2.0"
 
 # Imported directly (the to-thread tool dispatch) — declared, not ridden

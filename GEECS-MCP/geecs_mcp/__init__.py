@@ -1,10 +1,9 @@
-"""GEECS scan MCP server — AI-agent access to the GEECS scan service.
+"""The general GEECS MCP server — AI-agent access to GEECS.
 
-The server exposes MCP verbs over the queueserver client seam
-(:mod:`geecs_bluesky.qs_client`), the config resolver, and the Tiled
-archive.  v0 is read-only: status, history, results, config discovery,
-and request validation — zero write risk.  See ``CLAUDE.md`` for the
-verb roadmap (submit/stop in v1) and the safety doctrine.
+One server process, domains as subpackages: ``scans/`` (v0 read tools +
+v1 control verbs — submit/stop/clear/progress) today; future domains
+(health, db, logs, analysis) register on the same server.  See
+``CLAUDE.md`` for the domain roadmap and the safety doctrine.
 """
 
 __version__ = "0.3.0"

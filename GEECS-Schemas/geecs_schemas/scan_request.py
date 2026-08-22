@@ -711,7 +711,7 @@ class ScanRequest(VersionedSchemaModel):
         """Total planned shots, or ``None`` when the request cannot say.
 
         THE one scan-size derivation (consolidating the console's and the
-        scan MCP's former private counters): step/noscan =
+        GEECS MCP's former private counters): step/noscan =
         ``n_steps() × shots_per_step`` (noscan is one motionless bin);
         optimize = ``max_iterations × shots_per_step``, or ``None`` when
         ``max_iterations`` is unset (the engine then applies its own

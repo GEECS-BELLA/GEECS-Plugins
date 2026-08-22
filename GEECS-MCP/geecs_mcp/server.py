@@ -24,11 +24,11 @@ logger = logging.getLogger("geecs_mcp")
 mcp = FastMCP(
     "geecs",
     instructions=(
-        "Read-only access to the GEECS scan service (v0): manager/queue "
+        "Access to the GEECS scan service. Read tools: manager/queue "
         "status, recent scan history, completed-run results from the Tiled "
         "archive, the experiment's config catalogs (save sets, trigger "
         "profiles, presets, scan variables, actions), full dry-run "
-        "validation of a ScanRequest, and the v1 control verbs: "
+        "validation of a ScanRequest. Control verbs: "
         "submit_scan (one scan in flight, capped, preflight warnings need "
         "explicit acknowledgement), stop_scan (graceful; another client's "
         "scan needs force=true and an operator's say-so), clear_queue "

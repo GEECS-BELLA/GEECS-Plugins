@@ -77,14 +77,32 @@ def _read_experiment() -> Optional[str]:
         return None
 
 
+#: One-shot flag for the retired-section warning below.
+_warned_old_section = False
+
+
 def _read_mcp_option(option: str) -> Optional[str]:
-    """One ``[mcp]`` option from the shared config, or ``None``."""
+    """One ``[mcp]`` option from the shared config, or ``None``.
+
+    A leftover ``[scan_mcp]`` section (the pre-rename spelling, 0.2.0)
+    is IGNORED but warned about once — a stricter ``max_shots`` or a
+    custom ``client_identity`` written there would otherwise silently
+    revert to defaults (review finding on the rename PR).
+    """
+    global _warned_old_section
     path = _USER_CONFIG_PATH.expanduser()
     if not path.exists():
         return None
     parser = configparser.ConfigParser()
     try:
         parser.read(path)
+        if parser.has_section("scan_mcp") and not _warned_old_section:
+            _warned_old_section = True
+            logger.warning(
+                "config.ini has a [scan_mcp] section — that spelling was "
+                "retired in the GEECS-MCP rename and is IGNORED; move the "
+                "keys to [mcp]"
+            )
         return parser.get("mcp", option, fallback="").strip() or None
     except (OSError, configparser.Error):
         return None

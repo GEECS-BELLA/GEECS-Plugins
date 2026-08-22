@@ -24,6 +24,16 @@ mcp_servers:
       pre_tool_use: [writes_check, approval]
 ```
 
+**Kill-switch caveat**: hook presets attach server-wide for custom
+servers (no per-tool matchers), so `writes_check` above also gates
+`stop_scan` — engaging the kill switch blocks the MCP's halt verb along
+with its submits. This is a deliberate trade-off (gating submits wins);
+the kill-switch-proof stop paths remain the console and the manager
+itself. Per-tool hook matchers are the osprey-side change that would
+let stop ride outside the kill switch (the native bluesky server's
+in-tool exemption pattern needs kill-switch visibility this external
+server does not have).
+
 Host setup (same checkout + ritual as the worker):
 
 ```bash

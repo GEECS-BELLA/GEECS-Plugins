@@ -11,9 +11,9 @@ the same server.
 `scan_progress`. Control (put these under OSPREY `ask` + hooks):
 `submit_scan` (one scan in flight, 1,000-shot cap, preflight warnings
 need explicit acknowledgement), `stop_scan` (graceful; `force` for
-another client's scan is approval territory — and keep stop OUT of the
-kill-switch hook so a halt is always possible), `clear_queue` (the one
-remover).
+another client's scan is approval territory; note the kill-switch
+caveat in `deploy/DEPLOYMENT.md` — server-wide hooks gate stop too),
+`clear_queue` (the one remover).
 
 ## Run
 
@@ -22,11 +22,9 @@ python -m geecs_mcp
 ```
 
 A stdio MCP server (FastMCP). Configuration is the standard
-`~/.config/geecs_python_api/config.ini`: `[Experiment] expt` (the
-experiment), `[qserver] host` (the RE Manager), `[tiled] uri`/`api_key`
-(the archive), and the configs-repo path (`GEECS_SCANNER_CONFIG_DIR` or
-`[Paths] scanner_config_root_path`). Anything unconfigured degrades to an
-honest refusal/empty answer — the server always starts.
+`~/.config/geecs_python_api/config.ini` — `deploy/DEPLOYMENT.md` carries
+the full key inventory. Anything unconfigured degrades to an honest
+refusal/empty answer — the server always starts.
 
 OSPREY integration: point a `mcp_servers:` stdio `command:` at this
 module in `profile.yml`; permission lists import
