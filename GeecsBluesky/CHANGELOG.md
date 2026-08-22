@@ -20,8 +20,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - Docs-only: `README.md` "Still open" line corrected (setup/closeout
-  actions and optimization scans are built and live; background scan
-  mode and TDMS remain the open features); `TILED_SETUP.md` no longer
+  actions, optimization scans, and background mode — a noscan with the
+  `background` flag — are built and live; TDMS remains the open
+  feature), and the CLAUDE.md Known Gaps background bullet rewritten to
+  match (review finding on this PR); `TILED_SETUP.md` no longer
   points at `ROADMAP.md` for the data-pipeline strategic question
   (stated inline instead); CLAUDE.md Known Gaps picks up the one
   otherwise-untracked roadmap item (requested rep-rate throttling).

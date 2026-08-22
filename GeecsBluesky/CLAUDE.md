@@ -708,7 +708,7 @@ scan-boundary hook on `GeecsSession.optimize`) — recorded as
 new analyzer/writer still must not create scan folders (cross-package
 invariant); M3c is scanner-side but touches no scan-folder creation.
 
-## Known Gaps (as of 0.21.0)
+## Known Gaps
 
 The acquisition-modes architecture is complete and hardware-verified (both
 modes, including single-shot; GUI-launched scans verified live 2026-07-06).
@@ -734,7 +734,11 @@ Remaining items are features/tuning, not architecture — see
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
-- **Background scan mode not implemented.**  Optimization runs as a scan via
+- **Background mode is a metadata flag, not a distinct behaviour** —
+  the legacy `Background` scan mode executes as a noscan with
+  `ScanRequest.background` set (the schema's own definition), recorded
+  as `Background = true` in `ScanInfoScanNNN.ini`; the console's
+  BACKGROUND mode submits it.  Optimization runs as a scan via
   `GeecsSession.optimize` (adaptive scan: iteration = bin, same schema/data
   tree as any scan — see `plans/optimize.py`), both headless (suggester +
   objective in hand) and through the queue: the worker's startup-registered
