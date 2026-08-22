@@ -2,8 +2,7 @@
 
 The contract every GEECS Bluesky run obeys, regardless of acquisition mode or
 whether it was launched from the GUI, `BlueskyScanner`, or a custom notebook
-plan.  This is the **canonical** copy; the design rationale lives in
-`Planning/acquisition_modes/01_event_schema_contract.md`.
+plan.  This document **is** the canonical contract.
 
 Consumers branch on **`geecs_event_schema`**, never on `acquisition_mode`, to
 read data.  Mode is provenance, not shape.

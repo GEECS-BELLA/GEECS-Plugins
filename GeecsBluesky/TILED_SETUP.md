@@ -99,11 +99,23 @@ api_key = <stable key>
 
 ## Known Limitations
 
-- **No TDMS output** — scalar s-files are exported from Tiled best-effort
-  after a scan (needs the Tiled client extra and a readable run); legacy
-  TDMS output is not produced.  The data-pipeline end state is an open
-  strategic question: does `ScanAnalysis` grow a Tiled reader, or keep
-  reading exported s-files long-term?
+- **No TDMS output — a decided disposition, not an oversight**
+  (2026-07-10): on-shot TDMS was a poorly-implemented Master Control
+  preservation and was not in use, so it was dropped outright.  Scalar
+  s-files are exported from Tiled best-effort after a scan (needs the Tiled
+  client extra and a readable run).  If LabVIEW tooling ever needs TDMS
+  again, the natural shape is a post-scan Tiled→TDMS exporter alongside the
+  s-file exporter — analysis-side, no scanner integration required.
+  Possible future work, not scheduled, not a gate.  The data-pipeline
+  end state remains the open strategic question: does `ScanAnalysis`
+  grow a Tiled reader, or keep reading exported s-files long-term?
+- **No server-side adapters for custom GEECS asset specs** — Tiled/
+  databroker readers for them were never written, so external assets
+  (per-shot image files etc.) are fillable only client-side from the
+  datum-id metadata, not served filled by Tiled itself.  Related undecided
+  question: whether Bluesky native-save runs need a finalization/mover step
+  for legacy filename compatibility, or whether direct native filenames are
+  the canonical Bluesky path.
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
   use the file-based path (bridged by the s-file export).  The
   `geecs_bluesky.analysis` contracts can run image analysis over archived

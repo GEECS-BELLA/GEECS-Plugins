@@ -210,8 +210,8 @@ request — the in-flight shot always finishes (checkpoints deliberately
 never split a shot) and the in-flight GEECS blocking set is always waited
 out; this is the architectural floor, and getting under it means
 reintroducing the hard-pause replay trap (a HARD pause replays from the
-last checkpoint and re-executes GEECS sets — scoping note in the
-Planning doc).
+last checkpoint and re-executes GEECS sets — scoping note in
+`plans/pause_semantics.py`).
 
 On a failed axis move the queue plan pauses instead of raising
 (`failed_move_policy="pause"`, decision 4 — the reason line is the
@@ -231,6 +231,10 @@ pause-window action flow (G-actions v2) was **dropped** (decision 2) —
 its `action_direct`/`PauseSupervisor`/`OperatorChannel`/`events`
 machinery is deleted (W5; `ShotControlPauseQuiescer` in
 `plans/pause_semantics.py` is the live pause-quiesce equivalent).
+Recovery for a long scan that hits trouble is therefore stop → fix →
+restart; if that ever becomes operationally painful, the answer is
+resumable scan design (progress checkpointing), not resurrecting
+`action_direct`.
 
 ### Shot control — `ShotControlConfig` + named states
 
@@ -712,8 +716,29 @@ invariant); M3c is scanner-side but touches no scan-folder creation.
 
 The acquisition-modes architecture is complete and hardware-verified (both
 modes, including single-shot; GUI-launched scans verified live 2026-07-06).
-Remaining items are features/tuning, not architecture — see
-`Planning/acquisition_modes/00_overview.md` "Deferred".
+Remaining items are features/tuning, not architecture.
+
+- **Deferred from the retired acquisition-modes plan** (deliberate, not
+  forgotten): a persistent t0 registry / central subscription daemon (an
+  "event-builder service") — per-scan t0 sync is self-healing against
+  rep-rate changes and device restarts, so revisit only when per-scan
+  build/teardown actually hurts; DG645 per-trigger TCP events (a LabVIEW
+  driver change that would make the shot controller the ideal pacemaker);
+  multi-stream flyer/collect acquisition (Bluesky-native offline event
+  building) — keep `shot_id` as the universal join key so that migration
+  stays mechanical; and the **any-of gate** for a flaky free-run
+  reference (a shot the reference misses produces no row — recoverable
+  via offsets/flush; the designed remedy, same schema, is to emit a row
+  when *any* sync device's shot id advances — build only if a flaky
+  reference actually bites).
+- **Manual-intervention provenance:** PV changes made from Phoebus during a
+  pause are captured by readbacks/telemetry but not annotated as operator
+  interventions; consider a console habit or an annotation hook.
+- **Full-PV-space snapshots (the legacy ECS dump) were dropped** — recorded
+  as the pattern to use if one is ever wanted again: wire gateway PVs as
+  baseline readables via `SupplementalData.baseline` (read once at run
+  start and once at run end, into the run's own document stream, queryable
+  from Tiled) — no client commands, no separate dump file.
 
 - **Strict single-shot needs an `ARMED` state** in the shot-control YAML to
   engage (the production experiment configs have one).  Without `ARMED` or a
