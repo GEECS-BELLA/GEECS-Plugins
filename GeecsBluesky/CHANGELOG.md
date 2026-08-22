@@ -4,6 +4,31 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.3] - 2026-08-21
+
+### Removed
+
+- **`ROADMAP.md` deleted** (Planning-prune audit finding): it presented
+  deleted machinery as current — `BlueskyScanner` (deleted W5, #649),
+  the `GEECS_BLUESKY_ACQUISITION_MODE` env var (died with the
+  exec_config path, G3), `RunControl`, and the pre-queueserver
+  architecture throughout.  Its historical record lives in git history
+  and at the `legacy-scanner-final` tag; its still-live content was
+  either already covered (CLAUDE.md Known Gaps — including the
+  acquisition-modes deferred list 0.57.2 extracted there — and
+  `TILED_SETUP.md`) or folded in below.
+
+### Changed
+
+- Docs-only: `README.md` "Still open" line corrected (setup/closeout
+  actions, optimization scans, and background mode — a noscan with the
+  `background` flag — are built and live; TDMS remains the open
+  feature), and the CLAUDE.md Known Gaps background bullet rewritten to
+  match (review finding on this PR); `TILED_SETUP.md` no longer
+  points at `ROADMAP.md` for the data-pipeline strategic question
+  (stated inline instead); CLAUDE.md Known Gaps picks up the one
+  otherwise-untracked roadmap item (requested rep-rate throttling).
+
 ## [0.57.2] - 2026-08-21
 
 ### Changed

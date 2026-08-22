@@ -106,7 +106,9 @@ api_key = <stable key>
   client extra and a readable run).  If LabVIEW tooling ever needs TDMS
   again, the natural shape is a post-scan Tiled→TDMS exporter alongside the
   s-file exporter — analysis-side, no scanner integration required.
-  Possible future work, not scheduled, not a gate.
+  Possible future work, not scheduled, not a gate.  The data-pipeline
+  end state remains the open strategic question: does `ScanAnalysis`
+  grow a Tiled reader, or keep reading exported s-files long-term?
 - **No server-side adapters for custom GEECS asset specs** — Tiled/
   databroker readers for them were never written, so external assets
   (per-shot image files etc.) are fillable only client-side from the
