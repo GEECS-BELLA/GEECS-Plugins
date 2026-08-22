@@ -40,8 +40,9 @@ For `save_images` devices, each event records the detector `acq_timestamp`
 and the save directory; file names remain hardware-native and are joined by
 `acq_timestamp`.
 
-Still open (features, not architecture): setup/closeout actions,
-background/optimization modes, legacy TDMS output.
+Still open (features, not architecture): background scan mode and legacy
+TDMS output (scalar s-files are exported from Tiled best-effort instead).
+Setup/closeout actions and optimization scans are built and live.
 
 ## Requirements
 

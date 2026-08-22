@@ -101,8 +101,9 @@ api_key = <stable key>
 
 - **No TDMS output** — scalar s-files are exported from Tiled best-effort
   after a scan (needs the Tiled client extra and a readable run); legacy
-  TDMS output is not produced.  Data pipeline transition is an open
-  strategic question (see `ROADMAP.md`).
+  TDMS output is not produced.  The data-pipeline end state is an open
+  strategic question: does `ScanAnalysis` grow a Tiled reader, or keep
+  reading exported s-files long-term?
 - **Tiled not yet read by ScanAnalysis** — post-scan analysis continues to
   use the file-based path (bridged by the s-file export).  The
   `geecs_bluesky.analysis` contracts can run image analysis over archived

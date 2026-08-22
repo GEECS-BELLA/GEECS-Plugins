@@ -720,6 +720,10 @@ Remaining items are features/tuning, not architecture — see
   reachable shot-control device, strict aborts before acquisition
   (`GeecsConfigurationError`); use `free_run_time_sync` for free-running
   trigger acquisition.
+- **Requested rep-rate throttling is unbuilt** — firing strict single
+  shots slower than the external rate (gas-jet economy), or free-run
+  subsampling every Nth reference shot.  Carried over from the retired
+  pre-queueserver roadmap; not tracked anywhere else.
 - **The bridge-era GUI event stream is gone** (W5 — lifecycle/step/dialog
   events; clients observe the manager status, document, and console-output
   streams instead).  Liveness remains CONNECTED-based (the gateway serves
