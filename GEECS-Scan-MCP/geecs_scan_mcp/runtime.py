@@ -1,0 +1,111 @@
+"""Lazily-built, cached singletons the tools call through.
+
+Everything resolves from the standard
+``~/.config/geecs_python_api/config.ini`` (the fleet contract — no new
+config format): ``[Experiment] expt`` names the experiment, ``[qserver]``
+the manager, ``[tiled]`` the archive, ``[Paths]``/env the configs
+checkout.  Each getter builds on first use and caches; tests monkeypatch
+the getters on this module (tools always call ``runtime.get_*()``
+through the module attribute, never a from-import, so the patch seam
+holds).
+
+Construction is cheap and offline-safe by the underlying seams' own
+contracts: an unconfigured ``[qserver]`` yields the stub client (verbs
+refuse with a clear message), an unconfigured ``[tiled]`` yields a
+catalog whose probe says so, and a missing experiment yields ``None``
+resolvers that the tools turn into ``invalid_request`` envelopes.
+"""
+
+from __future__ import annotations
+
+import configparser
+import threading
+from pathlib import Path
+from typing import Any, Optional
+
+from geecs_scan_mcp import __version__
+
+_USER_CONFIG_PATH = Path("~/.config/geecs_python_api/config.ini")
+
+#: The submitted-as identity the manager records on queue items, and the
+#: ``SubmissionRecord.client`` prefix — how runs trace back to this server.
+CLIENT_IDENTITY = f"geecs-scan-mcp {__version__}"
+
+_cache: dict[str, Any] = {}
+# First-use builds race under FastMCP's concurrent tool dispatch (one agent
+# turn can issue parallel calls); without the lock two threads could each
+# build a ZmqQueueClient and the loser's zmq receive thread would leak for
+# the process lifetime — the same failure mode qs_client's own #653 lock
+# prevents one level down.
+_cache_lock = threading.Lock()
+
+
+def clear_runtime_cache() -> None:
+    """Drop every cached singleton (tests; config re-read on next call)."""
+    with _cache_lock:
+        _cache.clear()
+
+
+def _cached(key: str, build) -> Any:
+    """Return ``_cache[key]``, building it under the lock on first use."""
+    with _cache_lock:
+        if key not in _cache:
+            _cache[key] = build()
+        return _cache[key]
+
+
+def _read_experiment() -> Optional[str]:
+    path = _USER_CONFIG_PATH.expanduser()
+    if not path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(path)
+        return parser.get("Experiment", "expt", fallback="").strip() or None
+    except (OSError, configparser.Error):
+        return None
+
+
+def get_experiment() -> Optional[str]:
+    """The configured experiment name (``[Experiment] expt``), or ``None``."""
+    return _cached("experiment", _read_experiment)
+
+
+def get_queue_client() -> Any:
+    """The shared RE Manager client, stamped with this server's identity."""
+
+    def build() -> Any:
+        from geecs_bluesky.qs_client import make_queue_client
+
+        return make_queue_client(_read_experiment() or "", user=CLIENT_IDENTITY)
+
+    return _cached("queue_client", build)
+
+
+def get_resolver() -> Any:
+    """A FRESH ``ConfigsRepoResolver``, or ``None`` without an experiment.
+
+    Deliberately not cached (unlike the other singletons): the resolver
+    caches its scan-variable and action catalogs internally, and config
+    edits mid-session (the console editors write these files during
+    operations) must appear on the next listing call — a cached resolver
+    would serve four kinds fresh and two kinds stale forever.
+    Construction is lazy and cheap.
+    """
+    experiment = get_experiment()
+    if experiment is None:
+        return None
+    from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+    return ConfigsRepoResolver(experiment)
+
+
+def get_catalog() -> Any:
+    """The Tiled scan catalog (unconfigured installs get an honest probe)."""
+
+    def build() -> Any:
+        from geecs_data_utils.tiled_catalog import TiledScanCatalog
+
+        return TiledScanCatalog.from_config()
+
+    return _cached("catalog", build)

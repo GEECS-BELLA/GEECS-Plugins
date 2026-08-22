@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "geecs-scan-mcp"
+version = "0.1.0"
+description = "MCP server exposing GEECS scan submission, monitoring, and config discovery to AI agents (OSPREY)"
+authors = ["Sam Barber <sbarber@lbl.gov>"]
+readme = "README.md"
+packages = [{ include = "geecs_scan_mcp" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.12"
+
+# The MCP framework — the same one osprey's native servers use (FastMCP 2.x,
+# stdio transport by default), so the profile.yml integration is the house
+# pattern verbatim.
+fastmcp = ">=2.0"
+
+# Imported directly (the to-thread tool dispatch) — declared, not ridden
+# transitively via fastmcp (review finding).
+anyio = ">=4.0"
+
+# The queue client + pre-submit preflight (geecs_bluesky.qs_client) and the
+# config resolver/listings.  qs-client pulls bluesky-queueserver-api; ca
+# pulls aioca for the preflight's CONNECTED/staleness reads.  The package
+# import is light (PEP 562) — the heavy stacks load only when tools run.
+geecs-bluesky = { path = "../GeecsBluesky", develop = true, extras = ["qs-client", "ca"] }
+
+# Completed-run lookup (get_scan_result): TiledScanCatalog over the archive.
+geecs-data-utils = { path = "../GEECS-Data-Utils", develop = true, extras = ["tiled"] }
+
+# The one submission shape (ScanRequest) — validation at the tool boundary.
+geecs-schemas = { path = "../GEECS-Schemas", develop = true }
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0"
+ruff = ">=0.9"
+pydocstyle = ">=6.3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
