@@ -78,7 +78,11 @@ geecs_bluesky/
                             #   extra, lazily imported inside methods
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
                             #   ScanRequest names → schema models (new-schema
-                            #   YAML directly, else legacy-convert)
+                            #   YAML directly, else legacy-convert) + the
+                            #   list_save_sets/list_trigger_profiles/
+                            #   list_presets/list_optimizer_configs listing
+                            #   surface for non-GUI clients (#666 — sorted
+                            #   stems, missing-anything reads as [])
   forward_expr.py           # compile_forward — AST-whitelist compiler for
                             #   pseudo-variable forward formulas (arithmetic +
                             #   math functions; scanned value = composite_var

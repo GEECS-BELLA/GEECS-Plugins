@@ -4,6 +4,28 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.60.0] - 2026-08-22
+
+### Added
+
+- **Config listings on `ConfigsRepoResolver`** (#666, the scan-MCP
+  prerequisite): `list_save_sets()`, `list_trigger_profiles()`,
+  `list_presets()`, and `list_optimizer_configs()` — sorted YAML stems
+  with the console's listing semantics (a missing configs root,
+  experiment folder, or kind folder reads as `[]`, never an exception;
+  a listed name is a file, not a promise — resolution can still refuse
+  it, but every listed name now round-trips: `resolve_save_set` /
+  `resolve_trigger_profile` resolve the `.yml` twin spelling too,
+  matching the console's `NamedConfigStore` behavior — review finding).
+  Non-GUI clients (the scan MCP, notebooks) can now enumerate an
+  experiment's catalogs without importing console code; the resolver
+  gains the `PRESET_FOLDER`/`OPTIMIZER_FOLDER` constants so the folder
+  layout has one owner **once the console rewires onto them** (deferred
+  to the next console-touching PR; rewire trap noted: the console's
+  copies are named `PRESET_FOLDER` in `presets.py` but
+  `OPTIMIZATION_FOLDER` in `configs.py` — map both onto the resolver's
+  constants, don't add a third name).
+
 ## [0.59.0] - 2026-08-22
 
 ### Added
