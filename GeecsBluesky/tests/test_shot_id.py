@@ -181,6 +181,68 @@ class TestGeecsT0Sync:
         assert "U_CamA" in str(excinfo.value)
 
 
+class TestT0SyncLivenessGate:
+    """The #664 gate: a dead device's stale cache must never seed t0.
+
+    Driven with a real RunEngine — ``bps.rd`` needs the run engine's
+    read machinery to deliver the mock ``connected_status`` value (the
+    hand-driven ``_drive`` harness makes ``rd`` fall back to its
+    fail-open default, which is itself the deliberate offline behavior).
+    """
+
+    def _detector(self, RE, status: str) -> "CaGenericDetector":
+        from bluesky import RunEngine  # noqa: F401 — for the type only
+
+        from tests.ca_mock_helpers import connect_mock
+
+        det = CaGenericDetector("U_CamA", ["Sig"], experiment="Test", name="cam_a")
+        det.configure_shot_id(rep_rate_hz=1.0)
+        connect_mock(RE, det)
+        set_mock_value(det.acq_timestamp, 1000.0)  # stale-but-present cache
+        set_mock_value(det.connected_status, status)
+        return det
+
+    def test_disconnected_device_refuses_seed(self) -> None:
+        from bluesky import RunEngine
+
+        RE = RunEngine()
+        det = self._detector(RE, "Disconnected")
+        with pytest.raises(GeecsT0SyncError) as excinfo:
+            RE(geecs_t0_sync([det], window_s=0.2, retries=0))
+        message = str(excinfo.value)
+        assert "U_CamA" in message and "Disconnected" in message
+        # Refused BEFORE seeding — the stale cache never became a t0.
+        assert det.shot_id_tracker.t0_acq_timestamp is None
+
+    def test_connected_device_seeds_normally(self) -> None:
+        from bluesky import RunEngine
+
+        RE = RunEngine()
+        det = self._detector(RE, "Connected")
+        RE(geecs_t0_sync([det], window_s=0.2, retries=0))
+        assert det.shot_id_tracker.t0_acq_timestamp == pytest.approx(1000.0)
+
+    def test_device_without_status_is_fail_open(self) -> None:
+        """No connected_status attribute (older device shape) → gate skips."""
+        from bluesky import RunEngine
+
+        class _Bare:
+            name = "bare"
+            _geecs_device_name = "U_Bare"
+            last_acq_timestamp = 1000.0
+
+            def __init__(self) -> None:
+                self.seeded: float | None = None
+
+            def seed_shot_id(self, t0: float) -> None:
+                self.seeded = t0
+
+        RE = RunEngine()
+        bare = _Bare()
+        RE(geecs_t0_sync([bare], window_s=0.2, retries=0))
+        assert bare.seeded == pytest.approx(1000.0)
+
+
 # ---------------------------------------------------------------------------
 # Stable keys / NaN policy on the generic detector
 # ---------------------------------------------------------------------------

@@ -20,9 +20,51 @@ from typing import Any, Sequence
 
 import bluesky.plan_stubs as bps
 
+from geecs_bluesky.devices.ca._pv import GATEWAY_DISCONNECTED
 from geecs_bluesky.exceptions import GeecsT0SyncError
 
 logger = logging.getLogger(__name__)
+
+
+def _refuse_disconnected_devices(devices: Sequence[Any]):
+    """Plan stub: refuse to seed from a device the gateway reports down.
+
+    The seed comes from each device's **cached** ``acq_timestamp`` under a
+    quiescent trigger, and a dead device serves its stale cache forever —
+    with one sync device (or all dead) the spread check is trivially
+    satisfied and a dead reference "seeds" from an hours-old frame,
+    deferring the failure to a cryptic mid-scan trigger timeout (#664,
+    live incident 2026-08-22: a camera server rebooted uncleanly).
+    Timestamp freshness cannot be the guard — at rest with the trigger
+    parked (e.g. laser-off operation) a *healthy* cache is legitimately
+    old — so liveness is read from ``connected_status``, the
+    authoritative signal (the same read as the strict refire gate).
+
+    **Fail-open**: no ``connected_status`` attribute or a failed read is
+    not a verdict; only the exact ``Disconnected`` choice string refuses,
+    naming the device(s).
+    """
+    down: list[str] = []
+    for dev in devices:
+        signal = getattr(dev, "connected_status", None)
+        if signal is None:
+            continue
+        try:
+            value = yield from bps.rd(signal)
+        except Exception:
+            logger.debug(
+                "CONNECTED read failed during t0 sync; assuming live (fail-open)",
+                exc_info=True,
+            )
+            continue
+        if value == GATEWAY_DISCONNECTED:
+            down.append(getattr(dev, "_geecs_device_name", dev.name))
+    if down:
+        raise GeecsT0SyncError(
+            f"cannot seed t0: the gateway reports {', '.join(sorted(down))} "
+            "as Disconnected — the cached acq_timestamp is stale, not a "
+            "shot; restart the device(s) and resubmit"
+        )
 
 
 def geecs_t0_sync(
@@ -61,6 +103,9 @@ def geecs_t0_sync(
         If a common physical shot cannot be established.  Never proceed
         unseeded — shot IDs from unsynchronized t0s are not comparable.
     """
+    # Liveness gate first (#664): a dead device's cache would "seed" —
+    # see _refuse_disconnected_devices.
+    yield from _refuse_disconnected_devices(devices)
     last_error = ""
     timestamps: dict[str, float | None] = {}
     for attempt in range(retries + 1):

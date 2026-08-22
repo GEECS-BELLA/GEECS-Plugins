@@ -162,7 +162,10 @@ async def test_t0_sync_seeds_timestamped_readables() -> None:
     # Re-seed both through the plan stage instead of the manual seeds
     plan = geecs_t0_sync([ref, cam], window_s=0.2)
     try:
-        plan.send(None)
+        # Drive to completion: the liveness gate (#664) yields rd messages
+        # before the seed, so one send is no longer enough.
+        while True:
+            plan.send(None)
     except StopIteration as stop:
         t0s = stop.value
     assert t0s == {

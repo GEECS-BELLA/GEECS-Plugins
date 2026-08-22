@@ -80,6 +80,7 @@ from geecs_bluesky.scan_request_runner import (
     PseudoMovableTarget,
     _build_request_detectors,
     _defaults_flag,
+    _preflight_connected,
     _preflight_unserved,
     assemble_action_slots,
     build_action_registry,
@@ -502,6 +503,12 @@ def _scan_request_body(
             "unserved-variables pre-flight aborted the scan (pre-claim)"
         )
     devices_config = checked_config
+    # CONNECTED liveness re-check (#664): the client asked pre-submit, but
+    # the queue's submission-to-execution gap is long — re-check here,
+    # refusing only when a row could never complete.
+    disconnected_devices = _preflight_connected(
+        session, devices_config, free_run=not strict
+    )
     slots = assemble_action_slots(request.actions, applied_defaults, rituals)
     warn_if_reserved_boundary_overrides(save_set)
     axis_resolved = [
@@ -580,6 +587,7 @@ def _scan_request_body(
         slots=slots,
         dropped_unserved=dropped_unserved,
         dropped_unserved_devices=dropped_unserved_devices,
+        disconnected_devices=disconnected_devices,
         telemetry_selected=telemetry_selected if telemetry_enabled else {},
     )
     if request.mode is ScanRequestMode.NOSCAN:
@@ -737,6 +745,12 @@ def _optimize_request_body(
             "device for this optimization (pre-claim) — the objective "
             "would have nothing to read"
         )
+    # CONNECTED liveness re-check (#664), same terms as the step/noscan path.
+    disconnected_devices = _preflight_connected(
+        session,
+        devices_config,
+        free_run=request.acquisition is not AcquisitionMode.STRICT,
+    )
 
     # ---- phase 2: worker-side construction (connects deferred) -----------
     factories = _DeferredConnectFactories(session)
@@ -783,6 +797,8 @@ def _optimize_request_body(
         }
     if dropped_unserved_devices:
         md["dropped_unserved_devices"] = list(dropped_unserved_devices)
+    if disconnected_devices:
+        md["disconnected_devices"] = list(disconnected_devices)
     if applied_defaults:
         md["applied_defaults"] = metadata_applied_defaults(applied_defaults)
     submission = metadata_submission(request)

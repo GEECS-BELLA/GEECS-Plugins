@@ -591,6 +591,18 @@ whose DB failure reads as *unknown* (check skipped with one warning),
 never as *empty*.  (The old device-level `GatewayLivenessCheck` /
 `FreeRunStalenessCheck` were bridge-hook-only and died with it; the
 console's pre-submit CONNECTED/staleness reads are their successors.)
+Since 0.59.0 the worker **re-checks CONNECTED at execution** too
+(`_preflight_connected`, pre-claim on all four runner/queue-plan paths —
+the submission-to-execution gap is long and clients can skip preflight;
+live incident 2026-08-22, issue #664): a Disconnected **load-bearing**
+device refuses with `GeecsDeviceDownError` (free-run: the reference;
+strict: any synchronous device), others warn-and-continue with the list
+recorded as `disconnected_devices` in run metadata; unreadable is never
+a verdict (fail-open).  `geecs_t0_sync` carries the same gate in-plan
+(`connected_status` read; a dead device's stale cache must never seed
+t0 — timestamp freshness deliberately cannot be the guard, because a
+parked trigger at laser-off rest makes a *healthy* cache legitimately
+old).
 
 `ScanRequest` execution (`scan_request_runner` / `GeecsSession.run`) runs
 the full schema surface as of 0.23.0 (M3b): **actions execute**
@@ -783,8 +795,10 @@ Remaining items are features/tuning, not architecture.
   streams instead).  Liveness remains CONNECTED-based (the gateway serves
   every DB device's data PVs whether or not the device is up, so
   CA-connect success never implied liveness) — read pre-submit by the
-  console's preflight; its staleness sample window still deserves a lab
-  session of tuning against real rep rates.
+  console's preflight AND re-checked at execution by the worker since
+  0.59.0 (`_preflight_connected` + the t0-sync gate, #664); the
+  client-side staleness sample window still deserves a lab session of
+  tuning against real rep rates.
 - **Scalar s-files are exported from Tiled best-effort** after a scan when the
   Tiled client extra is installed and the run can be read back.  Legacy TDMS
   output is not produced.
