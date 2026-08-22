@@ -38,7 +38,11 @@ logger = logging.getLogger("geecs_scan_mcp.tools.control")
 # ---------------------------------------------------------------------------
 
 
-#: The preflight checks whose warnings can be acknowledged.  Names outside
+#: The preflight checks whose warnings can be acknowledged.  Hand-kept in
+#: sync with the ``PreflightOutcome.check`` vocabulary of
+#: ``geecs_bluesky.qs_client.submit_preflight`` (fail-closed on drift: a
+#: new check's question could not be acknowledged until this tuple is
+#: updated — update BOTH when adding a check).  Names outside
 #: this vocabulary in ``acknowledge_warnings`` are refused (typo guard).
 #: HONEST RESIDUAL (review finding): the server is stateless, so an agent
 #: that pre-acknowledges these known names on its FIRST call skips the
