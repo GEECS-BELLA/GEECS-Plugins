@@ -3,8 +3,8 @@
 A check inspects the scan about to start and returns *pass*, *ask the
 operator a question*, or *abort*.  Since the queueserver migration
 (decision 3, issue #649) questions are answered **client-side pre-submit**
-— GEECS-Console runs the checks itself and renders each :class:`Ask` as an
-ordinary modal (``geecs_console.services.submit_preflight``, the live
+— clients run the checks pre-submit and render each :class:`Ask` their own
+way (``geecs_bluesky.qs_client.submit_preflight``, the live
 consumer of this module's :class:`UnservedVariablesCheck` /
 :class:`PreflightContext` / :class:`Ask` / :class:`Passed`).  Engine-side,
 :func:`run_preflight` runs headless: an :class:`Ask` takes its

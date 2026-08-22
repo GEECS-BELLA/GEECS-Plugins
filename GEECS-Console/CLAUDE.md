@@ -105,8 +105,10 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   `request_builder.build_scan_request` is the only place form state becomes
   a request; keep it a pure function, keep widgets out of it.
 - **The window depends on seams, not implementations**: `Submitter`
-  (the queueserver-client protocol since #648 — `QueueSubmitter` over
-  the RE Manager: queue submission with the failed-item guard, sequenced
+  (the console's name for `geecs_bluesky.qs_client.QueueClient` — the
+  ONE queueserver-client protocol since the extraction, aliased in
+  `submission.py` whose `make_queue_submitter` stamps the console's
+  identity: queue submission with the failed-item guard, sequenced
   stop, pause/resume, worker-side actions and `move_variable`, and a
   never-raises `status()` the monitor polls), `ConsoleConfigs`,
   `HealthProbe`, `PresetStore`, `ConsoleSettings`.  All
@@ -114,14 +116,15 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
   disposes the window's `ScanMonitorController` so state slots are
   driven directly, never raced by the background poll).
 - **Offline-first**: the window must open and run with zero network and
-  zero configs.  `geecs_bluesky` is imported lazily (function-level) in
-  `services/submit_preflight.py` and `services/configs.py` — it pulls
-  `aioca` at package import, so a module-level import would couple
-  opening the window to the `ca` extra; `bluesky-queueserver-api`
-  imports live inside `services/queue_client.py` methods the same way.
-  Without a `[qserver]` config section the stub client refuses
-  submission with a message naming the missing section — everything
-  else works.
+  zero configs.  The `geecs_bluesky` *package* import is light since the
+  qs_client extraction (its device re-exports are PEP 562-lazy), so
+  importing `geecs_bluesky.qs_client` at module level is fine — but the
+  heavy submodules (`devices/*`, the engine internals) still load
+  aioca/ophyd, so `services/configs.py` and the CA helpers keep their
+  function-level imports, and `bluesky-queueserver-api` stays inside
+  qs_client method bodies.  Without a `[qserver]` config section the
+  stub client refuses submission with a message naming the missing
+  section — everything else works.
 - PySide6 only (LGPL, agent-editable `.ui` XML).  Never PyQt.
 - The `.ui` is hand-authored XML loaded at runtime via `QUiLoader` — no
   generated `*_ui.py` files to keep in sync.
@@ -149,7 +152,8 @@ are prefixed by region (`r3_radio_1d`, `r5_start_button`, …).
 - **Pre-submit preflight dialogs** (queueserver decision 3 — the old
   mid-run `ScanDialogEvent`/`DialogRequest` transport is gone with the
   bridge): the checks run *before* queueing on the submit worker
-  (`services/submit_preflight.py` — the engine's own
+  (`geecs_bluesky.qs_client.submit_preflight`, shared with every other
+  queue client since the extraction — the engine's own
   `validate_scan_request` and `UnservedVariablesCheck` reused, plus
   client-side CONNECTED liveness (fail-open; the read passes
   `datatype=str` because CONNECTED is a DBR_ENUM — a native read returns

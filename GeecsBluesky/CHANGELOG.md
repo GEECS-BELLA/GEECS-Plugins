@@ -4,6 +4,46 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.58.0] - 2026-08-21
+
+### Added
+
+- **`geecs_bluesky.qs_client` — the RE Manager client seam, extracted
+  from GEECS-Console** (the console is one queue client among several;
+  notebooks and the OSPREY scan MCP submit the same `ScanRequest` dicts
+  through the same verbs):
+  - `client.py` — the ONE `QueueClient` protocol (it absorbed the
+    console's former `Submitter` twin: `run_action` raise-mapping and
+    the `info_addr`/`doc_addr` stream addresses now live on the client),
+    `ZmqQueueClient`/`StubQueueClient`, the `[qserver]` config reader,
+    and `make_queue_client(experiment, user=...)`.  New read-only verbs
+    `queue_items()`/`history_items()` (the OSPREY MCP plan's first gap).
+  - `submit_preflight.py` — the client-side pre-submit checks and
+    `stamp_submission` provenance, moved verbatim from the console.
+  - New `qs-client` extra carrying `bluesky-queueserver-api` (lazily
+    imported inside methods; the modules import without it).
+  - Tests moved/extended to `tests/qs_client/` (skip whole without the
+    extra, the optimize-extra pattern).
+- **`devices/ca/oneshot.py` — the one blessed one-shot blocking CA
+  read** (`caget_once`/`try_caget_once`): one persistent reader loop in
+  one daemon thread.  A per-call `asyncio.run()` re-created the CA
+  channels and leaked aioca's per-loop channel cache on every read —
+  the preflight's liveness/staleness samples and the console health
+  probe now share this helper instead.
+
+### Changed
+
+- **`geecs_bluesky` package import is light** (PEP 562): the top-level
+  device re-exports load lazily, so `import geecs_bluesky.qs_client`
+  (or the bare package) no longer pays for aioca/ophyd-async.
+  `from geecs_bluesky import CaMotor` still works and
+  `apply_epics_address_config()` still runs before any device import.
+- `qserver/launch_re_manager.sh`: `QS_STARTUP_DIR` defaults to the
+  `startup/` folder **beside the script** instead of the CWD-relative
+  `./startup`, so the launcher works from any working directory (live
+  finding 2026-08-21: launching from the package root failed with a
+  missing-startup-dir error).
+
 ## [0.57.3] - 2026-08-21
 
 ### Removed

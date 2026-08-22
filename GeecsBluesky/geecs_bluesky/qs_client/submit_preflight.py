@@ -3,15 +3,17 @@
 Under the queue, submission-to-execution gaps are long — a typo must fail
 at submit, not at queue-front — and the worker cannot ask the operator
 anything (its checks run headless: default-continue with a warning).  So
-the console runs the checks *before* queueing and asks its questions as
-ordinary synchronous dialogs.  The worker re-runs validation and the
-unserved-variables check authoritatively at execution — the duplication is
-by design (migration doc, "reinitialize disposition").
+clients run the checks *before* queueing and ask the questions their own
+way: the console renders each as a synchronous modal; a headless client
+(notebook, the OSPREY MCP) surfaces them programmatically.  The worker
+re-runs validation and the unserved-variables check authoritatively at
+execution — the duplication is by design (migration doc, "reinitialize
+disposition").
 
-This module is the pure layer: it computes findings and questions on a
-background thread and returns them; the **dialogs live in the window**.
-Outcomes are stamped into the request's ``submission`` record
-(geecs-schemas 0.10.0) by :func:`stamp_submission`, giving the run
+This module is the pure layer: it computes findings and questions on the
+caller's thread and returns them; **rendering/answering lives in the
+client**.  Outcomes are stamped into the request's ``submission`` record
+(geecs-schemas ≥ 0.10.0) by :func:`stamp_submission`, giving the run
 metadata a provenance trail of who was asked what and what they answered.
 
 Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
@@ -29,8 +31,8 @@ Checks, in order (names are the ``PreflightOutcome.check`` vocabulary):
   ``acq_timestamp`` must advance within a short window, else the trigger
   looks stopped.
 
-Every real dependency (``geecs_bluesky``, ``aioca``) is imported lazily
-inside functions — this module must import offline (console standing rule).
+Every heavy dependency (the engine internals, ``aioca``) is imported
+lazily inside functions — this module must import light and offline.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ _STALENESS_WINDOW_S = 2.0
 
 @dataclass(frozen=True)
 class PreflightQuestion:
-    """One operator question a check raised (rendered as a modal by the window)."""
+    """One operator question a check raised (rendered by the client)."""
 
     check: str
     title: str
@@ -64,7 +66,7 @@ class PreflightQuestion:
 
 @dataclass
 class PreflightReport:
-    """Everything the check phase computed, for the window's ask phase.
+    """Everything the check phase computed, for the client's ask phase.
 
     ``refusal`` set means submission must not proceed (validation failed) —
     ``questions`` and ``outcomes`` are then partial and irrelevant.
@@ -102,16 +104,17 @@ def _resolve_devices_config(request: Any, resolver: Any) -> dict[str, dict]:
 
 
 def run_submit_preflight(request: Any, experiment: str) -> PreflightReport:
-    """Run every pre-submit check; return findings for the window to render.
+    """Run every pre-submit check; return findings for the client to render.
 
-    Blocking (config reads, one DB query, a few CA reads) — call it on a
-    background worker, never the GUI thread.  Never raises: any check that
-    blows up unexpectedly is recorded as ``skipped`` with the error text.
+    Blocking (config reads, one DB query, a few CA reads) — GUI clients
+    call it on a background worker, never the GUI thread.  Never raises:
+    any check that blows up unexpectedly is recorded as ``skipped`` with
+    the error text.
 
     Parameters
     ----------
     request : geecs_schemas.ScanRequest
-        The validated request the form built (not yet stamped).
+        The validated request the client built (not yet stamped).
     experiment : str
         The selected experiment (resolver + PV prefix).
 
@@ -216,7 +219,12 @@ def _check_unserved(
 
 
 def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:
-    """One blocking CA read (aioca in a private loop); ``None`` on failure.
+    """One blocking CA read on the shared reader loop; ``None`` on failure.
+
+    Delegates to :func:`geecs_bluesky.devices.ca.oneshot.try_caget_once`
+    (one persistent loop — never a per-call ``asyncio.run``, whose fresh
+    loop leaks aioca's per-loop channel cache on every read).  Kept as a
+    module-level seam so tests patch the reads here.
 
     Parameters
     ----------
@@ -233,19 +241,9 @@ def _read_pv(pv: str, timeout: float, datatype: Any = None) -> Any:
         ``None`` reads the channel's native type (right for
         ``acq_timestamp``, natively a double).
     """
-    import asyncio
+    from geecs_bluesky.devices.ca.oneshot import try_caget_once
 
-    from aioca import caget
-
-    async def _get() -> Any:
-        if datatype is None:
-            return await caget(pv, timeout=timeout)
-        return await caget(pv, datatype=datatype, timeout=timeout)
-
-    try:
-        return asyncio.run(_get())
-    except Exception:
-        return None
+    return try_caget_once(pv, timeout=timeout, datatype=datatype)
 
 
 def _check_liveness(
@@ -342,7 +340,7 @@ def stamp_submission(
         Final ``(check, result, detail)`` tuples — the report's decided
         outcomes plus one ``continued`` entry per question answered.
     client :
-        Client identity string, e.g. ``"geecs-console 0.21.0"``.
+        Client identity string, e.g. ``"geecs-console 0.24.0"``.
 
     Returns
     -------

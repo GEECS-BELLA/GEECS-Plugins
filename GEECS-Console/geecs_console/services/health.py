@@ -144,30 +144,21 @@ class GatewayTiledDbHealth:
         if not experiment:
             return HealthStatus.UNKNOWN
         try:
-            import asyncio
-
-            import aioca
+            # One-shot reads ride the shared persistent reader loop — a
+            # per-poll asyncio.run() would re-create the CA channels and
+            # leak aioca's per-loop cache on every 5 s poll, forever.
             from geecs_bluesky.devices.ca._pv import ca_pv
             from geecs_bluesky.devices.ca.gateway_put import bare_pv
+            from geecs_bluesky.devices.ca.oneshot import caget_once, try_caget_once
 
             heartbeat_pv = bare_pv(ca_pv(experiment, "CAGateway", "HEARTBEAT"))
             connected_pv = bare_pv(ca_pv(experiment, "CAGateway", "DEVICES_CONNECTED"))
 
-            async def _read() -> tuple[object, object]:
-                heartbeat = await asyncio.wait_for(
-                    aioca.caget(heartbeat_pv), timeout=_CHECK_TIMEOUT_S
-                )
-                try:
-                    connected = await asyncio.wait_for(
-                        aioca.caget(connected_pv), timeout=_CHECK_TIMEOUT_S
-                    )
-                except Exception:
-                    # Heartbeat is the primary liveness signal; a missing
-                    # DEVICES_CONNECTED PV must not flip a live gateway to DOWN.
-                    connected = None
-                return heartbeat, connected
-
-            _heartbeat, connected = asyncio.run(_read())
+            # Heartbeat is the primary liveness signal (raises → DOWN); a
+            # missing DEVICES_CONNECTED PV must not flip a live gateway to
+            # DOWN, so that read is fail-open.
+            caget_once(heartbeat_pv, timeout=_CHECK_TIMEOUT_S)
+            connected = try_caget_once(connected_pv, timeout=_CHECK_TIMEOUT_S)
             if connected is not None and int(connected) == 0:
                 return HealthStatus.WARN
             return HealthStatus.OK

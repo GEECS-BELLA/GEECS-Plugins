@@ -64,6 +64,18 @@ geecs_bluesky/
                             #   renders Ask as a modal (its submit_preflight
                             #   is the live consumer — OperatorQuestion +
                             #   ANSWER_* live here since W5)
+  qs_client/                # the RE Manager CLIENT seam (extracted from
+                            #   GEECS-Console 2026-08-21, shared by every
+                            #   client — console, notebooks, OSPREY MCP):
+                            #   client.py = the ONE QueueClient protocol +
+                            #   ZmqQueueClient/StubQueueClient + the
+                            #   [qserver] config reader (submission with the
+                            #   failed-item-at-front guard, sequenced stop,
+                            #   read verbs, function-verb task polling);
+                            #   submit_preflight.py = client-side pre-submit
+                            #   checks + stamp_submission provenance.
+                            #   bluesky-queueserver-api rides the qs-client
+                            #   extra, lazily imported inside methods
   config_resolver.py        # ConfigResolver protocol + ConfigsRepoResolver:
                             #   ScanRequest names → schema models (new-schema
                             #   YAML directly, else legacy-convert)
@@ -125,6 +137,10 @@ geecs_bluesky/
       action_signals.py     # CaActionSignalFactory — the production
                             #   SettableFactory for compiled action plans
                             #   (cached :SP settables + str readbacks)
+      oneshot.py            # caget_once/try_caget_once — THE one-shot
+                            #   blocking CA read (one persistent reader
+                            #   loop; a per-call asyncio.run leaks aioca's
+                            #   per-loop channel cache)
       gateway_put.py        # GatewaySetpointPut — THE one gateway :SP put
                             #   primitive (addressing rule ca://-vs-bare,
                             #   wire conventions, timeout, mock); every
@@ -200,7 +216,20 @@ its Troubleshooting section is the empirical contract (permissions file,
 CLI parses Python literals not JSON).
 
 Clients submit `ScanRequest.model_dump(mode="json")` dicts as queue items;
-GEECS-Console's client lives in `geecs_console/services/queue_client.py`.
+the client machinery lives in **this package** since the extraction
+(2026-08-21): `geecs_bluesky/qs_client/` — `client.py` (the ONE
+`QueueClient` protocol + `ZmqQueueClient`/`StubQueueClient` + the
+`[qserver]` config reader; it absorbed the console's former `Submitter`
+twin) and `submit_preflight.py` (the client-side pre-submit checks +
+`stamp_submission` provenance).  `bluesky-queueserver-api` rides the
+`qs-client` extra, imported lazily inside methods; the package import
+itself is light (the top-level device re-exports are PEP 562-lazy so a
+client never pays for aioca/ophyd-async).  One-shot blocking CA reads
+(the preflight's liveness/staleness samples, the console health probe)
+go through `devices/ca/oneshot.py` — one persistent reader loop, never a
+per-call `asyncio.run` (which leaks aioca's per-loop channel cache).
+The console keeps only its identity wrapper
+(`geecs_console/submission.py`) and the Qt-side monitor.
 Operator pause/resume/stop are the manager's own verbs (decision 4):
 deferred pause lands at the next plan checkpoint and resume replays
 nothing; stop-from-paused finalizes gracefully with partial data (both

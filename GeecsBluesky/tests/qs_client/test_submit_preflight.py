@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from geecs_console.services import submit_preflight
-from geecs_console.services.submit_preflight import (
+from geecs_bluesky.qs_client import submit_preflight
+from geecs_bluesky.qs_client.submit_preflight import (
     PreflightReport,
     run_submit_preflight,
     stamp_submission,
