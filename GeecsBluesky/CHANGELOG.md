@@ -23,7 +23,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - New `qs-client` extra carrying `bluesky-queueserver-api` (lazily
     imported inside methods; the modules import without it).
   - Tests moved/extended to `tests/qs_client/` (skip whole without the
-    extra, the optimize-extra pattern).
+    extra, the optimize-extra pattern); the light-package-import
+    contract and the oneshot one-loop contract are pinned by
+    `tests/test_lazy_package_import.py` / `tests/test_oneshot.py`
+    (review findings on the extraction PR), and the qs_client suite
+    keeps a Windows CI leg via the `console-windows` job.
 - **`devices/ca/oneshot.py` — the one blessed one-shot blocking CA
   read** (`caget_once`/`try_caget_once`): one persistent reader loop in
   one daemon thread.  A per-call `asyncio.run()` re-created the CA

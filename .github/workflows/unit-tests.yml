@@ -114,3 +114,11 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: poetry run pytest -q --tb=short
+
+      - name: Run qs_client tests on Windows
+        # The RE Manager client (geecs_bluesky.qs_client) moved out of the
+        # console but the console still runs it on Windows control-room
+        # machines — keep its Windows leg (tilde-expanding config reader
+        # included).  geecs-bluesky is installed in this env as a path dep
+        # with the qs-client extra, so the suite collects here directly.
+        run: poetry run pytest ../GeecsBluesky/tests/qs_client -q --tb=short -p no:cacheprovider
