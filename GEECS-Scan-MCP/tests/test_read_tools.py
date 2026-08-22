@@ -193,8 +193,10 @@ def test_get_scan_result_unknown_number_is_not_found(monkeypatch):
     assert "Scan099" in result["message"]
 
 
-def test_get_scan_result_needs_number_or_uid(monkeypatch):
-    monkeypatch.setattr(runtime, "get_catalog", lambda: _FakeCatalog([], None))
+def test_get_scan_result_needs_number_or_uid():
+    # Pure argument validation — no catalog patch needed, because the
+    # check runs before the catalog is constructed (codex finding P3:
+    # needing the patch here was the smell).
     result = _load(read_tools._get_scan_result_impl(None, None, None))
     assert not result["ok"] and result["error_kind"] == "invalid_request"
 
@@ -438,3 +440,22 @@ def test_make_error_rejects_unknown_kind():
 
     with pytest.raises(ValueError):
         make_error("surprise", "boom")
+
+
+def test_make_ok_is_strict_json_for_nonfinite_floats():
+    # Codex finding P2: the serializer itself owns the strict-JSON
+    # contract — any payload field, nested or not, with a non-finite
+    # float must serialize as null, never a bare NaN/Infinity token.
+    from geecs_scan_mcp.errors import make_ok
+
+    payload = make_ok(
+        x=float("nan"),
+        y=float("inf"),
+        nested={"a": [1.0, float("-inf"), {"b": float("nan")}]},
+        fine=2.5,
+    )
+    assert "NaN" not in payload and "Infinity" not in payload
+    parsed = json.loads(payload)
+    assert parsed["x"] is None and parsed["y"] is None
+    assert parsed["nested"]["a"] == [1.0, None, {"b": None}]
+    assert parsed["fine"] == 2.5

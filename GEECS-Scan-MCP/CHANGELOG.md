@@ -55,3 +55,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   deliberately NOT cached so mid-session config edits appear on the
   next listing call.
 - `anyio` declared as a direct dependency.
+
+### Codex review hardening (same release, second reviewer per process)
+
+- The envelope serializer itself now owns the strict-JSON contract:
+  `make_ok` recursively normalizes non-finite floats to `null`
+  (`_json_safe`) with `allow_nan=False` as the raising backstop — no
+  future payload field can regress the bare-`NaN` failure (P2).
+- `get_scan_result`'s missing-selector check runs before the catalog is
+  constructed — pure argument validation no longer depends on archive
+  setup, and its test needs no catalog patch (P3).

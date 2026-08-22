@@ -145,20 +145,6 @@ async def scan_history(limit: int = 10) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _finite(value) -> float | None:
-    """A JSON-safe float: non-finite (NaN/inf) reads as ``None``.
-
-    ``json.dumps`` serializes NaN as a bare ``NaN`` token — invalid JSON
-    that strict consumers reject — and NaN stats are routine here: a
-    one-row run's ddof=1 std, or an all-NaN column from a device that
-    was dead for the whole scan (the event schema's designed null cell).
-    """
-    import math
-
-    number = float(value)
-    return number if math.isfinite(number) else None
-
-
 def _summarize_dataframe(data) -> dict:
     """Column names plus capped per-column mean/std for numeric columns."""
     if data is None:
@@ -168,9 +154,12 @@ def _summarize_dataframe(data) -> dict:
     numeric = data.select_dtypes(include="number")
     for column in list(numeric.columns)[:_MAX_STAT_COLUMNS]:
         series = numeric[column]
+        # Non-finite values (a one-row run's ddof-1 std, an all-NaN
+        # dead-device column) serialize as null — enforced by the
+        # envelope serializer itself (errors._json_safe).
         stats[str(column)] = {
-            "mean": _finite(series.mean()),
-            "std": _finite(series.std()),
+            "mean": float(series.mean()),
+            "std": float(series.std()),
         }
     return {"columns": columns, "rows": int(len(data)), "stats": stats}
 
@@ -179,6 +168,12 @@ def _get_scan_result_impl(
     scan_number: int | None, day: str | None, uid: str | None
 ) -> str:
     """Completed-run lookup: by uid, or by day-scoped GEECS scan number."""
+    if not uid and scan_number is None:
+        # Pure argument validation — decided before the catalog (or any
+        # archive setup) is even constructed (codex review finding).
+        return errors.make_error(
+            "invalid_request", "pass scan_number (with optional day) or uid"
+        )
     try:
         when = date.fromisoformat(day) if day else date.today()
     except ValueError as exc:  # bad day string — decided before any catalog I/O
@@ -188,10 +183,6 @@ def _get_scan_result_impl(
         if uid:
             detail = catalog.load_run(uid)
         else:
-            if scan_number is None:
-                return errors.make_error(
-                    "invalid_request", "pass scan_number (with optional day) or uid"
-                )
             experiment = runtime.get_experiment()
             if not experiment:
                 return errors.make_error(
