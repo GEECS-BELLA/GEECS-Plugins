@@ -5,8 +5,7 @@ save sets, scan variables, trigger profiles, and action plans — plus
 converters from every legacy YAML dialect.
 
 **Configs are schemas; YAML is just serialization.** This package is the
-schema layer of the target architecture
-(`Planning/vision/00_target_architecture.md` §4). It depends on **pydantic
+schema layer of the target architecture. It depends on **pydantic
 only**, so the engine, the GUI, scripts, and docs tooling can all import the
 same models without dragging in hardware or analysis stacks. Nothing imports
 it yet — it lands first, consumers migrate to it converter-first.

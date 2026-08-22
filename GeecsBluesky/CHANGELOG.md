@@ -4,6 +4,25 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.57.2] - 2026-08-21
+
+### Changed
+
+- Docs-only: the executed Planning docs (acquisition_modes, cutover
+  strategy 00+02, external_assets) are deleted repo-side; their
+  load-bearing content now lives in this package — the acquisition-modes
+  deferred list, the resumable-long-scans note, the
+  manual-intervention-provenance gap, and the ECS-dump→baseline-stream
+  pattern in `CLAUDE.md` (Known Gaps / worker section); the
+  incremental-vs-absolute shot-id rationale in `devices/shot_id.py`; the
+  arrival-latency emit-with-offsets rationale in `devices/contributor.py`;
+  the TDMS disposition and the asset-adapter gap in `TILED_SETUP.md`; the
+  deliberately-untested list in `qserver/README.md`. Remaining references
+  to the deleted docs retargeted (`EVENT_SCHEMA.md` is stated as the
+  canonical contract; CurveZMQ key management now tracked as issue #660);
+  `plans/pause_semantics.py`'s docstring trued up — the engine-side pause
+  supervisor is deleted (W5) and the quiescer is the one pause owner.
+
 ## [0.57.1] - 2026-08-21
 
 ### Changed

@@ -1,9 +1,10 @@
 """Plan-level pause semantics for the queueserver world (issue #641).
 
-Implements decisions 1 and 4 of
-``Planning/cutover_strategy/02_queueserver_migration.md`` at the plan layer,
-replacing the engine-side pause supervisor (a Round-3 deletion) for the two
-behaviors that must survive it:
+Implements decisions 1 and 4 of the queueserver migration — both defined
+in full below (``GeecsBluesky/CLAUDE.md``'s worker section carries the
+operational summary) — at the plan layer,
+replacing the engine-side pause supervisor (deleted in W5) for the two
+behaviors that had to survive it:
 
 **Quiesce-on-pause (decision 1).**  When a scan pauses — either operator verb
 (deferred or immediate) or an in-plan :func:`bluesky.plan_stubs.pause` — the
@@ -36,16 +37,12 @@ is already quiescent by construction — the single-shot source cannot
 free-run — so the quiescer deliberately does nothing (pinned by test);
 ``OFF``/``None`` mean the trigger is already stopped / never touched.
 
-**Coexistence with the engine-side pause supervisor (transitional, dies at
-Round 3).**  While the supervisor and this quiescer are both live on the
-bridge/console path, a pause double-quiesces (the supervisor's own
-OFF/restore races this class's, ~3 redundant gateway writes) and the
-supervisor's restore is no longer a safety net for a *plan*-driven pause —
-the end state is provably correct either way, but the redundancy and the
-now-vestigial restore path are worth remembering when the supervisor is
-deleted: this coexistence-era behavior (and the two classes' write
-ordering relative to each other) goes away with it, not before (cross-
-vendor review on #645).
+**The one pause owner.**  The engine-side pause supervisor was deleted in
+W5; this quiescer (plus the queue plan's checkpoint discipline) is now the
+sole pause-quiesce mechanism.  During the transitional coexistence the two
+double-quiesced (~3 redundant gateway writes per pause, end state provably
+correct either way); that behavior died with the supervisor (cross-vendor
+review on #645).
 
 **Failed-move → pause (decision 4).**
 :func:`~geecs_bluesky.plans.step_scan.move_with_failed_move_pause` (living

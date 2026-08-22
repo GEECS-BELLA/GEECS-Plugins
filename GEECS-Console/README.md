@@ -25,7 +25,7 @@ repo available (`GEECS_SCANNER_CONFIG_DIR` or config.ini
 ## Architecture rules (binding)
 
 - **`geecs_python_api` is NEVER imported** — not at day 1, not ever
-  (decided 2026-07-10, `Planning/cutover_strategy/00_overview.md`).  Manual
+  (decided 2026-07-10).  Manual
   set/readback goes through gateway PVs (CA monitor on the readback, put to
   `:SP`); DB autocompletes go through `GeecsDb` from `geecs_core`
   (a declared direct dependency).  A test pins this.

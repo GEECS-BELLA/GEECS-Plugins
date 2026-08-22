@@ -77,5 +77,6 @@ IP → the ECS-dump decision.
 4. **Dead features — DROP** (in-GUI log box, `run` action type,
    `add_all_variables`, unwired refresh button).
 
-Still open: ActionControl re-homing (rec: bluesky-native execution of named
-ActionPlans via the engine compiler) — G-actions in `00_overview.md`.
+ActionControl re-homing (bluesky-native execution of named ActionPlans via
+the engine compiler — "G-actions") was subsequently built and
+hardware-verified (PRs #578–#583, 2026-07-16).

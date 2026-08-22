@@ -4,6 +4,16 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.23.3] - 2026-08-21
+
+### Changed
+
+- Docs-only: the spec pointer in `CLAUDE.md` / `README.md` no longer names
+  the deleted `Planning/cutover_strategy/00_overview.md` — the spec is the
+  kept `Planning/cutover_strategy/01_gui_feature_inventory.md` plus the
+  approved screen-map artifact (Planning prune, post-queueserver-migration
+  audit).
+
 ## [0.23.2] - 2026-08-21
 
 ### Fixed

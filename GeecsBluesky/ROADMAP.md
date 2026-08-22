@@ -23,8 +23,8 @@ both `free_run_time_sync` and `strict_shot_control` modes — including true
 plan-owned single-shot (DG645 `ARMED` state) — with DG645 shot control, Tiled
 persistence, scan numbering, and native file saving.  Both modes write one
 versioned event schema (`EVENT_SCHEMA.md`).  Remaining work (below) is features /
-tuning / data-pipeline, not architecture; see
-`Planning/acquisition_modes/00_overview.md` for the design of record.
+tuning / data-pipeline, not architecture; the design of record is
+`EVENT_SCHEMA.md` plus `CLAUDE.md` (acquisition modes + Known Gaps).
 
 ---
 

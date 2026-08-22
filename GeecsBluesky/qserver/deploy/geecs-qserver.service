@@ -33,9 +33,9 @@ Environment="EPICS_CA_ADDR_LIST=192.168.6.14"
 # colliding names produces nondeterministic connects.
 Environment="EPICS_CA_AUTO_ADDR_LIST=NO"
 
-# CurveZMQ control-plane key management is still an open design item. When that
-# decision lands, put the server private key here; see
-# Planning/cutover_strategy/02_queueserver_migration.md.
+# CurveZMQ control-plane key management is still an open design item (tracked
+# in GEECS-Plugins issue #660). When that decision lands, put the server
+# private key here.
 # Environment="QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER="
 
 # Poetry's ABSOLUTE path is required: systemd's service PATH omits

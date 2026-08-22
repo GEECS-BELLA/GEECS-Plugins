@@ -157,8 +157,8 @@ journalctl -u geecs-qserver.service -n 100 --no-pager
 
 The unit intentionally carries a commented-out
 `Environment=QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER=` line. CurveZMQ control-plane
-key management is still open; the design item is tracked in
-`../../../Planning/cutover_strategy/02_queueserver_migration.md`.
+key management is still open; the design item is tracked in GEECS-Plugins
+issue #660.
 
 ### Document stream (no extra unit)
 

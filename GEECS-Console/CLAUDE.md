@@ -1,10 +1,9 @@
 # GEECS-Console — Developer Context for Claude
 
 The greenfield PySide6 operator console (decided 2026-07-10).  **The screen
-map is the spec**: `Planning/cutover_strategy/00_overview.md` (settled
-parameters), `Planning/cutover_strategy/01_gui_feature_inventory.md` (the
-capability inventory with dispositions), and the approved screen-map
-artifact (regions R1–R7).  This package is the "one working screen" half of
+map is the spec**: `Planning/cutover_strategy/01_gui_feature_inventory.md`
+(the legacy-GUI capability inventory with dispositions) and the approved
+screen-map artifact (regions R1–R7).  This package is the "one working screen" half of
 the commit/abort checkpoint's criterion (c).
 
 ## The screen map (regions → widgets)

@@ -9,6 +9,15 @@ history (immune to clock skew between control machines).  The ID advances
     shot_id = last_shot_id + max(delta, 1)
 
 so rep-rate error resets on every shot instead of accumulating from t0.
+
+Do not "simplify" this to the absolute form
+``round((acq_timestamp - t0) * rep_rate_hz) + 1``: that accumulates rep-rate
+error over the run — a true trigger rate just 0.05% off nominal drifts
+~0.9 shots across a 30-minute scan and misquantizes IDs near the end.  With
+the incremental form each step's rounding error is independent (0.05% of a
+1 s period is 0.5 ms against a 500 ms rounding threshold), so nothing
+accumulates.
+
 Cross-device matching is shot-ID **equality** (given t0s captured on the same
 physical shot — :mod:`geecs_bluesky.plans.t0_sync`), never consecutiveness;
 files join to events by device ``acq_timestamp``, not by ``shot_id``.
