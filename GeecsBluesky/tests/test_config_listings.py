@@ -62,6 +62,34 @@ def test_missing_experiment_is_empty(repo):
     assert resolver.list_save_sets() == []
 
 
+def test_listed_yml_names_round_trip_through_resolution(repo):
+    # Review finding: the listings count .yml files, so resolution must
+    # accept them too (console NamedConfigStore parity) — a listed name
+    # that resolve_* refuses on spelling alone is a client-facing trap.
+    exp = repo / "TestExp"
+    (exp / ConfigsRepoResolver.SAVE_SET_FOLDER / "YmlSet.yml").write_text(
+        "Devices:\n  UC_Cam:\n    variable_list: [MeanCounts]\n    synchronous: true\n"
+    )
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert "YmlSet" in resolver.list_save_sets()
+    save_set = resolver.resolve_save_set("YmlSet")
+    assert [entry.device for entry in save_set.entries] == ["UC_Cam"]
+
+
+def test_io_failure_mid_scan_is_empty(repo, monkeypatch):
+    # The never-raises contract covers the scan itself, not just root
+    # resolution — an SMB blip / permissions failure during iterdir must
+    # read as empty (review finding).
+    from pathlib import Path
+
+    def boom(self):
+        raise PermissionError("share blipped")
+
+    monkeypatch.setattr(Path, "iterdir", boom)
+    resolver = ConfigsRepoResolver("TestExp", experiments_root=repo)
+    assert resolver.list_save_sets() == []
+
+
 def test_unresolvable_configs_root_is_empty(monkeypatch):
     # No experiments_root override and the production resolution raises
     # (no env var, no config.ini entry) — listing reads empty, never raises.

@@ -89,10 +89,16 @@ class ConfigsRepoResolver:
       ``scan_devices/scan_devices.yaml`` + ``scan_devices/composite_variables.yaml``
       pair — the scan-variable catalog
     - ``action_library/actions.yaml`` — the action-plan library
+    - ``presets/<name>.yaml`` and ``optimizer_configs/<name>.yaml`` —
+      listed (for clients) but not resolved here: presets are
+      ``ScanRequest`` documents and optimizer configs are
+      ``OptimizationSpec`` documents, both validated by their consumers.
 
     A file whose top level carries ``schema_version`` is loaded as the new
     schema; anything else goes through the matching legacy converter — so
     the existing corpus works unchanged and files can migrate one at a time.
+    Named configs resolve from either the ``.yaml`` or ``.yml`` spelling
+    (console parity), so every listed name round-trips through resolution.
 
     Parameters
     ----------
@@ -139,6 +145,22 @@ class ConfigsRepoResolver:
                 return name[: -len(suffix)]
         return name
 
+    def _named_yaml_path(self, folder: str, stem: str) -> Path:
+        """The config file for *stem* in *folder*: ``.yaml``, else its ``.yml`` twin.
+
+        The console resolves both spellings (``NamedConfigStore._named_path``
+        parity) and the listings count both, so resolution must round-trip
+        every listed name.  When neither exists, the ``.yaml`` path is
+        returned so the not-found error names the canonical spelling.
+        """
+        base = self._root / folder
+        path = base / f"{stem}.yaml"
+        if not path.exists():
+            twin = base / f"{stem}.yml"
+            if twin.exists():
+                return twin
+        return path
+
     def _load_yaml(self, path: Path, kind: str, name: str) -> dict:
         """Load one YAML mapping, failing loudly with the config kind/name."""
         if not path.exists():
@@ -164,20 +186,27 @@ class ConfigsRepoResolver:
         """Sorted YAML stems of one config folder; ``[]`` when anything is missing.
 
         Never raises — an unresolvable configs root, a missing experiment
-        folder, or a missing kind folder all read as an empty listing
-        (clients render "nothing available", they do not crash).  A listed
-        name is a *file*, not a promise: resolution/validation can still
-        refuse it (e.g. an action-only legacy save element).
+        folder, a missing kind folder, or an I/O failure mid-scan (an SMB
+        visibility blip on a mounted configs share, a permissions problem)
+        all read as an empty listing: clients render "nothing available",
+        they do not crash.  A listed name is a *file*, not a promise:
+        resolution/validation can still refuse it (e.g. an action-only
+        legacy save element).
         """
         try:
             path = self._root / folder
-        except Exception:  # configs root unresolvable — empty, not an error
+            if not path.is_dir():
+                return []
+            return sorted(
+                entry.stem
+                for entry in path.iterdir()
+                if entry.suffix in (".yaml", ".yml")
+            )
+        except Exception:  # root unresolvable / I/O failure — empty, never raise
+            logger.debug(
+                "config listing failed for %s (read as empty)", folder, exc_info=True
+            )
             return []
-        if not path.is_dir():
-            return []
-        return sorted(
-            entry.stem for entry in path.iterdir() if entry.suffix in (".yaml", ".yml")
-        )
 
     def list_save_sets(self) -> list[str]:
         """Names accepted by :meth:`resolve_save_set` (sorted; ``[]`` if none)."""
@@ -204,7 +233,7 @@ class ConfigsRepoResolver:
             Missing file, or an action-only legacy element (nothing to record).
         """
         stem = self._strip_yaml_suffix(name)
-        path = self._root / self.SAVE_SET_FOLDER / f"{stem}.yaml"
+        path = self._named_yaml_path(self.SAVE_SET_FOLDER, stem)
         document = self._load_yaml(path, "save set", name)
         if "schema_version" in document:
             return SaveSet.model_validate(document)
@@ -231,7 +260,7 @@ class ConfigsRepoResolver:
             Missing file, or a profile that names no trigger device.
         """
         stem = self._strip_yaml_suffix(name)
-        path = self._root / self.TRIGGER_FOLDER / f"{stem}.yaml"
+        path = self._named_yaml_path(self.TRIGGER_FOLDER, stem)
         document = self._load_yaml(path, "trigger profile", name)
         if "schema_version" in document:
             return TriggerProfile.model_validate(document)
