@@ -2,7 +2,7 @@
 
 The RE Manager client machinery lives in :mod:`geecs_bluesky.qs_client`
 since the extraction (2026-08-21) — the console is one peer client of the
-queue among several (notebooks, the OSPREY scan MCP submit the same
+queue among several (notebooks, the GEECS MCP submit the same
 ``ScanRequest`` dicts through the same verbs).  What stays here is the
 console's part:
 

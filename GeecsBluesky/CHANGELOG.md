@@ -4,6 +4,20 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.61.0] - 2026-08-22
+
+### Added
+
+- **`qs_client` control-surface reads for the scan MCP's v1 verbs**:
+  `QueueClient.running_item()` (the in-flight item from `queue_get` —
+  carries `user`, the submitted-as identity that grounds client-side
+  ownership etiquette; `None` while idle) and `clear_queue()` (the
+  explicit failed-item-at-front recovery verb — submission never clears
+  implicitly).  On the protocol, `ZmqQueueClient`, and the stub.
+- **`ConfigsRepoResolver.resolve_preset(name)`** — loads a preset as a
+  validated `ScanRequest` (presets ARE saved ScanRequests; the folder
+  layout keeps one owner; `.yml` round-trips like every named config).
+
 ## [0.60.0] - 2026-08-22
 
 ### Added

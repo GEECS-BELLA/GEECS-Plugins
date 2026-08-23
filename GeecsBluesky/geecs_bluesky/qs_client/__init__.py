@@ -1,7 +1,7 @@
 """The GEECS RE Manager client seam — for every queueserver client.
 
 Extracted from GEECS-Console (2026-08-21) because the console is just one
-client of the queue: notebooks and the OSPREY scan MCP submit the same
+client of the queue: notebooks and the GEECS MCP submit the same
 ``geecs_schemas.ScanRequest`` dicts through the same verbs.  Two modules:
 
 - :mod:`.client` — the :class:`QueueClient` protocol and its

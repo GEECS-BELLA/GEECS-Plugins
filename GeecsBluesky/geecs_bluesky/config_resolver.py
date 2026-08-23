@@ -220,6 +220,28 @@ class ConfigsRepoResolver:
         """Saved preset names (each file is a ``ScanRequest``; sorted; ``[]`` if none)."""
         return self._list_folder(self.PRESET_FOLDER)
 
+    def resolve_preset(self, name: str):
+        """Load preset *name* as a validated ``ScanRequest``.
+
+        A preset IS a saved ``ScanRequest`` (one YAML per name under
+        ``presets/`` — the console's PresetStore writes them; the scan
+        MCP's ``submit_scan(preset=...)`` reads them here so the folder
+        layout keeps one owner).
+
+        Raises
+        ------
+        GeecsConfigurationError
+            Missing file or a document that is not a mapping.
+        pydantic.ValidationError
+            A document that is not a valid ``ScanRequest``.
+        """
+        from geecs_schemas import ScanRequest
+
+        stem = self._strip_yaml_suffix(name)
+        path = self._named_yaml_path(self.PRESET_FOLDER, stem)
+        document = self._load_yaml(path, "preset", name)
+        return ScanRequest.model_validate(document)
+
     def list_optimizer_configs(self) -> list[str]:
         """Optimizer-config names (``OptimizationSpec`` documents; sorted; ``[]`` if none)."""
         return self._list_folder(self.OPTIMIZER_FOLDER)

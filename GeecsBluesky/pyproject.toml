@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "geecs-bluesky"
-version = "0.60.0"
+version = "0.61.0"
 description = "Bluesky / ophyd-async bridge for the GEECS control system"
 authors = ["Sam Barber <sbarber@lbl.gov>"]
 readme = "README.md"
@@ -60,7 +60,7 @@ bluesky-queueserver = { version = "^0.0.25", optional = true }
 # The client side of the queue (geecs_bluesky/qs_client/ — extracted from
 # GEECS-Console 2026-08-21): queue submission, status polling, and the
 # manual function verbs for ANY manager client (console, notebooks, the
-# OSPREY scan MCP). The api package itself is small, but it requires
+# GEECS MCP (OSPREY)). The api package itself is small, but it requires
 # bluesky-queueserver and thereby a heavy transitive closure (ipykernel,
 # jupyter-client, ophyd, redis, …) — do NOT treat this extra as a light
 # add. Optional so the worker and headless installs don't carry it.

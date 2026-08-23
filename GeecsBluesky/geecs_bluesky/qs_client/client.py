@@ -1,6 +1,6 @@
 """Queueserver manager client: any GEECS client as a peer of the RE Manager.
 
-Clients (the console, notebooks, the OSPREY scan MCP) submit scans to a
+Clients (the console, notebooks, the GEECS MCP) submit scans to a
 bluesky-queueserver RE Manager (the GEECS worker, ``GeecsBluesky/qserver/``)
 as queue items.  This module is the one place that speaks
 ``bluesky-queueserver-api``:
@@ -207,6 +207,25 @@ class QueueClient(Protocol):
         """Return the manager's item history; raises on failure."""
         ...
 
+    def running_item(self) -> Optional[dict]:
+        """Return the currently running item (``None`` when idle); raises on failure.
+
+        The item dict carries the manager's shape — notably ``user`` (the
+        submitted-as identity), the basis of client-side ownership
+        etiquette (a client should not stop another client's scan without
+        an explicit force).
+        """
+        ...
+
+    def clear_queue(self) -> tuple[bool, str]:
+        """Remove every queued item. Returns ``(ok, message)``.
+
+        The explicit recovery verb for the failed-item-at-front trap —
+        deliberately separate from submission (``submit_scan`` never
+        clears implicitly; see ``clear_pending``).
+        """
+        ...
+
     def move_variable(self, name: str, value: float) -> dict:
         """Run ``geecs_move_variable`` on the worker; raises on refusal/failure."""
         ...
@@ -265,6 +284,14 @@ class StubQueueClient:
     def history_items(self) -> list[dict]:
         """Refuse with the missing-config message."""
         raise RuntimeError(_STUB_MESSAGE)
+
+    def running_item(self) -> Optional[dict]:
+        """Refuse with the missing-config message."""
+        raise RuntimeError(_STUB_MESSAGE)
+
+    def clear_queue(self) -> tuple[bool, str]:
+        """Refuse with the missing-config message."""
+        return False, _STUB_MESSAGE
 
     def move_variable(self, name: str, value: float) -> dict:
         """Refuse with the missing-config message."""
@@ -520,6 +547,23 @@ class ZmqQueueClient:
     def history_items(self) -> list[dict]:
         """Return the manager's item history (read-only; raises on failure)."""
         return list(self._manager().history_get().get("items") or [])
+
+    def running_item(self) -> Optional[dict]:
+        """Return the running item from ``queue_get`` (read-only; raises on failure).
+
+        The manager reports the in-flight item beside the queue —
+        ``running_item`` is ``{}`` while idle, mapped to ``None`` here.
+        """
+        raw = self._manager().queue_get().get("running_item") or None
+        return dict(raw) if raw else None
+
+    def clear_queue(self) -> tuple[bool, str]:
+        """Remove every queued item (the explicit recovery verb)."""
+        try:
+            self._manager().queue_clear()
+            return True, "queue cleared"
+        except Exception as exc:
+            return False, str(exc)
 
     def move_variable(self, name: str, value: float) -> dict:
         """Run the worker's manual move; idle-only (the manager enforces it)."""

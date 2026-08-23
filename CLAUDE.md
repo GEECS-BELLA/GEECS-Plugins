@@ -17,6 +17,7 @@ tooling. Each subdirectory is an independent Python package with its own
 | `GEECS-Core/` | The GEECS access **library**: UDP/TCP wire protocol (`transport/`), experiment DB (`db/GeecsDb`), PV naming contract, the one `GeecsError` tree, and the `FakeGeecsServer` test double — extracted from GeecsCAGateway 2026-08-20; see its `DESIGN.md` for the layering rules — plus the thin synchronous `GeecsDevice` client (`client/`), the successor to GEECS-PythonAPI's device objects |
 | `GeecsCAGateway/` | The caproto CA gateway serving GEECS devices as PVs (readback + `:SP`) for Phoebus/Archiver/ophyd-async, built on GEECS-Core — see its `PV_CONTRACT.md` (client API contract), `DEPLOYMENT.md`, and `DESIGN.md` |
 | `GeecsPvaGateway/` | The PVA peer of GeecsCAGateway: distributed pvAccess server on each Windows camera server, exposing that host's GEECS camera images as NTNDArray PVs (gated subscriptions, latest-wins). Images stay off the central CA gateway by design |
+| `GEECS-MCP/` | The general GEECS MCP server for AI agents (OSPREY) — domains as modules, scans first: read tools (status/history/results/config listings/validation) + control verbs (submit with cap/etiquette/acknowledge-loop, ownership-gated stop, clear_queue) over `geecs_bluesky.qs_client` + the resolver + Tiled. Osprey integrates via `profile.yml` — central HTTP (the multi-machine mode) or stdio; see its `deploy/DEPLOYMENT.md` |
 | `LogMaker4GoogleDocs/` | Google Docs/Drive API wrapper for automated experiment logs |
 
 Each subpackage has its own `CLAUDE.md` with deep architectural detail.
@@ -147,6 +148,13 @@ GeecsBluesky         →  GEECS-Data-Utils, GEECS-Core, GEECS-Schemas
                         `qs-client` extra — geecs_bluesky.qs_client, the
                         RE Manager client every queue client uses)
 ScanAnalysis         →  GEECS-Data-Utils, ImageAnalysis, LogMaker4GoogleDocs
+GEECS-MCP            →  GeecsBluesky (qs-client + ca extras — the queue
+                        client, preflight, config resolver/listings),
+                        GEECS-Data-Utils (tiled extra — results lookup),
+                        GEECS-Schemas (ScanRequest validation at the
+                        tool boundary) — a peer CLIENT of the
+                        queueserver, same standing as the console;
+                        never imports engine internals
 GEECS-Console        →  GeecsBluesky, GEECS-Schemas, GEECS-Data-Utils,
                         GEECS-Core (GeecsDb for completions/health)
                         (scan execution is remote: the console submits to
