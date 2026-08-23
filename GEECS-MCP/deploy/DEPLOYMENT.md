@@ -36,7 +36,10 @@ either (the framework's deny augmentation walks its own
   behind the kill switch — the halt doctrine holds, by upstream gap
   rather than by design.
 - **Headless**: the `write_tools` entries under the profile's
-  `config:` cover the control verbs.
+  `config:` cover the control verbs — list `submit_scan`, `stop_scan`,
+  and `clear_queue` there (the deployed htu profile carries the working
+  example; this is the ONLY headless gate, so a profile without those
+  entries leaves an unattended agent ungated).
 
 Two upstream osprey gaps to file: hook presets (or per-tool matchers)
 for custom servers, and kill-switch deny augmentation extending beyond

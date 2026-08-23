@@ -64,8 +64,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     → queue. Submit-and-poll: returns `item_uid` immediately.
   - `stop_scan(force?)` — graceful stop; refuses another client's scan
     naming its submitting identity unless `force=true` (approval-gated
-    osprey-side, logged in the result). Approval-only, never behind the
-    kill switch (in-tool doctrine).
+    osprey-side, logged in the result). Approval-only; not behind the
+    kill switch (since verified: holds because the kill switch does not
+    cover custom-server tools — see 0.3.0 Fixed).
   - `clear_queue()` — the one remover; lists exactly what it removed.
   - `scan_progress()` — poll-shaped (read-only): RE state, running item
     + submitting client, queue depth, last outcome.

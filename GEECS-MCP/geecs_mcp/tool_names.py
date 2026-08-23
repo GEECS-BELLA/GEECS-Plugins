@@ -31,7 +31,9 @@ READ_TOOLS = (
     SCAN_PROGRESS,
 )
 
-#: Queueing tools (Q) — `ask` + the writes_check (kill switch) preset.
+#: Queueing tools (Q) — `ask` interactively; listed in the profile's
+#: `config:` `write_tools` for the headless gate (hook presets do NOT
+#: attach to custom servers — see STOP_TOOLS below / DEPLOYMENT.md).
 QUEUE_TOOLS = (
     SUBMIT_SCAN,
     CLEAR_QUEUE,
