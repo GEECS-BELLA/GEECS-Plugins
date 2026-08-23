@@ -31,19 +31,18 @@ READ_TOOLS = (
     SCAN_PROGRESS,
 )
 
-#: Queueing tools (Q) — `ask` interactively; listed in the profile's
-#: `config:` `write_tools` for the headless gate (hook presets do NOT
-#: attach to custom servers — see STOP_TOOLS below / DEPLOYMENT.md).
+#: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
+#: (hook_config.json, from the profile's `config:`) for the headless
+#: gate (hook presets do NOT attach to custom servers — see STOP_TOOLS
+#: below / DEPLOYMENT.md).
 QUEUE_TOOLS = (
     SUBMIT_SCAN,
     CLEAR_QUEUE,
 )
 
-#: Stop direction (S) — `ask` only.  VERIFIED osprey semantics
-#: (2026-08-22): hook presets and the interactive kill switch do NOT
-#: apply to custom-server tools at all, so stop is not kill-switch-
-#: blocked (the halt doctrine holds, by upstream gap rather than
-#: design) and the native ask prompt is the interactive gate on every
-#: control verb.  See deploy/DEPLOYMENT.md for the full semantics and
-#: the two upstream gaps to file.
+#: Stop direction (S) — `ask` only, and NEVER listed in `write_tools`:
+#: exempt by omission from the headless gate BY DESIGN, and outside the
+#: interactive kill switch because it does not cover custom servers
+#: (upstream gap) — so a halt is never blocked on any path.  VERIFIED
+#: osprey semantics 2026-08-22; see deploy/DEPLOYMENT.md.
 STOP_TOOLS = (STOP_SCAN,)

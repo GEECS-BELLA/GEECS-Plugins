@@ -32,18 +32,24 @@ either (the framework's deny augmentation walks its own
 - **Interactive**: the native `ask` permission prompt on the three
   control verbs — a human sees every `submit_scan`/`stop_scan`/
   `clear_queue` call with its arguments (this is also the backstop for
-  the acknowledge-warnings residual). `stop_scan` is consequently NOT
-  behind the kill switch — the halt doctrine holds, by upstream gap
-  rather than by design.
-- **Headless**: the `write_tools` entries under the profile's
-  `config:` cover the control verbs — list `submit_scan`, `stop_scan`,
-  and `clear_queue` there (the deployed htu profile carries the working
-  example; this is the ONLY headless gate, so a profile without those
-  entries leaves an unattended agent ungated).
+  the acknowledge-warnings residual). `stop_scan` is NOT behind the
+  kill switch on either path: interactively because the kill switch
+  does not cover custom servers (upstream gap), headless by the
+  deliberate `write_tools` omission below — halts are never blocked.
+- **Headless** (`osprey query`): the framework reads
+  `hook_config.json`'s `write_tools` (populated from the profile's
+  `config:`) — list `submit_scan` and `clear_queue` there and
+  **deliberately NOT `stop_scan`**: exempt by omission, so a halt is
+  never blocked on any path (the deployed htu profile is the working
+  example: `write_tools: [mcp__geecs__submit_scan,
+  mcp__geecs__clear_queue]`).  This is the ONLY headless gate — a
+  profile without those two entries leaves an unattended agent's
+  submits ungated.
 
-Two upstream osprey gaps to file: hook presets (or per-tool matchers)
-for custom servers, and kill-switch deny augmentation extending beyond
-the framework's own servers. Until they land, do not add a `hooks:`
+Two upstream osprey issues (to be filed from the osprey side): the
+silent acceptance of unknown keys like `hooks:` on custom-server
+blocks, and custom servers being excluded from the interactive kill
+switch. Until they land, do not add a `hooks:`
 key here — it would document intent the framework does not enforce.
 
 Host setup (same checkout + ritual as the worker):

@@ -106,11 +106,14 @@ geecs_mcp/
   cover custom-server tools (deny augmentation walks the framework's
   own servers only).  The interactive gate is the native `ask` prompt
   on every control verb (arguments visible — also the backstop for the
-  acknowledge-warnings residual); the headless gate is the profile's
-  `config:` `write_tools` entries; `stop_scan` is consequently NOT
-  kill-switch-blocked (the halt doctrine holds, by upstream gap).  Two
-  osprey-side gaps to file: hook presets/per-tool matchers for custom
-  servers, and kill-switch coverage beyond framework servers.  See
+  acknowledge-warnings residual); the headless gate is
+  `hook_config.json`'s `write_tools` (from the profile's `config:`) —
+  listing `submit_scan` + `clear_queue` and deliberately NOT
+  `stop_scan`, so a halt is never blocked on any path (headless by
+  designed omission; interactively because the kill switch does not
+  cover custom servers — upstream gap).  Two osprey-side issues to be
+  filed from that side: silent unknown-key acceptance, and custom
+  servers excluded from the interactive kill switch.  See
   `deploy/DEPLOYMENT.md`.  The submitted-as identity is
   `[mcp] client_identity` (deployment-owned, e.g.
   `osprey-htu-assistant`) and MUST match on the queue item and the

@@ -25,12 +25,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   story): profile-level custom-server `hooks:` keys are silently
   ignored, and the interactive writes kill switch does not cover
   custom-server tools.  The interactive gate is the native `ask`
-  prompt (arguments visible); the headless gate is the profile's
-  `config:` `write_tools`; `stop_scan` is therefore NOT
-  kill-switch-blocked (the halt doctrine holds, by upstream gap rather
-  than design).  Two osprey-side gaps recorded for filing: hook
-  presets/per-tool matchers for custom servers, and kill-switch
-  coverage beyond framework servers.  The `hooks:` key is removed from
+  prompt (arguments visible); the headless gate is
+  `hook_config.json`'s `write_tools` (from the profile's `config:`),
+  listing `submit_scan` + `clear_queue` and deliberately NOT
+  `stop_scan` — a halt is never blocked on any path (headless by
+  designed omission, interactive because the kill switch does not
+  cover custom servers).  Two osprey-side issues to be filed from that
+  side: silent unknown-key acceptance, and custom-server exclusion
+  from the interactive kill switch.  The `hooks:` key is removed from
   every example.
 
 ### Added
