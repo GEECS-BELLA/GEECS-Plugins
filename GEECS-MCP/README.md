@@ -11,9 +11,11 @@ the same server.
 `scan_progress`. Control (put these under OSPREY `ask` + hooks):
 `submit_scan` (one scan in flight, 1,000-shot cap, preflight warnings
 need explicit acknowledgement), `stop_scan` (graceful; `force` for
-another client's scan is approval territory; note the kill-switch
-caveat in `deploy/DEPLOYMENT.md` — server-wide hooks gate stop too),
-`clear_queue` (the one remover).
+another client's scan is approval territory), `clear_queue` (the one
+remover). Gating semantics — what osprey actually enforces for custom
+servers — are documented in `deploy/DEPLOYMENT.md` (verified: hook
+presets and the interactive kill switch do NOT apply; the native ask
+prompt is the interactive gate).
 
 ## Run
 

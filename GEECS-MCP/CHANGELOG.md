@@ -18,6 +18,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   capabilities become a satellite server on a Windows box rather than
   moving this one (CLAUDE.md records the pattern).
 
+### Fixed
+
+- **Gating docs corrected to VERIFIED osprey semantics** (checked
+  against the deployed profile 2026-08-22, replacing the assumed
+  story): profile-level custom-server `hooks:` keys are silently
+  ignored, and the interactive writes kill switch does not cover
+  custom-server tools.  The interactive gate is the native `ask`
+  prompt (arguments visible); the headless gate is the profile's
+  `config:` `write_tools`; `stop_scan` is therefore NOT
+  kill-switch-blocked (the halt doctrine holds, by upstream gap rather
+  than design).  Two osprey-side gaps recorded for filing: hook
+  presets/per-tool matchers for custom servers, and kill-switch
+  coverage beyond framework servers.  The `hooks:` key is removed from
+  every example.
+
 ### Added
 
 - **HTTP transport** (`python -m geecs_mcp --transport http --host
