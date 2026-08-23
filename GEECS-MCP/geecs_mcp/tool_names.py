@@ -5,8 +5,8 @@ hook matchers import these symbols instead of retyping strings, so a
 rename cannot silently strand a permission entry.
 
 Safety classes (the planning doc's vocabulary): **R** read-only
-(auto-allow), **Q** queueing (`ask` + `writes_check`), **S** stop
-direction (`ask`; see the kill-switch caveat on ``STOP_TOOLS``).
+(auto-allow), **Q** queueing (`ask`), **S** stop direction (`ask`; see
+the verified gating semantics on ``STOP_TOOLS``).
 """
 
 from __future__ import annotations
@@ -31,17 +31,18 @@ READ_TOOLS = (
     SCAN_PROGRESS,
 )
 
-#: Queueing tools (Q) — `ask` + the writes_check (kill switch) preset.
+#: Queueing tools (Q) — `ask` interactively; listed in `write_tools`
+#: (hook_config.json, from the profile's `config:`) for the headless
+#: gate (hook presets do NOT attach to custom servers — see STOP_TOOLS
+#: below / DEPLOYMENT.md).
 QUEUE_TOOLS = (
     SUBMIT_SCAN,
     CLEAR_QUEUE,
 )
 
-#: Stop direction (S) — `ask` only.  Doctrine: a halt should never sit
-#: behind the kill switch — but osprey hook presets attach SERVER-WIDE
-#: for custom servers, so a `writes_check` on this server gates stop too
-#: (this server cannot see the kill switch to exempt itself in-tool the
-#: way osprey's native bluesky server does).  Honest posture: the
-#: console/manager remain the kill-switch-proof stop paths; per-tool
-#: matchers are the osprey-side fix.  See deploy/DEPLOYMENT.md.
+#: Stop direction (S) — `ask` only, and NEVER listed in `write_tools`:
+#: exempt by omission from the headless gate BY DESIGN, and outside the
+#: interactive kill switch because it does not cover custom servers
+#: (upstream gap) — so a halt is never blocked on any path.  VERIFIED
+#: osprey semantics 2026-08-22; see deploy/DEPLOYMENT.md.
 STOP_TOOLS = (STOP_SCAN,)

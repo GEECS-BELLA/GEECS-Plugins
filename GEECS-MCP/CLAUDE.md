@@ -100,14 +100,21 @@ geecs_mcp/
   continue past a preflight question; acknowledgements stamp
   `continued` into `SubmissionRecord.preflight`), `clear_pending=False`
   always, ownership etiquette on stop, stop approval-only.
-  **Kill-switch caveat (honest)**: osprey hook presets attach
-  server-wide for custom servers (no per-tool matchers), so the
-  recommended `writes_check` on this server ALSO gates `stop_scan` —
-  unlike osprey's native bluesky server, which exempts stop in-tool
-  because it can see the kill switch; this server cannot.  The
-  kill-switch-proof stop paths remain the console and the manager
-  itself; per-tool hook matchers are the osprey-side ask that would
-  close the gap (see `deploy/DEPLOYMENT.md`).  The submitted-as identity is
+  **Gating semantics (VERIFIED against osprey 2026-08-22, replacing the
+  earlier assumed story)**: profile-level custom-server `hooks:` keys
+  are silently ignored, and the interactive writes kill switch does not
+  cover custom-server tools (deny augmentation walks the framework's
+  own servers only).  The interactive gate is the native `ask` prompt
+  on every control verb (arguments visible — also the backstop for the
+  acknowledge-warnings residual); the headless gate is
+  `hook_config.json`'s `write_tools` (from the profile's `config:`) —
+  listing `submit_scan` + `clear_queue` and deliberately NOT
+  `stop_scan`, so a halt is never blocked on any path (headless by
+  designed omission; interactively because the kill switch does not
+  cover custom servers — upstream gap).  Two osprey-side issues to be
+  filed from that side: silent unknown-key acceptance, and custom
+  servers excluded from the interactive kill switch.  See
+  `deploy/DEPLOYMENT.md`.  The submitted-as identity is
   `[mcp] client_identity` (deployment-owned, e.g.
   `osprey-htu-assistant`) and MUST match on the queue item and the
   `SubmissionRecord` — the ownership check compares against it.
