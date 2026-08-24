@@ -188,7 +188,16 @@ def _get_scan_analysis_impl(scan_number: int, day: str | None) -> str:
     if analysis_folder.is_dir():
         for entry in sorted(analysis_folder.iterdir()):
             if entry.is_dir():
-                names = sorted(p.name for p in entry.iterdir() if p.is_file())
+                # The production layout nests analyzer subdirs
+                # (Scan<NNN>/<device>/<Analyzer>/files) — a one-level
+                # listing read every device as empty (n_files: 0; live
+                # deployment finding 2026-08-24), so walk the whole
+                # device tree, names relative to it.
+                names = sorted(
+                    p.relative_to(entry).as_posix()
+                    for p in entry.rglob("*")
+                    if p.is_file()
+                )
                 outputs[entry.name] = {
                     "n_files": len(names),
                     "files": names[:_MAX_FILES_PER_DIR],
@@ -222,6 +231,38 @@ async def get_scan_analysis(scan_number: int, day: str | None = None) -> str:
     return await _run_guarded(_get_scan_analysis_impl, scan_number, day)
 
 
+def _localize_display_entry(name: str, analysis_folder: Path) -> Optional[Path]:
+    r"""A ``display_files`` entry as a path on THIS host, or ``None``.
+
+    Production entries are written by the WINDOWS analysis machines
+    (``Z:\\data\\...\\analysis\\Scan<NNN>\\...`` — live deployment
+    finding 2026-08-24: on the Linux service host such a string is not
+    absolute, so it was joined onto the analysis folder as one giant
+    backslash component and the stat blew up the whole tool).  A
+    Windows-style entry is re-rooted by its tail after the scan's own
+    ``analysis\\Scan<NNN>\\`` onto the local *analysis_folder*; an entry
+    whose parts never match that pattern returns ``None`` (skipped with
+    a warning — never a crash).  Anything else passes through unchanged
+    for the normal absolute/relative handling.
+    """
+    from pathlib import PureWindowsPath
+
+    looks_windows = "\\" in name or (len(name) >= 2 and name[1] == ":")
+    if not looks_windows:
+        return Path(name)
+    parts = PureWindowsPath(name).parts
+    lowered = [part.lower() for part in parts]
+    scan_name = analysis_folder.name.lower()
+    for i in range(len(parts) - 1):
+        if lowered[i] == "analysis" and lowered[i + 1] == scan_name:
+            tail = parts[i + 2 :]
+            if tail:
+                return analysis_folder.joinpath(*tail)
+            break
+    logger.warning("display_files entry not under this scan's analysis tree: %s", name)
+    return None
+
+
 def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[Path]:
     """Figure candidates: display_files first, then images in the tree.
 
@@ -233,6 +274,11 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
     is where the writer actually puts every legitimate entry —
     ScanAnalysis analyzers write to ``<date>/analysis/Scan<NNN>/...`` —
     so a poisoned entry cannot reach even another scan's outputs).
+    Windows-written entries are localized first (see
+    :func:`_localize_display_entry`), and every per-candidate
+    filesystem touch is guarded — one hostile or malformed entry must
+    never take down the tree-scan fallback (the live crash did exactly
+    that).
     """
     candidates: list[Path] = []
     seen: set[Path] = set()
@@ -248,20 +294,24 @@ def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[
             path = analysis_folder / path
         try:
             path = path.resolve()
+            if not path.is_relative_to(root):
+                logger.warning(
+                    "figure candidate outside the scan's analysis folder: %s", path
+                )
+                return
+            if path not in seen and path.is_file():
+                seen.add(path)
+                candidates.append(path)
         except OSError:
-            return
-        if not path.is_relative_to(root):
-            logger.warning(
-                "figure candidate outside the scan's analysis folder: %s", path
-            )
-            return
-        if path not in seen and path.is_file():
-            seen.add(path)
-            candidates.append(path)
+            # e.g. a stat on a pathologically-shaped name (EINVAL on the
+            # NFS mount) — skip the entry, never the tool.
+            logger.warning("figure candidate unreadable, skipped: %s", path)
 
     for status in _read_task_statuses(scan_folder).values():
         for name in status.get("display_files") or []:
-            _add(Path(name))
+            localized = _localize_display_entry(str(name), analysis_folder)
+            if localized is not None:
+                _add(localized)
     if analysis_folder.is_dir():
         for path in sorted(analysis_folder.rglob("*")):
             if len(candidates) >= _MAX_FIGURE_CANDIDATES:

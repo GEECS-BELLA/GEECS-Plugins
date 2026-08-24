@@ -4,6 +4,30 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.1] - 2026-08-24
+
+First-deployment live findings (qserver-box HTTP service, real netapp
+tree — both invisible to the hermetic fixtures):
+
+### Fixed
+
+- **Windows-written `display_files` entries localize instead of
+  crashing**: production statuses come from the Windows analysis
+  machines (`Z:\data\...\analysis\Scan<NNN>\...`); on the Linux
+  service host such an entry is not absolute, was joined onto the
+  analysis folder as one giant backslash component, and the stat's
+  `OSError` killed the whole figure tool — including the healthy
+  tree-scan fallback.  Now: a Windows-style entry re-roots by its tail
+  after `analysis\Scan<NNN>\` onto the local analysis folder (served
+  like any candidate), an unmatchable one is skipped with a warning,
+  and every per-candidate filesystem touch is guarded so one bad entry
+  can never take down the tool.
+- **`get_scan_analysis` outputs walk the nested analyzer tree**: the
+  production layout is `Scan<NNN>/<device>/<Analyzer>/files`, and the
+  one-level listing read every device as `n_files: 0`.  Files are
+  counted through the whole device subtree (names relative, listing
+  still capped).
+
 ## [0.5.0] - 2026-08-23
 
 The v2 verbs (issue #676) — actions, manual moves, pause/resume, and the
