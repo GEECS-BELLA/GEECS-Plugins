@@ -27,7 +27,6 @@ figure fetch, which returns MCP image content).
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date
 from pathlib import Path
 from typing import Any, Optional
@@ -86,11 +85,11 @@ def _resolve_folders(scan_number: int, day: str | None) -> tuple[Any, Path, Path
     )
     base = _base_directory()
     if base is None:
-        # ScanPaths.paths_config starts as None and nothing initializes it
-        # at import — consumers must call reload_paths_config() once
-        # (live-run finding: an unconfigured class attribute raised
-        # AttributeError instead of degrading).  reload swallows its own
-        # ConfigurationError and leaves None, so the honest refusal is ours.
+        # ScanPaths runs reload_paths_config() at module import, but it
+        # swallows ConfigurationError and leaves paths_config = None on an
+        # unconfigured host (live-run finding: the bare attribute then
+        # raised AttributeError downstream instead of degrading).  The
+        # retry here is belt; the honest refusal below is ours.
         if ScanPaths.paths_config is None:
             ScanPaths.reload_paths_config()
         if ScanPaths.paths_config is None:
@@ -106,35 +105,69 @@ def _resolve_folders(scan_number: int, day: str | None) -> tuple[Any, Path, Path
     return tag, scan_folder, analysis_folder
 
 
+def _heartbeat_age_s(value: Any, now: "Any") -> Optional[float]:
+    """Age of an ISO-8601 heartbeat, tolerant; ``None`` when unparseable.
+
+    The writer stamps ``datetime.now(timezone.utc).isoformat()`` — parse
+    per task_queue's own ``_parse_ts`` semantics (assume UTC when naive).
+    """
+    from datetime import datetime, timezone
+
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        stamp = datetime.fromisoformat(value)
+    except Exception:
+        return None
+    if stamp.tzinfo is None:
+        stamp = stamp.replace(tzinfo=timezone.utc)
+    return round((now - stamp).total_seconds(), 1)
+
+
 def _read_task_statuses(scan_folder: Path) -> dict[str, dict]:
-    """Parse ``analysis_status/*.yaml`` tolerantly; missing folder → empty."""
+    """Parse ``analysis_status/*.yaml`` tolerantly; missing folder → empty.
+
+    THE AUTHORITATIVE SHAPE IS ``TaskStatus.to_dict()`` in
+    ``ScanAnalysis/scan_analysis/task_queue.py`` — keys ``state``
+    (queued/claimed/done/failed/no_data), ``error``, ``claimed_by``,
+    ``claimed_at``, ``last_heartbeat`` (ISO-8601 string), and
+    ``display_files``.  (Review finding on the #675 PR: the package's
+    CLAUDE.md prose was stale — read the writer, not the doc.)  Every
+    field coercion sits inside the per-file guard: one odd YAML on a
+    writable share degrades that one entry to ``unreadable``, never the
+    whole tool.
+    """
     import yaml
+    from datetime import datetime, timezone
 
     status_dir = scan_folder / "analysis_status"
     statuses: dict[str, dict] = {}
     if not status_dir.is_dir():
         return statuses
-    now = time.time()
+    now = datetime.now(timezone.utc)
     for entry in sorted(status_dir.iterdir()):
         if entry.suffix not in (".yaml", ".yml"):
             continue
         try:
             document = yaml.safe_load(entry.read_text()) or {}
+            if not isinstance(document, dict):
+                raise ValueError("not a mapping")
+            display_files = document.get("display_files") or []
+            if not isinstance(display_files, list):
+                display_files = []
+            statuses[entry.stem] = {
+                "state": document.get("state"),
+                "error": document.get("error"),
+                "claimed_by": document.get("claimed_by"),
+                "heartbeat_age_s": _heartbeat_age_s(
+                    document.get("last_heartbeat"), now
+                ),
+                "display_files": [
+                    name for name in display_files if isinstance(name, str)
+                ],
+            }
         except Exception as exc:  # a torn write mid-heartbeat is not our error
-            statuses[entry.stem] = {"status": "unreadable", "detail": str(exc)}
-            continue
-        if not isinstance(document, dict):
-            statuses[entry.stem] = {"status": "unreadable", "detail": "not a mapping"}
-            continue
-        heartbeat = document.get("heartbeat")
-        statuses[entry.stem] = {
-            "status": document.get("status"),
-            "claimed_by": document.get("claimed_by"),
-            "heartbeat_age_s": (
-                round(now - float(heartbeat), 1) if heartbeat else None
-            ),
-            "display_files": document.get("display_files") or [],
-        }
+            statuses[entry.stem] = {"state": "unreadable", "detail": str(exc)}
     return statuses
 
 
@@ -189,16 +222,34 @@ async def get_scan_analysis(scan_number: int, day: str | None = None) -> str:
     return await _run_guarded(_get_scan_analysis_impl, scan_number, day)
 
 
-def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[Path]:
-    """Figure candidates: display_files first, then images in the tree."""
+def _gather_figure_candidates(
+    scan_folder: Path, analysis_folder: Path, share_root: Optional[Path]
+) -> list[Path]:
+    """Figure candidates: display_files first, then images in the tree.
+
+    Every candidate must resolve **inside the share root** — the
+    ``display_files`` entries come from YAML on a writable share, and an
+    absolute or ``../`` entry must not let the tool serve arbitrary
+    host-readable files (review finding 3, confused-deputy bounding;
+    legitimate entries are always absolute paths under the day's
+    ``analysis/`` tree).
+    """
     candidates: list[Path] = []
     seen: set[Path] = set()
+    root = share_root.resolve() if share_root is not None else None
 
     def _add(path: Path) -> None:
         if path.suffix.lower() not in _IMAGE_SUFFIXES:
             return
         if not path.is_absolute():
             path = analysis_folder / path
+        try:
+            path = path.resolve()
+        except OSError:
+            return
+        if root is not None and not path.is_relative_to(root):
+            logger.warning("figure candidate outside the share root: %s", path)
+            return
         if path not in seen and path.is_file():
             seen.add(path)
             candidates.append(path)
@@ -223,6 +274,12 @@ def _relative_label(path: Path, analysis_folder: Path) -> str:
         return path.name
 
 
+#: Pixel cap for figure decode — matplotlib summaries are a few MP; far
+#: below Pillow's ~178 MP bomb ceiling so a giant share-resident image
+#: refuses instead of decoding hundreds of MB in the server process.
+_MAX_FIGURE_PIXELS = 64_000_000
+
+
 def _load_downscaled_png(path: Path) -> bytes:
     """The figure as PNG bytes, longest edge capped (context, not archive)."""
     import io
@@ -230,6 +287,11 @@ def _load_downscaled_png(path: Path) -> bytes:
     from PIL import Image as PILImage
 
     with PILImage.open(path) as image:
+        if image.width * image.height > _MAX_FIGURE_PIXELS:
+            raise ValueError(
+                f"figure {path.name} is {image.width}x{image.height} — "
+                f"over the {_MAX_FIGURE_PIXELS / 1e6:.0f} MP decode cap"
+            )
         image.load()
         if max(image.size) > _MAX_FIGURE_EDGE_PX:
             image.thumbnail((_MAX_FIGURE_EDGE_PX, _MAX_FIGURE_EDGE_PX))
@@ -252,7 +314,12 @@ def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
         return errors.make_error(
             "not_found", f"no scan folder at {scan_folder} (share mounted?)"
         )
-    candidates = _gather_figure_candidates(scan_folder, analysis_folder)
+    from geecs_data_utils import ScanPaths
+
+    share_root = _base_directory()
+    if share_root is None and ScanPaths.paths_config is not None:
+        share_root = ScanPaths.paths_config.base_path
+    candidates = _gather_figure_candidates(scan_folder, analysis_folder, share_root)
     if not candidates:
         return errors.make_error(
             "not_found",

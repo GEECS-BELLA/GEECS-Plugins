@@ -218,10 +218,19 @@ Enables multiple `LiveTaskRunner` processes to divide work without conflicts.
 
 ### `TaskStatus` fields
 
-- `status: str` — queued / claimed / done / failed
+**`TaskStatus.to_dict()` in `task_queue.py` is the authoritative shape**
+(this list was stale once and a downstream consumer shipped a dead
+parser from it — GEECS-MCP #675 review; read the writer when consuming):
+
+- `analyzer_id: str`, `priority: int`
+- `state: str` — queued / claimed / done / failed / no_data
+- `error: Optional[str]` — why a failed task failed
 - `claimed_by: Optional[str]` — runner identifier
-- `heartbeat: Optional[float]` — unix timestamp of last ping
-- `display_files: Optional[List[str]]` — populated when analyzer completes
+- `claimed_at`, `last_heartbeat`: Optional[str] — **ISO-8601 strings**
+  (UTC; `_parse_ts` assumes UTC when naive)
+- `display_files: Optional[List[str]]` — absolute paths under the day's
+  `analysis/` tree, populated when the analyzer completes.  Consumed by
+  GEECS-MCP's `get_scan_figure`.
 
 ## Live Watching (`live_task_runner.py`)
 

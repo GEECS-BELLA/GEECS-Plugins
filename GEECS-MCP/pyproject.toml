@@ -21,6 +21,10 @@ anyio = ">=4.0"
 # Figure downscaling (analysis domain) — imported directly, declared.
 pillow = ">=10.0"
 
+# analysis_status YAML parsing — imported directly, declared (the anyio
+# lesson, applied to BOTH new direct imports this time).
+pyyaml = ">=6.0"
+
 # The queue client + pre-submit preflight (geecs_bluesky.qs_client) and the
 # config resolver/listings.  qs-client pulls bluesky-queueserver-api; ca
 # pulls aioca for the preflight's CONNECTED/staleness reads.  The package

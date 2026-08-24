@@ -23,7 +23,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   host refuses honestly (live-verified) after a one-time
   `reload_paths_config()` init (live-run finding: the class attribute
   starts `None` and raised instead of degrading).
-- `pillow` declared (figure downscaling).
+- `pillow` and `pyyaml` declared (direct imports).
+
+### Review hardening (same release, adversarial review on the PR)
+
+- **The status parser reads the REAL `TaskStatus.to_dict()` schema**
+  (CRITICAL finding: the first cut was written from ScanAnalysis's
+  stale CLAUDE.md prose — `status`/`heartbeat` float — which the writer
+  never produces; against production data every task would have read
+  null).  Now: `state` (queued/claimed/done/failed/no_data), `error`
+  (surfaced — the most useful failed-task field), `claimed_by`,
+  `last_heartbeat` as ISO-8601 parsed to an age (UTC-naive tolerated,
+  per task_queue's own `_parse_ts`).  The stale ScanAnalysis doc is
+  fixed in the same wave with a read-the-writer warning.
+- Field coercions sit inside the per-file guard and `display_files`
+  entries are type-checked — one odd YAML on the writable share
+  degrades that entry to `unreadable`, never the whole tool.
+- **Figure candidates are bounded to the share root** (resolve +
+  `is_relative_to`): a `display_files` entry pointing outside the share
+  (absolute or `../`) is dropped with a warning, closing the
+  confused-deputy path where share-writers could make the MCP serve
+  arbitrary host-readable files.
+- A 64 MP decode cap refuses giant share-resident images before the
+  full decode (Pillow's own bomb ceiling is ~178 MP ≈ 700 MB RAM on a
+  long-lived server).
 
 ## [0.3.0] - 2026-08-22
 
