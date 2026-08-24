@@ -10,6 +10,8 @@ Classifications drive Stage 2 routing:
 - ``BUG_CANDIDATE``  - file as a bug, eligible for Stage 3 fix attempts.
 - ``CONFIG_ISSUE``   - file as needs-human-review, do **not** auto-fix code.
 - ``HARDWARE_ISSUE`` - file as flaky-hardware tracking, do not auto-fix.
+- ``EXPECTED_CONDITION`` - tolerated by the engine BY DESIGN (the
+  soft-telemetry drop); Stage 2 must NOT file these.
 - ``OPERATOR_ERROR`` - typically batch into a daily digest, not per-fingerprint.
 - ``UNKNOWN``        - fall through; Stage 2 will likely defer.
 """
@@ -143,8 +145,18 @@ def classify(
     if "soft tier — never aborts the scan" in entry.message:
         return Classification.EXPECTED_CONDITION
 
-    if exception_type and exception_type in CLASSIFICATION_MAP:
-        return CLASSIFICATION_MAP[exception_type]
+    if exception_type:
+        # Real tracebacks print non-builtin exceptions FULLY QUALIFIED
+        # (e.g. ophyd_async.core._utils.NotConnectedError), so the map
+        # lookup normalizes to the last dotted segment — an exact-key
+        # match would be dead code for every record the harvester can
+        # actually produce (#680 review finding; also rescues the
+        # pre-existing dotted-class entries the message hints only
+        # partially covered).  The fingerprint signature keeps the full
+        # dotted form — dedup stability must not change.
+        bare_type = exception_type.rsplit(".", 1)[-1]
+        if bare_type in CLASSIFICATION_MAP:
+            return CLASSIFICATION_MAP[bare_type]
 
     # Try to peel an exception type out of the message itself
     # (e.g., "Failed to ...: ConnectionRefusedError").

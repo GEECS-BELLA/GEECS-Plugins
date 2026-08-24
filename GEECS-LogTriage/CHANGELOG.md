@@ -20,7 +20,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ghost device (the DB orphan-row situation) is grouped and rendered
   in its own trailing report section instead of filing as a fresh
   per-scan hardware issue.  Stage-2 issue filing must not act on this
-  category.
+  category.  Note: the report's Expected-conditions section only
+  populates on `--level warning` runs (the harvester's default min
+  level is ERROR).
+
+### Fixed (review findings on the PR)
+
+- The exception-type map lookup normalizes to the last dotted segment —
+  real tracebacks print non-builtins fully qualified
+  (`ophyd_async.core._utils.NotConnectedError`), so the exact-key match
+  was dead code for every record the harvester can produce; the
+  normalization also rescues the pre-existing dotted-class entries.
+  Pinned end-to-end through the fingerprint extractor.
+- The cross-package phrase coupling is bidirectional: GeecsBluesky
+  0.61.1 names the message (`SOFT_TELEMETRY_DROP_MSG`, both drop
+  sites, with a reword-only-together warning) and a triage-side test
+  greps the sibling source when present.
 
 ## [0.2.4] — 2026-06-29
 
