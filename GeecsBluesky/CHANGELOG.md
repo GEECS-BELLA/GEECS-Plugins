@@ -4,6 +4,16 @@ All notable changes to `geecs-bluesky` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.62.0] - 2026-08-23
+
+### Added
+
+- **`FAILED_MOVE_LOG_PREFIX` re-exported from `geecs_bluesky.qs_client`**
+  (PEP 562 lazy — an eager import would drag `plans/pause_semantics`
+  and bluesky into the pinned light-import contract): stream consumers
+  (the console monitor's twin in GEECS-MCP's `scan_progress`) match the
+  engine's failed-move pause line without importing engine internals.
+
 ## [0.61.0] - 2026-08-22
 
 ### Added
