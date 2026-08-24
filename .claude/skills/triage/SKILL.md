@@ -147,7 +147,7 @@ show the draft body so the user can file manually.
 
 ## Notes
 
-- Only file for `bug_candidate`. `hardware_issue`, `config_issue`, and
+- Only file for `bug_candidate`. `hardware_issue`, `config_issue`,
   `operator_error`, and `expected_condition` (engine-tolerated
   soft-telemetry drops — only present on `--level warning` runs; the
   default min level is ERROR) are noted in the summary but do not
