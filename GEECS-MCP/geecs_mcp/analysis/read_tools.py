@@ -222,21 +222,24 @@ async def get_scan_analysis(scan_number: int, day: str | None = None) -> str:
     return await _run_guarded(_get_scan_analysis_impl, scan_number, day)
 
 
-def _gather_figure_candidates(
-    scan_folder: Path, analysis_folder: Path, share_root: Optional[Path]
-) -> list[Path]:
+def _gather_figure_candidates(scan_folder: Path, analysis_folder: Path) -> list[Path]:
     """Figure candidates: display_files first, then images in the tree.
 
-    Every candidate must resolve **inside the share root** — the
-    ``display_files`` entries come from YAML on a writable share, and an
-    absolute or ``../`` entry must not let the tool serve arbitrary
-    host-readable files (review finding 3, confused-deputy bounding;
-    legitimate entries are always absolute paths under the day's
-    ``analysis/`` tree).
+    Every candidate must resolve **inside this scan's analysis folder**
+    — the ``display_files`` entries come from YAML on a writable share,
+    and an absolute or ``../`` entry must not let the tool serve
+    anything else (review finding 3 bounded to the share root; the #675
+    codex review tightened it to the scan's own analysis folder, which
+    is where the writer actually puts every legitimate entry —
+    ScanAnalysis analyzers write to ``<date>/analysis/Scan<NNN>/...`` —
+    so a poisoned entry cannot reach even another scan's outputs).
     """
     candidates: list[Path] = []
     seen: set[Path] = set()
-    root = share_root.resolve() if share_root is not None else None
+    try:
+        root = analysis_folder.resolve()
+    except OSError:
+        return []
 
     def _add(path: Path) -> None:
         if path.suffix.lower() not in _IMAGE_SUFFIXES:
@@ -247,8 +250,10 @@ def _gather_figure_candidates(
             path = path.resolve()
         except OSError:
             return
-        if root is not None and not path.is_relative_to(root):
-            logger.warning("figure candidate outside the share root: %s", path)
+        if not path.is_relative_to(root):
+            logger.warning(
+                "figure candidate outside the scan's analysis folder: %s", path
+            )
             return
         if path not in seen and path.is_file():
             seen.add(path)
@@ -314,12 +319,7 @@ def _get_scan_figure_impl(scan_number: int, name: str | None, day: str | None):
         return errors.make_error(
             "not_found", f"no scan folder at {scan_folder} (share mounted?)"
         )
-    from geecs_data_utils import ScanPaths
-
-    share_root = _base_directory()
-    if share_root is None and ScanPaths.paths_config is not None:
-        share_root = ScanPaths.paths_config.base_path
-    candidates = _gather_figure_candidates(scan_folder, analysis_folder, share_root)
+    candidates = _gather_figure_candidates(scan_folder, analysis_folder)
     if not candidates:
         return errors.make_error(
             "not_found",

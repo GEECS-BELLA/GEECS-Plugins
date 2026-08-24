@@ -150,19 +150,40 @@ def test_analysis_survives_odd_field_types(share):
     assert odd["display_files"] == []  # a scalar is not a file list
 
 
-def test_figure_candidates_bounded_to_the_share(share, tmp_path_factory):
-    # Review finding 3: a display_files entry escaping the share must be
-    # dropped, not served (confused-deputy bounding).
-    outside = tmp_path_factory.mktemp("outside") / "secret.png"
+def test_figure_candidates_bounded_to_the_scans_analysis_folder(
+    share, tmp_path_factory
+):
+    # Review finding 3 (+ the codex tightening): a display_files entry is
+    # served only from THIS scan's analysis folder — an entry escaping the
+    # share entirely, one pointing at ANOTHER scan's analysis outputs, and
+    # one pointing into the raw scans tree are all dropped, not served
+    # (confused-deputy bounding; the writer puts every legitimate entry
+    # under <date>/analysis/Scan<NNN>/).
     from PIL import Image as PILImage
 
+    outside = tmp_path_factory.mktemp("outside") / "secret.png"
     PILImage.new("RGB", (10, 10)).save(outside)
-    scan_folder, _ = _tree_paths(share)
+    scan_folder, analysis_folder = _tree_paths(share)
+    other_scan = analysis_folder.parent / "Scan099"
+    other_scan.mkdir()
+    PILImage.new("RGB", (10, 10)).save(other_scan / "other_secret.png")
+    in_scans_tree = scan_folder / "raw_secret.png"
+    PILImage.new("RGB", (10, 10)).save(in_scans_tree)
     (scan_folder / "analysis_status" / "escape.yaml").write_text(
-        yaml.safe_dump({"state": "done", "display_files": [str(outside)]})
+        yaml.safe_dump(
+            {
+                "state": "done",
+                "display_files": [
+                    str(outside),
+                    str(other_scan / "other_secret.png"),
+                    str(in_scans_tree),
+                ],
+            }
+        )
     )
-    result = _load(read_tools._get_scan_figure_impl(7, "secret", DAY))
-    assert not result["ok"] and result["error_kind"] == "not_found"
+    for probe in ("secret", "other_secret", "raw_secret"):
+        result = _load(read_tools._get_scan_figure_impl(7, probe, DAY))
+        assert not result["ok"] and result["error_kind"] == "not_found", probe
 
 
 def test_figure_decode_cap_refuses_giant_images(share, monkeypatch):

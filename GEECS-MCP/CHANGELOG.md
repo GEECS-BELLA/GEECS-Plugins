@@ -39,11 +39,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Field coercions sit inside the per-file guard and `display_files`
   entries are type-checked — one odd YAML on the writable share
   degrades that entry to `unreadable`, never the whole tool.
-- **Figure candidates are bounded to the share root** (resolve +
-  `is_relative_to`): a `display_files` entry pointing outside the share
-  (absolute or `../`) is dropped with a warning, closing the
+- **Figure candidates are bounded to the scan's own analysis folder**
+  (resolve + `is_relative_to`): a `display_files` entry pointing
+  anywhere else — outside the share, at another scan's outputs, or into
+  the raw `scans/` tree — is dropped with a warning, closing the
   confused-deputy path where share-writers could make the MCP serve
-  arbitrary host-readable files.
+  other host-readable files.  (The first review pass bounded to the
+  share root; the codex pass tightened it to the scan's analysis folder,
+  which is where the writer puts every legitimate entry.)
 - A 64 MP decode cap refuses giant share-resident images before the
   full decode (Pillow's own bomb ceiling is ~178 MP ≈ 700 MB RAM on a
   long-lived server).
