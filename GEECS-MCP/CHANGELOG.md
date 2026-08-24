@@ -4,6 +4,73 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.5.0] - 2026-08-23
+
+The v2 verbs (issue #676) — actions, manual moves, pause/resume, and the
+document-stream `scan_progress` upgrade.  (0.4.0, the analysis domain,
+landed separately via PR #681.)
+
+### Added
+
+- **`run_action` (Q) + `describe_action` (R)**: run a named ActionPlan
+  on demand through the queue (`geecs_run_action_plan`; idle-only —
+  submitting mid-scan would silently queue the action to auto-run when
+  the scan finishes, so an active RE state refuses like `submit_scan`),
+  and preview its resolved steps via the worker's
+  `geecs_describe_action` dry-run (read-only by effect, but needs an
+  idle manager to answer).
+- **`move_scan_variable` (Q)**: one manual scan-variable move via the
+  worker's `geecs_move_variable` (`function_execute`) — plain, confirm,
+  and pseudo variables resolve exactly as a scan axis would; idle-only
+  (manager-enforced), blocking up to the client's ~120 s task budget;
+  non-finite / non-numeric values refused before reaching the worker.
+- **`pause_scan` (S) + `resume_scan` (Q)**: deferred pause / resume with
+  the same ownership etiquette as `stop_scan` (a foreign scan is refused
+  by name unless `force=true`; `forced` marks only genuinely foreign
+  overrides).  `pause_scan` joins the halt family (`STOP_TOOLS` — never
+  behind the headless `write_tools` gate: pausing makes the machine
+  strictly quieter); `resume_scan` restarts motion (and retries a failed
+  move), so it gates like a submission (`QUEUE_TOOLS`).
+- **`scan_progress` stream upgrade**: a process-wide `ProgressCache`
+  (`scans/progress_stream.py`) consumes the worker's document stream
+  (start-doc totals `num_points × shots_per_step` with the
+  `max_iterations` fallback for optimize runs; primary-stream `seq_num`
+  → shots done; stop-doc exit status) and the manager's console-output
+  stream (the engine's failed-move line → the paused scan's reason,
+  surfaced only while actually paused).  Strictly best-effort: the
+  result's `stream.available=false` (with the reason) degrades to the
+  v1 poll answer; the manager poll stays authoritative.  Threading per
+  the console's #653 rules — daemon threads, zmq sockets never touched
+  cross-thread, no `stop`.
+
+### Changed
+
+- `tool_names`: `RUN_ACTION`/`MOVE_SCAN_VARIABLE`/`RESUME_SCAN` appended
+  to `QUEUE_TOOLS` (headless `write_tools` additions — see
+  `deploy/DEPLOYMENT.md`), `PAUSE_SCAN` to `STOP_TOOLS`,
+  `DESCRIBE_ACTION` to `READ_TOOLS`.
+- Requires geecs-bluesky ≥ 0.62.0 (`FAILED_MOVE_LOG_PREFIX` re-exported
+  from `geecs_bluesky.qs_client`, defined in its import-light
+  `log_markers` module — the light-import contract holds down to name
+  resolution).
+
+### Fixed (in review, pre-merge)
+
+- The failed-move `paused_reason` is cleared when primary-stream
+  progress resumes — a second (manual) pause of the same run no longer
+  reports the first pause's text as the current why.
+- `resume_scan` fails CLOSED on an unreadable running item (a go verb
+  must not restart a possibly-foreign scan unforced); the halt family
+  stays fail-open by doctrine.  `forced` also marks force past unknown
+  ownership.
+- The client's ~120 s task-poll timeout on `move_scan_variable` /
+  `describe_action` now reports `task_timeout` (the taxonomy kind
+  existed but nothing emitted it).
+- Action/variable names are submitted stripped, matching how they are
+  validated; `move_scan_variable`'s description states the raw
+  `Device:Variable` pass-through honestly (a direct setpoint write, no
+  catalog semantics).
+
 ## [0.4.0] - 2026-08-22
 
 ### Added

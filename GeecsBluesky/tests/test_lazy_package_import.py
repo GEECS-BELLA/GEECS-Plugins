@@ -24,7 +24,15 @@ for heavy in ("aioca", "ophyd_async", "bluesky_queueserver_api"):
 import geecs_bluesky.qs_client
 from geecs_bluesky.qs_client import make_queue_client  # noqa: F401
 
-for heavy in ("aioca", "ophyd_async", "bluesky_queueserver_api"):
+# The log-marker re-export must stay light too — resolving the NAME, not
+# just importing the package (a PEP 562 lazy shim once passed the import
+# leg while attribute access dragged in bluesky + aioca; the constant
+# now lives in the import-light log_markers module).
+from geecs_bluesky.qs_client import FAILED_MOVE_LOG_PREFIX
+
+assert FAILED_MOVE_LOG_PREFIX.startswith("FAILED MOVE")
+
+for heavy in ("aioca", "ophyd_async", "bluesky_queueserver_api", "bluesky"):
     assert heavy not in sys.modules, f"qs_client import pulled {heavy}"
 
 # The lazy re-exports still resolve (this leg MAY pull the device stack).

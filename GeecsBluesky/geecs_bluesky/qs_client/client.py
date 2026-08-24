@@ -375,6 +375,9 @@ class ZmqQueueClient:
             if status not in (None, "running", "accepted", "pending"):
                 raise RuntimeError(f"worker task ended with status {status!r}")
             time.sleep(0.2)
+        # "did not finish within" is a parsed seam: GEECS-MCP's
+        # _task_error_kind matches it to report task_timeout instead of
+        # worker_refused — reword both together.
         raise RuntimeError(f"worker task did not finish within {timeout_s:.0f} s")
 
     # -- protocol -----------------------------------------------------------
