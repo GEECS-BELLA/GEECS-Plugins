@@ -489,6 +489,21 @@ def test_move_variable_worker_failure_verbatim(wired):
     assert result["error_kind"] == "worker_refused" and "lock" in result["message"]
 
 
+def test_move_variable_timeout_is_task_timeout(wired):
+    wired.move_error = "worker task did not finish within 120 s"
+    result = _load(control_tools._move_scan_variable_impl("jet_z", 1.0))
+    assert result["error_kind"] == "task_timeout"
+
+
+def test_names_are_submitted_stripped(wired):
+    # Validated stripped ⇒ submitted stripped — " Insert Screen " must
+    # not reach the worker as an unknown padded name.
+    result = _load(control_tools._run_action_impl("  Insert Screen  "))
+    assert result["ok"] and wired.actions_submitted == ["Insert Screen"]
+    result = _load(control_tools._move_scan_variable_impl(" jet_z ", 1.0))
+    assert result["ok"] and wired.moves[-1] == ("jet_z", 1.0)
+
+
 # ---------------------------------------------------------------------------
 # pause_scan / resume_scan (v2)
 # ---------------------------------------------------------------------------
@@ -545,6 +560,35 @@ def test_resume_foreign_scan_refused_then_forced(wired):
     assert result["ok"] and result["forced"] is True
 
 
+def test_resume_fails_closed_on_unreadable_ownership(wired, monkeypatch):
+    # Review finding #683-2: resume is a GO verb — a transient
+    # running-item read failure must not let this client restart another
+    # client's paused scan unforced (the halt family stays fail-open).
+    wired.re_state = "paused"
+
+    def boom():
+        raise RuntimeError("recv timeout")
+
+    monkeypatch.setattr(wired, "running_item", boom)
+    result = _load(control_tools._resume_scan_impl(False))
+    assert result["error_kind"] == "policy_refusal"
+    assert "could not be read" in result["message"]
+    # force past unknown ownership works and is audit-marked forced.
+    result = _load(control_tools._resume_scan_impl(True))
+    assert result["ok"] and result["forced"] is True
+
+
+def test_pause_stays_fail_open_on_unreadable_ownership(wired, monkeypatch):
+    wired.re_state = "running"
+
+    def boom():
+        raise RuntimeError("recv timeout")
+
+    monkeypatch.setattr(wired, "running_item", boom)
+    result = _load(control_tools._pause_scan_impl(False))
+    assert result["ok"] and result["forced"] is False
+
+
 # ---------------------------------------------------------------------------
 # scan_progress + the stream picture (v2)
 # ---------------------------------------------------------------------------
@@ -575,7 +619,7 @@ def test_scan_progress_merges_stream_picture(wired, monkeypatch):
             "scan_number": 42,
             "shots_done": 30,
             "shots_total": 55,
-            "paused_reason": "stale from an earlier pause",
+            "paused_reason": "U_Hexapod move failed",
         }
     )
     monkeypatch.setattr(progress_stream, "get_progress_cache", lambda: cache)
@@ -583,12 +627,14 @@ def test_scan_progress_merges_stream_picture(wired, monkeypatch):
     assert cache.started_with == ("localhost:5568", "tcp://localhost:60625")
     assert result["stream"]["shots_done"] == 30
     assert result["stream"]["shots_total"] == 55
-    # The sticky failed-move reason is only shown while actually paused.
+    # The failed-move reason is only shown while actually paused (the
+    # cache itself clears it on resumed progress — pinned in
+    # test_progress_stream.py).
     assert "paused_reason" not in result["stream"]
 
     wired.re_state = "paused"
     result = _load(control_tools._scan_progress_impl())
-    assert result["stream"]["paused_reason"] == "stale from an earlier pause"
+    assert result["stream"]["paused_reason"] == "U_Hexapod move failed"
 
 
 def test_scan_progress_survives_stream_failure(wired, monkeypatch):

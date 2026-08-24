@@ -50,8 +50,26 @@ landing separately from PR #681.)
   `deploy/DEPLOYMENT.md`), `PAUSE_SCAN` to `STOP_TOOLS`,
   `DESCRIBE_ACTION` to `READ_TOOLS`.
 - Requires geecs-bluesky ≥ 0.62.0 (`FAILED_MOVE_LOG_PREFIX` re-exported
-  lazily from `geecs_bluesky.qs_client` — the light-import contract
-  holds).
+  from `geecs_bluesky.qs_client`, defined in its import-light
+  `log_markers` module — the light-import contract holds down to name
+  resolution).
+
+### Fixed (in review, pre-merge)
+
+- The failed-move `paused_reason` is cleared when primary-stream
+  progress resumes — a second (manual) pause of the same run no longer
+  reports the first pause's text as the current why.
+- `resume_scan` fails CLOSED on an unreadable running item (a go verb
+  must not restart a possibly-foreign scan unforced); the halt family
+  stays fail-open by doctrine.  `forced` also marks force past unknown
+  ownership.
+- The client's ~120 s task-poll timeout on `move_scan_variable` /
+  `describe_action` now reports `task_timeout` (the taxonomy kind
+  existed but nothing emitted it).
+- Action/variable names are submitted stripped, matching how they are
+  validated; `move_scan_variable`'s description states the raw
+  `Device:Variable` pass-through honestly (a direct setpoint write, no
+  catalog semantics).
 
 ## [0.3.0] - 2026-08-22
 

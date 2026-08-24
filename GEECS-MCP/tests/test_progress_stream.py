@@ -84,6 +84,26 @@ def test_new_start_clears_previous_run():
     assert cache.snapshot()["shots_done"] == 0
 
 
+def test_primary_progress_clears_the_paused_reason():
+    # Review finding #683-1: the failed-move reason must not survive a
+    # successful resume — otherwise a SECOND (manual) pause of the same
+    # run reports the first pause's text as the current why.  Progress
+    # on the primary stream proves the resume.
+    cache = _started_cache()
+    cache._on_document("start", START)
+    cache._on_document("descriptor", {"uid": "d-prim", "name": "primary"})
+    cache._state["paused_reason"] = "U_Hexapod move failed"
+    cache._on_document("event", {"descriptor": "d-prim", "seq_num": 8})
+    assert cache.snapshot()["paused_reason"] is None
+
+
+def test_ensure_started_ignores_a_different_address_after_latch():
+    cache = ProgressCache()
+    cache.ensure_started(None, None)  # latches unconfigured
+    cache.ensure_started("otherhost:5568", None)  # ignored with a warning
+    assert cache.snapshot()["available"] is False
+
+
 def test_malformed_documents_never_raise():
     cache = _started_cache()
     cache._on_document("start", {"uid": "run-1", "num_points": "eleven"})

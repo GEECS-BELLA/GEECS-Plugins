@@ -313,7 +313,8 @@ async def clear_queue() -> str:
 
 def _run_action_impl(name: str) -> str:
     """Queue the named ActionPlan (idle-only, same etiquette as submit)."""
-    if not name or not name.strip():
+    name = (name or "").strip()  # validated stripped ⇒ submitted stripped
+    if not name:
         return errors.make_error("invalid_request", "pass the action plan's name")
     client = runtime.get_queue_client()
     status = client.status()
@@ -368,7 +369,8 @@ async def run_action(name: str) -> str:
 
 def _describe_action_impl(name: str) -> str:
     """Dry-run the named action against the worker's configs (idle-only)."""
-    if not name or not name.strip():
+    name = (name or "").strip()
+    if not name:
         return errors.make_error("invalid_request", "pass the action plan's name")
     client = runtime.get_queue_client()
     status = client.status()
@@ -377,7 +379,7 @@ def _describe_action_impl(name: str) -> str:
     try:
         steps = client.describe_action(name)
     except Exception as exc:
-        return errors.make_error("worker_refused", str(exc))
+        return errors.make_error(_task_error_kind(exc), str(exc))
     steps = list(steps or [])
     return errors.make_ok(action=name, step_count=len(steps), steps=steps)
 
@@ -398,11 +400,22 @@ async def describe_action(name: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _task_error_kind(exc: Exception) -> str:
+    """``task_timeout`` for the client's task-poll timeout, else worker_refused.
+
+    The string match is the only seam: ``_wait_for_task`` raises a plain
+    ``RuntimeError("worker task did not finish within N s")`` on timeout
+    (same type as every other task failure).
+    """
+    return "task_timeout" if "did not finish within" in str(exc) else "worker_refused"
+
+
 def _move_scan_variable_impl(name: str, value: float) -> str:
     """One manual scan-variable move on the worker (idle-only, blocking)."""
     import math
 
-    if not name or not name.strip():
+    name = (name or "").strip()
+    if not name:
         return errors.make_error("invalid_request", "pass the scan variable's name")
     try:
         target = float(value)
@@ -417,7 +430,7 @@ def _move_scan_variable_impl(name: str, value: float) -> str:
     try:
         result = client.move_variable(name, target)
     except Exception as exc:
-        return errors.make_error("worker_refused", str(exc))
+        return errors.make_error(_task_error_kind(exc), str(exc))
     return errors.make_ok(variable=name, requested=target, result=result)
 
 
@@ -425,12 +438,15 @@ def _move_scan_variable_impl(name: str, value: float) -> str:
 async def move_scan_variable(name: str, value: float) -> str:
     """Move one scan variable to a value, outside any scan.
 
-    ``name`` is a scan-variable name from list_scan_configs (plain,
+    Prefer a catalog scan-variable name from list_scan_configs (plain,
     confirm, or pseudo — the worker resolves it exactly as a scan axis
-    would, limits and confirmation included). Idle-only (the manager
-    refuses while a scan runs) and BLOCKING: the call returns when the
-    move completes or fails, up to ~120 s. The result carries the
-    worker's move report verbatim.
+    would, confirmation included). A raw ``Device:Variable`` string is
+    ALSO accepted (the worker's manual-move surface): a direct setpoint
+    write with no catalog semantics — setpoint limits are whatever the
+    gateway enforces on that variable. Idle-only (the manager refuses
+    while a scan runs) and BLOCKING: the call returns when the move
+    completes or fails, up to ~120 s. The result carries the worker's
+    move report verbatim.
     """
     return await _run_guarded(_move_scan_variable_impl, name, value)
 
@@ -440,14 +456,21 @@ async def move_scan_variable(name: str, value: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _running_scan_owner(client) -> str | None:
-    """The running item's submitted-as identity, fail-open on read failure."""
+def _running_scan_owner(client) -> tuple[str | None, bool]:
+    """The running item's submitted-as identity, as ``(owner, readable)``.
+
+    The two consumers treat an unreadable item OPPOSITELY by doctrine:
+    the halt family (pause, like stop) fails open — a flaky read must
+    never block making the machine quieter — while resume (a go verb)
+    fails closed, so a transient read failure cannot let this client
+    restart another client's scan unforced (review finding #683-2).
+    """
     try:
         running = client.running_item()
     except Exception:
         logger.debug("running-item read failed before pause/resume", exc_info=True)
-        return None
-    return (running or {}).get("user") or None
+        return None, False
+    return (running or {}).get("user") or None, True
 
 
 def _pause_scan_impl(force: bool) -> str:
@@ -460,7 +483,7 @@ def _pause_scan_impl(force: bool) -> str:
         return errors.make_error(
             "invalid_request", f"nothing to pause (RE state: {status.re_state})"
         )
-    owner = _running_scan_owner(client)
+    owner, _readable = _running_scan_owner(client)  # unreadable = fail open
     foreign = bool(owner and owner != runtime.client_identity())
     if foreign and not force:
         return errors.make_error(
@@ -498,7 +521,15 @@ def _resume_scan_impl(force: bool) -> str:
         return errors.make_error(
             "invalid_request", f"nothing to resume (RE state: {status.re_state})"
         )
-    owner = _running_scan_owner(client)
+    owner, readable = _running_scan_owner(client)
+    if not readable and not force:
+        # Fail CLOSED: resume restarts motion, so unknown ownership
+        # refuses (unlike the halt family's fail-open).
+        return errors.make_error(
+            "policy_refusal",
+            "the paused scan's owner could not be read — retry, or pass "
+            "force=true only if the operator explicitly asks for the resume",
+        )
     foreign = bool(owner and owner != runtime.client_identity())
     if foreign and not force:
         return errors.make_error(
@@ -509,7 +540,11 @@ def _resume_scan_impl(force: bool) -> str:
     ok, message = client.request_resume()
     if not ok:
         return errors.make_error("worker_refused", message)
-    return errors.make_ok(message=message, forced=bool(force and foreign))
+    # forced also covers force past UNKNOWN ownership — the audit marker
+    # means "an operator authorized resuming a scan not known to be ours".
+    return errors.make_ok(
+        message=message, forced=bool(force and (foreign or not readable))
+    )
 
 
 @mcp.tool(name=tool_names.RESUME_SCAN)

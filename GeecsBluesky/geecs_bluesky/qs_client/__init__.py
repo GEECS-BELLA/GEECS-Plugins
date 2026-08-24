@@ -19,6 +19,12 @@ methods, and the parent package's device re-exports are lazy too — a
 client that only submits scans never pays for aioca/ophyd-async.
 """
 
+# The failed-move pause-reason line clients parse from the manager's
+# console-output stream (the console pill, the MCP's scan_progress).
+# Its definition lives in the import-light log_markers module precisely
+# so this eager re-export cannot violate the pinned light-import
+# contract (the engine home, plans.pause_semantics, pulls bluesky).
+from geecs_bluesky.log_markers import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.qs_client.client import (
     QserverConfig,
     QueueClient,
@@ -37,7 +43,7 @@ from geecs_bluesky.qs_client.submit_preflight import (
 )
 
 __all__ = [
-    "FAILED_MOVE_LOG_PREFIX",  # lazy — see __getattr__
+    "FAILED_MOVE_LOG_PREFIX",
     "QserverConfig",
     "QueueClient",
     "QueueStatus",
@@ -51,19 +57,3 @@ __all__ = [
     "run_submit_preflight",
     "stamp_submission",
 ]
-
-
-def __getattr__(name: str):
-    """Lazy re-exports (PEP 562) that must not weigh down the package import.
-
-    ``FAILED_MOVE_LOG_PREFIX`` is the log-line contract clients parse for
-    the paused-scan reason (the console pill, the MCP's scan_progress) —
-    re-exported here so clients never import ``plans/*`` directly, but
-    lazily, because its home module pulls bluesky and the qs_client
-    import must stay light (the pinned contract).
-    """
-    if name == "FAILED_MOVE_LOG_PREFIX":
-        from geecs_bluesky.plans.pause_semantics import FAILED_MOVE_LOG_PREFIX
-
-        return FAILED_MOVE_LOG_PREFIX
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

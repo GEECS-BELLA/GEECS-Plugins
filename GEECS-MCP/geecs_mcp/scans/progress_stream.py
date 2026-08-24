@@ -15,7 +15,12 @@ cache fed by two daemon threads —
   scan's *why*.
 
 Best-effort BY DESIGN: setup failure marks the cache unavailable with a
-reason and ``scan_progress`` degrades to its poll answer.  The threading
+reason and ``scan_progress`` degrades to its poll answer.  The honesty
+boundary: ``available=true`` means the dispatcher is consuming, not that
+the address is *right* — zmq connects lazily, so a wrong/unreachable
+``doc_addr`` reads as an available-but-forever-empty picture (console
+parity; the manager poll stays the authoritative answer either way), and
+a one-time setup failure stays down until process restart.  The threading
 rules are the console's, inherited from the #653 review: threads are
 daemons, ``stop`` never exists — a zmq socket must never be touched from
 another thread (a cross-thread close can trip a libzmq assertion that
@@ -38,6 +43,7 @@ class ProgressCache:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._started = False
+        self._doc_addr: Optional[str] = None
         self._available = False
         self._detail = "stream cache not started"
         self._state: dict[str, Any] = {}
@@ -57,11 +63,28 @@ class ProgressCache:
     # -- stream plumbing ----------------------------------------------------
 
     def ensure_started(self, doc_addr: Optional[str], info_addr: Optional[str]) -> None:
-        """Start both consumer threads once (idempotent, never raises)."""
+        """Start both consumer threads once (idempotent, never raises).
+
+        Once-only BY DESIGN: the first call's addresses latch for the
+        process lifetime (the #653 rule leaves no way to retire a zmq
+        consumer thread).  A later call with *different* addresses —
+        possible only after ``runtime.clear_runtime_cache()`` rebuilt the
+        queue client against an edited config — is ignored with one
+        warning; a config change needs a server restart, like runtime's
+        other singletons.
+        """
         with self._lock:
             if self._started:
+                if doc_addr and doc_addr != self._doc_addr:
+                    logger.warning(
+                        "progress stream already consuming %r — new address %r "
+                        "ignored (restart the server to re-point streams)",
+                        self._doc_addr,
+                        doc_addr,
+                    )
                 return
             self._started = True
+            self._doc_addr = doc_addr
             if not doc_addr:
                 self._detail = "no document-stream address configured"
                 return
@@ -161,6 +184,11 @@ class ProgressCache:
                 elif name == "event":
                     if str(doc.get("descriptor")) in self._primary_descriptors:
                         self._state["shots_done"] = int(doc.get("seq_num") or 0)
+                        # Progress proves the resume: without this, a scan
+                        # paused a second time (manually) would report the
+                        # FIRST pause's failed-move text as the current why
+                        # (review finding #683-1).
+                        self._state["paused_reason"] = None
                 elif name == "stop":
                     if doc.get("run_start") == self._state.get("run_uid"):
                         self._state["exit_status"] = doc.get("exit_status")

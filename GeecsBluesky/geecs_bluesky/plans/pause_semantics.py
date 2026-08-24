@@ -84,6 +84,9 @@ from typing import TYPE_CHECKING
 
 from bluesky.utils import Msg
 
+# Re-exported from its historical home here; defined in the import-light
+# log_markers so stream-parsing clients (qs_client) never pull bluesky.
+from geecs_bluesky.log_markers import FAILED_MOVE_LOG_PREFIX
 from geecs_bluesky.models.shot_control import ShotControlState
 
 if TYPE_CHECKING:  # import-light on purpose: step_scan imports this module
@@ -91,8 +94,7 @@ if TYPE_CHECKING:  # import-light on purpose: step_scan imports this module
 
 logger = logging.getLogger(__name__)
 
-#: Stable grep target for the decision-4 reason record (docs contract above).
-FAILED_MOVE_LOG_PREFIX = "FAILED MOVE - pausing for operator"
+__all__ = ["FAILED_MOVE_LOG_PREFIX", "QUIESCE_FROM", "ShotControlPauseQuiescer"]
 
 #: Standing states the quiescer must stop the trigger from.  ARMED is
 #: deliberately absent: strict mode's single-shot source cannot free-run, so

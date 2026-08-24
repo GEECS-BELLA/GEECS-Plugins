@@ -8,11 +8,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **`FAILED_MOVE_LOG_PREFIX` re-exported from `geecs_bluesky.qs_client`**
-  (PEP 562 lazy — an eager import would drag `plans/pause_semantics`
-  and bluesky into the pinned light-import contract): stream consumers
-  (the console monitor's twin in GEECS-MCP's `scan_progress`) match the
-  engine's failed-move pause line without importing engine internals.
+- **`FAILED_MOVE_LOG_PREFIX` re-exported from `geecs_bluesky.qs_client`**,
+  with its definition moved to the new import-light
+  `geecs_bluesky/log_markers.py` (stdlib-only; `plans.pause_semantics`
+  re-exports it from its historical home): stream consumers (the console
+  monitor's twin in GEECS-MCP's `scan_progress`) match the engine's
+  failed-move pause line without importing engine internals.  A PEP 562
+  lazy shim was tried first and rejected in review — attribute access
+  dragged the whole device stack (bluesky *and* the optional-`ca`
+  aioca) into qs-client-only installs; the light-import test now pins
+  name resolution, not just the package import.
 
 ## [0.61.0] - 2026-08-22
 
