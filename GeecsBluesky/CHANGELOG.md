@@ -19,6 +19,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   aioca) into qs-client-only installs; the light-import test now pins
   name resolution, not just the package import.
 
+## [0.61.1] - 2026-08-22
+
+### Changed
+
+- The tolerated soft-telemetry drop message is a named module constant
+  (`session.SOFT_TELEMETRY_DROP_MSG`, both drop sites) with a
+  load-bearing warning: GEECS-LogTriage's classifier keys its
+  `EXPECTED_CONDITION` down-ranking on the exact phrase (#621/#680) —
+  reword only together with `geecs_log_triage/classifier.py` (the
+  `FAILED_MOVE_LOG_PREFIX` pattern).  Byte-identical message, no
+  behavior change.
+
 ## [0.61.0] - 2026-08-22
 
 ### Added

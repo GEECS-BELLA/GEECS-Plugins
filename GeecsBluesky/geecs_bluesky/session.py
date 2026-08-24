@@ -66,6 +66,16 @@ from geecs_bluesky.utils import safe_name
 
 logger = logging.getLogger(__name__)
 
+#: The tolerated soft-telemetry drop message (both drop sites below).
+#: LOAD-BEARING DOWNSTREAM: GEECS-LogTriage's classifier keys its
+#: EXPECTED_CONDITION down-ranking on this exact phrase (#621/#680) —
+#: reword it ONLY together with geecs_log_triage/classifier.py (the
+#: FAILED_MOVE_LOG_PREFIX pattern: parsed log lines get named constants).
+SOFT_TELEMETRY_DROP_MSG = (
+    "Dropping background-telemetry device %s: unreachable at scan start "
+    "(soft tier — never aborts the scan)"
+)
+
 _FREE_RUN = "free_run"
 _STRICT = "strict"
 
@@ -379,12 +389,7 @@ class GeecsSession:
         try:
             return self._connect(det)
         except Exception:
-            logger.warning(
-                "Dropping background-telemetry device %s: unreachable at scan "
-                "start (soft tier — never aborts the scan)",
-                device,
-                exc_info=True,
-            )
+            logger.warning(SOFT_TELEMETRY_DROP_MSG, device, exc_info=True)
             return None
 
     def telemetry_batch(
@@ -437,8 +442,7 @@ class GeecsSession:
         for device_obj, result in zip(devices, results):
             if isinstance(result, BaseException):
                 logger.warning(
-                    "Dropping background-telemetry device %s: unreachable at "
-                    "scan start (soft tier — never aborts the scan)",
+                    SOFT_TELEMETRY_DROP_MSG,
                     device_obj._geecs_device_name,
                     exc_info=result,
                 )

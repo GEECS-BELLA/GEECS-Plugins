@@ -1465,9 +1465,9 @@ geecs-schemas = {path = "../GEECS-Schemas", develop = true}
 ophyd-async = ">=0.19.3,<1.0"
 
 [package.extras]
-analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ImageAnalysis"]
+analysis = ["imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/sad-dewdney-870421/ImageAnalysis"]
 ca = ["aioca (>=1.7)"]
-optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/angry-lederberg-436e6d/ScanAnalysis", "xopt (>=3.1,<4.0)"]
+optimize = ["gest-api (>=0.1)", "imageanalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/sad-dewdney-870421/ImageAnalysis", "scananalysis @ file:///Users/samuelbarber/Desktop/Code/Github_repos/GEECS-Plugins/.claude/worktrees/sad-dewdney-870421/ScanAnalysis", "xopt (>=3.1,<4.0)"]
 qs-client = ["bluesky-queueserver-api (>=0.0.13,<0.0.14)"]
 qserver = ["bluesky-queueserver (>=0.0.25,<0.0.26)"]
 tiled = ["tiled[client] (>=0.2)"]
@@ -5879,4 +5879,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.12"
-content-hash = "94b605ff13cfa3e88adb1fc6bbb9ef67457e8b6b74f12c472c9a50b77bfc59bd"
+content-hash = "d2a266b3bfbc35773ec6713a45853a09c0f3154b6967da6617d2563fe778480e"

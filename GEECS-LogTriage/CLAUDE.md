@@ -60,6 +60,10 @@ record's `traceback` field.
   `OSError` with errno EINVAL/EBADF (the SafeFileHandler ignored class).
 - `operator_error` — recoverable runtime conditions: missing data files,
   invalid scan parameters caught at scan start.
+- `expected_condition` — tolerated by the engine BY DESIGN (the
+  soft-telemetry drop, keyed on GeecsBluesky's `SOFT_TELEMETRY_DROP_MSG`
+  — reword only together); grouped in a trailing report section; Stage 2
+  must NOT file these.
 - `unknown` — fallback when the exception type or message can't be mapped.
 
 When the GEECS exception taxonomy grows, edit `classifier.CLASSIFICATION_MAP`.

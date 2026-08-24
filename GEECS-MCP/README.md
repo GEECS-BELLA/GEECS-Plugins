@@ -9,7 +9,9 @@ the same server.
 **v0 + v1 + v2 (current).** Read-only: `scan_status`, `scan_history`,
 `get_scan_result`, `list_scan_configs`, `validate_scan_request`,
 `scan_progress` (with per-shot counts and paused reasons from the
-worker's streams, best-effort), `describe_action` (dry-run preview).
+worker's streams, best-effort), `get_scan_analysis` + `get_scan_figure`
+(analysis results + rendered figures — needs the data share mounted),
+`describe_action` (dry-run preview).
 Control (put these under OSPREY `ask`; list the `QUEUE_TOOLS` in
 `config:` `write_tools` for headless): `submit_scan` (one scan in
 flight, 1,000-shot cap, preflight warnings need explicit

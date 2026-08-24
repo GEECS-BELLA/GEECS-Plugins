@@ -19,7 +19,7 @@ mcp_servers:
     permissions:
       allow: [scan_status, scan_history, get_scan_result,
               list_scan_configs, validate_scan_request, scan_progress,
-              describe_action]
+              get_scan_analysis, get_scan_figure, describe_action]
       ask:   [submit_scan, stop_scan, clear_queue,
               run_action, move_scan_variable, pause_scan, resume_scan]
 ```
