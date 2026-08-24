@@ -5,6 +5,38 @@ All notable changes to `geecs-log-triage` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-08-22
+
+### Added
+
+- **`NotConnectedError` classification** (#621): the CA device layer's
+  connect failure now maps to `hardware_issue` instead of producing
+  `unknown` fingerprints (in scan.log since GeecsBluesky 0.51.0 made
+  the file the complete per-scan record).
+- **`EXPECTED_CONDITION` classification**: the engine's own tolerated
+  soft-telemetry drop WARNING ("soft tier — never aborts the scan",
+  from `GeecsBluesky` `session.telemetry`) classifies as an expected
+  condition — checked BEFORE the exception-type map, so a standing
+  ghost device (the DB orphan-row situation) is grouped and rendered
+  in its own trailing report section instead of filing as a fresh
+  per-scan hardware issue.  Stage-2 issue filing must not act on this
+  category.  Note: the report's Expected-conditions section only
+  populates on `--level warning` runs (the harvester's default min
+  level is ERROR).
+
+### Fixed (review findings on the PR)
+
+- The exception-type map lookup normalizes to the last dotted segment —
+  real tracebacks print non-builtins fully qualified
+  (`ophyd_async.core._utils.NotConnectedError`), so the exact-key match
+  was dead code for every record the harvester can produce; the
+  normalization also rescues the pre-existing dotted-class entries.
+  Pinned end-to-end through the fingerprint extractor.
+- The cross-package phrase coupling is bidirectional: GeecsBluesky
+  0.61.1 names the message (`SOFT_TELEMETRY_DROP_MSG`, both drop
+  sites, with a reword-only-together warning) and a triage-side test
+  greps the sibling source when present.
+
 ## [0.2.4] — 2026-06-29
 
 ### Fixed

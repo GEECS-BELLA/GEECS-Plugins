@@ -15,6 +15,7 @@ _SECTION_ORDER = [
     Classification.HARDWARE_ISSUE,
     Classification.CONFIG_ISSUE,
     Classification.OPERATOR_ERROR,
+    Classification.EXPECTED_CONDITION,
     Classification.UNKNOWN,
 ]
 
@@ -23,6 +24,7 @@ _SECTION_LABEL = {
     Classification.HARDWARE_ISSUE: "Hardware issues",
     Classification.CONFIG_ISSUE: "Config / operator issues",
     Classification.OPERATOR_ERROR: "Operator actions",
+    Classification.EXPECTED_CONDITION: "Expected conditions (tolerated by design)",
     Classification.UNKNOWN: "Unclassified",
 }
 

@@ -10,6 +10,8 @@ Classifications drive Stage 2 routing:
 - ``BUG_CANDIDATE``  - file as a bug, eligible for Stage 3 fix attempts.
 - ``CONFIG_ISSUE``   - file as needs-human-review, do **not** auto-fix code.
 - ``HARDWARE_ISSUE`` - file as flaky-hardware tracking, do not auto-fix.
+- ``EXPECTED_CONDITION`` - tolerated by the engine BY DESIGN (the
+  soft-telemetry drop); Stage 2 must NOT file these.
 - ``OPERATOR_ERROR`` - typically batch into a daily digest, not per-fingerprint.
 - ``UNKNOWN``        - fall through; Stage 2 will likely defer.
 """
@@ -46,6 +48,12 @@ CLASSIFICATION_MAP: dict[str, Classification] = {
     "GeecsDeviceCommandRejected": Classification.HARDWARE_ISSUE,
     "GeecsDeviceExeTimeout": Classification.HARDWARE_ISSUE,
     "GeecsDeviceCommandFailed": Classification.HARDWARE_ISSUE,
+    # ophyd-async connect failures (the CA device layer): a device whose
+    # PVs never connected.  In scan.log since GeecsBluesky 0.51.0 made the
+    # file the complete record (#620/#621) — soft-telemetry drops carry
+    # the full traceback.  The expected-soft-drop guard in classify()
+    # takes precedence for the tolerated case.
+    "NotConnectedError": Classification.HARDWARE_ISSUE,
     # Python builtins commonly indicating a code bug.
     "KeyError": Classification.BUG_CANDIDATE,
     "AttributeError": Classification.BUG_CANDIDATE,
@@ -128,8 +136,27 @@ def classify(
     Classification
         The triage category.
     """
-    if exception_type and exception_type in CLASSIFICATION_MAP:
-        return CLASSIFICATION_MAP[exception_type]
+    # Engine-tolerated soft-telemetry drop (#621): the WARNING's own
+    # message marks it ("soft tier — never aborts the scan", from
+    # GeecsBluesky session.telemetry), and the attached NotConnectedError
+    # traceback is expected — checked BEFORE the exception-type map so a
+    # standing ghost device (the DB orphan-row situation) doesn't file as
+    # a fresh hardware issue on every scan.
+    if "soft tier — never aborts the scan" in entry.message:
+        return Classification.EXPECTED_CONDITION
+
+    if exception_type:
+        # Real tracebacks print non-builtin exceptions FULLY QUALIFIED
+        # (e.g. ophyd_async.core._utils.NotConnectedError), so the map
+        # lookup normalizes to the last dotted segment — an exact-key
+        # match would be dead code for every record the harvester can
+        # actually produce (#680 review finding; also rescues the
+        # pre-existing dotted-class entries the message hints only
+        # partially covered).  The fingerprint signature keeps the full
+        # dotted form — dedup stability must not change.
+        bare_type = exception_type.rsplit(".", 1)[-1]
+        if bare_type in CLASSIFICATION_MAP:
+            return CLASSIFICATION_MAP[bare_type]
 
     # Try to peel an exception type out of the message itself
     # (e.g., "Failed to ...: ConnectionRefusedError").

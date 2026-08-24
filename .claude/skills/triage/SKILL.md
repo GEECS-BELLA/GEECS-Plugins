@@ -147,8 +147,11 @@ show the draft body so the user can file manually.
 
 ## Notes
 
-- Only file for `bug_candidate`. `hardware_issue`, `config_issue`, and
-  `operator_error` are noted in the summary but do not produce issues unless the
+- Only file for `bug_candidate`. `hardware_issue`, `config_issue`,
+  `operator_error`, and `expected_condition` (engine-tolerated
+  soft-telemetry drops — only present on `--level warning` runs; the
+  default min level is ERROR) are noted in the summary but do not
+  produce issues unless the
   user explicitly asks.
 - Deduplicate: if the same fingerprint hash already appears in an open GitHub
   issue (check with `gh issue list --search "<fingerprint_hash>"`), skip it and
