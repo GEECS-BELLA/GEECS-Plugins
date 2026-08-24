@@ -4,6 +4,53 @@ All notable changes to `geecs-mcp` are documented here.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.4.0] - 2026-08-22
+
+### Added
+
+- **The analysis domain** (#675 — the top post-promotion ask, closing
+  "scan → analyze → present"): `get_scan_analysis` (per-analyzer task
+  statuses from `analysis_status/*.yaml` — tolerantly parsed, the
+  schema is ScanAnalysis-owned — plus the capped analysis output tree)
+  and `get_scan_figure` (a rendered summary figure as actual MCP image
+  content, ≤1024 px longest edge via pillow; `display_files` routed
+  first, then tree images; ambiguous → the candidate list).  Both
+  read-only/auto-allow.  **Strictly read-only over the data share**:
+  only ScanPaths' pure static path builders (the instance
+  `get_analysis_folder()` silently `os.makedirs` and is banned here),
+  pinned by a nothing-created-on-miss test.  Requires `[Paths]
+  geecs_data` + the mounted share on the serving host; an unconfigured
+  host refuses honestly (live-verified) after a one-time
+  `reload_paths_config()` init (live-run finding: the class attribute
+  starts `None` and raised instead of degrading).
+- `pillow` and `pyyaml` declared (direct imports).
+
+### Review hardening (same release, adversarial review on the PR)
+
+- **The status parser reads the REAL `TaskStatus.to_dict()` schema**
+  (CRITICAL finding: the first cut was written from ScanAnalysis's
+  stale CLAUDE.md prose — `status`/`heartbeat` float — which the writer
+  never produces; against production data every task would have read
+  null).  Now: `state` (queued/claimed/done/failed/no_data), `error`
+  (surfaced — the most useful failed-task field), `claimed_by`,
+  `last_heartbeat` as ISO-8601 parsed to an age (UTC-naive tolerated,
+  per task_queue's own `_parse_ts`).  The stale ScanAnalysis doc is
+  fixed in the same wave with a read-the-writer warning.
+- Field coercions sit inside the per-file guard and `display_files`
+  entries are type-checked — one odd YAML on the writable share
+  degrades that entry to `unreadable`, never the whole tool.
+- **Figure candidates are bounded to the scan's own analysis folder**
+  (resolve + `is_relative_to`): a `display_files` entry pointing
+  anywhere else — outside the share, at another scan's outputs, or into
+  the raw `scans/` tree — is dropped with a warning, closing the
+  confused-deputy path where share-writers could make the MCP serve
+  other host-readable files.  (The first review pass bounded to the
+  share root; the codex pass tightened it to the scan's analysis folder,
+  which is where the writer puts every legitimate entry.)
+- A 64 MP decode cap refuses giant share-resident images before the
+  full decode (Pillow's own bomb ceiling is ~178 MP ≈ 700 MB RAM on a
+  long-lived server).
+
 ## [0.3.0] - 2026-08-22
 
 ### Changed

@@ -11,8 +11,9 @@ Domain roadmap (add as they earn their keep, never speculatively):
 `scans/` (built: v0 read + v1 control), then candidates in rough value
 order — `health/` (gateway/Tiled/DB probes, read-only), `db/`
 (device-variable metadata lookups), `logs/` (the /triage analysis as a
-tool), `analysis/` (over archived Tiled runs — pure-numpy analysis is
-cross-platform; capabilities needing **Windows-only acquisition SDKs**
+tool), `analysis/` (FIRST SLICE BUILT — the #675 figure/results verbs
+over the ScanAnalysis output tree; deeper analysis-over-Tiled later;
+pure-numpy analysis is cross-platform; capabilities needing **Windows-only acquisition SDKs**
 do NOT force this server onto Windows — they become a small *satellite
 MCP server* on a Windows box (the PVA-gateway camera-server precedent),
 registered as a second `profile.yml` entry with the same envelope
@@ -69,6 +70,17 @@ geecs_mcp/
     control_tools.py # the v1 verbs: submit (cap + etiquette + the
                   #   acknowledge-warnings loop), stop (ownership),
                   #   clear_queue, scan_progress
+  analysis/       # the analysis domain (#675)
+    read_tools.py # get_scan_analysis (task statuses from
+                  #   analysis_status/ + the output tree) and
+                  #   get_scan_figure (a display_files/py-image figure,
+                  #   downscaled, returned as MCP image content).
+                  #   STRICTLY read-only over the data share: pure
+                  #   ScanPaths static builders ONLY — the instance
+                  #   get_analysis_folder() silently mkdirs and must
+                  #   never be used here; pinned by a nothing-created
+                  #   test.  Needs [Paths] geecs_data + the share
+                  #   mounted on the serving host (degrades honestly)
 ```
 
 ## Conventions
