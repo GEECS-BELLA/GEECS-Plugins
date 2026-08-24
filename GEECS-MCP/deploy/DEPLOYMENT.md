@@ -18,9 +18,15 @@ mcp_servers:
     transport: http
     permissions:
       allow: [scan_status, scan_history, get_scan_result,
-              list_scan_configs, validate_scan_request, scan_progress]
-      ask:   [submit_scan, stop_scan, clear_queue]
+              list_scan_configs, validate_scan_request, scan_progress,
+              describe_action]
+      ask:   [submit_scan, stop_scan, clear_queue,
+              run_action, move_scan_variable, pause_scan, resume_scan]
 ```
+
+(The lists mirror `geecs_mcp/tool_names.py` — `READ_TOOLS` under
+`allow`, `QUEUE_TOOLS` + `STOP_TOOLS` under `ask`; update both together
+when a verb lands.)
 
 **Hook/kill-switch semantics (VERIFIED against osprey, 2026-08-22)**:
 a `hooks:` key on a profile-level custom-server block is **silently
