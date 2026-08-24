@@ -1,12 +1,15 @@
 """Configs-repo listings for the console's combos and lists.
 
-Names come from scanning the configs-repo folders (the same roots
-``geecs_bluesky.scanner_configs`` resolves); validation happens on demand
-through ``ConfigsRepoResolver`` — listing is cheap and never parses YAML,
-resolving a specific name does.  Offline-safety is first-class: a missing
-configs root (or ``geecs-bluesky`` unimportable) degrades to empty listings
-plus a status message, never an exception out of this module's listing
-surface.
+Names come from ``ConfigsRepoResolver``'s listing surface (the resolver's
+``list_save_sets``/``list_trigger_profiles``/``list_optimizer_configs`` —
+the one implementation every queue client shares since #666); validation
+happens on demand through the same resolver — listing is cheap and never
+parses YAML, resolving a specific name does.  Offline-safety is
+first-class: a missing configs root (or ``geecs-bluesky`` unimportable)
+degrades to empty listings plus a status message, never an exception out
+of this module's listing surface.  Folder names come from the resolver's
+class constants (``ConfigsRepoResolver.OPTIMIZER_FOLDER`` etc.) — this
+module keeps no folder-name constants of its own.
 """
 
 from __future__ import annotations
@@ -16,14 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from geecs_console.services.config_store import yaml_stems
-
 logger = logging.getLogger(__name__)
-
-SAVE_SET_FOLDER = "save_devices"
-TRIGGER_FOLDER = "shot_control_configurations"
-#: Optimizer configs keep the legacy GEECS-Scanner-GUI folder name.
-OPTIMIZATION_FOLDER = "optimizer_configs"
 
 
 class ConsoleConfigsError(RuntimeError):
@@ -62,9 +58,20 @@ def _configs_base() -> Path | None:
         return None
 
 
-# The listing helper lives with the config-store base; the private name
-# stays bound here for this module's listing surface.
-_yaml_stems = yaml_stems
+def _listing_resolver(experiment: str, experiments_root: Path) -> Any:
+    """Build a ``ConfigsRepoResolver`` over *experiments_root*, or ``None``.
+
+    The explicit root keeps the listing coherent with the base this module
+    already resolved (and reports as ``configs_root``) — the resolver must
+    scan the same tree, monkeypatched ``_configs_base`` included.
+    """
+    try:
+        from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+        return ConfigsRepoResolver(experiment, experiments_root=experiments_root)
+    except Exception as exc:
+        logger.info("configs resolver unavailable: %s", exc)
+        return None
 
 
 class ConsoleConfigs:
@@ -133,12 +140,19 @@ class ConsoleConfigs:
                 configs_root=base,
                 message=f"No configs folder for experiment {self._experiment!r}.",
             )
+        resolver = _listing_resolver(self._experiment, base)
+        if resolver is None:
+            return ConfigListing(
+                experiments=experiments,
+                configs_root=base,
+                message="Configs resolver unavailable (geecs-bluesky import failed).",
+            )
         return ConfigListing(
             experiments=experiments,
-            save_sets=_yaml_stems(root / SAVE_SET_FOLDER),
-            trigger_profiles=_yaml_stems(root / TRIGGER_FOLDER),
+            save_sets=resolver.list_save_sets(),
+            trigger_profiles=resolver.list_trigger_profiles(),
             scan_variables=self._scan_variable_names(),
-            optimization_configs=_yaml_stems(root / OPTIMIZATION_FOLDER),
+            optimization_configs=resolver.list_optimizer_configs(),
             configs_root=base,
         )
 
@@ -263,7 +277,9 @@ class ConsoleConfigs:
             )
         if not self._experiment:
             raise ConsoleConfigsError("No experiment selected.")
-        folder = base / self._experiment / OPTIMIZATION_FOLDER
+        from geecs_bluesky.config_resolver import ConfigsRepoResolver
+
+        folder = base / self._experiment / ConfigsRepoResolver.OPTIMIZER_FOLDER
         path = folder / f"{name}.yaml"
         if not path.exists():
             twin = folder / f"{name}.yml"

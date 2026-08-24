@@ -32,11 +32,14 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+# A light import chain (yaml + pydantic models) — safe at module level;
+# the folder name has one owner, the resolver's class constant.
+from geecs_bluesky.config_resolver import ConfigsRepoResolver
 from geecs_console.services.config_store import NamedConfigStore
 
 # The base resolves the configs root through this module's namespace, so
 # tests can monkeypatch ``save_set_store._configs_base``.
-from geecs_console.services.configs import SAVE_SET_FOLDER, _configs_base  # noqa: F401
+from geecs_console.services.configs import _configs_base  # noqa: F401
 from geecs_schemas import SaveSet
 
 logger = logging.getLogger(__name__)
@@ -49,10 +52,11 @@ class SaveSetStoreError(RuntimeError):
 class SaveSetStore(NamedConfigStore):
     """Load/save named save sets for one experiment."""
 
-    FOLDER = SAVE_SET_FOLDER
+    FOLDER = ConfigsRepoResolver.SAVE_SET_FOLDER
     NOUN = "Save set"
     LABEL = "Save set"
     ERROR = SaveSetStoreError
+    RESOLVER_LISTING = "list_save_sets"
 
     def _read_document(self, name: str, path: Path) -> dict:
         """Read one YAML mapping, with status-bar-ready errors.

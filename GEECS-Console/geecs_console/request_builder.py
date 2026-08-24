@@ -150,26 +150,6 @@ class ConsoleFormState(BaseModel):
     max_iterations: Optional[int] = Field(None, ge=0)
 
 
-def _position_count(positions: Positions) -> int:
-    """Count the positions without materializing them (guard-safe).
-
-    Parameters
-    ----------
-    positions : PositionRange or PositionList
-        The schema positions object.
-
-    Returns
-    -------
-    int
-        How many positions the axis visits (matches
-        ``PositionRange.to_values``'s reference derivation).
-    """
-    if isinstance(positions, PositionList):
-        return len(positions.values)
-    span = positions.end - positions.start
-    return int(abs(span) / abs(positions.step) + 1e-9) + 1
-
-
 def estimate_total_shots(form: ConsoleFormState) -> int:
     """Compute the total shot count the form implies (the live R3 label).
 
@@ -182,10 +162,14 @@ def estimate_total_shots(form: ConsoleFormState) -> int:
     -------
     int
         ``shots_per_step`` times the product of the axis position counts
-        (1 for noscan/background).  Optimization mode multiplies by
-        ``max_iterations`` when set — the engine's announced upper bound —
-        and falls back to one iteration's worth when unset ("auto": the
-        window renders that case as such rather than as a count).
+        (1 for noscan/background).  Axis counts come from the schema's
+        ``Positions.n_positions()`` — the same never-materializing
+        derivation behind ``ScanRequest.planned_shots()``, so the live
+        label and the submitted request can never disagree.  Optimization
+        mode multiplies by ``max_iterations`` when set — the engine's
+        announced upper bound — and falls back to one iteration's worth
+        when unset ("auto": the window renders that case as such rather
+        than as a count).
 
     Raises
     ------
@@ -198,7 +182,7 @@ def estimate_total_shots(form: ConsoleFormState) -> int:
         return form.shots_per_step
     total = form.shots_per_step
     for axis in form.axes:
-        total *= _position_count(axis.to_positions())
+        total *= axis.to_positions().n_positions()
     return total
 
 

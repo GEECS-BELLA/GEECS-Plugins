@@ -4,6 +4,32 @@ All notable changes to GEECS-Console are documented here.  Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is
 semantic.
 
+## [0.24.1] - 2026-08-24
+
+### Changed
+
+- **Config listings consume the shared resolver** (issue #679, the
+  deferred half of #666): `ConsoleConfigs.listing()` and
+  `NamedConfigStore.list_names()` (presets / save sets / trigger
+  profiles, via the new `RESOLVER_LISTING` class attribute) delegate to
+  `ConfigsRepoResolver.list_save_sets()/list_trigger_profiles()/
+  list_presets()/list_optimizer_configs()` — the one folder-scan
+  implementation every queue client shares.  The console's duplicated
+  folder constants (`SAVE_SET_FOLDER`, `TRIGGER_FOLDER`,
+  `OPTIMIZATION_FOLDER`) and the local `yaml_stems` helper are deleted;
+  folder names come from the resolver's class constants
+  (`ConfigsRepoResolver.OPTIMIZER_FOLDER` — no third name).  Listing
+  behavior is identical (sorted stems, both suffixes, missing → empty),
+  and an I/O failure mid-scan now reads as an empty listing instead of
+  a raise (the resolver's never-raise contract — the console's listing
+  docstring always promised this).
+- **The R3 shot-count label uses the schema's derivation** (issue #679,
+  the #671 follow-up): `request_builder._position_count` is deleted;
+  `estimate_total_shots` counts axis positions via the schema's
+  `Positions.n_positions()` — the same never-materializing arithmetic
+  behind `ScanRequest.planned_shots()`, retiring the third parallel
+  derivation.
+
 ## [0.24.0] - 2026-08-21
 
 ### Changed

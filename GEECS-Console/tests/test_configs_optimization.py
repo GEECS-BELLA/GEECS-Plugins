@@ -3,12 +3,12 @@
 import pytest
 
 from geecs_console.services import configs as configs_module
-from geecs_console.services.configs import (
-    OPTIMIZATION_FOLDER,
-    ConsoleConfigs,
-    ConsoleConfigsError,
-)
+from geecs_console.services.configs import ConsoleConfigs, ConsoleConfigsError
 from geecs_schemas import OptimizationSpec
+
+# The on-disk contract (the resolver's OPTIMIZER_FOLDER) — a literal so the
+# test pins the actual folder name, not whatever the constant drifts to.
+OPTIMIZATION_FOLDER = "optimizer_configs"
 
 NEW_SCHEMA_YAML = """\
 variables:
